@@ -3,7 +3,7 @@
     <div class="container mx-auto px-4 py-3 flex items-center justify-between">
       <!-- 左侧 Logo -->
       <NuxtLink to="/" class="text-xl font-bold text-gray-900 dark:text-white">
-        Logo
+        Lo 研社
       </NuxtLink>
 
       <!-- 中间导航 -->
@@ -31,8 +31,13 @@
 </template>
 
 <script setup lang="ts">
-import ColorModeButton from './ColorModeButton.vue'
+import ColorModeButton from "./ColorModeButton.vue";
 const navItems = [
-  { label: '首页', to: '/' },
-]
+	{ label: "首页", to: "/" },
+	{ label: "图鉴", to: "/library" },
+	{ label: "店铺", to: "/shop" },
+	{ label: "合集", to: "/compilations" },
+	{ label: "社区", to: "/community" },
+	{ label: "百科", to: "/lolitaWiki" },
+];
 </script>
