@@ -1,90 +1,121 @@
 <script setup lang="ts">
+
 interface Shop {
-	shop_id: number;
-	shop_name: string;
-	shop_logo: string;
-	shop_country: number;
-	goods_count?: number;
-	likes?: number;
+  shop_id: number;
+  shop_name: string;
+  shop_logo: string;
+  shop_country: number;
+  goods_count?: number;
+  likes?: number;
 }
 
 interface ApiResponse {
-	data: Shop[];
-	count: number;
+  data: Shop[];
+  count: number;
 }
 
 // 分页参数
-const currentPage = ref(1);
-const pageSize = 20;
-const total = ref(0);
+const currentPage = ref(1)
+const pageSize = 20
+const total = ref(0)
+// 使用`use$Post`请求函数
+const fetchShopList = async () => {
+  try {
+    const response = await use$Post('/getShopListFilter.php', {
+      body: {
+        search: [],
+        current: currentPage.value,
+        size: pageSize
+      }
+    })
+    const data = JSON.parse(response as string) as {
+      data: Shop[];
+      count: number;
+    }
+    total.value = data.count || 0 // 设置总数
+    return data.data
+  } catch (error) {
+    console.error('数据获取错误:', error)
+    return []
+  }
+}
 
-// 使用 useAsyncData 进行服务端数据获取
-const {
-	data: shops,
-	pending,
-	error,
-	refresh,
-} = await useAsyncData(
-	"shops",
-	() =>
-		$fetch("https://lolitalibrary.com/apiLolita/getShopListFilter.php", {
-			method: "POST",
-			body: {
-				search: [],
-				current: currentPage.value,
-				size: pageSize,
-			},
-			onResponseError: (error) => {
-				console.error("API响应错误:", error);
-			},
-			onRequestError: (error) => {
-				console.error("请求错误:", error);
-			},
-		}),
-	{
-		transform: (response) => {
-			const data = JSON.parse(response as string) as {
-				data: Shop[];
-				count: number;
-			};
-			total.value = data.count || 0; // 设置总数
-			return data.data;
-		},
-		watch: [currentPage], // 监听页码变化自动重新获取数据
-	},
-);
+// 调用fetchShopList请求函数
+const { data: shops, pending, error, refresh } = await useAsyncData(
+  'shops',
+  fetchShopList,
+  {
+    watch: [currentPage] // 监听页码变化自动重新获取数据
+  }
+)
 
-// 打印错误信息
-watchEffect(() => {
-	if (error.value) {
-		console.error("数据获取错误:", error.value);
-	}
-});
+//region 使用 useAsyncData 进行服务端数据获取
+// const {
+//   data: shops,
+//   pending,
+//   error,
+//   refresh
+// } = await useAsyncData(
+//   'shops',
+//   () =>
+//     $fetch('/api/getShopListFilter.php', {
+//       method: 'POST',
+//       body: {
+//         search: [],
+//         current: currentPage.value,
+//         size: pageSize
+//       },
+//       onResponseError: (error) => {
+//         console.error('API响应错误:', error)
+//       },
+//       onRequestError: (error) => {
+//         console.error('请求错误:', error)
+//       }
+//     }),
+//   {
+//     transform: (response) => {
+//       const data = JSON.parse(response as string) as {
+//         data: Shop[];
+//         count: number;
+//       }
+//       total.value = data.count || 0 // 设置总数
+//       return data.data
+//     },
+//     watch: [currentPage] // 监听页码变化自动重新获取数据
+//   }
+// )
 
+// // 打印错误信息
+// watchEffect(() => {
+//   if (error.value) {
+//     console.error('数据获取错误:', error.value)
+//   }
+// })
+// endregion
 // 监听总数变化
 watchEffect(() => {
-	console.log("当前总数:", total.value);
-});
+  console.log('当前总数:', total.value)
+})
 
 // SEO 配置
 useHead({
-	title: "Lolita店铺",
-	meta: [
-		{
-			name: "keywords",
-			content: "Lo研社,洛丽塔店铺,Lolita,Lolita店铺,Lolita店铺汇总",
-		},
-		{
-			name: "description",
-			content: "洛丽塔店铺汇总",
-		},
-	],
-});
+  title: 'Lolita店铺',
+  meta: [
+    {
+      name: 'keywords',
+      content: 'Lo研社,洛丽塔店铺,Lolita,Lolita店铺,Lolita店铺汇总'
+    },
+    {
+      name: 'description',
+      content: '洛丽塔店铺汇总'
+    }
+  ]
+})
 
 // 页码改变处理函数
 const handlePageChange = (page: number) => {
-	currentPage.value = page;
-};
+  currentPage.value = page
+}
 </script>
 <template>
   <div class="container mx-auto p-4">
@@ -142,7 +173,8 @@ const handlePageChange = (page: number) => {
         </template>
 
         <div class="">
-          <h3 class="text-base font-medium text-gray-900 dark:text-gray-100 line-clamp-1 group-hover:text-primary-500 dark:group-hover:text-primary-400 transition-colors">
+          <h3
+            class="text-base font-medium text-gray-900 dark:text-gray-100 line-clamp-1 group-hover:text-primary-500 dark:group-hover:text-primary-400 transition-colors">
             {{ shop.shop_name }}
           </h3>
           <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">

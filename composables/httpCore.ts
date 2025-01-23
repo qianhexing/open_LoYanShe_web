@@ -49,11 +49,12 @@ function createDollarFetchRequest(method: HttpMethod) {
     const baseURL = useRuntimeConfig().public.baseUrl as string
     const fullPath = `${baseURL}${url}`
 
-    const requestUrl = new URL(fullPath).toString()
+    // 这是不使用代理时 构建完整的请求 URL
+    // const requestUrl = new URL(fullPath).toString()
 
     try {
       handleRequest(options)
-      const response = await $fetch(requestUrl, {
+      const response = await $fetch(fullPath, {
         method,
         body: data,
         ...options
