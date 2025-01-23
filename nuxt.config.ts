@@ -1,9 +1,17 @@
 // https://nuxt.com/docs/api/configuration/nuxt-config
 export default defineNuxtConfig({
+  nitro: {
+    routeRules: {
+      '/api/**': {
+        proxy: 'https://lolitalibrary.com/apiLolita/**'
+      }
+    },
+    compressPublicAssets: true // 启动压缩
+  },
   runtimeConfig: {
     public: {
       //这是后端API的baseUrl
-      baseUrl: 'https://lolitalibrary.com/apiLolita'
+      baseUrl: '/api'
     }
   },
   compatibilityDate: '2024-11-01',
