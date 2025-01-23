@@ -3,7 +3,7 @@ export default defineNuxtConfig({
   runtimeConfig: {
     public: {
       //这是后端API的baseUrl
-      baseUrl: 'https://api.xxxxxx.com/v1'
+      baseUrl: 'https://lolitalibrary.com/apiLolita'
     }
   },
   compatibilityDate: '2024-11-01',
@@ -31,5 +31,8 @@ export default defineNuxtConfig({
         }
       }
     }
-  }
+  },
+  devServer: {
+    port: 3000
+  },
 })
