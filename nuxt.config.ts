@@ -1,120 +1,29 @@
-import { createResolver } from '@nuxt/kit'
-const { resolve } = createResolver(import.meta.url)
-
 // https://nuxt.com/docs/api/configuration/nuxt-config
 export default defineNuxtConfig({
-  // exp
-  experimental: {
-    localLayerAliases: true,
-  },
-
-  // app config
-  app: {
-    // global transition
-    pageTransition: { name: 'page', mode: 'out-in' },
-    layoutTransition: { name: 'layout', mode: 'out-in' },
-  },
-
-  // typescripts
-  // todo: feat/strict-type-check
-  // typescript: {
-  //   strict: true,
-  //   typeCheck: true,
-  // },
-
-  // modules
+  compatibilityDate: '2024-11-01',
+  devtools: { enabled: true },
   modules: [
-    // chore
-    '@nuxtjs/eslint-module',
-    // styling & ui
+    '@nuxtjs/seo',
+    '@nuxt/ui',
     '@nuxtjs/tailwindcss',
-    'nuxt-headlessui',
-    'nuxt-icon',
-    '@nuxtjs/color-mode',
-    // management
-    '@pinia/nuxt',
-    '@vueuse/nuxt',
-    // contents,
-    '@nuxt/content',
-
-    // todo: feat/localization
-    // '@nuxtjs/i18n'
+    '@vueuse/nuxt'
   ],
-
-  css: [
-    resolve('./assets/scss/_variables.scss'),
-    resolve('./assets/scss/app.scss'),
-  ],
-
-  components: [
-    {
-      prefix: 'Layout',
-      path: resolve('./components/layouts'),
-      global: true,
-    },
-    {
-      prefix: 'Awesome',
-      path: resolve('./components/awesome'),
-      global: true,
-    },
-  ],
-
-  imports: {
-    dirs: [resolve('./stores'), '~/stores'],
-  },
-
-  // module::pinia
-  pinia: {
-    storesDirs: ['~/stores/**', '#/stores/**', '@/stores/**'],
-  },
-
-  // module::headlessui
-  headlessui: {
-    prefix: 'Headless',
-  },
-
-  // module::color-mode
   colorMode: {
+    preference: 'system',
+    fallback: 'light',
     classSuffix: '',
   },
-
-  // module::content
-  content: {
-    markdown: {
-      mdc: true,
-    },
-    highlight: {
-      theme: 'github-dark',
-    },
-  },
-
-  // todo: feat/localization
-  // module::i18n
-  // i18n: {
-  //   strategy: 'no_prefix',
-  //   defaultLocale: 'en',
-  //   langDir: 'locales',
-  //   vueI18n: {
-  //     fallbackLocale: 'en',
-  //   },
-  //   detectBrowserLanguage: {
-  //     useCookie: true,
-  //     fallbackLocale: 'en',
-  //     redirectOn: 'root',
-  //   },
-  //   locales: [
-  //     {
-  //       code: 'en', // English
-  //       iso: 'en-US',
-  //       name: 'English',
-  //       file: 'en.yml',
-  //     },
-  //     {
-  //       code: 'id', // Indonesia
-  //       iso: 'id-ID',
-  //       name: 'Indonesia',
-  //       file: 'id.yml',
-  //     }
-  //   ]
-  // },
+  tailwindcss: {
+    config: {
+      theme: {
+        extend: {
+          colors: {
+            primary: '#3B82F6',
+            secondary: '#10B981',
+            // 您可以根据需要添加更多自定义颜色
+          }
+        }
+      }
+    }
+  }
 })

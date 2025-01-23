@@ -1,47 +1,75 @@
-<img src="doc/group_qrcode.jpg" alt="Alt Text" width="300" height="400">
+# Nuxt Minimal Starter
 
-# 1.访问lo研社git仓库
-`https://github.com/qianhexing/open_LoYanShe`
+Look at the [Nuxt documentation](https://nuxt.com/docs/getting-started/introduction) to learn more.
 
----
+## Setup
 
-# 2.fork仓库
-![](doc/image_1.png)
+Make sure to install dependencies:
 
-![](doc/image_2.png)
----
+```bash
+# npm
+npm install
 
-# 3.将代码拉取到本地
-![](doc/image_3.png)
+# pnpm
+pnpm install
 
----
+# yarn
+yarn install
 
-# 4.新建一个分支
-- `jetbrains`系列
+# bun
+bun install
+```
 
-![](doc/image_4.png)
+## Development Server
 
-- `vscode`
+Start the development server on `http://localhost:3000`:
 
-![](doc/image_5.png)
+```bash
+# npm
+npm run dev
 
-- `命令行`
+# pnpm
+pnpm dev
 
-`git branch <branch_name>`
+# yarn
+yarn dev
 
-`git checkout <branch_name>`
+# bun
+bun run dev
+```
 
----
+## Production
 
-# 5.提交代码
-*开发者应该都会的吧，就不多赘述啦~*
+Build the application for production:
 
----
+```bash
+# npm
+npm run build
 
-# 6.创建pr(pull request)
-![](doc/image_6.png)
+# pnpm
+pnpm build
 
----
+# yarn
+yarn build
 
-# 7.最后一步
-耐心等待就行啦~
+# bun
+bun run build
+```
+
+Locally preview production build:
+
+```bash
+# npm
+npm run preview
+
+# pnpm
+pnpm preview
+
+# yarn
+yarn preview
+
+# bun
+bun run preview
+```
+
+Check out the [deployment documentation](https://nuxt.com/docs/getting-started/deployment) for more information.
