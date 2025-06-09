@@ -1,33 +1,22 @@
 <script setup lang="ts">
-interface Shop {
-	shop_id: number
-	shop_name: string
-	shop_logo: string
-	shop_country: number
-	goods_count?: number
-	likes?: number
-}
-
+import type { Shop } from '@/types/api';
+import { getShopList } from '@/api/shop';
 // 分页参数
-const currentPage = ref(1)
+const page = ref(1)
 const pageSize = 20
 const total = ref(0)
+const list = ref<Shop[]>([])
 // 使用`use$Post`请求函数
 const fetchShopList = async () => {
 	try {
-		const response = await use$Post('/getShopListFilter.php', {
-			body: {
-				search: [],
-				current: currentPage.value,
-				size: pageSize
-			}
+		const response = await getShopList({
+      page: page.value,
+      pageSize: pageSize
 		})
-		const data = JSON.parse(response as string) as {
-			data: Shop[]
-			count: number
-		}
-		total.value = data.count || 0 // 设置总数
-		return data.data
+    const { rows, count } = response
+		total.value = count || 0 // 设置总数
+    list.value = rows
+    console.log('获取到的数据', list.value, rows)
 	} catch (error) {
 		console.error('数据获取错误:', error)
 		return []
@@ -35,58 +24,11 @@ const fetchShopList = async () => {
 }
 
 // 调用fetchShopList请求函数
-const {
-	data: shops,
-	error
-	// status
-} = await useAsyncData('shops', fetchShopList, {
-	watch: [currentPage] // 监听页码变化自动重新获取数据
+await useAsyncData('shops', fetchShopList, {
+	watch: [page] // 监听页码变化自动重新获取数据
 })
 const isLoading = computed(() => false)
 
-//region 使用 useAsyncData 进行服务端数据获取
-// const {
-//   data: shops,
-//   pending,
-//   error,
-//   refresh
-// } = await useAsyncData(
-//   'shops',
-//   () =>
-//     $fetch('/api/getShopListFilter.php', {
-//       method: 'POST',
-//       body: {
-//         search: [],
-//         current: currentPage.value,
-//         size: pageSize
-//       },
-//       onResponseError: (error) => {
-//         console.error('API响应错误:', error)
-//       },
-//       onRequestError: (error) => {
-//         console.error('请求错误:', error)
-//       }
-//     }),
-//   {
-//     transform: (response) => {
-//       const data = JSON.parse(response as string) as {
-//         data: Shop[];
-//         count: number;
-//       }
-//       total.value = data.count || 0 // 设置总数
-//       return data.data
-//     },
-//     watch: [currentPage] // 监听页码变化自动重新获取数据
-//   }
-// )
-
-// // 打印错误信息
-// watchEffect(() => {
-//   if (error.value) {
-//     console.error('数据获取错误:', error.value)
-//   }
-// })
-// endregion
 // 监听总数变化
 watchEffect(() => {
 	console.log('当前总数:', total.value)
@@ -106,10 +48,21 @@ useHead({
 		}
 	]
 })
-
 // 页码改变处理函数
-const handlePageChange = (page: number) => {
-	currentPage.value = page
+const handlePageChange = (current: number) => {
+	page.value = current
+}
+const showToast = () => {
+  const user = useUserStore()
+  console.log(user.token, '获取到的token')
+  const toast = useToast()
+
+  toast.add({
+    title: '成功',
+    description: '操作已成功完成',
+    icon: 'i-heroicons-check-circle',
+    color: 'green'
+  })
 }
 </script>
 <template>
@@ -119,20 +72,15 @@ const handlePageChange = (page: number) => {
       <USkeleton class="h-32 w-full" />
     </div>
 
-    <!-- 错误状态 -->
-    <div v-else-if="error" class="text-center text-red-500 py-8">
-      获取数据失败，请稍后重试
-    </div>
-
     <!-- 空状态 -->
-    <div v-else-if="!shops?.length" class="text-center text-gray-500 py-8">
-      暂无店铺数据
+    <div v-else-if="!list?.length" class="text-center text-gray-500 py-8">
+      暂无数据
     </div>
 
     <!-- 店铺列表 -->
     <div v-else class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
       <UCard
-        v-for="shop in shops"
+        v-for="shop in list"
         :key="shop.shop_id"
         class="group hover:-translate-y-1 transition-all duration-300"
         :ui="{
@@ -173,20 +121,21 @@ const handlePageChange = (page: number) => {
             {{ shop.shop_name }}
           </h3>
           <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-            已收录商品：{{ shop.goods_count || 0 }}
+            已收录：{{ shop.count_library || 0 }}
           </p>
         </div>
 
         <template #footer>
           <div class="flex items-center justify-between">
-            <UButton
+            <!-- <UButton
               size="xs"
               variant="ghost"
               icon="i-heroicons-heart"
               :ui="{ padding: { xs: 'px-1' } }"
             >
-              {{ shop.likes || 0 }}
-            </UButton>
+              {{ shop.count_library || 0 }}
+            </UButton> -->
+            <div></div>
             <UButton
               size="xs"
               color="primary"
@@ -194,7 +143,7 @@ const handlePageChange = (page: number) => {
               icon="i-heroicons-arrow-right"
               :ui="{ padding: { xs: 'px-2' } }"
             >
-              进店逛逛
+              查看详情
             </UButton>
           </div>
         </template>
@@ -204,7 +153,7 @@ const handlePageChange = (page: number) => {
     <!-- 分页组件 -->
     <div v-if="total > 0" class="mt-8 flex justify-center">
       <UPagination
-        v-model="currentPage"
+        v-model="page"
         :total="total"
         :page-size="pageSize"
         :ui="{
