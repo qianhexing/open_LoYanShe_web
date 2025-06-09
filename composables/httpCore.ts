@@ -25,11 +25,22 @@ function handleRequest(options: RequestOptions) {
 }
 
 // 响应拦截器
-function handleResponse(response: any) {
-  // 这里可以根据业务需求处理响应
+async function handleResponse<T>(response: any): Promise<T> {
+  if (response.code !== 200) {
+    const toast = useToast()
+    toast.add({
+      title: '错误',
+      description: response.message || '操作失败，请重试',
+      icon: 'i-heroicons-exclamation-circle',
+      color: 'red'
+    })
+    throw new Error(response.message || '请求错误')
+  }
+  
   if (response.error) {
     throw new Error(response.error.message || '响应错误')
   }
+  
   return response
 }
 
@@ -40,11 +51,11 @@ function handleResponse(response: any) {
  * @returns {Function} - 封装好的请求函数，接收 URL 和请求数据作为参数。
  */
 function createDollarFetchRequest(method: HttpMethod) {
-  return async function(
+  return async <T = any>(
     url: string,
-    data?: any,
+    data?: Record<string, any>,
     options: RequestOptions = {}
-  ) {
+  ): Promise<T> => {
 
     const baseURL = useRuntimeConfig().public.baseUrl as string
     const fullPath = `${baseURL}${url}`
@@ -59,7 +70,7 @@ function createDollarFetchRequest(method: HttpMethod) {
         body: data,
         ...options
       })
-      return handleResponse(response)
+      return handleResponse<T>(response)
     } catch (error) {
       console.error('请求错误:', error)
       throw error

@@ -2,8 +2,8 @@
 export default defineNuxtConfig({
 	nitro: {
 		routeRules: {
-			'/apillt/**': {
-				proxy: 'https://lolitalibrary.com/apiLolita/**'
+			'/node/**': {
+				proxy: 'https://lolitalibrary.com/node/**'
 			}
 		},
 		compressPublicAssets: true // 启动压缩
@@ -11,12 +11,16 @@ export default defineNuxtConfig({
 	runtimeConfig: {
 		public: {
 			//这是后端API的baseUrl
-			baseUrl: '/apillt'
+			baseUrl: '/node'
 		}
 	},
 	compatibilityDate: '2024-11-01',
 	devtools: { enabled: true },
-	modules: ['@nuxtjs/seo', '@nuxt/ui', '@nuxtjs/tailwindcss', '@vueuse/nuxt'],
+	modules: ['@nuxtjs/seo', '@nuxt/ui', '@nuxtjs/tailwindcss', '@vueuse/nuxt', '@pinia/nuxt'],
+	imports: {
+    autoImport: true,
+		dirs: ['stores']
+  },
 	colorMode: {
 		preference: 'system',
 		fallback: 'light',
