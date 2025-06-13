@@ -11,7 +11,7 @@
 <script setup lang="ts">
 const colorMode = useColorMode()
 
-const toggleColorMode = () => {
-  colorMode.preference = colorMode.value === 'dark' ? 'light' : 'dark'
-}
+// const toggleColorMode = () => {
+//   colorMode.preference = colorMode.value === 'dark' ? 'light' : 'dark'
+// }
 </script> 
