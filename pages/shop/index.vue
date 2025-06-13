@@ -1,32 +1,46 @@
 <script setup lang="ts">
-import type { Shop } from '@/types/api';
+import type { Shop, PaginationResponse } from '@/types/api';
 import { getShopList } from '@/api/shop';
+import { _ringColor } from '#tailwind-config/theme';
+const router = useRouter()
+const route = useRoute()
 // 分页参数
-const page = ref(1)
 const pageSize = 20
-const total = ref(0)
-const list = ref<Shop[]>([])
+// const total = ref(0)
+// const list = ref<Shop[]>([])
+const page = ref(Number(route.query.page) || 1)
+const keyword = ref('')
+const value = ref('')
 // 使用`use$Post`请求函数
-const fetchShopList = async () => {
-	try {
-		const response = await getShopList({
+const fetchShopList = async (): Promise<PaginationResponse<Shop>> => {
+  try {
+    const response = await getShopList({
       page: page.value,
-      pageSize: pageSize
-		})
-    const { rows, count } = response
-		total.value = count || 0 // 设置总数
-    list.value = rows
-    console.log('获取到的数据', list.value, rows)
-	} catch (error) {
-		console.error('数据获取错误:', error)
-		return []
-	}
+      pageSize: pageSize,
+      keyword: keyword.value
+    })
+    return response
+  } catch (error) {
+    if (process.client) {
+      console.error('获取店铺列表失败:', error)
+    }
+
+    // 返回一个空的结构，防止前端 .rows 报错
+    return {
+      rows: [],
+      count: 0
+    }
+  }
 }
 
-// 调用fetchShopList请求函数
-await useAsyncData('shops', fetchShopList, {
-	watch: [page] // 监听页码变化自动重新获取数据
+
+const { data } = await useAsyncData('shops', fetchShopList, {
+  watch: [page, keyword]
 })
+
+const list = computed(() => data.value?.rows ?? [])
+const total = computed(() => data.value?.count ?? 0)
+
 const isLoading = computed(() => false)
 
 // 监听总数变化
@@ -50,8 +64,16 @@ useHead({
 })
 // 页码改变处理函数
 const handlePageChange = (current: number) => {
-	page.value = current
+  page.value = current
+  router.push({
+    query: {
+      ...route.query,
+      page: current
+    },
+    force: true
+  })
 }
+
 const showToast = () => {
   const user = useUserStore()
   console.log(user.token, '获取到的token')
@@ -64,25 +86,60 @@ const showToast = () => {
     color: 'green'
   })
 }
+// 统一处理搜索逻辑
+const handleSearch = () => {
+  keyword.value = value.value.trim()
+  // 执行搜索操作（示例）
+  
+  if (keyword.value) {
+    page.value = 1
+  }
+}
 </script>
 <template>
   <div class="container mx-auto p-4">
+    <div class="grid grid-cols-2 md:grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4 pb-3">
+      <div class="w-full flex items-center">
+        <UInput
+          v-model="value"
+          placeholder="搜索店铺 多条件空格分割."
+          class="flex-1 focus:ring-0"
+           @keyup.enter="handleSearch"
+          :ui="{
+            base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
+            rounded: 'rounded-full',
+            padding: { xs: 'px-4 py-2' },
+            color: {
+              white: {
+                outline: 'bg-gray-50 dark:bg-gray-800 ring-1 ring-gray-300 dark:ring-gray-600 focus:ring-2 focus:ring-qhx-primary'
+              }
+            }
+          }"
+        />
+        <UButton
+          icon="i-heroicons-magnifying-glass"
+          variant="ghost"
+          color="gray"
+          @click="handleSearch"
+        />
+      </div>
+    </div>
     <!-- 加载状态 -->
     <div v-if="isLoading" class="flex justify-center items-center min-h-[200px]">
       <USkeleton class="h-32 w-full" />
     </div>
 
     <!-- 空状态 -->
-    <div v-else-if="!list?.length" class="text-center text-gray-500 py-8">
+    <!-- <div v-else-if="!list?.length" class="text-center text-gray-500 py-8">
       暂无数据
-    </div>
+    </div> -->
 
     <!-- 店铺列表 -->
     <div v-else class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
       <UCard
         v-for="shop in list"
         :key="shop.shop_id"
-        class="group hover:-translate-y-1 transition-all duration-300"
+        class="group hover:-translate-y-1 transition-all duration-300 cursor-pointer relative"
         :ui="{
           base: 'overflow-hidden',
           body: {
@@ -97,7 +154,7 @@ const showToast = () => {
         }"
       >
         <template #header>
-          <div class="relative aspect-[4/3] w-full bg-gray-100 dark:bg-gray-800">
+          <div class="relative aspect-[4/3] w-full bg-qhx-bg-card dark:bg-gray-800">
             <img
               :src="`https://lolitalibrary.com/ali/${shop.shop_logo}`"
               :alt="shop.shop_name"
@@ -114,10 +171,10 @@ const showToast = () => {
             </UBadge>
           </div>
         </template>
-
         <div class="">
+          <div v-if="shop.main_type && shop.main_type.includes('4')" class="badge-tip">山店</div>
           <h3
-            class="text-base font-medium text-gray-900 dark:text-gray-100 line-clamp-1 group-hover:text-primary-500 dark:group-hover:text-primary-400 transition-colors">
+            class="text-base font-medium text-gray-900 dark:text-gray-100 line-clamp-1 group-hover:text-qhx-primary transition-colors">
             {{ shop.shop_name }}
           </h3>
           <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
@@ -138,9 +195,8 @@ const showToast = () => {
             <div></div>
             <UButton
               size="xs"
-              color="primary"
+              class="bg-qhx-primary text-qhx-inverted hover:bg-qhx-primaryHover"
               variant="soft"
-              icon="i-heroicons-arrow-right"
               :ui="{ padding: { xs: 'px-2' } }"
             >
               查看详情
@@ -190,6 +246,17 @@ const showToast = () => {
 /* 适配暗色主题的过渡效果 */
 .group:hover .group-hover\:scale-110 {
   @apply transform scale-110 transition-transform duration-300;
+}
+.badge-tip{
+  position: absolute;
+    left: calc(50% - 49px);
+    top: calc(50% - 45px);
+    font-size: 40px;
+    z-index: 10;
+    width: 80px;
+    text-align: center;
+    transform: rotate(-45deg);
+    color: var(--error-color);
 }
 </style>
 

@@ -29,4 +29,5 @@ export interface Shop {
 	goods_count?: number
 	likes?: number
   count_library?: number
+  main_type?: string
 }

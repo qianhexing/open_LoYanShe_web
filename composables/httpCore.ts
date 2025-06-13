@@ -5,7 +5,7 @@
  */
 import { $fetch } from 'ofetch'
 import { useRuntimeConfig } from '#app'
-
+const baseURL = 'http://localhost:3002'
 interface RequestOptions {
   [key: string]: any;
 }
@@ -57,7 +57,7 @@ function createDollarFetchRequest(method: HttpMethod) {
     options: RequestOptions = {}
   ): Promise<T> => {
 
-    const baseURL = useRuntimeConfig().public.baseUrl as string
+    // const baseURL = useRuntimeConfig().public.baseUrl as string
     const fullPath = `${baseURL}${url}`
 
     // 这是不使用代理时 构建完整的请求 URL

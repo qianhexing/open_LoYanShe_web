@@ -1,3 +1,7 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+/* 在全局 CSS 文件中定义变量 */
+:root {
+  --primary-color: #3b82f6; /* 你的主色值 */
+}

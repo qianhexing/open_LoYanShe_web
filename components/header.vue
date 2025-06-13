@@ -21,7 +21,6 @@
 
       <!-- 右侧操作区 -->
       <div class="flex items-center gap-4">
-        <ColorModeButton />
         <UButton icon="i-heroicons-user-circle">
           登录
         </UButton>
@@ -31,7 +30,6 @@
 </template>
 
 <script setup lang="ts">
-import ColorModeButton from "./ColorModeButton.vue";
 const navItems = [
 	{ label: "首页", to: "/" },
 	{ label: "图鉴", to: "/library" },
