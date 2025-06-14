@@ -1,0 +1,34 @@
+html[data-theme="light"] {
+  /* 主色调（低饱和度粉色/紫色系） */
+  --primary-color: rgb(255, 158, 181);
+  --primary-hover-color: #FFB3C6;
+  --primary-active-color: #FF85A2;
+  --inverted-color: #ffffff;
+
+  /* 辅助色（柔和糖果色） */
+  --secondary-color: #A5D8FF;
+  --accent-color: #B5EAD7;
+  --tertiary-color: #FFDAC1;
+
+  /* 背景与卡片（奶白色/浅灰粉） */
+  --background-color: #FFF9FB;
+  --surface-color: #FFF0F5;
+  --card-color: #FFFFFF;
+
+  /* 文字（深色但柔和） */
+  --text-color: #5A3D4F;
+  --text-secondary-color: #9B8A97;
+  --text-inverted-color: #FFFFFF;
+  --text-seat-color: #FFFFFF;
+  --text-ban-color: #FFFFFF;
+
+  /* 状态色（柔和版本） */
+  --success-color: #B5EAD7;
+  --warning-color: #FFD700;
+  --error-color: #df2343;
+  --info-color: #A5D8FF;
+
+  /* 边框与分割线 */
+  --border-color: #FFD1DC;
+  --divider-color: #FFE5EE;
+}

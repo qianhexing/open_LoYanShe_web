@@ -1,0 +1,34 @@
+html[data-theme="dark"] {
+  /* 主色调（深色版本） */
+  --primary-color: #8B4B57;
+  --primary-hover-color: #6D3B44;
+  --primary-active-color: #4F2B31;
+  --inverted-color: #1A1A1A;
+
+  /* 辅助色（深色版本） */
+  --secondary-color: #2B4D6D;
+  --accent-color: #2B5D4D;
+  --tertiary-color: #6D4D2B;
+
+  /* 背景与卡片（深色版本） */
+  --background-color: #1A1A1A;
+  --surface-color: #2D2D2D;
+  --card-color: #333333;
+
+  /* 文字（浅色但柔和） */
+  --text-color: #E6D5DB;
+  --text-secondary-color: #A69DA3;
+  --text-inverted-color: #1A1A1A;
+  --text-seat-color: #1A1A1A;
+  --text-ban-color: #1A1A1A;
+
+  /* 状态色（深色版本） */
+  --success-color: #2B5D4D;
+  --warning-color: #6D5D2B;
+  --error-color: #6D2B2B;
+  --info-color: #2B4D6D;
+
+  /* 边框与分割线 */
+  --border-color: #4D3B3E;
+  --divider-color: #3D2D2F;
+}
