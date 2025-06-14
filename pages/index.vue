@@ -5,7 +5,10 @@
         <UButton>下载Lo研社APP</UButton>
       </a>
       <br>
-      BOOM！！！服务器爆炸啦,新版本正在重建，敬请期待哦。
+			<div class="text-qhx-primary">
+				BOOM！！！服务器爆炸啦,新版本正在重建，敬请期待哦。
+			</div>
+			<ThemeSwitcher />
     </h1>
   </div>
 </template>

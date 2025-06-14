@@ -85,6 +85,15 @@ const defaultThemes = {
       border: "#FFD1DC",       // 浅粉边框
       divider: "#FFE5EE"       // 极浅粉分割线
     }
+  },
+  dark:{
+    name: 'dark',
+    label: 'Dark',
+    colors: {
+      primary: "#8B4B57",
+      primaryHover: "#6D3B44",
+      primaryActive: "#4F2B31",
+    }
   }
 }
 
@@ -98,7 +107,8 @@ export const useThemeStore = defineStore('theme', {
   actions: {
     setTheme(themeName: string) {
       this.currentTheme = themeName
-      this.applyTheme()
+      document.documentElement.setAttribute('data-theme', themeName)
+      // this.applyTheme()
       this.saveToLocalStorage()
     },
     

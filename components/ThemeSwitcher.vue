@@ -82,7 +82,6 @@ button {
 
 button.active {
   background: var(--primary-color);
-  color: white;
 }
 
 .color-customizer {

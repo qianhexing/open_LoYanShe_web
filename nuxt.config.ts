@@ -11,7 +11,7 @@ export default defineNuxtConfig({
 		},
 		compressPublicAssets: true // 启动压缩
 	},
-	
+
 	runtimeConfig: {
 		public: {
 			//这是后端API的baseUrl
@@ -20,19 +20,27 @@ export default defineNuxtConfig({
 	},
 	compatibilityDate: '2024-11-01',
 	devtools: { enabled: true },
-	modules: ['@nuxtjs/seo', '@nuxt/ui', '@nuxtjs/tailwindcss', '@vueuse/nuxt', '@pinia/nuxt'],
+	modules: [
+		'@nuxtjs/seo',
+		'@nuxt/ui',
+		'@nuxtjs/tailwindcss',
+		'@vueuse/nuxt',
+		'@pinia/nuxt'
+	],
 	imports: {
-    autoImport: true,
+		autoImport: true,
 		dirs: ['stores']
-  },
+	},
 	colorMode: {
 		preference: 'system',
 		fallback: 'light',
 		classSuffix: ''
 	},
 	css: [
-    '~/assets/css/tailwind.css'   // 再加载Tailwind
-  ],
+		'~/assets/css/light.css',
+		'~/assets/css/dark.css',
+		'~/assets/css/tailwind.css' // 再加载Tailwind
+	],
 	tailwindcss: {
 		config: {
 			theme: {
@@ -51,23 +59,23 @@ export default defineNuxtConfig({
 						'qhx-inverted': 'var(--inverted-color)',
 						'qhx-secondary': 'var(--primaryHover-color)',
 						'qhx-accent': 'var(--accent-color)',
-						
+
 						// 背景和文字
 						'qhx-bg': 'var(--background-color)',
 						'qhx-bg-card': 'var(--card-color)',
 						'qhx-text': 'var(--text-color)',
 						'qhx-text-muted': 'var(--text-muted-color)',
-						
+
 						// 状态色
 						'qhx-success': 'var(--success-color)',
 						'qhx-warning': 'var(--warning-color)',
 						'qhx-danger': 'var(--danger-color)',
 						'qhx-info': 'var(--info-color)',
-						
+
 						// 灰度
 						'qhx-border': 'var(--border-color)',
 						'qhx-divider': 'var(--divider-color)'
-					},
+					}
 				}
 			}
 		}
