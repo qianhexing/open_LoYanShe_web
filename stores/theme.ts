@@ -44,7 +44,8 @@ interface Theme {
 interface ThemeState {
   currentTheme: string
   themes: Record<string, Theme>
-  isCustomizing: boolean
+  isCustomizing: boolean,
+  themeCss: ThemeColors
 }
 
 // 默认主题配置
@@ -91,6 +92,7 @@ const defaultThemes = {
 export const useThemeStore = defineStore('theme', {
   state: (): ThemeState => ({
     currentTheme: 'light',
+    themeCss: JSON.parse(JSON.stringify(defaultThemes)).light.colors,
     themes: JSON.parse(JSON.stringify(defaultThemes)), // 深拷贝默认主题
     isCustomizing: false
   }),
@@ -103,7 +105,6 @@ export const useThemeStore = defineStore('theme', {
     },
     
     updateCustomThemeColor(key: keyof ThemeColors, value: string) {
-      console.log(this.themes, '当前主题')
       if (Object.prototype.hasOwnProperty.call(this.themes.custom.colors, key)) {
         this.themes.custom.colors[key] = value
         if (this.currentTheme === 'custom') {
@@ -114,7 +115,7 @@ export const useThemeStore = defineStore('theme', {
     
     applyTheme() {
       const theme = this.themes[this.currentTheme]
-      console.log(this.themes, '当前主题', theme)
+      this.themeCss = theme.colors
       // biome-ignore lint: <理由>
       Object.entries(theme.colors).forEach(([key, value]) => {
         document.documentElement.style.setProperty(`--${key}-color`, value)
