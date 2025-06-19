@@ -1,5 +1,8 @@
 // https://nuxt.com/docs/api/configuration/nuxt-config
 export default defineNuxtConfig({
+	build: {
+    transpile: ['three']
+  },
 	nitro: {
 		routeRules: {
 			// '/node/**': {
@@ -57,7 +60,7 @@ export default defineNuxtConfig({
 						'qhx-bg-card': 'var(--card-color)',
 						'qhx-text': 'var(--text-color)',
 						'qhx-text-muted': 'var(--text-muted-color)',
-						
+						'qhx-textInverted': 'var(--textInverted-color)',
 						// 状态色
 						'qhx-success': 'var(--success-color)',
 						'qhx-warning': 'var(--warning-color)',

@@ -5,6 +5,9 @@
     <main class="container mx-auto px-4 pt-20">
       <slot />
     </main>
+    <main class="container">
+      <slot name="screen"/>
+    </main>
   </div>
 </template>
 
