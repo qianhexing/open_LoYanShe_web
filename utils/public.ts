@@ -96,3 +96,20 @@ export function throttle<T extends (...args: any[]) => any>(
     }
   };
 }
+
+/**
+ * 判断当前设备是否为电脑端（PC）
+ * @returns {boolean} true=电脑端 | false=移动端/平板
+ */
+export const isPC = (): boolean => {
+  // 1. 优先检测触摸屏+屏幕尺寸（现代设备更准确）
+  const hasTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+  const isSmallScreen = window.innerWidth < 1024;
+  
+  // 2. 用户代理检测（作为备用方案）
+  const userAgent = navigator.userAgent.toLowerCase();
+  const isMobileUA = /(iphone|ipod|ipad|android|windows phone|mobile)/i.test(userAgent);
+  
+  // 符合PC的特征：无触摸或大屏幕，且UA不包含移动端关键词
+  return !hasTouch || (!isSmallScreen && !isMobileUA);
+};

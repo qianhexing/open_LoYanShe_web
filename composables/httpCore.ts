@@ -5,8 +5,8 @@
  */
 import { $fetch } from 'ofetch'
 import { useRuntimeConfig } from '#app'
-const baseURL = 'http://localhost:3002'
-// const baseURL = 'https://lolitalibrary.com/node/'
+// const baseURL = 'http://localhost:3002'
+const baseURL = 'https://lolitalibrary.com/node/'
 interface RequestOptions {
   [key: string]: any;
 }

@@ -5,7 +5,6 @@ interface SearchParams extends PaginationParams {
 export async function getShopList(
   params: SearchParams
 ): Promise<PaginationResponse<Shop>> {
-  // 1. 首先获取完整响应
   const response = await use$Post<BaseResponse<PaginationResponse<Shop>>>(
     '/shop/list',
     params

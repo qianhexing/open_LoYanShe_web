@@ -2,6 +2,9 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import Stats from 'three/examples/jsm/libs/stats.module.js';
 import { CSS3DRenderer, CSS3DObject } from 'three/examples/jsm/renderers/CSS3DRenderer.js';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { AnimationMixer } from 'three';
+import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
 
 interface ThreeCoreOptions {
   antialias?: boolean;
@@ -27,6 +30,9 @@ class ThreeCore {
   public options: ThreeCoreOptions;
   public container?: HTMLElement | null;
   private resizeObserver?: ResizeObserver;
+  public loadedModelURLs: Set<string>; // 已加载过的模型地址集合
+  public loadedModels: THREE.Object3D[]; // 加载成功的模型数组
+  public clock: THREE.Clock;
 
   constructor(options: ThreeCoreOptions = {}) {
     const defaultOptions: ThreeCoreOptions = {
@@ -49,6 +55,10 @@ class ThreeCore {
     this.resizeCallbacks = [];
     this.container = null;
 
+    this.loadedModelURLs = new Set();
+    this.loadedModels = [];
+    this.clock = new THREE.Clock();
+
     this.initScene();
     this.initCamera();
     this.initRenderer();
@@ -68,6 +78,52 @@ class ThreeCore {
       this.initStats();
     }
   }
+  public async loadModel(url: string, options = {
+    useDracoLoader: false,
+    dracoDecoderPath: 'jsm/libs/draco/gltf/'
+  }): Promise<THREE.Object3D> {
+    // 如果已经加载过，直接返回缓存的模型
+    const loader = new GLTFLoader();
+    if (options.useDracoLoader) {
+      const dracoLoader = new DRACOLoader();
+      const decoderPath = options.dracoDecoderPath || '/draco/gltf/';
+      dracoLoader.setDecoderPath(decoderPath);
+      loader.setDRACOLoader(dracoLoader);
+    }
+    
+    return new Promise((resolve, reject) => {
+      if (this.loadedModelURLs.has(url)) {
+        const existing = this.loadedModels.find(obj => obj.userData.url === url);
+        if (existing) {
+          resolve(existing)
+        }
+      } else {
+        loader.load(url, (gltf) => {
+          const model = gltf.scene;
+          model.userData.url = url;
+    
+          // this.scene.add(model);
+          this.loadedModelURLs.add(url);
+          this.loadedModels.push(model);
+    
+          // 动画处理
+          if (gltf.animations && gltf.animations.length > 0) {
+            const mixer = new AnimationMixer(model);
+            gltf.animations.forEach((clip) => {
+              mixer.clipAction(clip).play();
+            });
+            this.addAnimationCallback(() => mixer.update(this.clock.getDelta()));
+          }
+    
+          resolve(model);
+        }, undefined, (error) => {
+          console.error(`加载模型失败: ${url}`, error);
+          reject(error);
+        });
+      }
+    });
+  }
+  
 
   initRenderer() {
     this.renderer = new THREE.WebGLRenderer({
@@ -105,14 +161,14 @@ class ThreeCore {
     const ambientLight = new THREE.AmbientLight(0x404040, 0.5);
     this.scene.add(ambientLight);
 
-    const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+    const directionalLight = new THREE.DirectionalLight(0xffffff, 1.8);
     directionalLight.position.set(1, 1, 1);
     directionalLight.castShadow = true;
     directionalLight.shadow.mapSize.width = 1024;
     directionalLight.shadow.mapSize.height = 1024;
     this.scene.add(directionalLight);
 
-    const hemisphereLight = new THREE.HemisphereLight(0xffffbb, 0x080820, 0.3);
+    const hemisphereLight = new THREE.HemisphereLight(0xffffbb, 0x080820, 1.7);
     this.scene.add(hemisphereLight);
   }
   addAnimationCallback(callback: () => void) {
