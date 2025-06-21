@@ -19,6 +19,10 @@ export interface PaginationResponse<T = any> {
   rows: T[];
   count: number;
 }
+/** 配置类型 */
+export interface Config {
+  app_version: string
+}
 
 /** 店铺类型 */
 export interface Shop {
@@ -30,4 +34,19 @@ export interface Shop {
 	likes?: number
   count_library?: number
   main_type?: string
+}
+/** 研习类型 */
+export interface Study {
+  study_id: number
+  parent_id?: number
+  study_cover: string
+  sort: number
+  study_title: string
+  study_desc: string
+  create_user?: number | null
+  create_time: Date
+  study_type: number
+  study_url: string
+  count: number
+  child?: Study[]
 }
