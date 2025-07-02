@@ -24,6 +24,28 @@ export interface Config {
   app_version: string
 }
 
+/** 配置类型 */
+export interface Swiper {
+  create_time:Date
+  sort: number
+  swiper_cover: string
+  swiper_id: number
+  swiper_title: string
+}
+export interface Icon {
+  create_time: Date
+  en: string
+  icon_belong: number
+  icon_cover: string
+  icon_id: number
+  icon_name: string
+  icon_type: number
+  is_enable: number
+  ja: string
+  link: string
+  sort: number
+}
+
 /** 店铺类型 */
 export interface Shop {
 	shop_id: number
@@ -34,6 +56,12 @@ export interface Shop {
 	likes?: number
   count_library?: number
   main_type?: string
+}
+/** 图鉴 */
+export interface Library {
+	library_id: number
+  name: string
+  cover: string
 }
 /** 研习类型 */
 export interface Study {
