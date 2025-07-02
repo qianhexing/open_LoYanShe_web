@@ -29,7 +29,7 @@ export default defineNuxtConfig({
 	modules: ['@nuxtjs/seo', '@nuxt/ui', '@nuxtjs/tailwindcss', '@vueuse/nuxt', '@pinia/nuxt'],
 	imports: {
     autoImport: true,
-		dirs: ['stores']
+		dirs: ['stores', 'directives']
   },
 	colorMode: {
 		preference: 'system',
@@ -62,8 +62,10 @@ export default defineNuxtConfig({
 						'qhx-bg': 'var(--background-color)',
 						'qhx-bg-card': 'var(--card-color)',
 						'qhx-text': 'var(--text-color)',
+						'qhx-textBg': 'var(--textBg-color)',
 						'qhx-text-muted': 'var(--text-muted-color)',
 						'qhx-textInverted': 'var(--textInverted-color)',
+						
 						// 状态色
 						'qhx-success': 'var(--success-color)',
 						'qhx-warning': 'var(--warning-color)',

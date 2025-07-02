@@ -73,6 +73,7 @@ const defaultThemes = {
       // 文字（深色但柔和）
       text: "#5A3D4F",         // 紫灰色（主要文字）
       textSecondary: "#9B8A97",// 灰粉紫（次要文字）
+      textBg: "#212121",// 主背景颜色
       textInverted: "#FFFFFF", // 白色（深色背景上的文字）
       textSeat: "#FFFFFF", // 白色（深色背景上的文字）
       textBan: "#FFFFFF", // 白色（深色背景上的文字）

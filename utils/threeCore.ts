@@ -40,7 +40,7 @@ class ThreeCore {
       alpha: false,
       clearColor: 0x000000,
       cameraType: 'perspective',
-      cameraPosition: { x: 0, y: 0, z: 5 },
+      cameraPosition: { x: 0, y: 4, z: 5 },
       enableOrbitControls: true,
       enableStats: false,
       pixelRatio: window.devicePixelRatio || 1,
