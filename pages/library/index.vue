@@ -150,10 +150,11 @@ watchEffect(() => {
 const { isFinished, setFinished } = useScrollBottom(
   async () => {
     // 加载更多数据的逻辑
+    console.log('触发加载更多')
     loadMore()
   },
   {
-    distance: 100, // 距离底部100px时触发
+    distance: 300, // 距离底部100px时触发
     immediate: false // 初始化时立即加载一次
   }
 )
