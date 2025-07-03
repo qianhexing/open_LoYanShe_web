@@ -13,7 +13,10 @@
         <a href="https://beian.miit.gov.cn/" target="_blank" class="flex justify-center"><img src="https://lolitalibrary.com/ali/static/batb.png" > 闽ICP备19007279号-1</a>
       </div>
       <div>
-        qq群： 679654177 联系我 qq账号：3292658709 <a href="https://weibo.com/u/6052516131" style="color: #409EFF;" target="_blank">@千河星</a>
+        <a href="https://afdian.com/a/qianhexing" style="color: #409EFF; margin-right: 10px;" target="_blank">赞助:爱发电@千河星</a>
+        <a href="https://weibo.com/u/6052516131" style="color: #409EFF; margin-right: 10px;" target="_blank">微博:@千河星</a>
+        <a href="https://www.xiaohongshu.com/user/profile/64845f56000000000f006100" style="color: #409EFF; margin-right: 10px;" target="_blank">小红书:@千河星</a>
+        <span href="https://afdian.com/a/qianhexing" style="color: #409EFF; margin-right: 10px;" target="_blank" onclick="jumpToLoyanshe()">Lo研社</span>
         <!-- <p>IP地址位置数据由<a href="https://www.cz88.net">纯真CZ88</a>提供支持</p> -->
       </div>
     </div>
@@ -22,6 +25,14 @@
 
 <script setup lang="ts">
 const themeStore = useThemeStore()
+const times = ref(1)
+const jumpToLoyanshe = () => {
+  if (times.value >= 3) {
+    window.location.href = 'https://a.app.qq.com/o/simple.jsp?pkgname=uni.lolita'
+  } else {
+    times.value += 1
+  }
+}
 // 组件会自动导入
 onMounted(() => {
   themeStore.setTheme('light')
