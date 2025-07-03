@@ -135,75 +135,49 @@ const handleSearch = () => {
     </div> -->
 
     <!-- 店铺列表 -->
-    <div v-else class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
-      <UCard
+    <div v-else class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6">
+      <div
         v-for="shop in list"
         :key="shop.shop_id"
-        class="group hover:-translate-y-1 transition-all duration-300 cursor-pointer relative"
-        :ui="{
-          base: 'overflow-hidden',
-          body: {
-            base: 'p-0',
-          },
-          header: {
-            base: 'p-0',
-          },
-          footer: {
-            base: 'p-3 bg-gray-50 dark:bg-gray-900/50',
-          },
-        }"
+        class="bg-white polaroid-card dark:bg-gray-900 rounded-[18px] shadow-lg hover:shadow-xl transition-all duration-300 cursor-pointer flex flex-col items-center overflow-hidden border border-gray-100 dark:border-gray-800 group relative hover:bg-qhx-primary hover:text-white"
       >
-        <template #header>
-          <div class="relative aspect-[4/3] w-full bg-qhx-bg-card dark:bg-gray-800">
-            <img
-              :src="`https://lolitalibrary.com/ali/${shop.shop_logo}`"
-              :alt="shop.shop_name"
-              class="w-full h-full object-contain p-4 group-hover:scale-110 transition-transform duration-300"
-              loading="lazy"
-            />
-            <UBadge
-              :color="shop.shop_country === 0 ? 'rose' : 'sky'"
-              size="sm"
-              class="absolute top-2 right-2"
-              variant="solid"
-            >
-              {{ shop.shop_country === 0 ? '国牌' : '日牌' }}
-            </UBadge>
-          </div>
-        </template>
-        <div class="">
-          <div v-if="shop.main_type && shop.main_type.includes('4')" class="badge-tip">山店</div>
-          <h3
-            class="text-base font-medium text-gray-900 dark:text-gray-100 line-clamp-1 group-hover:text-qhx-primary transition-colors">
+        <!-- 拍立得图片区 -->
+        <div class="w-full flex justify-center items-center pt-4 px-4 pb-2 bg-white">
+          <img
+            :src="`https://lolitalibrary.com/ali/${shop.shop_logo}`"
+            :alt="shop.shop_name"
+            class="object-cover w-full h-36 rounded-[10px] border border-gray-200 dark:border-gray-800 shadow-sm bg-white"
+            loading="lazy"
+          />
+        </div>
+        <!-- 拍立得底部宽白边，展示信息和按钮 -->
+        <div class="w-full flex flex-col items-center justify-between px-3 pb-4 pt-2 min-h-[70px] relative">
+          <h3 class="text-base font-semibold text-gray-900 dark:text-gray-100 truncate w-full text-center transition-colors duration-300">
             {{ shop.shop_name }}
           </h3>
-          <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-            已收录：{{ shop.count_library || 0 }}
-          </p>
-        </div>
-
-        <template #footer>
-          <div class="flex items-center justify-between">
-            <!-- <UButton
-              size="xs"
-              variant="ghost"
-              icon="i-heroicons-heart"
-              :ui="{ padding: { xs: 'px-1' } }"
-            >
-              {{ shop.count_library || 0 }}
-            </UButton> -->
-            <div></div>
+          <div class="flex items-center justify-between w-full mt-1">
+            <span class="text-xs text-gray-700 opacity-70 group-hover:opacity-100 transition-colors duration-300 flex items-center gap-1">
+              已收录：{{ shop.count_library || 0 }}
+              <div
+                :style="{
+                  color: shop.shop_country === 0 ? 'red' : 'green'
+                }"
+                class="text-xs"
+              >
+                {{ shop.shop_country === 0 ? '国牌' : '日牌' }}
+              </div>
+            </span>
             <UButton
+              icon="i-heroicons-arrow-right"
               size="xs"
-              class="bg-qhx-primary text-qhx-inverted hover:bg-qhx-primaryHover"
-              variant="soft"
-              :ui="{ padding: { xs: 'px-2' } }"
-            >
-              查看详情
-            </UButton>
+              class="rounded-full shadow-transparent bg-white hover:bg-white text-qhx-primary"
+              variant="solid"
+              @click.stop="router.push({ path: `/shop/detail/${shop.shop_id}` })"
+              :ui="{ padding: { xs: 'p-2' } }"
+            />
           </div>
-        </template>
-      </UCard>
+        </div>
+      </div>
     </div>
 
     <!-- 分页组件 -->
@@ -256,6 +230,17 @@ const handleSearch = () => {
     text-align: center;
     transform: rotate(-45deg);
     color: var(--error-color);
+}
+
+/* 拍立得风格卡片样式 */
+.polaroid-card {
+  box-shadow: 0 6px 24px 0 rgba(0,0,0,0.10), 0 1.5px 4px 0 rgba(0,0,0,0.08);
+  border-radius: 18px;
+  background: #fff;
+  border: 1.5px solid #f3f3f3;
+}
+*{
+  font-family: 'Menlo', sans-serif;
 }
 </style>
 
