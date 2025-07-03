@@ -46,6 +46,22 @@ export interface Icon {
   sort: number
 }
 
+/** 合集 */
+// Competition.ts
+export interface Compilations {
+  comp_id: number
+  comp_name?: string | null
+  comp_describe?: string | null
+  comp_cover?: string | null
+  manage_user?: string | null
+  create_user?: number | null
+  create_date?: string // ISO 格式时间戳
+  good_number?: number
+  brows_times?: number
+  pk_type?: number // 0是图鉴合集 1是搭配合集
+}
+
+
 /** 店铺类型 */
 export interface Shop {
 	shop_id: number
@@ -78,3 +94,55 @@ export interface Study {
   count: number
   child?: Study[]
 }
+
+export interface Community {
+  community_id: number
+  type?: string | null
+  title?: string | null
+  content?: string | null
+  user_id?: number
+  good_num?: number
+  collection_number?: number
+  is_enable?: number
+  boutique?: number
+  sort?: number
+  img_list?: string | null   // JSON 字符串，可能是 string[]
+  small_img_list?: string | null
+  community_type?: number
+  library_list?: string | null
+  shop_list?: string | null
+  collocation_list?: string | null
+  clothes_id?: number
+  is_open?: number
+  video?: string | null
+  date?: string              // ISO timestamp string
+  is_lock?: number
+  vote_id?: number
+
+  // 关联字段
+  user?: User
+  good?: Good[]
+  black_list?: BlackList
+  comments?: Comment[]
+  collect?: Collect
+  community_hide?: CommunityHide
+}
+
+export interface User {
+  user_id: number
+}
+
+export interface Good {
+  good_id: number
+}
+export interface BlackList {
+  good_id: number
+}
+
+export interface Collect {
+  collect_id: number
+}
+export interface CommunityHide {
+  hidden_id: number
+}
+
