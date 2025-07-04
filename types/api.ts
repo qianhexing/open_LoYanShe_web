@@ -131,7 +131,9 @@ export interface Community {
 }
 
 export interface User {
-  user_id: number
+  user_id: number,
+  user_face?: string
+  user_name?: string
 }
 
 export interface Good {

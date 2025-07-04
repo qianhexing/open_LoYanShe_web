@@ -11,17 +11,27 @@ interface RequestOptions {
   [key: string]: any;
 }
 
+// if (process.client) {
+//   token = userStore.token
+// }
 type HttpMethod = 'GET' | 'POST' | 'PUT' | 'DELETE';
 
 // 请求拦截器
 function handleRequest(options: RequestOptions) {
   // 这需要Pinia
   // const {UserInfo} = storeToRefs(useUserStore())
+  let token = null as null | string
+  if (typeof window !== 'undefined' && useUserStore) {
+    const userStore = storeToRefs(useUserStore()) 
+    token = userStore.token.value
+    console.log(userStore.token.value, '拥有token')
+  }
+  
   options.headers = {
     ...options.headers,
-    'Content-Type': 'application/json'
+    'Content-Type': 'application/json',
     // 这实现Authorization头自动携带
-    // 'Authorization': `Bearer ${UserInfo.value.token}`,
+    'Authorization': `${token}`,
   }
 }
 
@@ -29,9 +39,10 @@ function handleRequest(options: RequestOptions) {
 async function handleResponse<T>(response: any): Promise<T> {
   if (response.code !== 200) {
     const toast = useToast()
+    console.log(response, '返回参数')
     toast.add({
       title: '错误',
-      description: response.message || '操作失败，请重试',
+      description: response.message || response.msg  || '操作失败，请重试',
       icon: 'i-heroicons-exclamation-circle',
       color: 'red'
     })
@@ -39,6 +50,14 @@ async function handleResponse<T>(response: any): Promise<T> {
   }
   
   if (response.error) {
+    const toast = useToast()
+    console.log(response, '错误')
+    toast.add({
+      title: '错误',
+      description: response.message || response.msg  || '操作失败，请重试',
+      icon: 'i-heroicons-exclamation-circle',
+      color: 'red'
+    })
     throw new Error(response.error.message || '响应错误')
   }
   

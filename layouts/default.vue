@@ -1,3 +1,22 @@
+
+<script setup lang="ts">
+const themeStore = useThemeStore()
+const userStore = useUserStore()
+const times = ref(1)
+const jumpToLoyanshe = () => {
+  if (times.value >= 3) {
+    window.location.href = 'https://a.app.qq.com/o/simple.jsp?pkgname=uni.lolita'
+  } else {
+    times.value += 1
+  }
+}
+// 组件会自动导入
+onMounted(() => {
+  themeStore.setTheme('light')
+  userStore.initialize()
+  // themeStore.loadFromLocalStorage()
+})
+</script> 
 <template>
   <div class="min-h-screen background transition-colors duration-300">
     <UNotifications position="top-0 right-0" />
@@ -23,22 +42,6 @@
   </div>
 </template>
 
-<script setup lang="ts">
-const themeStore = useThemeStore()
-const times = ref(1)
-const jumpToLoyanshe = () => {
-  if (times.value >= 3) {
-    window.location.href = 'https://a.app.qq.com/o/simple.jsp?pkgname=uni.lolita'
-  } else {
-    times.value += 1
-  }
-}
-// 组件会自动导入
-onMounted(() => {
-  themeStore.setTheme('light')
-  // themeStore.loadFromLocalStorage()
-})
-</script> 
 <style>
 .background{
   background-color: var(--background-color);
