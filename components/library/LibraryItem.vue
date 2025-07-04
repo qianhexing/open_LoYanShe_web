@@ -51,13 +51,7 @@ const handleJump = (id: number) => {
 </template>
 
 <style scoped>
-/* 拍立得风格卡片样式 */
-.polaroid-card {
-  box-shadow: 0 6px 24px 0 rgba(0,0,0,0.10), 0 1.5px 4px 0 rgba(0,0,0,0.08);
-  border-radius: 18px;
-  background: #fff;
-  border: 1.5px solid #f3f3f3;
-}
+
 </style>
 
 

@@ -15,10 +15,13 @@
         </nav>
 
         <!-- 右侧操作区 -->
-        <div class="flex items-center gap-4">
-          <UButton icon="i-heroicons-user-circle">
-            登录
-          </UButton>
+        <div class="flex items-center gap-4" v-if="!user">
+          <LoginBox />
+          {{ user }}
+        </div>
+        <div class="flex items-center gap-4" v-else>
+          <img :src="`${BASE_IMG}${user.user_face}`" :alt="user.user_name"
+          class="w-8 h-8 object-cover rounded-[40px] border border-gray-200 my-2" loading="lazy" />
         </div>
       </div>
     </header>
@@ -26,6 +29,9 @@
 
 <script setup lang="ts">
 const show = ref(true)
+const userStore = storeToRefs(useUserStore()) 
+const { user } = userStore
+
 const navItems = [
   { label: "首页", to: "/" },
   { label: "图鉴", to: "/library" },
