@@ -39,7 +39,7 @@ const { data } = await useAsyncData('librarys', fetchLibraryList, {
   watch: [page, keyword]
 })
 isLoading.value = false
-const list = ref<any[]>([])
+const list = ref<Library[]>([])
 list.value = data.value?.rows ?? []
 watch(data, () => {
   console.log('设置为false')
@@ -108,7 +108,6 @@ const waterLibrary = () => {
   if (!window) {
     return
   }
-  console.log('计算========')
   const layout = useWaterfallLayout('.library-list', column.value)
     // biome-ignore lint/complexity/noForEach: <explanation>
     layout.forEach(({ index, top, left }) => {
@@ -188,26 +187,13 @@ const { isFinished, setFinished } = useScrollBottom(
       </div>
     </div>
     <!-- 空状态 -->
-    <!-- <div v-else-if="!list?.length" class="text-center text-gray-500 py-8">
-      暂无数据
-    </div> -->
-    <div class="relative">
+    <div class="relative min-h-[600px]" v-if="total > 0">
       <div class="library-list w-1/2 md:w-1/4" v-for="library in list" :key="library.library_id">
-        <div class="bg-qhx-bg-card shadow-lg p-2 m-1 rounded">
-          <div class="px-4">
-            <img
-              @load="debounceWater"
-              :src="`https://lolitalibrary.com/ali/${library.cover}?x-oss-process=image/quality,q_100/resize,w_300`"
-              :alt="library.name"
-              class="w-full"
-              loading="lazy"
-            />
-          </div>
-          <div>
-            {{ library.name }}
-          </div>
-        </div>
+        <LibraryItem :item="library" @image-load="debounceWater"></LibraryItem>
       </div>
+    </div>
+    <div v-else class="text-center text-gray-500 py-8">
+      暂无数据
     </div>
     <!-- 分页组件 -->
     <!-- <div v-if="total > 0" class="mt-8 flex justify-center">
@@ -263,6 +249,13 @@ const { isFinished, setFinished } = useScrollBottom(
     text-align: center;
     transform: rotate(-45deg);
     color: var(--error-color);
+}
+/* 拍立得风格卡片样式 */
+.polaroid-card {
+  box-shadow: 0 6px 24px 0 rgba(0,0,0,0.10), 0 1.5px 4px 0 rgba(0,0,0,0.08);
+  border-radius: 18px;
+  background: #fff;
+  border: 1.5px solid #f3f3f3;
 }
 </style>
 

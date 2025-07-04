@@ -16,7 +16,7 @@
         <a href="https://afdian.com/a/qianhexing" style="color: #409EFF; margin-right: 10px;" target="_blank">赞助:爱发电@千河星</a>
         <a href="https://weibo.com/u/6052516131" style="color: #409EFF; margin-right: 10px;" target="_blank">微博:@千河星</a>
         <a href="https://www.xiaohongshu.com/user/profile/64845f56000000000f006100" style="color: #409EFF; margin-right: 10px;" target="_blank">小红书:@千河星</a>
-        <span href="https://afdian.com/a/qianhexing" style="color: #409EFF; margin-right: 10px;" target="_blank" onclick="jumpToLoyanshe()">Lo研社</span>
+        <span href="https://afdian.com/a/qianhexing" style="color: #409EFF; margin-right: 10px;" target="_blank" @click="jumpToLoyanshe()">Lo研社</span>
         <!-- <p>IP地址位置数据由<a href="https://www.cz88.net">纯真CZ88</a>提供支持</p> -->
       </div>
     </div>

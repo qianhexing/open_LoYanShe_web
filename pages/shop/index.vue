@@ -141,42 +141,7 @@ const handleSearch = () => {
         :key="shop.shop_id"
         class="bg-white polaroid-card dark:bg-gray-900 rounded-[18px] shadow-lg hover:shadow-xl transition-all duration-300 cursor-pointer flex flex-col items-center overflow-hidden border border-gray-100 dark:border-gray-800 group relative hover:bg-qhx-primary hover:text-white"
       >
-        <!-- 拍立得图片区 -->
-        <div class="w-full flex justify-center items-center pt-4 px-4 pb-2 bg-white">
-          <img
-            :src="`https://lolitalibrary.com/ali/${shop.shop_logo}`"
-            :alt="shop.shop_name"
-            class="object-cover w-full h-36 rounded-[10px] border border-gray-200 dark:border-gray-800 shadow-sm bg-white"
-            loading="lazy"
-          />
-        </div>
-        <!-- 拍立得底部宽白边，展示信息和按钮 -->
-        <div class="w-full flex flex-col items-center justify-between px-3 pb-4 pt-2 min-h-[70px] relative">
-          <h3 class="text-base font-semibold text-gray-900 dark:text-gray-100 truncate w-full text-center transition-colors duration-300">
-            {{ shop.shop_name }}
-          </h3>
-          <div class="flex items-center justify-between w-full mt-1">
-            <span class="text-xs text-gray-700 opacity-70 group-hover:opacity-100 transition-colors duration-300 flex items-center gap-1">
-              已收录：{{ shop.count_library || 0 }}
-              <div
-                :style="{
-                  color: shop.shop_country === 0 ? 'red' : 'green'
-                }"
-                class="text-xs"
-              >
-                {{ shop.shop_country === 0 ? '国牌' : '日牌' }}
-              </div>
-            </span>
-            <UButton
-              icon="i-heroicons-arrow-right"
-              size="xs"
-              class="rounded-full shadow-transparent bg-white hover:bg-white text-qhx-primary"
-              variant="solid"
-              @click.stop="router.push({ path: `/shop/detail/${shop.shop_id}` })"
-              :ui="{ padding: { xs: 'p-2' } }"
-            />
-          </div>
-        </div>
+        <ShopItem size="big" :item="shop"></ShopItem>
       </div>
     </div>
 
