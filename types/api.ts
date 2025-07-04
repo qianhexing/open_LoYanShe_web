@@ -78,6 +78,8 @@ export interface Library {
 	library_id: number
   name: string
   cover: string
+  shop?: Shop
+  shop_id?: number
 }
 /** 研习类型 */
 export interface Study {
