@@ -1,5 +1,6 @@
 // https://nuxt.com/docs/api/configuration/nuxt-config
 export default defineNuxtConfig({
+	pages: true,
 	build: {
     transpile: ['three']
   },
@@ -54,7 +55,7 @@ export default defineNuxtConfig({
 						// 基础颜色变量
 						'qhx-primary': 'var(--primary-color)',
 						'qhx-primaryHover': 'var(--primary-color)',
-						'qhx-inverted': 'var(--inverted-color)',
+						'qhx-inverted': 'var(--inverted-color)', // 反色与主色相对
 						'qhx-secondary': 'var(--primaryHover-color)',
 						'qhx-accent': 'var(--accent-color)',
 						

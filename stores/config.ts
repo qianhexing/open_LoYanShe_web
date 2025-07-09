@@ -31,6 +31,7 @@ export const useConfigStore = defineStore('config', {
 
         // 更新状态
         this.config = response
+        console.log(response, '返回配置')
         return response
       } catch (err) {
       } finally {

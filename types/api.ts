@@ -73,6 +73,13 @@ export interface Shop {
   count_library?: number
   main_type?: string
 }
+
+export interface FilterList {
+  field: string
+  op: string
+  value: string
+}
+
 /** 图鉴 */
 export interface Library {
 	library_id: number
@@ -80,6 +87,19 @@ export interface Library {
   cover: string
   shop?: Shop
   shop_id?: number
+  library_type?: string
+  theme?: string;
+  library_pattern?: string;
+  sale_time?: string;
+  color?: string;
+  pattern_elements?: string;
+  design_elements?: string;
+  fabric_composition?: string; // Comma-separated string
+  cloth_elements?: string;
+  secondary_cloth?: string;
+  notes?: string;
+  size_image?: string; // Comma-separated image paths
+  size?: string;
 }
 /** 研习类型 */
 export interface Study {
