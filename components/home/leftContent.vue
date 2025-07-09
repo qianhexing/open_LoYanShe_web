@@ -1,9 +1,9 @@
 <template>
   <div class="flex items-center flex-wrap h-full">
     <div>
-      <div class="overflow-x-auto w-full home-icon-wrap mb-3"></div>
-      <div class="left-cover w-full  overflow-hidden shadow-lg">
-        <UCarousel v-if="images.length > 0" v-slot="{ item }" :items="images" :autoplay="true" :autoplay-interval="3000"
+      <div class="overflow-x-auto w-full home-icon-wrap mb-3 rounded-[18px]"></div>
+      <div class="left-cover w-full  overflow-hidden shadow-lg rounded-[18px]">
+        <UCarousel v-if="images.length > 0" v-slot="{ item }" :items="images" :autoplay="{ delay: 3000 }"
           :ui="{
             item: 'w-full h-full s',
             container: 'h-full',

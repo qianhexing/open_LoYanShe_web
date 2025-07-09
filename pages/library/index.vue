@@ -71,6 +71,9 @@ useHead({
 		}
 	]
 })
+definePageMeta({
+  name: 'library'
+})
 // 页码改变处理函数
 const handlePageChange = (current: number) => {
   page.value = current
