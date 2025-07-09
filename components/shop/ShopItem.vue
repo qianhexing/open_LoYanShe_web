@@ -32,6 +32,15 @@ const handleJump = (id: number) => {
         {{ item.shop_name }}
       </div>
     </div>
+    <div class="flex items-center w-full" v-else-if="size === 'small'">
+      <div class="shop-logo" @click="handleJump(item.shop_id)">
+        <img :src="`${BASE_IMG}${item.shop_logo}`" :alt="item.shop_name"
+          class="w-16 h-16 object-cover rounded-[60px] border border-gray-200 my-2 cursor-pointer" loading="lazy" />
+      </div>
+      <div class="mx-2 cursor-pointer" @click="handleJump(item.shop_id)">
+        {{ item.shop_name }}
+      </div>
+    </div>
     <!-- 大尺寸 -->
     <div v-else-if="size === 'big'">
       <div class="w-full flex justify-center items-center pt-4 px-4 pb-2 bg-white" @click="handleJump(item.shop_id)">

@@ -2,7 +2,10 @@
 <script setup lang="ts">
 const themeStore = useThemeStore()
 const userStore = useUserStore()
+const configStore = useConfigStore()
+configStore.getConfig()
 const times = ref(1)
+const cachedPages = ref(['library']) // 根据你的实际页面名称修改
 const jumpToLoyanshe = () => {
   if (times.value >= 3) {
     window.location.href = 'https://a.app.qq.com/o/simple.jsp?pkgname=uni.lolita'
@@ -24,9 +27,16 @@ onMounted(() => {
     <main class="container mx-auto pb-4 pt-20">
       <slot />
     </main>
+    <!-- <KeepAlive :include="cachedPages" :max="5">
+      <main class="container">
+        <slot name="screen"/>
+      </main>
+    </KeepAlive> -->
+      <!-- 第二个 main 区域（如果有特殊需求可以单独处理） -->
     <main class="container">
       <slot name="screen"/>
     </main>
+    
     <div class="fixed w-full z-50 bottom-0 left-0 text-center">
       <div class="flex justify-center">
         <a href="https://beian.miit.gov.cn/" target="_blank" class="flex justify-center"><img src="https://lolitalibrary.com/ali/static/batb.png" > 闽ICP备19007279号-1</a>
