@@ -35,7 +35,7 @@ onMounted(async () => {
     }
   }
 })
-// 处理点赞/取消点赞
+// 处理收藏
 const toggleLike = async (e: MouseEvent) => {
   if (!props.need_axios) {
     emit('handleClick', {
@@ -49,18 +49,27 @@ const toggleLike = async (e: MouseEvent) => {
     collect_type: props.pk_type
   }, e)
 }
+const handleChange = (item: boolean) => {
+  if (!isCollect.value && item) {
+    isCollect.value = true
+    collectCount.value += 1
+  } else if (isCollect.value && !item) {
+    isCollect.value = false
+    collectCount.value -= 1
+  }
+}
 
 </script>
 <template>
   <div @click="toggleLike" class=" cursor-pointer inline-block">
-    <FavoriteOptionsModal ref="FavoriteRef">111</FavoriteOptionsModal>
+    <FavoriteOptionsModal @change="handleChange" ref="FavoriteRef">111</FavoriteOptionsModal>
     <slot :childData="{
       collect_count: isCollect,
       is_collect: isCollect
     }">
       <div class="flex items-center">
         <UIcon name="ant-design:star-filled" class="text-[26px]"
-        :class="isCollect ? 'text-red-500' : 'text-gray-500'" />
+        :class="isCollect ? 'text-[#FFD166]' : 'text-gray-500'" />
         <div class="text-base ml-1">{{ collectCount }}</div>
       </div>
     </slot>

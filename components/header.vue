@@ -3,12 +3,12 @@
     @mouseenter="handleMouseEnter" @mouseleave="handleMouseLeave">
       <div class="container mx-auto px-4 py-3 flex items-center justify-between">
         <!-- 左侧 Logo -->
-        <NuxtLink to="/" class="text-xl font-bold text-gray-900 dark:text-white">
+        <NuxtLink to="/" class="text-xl font-bold text-gray-900 dark:text-white hidden md:flex">
           Lo 研社
         </NuxtLink>
 
         <!-- 中间导航 -->
-        <nav class="hidden md:flex items-center gap-4">
+        <nav class="flex items-center gap-4  overflow-x-auto">
           <UButton v-for="item in navItems" :key="item.to" :to="item.to" variant="ghost" color="gray">
             {{ item.label }}
           </UButton>

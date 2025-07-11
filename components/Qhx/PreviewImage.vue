@@ -22,7 +22,7 @@ const handleClick = (i: number) =>{
       loading="lazy" />
   <vue-easy-lightbox
       :visible="visible"
-      :imgs="preview && preview.length > 0 ? preview : list.map((item) => { return BASE_IMG + item.src})"
+      :imgs="preview && preview.length > 0 ? preview.map(item => BASE_IMG + item) : list.map((item) => { return BASE_IMG + item.src})"
       :index="index"
       :zoomScale="0.4"
       :maxZoom="5"

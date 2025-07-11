@@ -113,3 +113,15 @@ export const isPC = (): boolean => {
   // 符合PC的特征：无触摸或大屏幕，且UA不包含移动端关键词
   return !hasTouch || (!isSmallScreen && !isMobileUA);
 };
+
+// 格式化lable
+export function formatLabel(value: string | number, options: Array<{ value: number, label: string }> = []) {
+	if (Array.isArray(options)) {
+		const index = options.findIndex((item) => { return Number.parseInt(value.toString()) === item.value })
+		if (index !== -1) {
+			return options[index].label
+		}
+    return null
+	}
+  return null
+}

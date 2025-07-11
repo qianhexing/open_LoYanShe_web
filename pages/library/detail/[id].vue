@@ -1,17 +1,21 @@
 <script setup lang="ts">
-import type { Library, PaginationResponse, Shop } from '@/types/api';
-import { getLibraryDetail, getLibraryList } from '@/api/library'
+import type { Library, PaginationResponse, Shop, LibraryVideo } from '@/types/api';
+import { getLibraryDetail, getLibraryList, getLibraryVideo } from '@/api/library'
+import html2canvas from 'html2canvas';
 import QhxTag from '~/components/Qhx/Tag.vue';
 const user = useUserStore()
+const config = useConfigStore()
 const route = useRoute()
 const id = route.params.id as string
 const { data } = await useAsyncData('libraryDeatil', () => {
   return getLibraryDetail({ library_id: Number.parseInt(id) })
 }, {})
 const library = ref<Library | null>(null)
+const libraryRef = ref(null)
 const shop = ref<Shop | null>(null)
 const parent = ref<Library | null>(null)
 const child_list = ref<Library[]>([])
+const library_video = ref<LibraryVideo[]>([])
 library.value = data.value?.library ?? null
 
 parent.value = data.value?.parent ?? null
@@ -30,7 +34,18 @@ if (library.value && library.value?.library_type === '系列') {
   }, {})
   child_list.value = data.value?.rows ?? []
 }
-
+const fetchLibraryVideo = () => {
+  const params = {
+    pk_id: Number.parseInt(id)
+  }
+  getLibraryVideo(params)
+    .then((res) => {
+      library_video.value = res
+    })
+}
+onMounted(() => {
+  fetchLibraryVideo()
+})
 interface WikiParams {
   wiki_name: string
   type_id: number
@@ -51,15 +66,48 @@ useHead({
     }
   ]
 })
+const { captureElement: capture } = useScreenshot()
+const captureScreen = async () => {
+  if (libraryRef.value) {
+    try {
+      capture(libraryRef.value, 'my-screenshot.png')
+    } catch (error) {
+      console.error('Failed to capture screenshot:', error);
+    }
+  }
+};
+const exchangeRate = (shop_country: number, price: number) => {
+  if (!config.config) {
+    return false
+  }
+  const index = config.config.money_type.findIndex((item) => {
+    return item.value === shop_country
+  })
+  if (!price) {
+    return false
+  }
+  if (index !== -1 && config.config.money_type[index].exchange_rate) {
+    const exchange_rate = config.config.money_type[index].exchange_rate
+    if (!config.config.exchange_rate[exchange_rate]) {
+      return false
+    }
+    return (price / config.config.exchange_rate[exchange_rate]).toFixed(2)
+  }
+  return false
+}
 </script>
 <template>
   <div class="container mx-auto p-4 max-md:p-2">
-    <div v-if="library" class="bg-qhx-bg-card rounded-lg shadow-lg" :key="library.library_id">
+    <div v-if="library" ref="libraryRef" class="bg-qhx-bg-card rounded-lg shadow-lg" :key="library.library_id">
       <div class="p-3 flex max-md:block max-md:px-1">
-        <div class="flex my-2 w-[434px] max-md:w-full">
-          <QhxPreviewImage :list="[{ src: library.cover, alt: library.name}]" 
-          :className="child_list.length > 0 || parent ? 'cursor-pointer ml-3 w-[300px] max-md:w-0 max-md:flex-1 h-[430px]  object-cover rounded-[10px] shadow-lg border border-gray-200' 
-          :'cursor-pointer w-full ml-0 h-[430px]  object-cover rounded-[10px] shadow-lg border border-gray-200'"></QhxPreviewImage>
+        <div class="flex my-2 w-[434px] max-md:w-full relative">
+          <div
+            class=" absolute left-0 top-0 p-1 bg-qhx-primary text-qhx-inverted text-xs rounded-tl-[10px] rounded-br-[10px]"
+            :class="child_list.length > 0 || parent ? 'ml-3' : ''">
+            {{ library.library_type }}</div>
+          <QhxPreviewImage :key="library.library_id" :list="[{ src: library.cover, alt: library.name }]" :className="child_list.length > 0 || parent ? 'cursor-pointer ml-3 w-[300px] max-md:w-0 max-md:flex-1 h-[430px]  object-cover rounded-[10px] shadow-lg border border-gray-200'
+            : 'cursor-pointer w-full ml-0 h-[430px]  object-cover rounded-[10px] shadow-lg border border-gray-200'">
+          </QhxPreviewImage>
           <!-- <img :src="`${BASE_IMG}${library.cover}`" :alt="library.name"
             class=" h-[430px]  object-cover rounded-[10px] shadow-lg border border-gray-200"
             :class="child_list.length > 0 || parent ? 'ml-3 w-[300px] max-md:w-0 max-md:flex-1' : 'w-full ml-0'"
@@ -91,6 +139,27 @@ useHead({
         <div class="m-2 flex-1">
           <div class="library-info">
             <h1 class="mb-3 text-lg font-semibold">{{ library.name }}</h1>
+          </div>
+          <div class="text-qhx-primary m-2 font-semibold" v-if="library.library_price">
+            <div>
+              参考价 {{ library.library_price }} {{ formatLabel(library.shop_country || 0, config.config?.money_type) }}
+            </div>
+            <div class=" text-sm" v-if="library.shop_country !== undefined && exchangeRate(library.shop_country, library.library_price)">
+              汇率换算参考 <p style="color: #ffaa7f;">{{ exchangeRate(library.shop_country, library.library_price) +
+                '元' }}
+              </p>
+            </div>
+          </div>
+          <!-- 信息表 -->
+          <div v-if="library.size_image" class="mb-4">
+            <h3 class="text-sm m-1">信息表</h3>
+            <div class="flex flex-wrap my-2">
+              <QhxPreviewImage
+                :list="library.size_image.split(',').map((image) => { return { src: image + '?x-oss-process=image/quality,q_80/resize,w_300,h_300' } })"
+                :preview="library.size_image.split(',')"
+                :className="'cursor-pointer ml-3 w-[100px] h-[100px]  object-cover rounded-[10px] shadow-lg border border-gray-200'">
+              </QhxPreviewImage>
+            </div>
           </div>
           <!-- 主题 -->
           <div v-if="library.theme" class="mb-1">
@@ -147,69 +216,86 @@ useHead({
               </QhxTag>
             </div>
           </div>
-            <!-- Fabric Composition -->
-            <div v-if="library.fabric_composition" class="mb-4">
-              <h3 class="text-sm m-1">面料成分</h3>
-              <div class="flex flex-wrap gap-2">
-                <QhxTag v-for="(tags, index) in library.fabric_composition.split(',')" :key="index"
-                  @click="jumpToWiki({ wiki_name: tags.split('%').length > 1 ? tags.split('%')[1] : tags, type_id: 15 })"
-                  class="cursor-pointer">
-                  {{ tags }}
-                </QhxTag>
-              </div>
-            </div>
-
-            <!-- 主料 -->
-            <div v-if="library.cloth_elements" class="mb-4">
-              <h3 class="text-sm m-1">主料</h3>
-              <div class="flex flex-wrap gap-2">
-                <QhxTag v-for="(tags, index) in library.cloth_elements.split(',')" :key="index"
-                  @click="jumpToWiki({ wiki_name: tags, type_id: 5 })"
-                  class="cursor-pointer">
-                  {{ tags }}
-                </QhxTag>
-              </div>
-            </div>
-
-            <!-- 辅料/里衬 -->
-            <div v-if="library.secondary_cloth" class="mb-4">
-              <h3 class="text-sm m-1">辅料/里衬</h3>
-              <div class="flex flex-wrap gap-2">
-                <QhxTag v-for="(item, index) in library.secondary_cloth" :key="index"
-                  @click="jumpToWiki({ wiki_name: item, type_id: 5 })"
-                  class="cursor-pointer">
-                  {{ item }}
-                </QhxTag>
-              </div>
-            </div>
-
-            <!-- 笔记 -->
-            <div v-show="library.notes" class="mb-4">
-              <h3 class="text-sm m-1">笔记</h3>
-              <div class="text-xs p-2" v-html="library.notes"></div>
-            </div>
-
-
-            <!-- 尺码 -->
-            <div v-show="library.size" class="mb-4">
-              <h3 class="text-sm m-1">尺码</h3>
-              <p class="text-xs p-2">{{ library.size }}</p>
-            </div>
-            <div class="flex justify-center">
-              <div class=" flex-1 text-center">
-                <UserGoodBtn :pk_type="2" :pk_id="library.library_id" :good_count="library.good_count" :need_judge="true"></UserGoodBtn>
-              </div>
-              <div class=" flex-1 text-center">
-                <UserCollectBtn :collect_count="library.collect_count" :pk_type="2" :pk_id="library.library_id" :need_judge="true"></UserCollectBtn>
-              </div>
+          <!-- Fabric Composition -->
+          <div v-if="library.fabric_composition" class="mb-4">
+            <h3 class="text-sm m-1">面料成分</h3>
+            <div class="flex flex-wrap gap-2">
+              <QhxTag v-for="(tags, index) in library.fabric_composition.split(',')" :key="index"
+                @click="jumpToWiki({ wiki_name: tags.split('%').length > 1 ? tags.split('%')[1] : tags, type_id: 15 })"
+                class="cursor-pointer">
+                {{ tags }}
+              </QhxTag>
             </div>
           </div>
+
+          <!-- 主料 -->
+          <div v-if="library.cloth_elements" class="mb-4">
+            <h3 class="text-sm m-1">主料</h3>
+            <div class="flex flex-wrap gap-2">
+              <QhxTag v-for="(tags, index) in library.cloth_elements.split(',')" :key="index"
+                @click="jumpToWiki({ wiki_name: tags, type_id: 5 })" class="cursor-pointer">
+                {{ tags }}
+              </QhxTag>
+            </div>
+          </div>
+
+          <!-- 辅料/里衬 -->
+          <div v-if="library.secondary_cloth" class="mb-4">
+            <h3 class="text-sm m-1">辅料/里衬</h3>
+            <div class="flex flex-wrap gap-2">
+              <QhxTag v-for="(item, index) in library.secondary_cloth" :key="index"
+                @click="jumpToWiki({ wiki_name: item, type_id: 5 })" class="cursor-pointer">
+                {{ item }}
+              </QhxTag>
+            </div>
+          </div>
+
+          <!-- 笔记 -->
+          <div v-show="library.notes" class="mb-4">
+            <h3 class="text-sm m-1">笔记</h3>
+            <div class="text-xs p-2" v-html="library.notes"></div>
+          </div>
+
+
+          <!-- 尺码 -->
+          <div v-show="library.size" class="mb-4">
+            <h3 class="text-sm m-1">尺码</h3>
+            <p class="text-xs p-2">{{ library.size }}</p>
+          </div>
+          <div class="flex justify-center">
+            <div class=" flex-1 text-center">
+              <UserGoodBtn :pk_type="2" :pk_id="library.library_id" :good_count="library.good_count" :need_judge="true">
+              </UserGoodBtn>
+            </div>
+            <div class=" flex-1 text-center">
+              <UserCollectBtn :collect_count="library.collect_count" :pk_type="2" :pk_id="library.library_id"
+                :need_judge="true"></UserCollectBtn>
+            </div>
+            <!-- <div class=" flex-1 text-center">
+              <UIcon :name="'i-heroicons-heart-20-solid'" class=" text-[26px] text-[#409EFF] cursor-pointer" @click="captureScreen()"/>
+            </div> -->
+          </div>
         </div>
-        <div v-if="shop" class="p-3 px-6">
-          <ShopItem :item="shop" size="small"></ShopItem>
+      </div>
+      <div v-if="shop" class="p-3 px-6">
+        <ShopItem :item="shop" size="small"></ShopItem>
+      </div>
+    </div>
+    <div v-if="library && library_video.length > 0" class="bg-qhx-bg-card rounded-lg shadow-lg mt-3">
+      <div class="p-3 max-md:block">
+        <h1 class="mb-3 text-lg font-semibold">人台图</h1>
+        <div class="flex flex-wrap pb-3 max-md:justify-center">
+          <div v-for="(item) in library_video" class="w-[100px] h-[100px] mr-3 mb-2">
+            <QhxPreviewImage
+              :list="[{ src: item.addr.split(',')[0] + '?x-oss-process=image/quality,q_80/resize,w_300,h_300', alt: library.name }]"
+              :preview="item.addr.split(',')"
+              :className="'cursor-pointer ml-3 w-[100px] h-[100px]  object-cover rounded-[10px] shadow-lg border border-gray-200'">
+            </QhxPreviewImage>
+          </div>
         </div>
       </div>
     </div>
+  </div>
 </template>
 
 <style scoped>
@@ -226,7 +312,7 @@ useHead({
 
 /* 滚动条滑块 */
 .library-list-wrap::-webkit-scrollbar-thumb {
-  background: #888;
+  background: #bbbbbb;
   border-radius: 10px;
 }
 

@@ -19,9 +19,55 @@ export interface PaginationResponse<T = any> {
   rows: T[];
   count: number;
 }
+export interface ExchangeRate  {
+  JPY?: number
+  RUB?: number
+  [key: string]: number | undefined; // 添加索引签名
+}
+
 /** 配置类型 */
 export interface Config {
-  app_version: string
+  app_down_link: string;
+  app_version: string;
+  community_foreign: Array<{ label: string; value: number }>;
+  community_type: Array<{ label: string; value: string }>;
+  emoji_config: Array<{
+    name: string;
+    list: Array<{
+      label: string;
+      url: string;
+      value: number;
+    }>;
+  }>;
+  exchange_rate: ExchangeRate
+  good_addr: Array<{ label: number; value: string }>;
+  image_link: Array<{ label: number; value: string }>;
+  image_params: string;
+  image_params_small: string;
+  image_params_square: string;
+  level: number[];
+  library_state: Array<{ label: string; value: number }>;
+  main_style: Array<{ label: string; value: number }>;
+  min_add_library: number;
+  money_type: Array<{
+    label: string;
+    value: number;
+    exchange_rate?: string;
+  }>;
+  need_anwser: boolean;
+  phone_code: Array<{
+    value: number;
+    label: string;
+    // 如果有更多字段可以在这里添加
+  }>;
+  reply_addr: Array<{ label: string; value: string }>;
+  richtext_link: Array<{ label: string; value: string }>;
+  scan_code: Array<{ label: number; value: string }>;
+  shop_country: Array<{ label: string; value: number }>;
+  shop_state: Array<{ label: string; value: number }>;
+  study_type: Array<{ type: number; value: string }>;
+  user: Record<string, unknown>; // 或者定义更具体的用户接口
+  wiki_type: Array<{ value: number; label: string }>;
 }
 
 /** 配置类型 */
@@ -104,6 +150,8 @@ export interface Library {
   collect_count?: number
   wardrobe_count?: number
   is_good?: boolean
+  library_price?: number
+  shop_country?: number
 }
 /** 研习类型 */
 export interface Study {
@@ -181,3 +229,15 @@ export interface CommunityHide {
   hidden_id: number
 }
 
+
+export interface LibraryVideo {
+  addr: string
+  create_time: string
+  is_enable: number
+  is_show: number
+  pk_id: number
+  pk_type: number
+  sort: number
+  title: string
+  video_id: number
+}
