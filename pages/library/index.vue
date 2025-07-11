@@ -2,6 +2,7 @@
 import type { Library, PaginationResponse } from '@/types/api';
 import useScrollBottom from '@/composables/useScrollBottom'
 import { getLibraryList } from '@/api/library';
+const user = useUserStore()
 const router = useRouter()
 const route = useRoute()
 // 分页参数
@@ -13,13 +14,22 @@ const keyword = ref('')
 const value = ref('')
 const column = ref(4)
 const isLoading = ref(true)
+const isServer = useState('isServer', () => false)
+
 // 使用`use$Post`请求函数
 const fetchLibraryList = async (): Promise<PaginationResponse<Library>> => {
+  if (import.meta.server) {
+    console.log('在服务端运行并且没有token', user.token)
+    if (!user.token) {
+      isServer.value = true
+    }
+  }
   try {
     const response = await getLibraryList({
       page: page.value,
       pageSize: pageSize,
-      keyword: keyword.value
+      keyword: keyword.value,
+      need_Statistics: true
     })
     isLoading.value = false
     return response
@@ -33,12 +43,11 @@ const fetchLibraryList = async (): Promise<PaginationResponse<Library>> => {
     }
   }
 }
-
-
-const { data } = await useAsyncData('librarys', fetchLibraryList, {
-  watch: [page, keyword]
-})
-isLoading.value = false
+const { data, refresh  } = await useAsyncData('librarys', fetchLibraryList, 
+  {
+    watch: [page, keyword]
+  }
+)
 const list = ref<Library[]>([])
 list.value = data.value?.rows ?? []
 watch(data, () => {
@@ -49,9 +58,34 @@ watch(data, () => {
     list.value = [...list.value, ...(data.value?.rows ?? [])]
   }
 })
+// watch(
+//   () => user.token,
+//   (newToken, oldToken) => {
+//     if (newToken && newToken !== oldToken) {
+//       console.log('token变化')
+//       debounce(() => {
+//         console.log('token变化111' )
+//         refresh()
+//       }, 3000)
+//     }
+//   }
+// )
 // const list = computed(() => data.value?.rows ?? [])
 const total = computed(() => data.value?.count ?? 0)
-
+const refreshLibrary = async () => {
+  isLoading.value = true
+  try {
+    const response = await getLibraryList({
+      page: 1,
+      pageSize: pageSize * page.value,
+      keyword: keyword.value,
+      need_Statistics: true
+    })
+    isLoading.value = false
+    list.value = response.rows
+  } catch (error) {}
+  isLoading.value = false
+}
 // 监听总数变化
 watchEffect(() => {
 	console.log('当前总数:', total.value)
@@ -77,13 +111,13 @@ definePageMeta({
 // 页码改变处理函数
 const handlePageChange = (current: number) => {
   page.value = current
-  router.push({
-    query: {
-      ...route.query,
-      page: current
-    },
-    force: true
-  })
+  // router.push({
+  //   query: {
+  //     ...route.query,
+  //     page: current
+  //   },
+  //   force: true
+  // })
 }
 
 const showToast = () => {
@@ -127,6 +161,13 @@ onMounted(() => {
     column.value = 2
   }
   waterLibrary()
+  if (user.token) {
+    console.log('是否服务端渲染', isServer.value)
+    if (isServer.value) {
+      isServer.value = false
+      refreshLibrary()
+    }
+  }
 })
 const loadMore = () => {
   console.log('是否在加载', isLoading.value)

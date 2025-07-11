@@ -2,6 +2,7 @@ import type { BaseResponse, PaginationParams, PaginationResponse, Library, Filte
 interface SearchParams extends PaginationParams {
   keyword?: string | null  // 可选字段
   filter_list?: FilterList[]
+  need_Statistics?: boolean
 }
 export async function getLibraryList(
   params: SearchParams
