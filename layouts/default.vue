@@ -102,7 +102,7 @@ onMounted(() => {
         
         <!-- 版权信息 -->
         <div class="text-center mt-4 text-xs text-gray-500 dark:text-gray-400">
-          <p>&copy; 2024 Lo研社. All rights reserved.</p>
+          <p>&copy; 2019-2025 Lo研社. All rights reserved.</p>
         </div>
       </div>
     </footer>
