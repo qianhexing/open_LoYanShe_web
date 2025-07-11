@@ -100,6 +100,10 @@ export interface Library {
   notes?: string;
   size_image?: string; // Comma-separated image paths
   size?: string;
+  good_count?: number
+  collect_count?: number
+  wardrobe_count?: number
+  is_good?: boolean
 }
 /** 研习类型 */
 export interface Study {
@@ -115,6 +119,13 @@ export interface Study {
   study_url: string
   count: number
   child?: Study[]
+}
+/** 收藏夹 */
+export interface Favorite {
+  id: number;
+  is_collect?: number;
+  favorite_name: string;
+  favorite_pic?: string | null;
 }
 
 export interface Community {
