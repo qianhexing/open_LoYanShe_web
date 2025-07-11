@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import type { Library, PaginationResponse, Shop } from '@/types/api';
 import { getLibraryDetail, getLibraryList } from '@/api/library'
-import QhxTag from '~/components/common/QhxTag.vue';
+import QhxTag from '~/components/Qhx/Tag.vue';
+const user = useUserStore()
 const route = useRoute()
 const id = route.params.id as string
 const { data } = await useAsyncData('libraryDeatil', () => {
@@ -12,7 +13,6 @@ const shop = ref<Shop | null>(null)
 const parent = ref<Library | null>(null)
 const child_list = ref<Library[]>([])
 library.value = data.value?.library ?? null
-console.log('触发更新', library.value?.library_id)
 
 parent.value = data.value?.parent ?? null
 shop.value = data.value?.shop ?? null
@@ -57,10 +57,13 @@ useHead({
     <div v-if="library" class="bg-qhx-bg-card rounded-lg shadow-lg" :key="library.library_id">
       <div class="p-3 flex max-md:block max-md:px-1">
         <div class="flex my-2 w-[434px] max-md:w-full">
-          <img :src="`${BASE_IMG}${library.cover}`" :alt="library.name"
+          <QhxPreviewImage :list="[{ src: library.cover, alt: library.name}]" 
+          :className="child_list.length > 0 || parent ? 'cursor-pointer ml-3 w-[300px] max-md:w-0 max-md:flex-1 h-[430px]  object-cover rounded-[10px] shadow-lg border border-gray-200' 
+          :'cursor-pointer w-full ml-0 h-[430px]  object-cover rounded-[10px] shadow-lg border border-gray-200'"></QhxPreviewImage>
+          <!-- <img :src="`${BASE_IMG}${library.cover}`" :alt="library.name"
             class=" h-[430px]  object-cover rounded-[10px] shadow-lg border border-gray-200"
             :class="child_list.length > 0 || parent ? 'ml-3 w-[300px] max-md:w-0 max-md:flex-1' : 'w-full ml-0'"
-            loading="lazy" />
+            loading="lazy" /> -->
           <div class="w-[110px] h-[430px] overflow-y-auto overflow-x-hidden library-list-wrap ml-3"
             v-if="child_list.length > 0 || parent">
             <div class="w-[100px]" v-if="child_list && child_list.length > 0">
@@ -191,6 +194,14 @@ useHead({
             <div v-show="library.size" class="mb-4">
               <h3 class="text-sm m-1">尺码</h3>
               <p class="text-xs p-2">{{ library.size }}</p>
+            </div>
+            <div class="flex justify-center">
+              <div class=" flex-1 text-center">
+                <UserGoodBtn :pk_type="2" :pk_id="library.library_id" :good_count="library.good_count" :need_judge="true"></UserGoodBtn>
+              </div>
+              <div class=" flex-1 text-center">
+                <UserCollectBtn :collect_count="library.collect_count" :pk_type="2" :pk_id="library.library_id" :need_judge="true"></UserCollectBtn>
+              </div>
             </div>
           </div>
         </div>

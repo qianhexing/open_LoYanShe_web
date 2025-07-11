@@ -24,7 +24,6 @@ function handleRequest(options: RequestOptions) {
   if (typeof window !== 'undefined' && useUserStore) {
     const userStore = storeToRefs(useUserStore()) 
     token = userStore.token.value
-    console.log(userStore.token.value, '拥有token')
   }
   
   options.headers = {
