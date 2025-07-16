@@ -125,3 +125,33 @@ export function formatLabel(value: string | number, options: Array<{ value: numb
 	}
   return null
 }
+// 格式化富文本(用于大多数列表组件)
+export function formatRich(richText: string) {
+	
+	// 正则表达式匹配所有的img标签
+	const imgTagRegex = /<img[^>]+src="([^">]+)"[^>]*>/g;
+	const editorImageRegex = /<editorimage[^>]*>([\s\S]*?)<\/editorimage>/g;
+	// 用于存储提取的图片链接
+	const imageUrls = [];
+	
+	// 用于存储去除img标签后的字符串
+	let textWithoutImgTags = richText;
+	
+	// 提取图片链接
+	let match: RegExpExecArray | null;
+	// biome-ignore lint/suspicious/noAssignInExpressions: <explanation>
+	while ((match = imgTagRegex.exec(richText)) !== null) {
+    if (match[1].includes('sence')) {
+
+    } else {
+      imageUrls.push(match[1]);
+    }  
+	}
+	
+	// 去除img标签
+	textWithoutImgTags = richText.replace(editorImageRegex, '');
+	return {
+	    image: imageUrls,
+	    text: textWithoutImgTags
+	};
+}

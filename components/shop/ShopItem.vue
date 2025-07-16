@@ -16,7 +16,8 @@ const handleJump = (id: number) => {
   if (!needJump) {
     return
   }
-  navigateTo(`/shop/detail/${id}`)
+  window.open(`/shop/detail/${id}`, '_blank')
+  // navigateTo(`/shop/detail/${id}`)
 }
 </script>
 <template>

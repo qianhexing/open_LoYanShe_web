@@ -35,6 +35,7 @@ export const useUserStore = defineStore('auth', {
           this.user = null
         }
         this.permission = response.permission
+        window.location.reload()
         return Promise.resolve(response)
       } catch (error) {
         this.clearToken()
@@ -80,6 +81,7 @@ export const useUserStore = defineStore('auth', {
       if (import.meta.client) {
         localStorage.removeItem('token')
         localStorage.removeItem('userInfo')
+        window.location.reload()
       }
     },
     

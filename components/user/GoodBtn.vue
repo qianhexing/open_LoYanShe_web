@@ -21,8 +21,9 @@ const goodCount = ref(props.good_count || 0)
 const isGood = ref(props.is_good || false)
 const loading = ref(false)
 const emit = defineEmits(['change', 'handleClick'])
+const user = useUserStore()
 onMounted(async () => {
-  if (props.need_judge) {
+  if (props.need_judge && user.token) {
     try {
       const resault = await judgeGood({
         pk_id: props.pk_id,
@@ -37,6 +38,9 @@ onMounted(async () => {
 })
 // 处理点赞/取消点赞
 const toggleLike = async () => {
+  if (!user.token) {
+    return
+  }
   if (!props.need_axios) {
     emit('handleClick', {
       pk_id: props.pk_id,

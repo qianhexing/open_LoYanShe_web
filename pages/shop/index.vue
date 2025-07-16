@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import type { Shop, PaginationResponse } from '@/types/api';
 import { getShopList } from '@/api/shop';
-import { _ringColor } from '#tailwind-config/theme';
 const router = useRouter()
 const route = useRoute()
 // 分页参数
@@ -102,6 +101,7 @@ const handleSearch = () => {
       <div class="w-full flex items-center">
         <UInput
           v-model="value"
+          :autofocus="false"
           placeholder="搜索店铺 多条件空格分割."
           class="flex-1 focus:ring-0"
            @keyup.enter="handleSearch"

@@ -2,7 +2,7 @@
 <script setup lang="ts">
 import { getFavoriteOptions, isCollect as judgeCollect, insertCollect } from '@/api/collect'
 import type FavoriteModel from '~/components/Favorite/OptionsModal.vue'
-
+const user = useUserStore()
 interface Props {
   pk_id: number
   pk_type: number
@@ -24,7 +24,7 @@ const loading = ref(false)
 const FavoriteRef = ref<InstanceType<typeof FavoriteModel> | null>(null)
 const emit = defineEmits(['change', 'handleClick'])
 onMounted(async () => {
-  if (props.need_judge) {
+  if (props.need_judge && user.token) {
     try {
       const resault = await judgeCollect({
         pk_id: props.pk_id,
@@ -37,6 +37,9 @@ onMounted(async () => {
 })
 // 处理收藏
 const toggleLike = async (e: MouseEvent) => {
+  if (!user.token) {
+    return
+  }
   if (!props.need_axios) {
     emit('handleClick', {
       pk_id: props.pk_id,

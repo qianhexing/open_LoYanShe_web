@@ -5,6 +5,7 @@ interface Props {
   list: Array<{ src: string, alt?: string}>
   preview?: Array<string>
 }
+const emit = defineEmits(['load'])
 const visible = ref(false)
 const index = ref(0)
 const props = withDefaults(defineProps<Props>(), {
@@ -14,10 +15,14 @@ const handleClick = (i: number) =>{
   visible.value = true
   index.value = i
 }
+const load = () => {
+  emit('load')
+}
 </script>
 <template>
   <img :src="`${BASE_IMG}${image.src}`" v-for="(image, i) in list" :alt="image.alt || 'Lo研社 嘎嘎'"
       @click="handleClick(i)"
+      @load="load"
       :class="props.className ? `${props.className}` : ''"
       loading="lazy" />
   <vue-easy-lightbox

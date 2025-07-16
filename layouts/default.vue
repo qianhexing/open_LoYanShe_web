@@ -5,6 +5,7 @@ const userStore = useUserStore()
 const configStore = useConfigStore()
 configStore.getConfig()
 const times = ref(1)
+const isHome = ref(false)
 const cachedPages = ref(['library']) // 根据你的实际页面名称修改
 const jumpToLoyanshe = () => {
   if (times.value >= 3) {
@@ -13,6 +14,25 @@ const jumpToLoyanshe = () => {
     times.value += 1
   }
 }
+const route = useRoute()
+console.log(route.path, '初始路由地址')
+const judgeIsHome = () => {
+  console.log('当前路由', route.path)
+  if (route.path === '/') {
+    isHome.value = true
+  } else {
+    isHome.value = false
+  }
+}
+judgeIsHome()
+watch(
+  () => route.path,
+  (newPath, oldPath) => {
+    console.log('路由从', oldPath, '变更为', newPath)
+    judgeIsHome()
+    // 在这里执行路由变化后的逻辑
+  }
+)
 // 组件会自动导入
 onMounted(() => {
   themeStore.setTheme('light')
@@ -33,12 +53,12 @@ onMounted(() => {
       </main>
     </KeepAlive> -->
       <!-- 第二个 main 区域（如果有特殊需求可以单独处理） -->
-    <main class="container">
+    <!-- <main class="container">
       <slot name="screen"/>
-    </main>
-    
+    </main> -->
+    <div style="height: 200px;"></div>
     <!-- Footer -->
-    <footer class="bg-white/80 dark:bg-gray-900/80 backdrop-blur-sm border-t border-gray-200 dark:border-gray-700 mt-8">
+    <footer class="bg-white/80 dark:bg-gray-900/80 backdrop-blur-sm border-t border-gray-200 dark:border-gray-700 mt-8 left-0 bottom-0 w-full z-50" :class="isHome ? 'fixed' : ''">
       <div class="container mx-auto px-4 py-6">
         <!-- 备案信息 -->
         <div class="flex justify-center items-center mb-4">
@@ -112,5 +132,11 @@ onMounted(() => {
 <style>
 .background{
   background-color: var(--background-color);
+}
+.polaroid-card {
+  box-shadow: 0 6px 24px 0 rgba(0,0,0,0.10), 0 1.5px 4px 0 rgba(0,0,0,0.08);
+  border-radius: 18px;
+  background: #fff;
+  border: 1.5px solid #f3f3f3;
 }
 </style>
