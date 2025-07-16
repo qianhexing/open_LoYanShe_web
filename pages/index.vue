@@ -7,7 +7,7 @@
 			<br>
 			BOOM！！！服务器爆炸啦,新版本正在重建，敬请期待哦。
 		</h1> -->
-		<div style="height: 100%; width: 100%;position: absolute; left: 0; top: 0;" id="three-container"></div>
+		<div style="height: 100%; width: 100%;position: absolute; left: 0; top: 0; overflow: hidden; " id="three-container"></div>
 	</div>
 </template>
 <script setup lang="ts">

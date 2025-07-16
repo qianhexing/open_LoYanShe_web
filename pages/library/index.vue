@@ -210,6 +210,7 @@ const { isFinished, setFinished } = useScrollBottom(
           v-model="value"
           placeholder="搜索图鉴 多条件空格分割."
           class="flex-1 focus:ring-0"
+          :autofocus="false"
            @keyup.enter="handleSearch"
           :ui="{
             base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
@@ -295,12 +296,6 @@ const { isFinished, setFinished } = useScrollBottom(
     color: var(--error-color);
 }
 /* 拍立得风格卡片样式 */
-.polaroid-card {
-  box-shadow: 0 6px 24px 0 rgba(0,0,0,0.10), 0 1.5px 4px 0 rgba(0,0,0,0.08);
-  border-radius: 18px;
-  background: #fff;
-  border: 1.5px solid #f3f3f3;
-}
 </style>
 
 

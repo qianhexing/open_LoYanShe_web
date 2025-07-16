@@ -25,7 +25,7 @@ export async function insertCompDetailArray(
 
 // 获取合集列表（带分页）
 export async function getCompList(
-  data: PaginationParams & { keyword?: string }
+  data: PaginationParams & { keywords?: string }
 ): Promise<BaseResponse<PaginationResponse<Compilations>>> {
   return await use$Post<BaseResponse<PaginationResponse<Compilations>>>(
     'comp/list',

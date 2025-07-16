@@ -213,8 +213,12 @@ export interface User {
   user_id: number,
   user_face?: string
   user_name?: string
+  avatar?: Avatar
 }
-
+export interface Avatar {
+  frame_id: number,
+  avatar_frame?: string
+}
 export interface Good {
   good_id: number
 }

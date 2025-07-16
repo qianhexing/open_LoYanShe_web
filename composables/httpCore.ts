@@ -39,6 +39,12 @@ async function handleResponse<T>(response: any): Promise<T> {
   if (response.code !== 200) {
     const toast = useToast()
     console.log(response, '返回参数')
+    if (response.code === 401) {
+      if (typeof window !== 'undefined' && useUserStore) {
+        const userStore = useUserStore()
+        userStore.clearToken()
+      }
+    }
     toast.add({
       title: '错误',
       description: response.message || response.msg  || '操作失败，请重试',
