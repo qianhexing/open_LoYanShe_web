@@ -11,3 +11,15 @@ export async function getCommunityList(
   );
   return response.data;
 }
+interface DetailParams {
+  community_id?: number  // 可选字段
+}
+export async function getCommunityDetail(
+  params: DetailParams
+): Promise<Community> {
+  const response = await use$Post<BaseResponse<Community>>(
+    '/community/id',
+    params
+  );
+  return response.data;
+}

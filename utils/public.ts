@@ -155,6 +155,61 @@ export function formatRich(richText: string) {
 	    text: textWithoutImgTags
 	};
 }
+export interface RichNode {
+  name: string;                         // 标签名，如 'div', 'p', 'text'
+  text: string;                         // 节点包含的纯文本内容
+  children: RichNode[];                 // 子节点列表
+  attrs: Record<string, string>;       // 标签属性，如 { href: '', class: '' }
+}
+// 解析富文本
+export function parseRichText(html: string): RichNode[] {
+  const parser = new DOMParser()
+  const doc = parser.parseFromString(html, 'text/html')
+
+  function parseNode(node: ChildNode): RichNode | null {
+    if (node.nodeType === Node.TEXT_NODE) {
+      const text = node.textContent?.trim() || ''
+      return text
+        ? {
+            name: 'text',
+            text,
+            children: [],
+            attrs: {}
+          }
+        : null
+    }
+
+    if (node.nodeType === Node.ELEMENT_NODE) {
+      const el = node as HTMLElement
+      const tagName = el.tagName.toLowerCase()
+
+      const attrs: Record<string, string> = {}
+      for (const attr of Array.from(el.attributes)) {
+        attrs[attr.name] = attr.value
+      }
+
+      const children = Array.from(el.childNodes)
+        .map(parseNode)
+        .filter((n): n is RichNode => n !== null)
+
+      return {
+        name: tagName,
+        text: el.textContent?.trim() || '',
+        children,
+        attrs
+      }
+    }
+
+    return null
+  }
+
+  const rootNodes = Array.from(doc.body.childNodes)
+    .map(parseNode)
+    .filter((n): n is RichNode => n !== null)
+
+  return rootNodes
+}
+
 // 获取店铺主体类型
 export function formatShopMainType(main_type: string) {
 	if (main_type) {
