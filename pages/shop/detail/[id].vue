@@ -46,6 +46,12 @@ useHead({
             <h1 class="mb-3 text-lg font-semibold">{{ detail?.shop_name }}</h1>
           </div>
           <h3 class="text-sm m-1" v-html="detail.shop_describe" v-if="detail.shop_describe"></h3>
+          <div class="flex justify-center">
+            <div class=" flex-1 text-center">
+              <UserGoodBtn :pk_type="1" :pk_id="detail.shop_id" :good_count="detail.good_count || 0" :need_judge="true">
+              </UserGoodBtn>
+            </div>
+          </div>
           <!-- 主营风格 -->
           <div v-if="detail.style_list" class="mb-1">
             <h3 class="text-sm m-1">主营风格</h3>

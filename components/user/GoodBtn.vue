@@ -38,10 +38,13 @@ onMounted(async () => {
 })
 // 处理点赞/取消点赞
 const toggleLike = async () => {
+  console.log(user.token)
   if (!user.token) {
     return
   }
+  console.log('走到这了111')
   if (!props.need_axios) {
+    console.log('走到这了', props.need_axios)
     emit('handleClick', {
       pk_id: props.pk_id,
       pk_type: props.pk_type,
@@ -49,6 +52,7 @@ const toggleLike = async () => {
     })
     return
   }
+  
   if (loading.value) return
   loading.value = true
 

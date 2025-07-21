@@ -114,7 +114,7 @@ export interface Shop {
 	shop_name: string
 	shop_logo: string
 	shop_country: number
-	goods_count?: number
+	good_count?: number
 	likes?: number
   count_library?: number
   main_type?: string

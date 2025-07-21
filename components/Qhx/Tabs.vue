@@ -2,18 +2,21 @@
   <div class="w-full overflow-hidden">
     <!-- Tabs Header -->
     <div class="border-b border-gray-200 p-2 max-md:flex">
-      <button
-        v-for="(tab, i) in tabs"
-        :key="i"
-        @click="goTo(i)"
-        class="py-2 w-auto px-4 text-center transition max-md:flex-1"
-        :class="{
-          'text-qhx-primary border-b-2 border-qhx-primary w-auto font-semibold': currentIndex === i,
-          'text-gray-500': currentIndex !== i
-        }"
-      >
-        {{ tab }}
-      </button>
+      <slot name="header" :currentIndex="currentIndex" :goTo="goTo">
+        <!-- 默认的 tab 按钮，当没有提供 header slot 时显示 -->
+        <button
+          v-for="(tab, i) in tabs"
+          :key="i"
+          @click="goTo(i)"
+          class="py-2 w-auto px-4 text-center transition max-md:flex-1"
+          :class="{
+            'text-qhx-primary border-b-2 border-qhx-primary w-auto font-semibold': currentIndex === i,
+            'text-gray-500': currentIndex !== i
+          }"
+        >
+          {{ tab }}
+        </button>
+      </slot>
     </div>
 
     <!-- Panels Container -->
