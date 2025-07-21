@@ -1,6 +1,5 @@
 <template>
-  <header class="fixed w-full top-0 z-50 border-b dark:border-gray-800 bg-white dark:bg-gray-900 transition-all duration-300" :style="show ? {  } : { background: 'transparent' }"
-    @mouseenter="handleMouseEnter" @mouseleave="handleMouseLeave">
+  <header class="fixed w-full top-0 z-50 border-b dark:border-gray-800 bg-white dark:bg-gray-900 transition-all duration-300">
       <div class="container mx-auto px-4 py-3 flex items-center justify-between">
         <!-- 左侧 Logo -->
         <NuxtLink to="/" class="text-xl font-bold text-gray-900 dark:text-white hidden md:flex">

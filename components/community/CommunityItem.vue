@@ -44,18 +44,11 @@ const load = () => {
           {{ item.title }}
         </h3>
         <div v-html="text" class="community-content m-1" @click="handleJump(item.community_id)"></div>
-        <div class="flex flex-wrap">
-          <!-- <div class=" w-1/3 aspect-[1/1] relative" v-for="(img, index) in image" :key="index">
-            <div class="img-mask absolute aspect-[1/1] z-10" v-if="image.length > 9 && index === 8">
-              +{{ image.length - 9 }}
-            </div>
-            <img style="width: calc(100% - 8px);" :src="`${BASE_IMG}${img.replace('https://www.lolitalibrary.com/ali/', '')}`" :alt="item.title || 'lo研社'"
-            class="shadow-lg m-1 object-cover aspect-[1/1] rounded-[10px]" loading="lazy" />
-          </div> -->
-          <div class="flex flex-wrap">
-            <QhxPreviewImage @load="load" :list="image.map((img) => { return { src: img.replace('https://www.lolitalibrary.com/ali/', ''), alt: item.title || 'Lo研社' }})" :className="'w-[calc(100%/3-8px)] shadow-lg m-1 object-cover aspect-[1/1] rounded-[10px]'">
-            </QhxPreviewImage>
-          </div>
+        <div class="flex flex-wrap w-full">
+          <QhxPreviewImage @load="load" :list="image.map((img) => { return { src: img.replace('https://www.lolitalibrary.com/ali/', '') + '?x-oss-process=image/quality,q_100/resize,w_200,h_200', alt: item.title || 'Lo研社' }})"
+            :preview="image"
+            :className="'w-[calc(100%/3-8px)] shadow-lg m-1 object-cover aspect-[1/1] rounded-[10px]'">
+          </QhxPreviewImage>
         </div>
       </div>
     </div>

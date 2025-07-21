@@ -11,3 +11,15 @@ export async function getShopList(
   );
   return response.data;
 }
+
+export async function getShopDetail(
+  params: {
+    shop_id: number
+  }
+): Promise<Shop> {
+  const response = await use$Post<BaseResponse<Shop>>(
+    '/shop/id',
+    params
+  );
+  return response.data;
+}

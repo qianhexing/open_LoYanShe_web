@@ -3,6 +3,7 @@ interface SearchParams extends PaginationParams {
   keyword?: string | null  // 可选字段
   filter_list?: FilterList[]
   need_Statistics?: boolean
+  parent_id?: boolean
 }
 export async function getLibraryList(
   params: SearchParams
