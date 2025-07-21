@@ -1,15 +1,28 @@
 <script setup lang="ts">
-import type { Library, PaginationResponse } from '@/types/api';
+import type { Library, PaginationResponse, FilterList } from '@/types/api';
 import useScrollBottom from '@/composables/useScrollBottom'
 import { getLibraryList } from '@/api/library';
+import { string } from 'three/tsl';
+interface Props {
+  className?: string,
+  needShop?: boolean,
+  size?: string // 尺寸 mini small mid big
+  needJump?: boolean // 是否需要跳转
+  filter_list?: FilterList[]
+  need_water?: boolean // 是否需要瀑布流
+}
+const props = withDefaults(defineProps<Props>(), {
+  needShop: true,
+  size: 'mid',
+  needJump: true,
+  filter_list: () => [] as FilterList[],
+  need_water: true
+})
+const { needShop, size, needJump, filter_list, need_water } = props
 const user = useUserStore()
-const router = useRouter()
-const route = useRoute()
 // 分页参数
 const pageSize = 20
-// const total = ref(0)
-// const list = ref<Shop[]>([])
-const page = ref(Number(route.query.page) || 1)
+const page = ref(1)
 const keyword = ref('')
 const value = ref('')
 const column = ref(4)
@@ -17,7 +30,24 @@ const isLoading = ref(true)
 const isServer = useState('isServer', () => false)
 const isCheck = ref(true)
 const parent_id = ref(true)
-
+const formatFilterList = () => {
+  const filter: FilterList[] = [...filter_list]
+  if (parent_id.value) {
+    filter.push({
+      field: "parent_id",
+      op: "and",
+      value: 0
+    })
+  }
+  if (keyword.value && keyword.value!== '') {
+    filter.push({
+      field: "name",
+      op: "and",
+      value: keyword.value
+    })
+  }
+  return filter
+}
 // 使用`use$Post`请求函数
 const fetchLibraryList = async (): Promise<PaginationResponse<Library>> => {
   if (import.meta.server) {
@@ -30,9 +60,9 @@ const fetchLibraryList = async (): Promise<PaginationResponse<Library>> => {
     const response = await getLibraryList({
       page: page.value,
       pageSize: pageSize,
-      keyword: keyword.value,
+      // keyword: keyword.value,
       need_Statistics: true,
-      parent_id: parent_id.value
+      filter_list: formatFilterList()
     })
     isLoading.value = false
     isCheck.value = parent_id.value
@@ -80,11 +110,11 @@ const refreshLibrary = async () => {
   isLoading.value = true
   try {
     const response = await getLibraryList({
-      page: 1,
-      pageSize: pageSize * page.value,
-      keyword: keyword.value,
+      page: page.value,
+      pageSize: pageSize,
+      // keyword: keyword.value,
       need_Statistics: true,
-      parent_id: parent_id.value
+      filter_list: formatFilterList()
     })
     isLoading.value = false
     list.value = response.rows
@@ -116,13 +146,6 @@ definePageMeta({
 // 页码改变处理函数
 const handlePageChange = (current: number) => {
   page.value = current
-  // router.push({
-  //   query: {
-  //     ...route.query,
-  //     page: current
-  //   },
-  //   force: true
-  // })
 }
 
 const showToast = () => {
@@ -156,6 +179,9 @@ const handleChange = (e: boolean) => {
   
 }
 const waterLibrary = () => {
+  if (!need_water) {
+    return
+  }
   if (!window) {
     return
   }
@@ -169,12 +195,21 @@ const waterLibrary = () => {
       el.style.display = 'block'
     })
 }
+watchEffect(() => {
+	console.log('当前列表:', list.value.length)
+  if (process.client) {
+    setTimeout(() => {
+      debounceWater()
+    });
+  }
+})
 const debounceWater = debounce(waterLibrary, 100);
 onMounted(() => {
   if (window.innerWidth < 768) {
     column.value = 2
   }
   waterLibrary()
+
   if (user.token) {
     console.log('是否服务端渲染', isServer.value)
     if (isServer.value) {
@@ -186,24 +221,16 @@ onMounted(() => {
   }
 })
 const loadMore = () => {
-  console.log('是否在加载', isLoading.value)
   if (isLoading.value) {
     return
   }
   isLoading.value = true
   // 加载更多数据
   handlePageChange(page.value + 1)
-  console.log('加载更多')
 }
 
 // 监听总数变化
 watchEffect(() => {
-	console.log('当前列表:', list.value.length)
-  if (process.client) {
-    setTimeout(() => {
-      debounceWater()
-    });
-  }
 })
 
 const { isFinished, setFinished } = useScrollBottom(
@@ -268,71 +295,19 @@ const { isFinished, setFinished } = useScrollBottom(
         </div>
     </div>
     <!-- 空状态 -->
-    <div class="relative min-h-[600px]" v-if="total > 0">
-      <div class="library-list w-1/2 md:w-1/4" v-for="library in list" :key="library.library_id">
-        <LibraryItem :item="library" @image-load="debounceWater"></LibraryItem>
+    <div class="relative min-h-[600px] flex" v-if="total > 0">
+      <div class="library-list w-1/2 md:w-1/4" :class="need_water ? 'absolute' : ''" v-for="library in list" :key="library.library_id">
+        <LibraryItem :item="library" :size="size" :need-shop="needShop"></LibraryItem>
       </div>
     </div>
     <div v-else class="text-center text-gray-500 py-8">
       暂无数据
     </div>
     <QhxLoading :loading="isLoading"></QhxLoading>
-    <!-- 分页组件 -->
-    <!-- <div v-if="total > 0" class="mt-8 flex justify-center">
-      <UPagination
-        v-model="page"
-        :total="total / 2"
-        :ui="{
-          wrapper: 'flex items-center gap-1',
-          base: 'flex items-center gap-1',
-        }"
-        @change="handlePageChange"
-      />
-    </div> -->
   </div>
 </template>
 
 <style scoped>
-.library-list{
-  position: absolute;
-  transition: 0.3s;
-}
-.grid {
-  container-type: inline-size;
-}
-
-@container (min-width: 200px) {
-  .grid {
-    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-  }
-}
-
-/* 添加卡片阴影效果 */
-.u-card {
-  @apply shadow-sm hover:shadow-md dark:shadow-gray-800;
-}
-
-/* 优化图片容器 */
-.aspect-\[4\/3\] {
-  aspect-ratio: 4/3;
-}
-
-/* 适配暗色主题的过渡效果 */
-.group:hover .group-hover\:scale-110 {
-  @apply transform scale-110 transition-transform duration-300;
-}
-.badge-tip{
-  position: absolute;
-    left: calc(50% - 49px);
-    top: calc(50% - 45px);
-    font-size: 40px;
-    z-index: 10;
-    width: 80px;
-    text-align: center;
-    transform: rotate(-45deg);
-    color: var(--error-color);
-}
-/* 拍立得风格卡片样式 */
 </style>
 
 

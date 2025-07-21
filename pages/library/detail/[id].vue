@@ -285,11 +285,12 @@ const exchangeRate = (shop_country: number, price: number) => {
       <div class="p-3 max-md:block">
         <h1 class="mb-3 text-lg font-semibold">人台图</h1>
         <div class="flex flex-wrap pb-3 max-md:justify-center">
-          <div v-for="(item) in library_video" class="w-[100px] h-[100px] mr-3 mb-2">
+          <div v-for="(item) in library_video" class="w-[100px] h-[100px] mr-3 mb-2 relative">
             <QhxPreviewImage
               :list="[{ src: item.addr.split(',')[0] + '?x-oss-process=image/quality,q_80/resize,w_300,h_300', alt: library.name }]"
               :preview="item.addr.split(',')"
-              :className="'cursor-pointer ml-3 w-[100px] h-[100px]  object-cover rounded-[10px] shadow-lg border border-gray-200'">
+              :className="'cursor-pointer ml-3 w-[100px] h-[100px] relative  object-cover rounded-[10px] shadow-lg border border-gray-200'">
+              <div class=" absolute right-[-20px] top-[-10px] w-[20px] h-[20px] flex justify-center items-center bg-qhx-primary text-xs text-qhx-inverted rounded-[50%]">{{ item.addr.split(',').length }}</div>
             </QhxPreviewImage>
           </div>
         </div>

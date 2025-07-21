@@ -24,7 +24,7 @@ const load = () => {
       @click="handleClick(i)"
       @load="load"
       :class="props.className ? `${props.className}` : ''"
-      loading="lazy" />
+      loading="lazy"><slot></slot></img>
   <vue-easy-lightbox
       :visible="visible"
       :imgs="preview && preview.length > 0 ? preview.map(item => BASE_IMG + item) : list.map((item) => { return BASE_IMG + item.src})"

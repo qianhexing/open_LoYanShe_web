@@ -155,3 +155,33 @@ export function formatRich(richText: string) {
 	    text: textWithoutImgTags
 	};
 }
+// 获取店铺主体类型
+export function formatShopMainType(main_type: string) {
+	if (main_type) {
+    return main_type.split(',').map((type) => {
+      const value = Number.parseInt(type)
+      let label = '未知'
+      switch (value) {
+        case 0:
+          label = '网店'
+          break;
+        case 1:
+          label = '实体店'
+          break;
+        case 2:
+          label = '手作店'
+          break;
+        case 3:
+          label = '厂原'
+          break;
+        case 4:
+          label = '山店'
+          break;
+        default:
+          break;
+      }
+      return label
+    })
+  }
+  return []
+}

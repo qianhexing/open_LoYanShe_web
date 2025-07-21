@@ -118,12 +118,21 @@ export interface Shop {
 	likes?: number
   count_library?: number
   main_type?: string
+  masterpiece_list?: Library[]
+  style_list?: Wiki[]
+  type_list?: Wiki[]
+  shop_url?: string
+  shop_describe?: string
 }
 
+export interface Wiki {
+  wiki_id: number
+  wiki_name: string
+}
 export interface FilterList {
   field: string
   op: string
-  value: string
+  value: string | number
 }
 
 /** 图鉴 */
