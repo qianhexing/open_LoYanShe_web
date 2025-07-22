@@ -1,5 +1,5 @@
 <template>
-  <UPopover ref="popover" v-model:open="open" :popper="{ placement: 'bottom-start' }" :ui="{ rounded: 'rounded-[18px]' }"" >
+  <UPopover ref="popover1" v-model:open="open" :popper="{ placement: 'bottom-start' }" :ui="{ rounded: 'rounded-[18px]' }"" >
     <UButton class="bg-qhx-primary text-qhx-inverted hover:bg-qhx-primaryHover" variant="ghost" icon="i-heroicons-user-circle">登录</UButton>
     <template #panel>
       <div class="p-6 w-[22rem]">
@@ -88,7 +88,7 @@
 </template>
 
 <script setup lang="ts">
-const popover = ref() // 模板引用
+const popover1 = ref() // 模板引用
 const open = ref(false)
 const userStore = useUserStore()
 const state = reactive({
