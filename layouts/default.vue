@@ -56,7 +56,6 @@ onMounted(() => {
     <!-- <main class="container">
       <slot name="screen"/>
     </main> -->
-    <div style="height: 200px;"></div>
     <!-- Footer -->
     <footer class="bg-white/80 dark:bg-gray-900/80 backdrop-blur-sm border-t border-gray-200 dark:border-gray-700 mt-8 left-0 bottom-0 w-full z-50" :class="isHome ? 'fixed' : ''">
       <div class="container mx-auto px-4 py-6">

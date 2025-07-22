@@ -185,6 +185,16 @@ export interface Favorite {
   favorite_pic?: string | null;
 }
 
+export interface CommunityForeign {
+  community:Community
+  community_fireign_id: number
+  community_id: number
+  create_time: Date
+  is_enable: number
+  pk_id:number
+  pk_type: number
+  sort: number
+}
 export interface Community {
   community_id: number
   type?: string | null
