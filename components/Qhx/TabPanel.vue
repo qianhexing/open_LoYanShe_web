@@ -1,7 +1,7 @@
 <template>
   <div class="w-full">
     <div v-show="isActive">
-      <slot />
+      <slot :currentIndex="currentIndex" :isActive="isActive"/>
     </div>
     
   </div>

@@ -299,9 +299,11 @@ const exchangeRate = (shop_country: number, price: number) => {
     <div v-if="library" class="bg-qhx-bg-card rounded-lg shadow-lg mt-3">
       <QhxTabs :tabs="['返图']">
         <QhxTabPanel :index="0">
-          <div class=" bg-white">
-            <CommunityForeignList :pk_type="7" :pk_id="library.library_id"></CommunityForeignList>
-          </div>
+          <template #default="{ isActive }">
+            <div class="bg-white">
+              <CommunityForeignList :pk_type="7" :pk_id="library.library_id" :can_load="isActive"/>
+            </div>
+          </template>
         </QhxTabPanel>
       </QhxTabs>
     </div>

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { Shop, PaginationResponse } from '@/types/api';
 import { getShopDetail } from '@/api/shop';
+import type { UserBlackBtn, UserGoodBtn } from '#components';
 const user = useUserStore()
 const config = useConfigStore()
 const route = useRoute()
@@ -10,6 +11,10 @@ const { data } = await useAsyncData('shopDeatil', () => {
 }, {})
 const detail = ref<Shop | null>(null)
 const shop = ref<Shop | null>(null)
+const goodBtn = ref<InstanceType<typeof UserGoodBtn> | null>(null)
+const blackBtn = ref<InstanceType<typeof UserBlackBtn> | null>(null)
+
+  
 detail.value = data.value ?? null
 
 interface WikiParams {
@@ -35,7 +40,7 @@ useHead({
 </script>
 <template>
   <div class="container mx-auto p-4">
-    <div v-if="detail" ref="libraryRef" class="bg-qhx-bg-card rounded-lg shadow-lg" :key="detail.shop_id">
+    <div v-if="detail" class="bg-qhx-bg-card rounded-lg shadow-lg" :key="detail.shop_id">
       <div class="p-3 flex max-md:block max-md:px-1">
         <div class="flex my-2 w-[434px] max-md:w-full relative">
           <QhxPreviewImage :key="detail.shop_id" :list="[{ src: detail.shop_logo, alt: detail.shop_name }]" :className="'cursor-pointer w-full ml-0 h-[430px]  object-cover rounded-[10px] shadow-lg border border-gray-200'">
@@ -46,14 +51,21 @@ useHead({
             <h1 class="mb-3 text-lg font-semibold">{{ detail?.shop_name }}</h1>
           </div>
           <h3 class="text-sm m-1" v-html="detail.shop_describe" v-if="detail.shop_describe"></h3>
-          <div class="flex justify-center">
+          <div class="flex justify-center p-3">
             <div class=" flex-1 text-center">
-              <UserGoodBtn :pk_type="1" :pk_id="detail.shop_id" :good_count="detail.good_count || 0" :need_judge="true">
+              <UserGoodBtn ref="goodBtn" :pk_type="1" :pk_id="detail.shop_id" :good_count="detail.good_count || 0" :need_judge="true">
               </UserGoodBtn>
+            </div>
+            <div class=" flex-1 text-center">
+              <UserBlackBtn ref="blackBtn" :pk_type="1" :pk_id="detail.shop_id" :black_count="detail.black_count || 0" :need_judge="true">
+              </UserBlackBtn>
+            </div>
+            <div class=" flex-1 text-center" v-if="goodBtn && blackBtn">
+              赞黑比 {{ blackBtn.blackCount ? (goodBtn.goodCount / blackBtn.blackCount).toFixed(2) : goodBtn.goodCount ? goodBtn.goodCount : '--' }}
             </div>
           </div>
           <!-- 主营风格 -->
-          <div v-if="detail.style_list" class="mb-1">
+          <div v-if="detail.style_list  && detail.style_list?.length" class="mb-1">
             <h3 class="text-sm m-1">主营风格</h3>
             <div class="flex flex-wrap gap-2">
               <QhxTag v-for="(tags, index) in detail.style_list" :key="index">
@@ -62,7 +74,7 @@ useHead({
             </div>
           </div>
           <!-- 主营类型 -->
-          <div v-if="detail.style_list" class="mb-1">
+          <div v-if="detail.type_list && detail.type_list?.length > 0" class="mb-1">
             <h3 class="text-sm m-1">主营类型</h3>
             <div class="flex flex-wrap gap-2">
               <QhxTag v-for="(tags, index) in detail.type_list" :key="index">

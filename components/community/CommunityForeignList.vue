@@ -10,7 +10,7 @@ interface Props {
   water_class?: string
   pk_id: number
   pk_type: number
-  can_load: boolean // 是否允许加载
+  can_load?: boolean // 是否允许加载
 }
 const props = withDefaults(defineProps<Props>(), {
   size: 'big',

@@ -48,6 +48,10 @@ const creatDomUi = (className: string, component: Component): CSS3DObject => {
 	return css3dObject
 }
 const createUIDom = () => {
+	let isPc = true
+	if (window.innerWidth < 768) {
+		isPc = false
+  }
 	if (UIGroup.value) {
 		// 重置UI组
     threeCore.scene.remove(UIGroup.value);
@@ -73,7 +77,9 @@ const createUIDom = () => {
 	Group.add(rigth)
 
 	UIGroup.value = Group
-	threeCore.scene.add(Group)
+	if (isPc) {
+		threeCore.scene.add(Group)
+	}
 }
 const loadLibrary = async () => {
 	const Group = new THREE.Group()

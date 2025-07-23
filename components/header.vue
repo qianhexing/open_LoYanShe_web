@@ -38,7 +38,8 @@ const navItems = [
   { label: "店铺", to: "/shop" },
   { label: "合集", to: "/compilations" },
   { label: "社区", to: "/community" },
-  { label: "百科", to: "/lolitaWiki" },
+  // { label: "百科", to: "/lolitaWiki" },
+  { label: "研习", to: "/study" },
 ];
 const handleMouseEnter = () => {
   show.value = true
