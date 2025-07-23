@@ -123,6 +123,7 @@ export interface Shop {
   type_list?: Wiki[]
   shop_url?: string
   shop_describe?: string
+  black_count?: number
 }
 
 export interface Wiki {

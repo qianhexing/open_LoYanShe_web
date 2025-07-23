@@ -78,7 +78,9 @@ const toggleLike = async () => {
     loading.value = false
   }
 }
-
+defineExpose({
+  goodCount
+})
 </script>
 <template>
   <div @click="toggleLike" class=" cursor-pointer inline-block">
