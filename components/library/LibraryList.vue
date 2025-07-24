@@ -125,24 +125,6 @@ const refreshLibrary = async () => {
 watchEffect(() => {
 	console.log('当前总数:', total.value)
 })
-
-// SEO 配置
-useHead({
-	title: 'Lolita图鉴',
-	meta: [
-		{
-			name: 'keywords',
-			content: 'Lo研社,洛丽塔图鉴,Lolita,Lolita图鉴,Lolita图书馆'
-		},
-		{
-			name: 'description',
-			content: '洛丽塔图书馆汇总,Lolita图书馆'
-		}
-	]
-})
-definePageMeta({
-  name: 'library'
-})
 // 页码改变处理函数
 const handlePageChange = (current: number) => {
   page.value = current

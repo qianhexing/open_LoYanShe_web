@@ -73,7 +73,7 @@ const fetchList = async (): Promise<PaginationResponse<CommunityForeign>> => {
     }
   }
 }
-const { data, refresh  } = await useAsyncData('librarys', fetchList, 
+const { data, refresh  } = await useAsyncData('community_foreign', fetchList, 
   {
     watch: [page, keyword]
   }

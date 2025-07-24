@@ -11,3 +11,14 @@ export async function getStudyList(
   );
   return response.data;
 }
+export async function getStudyId(
+  params: {
+    study_id: number
+  }
+): Promise<Study> {
+  const response = await use$Post<BaseResponse<Study>>(
+    '/study/id',
+    params
+  );
+  return response.data;
+}
