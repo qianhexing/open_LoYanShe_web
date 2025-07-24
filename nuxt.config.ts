@@ -25,6 +25,17 @@ export default defineNuxtConfig({
 			baseUrl: '/node'
 		}
 	},
+	app: {
+    head: {
+      script: [
+        {
+          src: 'https://hm.baidu.com/hm.js?0335ae083b2ed0e0898bed7618373dee',
+          async: true,
+          defer: true,
+        },
+      ],
+    },
+  },
 	compatibilityDate: '2024-11-01',
 	devtools: { enabled: true },
 	modules: ['@nuxtjs/seo', '@nuxt/ui', '@nuxtjs/tailwindcss', '@vueuse/nuxt', '@pinia/nuxt'],
@@ -37,6 +48,7 @@ export default defineNuxtConfig({
 		fallback: 'light',
 		classSuffix: ''
 	},
+	
 	css: [
     '~/assets/css/tailwind.css'   // 再加载Tailwind
   ],

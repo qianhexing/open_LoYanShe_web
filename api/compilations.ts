@@ -28,16 +28,22 @@ export async function getCompList(
   data: PaginationParams & { keywords?: string }
 ): Promise<BaseResponse<PaginationResponse<Compilations>>> {
   return await use$Post<BaseResponse<PaginationResponse<Compilations>>>(
-    'comp/list',
+    '/comp/list',
     data
   )
 }
 
 // 根据 ID 获取合集详情
 export async function getCompById(
-  data: { comp_id: number }
-): Promise<BaseResponse<Compilations>> {
-  return await use$Post<BaseResponse<Compilations>>('/comp/id', data)
+  params: {
+    comp_id: number
+  }
+): Promise<Compilations> {
+  const response = await use$Post<BaseResponse<Compilations>>(
+    '/comp/id',
+    params
+  );
+  return response.data;
 }
 
 // 删除合集数据
@@ -49,7 +55,8 @@ export async function deleteCompList(
 
 // 获取合集详情列表（如子项列表等）
 export async function getCompDetailList(
-  data: { comp_id: number }
-): Promise<BaseResponse<Compilations[]>> {
-  return await use$Post<BaseResponse<Compilations[]>>('/comp/detail/list', data)
+  data: PaginationParams & { comp_id: number }
+): Promise<PaginationResponse<Compilations[]>> {
+  const response = await use$Post<BaseResponse<PaginationResponse<Compilations[]>>>('/comp/detail/list', data)
+  return response.data
 }
