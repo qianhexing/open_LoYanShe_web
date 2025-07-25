@@ -29,7 +29,12 @@ useHead({
   <div class="container mx-auto p-4">
     <div v-if="detail && detail.child" class="bg-qhx-bg-card rounded-lg shadow-lg mt-3">
       <QhxTabs :tabs="detail.child.map((item) => { return item.study_title })">
-        <QhxTabPanel :index="0">
+        <QhxTabPanel :index="index" v-for="(item, index) in detail.child" :key="index">
+          <template #default="{ isActive, firstLoading }">
+            <div v-if="firstLoading" class="w-full">
+              <StudyForeignList :isActive="isActive" :keyName="index" :study_id="item.study_id" :key="index"></StudyForeignList>
+            </div>
+          </template>
         </QhxTabPanel>
       </QhxTabs>
     </div>

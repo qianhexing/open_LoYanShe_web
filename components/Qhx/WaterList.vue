@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { ref, watch, watchEffect, onMounted } from 'vue'
-import { debounce } from 'lodash-es'
 
 interface Props<T> {
   // 获取数据的方法
@@ -11,6 +10,7 @@ interface Props<T> {
   // 列数
   columns?: number
   columns_768?: number
+  itemKey?: number
   // 每页大小
   pageSize?: number
   // 是否启用瀑布流布局
@@ -19,14 +19,18 @@ interface Props<T> {
   scrollDistance?: number
   // 自定义类名
   className?: string
+  // 是否启用加载更多
+  enableLoadMore?: boolean
 }
 
 const props = withDefaults(defineProps<Props<any>>(), {
   columns: 4,
   pageSize: 20,
   enableWaterfall: true,
+  enableLoadMore: true,
   scrollDistance: 300,
-  className: ''
+  className: '',
+  itemKey: 0
 })
 
 const emit = defineEmits(['loading', 'loaded', 'error'])
@@ -74,14 +78,15 @@ const loadData = async () => {
 const applyWaterfallLayout = () => {
   if (!props.enableWaterfall) return
   
-  const container = document.querySelector('.waterfall-container')
+  const container = document.querySelector(`.waterfall-container${props.itemKey === 0 ? '' : props.itemKey}`)
   if (!container) return
   
-  const items = container.querySelectorAll('.waterfall-item')
+  const items = container.querySelectorAll(`.waterfall-item${props.itemKey === 0 ? '' : props.itemKey}`)
   if (items.length === 0) return
   
   // 重置所有项目位置
-  items.forEach(item => {
+  // biome-ignore lint/complexity/noForEach: <explanation>
+      items.forEach(item => {
     (item as HTMLElement).style.position = 'static'
   })
   
@@ -108,6 +113,9 @@ const applyWaterfallLayout = () => {
 
 // 加载更多
 const loadMore = () => {
+  if (!props.enableLoadMore) {
+    return
+  }
   if (isLoading.value || isFinished.value) return
   page.value += 1
   loadData()
@@ -176,13 +184,14 @@ defineExpose({
 <template>
   <div :class="['waterfall-wrapper', className]">
     <!-- 瀑布流容器 -->
-    <div class="waterfall-container relative w-full">
+    <div class="waterfall-default-container relative w-full" :class="`waterfall-container${props.itemKey === 0 ? '' : props.itemKey}`">
       <!-- 每个项目 -->
       <div 
         v-for="(item, index) in list" 
         :key="index" 
-        class="waterfall-item"
-        :style="enableWaterfall ? '' : `width: calc(100% / ${column})`"
+        class="waterfall-default-item"
+        :class="`waterfall-item${props.itemKey === 0 ? '' : props.itemKey}`"
+        :style="`width: calc(100% / ${column})`"
       >
         <!-- 插槽内容 -->
         <slot :item="item" :debouncedApplyLayout="debouncedApplyLayout" :index="index"></slot>
@@ -207,11 +216,14 @@ defineExpose({
 </template>
 
 <style scoped>
-.waterfall-container {
+/* .waterfall-container {
+  transition: height 0.3s ease;
+} */
+.waterfall-default-container{
   transition: height 0.3s ease;
 }
 
-.waterfall-item {
+.waterfall-default-item {
   box-sizing: border-box;
   transition: all 0.3s ease;
 }

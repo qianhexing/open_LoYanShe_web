@@ -178,6 +178,24 @@ export interface Study {
   count: number
   child?: Study[]
 }
+/** 研习关联 */
+export interface StudyForeign {
+  create_time: Date
+  foreign?: {
+    text?: string
+    cover?: string
+  }
+  community?: Community
+  library?: Library
+  shop?: Shop
+  foreign_id: number
+  is_enable: number
+  pk_id: number | string
+  pk_type: number
+  sort: number
+  study_id: number
+}
+
 /** 收藏夹 */
 export interface Favorite {
   id: number;
