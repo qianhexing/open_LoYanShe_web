@@ -44,7 +44,7 @@ onMounted(() => {
   <div class="min-h-screen background transition-colors duration-300">
     <UNotifications position="top-0 right-0" />
     <Header />
-    <main class="container mx-auto pb-4 pt-20 min-h-screen">
+    <main class="container mx-auto pb-4  pt-14 min-h-screen">
       <slot />
     </main>
     <!-- <KeepAlive :include="cachedPages" :max="5">

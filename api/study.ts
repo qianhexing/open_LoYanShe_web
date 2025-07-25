@@ -1,6 +1,7 @@
-import type { BaseResponse, PaginationParams, PaginationResponse, Study } from '@/types/api';
+import type { BaseResponse, PaginationParams, PaginationResponse, Study, StudyForeign } from '@/types/api';
 interface SearchParams extends PaginationParams {
   parent_id?: number | null  // 可选字段
+  study_id?: number
 }
 export async function getStudyList(
   params: SearchParams
@@ -18,6 +19,16 @@ export async function getStudyId(
 ): Promise<Study> {
   const response = await use$Post<BaseResponse<Study>>(
     '/study/id',
+    params
+  );
+  return response.data;
+}
+
+export async function getStudyForeignList(
+  params: SearchParams
+): Promise<PaginationResponse<StudyForeign>> {
+  const response = await use$Post<BaseResponse<PaginationResponse<StudyForeign>>>(
+    '/study/foreign/list',
     params
   );
   return response.data;
