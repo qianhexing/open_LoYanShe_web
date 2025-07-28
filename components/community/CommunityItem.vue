@@ -46,7 +46,7 @@ const load = () => {
         <div v-html="text" class="community-content m-1" @click="handleJump(item.community_id)"></div>
         <div class="flex flex-wrap w-full">
           <QhxPreviewImage @load="load" :list="image.map((img) => { return { src: img.replace('https://www.lolitalibrary.com/ali/', '') + '?x-oss-process=image/quality,q_100/resize,w_200,h_200', alt: item.title || 'Lo研社' }})"
-            :preview="image"
+            :preview="image.map((img) => { return img.replace('https://www.lolitalibrary.com/ali/', '') })"
             :className="'w-[calc(100%/3-8px)] shadow-lg m-1 object-cover aspect-[1/1] rounded-[10px]'">
           </QhxPreviewImage>
         </div>

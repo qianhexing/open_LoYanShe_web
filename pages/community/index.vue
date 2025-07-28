@@ -164,8 +164,10 @@ watchEffect(() => {
 const { isFinished, setFinished } = useScrollBottom(
   async () => {
     // 加载更多数据的逻辑
-    console.log('触发加载更多')
-    loadMore()
+    if (page.value < Math.ceil(total.value / pageSize)) {
+      console.log('触发加载更多')
+      loadMore()
+    }
   },
   {
     distance: 300, // 距离底部100px时触发

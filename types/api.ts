@@ -214,6 +214,26 @@ export interface CommunityForeign {
   pk_type: number
   sort: number
 }
+export interface Comment {
+  bad_num:number
+  comment_content: string
+  comment_id: number
+  date: Date
+  floor: number
+  good_num: number
+  id: number
+  ip_location?: string
+  is_enable?: number
+  library_list?: Library[]
+  mount_img?: string
+  mount_library?: Library[]
+  notice?: number
+  r_count?: number
+  reply_to?: number
+  type?: string
+  user: User
+}
+
 export interface Community {
   community_id: number
   type?: string | null
@@ -282,4 +302,8 @@ export interface LibraryVideo {
   sort: number
   title: string
   video_id: number
+}
+
+export interface Scene {
+  addr: string
 }

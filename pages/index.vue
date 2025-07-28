@@ -83,12 +83,12 @@ const createUIDom = () => {
 }
 const loadLibrary = async () => {
 	const Group = new THREE.Group()
-	const model = await threeCore.loadModel(`${BASE_IMG}sence/library.glb`, { useDracoLoader: true, dracoDecoderPath: '/draco/gltf/' })
-	model.scale.set(0.014,0.014,0.014)
+	const model = await threeCore.loadModel(`${BASE_IMG}sence/tuxiong2.glb?1122`, { useDracoLoader: true, dracoDecoderPath: '/draco/gltf/' })
+	model.scale.set(1.514,1.514,1.514)
 	model.rotateY(150* (Math.PI / 180))
 	model.position.set(0,0,0)
 	Group.add(model)
-	Group.position.set(-1.5,0,-3)
+	Group.position.set(0,0,0)
 	Scene1Group.value = Group
 	threeCore.scene.add(Group)
 	console.log('模型', model)
@@ -103,6 +103,7 @@ const initThreejs = () => {
 	createUIDom()
 	loadLibrary()
 	threeCore.controls.enabled = false
+	threeCore.scene.background = new THREE.Color('#ffddf2')
 	// threeCore.controls.autoRotate = true
 	// 开始渲染循环
 	threeCore.startAnimationLoop();

@@ -5,6 +5,25 @@ import { CSS3DRenderer, CSS3DObject } from 'three/examples/jsm/renderers/CSS3DRe
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { AnimationMixer } from 'three';
 import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
+interface SceneObjectJSON  {
+  type: 'box' | 'sphere' | 'model';
+  position?: [number, number, number];
+  rotation?: [number, number, number];
+  scale?: [number, number, number];
+  color?: string;
+  size?: [number, number, number]; // for box
+  radius?: number; // for sphere
+  url?: string; // for model
+  useDracoLoader?: boolean;
+  dracoDecoderPath?: string
+
+  playAnimations?: string[]; 
+  loopOnce?: boolean;
+};
+interface SceneJSON {
+  objects: SceneObjectJSON[]
+};
+
 
 interface ThreeCoreOptions {
   antialias?: boolean;
@@ -22,8 +41,9 @@ class ThreeCore {
   public scene: THREE.Scene;
   public camera: THREE.PerspectiveCamera | THREE.OrthographicCamera;
   public renderer: THREE.WebGLRenderer;
-  public css3DRenderer?: CSS3DRenderer; // 新增CSS3D渲染器
+  public css3DRenderer?: CSS3DRenderer; // CSS3D渲染器
   public controls: OrbitControls;
+  public mixers: AnimationMixer[] = []; // 用于管理多个模型动画混合器
   public stats?: Stats;
   public animationCallbacks: Array<() => void>;
   public resizeCallbacks: Array<(width: number, height: number) => void>;
@@ -168,7 +188,7 @@ class ThreeCore {
     directionalLight.shadow.mapSize.height = 1024;
     this.scene.add(directionalLight);
 
-    const hemisphereLight = new THREE.HemisphereLight(0xffffbb, 0x080820, 1.7);
+    const hemisphereLight = new THREE.HemisphereLight(0xffffff, 0xffffff, 1.7);
     this.scene.add(hemisphereLight);
   }
   addAnimationCallback(callback: () => void) {
@@ -344,6 +364,56 @@ class ThreeCore {
     }
     return new CSS3DObject(element);
   }
+
+  public async loadSceneFromJSON(json: SceneJSON) {
+    for (const obj of json.objects) {
+      const position = obj.position || [0, 0, 0];
+      const rotation = obj.rotation || [0, 0, 0];
+      const scale = obj.scale || [1, 1, 1];
+  
+      let mesh: THREE.Object3D | null = null;
+  
+      if (obj.type === 'box') {
+        const size = obj.size || [1, 1, 1];
+        const geometry = new THREE.BoxGeometry(...size);
+        const material = new THREE.MeshStandardMaterial({ color: obj.color || '#ffffff' });
+        mesh = new THREE.Mesh(geometry, material);
+      }
+  
+      if (obj.type === 'sphere') {
+        const radius = obj.radius || 1;
+        const geometry = new THREE.SphereGeometry(radius, 32, 32);
+        const material = new THREE.MeshStandardMaterial({ color: obj.color || '#ffffff' });
+        mesh = new THREE.Mesh(geometry, material);
+      }
+  
+      if (obj.type === 'model' && obj.url) {
+        try {
+          const cachedModel = this.loadedModels.find(m => m.userData.url === obj.url);
+          if (cachedModel) {
+            mesh = cachedModel.clone(true); // ✅ 克隆模型，包括层级和动画骨骼
+          } else {
+            const model = await this.loadModel(obj.url, {
+              useDracoLoader: obj.useDracoLoader ?? false,
+              dracoDecoderPath: (obj.useDracoLoader && obj.dracoDecoderPath) ?? undefined,
+            });
+            mesh = model.clone(true); // 克隆第一个实例，避免共享同一实例引用
+          }
+        } catch (e) {
+          console.warn(`模型加载失败：${obj.url}`, e);
+        }
+      }
+  
+      if (mesh) {
+        mesh.position.set(...position);
+        mesh.rotation.set(...rotation);
+        mesh.scale.set(...scale);
+        this.scene.add(mesh);
+      }
+    }
+  }
+  
+  
 
   // 修改dispose方法以清理CSS3D渲染器
   dispose() {
