@@ -74,6 +74,18 @@ useHead({
         </div>
       </div>
     </div>
+    
+    <div v-if="detail" class="bg-qhx-bg-card rounded-lg shadow-lg mt-3">
+      <QhxTabs :tabs="['评论区']">
+        <QhxTabPanel :index="0">
+          <template #default="{ isActive }">
+            <div class="bg-white">
+              <CommentSection :type="'community'" :id="detail.community_id" :can_load="isActive"/>
+            </div>
+          </template>
+        </QhxTabPanel>
+      </QhxTabs>
+    </div>
   </div>
 </template>
 
