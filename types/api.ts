@@ -232,6 +232,7 @@ export interface Comment {
   reply_to?: number
   type?: string
   user: User
+  isCheck?: boolean
 }
 
 export interface Community {

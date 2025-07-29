@@ -43,6 +43,8 @@ class ThreeCore {
   public renderer: THREE.WebGLRenderer;
   public css3DRenderer?: CSS3DRenderer; // CSS3D渲染器
   public controls: OrbitControls;
+  public allObjects: THREE.Object3D[] // 场景里的所有模型
+  
   public mixers: AnimationMixer[] = []; // 用于管理多个模型动画混合器
   public stats?: Stats;
   public animationCallbacks: Array<() => void>;
@@ -74,9 +76,11 @@ class ThreeCore {
     this.animationCallbacks = [];
     this.resizeCallbacks = [];
     this.container = null;
+    this.controls = null!
 
     this.loadedModelURLs = new Set();
     this.loadedModels = [];
+    this.allObjects = []
     this.clock = new THREE.Clock();
 
     this.initScene();
@@ -115,7 +119,7 @@ class ThreeCore {
       if (this.loadedModelURLs.has(url)) {
         const existing = this.loadedModels.find(obj => obj.userData.url === url);
         if (existing) {
-          resolve(existing)
+          resolve(existing.clone(true))
         }
       } else {
         loader.load(url, (gltf) => {
@@ -389,16 +393,11 @@ class ThreeCore {
   
       if (obj.type === 'model' && obj.url) {
         try {
-          const cachedModel = this.loadedModels.find(m => m.userData.url === obj.url);
-          if (cachedModel) {
-            mesh = cachedModel.clone(true); // ✅ 克隆模型，包括层级和动画骨骼
-          } else {
-            const model = await this.loadModel(obj.url, {
-              useDracoLoader: obj.useDracoLoader ?? false,
-              dracoDecoderPath: (obj.useDracoLoader && obj.dracoDecoderPath) ?? undefined,
-            });
-            mesh = model.clone(true); // 克隆第一个实例，避免共享同一实例引用
-          }
+          const model = await this.loadModel(obj.url, {
+            useDracoLoader: obj.useDracoLoader ?? false,
+            dracoDecoderPath: (obj.useDracoLoader && obj.dracoDecoderPath) ? obj.dracoDecoderPath : 'jsm/libs/draco/gltf/',
+          });
+          mesh = model
         } catch (e) {
           console.warn(`模型加载失败：${obj.url}`, e);
         }
@@ -408,6 +407,7 @@ class ThreeCore {
         mesh.position.set(...position);
         mesh.rotation.set(...rotation);
         mesh.scale.set(...scale);
+        this.allObjects.push(mesh)
         this.scene.add(mesh);
       }
     }

@@ -1,7 +1,8 @@
 import type { BaseResponse, PaginationParams, PaginationResponse, Comment } from '@/types/api';
 interface SearchParams extends PaginationParams {
-  id: number
-  type: string
+  id?: number
+  type?: string
+  comment_id?: number
 }
 export async function getCommentList(
   params: SearchParams
@@ -13,14 +14,28 @@ export async function getCommentList(
   return response.data;
 }
 
-// export async function getShopDetail(
-//   params: {
-//     shop_id: number
-//   }
-// ): Promise<Shop> {
-//   const response = await use$Post<BaseResponse<Shop>>(
-//     '/shop/id',
-//     params
-//   );
-//   return response.data;
-// }
+export async function getReplyList(
+  params: SearchParams
+): Promise<PaginationResponse<Comment>> {
+  const response = await use$Post<BaseResponse<PaginationResponse<Comment>>>(
+    '/reply/comment/id/list',
+    params
+  );
+  return response.data;
+}
+
+interface InsertParams extends PaginationParams {
+  id?: number
+  type?: string
+  comment_id?: number
+  comment_content?: string
+}
+export async function insertComment(
+  params: InsertParams
+): Promise<PaginationResponse<Comment>> {
+  const response = await use$Post<BaseResponse<PaginationResponse<Comment>>>(
+    '/comment/insert',
+    params
+  );
+  return response.data;
+}
