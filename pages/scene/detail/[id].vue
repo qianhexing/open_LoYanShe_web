@@ -1,89 +1,197 @@
+<template>
+	<div>
+		<div style="height: 100vh; width: 100vw; overflow: hidden; " id="scene"></div>
+	</div>
+</template>
 <script setup lang="ts">
-import type { Compilations, PaginationResponse } from '@/types/api';
-import { getCompById, getCompDetailList } from '@/api/compilations'
-
-import type { UserBlackBtn, UserGoodBtn } from '#components';
-const user = useUserStore()
-const config = useConfigStore()
+import qhxCore from '@/utils/threeCore';
+import * as THREE from 'three';
+import type  { CSS3DObject } from 'three/examples/jsm/renderers/CSS3DRenderer.js';
+let threeCore: qhxCore
+const theme = useThemeStore()
+const UIGroup = ref<THREE.Group | null>(null)
+const Scene1Group = ref<THREE.Group | null>(null)
+import leftContent from '@/components/home/leftContent.vue'
+import rightContent from '@/components/home/rightContent.vue'
+import type { App, Component } from 'vue';
+import { createApp  } from 'vue'
 const route = useRoute()
 const id = route.params.id as string
-const { data } = await useAsyncData('compDeatil', () => {
-  return getCompById({ comp_id: Number.parseInt(id) })
-}, {})
-const detail = ref<Compilations | null>(null)
-const goodBtn = ref<InstanceType<typeof UserGoodBtn> | null>(null)
-const blackBtn = ref<InstanceType<typeof UserBlackBtn> | null>(null)
-
-detail.value = data.value ?? null
-console.log('获取到的合集详情', data.value)
 useHead({
-  title: detail.value ? detail.value.comp_name : 'Lolita合集',
-  meta: [
-    {
-      name: 'keywords',
-      content: `${detail.value?.comp_name} Lo研社,Lolita合集,Lolita图书馆`
-    },
-    {
-      name: 'description',
-      content: '洛丽塔图书馆汇总,Lolita图书馆'
-    }
-  ]
+	title: 'Lo研社 Lolita图书馆',
+	meta: [
+		{
+			name: 'keywords',
+			content: 'Lo研社,洛丽塔图书馆,Lolita,Lolita汇总'
+		},
+		{
+			name: 'description',
+			content: 'Lo研社 Lolita服饰与文化研习社'
+		}
+	]
 })
+const creatDomUi = (className: string, component: Component): CSS3DObject => {
+	const scale = calcCss3dScale()
+	const divElement: HTMLElement = document.createElement('div');
+	divElement.className = className
+	const app: App = createApp(component)
+	app.mount(divElement) // 挂载 Vue 组件
+	// divElement.style.backgroundColor = hexToRgba(theme.themeCss.primary, 0.4)
+	const css3dObject = threeCore.createCSS3DObject(divElement);
+	css3dObject.position.set(0, 0, 0);
+	css3dObject.scale.set(scale, scale, scale)
+	return css3dObject
+}
+const createUIDom = () => {
+	let isPc = true
+	if (window.innerWidth < 768) {
+		isPc = false
+  }
+	if (UIGroup.value) {
+		// 重置UI组
+    threeCore.scene.remove(UIGroup.value);
+    UIGroup.value.clear();
+    UIGroup.value = null;
+  }
+	const Group = new THREE.Group()
+	const left = creatDomUi('left-box', leftContent)
+	left.position.x = -pxToThreeJSX(window.innerWidth * 1.005)
+	// left.position.z = -0.1
+	console.log('左侧', left)
+	// left.rotateY(5 * (Math.PI / 180))
+	// left.rotateZ(-4 * (Math.PI / 180))
+	left.rotateX(-0.675)
+	Group.add(left)
+
+	const rigth = creatDomUi('right-box', rightContent)
+	rigth.position.x = pxToThreeJSX(window.innerWidth * 0.94)
+	// rigth.position.z = -0.25
+	// rigth.rotateY(-5 * (Math.PI / 180))
+	// rigth.rotateZ( * (Math.PI / 180))
+	rigth.rotateX(-0.675)
+	Group.add(rigth)
+
+	UIGroup.value = Group
+	if (isPc) {
+		threeCore.scene.add(Group)
+	}
+}
+const loadLibrary = async () => {
+	const Group = new THREE.Group()
+	const model = await threeCore.loadModel(`${BASE_IMG}sence/tuxiong1.glb?1122`, { useDracoLoader: true, dracoDecoderPath: '/draco/gltf/' })
+	model.scale.set(1.514,1.514,1.514)
+	model.rotateY(150* (Math.PI / 180))
+	model.position.set(0,0,0)
+	Group.add(model)
+	Group.position.set(0,0,0)
+	Scene1Group.value = Group
+	threeCore.scene.add(Group)
+	console.log('模型', model)
+}
+const initThreejs = () => {
+	threeCore = new qhxCore({
+		enableCSS3DRenderer: true,
+		alpha: true
+	})
+	// 挂载到DOM
+	threeCore.mount(document.getElementById('scene'));
+	// loadLibrary()
+  use$Get(`/sence/json/${id}.json?2`, undefined, { baseURL: BASE_IMG})
+    .then((res) => {
+      threeCore.loadSceneFromJSON(res)
+    }) 
+  
+	threeCore.controls.enabled = true
+	threeCore.scene.background = new THREE.Color('#ffddf2')
+	// threeCore.controls.autoRotate = true
+	// 开始渲染循环
+	threeCore.startAnimationLoop();
+}
+const mouse = new THREE.Vector2();
+const throttledMouseMove = throttle((event: MouseEvent) => {
+	mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+	mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+	updateCameraLookAt();
+}, 20);
+const calcCss3dScale = () => {
+	if (threeCore?.camera) {
+		const distance = threeCore.camera.position.distanceTo(new THREE.Vector3(0,0,0));
+		const fovRad = (threeCore.camera as THREE.PerspectiveCamera).fov * (Math.PI / 180);
+		const visibleHeightAtZ = 2 * Math.tan(fovRad / 2) * Math.abs(distance); // ≈6.9（当 z=5, FOV=75°）
+		const scale = visibleHeightAtZ / window.innerHeight;
+		return scale
+	}
+	return 1
+}
+// 计算水平夹角
+const calcCameraAngleX = (cameraPosition: THREE.Vector3, targetPoint: THREE.Vector3): number => {
+
+	// 1. 计算方向向量
+	const direction = new THREE.Vector3().subVectors(targetPoint, cameraPosition);
+	const yawRad = Math.atan2(direction.x, direction.z);
+	const yawDeg = THREE.MathUtils.radToDeg(yawRad); // 弧度 → 角度
+	return yawDeg
+}
+// 像素转换threejs坐标
+const pxToThreeJSX = (px: number) => {
+	// 计算可见宽度
+	const fovRad = (threeCore.camera as THREE.PerspectiveCamera).fov * (Math.PI / 180);
+	const visibleHeightAtZ = 2 * Math.tan(fovRad / 2) * Math.abs(threeCore.camera.position.z);
+	const visibleWidthAtZ = visibleHeightAtZ * (window.innerWidth / window.innerHeight);
+  const screenRatio = px / window.innerWidth;
+  return -visibleWidthAtZ / 2 + screenRatio * visibleWidthAtZ;
+}
+
+const updateCameraLookAt = () => {
+	if (!threeCore) {
+		return;
+	}
+	if (!threeCore.controls) {
+		return
+	}
+
+	// 获取屏幕宽度（以像素为单位）
+	const screenWidth = window.innerWidth;
+
+	const mouseXNormalized = mouse.x / (screenWidth / 2);
+
+	const angleX = mouse.x * (Math.PI / 2);
+	const angleY = mouse.y * (Math.PI / 2);
+	// 
+	const lookDistance = threeCore.controls.object.position.z / 2;
+	const targetPosition = new THREE.Vector3(
+		Math.sin(angleX) * lookDistance / 4,
+		0,
+		0
+	);
+	if (Scene1Group.value) {
+		Scene1Group.value.rotation.y = angleX / 4
+	}
+	// if (UIGroup.value) {
+	// 	UIGroup.value.rotation.y = angleX / 90
+	// 	UIGroup.value.rotation.z = -angleX / 90
+	// }
+	// threeCore.camera.lookAt(targetPosition);
+	// threeCore.controls.target.set(targetPosition.x, targetPosition.y, targetPosition.z);
+};
+onMounted(() => {
+	setTimeout(() => {
+		initThreejs()
+		// window.addEventListener('mousemove', throttledMouseMove, false);
+	});
+})
+// 不需要手动引入布局
 </script>
-<template>
-  <div class="container mx-auto p-4">
-    <div v-if="detail" class="bg-qhx-bg-card rounded-lg shadow-lg" :key="detail.comp_id">
-      <div class="p-3 flex max-md:block max-md:px-1">
-        <div class="flex my-2 w-[434px] aspect-[16/9] max-md:w-full relative">
-          <QhxPreviewImage :key="detail.comp_id" :list="[{ src: detail.comp_cover || 'static/plan_cover/default.jpg', alt: detail.comp_name || 'Lo研社 合集' }]" 
-          :className="'cursor-pointer w-full ml-0 aspect-[16/9] object-cover rounded-[10px] shadow-lg border border-gray-200'">
-          </QhxPreviewImage>
-        </div>
-        <div class="m-2 flex-1">
-          <div>
-            <h1 class="mb-3 text-lg font-semibold">{{ detail?.comp_name }}</h1>
-          </div>
-          <h3 class="text-sm m-1" v-html="detail.comp_describe" v-if="detail.comp_describe"></h3>
-          <div>
-            <QhxTag>
-              {{ detail.pk_type === 0 ? '图鉴合集' : '搭配合集'}}
-            </QhxTag>
-          </div>
-        </div>
-      </div>
-    </div>
 
-    <div v-if="detail" class="bg-qhx-bg-card rounded-lg shadow-lg mt-3">
-      <QhxTabs :tabs="['图鉴']">
-        <QhxTabPanel :index="0">
-          <QhxWaterList 
-            :fetch-data="async (page, pageSize) => {
-              const response = await getCompDetailList({ page, pageSize, comp_id: Number.parseInt(id) })
-              return {
-                rows: response.rows,
-                count: response.count
-              }
-            }" 
-            :columns="4"
-            :columns_768="1"
-          >
-            <template #default="{ item, debouncedApplyLayout }">
-              <!-- 自定义内容 -->
-              <div class="custom-item">
-                <div v-if="item.library">
-                  <LibraryItem :item="item.library" @imageLoad="debouncedApplyLayout"></LibraryItem>
-                </div>
-              </div>
-            </template>
-          </QhxWaterList>
-        </QhxTabPanel>
-      </QhxTabs>
-    </div>
-  </div>
-</template>
-
-<style scoped>
-
+<style>
+.left-box{
+	height: 100vh;
+	width: 20vw;
+	/* background: #000; */
+}
+.right-box{
+	height: 100vh;
+	width: 30vw;
+	/* background: #000; */
+}
 </style>
-
-

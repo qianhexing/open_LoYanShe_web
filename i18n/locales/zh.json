@@ -1,0 +1,18 @@
+{
+	"header.home": "首页",
+	"header.library": "图鉴",
+	"header.shop": "店铺",
+	"header.study": "研习",
+	"header.community": "社区",
+	"header.collection": "合集",
+
+	"login.login": "登录",
+	"login.account": "登录账号",
+	"login.phone": "手机号",
+	"login.password": "密码",
+	"login.remember": "记住密码",
+
+	"login.enter_phone": "请输入手机号",
+  "login.enter_password": "请输入密码"
+
+}

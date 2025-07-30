@@ -1,15 +1,15 @@
 <template>
   <UPopover ref="popover1" v-model:open="open" :popper="{ placement: 'bottom-start' }" :ui="{ rounded: 'rounded-[18px]' }"" >
-    <UButton class="bg-qhx-primary text-qhx-inverted hover:bg-qhx-primaryHover" variant="ghost" icon="i-heroicons-user-circle">登录</UButton>
+    <UButton class="bg-qhx-primary text-qhx-inverted hover:bg-qhx-primaryHover" variant="ghost" icon="i-heroicons-user-circle">{{ $t('login.login') }}</UButton>
     <template #panel>
       <div class="p-6 w-[22rem]">
-        <h3 class="text-lg font-semibold mb-4">登录账号</h3>
+        <h3 class="text-lg font-semibold mb-4">{{ $t('login.account') }}</h3>
         
         <UForm :state="state" class="space-y-4" @submit="onSubmit">
-          <UFormGroup label="用户名" :ui="{ label: { base: 'my-1' } }" name="username">
+          <UFormGroup :label="$t('login.phone')" :ui="{ label: { base: 'my-1' } }" name="username">
             <UInput
               v-model="state.user_phone"
-              placeholder="请输入手机号"
+              :placeholder="$t('login.enter_phone')"
               class="flex-1 focus:ring-0"
               icon="i-heroicons-user"
               :ui="{
@@ -25,10 +25,10 @@
             />
           </UFormGroup>
 
-          <UFormGroup label="密码" :ui="{ label: { base: 'my-1' } }"  name="password">
+          <UFormGroup :label="$t('login.password')" :ui="{ label: { base: 'my-1' } }"  name="password">
             <UInput
               v-model="state.user_password"
-              placeholder="请输入密码"
+              :placeholder="$t('login.enter_password') "
               type="password"
               class="flex-1 focus:ring-0"
               icon="i-heroicons-lock-closed"
@@ -52,7 +52,7 @@
               color: 'qhx-primary'
             }"
               v-model="state.remember" 
-              label="记住密码"
+              :label="$t('login.remember')"
               name="remember"
             />
             <!-- <NuxtLink 
@@ -69,7 +69,7 @@
             class="bg-qhx-primary text-qhx-inverted hover:bg-qhx-primaryHover mt-6"
             :loading="loading"
           >
-            登录
+            {{ $t('login.login')}}
           </UButton>
 
           <!-- <div class="mt-4 text-center text-sm text-gray-500 dark:text-gray-400">

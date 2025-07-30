@@ -14,10 +14,20 @@ const jumpToLoyanshe = () => {
     times.value += 1
   }
 }
+const layout_style = ref(0) // 0是带上下栏的 1 是空白页面
+const blank_list = ['scene/detail']
 const route = useRoute()
 console.log(route.path, '初始路由地址')
 const judgeIsHome = () => {
   console.log('当前路由', route.path)
+  const is_blank = blank_list.find((path) => {
+    return route.path.includes(path)
+  })
+  if (is_blank) {
+    layout_style.value = 1
+  } else {
+    layout_style.value = 0
+  }
   if (route.path === '/') {
     isHome.value = true
   } else {
@@ -41,10 +51,10 @@ onMounted(() => {
 })
 </script> 
 <template>
-  <div class="min-h-screen background transition-colors duration-300">
+  <div class="min-h-screen background transition-colors duration-300" v-if="layout_style === 0">
     <UNotifications position="top-0 right-0" />
     <Header />
-    <main class="container mx-auto pb-4  pt-14 min-h-screen">
+    <main class="container mx-auto pb-4  pt-16 min-h-screen">
       <slot />
     </main>
     <!-- <KeepAlive :include="cachedPages" :max="5">
@@ -125,6 +135,12 @@ onMounted(() => {
         </div>
       </div>
     </footer>
+  </div>
+  <div class="min-h-screen background transition-colors duration-300" v-else>
+    <UNotifications position="top-0 right-0" />
+    <main>
+      <slot />
+    </main>
   </div>
 </template>
 

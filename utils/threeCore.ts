@@ -393,7 +393,7 @@ class ThreeCore {
   
       if (obj.type === 'model' && obj.url) {
         try {
-          const model = await this.loadModel(obj.url, {
+          const model = await this.loadModel(BASE_IMG + obj.url, {
             useDracoLoader: obj.useDracoLoader ?? false,
             dracoDecoderPath: (obj.useDracoLoader && obj.dracoDecoderPath) ? obj.dracoDecoderPath : 'jsm/libs/draco/gltf/',
           });
