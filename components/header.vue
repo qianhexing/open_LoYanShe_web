@@ -6,21 +6,25 @@
           Lo 研社
         </NuxtLink>
 
+        <!-- <div>{{ $t('header.home') }}</div> -->
+        <!-- <h1 class="text-xl mt-4">{{ $t('welcome') }}</h1> -->
         <!-- 中间导航 -->
         <nav class="flex items-center gap-4  overflow-x-auto">
           <UButton v-for="item in navItems" :key="item.to" :to="item.to" variant="ghost" color="gray">
             {{ item.label }}
           </UButton>
         </nav>
-
-        <!-- 右侧操作区 -->
-        <div class="flex items-center gap-4" v-if="!user">
-          <LoginBox />
-        </div>
-        <div class="flex items-center gap-4" v-show="user">
-          <!-- <img :src="`${BASE_IMG}${user.user_face}`" :alt="user.user_name"
-          class="w-8 h-8 object-cover rounded-[40px] border border-gray-200 my-2" loading="lazy" /> -->
-          <UserBox></UserBox>
+        <div class=" flex items-center">
+          <LocaleSwitcher class="mr-3"/>
+           <!-- 右侧操作区 -->
+          <div class="flex items-center gap-4" v-if="!user">
+            <LoginBox />
+          </div>
+          <div class="flex items-center gap-4" v-show="user">
+            <!-- <img :src="`${BASE_IMG}${user.user_face}`" :alt="user.user_name"
+            class="w-8 h-8 object-cover rounded-[40px] border border-gray-200 my-2" loading="lazy" /> -->
+            <UserBox></UserBox>
+          </div>
         </div>
       </div>
     </header>
@@ -31,16 +35,15 @@
 const show = ref(true)
 const userStore = storeToRefs(useUserStore()) 
 const { user } = userStore
-
-const navItems = [
-  { label: "首页", to: "/" },
-  { label: "图鉴", to: "/library" },
-  { label: "店铺", to: "/shop" },
-  { label: "合集", to: "/compilations" },
-  { label: "社区", to: "/community" },
-  // { label: "百科", to: "/lolitaWiki" },
-  { label: "研习", to: "/study" },
-];
+const { t } = useI18n()
+const navItems = computed(() => [
+  { label: t('header.home'), to: "/" },
+  { label: t('header.library'), to: "/library" },
+  { label: t('header.shop'), to: "/shop" },
+  { label: t('header.collection'), to: "/compilations" },
+  { label: t('header.community'), to: "/community" },
+  { label: t('header.study'), to: "/study" },
+])
 const handleMouseEnter = () => {
   show.value = true
   console.log('显示')

@@ -1,0 +1,17 @@
+{
+	"header.home": "ホーム",
+	"header.library": "図鑑",
+	"header.study": "研修",
+	"header.shop": "店舗",
+	"header.community": "まとめ",
+	"header.collection": "フォーラム",
+
+	"login.login": "ログイン",
+	"login.account": "アカウントでログイン",
+	"login.phone": "携帯電話番号",
+	"login.password": "パスワード",
+	"login.remember": "パスワードを記憶する",
+
+	"login.enter_phone": "携帯電話番号を入力してください",
+  "login.enter_password": "パスワードを入力してください"
+}

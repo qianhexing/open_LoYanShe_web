@@ -1,0 +1,17 @@
+{
+	"header.home": "Home",
+	"header.library": "Library",
+	"header.study": "Research",
+	"header.shop": "Shop",
+	"header.community": "Community",
+	"header.collection": "Collection",
+
+	"login.login": "Login",
+	"login.account": "Login Account",
+	"login.phone": "Phone Number",
+	"login.password": "Password",
+	"login.remember": "Remember Password",
+
+	"login.enter_phone": "Please enter your phone number",
+  "login.enter_password": "Please enter your password"
+}

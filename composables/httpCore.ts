@@ -79,11 +79,11 @@ function createDollarFetchRequest(method: HttpMethod) {
   return async <T = any>(
     url: string,
     data?: Record<string, any>,
-    options: RequestOptions = {}
+    options: RequestOptions = {},
   ): Promise<T> => {
 
     // const baseURL = useRuntimeConfig().public.baseUrl as string
-    const fullPath = `${baseURL}${url}`
+    const fullPath = `${options.baseURL || baseURL}${url}`
 
     // 这是不使用代理时 构建完整的请求 URL
     // const requestUrl = new URL(fullPath).toString()

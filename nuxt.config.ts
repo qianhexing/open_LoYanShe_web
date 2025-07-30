@@ -1,3 +1,4 @@
+
 // https://nuxt.com/docs/api/configuration/nuxt-config
 export default defineNuxtConfig({
 	pages: true,
@@ -38,7 +39,38 @@ export default defineNuxtConfig({
   },
 	compatibilityDate: '2024-11-01',
 	devtools: { enabled: true },
-	modules: ['@nuxtjs/seo', '@nuxt/ui', '@nuxtjs/tailwindcss', '@vueuse/nuxt', '@pinia/nuxt'],
+	i18n: {
+    locales: [
+      {
+        code: 'en',
+        name: 'English',
+        file: 'en.json'
+      },
+      {
+        code: 'zh',
+        name: '中文',
+        file: 'zh.json'
+      },
+			{
+        code: 'ja',
+        name: '日本語',
+        file: 'ja.json'
+      }
+    ],
+    defaultLocale: 'zh',
+    lazy: true, // 懒加载语言包
+    langDir: 'locales/', // 放语言 JSON 的目录
+    // strategy: 'prefix_except_default', // URL 前缀策略
+
+		strategy: 'no_prefix',
+    detectBrowserLanguage: {
+      cookieKey: 'i18n_redirected',
+			useCookie: false,      // 不自动跳转
+      alwaysRedirect: true,
+      fallbackLocale: 'zh'
+    }
+  },
+	modules: ['@nuxtjs/seo', '@nuxt/ui', '@nuxtjs/tailwindcss', '@vueuse/nuxt', '@pinia/nuxt', '@nuxtjs/i18n'],
 	imports: {
     autoImport: true,
 		dirs: ['stores', 'directives']

@@ -29,6 +29,8 @@ const load = () => {
       :visible="visible"
       :imgs="preview && preview.length > 0 ? preview.map(item => BASE_IMG + item) : list.map((item) => { return BASE_IMG + item.src})"
       :index="index"
+      append-to-body
+      :teleport="'body'"
       :zoomScale="0.4"
       :maxZoom="5"
       @hide="visible = false"
