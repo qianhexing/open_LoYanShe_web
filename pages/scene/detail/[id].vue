@@ -7,15 +7,28 @@
 import qhxCore from '@/utils/threeCore';
 import * as THREE from 'three';
 import type  { CSS3DObject } from 'three/examples/jsm/renderers/CSS3DRenderer.js';
+import { getStudyId } from '@/api/scene'
+import type { PaginationResponse, Scene } from '@/types/api'
 let threeCore: qhxCore
 const theme = useThemeStore()
-const UIGroup = ref<THREE.Group | null>(null)
+const isClick = ref(false)
 const Scene1Group = ref<THREE.Group | null>(null)
+
 import leftContent from '@/components/home/leftContent.vue'
 import rightContent from '@/components/home/rightContent.vue'
 import type { App, Component } from 'vue';
 import { createApp  } from 'vue'
 const route = useRoute()
+const edit_mode = ref(false) // 编辑模式
+const token = ref<string | null>(null) // 传入的token
+console.log(route.query, '路由')
+const userStore = useUserStore()
+if (route.query?.edit) {
+	edit_mode.value = true
+}
+if (route.query?.token) {
+	userStore.setToken(route.query.token.toString())
+}
 const id = route.params.id as string
 useHead({
 	title: 'Lo研社 Lolita图书馆',
@@ -30,64 +43,11 @@ useHead({
 		}
 	]
 })
-const creatDomUi = (className: string, component: Component): CSS3DObject => {
-	const scale = calcCss3dScale()
-	const divElement: HTMLElement = document.createElement('div');
-	divElement.className = className
-	const app: App = createApp(component)
-	app.mount(divElement) // 挂载 Vue 组件
-	// divElement.style.backgroundColor = hexToRgba(theme.themeCss.primary, 0.4)
-	const css3dObject = threeCore.createCSS3DObject(divElement);
-	css3dObject.position.set(0, 0, 0);
-	css3dObject.scale.set(scale, scale, scale)
-	return css3dObject
-}
-const createUIDom = () => {
-	let isPc = true
-	if (window.innerWidth < 768) {
-		isPc = false
-  }
-	if (UIGroup.value) {
-		// 重置UI组
-    threeCore.scene.remove(UIGroup.value);
-    UIGroup.value.clear();
-    UIGroup.value = null;
-  }
-	const Group = new THREE.Group()
-	const left = creatDomUi('left-box', leftContent)
-	left.position.x = -pxToThreeJSX(window.innerWidth * 1.005)
-	// left.position.z = -0.1
-	console.log('左侧', left)
-	// left.rotateY(5 * (Math.PI / 180))
-	// left.rotateZ(-4 * (Math.PI / 180))
-	left.rotateX(-0.675)
-	Group.add(left)
-
-	const rigth = creatDomUi('right-box', rightContent)
-	rigth.position.x = pxToThreeJSX(window.innerWidth * 0.94)
-	// rigth.position.z = -0.25
-	// rigth.rotateY(-5 * (Math.PI / 180))
-	// rigth.rotateZ( * (Math.PI / 180))
-	rigth.rotateX(-0.675)
-	Group.add(rigth)
-
-	UIGroup.value = Group
-	if (isPc) {
-		threeCore.scene.add(Group)
-	}
-}
-const loadLibrary = async () => {
-	const Group = new THREE.Group()
-	const model = await threeCore.loadModel(`${BASE_IMG}sence/tuxiong1.glb?1122`, { useDracoLoader: true, dracoDecoderPath: '/draco/gltf/' })
-	model.scale.set(1.514,1.514,1.514)
-	model.rotateY(150* (Math.PI / 180))
-	model.position.set(0,0,0)
-	Group.add(model)
-	Group.position.set(0,0,0)
-	Scene1Group.value = Group
-	threeCore.scene.add(Group)
-	console.log('模型', model)
-}
+const { data } = await useAsyncData('studyDeatil', () => {
+  return getStudyId({ sence_id: Number.parseInt(id) })
+}, {})
+const detail = ref<Scene | null>(null)
+detail.value = data.value ?? null
 const initThreejs = () => {
 	threeCore = new qhxCore({
 		enableCSS3DRenderer: true,
@@ -96,16 +56,57 @@ const initThreejs = () => {
 	// 挂载到DOM
 	threeCore.mount(document.getElementById('scene'));
 	// loadLibrary()
-  use$Get(`/sence/json/${id}.json?2`, undefined, { baseURL: BASE_IMG})
+  if (detail.value?.json_data) {
+		threeCore.loadSceneFromJSON(detail.value.json_data)
+	} else {
+		use$Get(`/sence/json/${id}.json?2`, undefined, { baseURL: BASE_IMG})
     .then((res) => {
       threeCore.loadSceneFromJSON(res)
     }) 
+	}
   
 	threeCore.controls.enabled = true
 	threeCore.scene.background = new THREE.Color('#ffddf2')
+	// window.addEventListener('mousemove', gpuPick, false)
+	// window.addEventListener('touchmove', gpuPick, false)
+	// window.addEventListener('click', gpuPick, false)
+	window.addEventListener('pointerdown', _onPointerDown);
+	window.addEventListener('pointermove', _onPointerMove);
+	window.addEventListener('pointerup', _onPointerUp);
 	// threeCore.controls.autoRotate = true
 	// 开始渲染循环
 	threeCore.startAnimationLoop();
+}
+const _onPointerDown = () => {
+	isClick.value = true
+}
+const _onPointerMove = () => {
+	if (isClick.value) {
+		isClick.value = false
+	} 
+}
+const _onPointerUp = (event: PointerEvent) => {
+	if (isClick.value) {
+		gpuPick(event)
+	}
+	
+}
+onUnmounted(() => {
+	// window.removeEventListener('mousemove', gpuPick, false)
+	// window.removeEventListener('touchmove', gpuPick, false)
+	window.removeEventListener('pointerdown', _onPointerDown, false)
+	window.removeEventListener('pointermove', _onPointerMove, false)
+	window.removeEventListener('pointerup', _onPointerUp, false)
+})
+const gpuPick = (ev: MouseEvent | TouchEvent) => {
+	const obj = threeCore.gpuPick(ev)
+	if (obj) {
+		threeCore.gizmo.attach(obj);
+	} else if (threeCore.gizmo.dragging) {
+
+	} else {
+		threeCore.gizmo.detach();
+	}
 }
 const mouse = new THREE.Vector2();
 const throttledMouseMove = throttle((event: MouseEvent) => {

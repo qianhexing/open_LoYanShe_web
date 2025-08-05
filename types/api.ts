@@ -1,5 +1,5 @@
 // types/api.ts
-
+import type { SceneJSON } from '@/utils/threeCore'
 /** 基础响应类型 */
 export interface BaseResponse<T = any> {
   code: number;
@@ -306,5 +306,32 @@ export interface LibraryVideo {
 }
 
 export interface Scene {
-  addr: string
+  addr?: string
+  can_edit: boolean
+  create_time:Date
+  is_enable: number
+  is_private: number
+  matching_id: number
+  sence_cover: string
+  sence_data: string
+  sence_desc:string
+  sence_id: number
+  user_id:number
+  json_data: SceneJSON
+}
+
+
+export interface TemplateInterface {
+  template_id: number
+  pk_type: number
+  is_free: number
+  user_id: number
+  main_style: string
+  json_url: string
+  json_data: JSON
+  create_time: Date
+  update_time: Date
+  use_time: number
+  price: number
+  title: string
 }

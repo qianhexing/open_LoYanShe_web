@@ -41,15 +41,15 @@ export default defineNuxtConfig({
 	devtools: { enabled: true },
 	i18n: {
     locales: [
+			{
+        code: 'zh',
+        name: '中文',
+        file: 'zh.json'
+      },
       {
         code: 'en',
         name: 'English',
         file: 'en.json'
-      },
-      {
-        code: 'zh',
-        name: '中文',
-        file: 'zh.json'
       },
 			{
         code: 'ja',

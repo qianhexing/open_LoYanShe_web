@@ -5,7 +5,11 @@ import { CSS3DRenderer, CSS3DObject } from 'three/examples/jsm/renderers/CSS3DRe
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { AnimationMixer } from 'three';
 import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
-interface SceneObjectJSON  {
+import { BASE_IMG } from '@/utils/ipConfig.js'
+// @ts-ignore
+import { GPUPicker } from 'three_gpu_picking/src/gpupicker.js'
+import { TransformGizmo } from './TransformGizmo.js';
+export interface SceneObjectJSON  {
   type: 'box' | 'sphere' | 'model';
   position?: [number, number, number];
   rotation?: [number, number, number];
@@ -20,7 +24,7 @@ interface SceneObjectJSON  {
   playAnimations?: string[]; 
   loopOnce?: boolean;
 };
-interface SceneJSON {
+export interface SceneJSON {
   objects: SceneObjectJSON[]
 };
 
@@ -55,6 +59,9 @@ class ThreeCore {
   public loadedModelURLs: Set<string>; // 已加载过的模型地址集合
   public loadedModels: THREE.Object3D[]; // 加载成功的模型数组
   public clock: THREE.Clock;
+  public picker: GPUPicker | null;
+  public gizmo: any | null;
+
 
   constructor(options: ThreeCoreOptions = {}) {
     const defaultOptions: ThreeCoreOptions = {
@@ -77,6 +84,7 @@ class ThreeCore {
     this.resizeCallbacks = [];
     this.container = null;
     this.controls = null!
+    this.picker = null!
 
     this.loadedModelURLs = new Set();
     this.loadedModels = [];
@@ -86,7 +94,7 @@ class ThreeCore {
     this.initScene();
     this.initCamera();
     this.initRenderer();
-    
+    this.initPicker()
     // 如果启用了CSS3D渲染器
     if (this.options.enableCSS3DRenderer) {
       this.initCSS3DRenderer();
@@ -98,9 +106,13 @@ class ThreeCore {
     //   this.initOrbitControls();
     // }
     this.initOrbitControls();
-    if (this.options.enableStats) {
-      this.initStats();
-    }
+    // if (this.options.enableStats) {
+    //   this.initStats();
+    // }
+    this.initStats();
+
+    this.gizmo = new TransformGizmo(this.scene, this.camera, this.controls, this.renderer.domElement, this.picker);
+    this.scene.add(this.gizmo)
   }
   public async loadModel(url: string, options = {
     useDracoLoader: false,
@@ -138,7 +150,6 @@ class ThreeCore {
             });
             this.addAnimationCallback(() => mixer.update(this.clock.getDelta()));
           }
-    
           resolve(model);
         }, undefined, (error) => {
           console.error(`加载模型失败: ${url}`, error);
@@ -204,6 +215,100 @@ class ThreeCore {
       this.scene.background = null
       // new THREE.Color(this.options.clearColor);
     }
+  }
+  initPicker() {
+    this.picker = new GPUPicker(THREE, this.renderer, this.scene, this.camera, this.idFromObject)
+  }
+  // gpuPick (ev: MouseEvent | TouchEvent) {
+	// 	function shouldPickObject(object: THREE.Object3D) {
+	// 		// 如果对象具有 `ignorePick` 标志，则忽略它
+  //     return object.userData && !object.userData.ignorePick;
+			
+	// 	}
+	// 	const inversePixelRatio = 1.0 / (window.devicePixelRatio || 1);
+
+	// 	let clientX : number
+  //   let clientY : number;
+	// 	// 处理触摸事件和鼠标事件
+	// 	if ('touches' in ev) {
+	// 		// 触摸事件
+	// 		clientX = ev.touches[0].clientX;
+	// 		clientY = ev.touches[0].clientY;
+	// 	} else {
+	// 		// 鼠标事件
+	// 		clientX = ev.clientX;
+	// 		clientY = ev.clientY;
+	// 	}
+	// 	let sub = 0
+  //   if (this.container) {
+  //     sub = this.container.getBoundingClientRect().left
+  //   }
+  //   console.log(clientX, clientY, 'clientX')
+	// 	const objId = this.picker.pick(clientX * window.devicePixelRatio - sub * inversePixelRatio, clientY * window.devicePixelRatio, shouldPickObject);
+	// 	return this.scene.getObjectById(objId)
+	// }
+  gpuPick(ev: MouseEvent | TouchEvent) {
+    function shouldPickObject(object: THREE.Object3D) {
+      return object.userData && !object.userData.ignorePick;
+    }
+  
+    const inversePixelRatio = 1.0 / (window.devicePixelRatio || 1);
+  
+    let clientX: number;
+    let clientY: number;
+  
+    if ('touches' in ev) {
+      clientX = ev.touches[0].clientX;
+      clientY = ev.touches[0].clientY;
+    } else {
+      clientX = ev.clientX;
+      clientY = ev.clientY;
+    }
+  
+    let sub = 0;
+    if (this.container) {
+      sub = this.container.getBoundingClientRect().left;
+    }
+  
+    const objId = this.picker.pick(
+      clientX * window.devicePixelRatio - sub * inversePixelRatio,
+      clientY * window.devicePixelRatio,
+      shouldPickObject
+    );
+  
+    const pickedObject = this.scene.getObjectById(objId);
+  
+    function findTopGroup(object: THREE.Object3D | null | undefined): THREE.Object3D | null {
+      if (!object) return null;
+      let current = object;
+      while (current.parent && current.parent.type !== 'Scene') {
+        current = current.parent;
+      }
+      return current;
+    }
+  
+    return findTopGroup(pickedObject);
+  }
+  
+  idFromObject(object: THREE.Object3D) {
+    let ret: THREE.Object3D | null = object
+    while (ret) {
+      if (ret.parent?.type === 'Sence') {
+        return ret.id
+      }
+      ret = ret.parent
+    }
+  }
+
+  // 物体坐标转屏幕坐标
+  screenPositionFromObject(obj: THREE.Object3D) {
+    const pos = new THREE.Vector3();
+    obj.getWorldPosition(pos);
+    pos.project(this.camera);
+    return {
+      x: (pos.x + 1) * window.innerWidth / 2,
+      y: (-pos.y + 1) * window.innerHeight / 2
+    };
   }
 
   initCamera() {
@@ -395,24 +500,58 @@ class ThreeCore {
         try {
           const model = await this.loadModel(BASE_IMG + obj.url, {
             useDracoLoader: obj.useDracoLoader ?? false,
-            dracoDecoderPath: (obj.useDracoLoader && obj.dracoDecoderPath) ? obj.dracoDecoderPath : 'jsm/libs/draco/gltf/',
+            dracoDecoderPath: '/draco/gltf/'
+            // (obj.useDracoLoader && obj.dracoDecoderPath) ? obj.dracoDecoderPath : 'jsm/libs/draco/gltf/',
           });
           mesh = model
         } catch (e) {
           console.warn(`模型加载失败：${obj.url}`, e);
         }
       }
-  
       if (mesh) {
         mesh.position.set(...position);
         mesh.rotation.set(...rotation);
         mesh.scale.set(...scale);
         this.allObjects.push(mesh)
         this.scene.add(mesh);
+
+        const box = this.createBoundingBoxMesh(mesh)
+        box.userData.ignorePick = true
+        box.position.set(...position);
+        box.rotation.set(...rotation);
+        box.scale.set(...scale);
+        box.renderOrder = 100000
+        console.log(box, '包围盒')
       }
     }
   }
   
+  createBoundingBoxMesh(object: THREE.Object3D) {
+    const box = new THREE.Box3().setFromObject(object);
+    const size = new THREE.Vector3();
+    const center = new THREE.Vector3();
+    box.getSize(size);
+    box.getCenter(center);
+  
+    const geometry = new THREE.BoxGeometry(size.x * 1.1, size.y * 1.1, size.z * 1.1);
+    const edges = new THREE.EdgesGeometry(geometry);
+    const line = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: 0x00ffff }));
+  
+    const boxMesh = new THREE.Mesh(
+      geometry,
+      new THREE.MeshBasicMaterial({ color: 0x00ffff, opacity: 0.1, transparent: true })
+    );
+    line.userData.ignorePick = true
+    boxMesh.userData.ignorePick = true
+    const group = new THREE.Group();
+    group.add(boxMesh);
+    group.add(line);
+    group.position.copy(center);
+  
+    this.scene.add(group);
+  
+    return group;
+  }
   
 
   // 修改dispose方法以清理CSS3D渲染器
