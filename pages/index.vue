@@ -83,7 +83,7 @@ const createUIDom = () => {
 }
 const loadLibrary = async () => {
 	const Group = new THREE.Group()
-	const model = await threeCore.loadModel(`${BASE_IMG}sence/tuxiong1.glb?1122`, { useDracoLoader: true, dracoDecoderPath: '/draco/gltf/' })
+	const model = await threeCore.loadModel(`${BASE_IMG}/sence/caomei.glb?12211333322`, { useDracoLoader: true, dracoDecoderPath: '/draco/gltf/' })
 	model.scale.set(1.514,1.514,1.514)
 	model.rotateY(150* (Math.PI / 180))
 	model.position.set(0,0,0)

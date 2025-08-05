@@ -16,3 +16,10 @@ export async function getHomeIcon(data: IconParams): Promise<Icon[]> {
   const response = await use$Post<BaseResponse<Icon[]>>('/home/icon', data);
   return response.data;
 }
+
+export async function uploadImage(file: File): Promise<Icon[]> {
+  const formData = new FormData()
+  formData.append('file', file) // myFile 是 File 类型
+  const response = await use$Post<BaseResponse<Icon[]>>('/qhxUpload', formData);
+  return response.data;
+}

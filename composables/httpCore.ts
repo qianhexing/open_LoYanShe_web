@@ -5,8 +5,8 @@
  */
 import { $fetch } from 'ofetch'
 import { useRuntimeConfig } from '#app'
-// const baseURL = 'http://localhost:3002'
-const baseURL = 'https://lolitalibrary.com/node/'
+const baseURL = 'http://localhost:3002'
+// const baseURL = 'https://lolitalibrary.com/node/'
 interface RequestOptions {
   [key: string]: any;
 }
@@ -78,10 +78,10 @@ async function handleResponse<T>(response: any): Promise<T> {
 function createDollarFetchRequest(method: HttpMethod) {
   return async <T = any>(
     url: string,
-    data?: Record<string, any>,
+    data?: Record<string, any> | FormData,
     options: RequestOptions = {},
   ): Promise<T> => {
-
+    const isFormData = data instanceof FormData
     // const baseURL = useRuntimeConfig().public.baseUrl as string
     const fullPath = `${options.baseURL || baseURL}${url}`
 
@@ -93,6 +93,7 @@ function createDollarFetchRequest(method: HttpMethod) {
       const response = await $fetch(fullPath, {
         method,
         body: data,
+        ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
         ...options
       })
       return handleResponse<T>(response)
