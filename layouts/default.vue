@@ -47,6 +47,7 @@ watch(
 onMounted(() => {
   themeStore.setTheme('light')
   userStore.initialize()
+  configStore.setIsPc(isPC())
   // themeStore.loadFromLocalStorage()
 })
 </script> 
@@ -153,5 +154,8 @@ onMounted(() => {
   border-radius: 18px;
   background: #fff;
   border: 1.5px solid #f3f3f3;
+}
+.vel-img-title{
+  font-size: 16px;
 }
 </style>
