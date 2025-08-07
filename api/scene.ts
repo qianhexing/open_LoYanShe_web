@@ -1,6 +1,7 @@
 
 import type { BaseResponse, PaginationParams, PaginationResponse, Scene  } from '@/types/api';
-export async function getStudyId(
+import type { SceneJSON } from '@/utils/threeCore'
+export async function getSceneId(
   params: {
     sence_id: number
   }
@@ -11,3 +12,17 @@ export async function getStudyId(
   );
   return response.data;
 }
+
+export async function updateScene(
+  params: {
+    sence_id: number,
+    json_data: SceneJSON
+  }
+): Promise<Scene> {
+  const response = await use$Post<BaseResponse<Scene>>(
+    '/sence/update',
+    params
+  );
+  return response.data;
+}
+

@@ -40,24 +40,26 @@ export class TransformGizmo extends THREE.Group {
   
     const createArrow = (dir: THREE.Vector3, color: number) => {
       const arrowLength = 1;
-      const shaftRadius = 0.02;
-      const headRadius = 0.06;
+      const shaftRadius = 0.04;
+      const headRadius = 0.08;
       const headLength = 0.2;
       const shaftLength = arrowLength - headLength;
   
-      const material = new THREE.MeshBasicMaterial({ color, depthTest: false, transparent: true, opacity: 0.8 });
+      const material = new THREE.MeshBasicMaterial({ color, depthTest: false, transparent: true, opacity: 0.8,depthWrite: false });
   
       const shaftGeometry = new THREE.CylinderGeometry(shaftRadius, shaftRadius, shaftLength, 12);
       const shaft = new THREE.Mesh(shaftGeometry, material);
       shaft.position.set(0, shaftLength / 2, 0);
       shaft.userData.axis = dir
-  
+
       const headGeometry = new THREE.ConeGeometry(headRadius, headLength, 12);
       const head = new THREE.Mesh(headGeometry, material);
       head.position.set(0, shaftLength + headLength / 2, 0);
       head.userData.axis = dir
   
       const arrowGroup = new THREE.Group();
+      shaft.renderOrder = 1
+      head.renderOrder = 1
       arrowGroup.add(shaft);
       arrowGroup.add(head);
   
@@ -71,7 +73,7 @@ export class TransformGizmo extends THREE.Group {
   
     const createRotationRing = (axis: THREE.Vector3, color: number) => {
       const ringRadius = 1.2;
-      const tubeRadius = 0.015;
+      const tubeRadius = 0.05;
   
       const geometry = new THREE.TorusGeometry(ringRadius, tubeRadius, 32, 64);
       const material = new THREE.MeshBasicMaterial({
@@ -79,6 +81,7 @@ export class TransformGizmo extends THREE.Group {
         transparent: true,
         opacity: 0.6,
         depthTest: false,
+        depthWrite: false
       });
   
       const ring = new THREE.Mesh(geometry, material);
@@ -91,10 +94,11 @@ export class TransformGizmo extends THREE.Group {
       } else if (axis.equals(new THREE.Vector3(0, 0, 1))) {
         ring.rotation.x = Math.PI / 2; // Z 环默认在 XY 平面
       }
-  
+
+      ring.renderOrder = 1
       ring.userData.axis = axis;
       ring.userData.type = 'rotate';
-
+      console.log(ring, '圆环')
       ring.userData.ignorePick = true
       // this.add(ring);
       return ring

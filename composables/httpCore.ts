@@ -5,8 +5,8 @@
  */
 import { $fetch } from 'ofetch'
 import { useRuntimeConfig } from '#app'
-const baseURL = 'http://localhost:3002'
-// const baseURL = 'https://lolitalibrary.com/node/'
+// const baseURL = 'http://localhost:3002'
+const baseURL = 'https://lolitalibrary.com/node/'
 interface RequestOptions {
   [key: string]: any;
 }
@@ -20,18 +20,20 @@ type HttpMethod = 'GET' | 'POST' | 'PUT' | 'DELETE';
 function handleRequest(options: RequestOptions) {
   // 这需要Pinia
   // const {UserInfo} = storeToRefs(useUserStore())
+  
   let token = null as null | string
   if (typeof window !== 'undefined' && useUserStore) {
     const userStore = storeToRefs(useUserStore()) 
     token = userStore.token.value
   }
-  
+  const isFormData = options.data instanceof FormData
   options.headers = {
     ...options.headers,
-    'Content-Type': 'application/json',
+    // 'Content-Type': 'application/json',
     // 这实现Authorization头自动携带
     'Authorization': `${token}`,
   }
+  
 }
 
 // 响应拦截器
@@ -42,7 +44,7 @@ async function handleResponse<T>(response: any): Promise<T> {
     if (response.code === 401) {
       if (typeof window !== 'undefined' && useUserStore) {
         const userStore = useUserStore()
-        userStore.clearToken()
+        // userStore.clearToken()
       }
     }
     toast.add({
@@ -93,8 +95,8 @@ function createDollarFetchRequest(method: HttpMethod) {
       const response = await $fetch(fullPath, {
         method,
         body: data,
-        ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
-        ...options
+        ...options,
+        // ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
       })
       return handleResponse<T>(response)
     } catch (error) {

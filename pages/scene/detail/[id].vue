@@ -1,18 +1,28 @@
 <template>
 	<div>
+		
+		<div class=" fixed bottom-[20px] left-[20px] rounded-[50%] w-[50px] h-[50px] z-10 items-center justify-center shadow-lg flex cursor-pointer bg-qhx-bg-card"
+		@click="showMaterial()">加</div>
 		<div style="height: 100vh; width: 100vw; overflow: hidden; " id="scene"></div>
+		<SceneMaterial @saveScene="saveScene" @addImage="onUpdateFiles" ref="MaterialRef"></SceneMaterial>
 	</div>
 </template>
 <script setup lang="ts">
 import qhxCore from '@/utils/threeCore';
 import * as THREE from 'three';
 import type  { CSS3DObject } from 'three/examples/jsm/renderers/CSS3DRenderer.js';
-import { getStudyId } from '@/api/scene'
+import { getSceneId, updateScene } from '@/api/scene'
 import type { PaginationResponse, Scene } from '@/types/api'
+import type SceneMaterial from '@/components/scene/Material.vue'
+import { uploadImage } from '~/api';
+
 let threeCore: qhxCore
 const theme = useThemeStore()
 const isClick = ref(false)
 const Scene1Group = ref<THREE.Group | null>(null)
+	
+
+const MaterialRef = ref<InstanceType<typeof SceneMaterial> | null>(null)
 
 import leftContent from '@/components/home/leftContent.vue'
 import rightContent from '@/components/home/rightContent.vue'
@@ -22,6 +32,7 @@ const route = useRoute()
 const edit_mode = ref(false) // 编辑模式
 const token = ref<string | null>(null) // 传入的token
 console.log(route.query, '路由')
+const toast = useToast()
 const userStore = useUserStore()
 if (route.query?.edit) {
 	edit_mode.value = true
@@ -44,7 +55,7 @@ useHead({
 	]
 })
 const { data } = await useAsyncData('studyDeatil', () => {
-  return getStudyId({ sence_id: Number.parseInt(id) })
+  return getSceneId({ sence_id: Number.parseInt(id) })
 }, {})
 const detail = ref<Scene | null>(null)
 detail.value = data.value ?? null
@@ -91,6 +102,32 @@ const _onPointerUp = (event: PointerEvent) => {
 	}
 	
 }
+
+const showMaterial = () => {
+	if (MaterialRef.value) {
+		MaterialRef.value.showModel()
+	}
+}
+const saveScene = () => {
+	const json_data = threeCore.saveSceneToJSON()
+	const params = {
+		sence_id: Number.parseInt(id),
+		json_data
+	}
+	updateScene(params)
+		.then((res) => {
+			toast.add({
+				title: '保存成功',
+				icon: 'i-heroicons-check-circle',
+				color: 'green'
+			})
+		})
+}
+const onUpdateFiles = async (resault) => {
+	const mesh = await threeCore.loadImageMesh(BASE_IMG + resault.file_url)
+		console.log('当前面片', mesh)
+		threeCore.scene.add(mesh)
+}
 onUnmounted(() => {
 	// window.removeEventListener('mousemove', gpuPick, false)
 	// window.removeEventListener('touchmove', gpuPick, false)
@@ -114,25 +151,7 @@ const throttledMouseMove = throttle((event: MouseEvent) => {
 	mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
 	updateCameraLookAt();
 }, 20);
-const calcCss3dScale = () => {
-	if (threeCore?.camera) {
-		const distance = threeCore.camera.position.distanceTo(new THREE.Vector3(0,0,0));
-		const fovRad = (threeCore.camera as THREE.PerspectiveCamera).fov * (Math.PI / 180);
-		const visibleHeightAtZ = 2 * Math.tan(fovRad / 2) * Math.abs(distance); // ≈6.9（当 z=5, FOV=75°）
-		const scale = visibleHeightAtZ / window.innerHeight;
-		return scale
-	}
-	return 1
-}
-// 计算水平夹角
-const calcCameraAngleX = (cameraPosition: THREE.Vector3, targetPoint: THREE.Vector3): number => {
 
-	// 1. 计算方向向量
-	const direction = new THREE.Vector3().subVectors(targetPoint, cameraPosition);
-	const yawRad = Math.atan2(direction.x, direction.z);
-	const yawDeg = THREE.MathUtils.radToDeg(yawRad); // 弧度 → 角度
-	return yawDeg
-}
 // 像素转换threejs坐标
 const pxToThreeJSX = (px: number) => {
 	// 计算可见宽度

@@ -66,7 +66,7 @@ const setPosition = () => {
 const onEnter = (el: Element, done: () => void) => {
   requestAnimationFrame(() => {
     modalStyle.value = {
-      transform: `translate(0, 0) scale(1)`,
+      transform: 'translate(0, 0) scale(1)',
       opacity: '1',
       transition: 'all 300ms ease-out',
     }

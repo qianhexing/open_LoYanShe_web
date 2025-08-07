@@ -3,6 +3,7 @@ import type { Library, PaginationResponse, Shop, LibraryVideo } from '@/types/ap
 import { getLibraryDetail, getLibraryList, getLibraryVideo } from '@/api/library'
 import html2canvas from 'html2canvas';
 import QhxTag from '~/components/Qhx/Tag.vue';
+import type { image } from 'html2canvas/dist/types/css/types/image';
 const user = useUserStore()
 const config = useConfigStore()
 const route = useRoute()
@@ -288,7 +289,7 @@ const exchangeRate = (shop_country: number, price: number) => {
           <div v-for="(item) in library_video" class="w-[100px] h-[100px] mr-3 mb-2 relative">
             <QhxPreviewImage
               :list="[{ src: item.addr.split(',')[0] + '?x-oss-process=image/quality,q_80/resize,w_300,h_300', alt: library.name }]"
-              :preview="item.addr.split(',')"
+              :preview="item.addr.split(',').map((image) => { return { src: image, title: item.title }})"
               :className="'cursor-pointer ml-3 w-[100px] h-[100px] relative  object-cover rounded-[10px] shadow-lg border border-gray-200'">
               <div class=" absolute right-[-20px] top-[-10px] w-[20px] h-[20px] flex justify-center items-center bg-qhx-primary text-xs text-qhx-inverted rounded-[50%]">{{ item.addr.split(',').length }}</div>
             </QhxPreviewImage>
