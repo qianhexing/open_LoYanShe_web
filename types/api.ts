@@ -334,4 +334,5 @@ export interface TemplateInterface {
   use_time: number
   price: number
   title: string
+  cover?: string
 }

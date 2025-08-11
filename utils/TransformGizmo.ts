@@ -274,8 +274,6 @@ export class TransformGizmo extends THREE.Group {
     this.mouse.y = -((clientY - rect.top) / rect.height) * 2 + 1;
   
     const obj = this.gpuPick(event);
-
-    console.log('点击到的obj', obj)
     if (obj) {
       const axis = obj.userData.axis?.clone().normalize();
       if (!axis) return;

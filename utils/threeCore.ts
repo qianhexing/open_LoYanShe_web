@@ -13,7 +13,7 @@ import { BASE_IMG } from '@/utils/ipConfig.js'
 import { GPUPicker } from 'three_gpu_picking/src/gpupicker.js'
 import { TransformGizmo } from './TransformGizmo.js'
 export interface SceneObjectJSON {
-	type: 'box' | 'sphere' | 'model' | 'image'
+	type: 'box' | 'sphere' | 'model' | 'image' | 'diary' | 'template'
 	position?: [number, number, number]
 	rotation?: [number, number, number]
   baseWidth?: number
@@ -24,9 +24,11 @@ export interface SceneObjectJSON {
 	url?: string // for model
 	useDracoLoader?: boolean
 	dracoDecoderPath?: string
-
+	title?: string // 如果是日记类型
+	content?: string // 如果是日记类型
 	playAnimations?: string[]
 	loopOnce?: boolean
+	template_id?: number
 }
 export interface SceneJSON {
 	objects: SceneObjectJSON[]
@@ -55,12 +57,18 @@ class ThreeCore {
 	public mixers: AnimationMixer[] = [] // 用于管理多个模型动画混合器
 	public stats?: Stats
 	public animationCallbacks: Array<() => void>
+	public addAnimationFunc: () => void  // 注入animate里的方法
 	public resizeCallbacks: Array<(width: number, height: number) => void>
 	public options: ThreeCoreOptions
 	public container?: HTMLElement | null
 	private resizeObserver?: ResizeObserver
 	public loadedModelURLs: Set<string> // 已加载过的模型地址集合
 	public loadedModels: THREE.Object3D[] // 加载成功的模型数组
+	public loadedDiary: Array<{title: string, content: string, object: THREE.Object3D}> // 加载成功的模型数组
+	public loadTemplate: THREE.Group[] // 加载成功的模型数组
+
+	
+
 	public clock: THREE.Clock
 	public picker: GPUPicker | null
 	public gizmo: any | null
@@ -83,6 +91,7 @@ class ThreeCore {
 		this.camera = null!
 		this.renderer = null!
 		this.animationCallbacks = []
+		this.addAnimationFunc = () => {}
 		this.resizeCallbacks = []
 		this.container = null
 		this.controls = null!
@@ -91,6 +100,9 @@ class ThreeCore {
 		this.loadedModelURLs = new Set()
 		this.loadedModels = []
 		this.allObjects = []
+		this.loadedDiary = [] // 加载的日记文本
+		this.loadTemplate = [] // 加载的模版
+		
 		this.clock = new THREE.Clock()
 
 		this.initScene()
@@ -120,6 +132,20 @@ class ThreeCore {
 			this.picker
 		)
 		this.scene.add(this.gizmo)
+	}
+	public async createDiary(obj: SceneObjectJSON): Promise<THREE.Mesh> {
+        const radius = 1
+				const geometry = new THREE.SphereGeometry(radius, 32, 32)
+				const material = new THREE.MeshStandardMaterial({
+					color: '#ffaa7f'
+				})
+				
+				const mesh = new THREE.Mesh(geometry, material)
+				mesh.userData.type = 'diary'
+				mesh.userData.title = obj.title
+				mesh.userData.content = obj.content
+				this.loadedDiary.push({ title: obj.title || '没有标题', content: obj.content || '没有内容', object: mesh})
+				return mesh
 	}
 	public async loadImageMesh(url: string, baseWidth = 5): Promise<THREE.Mesh> {
 		return new Promise((resolve, reject) => {
@@ -498,6 +524,9 @@ class ThreeCore {
 			if (this.stats) {
 				this.stats.update()
 			}
+			if (this.addAnimationFunc) {
+				this.addAnimationFunc()
+			}
 		}
 
 		animate()
@@ -568,6 +597,7 @@ class ThreeCore {
 
 	public saveSceneToJSON(): SceneJSON {
 		const objects: SceneObjectJSON[] = []
+		console.log(this.scene.children)
 		// biome-ignore lint: <就用forEach>
 		this.scene.children.forEach(obj => {
 			// 忽略灯光、摄像机等非 Mesh 类型
@@ -579,6 +609,9 @@ class ThreeCore {
           }
           return 'image'
         }
+				if (obj.userData.type && obj.userData.type === 'template') {
+          return 'template'
+        }
 				if (
 					obj instanceof THREE.Mesh &&
 					obj.geometry instanceof THREE.BoxGeometry
@@ -587,8 +620,12 @@ class ThreeCore {
 				if (
 					obj instanceof THREE.Mesh &&
 					obj.geometry instanceof THREE.SphereGeometry
-				)
+				) {
+					if (obj.userData && obj.userData.type === 'diary') {
+						return 'diary'
+					}
 					return 'sphere'
+				}
 				return null
 			})()
 
@@ -659,18 +696,30 @@ class ThreeCore {
 				if (obj.userData.useDracoLoader) {
 					jsonObj.useDracoLoader = obj.userData.useDracoLoader
 				}
-				
 			}
       if (typeGuess === 'image') {
 				jsonObj.url = obj.userData.url.replace(BASE_IMG, '')
 			}
+			if (typeGuess === 'diary') {
+				jsonObj.title = obj.userData.title
+				jsonObj.content = obj.userData.content
+			}
+			if (typeGuess === 'template') {
+				jsonObj.template_id = obj.userData.template_id
+			}
+			
 
 			objects.push(jsonObj)
 		})
     console.log(JSON.stringify(objects), '数据')
 		return { objects }
 	}
-	public async loadSceneFromJSON(json: SceneJSON) {
+	public async loadSceneFromJSON(json: SceneJSON, renturGroup = false) {
+		let group = null
+		if (renturGroup) {
+			group = new THREE.Group()
+			group.userData.ignorePick = true
+		}
 		for (const obj of json.objects) {
 			const position = obj.position || [0, 0, 0]
 			const rotation = obj.rotation || [0, 0, 0]
@@ -685,6 +734,7 @@ class ThreeCore {
 					color: obj.color || '#ffffff'
 				})
 				mesh = new THREE.Mesh(geometry, material)
+				mesh.userData.type = 'box'
 			}
 
 			if (obj.type === 'sphere') {
@@ -694,6 +744,7 @@ class ThreeCore {
 					color: obj.color || '#ffffff'
 				})
 				mesh = new THREE.Mesh(geometry, material)
+				mesh.userData.type = 'sphere'
 			}
 
 			if (obj.type === 'model' && obj.url) {
@@ -711,22 +762,36 @@ class ThreeCore {
       if (obj.type === 'image' && obj.url) {
         mesh = await this.loadImageMesh(BASE_IMG + obj.url, obj.baseWidth || 5)
       } 
+			if (obj.type === 'diary') {
+				mesh = await this.createDiary(obj)
+      } 
 			if (mesh) {
 				mesh.position.set(...position)
 				mesh.rotation.set(...rotation)
 				mesh.scale.set(...scale)
-				this.allObjects.push(mesh)
-				this.scene.add(mesh)
+				if (renturGroup) {
+					mesh.userData.ignorePick = true
+					mesh.traverse((childMesh) => {
+						childMesh.userData.ignorePick = true
+					})
+					group?.add(mesh)
+				} else {
+					this.allObjects.push(mesh)
+					this.scene.add(mesh)
+				}
 
-				const box = this.createBoundingBoxMesh(mesh)
-				box.userData.ignorePick = true
-				box.position.set(...position)
-				box.rotation.set(...rotation)
-				box.scale.set(...scale)
-				box.renderOrder = 100000
-				console.log(box, '包围盒')
+				// const box = this.createBoundingBoxMesh(mesh)
+				// box.userData.ignorePick = true
+				// box.position.set(...position)
+				// box.rotation.set(...rotation)
+				// box.scale.set(...scale)
+				// box.renderOrder = 100000
+				// console.log(box, '包围盒')
 			}
 		}
+		if (renturGroup) {
+			return group
+		} return null
 	}
 
 	createBoundingBoxMesh(object: THREE.Object3D) {
@@ -765,6 +830,63 @@ class ThreeCore {
 		this.scene.add(group)
 
 		return group
+	}
+	clearObject (object: THREE.Object3D) {
+		if (object.isMesh) {
+			if (object.geometry) {
+				object.geometry.dispose(); // 释放几何体内存
+			}
+			
+			// 处理材质
+			if (object.material) {
+				// 如果是材质数组
+				if (Array.isArray(object.material)) {
+					
+					object.material.forEach(material => material.dispose());
+				} else {
+					object.material.dispose(); // 单个材质
+				}
+			}
+			console.log('走到这里了')
+			if (object.parent) {
+					object.parent.remove(object);
+			} else {
+				this.scene.remove(object)
+			}
+		}
+	}
+	clearGroup(group: THREE.Group | THREE.Object3D) {
+		// 遍历组的所有子对象
+		while (group.children.length > 0) { 
+			const child = group.children[0];
+			// biome-ignore lint/complexity/noForEach: <explanation>
+			group.children.forEach((child: THREE.Object3D) => {
+							// 如果子对象是网格(Mesh)，需要处理其几何体和材质
+			if (child.isMesh) {
+				if (child.geometry) {
+					child.geometry.dispose(); // 释放几何体内存
+				}
+				
+				// 处理材质
+				if (child.material) {
+					// 如果是材质数组
+					if (Array.isArray(child.material)) {
+						
+						child.material.forEach(material => material.dispose());
+					} else {
+						child.material.dispose(); // 单个材质
+					}
+				}
+			}
+			})
+
+			
+			// 从组中移除子对象
+			group.remove(child);
+		}
+		if (group.isMesh) {
+			this.clearObject(group)
+		}
 	}
 
 	// 修改dispose方法以清理CSS3D渲染器
