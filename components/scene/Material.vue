@@ -5,6 +5,12 @@ import { uploadImage } from '@/api';
 import type QhxImagePicker from '@/components/Qhx/ImagePicker.vue'
 const imagePicker = ref<InstanceType<typeof QhxImagePicker> | null>(null)
 const show = ref(false)
+const diary = ref(false)
+const clickPosition = ref({ x: 0, y: 0 })
+const diaryForm = reactive({
+  title: '',
+  content: ''
+})
 interface Props {
   className?: string,
   needJump?: boolean // 是否需要跳转
@@ -17,14 +23,27 @@ const addImage = () => {
 const showModel = () => {
   show.value = true
 }
+const addDiary = (e: MouseEvent) => {
+  diary.value = true
+  clickPosition.value = {
+    x: e.clientX, y: e.clientY
+  }
+}
 const closeModel = () => {
   show.value = false
 }
 const props = withDefaults(defineProps<Props>(), {
 })
-const emit = defineEmits(['addImage', 'saveScene'])
+const emit = defineEmits(['addImage', 'saveScene', 'addDiary'])
 const saveScene = () => {
   emit('saveScene')
+}
+const emitDiary = () => {
+  emit('addDiary', diaryForm)
+}
+
+const chooseTemplate = (item) => {
+  emit('chooseTemplate', item)
 }
 const onUpdateFiles = (file: File[]) => {
   console.log('选择的文件', file)
@@ -44,34 +63,86 @@ defineExpose({
 </script>
 <template>
   <QhxImagePicker :multiple="true" @update:files="onUpdateFiles" class="hidden" ref="imagePicker" />
-  <div class="w-full fixed transition-all bottom-0 left-0 z-20 h-[170px] bg-qhx-bg"
-    :class="show ? '' : 'bottom-[-170px]'">
-    <div class="fun-head h-[40px] border-b flex">
+  <QhxModal v-model="diary" :trigger-position="clickPosition">
+    <div class="p-6 w-[400px] bg-white rounded-[10px] max-h-[50vh] overflow-y-auto">
+      <UInput v-model="diaryForm.title" :placeholder="'标题'" class="flex-1 focus:ring-0" :ui="{
+        base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
+        rounded: 'rounded-[10px]',
+        padding: { xs: 'px-4 py-2' },
+        color: {
+          white: {
+            outline: 'bg-gray-50 dark:bg-gray-800 ring-1 ring-gray-300 dark:ring-gray-600 focus:ring-2 focus:ring-qhx-primary'
+          }
+        }
+      }" />
+      <UTextarea v-model="diaryForm.content" :placeholder="'内容'" type="texare" class="flex-1 focus:ring-0 pt-3" :ui="{
+        base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
+        rounded: 'rounded-[10px]',
+        padding: { xs: 'px-4 py-2' },
+        color: {
+          white: {
+            outline: 'bg-gray-50 dark:bg-gray-800 ring-1 ring-gray-300 dark:ring-gray-600 focus:ring-2 focus:ring-qhx-primary'
+          }
+        }
+      }" />
+      <UButton type="submit" block class="bg-qhx-primary text-qhx-inverted hover:bg-qhx-primaryHover mt-6"
+        @click="emitDiary()">
+        添加
+      </UButton>
+    </div>
+  </QhxModal>
+  <div class="w-full fixed transition-all bottom-0 left-0 z-20 h-[500px] bg-qhx-bg"
+    :class="show ? '' : 'bottom-[-500px]'">
+    <div class="fun-head h-[60px] border-b flex">
       <div class="flex flex-1">
         <QhxJellyButton>
-          <div
-            class=" m-[5px] text-white rounded-[50%] h-[30px] w-[30px] bg-qhx-primary flex items-center justify-center"
-            @click="saveScene()">
-            保存
+          <div class="h-[60px] text-center px-1">
+            <div
+              class=" m-[5px] text-white rounded-[50%] h-[30px] w-[30px] bg-qhx-primary flex items-center justify-center"
+              @click="saveScene()">
+              <UIcon name="ant-design:file-filled" class="text-[22px] text-[#ffffff]" />
+            </div>
+            <div class>保存</div>
           </div>
         </QhxJellyButton>
         <QhxJellyButton>
-          <div
-            class=" m-[5px] text-white rounded-[50%] h-[30px] w-[30px] bg-qhx-primary flex items-center justify-center"
-            @click="addImage()">
-            <UIcon name="ant-design:star-filled" class="text-[26px] text-[#ffffff]" />
+          <div class="h-[60px] text-center px-1">
+            <div
+              class=" m-[5px] text-white rounded-[50%] h-[30px] w-[30px] bg-qhx-primary flex items-center justify-center"
+              @click="addImage()">
+              <UIcon name="ant-design:picture-filled" class="text-[22px] text-[#ffffff]" />
+            </div>
+            <div class>图片</div>
+          </div>
+
+        </QhxJellyButton>
+        <QhxJellyButton>
+          <div class="h-[60px] text-center px-1">
+            <div
+              class=" m-[5px] text-white rounded-[50%] h-[30px] w-[30px] bg-qhx-primary flex items-center justify-center"
+              @click="addDiary($event)" style="font-size: 22px">
+              <UIcon name="icon-park-outline:add-text" class="text-[22px] text-[#ffffff]" />
+            </div>
+            <div class>日记点</div>
           </div>
         </QhxJellyButton>
       </div>
       <QhxJellyButton>
-          <div
-            class=" m-[5px] text-white rounded-[50%] h-[30px] w-[30px] bg-qhx-primary flex items-center justify-center"
-            @click="closeModel()">
-            <UIcon name="ant-design:star-filled" class="text-[26px] text-[#ffffff]" />
-          </div>
-        </QhxJellyButton>
+        <div class=" m-[5px] text-white rounded-[50%] h-[30px] w-[30px] bg-qhx-primary flex items-center justify-center"
+          @click="closeModel()">
+          <UIcon name="ant-design:close-outlined" class="text-[22px] text-[#ffffff]" />
+        </div>
+      </QhxJellyButton>
     </div>
-    111
+    <QhxTabs :tabs="['模版']">
+      <QhxTabPanel :index="0">
+        <template #default="{ isActive }">
+          <div class="bg-white h-[370px] overflow-y-auto">
+            <TemplateList @choose="chooseTemplate"></TemplateList>
+          </div>
+        </template>
+      </QhxTabPanel>
+    </QhxTabs>
   </div>
 </template>
 

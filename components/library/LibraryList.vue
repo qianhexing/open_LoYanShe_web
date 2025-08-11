@@ -2,7 +2,6 @@
 import type { Library, PaginationResponse, FilterList } from '@/types/api';
 import useScrollBottom from '@/composables/useScrollBottom'
 import { getLibraryList } from '@/api/library';
-import { string } from 'three/tsl';
 interface Props {
   className?: string,
   needShop?: boolean,

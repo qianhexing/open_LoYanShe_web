@@ -4,7 +4,24 @@
 		<div class=" fixed bottom-[20px] left-[20px] rounded-[50%] w-[50px] h-[50px] z-10 items-center justify-center shadow-lg flex cursor-pointer bg-qhx-bg-card"
 		@click="showMaterial()">加</div>
 		<div style="height: 100vh; width: 100vw; overflow: hidden; " id="scene"></div>
-		<SceneMaterial @saveScene="saveScene" @addImage="onUpdateFiles" ref="MaterialRef"></SceneMaterial>
+		<div class="opera fixed p-3  bg-qhx-bg-card rounded-[30px] z-20 h-[60px] flex items-center" 
+		v-show="clickObject"
+		:style="{ left: operaPosition.x + 40 + 'px', top: operaPosition.y - 40 + 'px' }">
+			<div class=" cursor-pointer px-3" >缩放</div>
+			<div class=" cursor-pointer px-3" @click.stop="deleteModel()">删除</div>
+		</div>
+		<div @click.stop="(e) => {
+			handleClickDiary(e, diary)
+		}" class="fixed p-3 cursor-pointer bg-qhx-bg-card rounded-[30px] shadow-lg z-10 h-[60px] flex items-center" v-for="diary in diaryList" :style="{ left: diary.position.x + 'px', top: diary.position.y + 'px' }">
+			{{ diary.title }}
+		</div>
+		<SceneMaterial @chooseTemplate="chooseTemplate" @addDiary="addDiary" @saveScene="saveScene" @addImage="onUpdateFiles" ref="MaterialRef"></SceneMaterial>
+		<QhxModal v-model="showDiary" :trigger-position="clickPosition">
+			<div class="p-6 w-[400px] bg-white rounded-[10px] max-h-[50vh] overflow-y-auto" v-if="activeDiary">
+				<div>{{ activeDiary.title }}</div>
+				<div>{{ activeDiary.content }}</div>
+			</div>
+		</QhxModal>
 	</div>
 </template>
 <script setup lang="ts">
@@ -12,14 +29,19 @@ import qhxCore from '@/utils/threeCore';
 import * as THREE from 'three';
 import type  { CSS3DObject } from 'three/examples/jsm/renderers/CSS3DRenderer.js';
 import { getSceneId, updateScene } from '@/api/scene'
-import type { PaginationResponse, Scene } from '@/types/api'
+import type { PaginationResponse, Scene, TemplateInterface } from '@/types/api'
 import type SceneMaterial from '@/components/scene/Material.vue'
 import { uploadImage } from '~/api';
-
+const showDiary = ref(false)
 let threeCore: qhxCore
 const theme = useThemeStore()
 const isClick = ref(false)
 const Scene1Group = ref<THREE.Group | null>(null)
+const operaPosition = ref<Object<{ x: number, y: number}>>({ x: 0, y: 0})
+const clickObject = ref<THREE.Object3D[] | null>(null)
+const diaryList = ref([])
+const activeDiary = ref(null)
+
 	
 
 const MaterialRef = ref<InstanceType<typeof SceneMaterial> | null>(null)
@@ -34,6 +56,8 @@ const token = ref<string | null>(null) // 传入的token
 console.log(route.query, '路由')
 const toast = useToast()
 const userStore = useUserStore()
+const clickPosition = ref({ x: 0, y: 0 })
+
 if (route.query?.edit) {
 	edit_mode.value = true
 }
@@ -54,6 +78,44 @@ useHead({
 		}
 	]
 })
+
+const deleteModel = () => {
+	if (clickObject.value && clickObject.value.length > 0) {
+		if (clickObject.value[0].userData.type === 'diary') {
+			const index = threeCore.loadedDiary.findIndex((child) => {
+				return clickObject.value && child.object.uuid === clickObject.value[0].uuid
+			})
+			if (index !== -1) {
+				threeCore.loadedDiary.splice(index, 1)
+			}
+		}
+		threeCore.clearGroup(clickObject.value[0])
+		clickObject.value = null
+		threeCore.gizmo.detach();
+	}
+}
+const handleClickDiary = (e: MouseEvent, item) => {
+  showDiary.value = true
+  clickPosition.value = {
+    x: e.clientX, y: e.clientY
+  }
+	activeDiary.value = item
+}
+const addAnimationFunc = () => {
+	if (clickObject.value && clickObject.value.length > 0) {
+		operaPosition.value = threeCore.screenPositionFromObject(clickObject.value[0])
+	}
+	const diary_list = []
+	if (threeCore.loadedDiary && threeCore.loadedDiary.length > 0) {
+		// biome-ignore lint/complexity/noForEach: <explanation>
+			threeCore.loadedDiary.forEach((diary) => {
+			const position = threeCore.screenPositionFromObject(diary.object)
+			diary_list.push({...diary, position})
+			// console.log('日记点位置', position)
+		})
+	}
+	diaryList.value = diary_list
+}
 const { data } = await useAsyncData('studyDeatil', () => {
   return getSceneId({ sence_id: Number.parseInt(id) })
 }, {})
@@ -81,12 +143,13 @@ const initThreejs = () => {
 	// window.addEventListener('mousemove', gpuPick, false)
 	// window.addEventListener('touchmove', gpuPick, false)
 	// window.addEventListener('click', gpuPick, false)
-	window.addEventListener('pointerdown', _onPointerDown);
-	window.addEventListener('pointermove', _onPointerMove);
-	window.addEventListener('pointerup', _onPointerUp);
+	document.getElementById('scene')?.addEventListener('pointerdown', _onPointerDown);
+	document.getElementById('scene')?.addEventListener('pointermove', _onPointerMove);
+	document.getElementById('scene')?.addEventListener('pointerup', _onPointerUp);
 	// threeCore.controls.autoRotate = true
 	// 开始渲染循环
 	threeCore.startAnimationLoop();
+	threeCore.addAnimationFunc = () => { addAnimationFunc() }
 }
 const _onPointerDown = () => {
 	isClick.value = true
@@ -108,12 +171,47 @@ const showMaterial = () => {
 		MaterialRef.value.showModel()
 	}
 }
+const addDiary = async (form) => {
+	const mesh = await threeCore.createDiary({
+		title: form.title,
+		content: form.content,
+		type: 'diary'
+	})
+	mesh.position.set(0,0,0)
+	threeCore.scene.add(mesh)
+}
+const chooseTemplate = async (item: TemplateInterface) => {
+	if (threeCore.loadTemplate.length > 0) {
+		// biome-ignore lint/complexity/noForEach: <explanation>
+		threeCore.loadTemplate.forEach((child) => {
+			threeCore.clearGroup(child)
+		})
+		threeCore.loadTemplate = []
+	}
+	if (item.json_data) {
+
+	} else if (item.json_url) {
+		use$Get(item.json_data || `/sence/json/${item.json_url}.json?2`, undefined, { baseURL: BASE_IMG})
+    .then(async (res) => {
+      const group = await threeCore.loadSceneFromJSON(res, true)
+			if (group) {
+				group.userData.type = 'template'
+				group.userData.template_id =  item.template_id
+				group.userData.ignorePick = true
+				threeCore.scene.add(group)
+				threeCore.loadTemplate.push(group)
+			}
+    })
+	}
+}
 const saveScene = () => {
 	const json_data = threeCore.saveSceneToJSON()
 	const params = {
 		sence_id: Number.parseInt(id),
 		json_data
 	}
+	console.log('保存的数据', json_data)
+	return
 	updateScene(params)
 		.then((res) => {
 			toast.add({
@@ -138,11 +236,15 @@ onUnmounted(() => {
 const gpuPick = (ev: MouseEvent | TouchEvent) => {
 	const obj = threeCore.gpuPick(ev)
 	if (obj) {
+		console.log('点击到的', obj)
 		threeCore.gizmo.attach(obj);
+		clickObject.value = [obj]
+		operaPosition.value = threeCore.screenPositionFromObject(obj)
 	} else if (threeCore.gizmo.dragging) {
 
 	} else {
 		threeCore.gizmo.detach();
+		clickObject.value = null
 	}
 }
 const mouse = new THREE.Vector2();
