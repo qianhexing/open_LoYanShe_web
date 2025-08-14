@@ -26,3 +26,14 @@ export async function updateScene(
   return response.data;
 }
 
+export async function insertScene(
+  params: {
+    json_data: SceneJSON
+  }
+): Promise<Scene> {
+  const response = await use$Post<BaseResponse<Scene>>(
+    '/sence/insert',
+    params
+  );
+  return response.data;
+}

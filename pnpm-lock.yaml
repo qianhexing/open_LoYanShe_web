@@ -8,6 +8,9 @@ importers:
 
   .:
     dependencies:
+      '@dcloudio/uni-webview-js':
+        specifier: ^0.0.3
+        version: 0.0.3
       '@nuxt/image':
         specifier: 1.9.0
         version: 1.9.0(db0@0.2.1)(ioredis@5.4.2)(magicast@0.3.5)(rollup@4.31.0)
@@ -320,6 +323,9 @@ packages:
     engines: {node: '>=18'}
     peerDependencies:
       postcss-selector-parser: ^7.0.0
+
+  '@dcloudio/uni-webview-js@0.0.3':
+    resolution: {integrity: sha512-3XDnLXg22QKC/aTLtGim6zbOK+euiDYoRf98BjGDE0lqMm1U4SLFHAvOlAHa0qck91phaceKwo73ScQQgSojQg==}
 
   '@dimforge/rapier3d-compat@0.12.0':
     resolution: {integrity: sha512-uekIGetywIgopfD97oDL5PfeezkFpNhwlzlaEYNOA0N6ghdsOvh/HYjSMek5Q2O1PYvRSDFcqFVJl4r4ZBwOow==}
@@ -5714,6 +5720,8 @@ snapshots:
   '@csstools/selector-specificity@5.0.0(postcss-selector-parser@7.0.0)':
     dependencies:
       postcss-selector-parser: 7.0.0
+
+  '@dcloudio/uni-webview-js@0.0.3': {}
 
   '@dimforge/rapier3d-compat@0.12.0': {}
 

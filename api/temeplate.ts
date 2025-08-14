@@ -11,3 +11,15 @@ export async function getTemplateList(
   );
   return response.data;
 }
+
+export async function getTemplateOne(
+  params: {
+    template_id: number
+  }
+): Promise<TemplateInterface> {
+  const response = await use$Post<BaseResponse<TemplateInterface>>(
+    '/template/id',
+    params
+  );
+  return response.data;
+}

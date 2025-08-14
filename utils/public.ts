@@ -57,6 +57,22 @@ export function debounce<T extends (...args: any[]) => any>(
   };
 }
 
+export function  safeHtml(html:string) {
+  if (!html) return '';
+
+  // 创建一个div元素作为临时容器
+  const temp = document.createElement('div');
+  temp.textContent = html; // 自动转义HTML标签
+
+  // 获取转义后的内容（此时所有HTML标签都被转义为文本）
+  let safeContent = temp.innerHTML;
+
+  // 如果需要允许一些安全的HTML标签，可以使用以下方法
+  // 这里以允许 <b>, <i>, <u>, <p>, <br>, <span> 为例
+  safeContent = safeContent.replace(/&lt;(\/?)(b|i|u|p|br|span)&gt;/g, '<$1$2>');
+  safeContent.replace('60vh', '500px')
+  return safeContent;
+}
 /**
  * 节流函数
  * @param func 要执行的函数
@@ -150,6 +166,7 @@ export function formatRich(richText: string) {
 	
 	// 去除img标签
 	textWithoutImgTags = richText.replace(editorImageRegex, '');
+  // textWithoutImgTags = safeHtml(textWithoutImgTags)
 	return {
 	    image: imageUrls,
 	    text: textWithoutImgTags
