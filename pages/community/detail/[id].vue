@@ -17,7 +17,7 @@ detail.value = data.value
 
 onMounted(() => {
   if (detail.value?.content) {
-    richText.value = parseRichText(detail.value.content)
+    richText.value = parseRichText(detail.value.content.replace('60vh', '70vh'))
   }
 })
 interface WikiParams {

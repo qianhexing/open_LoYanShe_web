@@ -163,6 +163,10 @@ export interface Library {
   library_price?: number
   shop_country?: number
 }
+/** 衣柜 */
+export interface Wardrobe {
+  wardrobe_id: number
+}
 /** 研习类型 */
 export interface Study {
   study_id: number
@@ -328,7 +332,7 @@ export interface TemplateInterface {
   user_id: number
   main_style: string
   json_url: string
-  json_data: JSON
+  json_data: SceneJSON
   create_time: Date
   update_time: Date
   use_time: number

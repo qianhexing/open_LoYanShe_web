@@ -23,7 +23,7 @@ const handleClick = (element: TemplateInterface) => {
   <div :class="className ? className : 'w-full'">
     <div class="w-full flex justify-center items-center pt-4 px-4 pb-2 bg-white" @click="handleClick(item)">
       <img :src="`${BASE_IMG}${item.cover || 'static/plan_cover/default.jpg'}`"
-        class="object-cover w-full h-[20vw] rounded-[10px] border border-gray-200 dark:border-gray-800 shadow-sm bg-white"
+        class="object-cover w-full  h-[100px] rounded-[10px] border border-gray-200 dark:border-gray-800 shadow-sm bg-white"
         loading="lazy" />
     </div>
     <div class="w-full flex flex-col items-center justify-between px-3 pb-4 pt-2 relative">

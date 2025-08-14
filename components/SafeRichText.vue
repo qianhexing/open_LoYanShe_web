@@ -1,3 +1,4 @@
+<!-- 安全的富文本解析器！安全！（应该安全吧） -->
 <script setup lang="ts">
 defineProps<{
   nodes: RichNode[]
@@ -13,7 +14,7 @@ interface RichNode {
 // 合法标签
 const ALLOWED_TAGS = new Set([
   'div', 'p', 'span', 'strong', 'em', 'a', 'ul', 'ol', 'li',
-  'br', 'img', 'b', 'i', 'video', 'audio', 'source', 'h3'
+  'br', 'img', 'b', 'i', 'video', 'audio', 'source', 'h3', 'iframe'
 ])
 
 // 自定义标签映射
@@ -34,7 +35,7 @@ function sanitizeStyle(style: string = ''): string {
     .split(';')
     .map(s => s.trim())
     .filter(rule =>
-      /^(color|font-size|text-align|margin|padding|background-color)/i.test(rule) &&
+      /^(color|font-size|text-align|margin|padding|background-color|width|height)/i.test(rule) &&
       !/url\(|expression\(/i.test(rule)
     )
     .join(';')
@@ -68,11 +69,14 @@ function getSafeAttrs(tag: string, attrs: Record<string, string>): Record<string
       }
       continue
     }
-    if (key === 'src') {
+    if (key === 'src' && tag !== 'iframe') {
       const allowedExt = /\.(jpg|jpeg|png|gif|svg|webp|mp4|mp3|webm)$/i
       if (!/^https?:\/\//.test(val) || !allowedExt.test(val)) continue
     }
-
+    if (key === 'src' && tag === 'iframe') {
+      if (!val.includes('lolitalibrary.com')) continue
+    }
+    console.log(key, '当前的键值')
     safe[key] = val
   }
 

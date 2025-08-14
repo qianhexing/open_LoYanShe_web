@@ -3,7 +3,7 @@
 const themeStore = useThemeStore()
 const userStore = useUserStore()
 const configStore = useConfigStore()
-configStore.getConfig()
+
 const times = ref(1)
 const isHome = ref(false)
 const cachedPages = ref(['library']) // 根据你的实际页面名称修改
@@ -15,7 +15,7 @@ const jumpToLoyanshe = () => {
   }
 }
 const layout_style = ref(0) // 0是带上下栏的 1 是空白页面
-const blank_list = ['scene/detail']
+const blank_list = ['scene/detail', 'wardrobe/detail']
 const route = useRoute()
 console.log(route.path, '初始路由地址')
 const judgeIsHome = () => {
@@ -48,11 +48,18 @@ onMounted(() => {
   themeStore.setTheme('light')
   userStore.initialize()
   configStore.setIsPc(isPC())
+  configStore.getConfig()
   // themeStore.loadFromLocalStorage()
 })
 </script> 
 <template>
   <div class="min-h-screen background transition-colors duration-300" v-if="layout_style === 0">
+    <Head>
+      <!-- 禁止缩放 -->
+      <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no">
+      <!-- 禁止 iOS 电话号码自动识别 -->
+      <meta name="format-detection" content="telephone=no">
+    </Head>
     <UNotifications position="top-0 right-0" />
     <Header />
     <main class="container mx-auto pb-4  pt-16 min-h-screen">

@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { GPUPicker } from 'three_gpu_picking/src/gpupicker.js'
+import type { GPUPicker } from 'three_gpu_picking/src/gpupicker.js'
 import type { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 
 export class TransformGizmo extends THREE.Group {
@@ -10,7 +10,7 @@ export class TransformGizmo extends THREE.Group {
 
   
 
-  constructor(scene: THREE.Scene, camera: THREE.OrthographicCamera, controls: OrbitControls , domElement: HTMLElement, picker) {
+  constructor(scene: THREE.Scene, camera: THREE.OrthographicCamera, controls: OrbitControls , domElement: HTMLElement, picker: GPUPicker) {
     super();
     this.camera = camera;
     this.scene = scene
@@ -247,7 +247,7 @@ export class TransformGizmo extends THREE.Group {
     // const planeNormal = axis.clone().normalize();
     // const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(planeNormal, this.position);
   
-    // ✅ 可视化 plane
+    // 可视化 plane
     if (!this._debugPlaneHelper) {
       this._debugPlaneHelper = new THREE.PlaneHelper(plane, 2, 0xff0000);
       this.scene.add(this._debugPlaneHelper);

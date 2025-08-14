@@ -43,7 +43,7 @@ const load = () => {
         <h3 class="text-base font-semibold text-gray-900 truncate w-full transition-colors duration-300" @click="handleJump(item.community_id)">
           {{ item.title }}
         </h3>
-        <div v-html="text" class="community-content m-1" @click="handleJump(item.community_id)"></div>
+        <div v-html="text.replace('60vh', '500px')" class="community-content m-1" @click="handleJump(item.community_id)"></div>
         <div class="flex flex-wrap w-full">
           <QhxPreviewImage @load="load" :list="image.map((img) => { return { src: img.replace('https://www.lolitalibrary.com/ali/', '') + '?x-oss-process=image/quality,q_100/resize,w_200,h_200', alt: item.title || 'Lo研社' }})"
             :preview="image.map((img) => { return img.replace('https://www.lolitalibrary.com/ali/', '') })"

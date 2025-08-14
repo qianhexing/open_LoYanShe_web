@@ -1,6 +1,7 @@
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import Stats from 'three/examples/jsm/libs/stats.module.js'
+import TWEEN from '@tweenjs/tween.js'
 import {
 	CSS3DRenderer,
 	CSS3DObject
@@ -11,12 +12,19 @@ import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js'
 import { BASE_IMG } from '@/utils/ipConfig.js'
 // @ts-ignore
 import { GPUPicker } from 'three_gpu_picking/src/gpupicker.js'
-import { TransformGizmo } from './TransformGizmo.js'
+import { TransformGizmo } from './TransformGizmo'
+import { getTemplateOne } from '@/api/temeplate.js'
+import { EffectManager } from './EffectManager';
+export interface CameraState {
+	position: THREE.Vector3
+	target: THREE.Vector3
+	fov?: number // 只有 PerspectiveCamera 会用到
+}
 export interface SceneObjectJSON {
 	type: 'box' | 'sphere' | 'model' | 'image' | 'diary' | 'template'
 	position?: [number, number, number]
 	rotation?: [number, number, number]
-  baseWidth?: number
+	baseWidth?: number
 	scale?: [number, number, number]
 	color?: string
 	size?: [number, number, number] // for box
@@ -32,6 +40,8 @@ export interface SceneObjectJSON {
 }
 export interface SceneJSON {
 	objects: SceneObjectJSON[]
+	cameraList?: CameraState[]
+	background?: string
 }
 
 interface ThreeCoreOptions {
@@ -57,21 +67,27 @@ class ThreeCore {
 	public mixers: AnimationMixer[] = [] // 用于管理多个模型动画混合器
 	public stats?: Stats
 	public animationCallbacks: Array<() => void>
-	public addAnimationFunc: () => void  // 注入animate里的方法
+	public addAnimationFunc: () => void // 注入animate里的方法
 	public resizeCallbacks: Array<(width: number, height: number) => void>
 	public options: ThreeCoreOptions
 	public container?: HTMLElement | null
 	private resizeObserver?: ResizeObserver
 	public loadedModelURLs: Set<string> // 已加载过的模型地址集合
 	public loadedModels: THREE.Object3D[] // 加载成功的模型数组
-	public loadedDiary: Array<{title: string, content: string, object: THREE.Object3D}> // 加载成功的模型数组
-	public loadTemplate: THREE.Group[] // 加载成功的模型数组
+	public effectManager: EffectManager
+	public background: string | null
 
-	
+	public loadedDiary: Array<{
+		title: string
+		content: string
+		object: THREE.Object3D
+	}> // 加载成功的模型数组
+	public loadTemplate: THREE.Group[] // 加载成功的模型数组
+	public cameraList: CameraState[]
 
 	public clock: THREE.Clock
 	public picker: GPUPicker | null
-	public gizmo: any | null
+	public gizmo: TransformGizmo | null
 
 	constructor(options: ThreeCoreOptions = {}) {
 		const defaultOptions: ThreeCoreOptions = {
@@ -102,18 +118,29 @@ class ThreeCore {
 		this.allObjects = []
 		this.loadedDiary = [] // 加载的日记文本
 		this.loadTemplate = [] // 加载的模版
-		
+		this.cameraList = []
+		this.background = null
+
 		this.clock = new THREE.Clock()
 
 		this.initScene()
 		this.initCamera()
 		this.initRenderer()
 		this.initPicker()
+		this.effectManager = new EffectManager(this.scene, this.camera, this.renderer);
+		const cube = new THREE.Mesh(
+			new THREE.BoxGeometry(),
+			new THREE.MeshStandardMaterial({ color: 'orange' })
+		);
+		this.effectManager.addEffect('SnowEffect', this.scene, { count: 8000, onlyOne: true });
 		// 如果启用了CSS3D渲染器
 		if (this.options.enableCSS3DRenderer) {
 			this.initCSS3DRenderer()
 		}
-
+		// setTimeout(() => {
+		// 	this.effectManager.removeEffect(this.scene, 'SnowEffect');
+		// 	console.log('删除特效')
+		// }, 6000);
 		this.initLights()
 
 		// if (this.options.enableOrbitControls) {
@@ -134,25 +161,33 @@ class ThreeCore {
 		this.scene.add(this.gizmo)
 	}
 	public async createDiary(obj: SceneObjectJSON): Promise<THREE.Mesh> {
-        const radius = 1
-				const geometry = new THREE.SphereGeometry(radius, 32, 32)
-				const material = new THREE.MeshStandardMaterial({
-					color: '#ffaa7f'
-				})
-				
-				const mesh = new THREE.Mesh(geometry, material)
-				mesh.userData.type = 'diary'
-				mesh.userData.title = obj.title
-				mesh.userData.content = obj.content
-				this.loadedDiary.push({ title: obj.title || '没有标题', content: obj.content || '没有内容', object: mesh})
-				return mesh
+		const radius = 1
+		const geometry = new THREE.SphereGeometry(radius, 32, 32)
+		const material = new THREE.MeshStandardMaterial({
+			color: '#ffaa7f'
+		})
+
+		const mesh = new THREE.Mesh(geometry, material)
+		mesh.userData.type = 'diary'
+		mesh.userData.title = obj.title
+		mesh.userData.content = obj.content
+		this.loadedDiary.push({
+			title: obj.title || '没有标题',
+			content: obj.content || '没有内容',
+			object: mesh
+		})
+		return mesh
 	}
 	public async loadImageMesh(url: string, baseWidth = 5): Promise<THREE.Mesh> {
 		return new Promise((resolve, reject) => {
 			if (this.loadedModelURLs.has(url)) {
 				const existing = this.loadedModels.find(obj => obj.userData.url === url)
 				if (existing) {
-					resolve(existing.clone(true) as THREE.Mesh)
+					const mesh = existing.clone(true) as THREE.Mesh
+					mesh.position.set(0, 0, 0)
+					mesh.rotation.set(0, 0, 0)
+					mesh.scale.set(1, 1, 1)
+					resolve(mesh)
 					return
 				}
 			}
@@ -172,6 +207,7 @@ class ThreeCore {
 					const height = baseWidth * aspect
 
 					const geometry = new THREE.PlaneGeometry(width, height)
+					
 					const material = new THREE.MeshBasicMaterial({
 						map: texture,
 						transparent: true,
@@ -180,7 +216,7 @@ class ThreeCore {
 					})
 					const mesh = new THREE.Mesh(geometry, material)
 					mesh.userData.url = url
-          mesh.userData.type = 'image'
+					mesh.userData.type = 'image'
 
 					this.loadedModelURLs.add(url)
 					this.loadedModels.push(mesh)
@@ -224,7 +260,7 @@ class ThreeCore {
 					gltf => {
 						const model = gltf.scene
 						model.userData.url = url
-            model.userData.type = 'model'
+						model.userData.type = 'model'
 						model.userData.useDracoLoader = options.useDracoLoader
 						// this.scene.add(model);
 						this.loadedModelURLs.add(url)
@@ -289,7 +325,7 @@ class ThreeCore {
 	}
 
 	initLights() {
-		const ambientLight = new THREE.AmbientLight(0x404040, 0.5)
+		const ambientLight = new THREE.AmbientLight(0xffffff, 0.5)
 		this.scene.add(ambientLight)
 
 		const directionalLight = new THREE.DirectionalLight(0xffffff, 1.8)
@@ -504,34 +540,43 @@ class ThreeCore {
 
 	// 修改startAnimationLoop方法以支持CSS3D渲染器
 	startAnimationLoop() {
-		const animate = () => {
+		const animate = (time?: number) => {
 			requestAnimationFrame(animate)
-
+			const delta = this.clock.getDelta();
+			this.effectManager.update(delta);
+			// 更新 OrbitControls
 			if (this.controls) {
 				this.controls.update()
 			}
-
+	
+			// 调用额外的动画回调
+			// biome-ignore lint/complexity/noForEach: <explanation>
 			this.animationCallbacks.forEach(callback => callback())
-
-			// 渲染WebGL场景
+	
+			// 渲染 WebGL 场景
 			this.renderer.render(this.scene, this.camera)
-
-			// 如果启用了CSS3D渲染器，也渲染CSS3D场景
+	
+			// 渲染 CSS3D 场景
 			if (this.css3DRenderer) {
 				this.css3DRenderer.render(this.scene, this.camera)
 			}
-
+	
+			// 性能监控
 			if (this.stats) {
 				this.stats.update()
 			}
+			// 额外动画逻辑
 			if (this.addAnimationFunc) {
 				this.addAnimationFunc()
 			}
+			// 更新 Tween.js（传入毫秒时间戳）
+			TWEEN.update(time || performance.now())
+			
 		}
-
+	
 		animate()
 	}
-
+	
 	// 修改mount方法以支持CSS3D渲染器
 	mount(container: HTMLElement | null) {
 		// 先清理之前的容器
@@ -594,7 +639,130 @@ class ThreeCore {
 		}
 		return new CSS3DObject(element)
 	}
+	lookAtCameraState(
+		targetState: CameraState,
+		duration: number = 1000,
+		onComplete?: () => void
+	) {
+		console.log('切换镜头', targetState)
+		this.controls.enabled = false // 禁用操作
+	
+		const startPos = this.camera.position.clone()
+		const posObj = { x: startPos.x, y: startPos.y, z: startPos.z }
+	
+		const startTarget = this.controls.target.clone()
+		const targetObj = { x: startTarget.x, y: startTarget.y, z: startTarget.z }
+	
+		// 透视相机才考虑 fov
+		let fovObj: { fov: number } | null = null
+		if (
+			(this.camera as THREE.PerspectiveCamera).isPerspectiveCamera &&
+			typeof targetState.fov === 'number'
+		) {
+			fovObj = { fov: (this.camera as THREE.PerspectiveCamera).fov }
+		}
+	
+		TWEEN.add(new TWEEN.Tween(posObj)
+			.to(
+				{ x: targetState.position.x, y: targetState.position.y, z: targetState.position.z },
+				duration
+			)
+			.easing(TWEEN.Easing.Quadratic.InOut)
+			.onUpdate(() => {
+				this.camera.position.set(posObj.x, posObj.y, posObj.z)
+			})
+			.start())
+	
+		TWEEN.add(new TWEEN.Tween(targetObj)
+		.to(
+			{ x: targetState.target.x, y: targetState.target.y, z: targetState.target.z },
+			duration
+		)
+		.easing(TWEEN.Easing.Quadratic.InOut)
+		.onUpdate(() => {
+			this.controls.target.set(targetObj.x, targetObj.y, targetObj.z)
+			this.controls.update()
+		})
+		.onComplete(() => {
+			this.controls.enabled = true
+			if (onComplete) onComplete()
+		})
+		.start())
+	
+		// fov tween
+		if (fovObj) {
+			new TWEEN.Tween(fovObj)
+				.to({ fov: targetState.fov! }, duration)
+				.easing(TWEEN.Easing.Quadratic.InOut)
+				.onUpdate(() => {
+					const cam = this.camera as THREE.PerspectiveCamera
+					cam.fov = fovObj!.fov
+					cam.updateProjectionMatrix()
+				})
+				.start()
+		}
+	}
 
+	public calcSelectObjSphere = (arr: THREE.Object3D[]) =>{
+		if(!arr||!arr.length) return 
+		const objectArr = arr
+		const object3D = new THREE.Object3D()
+		for(let i = 0,len = objectArr.length;i<len;i++){
+				object3D.children.push(objectArr[i])
+		}
+		const box3 = new THREE.Box3()
+		box3.expandByObject(object3D)
+		const sphere = new THREE.Sphere()
+		box3.getBoundingSphere(sphere)
+		return sphere
+	}
+	public lookAtSelectObj = (meshArr: THREE.Object3D[])  =>{
+		TWEEN.removeAll()
+		const sphere = this.calcSelectObjSphere(meshArr)
+		if (!sphere) return
+		const {
+				center,
+				radius
+		} = sphere
+		const camera = this.camera;
+    if (!camera) return null;
+
+    // 计算理想距离
+    const fov = camera.fov * (Math.PI / 180);
+    const idealDistance = Math.abs(radius / Math.sin(fov / 2)) * 1.2;
+
+    // 计算目标位置方向 (从中心指向当前相机位置)
+    const direction = new THREE.Vector3()
+        .subVectors(camera.position, center)
+        .normalize();
+
+    // 计算完整的目标位置
+    const fullTargetPosition = new THREE.Vector3()
+        .copy(center)
+        .add(direction.multiplyScalar(idealDistance));
+
+    // 使用lerp在当前位置和目标位置之间插值
+    const lerpedPosition = new THREE.Vector3()
+        .copy(camera.position)
+        .lerp(fullTargetPosition, 1.0);
+
+		this.lookAtCameraState({
+			position: lerpedPosition,
+			target: new THREE.Vector3().copy(center) // 目标总是中心点
+		})
+	}
+	
+	public recordCamera(): CameraState {
+		const item = {
+			position: this.camera.position.clone(),
+			target: this.controls.target.clone(),
+			fov: (this.camera as THREE.PerspectiveCamera).isPerspectiveCamera
+				? (this.camera as THREE.PerspectiveCamera).fov
+				: undefined
+		}
+		this.cameraList.push(item)
+		return item
+	}
 	public saveSceneToJSON(): SceneJSON {
 		const objects: SceneObjectJSON[] = []
 		console.log(this.scene.children)
@@ -604,14 +772,14 @@ class ThreeCore {
 			if (!(obj instanceof THREE.Mesh) && !(obj instanceof THREE.Group)) return
 			const typeGuess = (() => {
 				if (obj.userData.url) {
-          if (obj.userData.type === 'model') {
-            return 'model'
-          }
-          return 'image'
-        }
+					if (obj.userData.type === 'model') {
+						return 'model'
+					}
+					return 'image'
+				}
 				if (obj.userData.type && obj.userData.type === 'template') {
-          return 'template'
-        }
+					return 'template'
+				}
 				if (
 					obj instanceof THREE.Mesh &&
 					obj.geometry instanceof THREE.BoxGeometry
@@ -697,7 +865,7 @@ class ThreeCore {
 					jsonObj.useDracoLoader = obj.userData.useDracoLoader
 				}
 			}
-      if (typeGuess === 'image') {
+			if (typeGuess === 'image') {
 				jsonObj.url = obj.userData.url.replace(BASE_IMG, '')
 			}
 			if (typeGuess === 'diary') {
@@ -707,19 +875,32 @@ class ThreeCore {
 			if (typeGuess === 'template') {
 				jsonObj.template_id = obj.userData.template_id
 			}
-			
 
 			objects.push(jsonObj)
 		})
-    console.log(JSON.stringify(objects), '数据')
-		return { objects }
+		const resault: SceneJSON = { objects }
+		if (this.cameraList && this.cameraList.length > 0) {
+			resault.cameraList = this.cameraList
+		}
+		if (this.background) {
+			resault.background = this.background
+		}
+		return resault
 	}
 	public async loadSceneFromJSON(json: SceneJSON, renturGroup = false) {
 		let group = null
 		if (renturGroup) {
 			group = new THREE.Group()
 			group.userData.ignorePick = true
+		} else {
+			if (json.cameraList) {
+				this.cameraList = json.cameraList
+			}
+			if (json.background) {
+				this.background = json.background
+			}
 		}
+		
 		for (const obj of json.objects) {
 			const position = obj.position || [0, 0, 0]
 			const rotation = obj.rotation || [0, 0, 0]
@@ -759,19 +940,58 @@ class ThreeCore {
 					console.warn(`模型加载失败：${obj.url}`, e)
 				}
 			}
-      if (obj.type === 'image' && obj.url) {
-        mesh = await this.loadImageMesh(BASE_IMG + obj.url, obj.baseWidth || 5)
-      } 
+			if (obj.type === 'image' && obj.url) {
+				mesh = await this.loadImageMesh(BASE_IMG + obj.url, obj.baseWidth || 5)
+			}
 			if (obj.type === 'diary') {
 				mesh = await this.createDiary(obj)
-      } 
+			}
+			if (obj.type === 'template') {
+				// 加载模版类型
+				console.log(obj, '对象')
+				if (obj.template_id) {
+					try {
+						const template = await getTemplateOne({
+							template_id: obj.template_id
+						})
+						if (template.json_data) {
+							const group = await this.loadSceneFromJSON(
+								template.json_data,
+								true
+							)
+							if (group) {
+								group.userData.type = 'template'
+								group.userData.template_id = template.template_id
+								group.userData.ignorePick = true
+								this.scene.add(group)
+								this.loadTemplate.push(group)
+							}
+						} else if (template.json_url) {
+							use$Get(`/sence/json/${template.json_url}.json?2`, undefined, {
+								baseURL: BASE_IMG
+							}).then(async res => {
+								const group = await this.loadSceneFromJSON(res, true)
+								if (group) {
+									group.userData.type = 'template'
+									group.userData.template_id = template.template_id
+									group.userData.ignorePick = true
+									this.scene.add(group)
+									this.loadTemplate.push(group)
+								}
+							})
+						}
+					} catch (error) {
+						console.log('加载失败')
+					}
+				}
+			}
 			if (mesh) {
 				mesh.position.set(...position)
 				mesh.rotation.set(...rotation)
 				mesh.scale.set(...scale)
 				if (renturGroup) {
 					mesh.userData.ignorePick = true
-					mesh.traverse((childMesh) => {
+					mesh.traverse(childMesh => {
 						childMesh.userData.ignorePick = true
 					})
 					group?.add(mesh)
@@ -791,7 +1011,8 @@ class ThreeCore {
 		}
 		if (renturGroup) {
 			return group
-		} return null
+		}
+		return null
 	}
 
 	createBoundingBoxMesh(object: THREE.Object3D) {
@@ -831,25 +1052,24 @@ class ThreeCore {
 
 		return group
 	}
-	clearObject (object: THREE.Object3D) {
+	clearObject(object: THREE.Object3D) {
 		if (object.isMesh) {
 			if (object.geometry) {
-				object.geometry.dispose(); // 释放几何体内存
+				object.geometry.dispose() // 释放几何体内存
 			}
-			
+
 			// 处理材质
 			if (object.material) {
 				// 如果是材质数组
 				if (Array.isArray(object.material)) {
-					
-					object.material.forEach(material => material.dispose());
+					object.material.forEach(material => material.dispose())
 				} else {
-					object.material.dispose(); // 单个材质
+					object.material.dispose() // 单个材质
 				}
 			}
 			console.log('走到这里了')
 			if (object.parent) {
-					object.parent.remove(object);
+				object.parent.remove(object)
 			} else {
 				this.scene.remove(object)
 			}
@@ -857,32 +1077,31 @@ class ThreeCore {
 	}
 	clearGroup(group: THREE.Group | THREE.Object3D) {
 		// 遍历组的所有子对象
-		while (group.children.length > 0) { 
-			const child = group.children[0];
+		while (group.children.length > 0) {
+			const child = group.children[0]
 			// biome-ignore lint/complexity/noForEach: <explanation>
 			group.children.forEach((child: THREE.Object3D) => {
-							// 如果子对象是网格(Mesh)，需要处理其几何体和材质
-			if (child.isMesh) {
-				if (child.geometry) {
-					child.geometry.dispose(); // 释放几何体内存
-				}
-				
-				// 处理材质
-				if (child.material) {
-					// 如果是材质数组
-					if (Array.isArray(child.material)) {
-						
-						child.material.forEach(material => material.dispose());
-					} else {
-						child.material.dispose(); // 单个材质
+				// 如果子对象是网格(Mesh)，需要处理其几何体和材质
+				if (child.isMesh) {
+					if (child.geometry) {
+						child.geometry.dispose() // 释放几何体内存
+					}
+
+					// 处理材质
+					if (child.material) {
+						// 如果是材质数组
+						if (Array.isArray(child.material)) {
+							child.material.forEach(material => material.dispose())
+						} else {
+							child.material.dispose() // 单个材质
+						}
 					}
 				}
-			}
 			})
 
-			
 			// 从组中移除子对象
-			group.remove(child);
+			group.remove(child)
+			group.parent?.remove(group)
 		}
 		if (group.isMesh) {
 			this.clearObject(group)

@@ -12,6 +12,7 @@
     "postinstall": "nuxt prepare"
   },
   "dependencies": {
+    "@dcloudio/uni-webview-js": "^0.0.3",
     "@nuxt/image": "1.9.0",
     "@nuxt/ui": "2.21.0",
     "@nuxtjs/i18n": "^10.0.3",

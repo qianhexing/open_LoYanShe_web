@@ -5,8 +5,8 @@
  */
 import { $fetch } from 'ofetch'
 import { useRuntimeConfig } from '#app'
-const baseURL = 'http://localhost:3002'
-// const baseURL = 'https://lolitalibrary.com/node/'
+// const baseURL = 'http://localhost:3002'
+const baseURL = 'https://lolitalibrary.com/node/'
 interface RequestOptions {
   [key: string]: any;
 }
@@ -91,10 +91,11 @@ function createDollarFetchRequest(method: HttpMethod) {
     // const requestUrl = new URL(fullPath).toString()
 
     try {
+      const body = method === 'GET' ? { params: data } : { body: data }
       handleRequest(options)
       const response = await $fetch(fullPath, {
         method,
-        body: data,
+        ...body,
         ...options,
         // ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
       })

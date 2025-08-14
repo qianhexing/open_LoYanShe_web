@@ -1,35 +1,96 @@
 <template>
-	<div>
+	<div class="select-none touch-callout-none" :style="{ background: threeCore &&threeCore.background ? `url(${BASE_IMG}${threeCore.background})` : '', backgroundSize: 'cover' }">
 		
 		<div class=" fixed bottom-[20px] left-[20px] rounded-[50%] w-[50px] h-[50px] z-10 items-center justify-center shadow-lg flex cursor-pointer bg-qhx-bg-card"
-		@click="showMaterial()">加</div>
+		@click="showMaterial()" v-show="edit_mode">加</div>
 		<div style="height: 100vh; width: 100vw; overflow: hidden; " id="scene"></div>
-		<div class="opera fixed p-3  bg-qhx-bg-card rounded-[30px] z-20 h-[60px] flex items-center" 
-		v-show="clickObject"
-		:style="{ left: operaPosition.x + 40 + 'px', top: operaPosition.y - 40 + 'px' }">
+		<div class="opera fixed p-3  bg-qhx-bg-card rounded-[30px] z-20 h-[60px] flex items-center whitespace-nowrap overflow-hidden" 
+		v-show="clickObject && edit_mode"
+		:style="{ left: operaPosition.x + 40 + 'px', top: operaPosition.y - 80 + 'px' }">
 			<div class=" cursor-pointer px-3" >缩放</div>
 			<div class=" cursor-pointer px-3" @click.stop="deleteModel()">删除</div>
 		</div>
+		<div class="camera-list fixed left-[10px] top-0 w-[40px] h-auto max-h-full" v-if="threeCore">
+			<div class=" relative" v-for="(camera_list, index) in threeCore.cameraList">
+				<QhxJellyButton>
+					<div class="text-center cursor-pointer" @click="lookAtCameraState(camera_list)">
+						<div
+							class=" relative m-[5px] mx-auto text-white rounded-[50%] h-[30px] w-[30px] bg-qhx-primary flex items-center justify-center"
+							style="font-size: 22px">
+							<div class="text-[#000] absolute left-0 top-0 h-[30px] w-[30px] flex items-center justify-center z-[1] text-[10px]">{{ index + 1 }}</div>
+							<UIcon name="material-symbols:video-camera-back" class="text-[22px] text-[#ffffff]"></UIcon>
+						</div>
+					</div>
+				</QhxJellyButton>
+				<div v-if="edit_mode" class=" absolute left-[40px] top-0">
+					<QhxJellyButton>
+						<div class="text-center cursor-pointer" @click="deleteCamera(index)">
+							<div
+								class=" m-[5px] mx-auto text-white rounded-[50%] h-[30px] w-[30px] bg-qhx-primary flex items-center justify-center"
+								style="font-size: 22px">
+								<UIcon name="ant-design:close-outlined" class="text-[22px] text-[#ffffff]" />
+							</div>
+						</div>
+					</QhxJellyButton>
+				</div>
+			</div>
+		</div>
 		<div @click.stop="(e) => {
 			handleClickDiary(e, diary)
-		}" class="fixed p-3 cursor-pointer bg-qhx-bg-card rounded-[30px] shadow-lg z-10 h-[60px] flex items-center" v-for="diary in diaryList" :style="{ left: diary.position.x + 'px', top: diary.position.y + 'px' }">
+		}" class="fixed p-3 cursor-pointer bg-qhx-bg-card rounded-[30px] shadow-lg z-10 h-[60px] flex items-center whitespace-nowrap overflow-hidden" v-for="diary in diaryList" :style="{ left: diary.position.x + 'px', top: diary.position.y  - 30 + 'px' }">
 			{{ diary.title }}
 		</div>
-		<SceneMaterial @chooseTemplate="chooseTemplate" @addDiary="addDiary" @saveScene="saveScene" @addImage="onUpdateFiles" ref="MaterialRef"></SceneMaterial>
+		<SceneMaterial 
+		v-if="edit_mode"
+		@recordCamera="recordCamera" 
+		@chooseTemplate="chooseTemplate" 
+		@clearTemplate="clearTemplate" @addDiary="addDiary" @saveScene="saveScene" 
+		@addImage="onUpdateFiles"
+		@addBackgroun="addBackgroun"
+		 ref="MaterialRef" 
+		:loadTemplate="threeCore && threeCore.loadTemplate.length > 0 ? true : false"></SceneMaterial>
 		<QhxModal v-model="showDiary" :trigger-position="clickPosition">
-			<div class="p-6 w-[400px] bg-white rounded-[10px] max-h-[50vh] overflow-y-auto" v-if="activeDiary">
+			<div class="p-6 w-[400px] bg-white rounded-[10px] max-h-[50vh] overflow-y-auto" v-if="activeDiary && !edit_mode">
 				<div>{{ activeDiary.title }}</div>
 				<div>{{ activeDiary.content }}</div>
+			</div>
+			<div class="p-6 w-[400px] bg-white rounded-[10px] max-h-[50vh] overflow-y-auto" v-if="activeDiary && edit_mode">
+				<UInput v-model="activeDiary.title" :placeholder="'标题'" class="flex-1 focus:ring-0" :ui="{
+					base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
+					rounded: 'rounded-[10px]',
+					padding: { xs: 'px-4 py-2' },
+					color: {
+						white: {
+							outline: 'bg-gray-50 dark:bg-gray-800 ring-1 ring-gray-300 dark:ring-gray-600 focus:ring-2 focus:ring-qhx-primary'
+						}
+					}
+				}" />
+				<UTextarea v-model="activeDiary.content" :placeholder="'内容'" type="texare" class="flex-1 focus:ring-0 pt-3" :ui="{
+					base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
+					rounded: 'rounded-[10px]',
+					padding: { xs: 'px-4 py-2' },
+					color: {
+						white: {
+							outline: 'bg-gray-50 dark:bg-gray-800 ring-1 ring-gray-300 dark:ring-gray-600 focus:ring-2 focus:ring-qhx-primary'
+						}
+					}
+				}" />
+				<UButton type="submit" block class="bg-qhx-primary text-qhx-inverted hover:bg-qhx-primaryHover mt-6"
+					@click="editDiary()">
+					保存修改
+				</UButton>
 			</div>
 		</QhxModal>
 	</div>
 </template>
 <script setup lang="ts">
-import qhxCore from '@/utils/threeCore';
+import qhxCore, { type CameraState } from '@/utils/threeCore';
 import * as THREE from 'three';
 import type  { CSS3DObject } from 'three/examples/jsm/renderers/CSS3DRenderer.js';
-import { getSceneId, updateScene } from '@/api/scene'
-import type { PaginationResponse, Scene, TemplateInterface } from '@/types/api'
+import { getSceneId, updateScene, insertScene } from '@/api/scene'
+import type { Community, PaginationResponse, Scene, TemplateInterface } from '@/types/api'
+import { insertCommunity } from '@/api/community'
+import type { DiaryInterface } from '@/types/sence'
 import type SceneMaterial from '@/components/scene/Material.vue'
 import { uploadImage } from '~/api';
 const showDiary = ref(false)
@@ -39,8 +100,10 @@ const isClick = ref(false)
 const Scene1Group = ref<THREE.Group | null>(null)
 const operaPosition = ref<Object<{ x: number, y: number}>>({ x: 0, y: 0})
 const clickObject = ref<THREE.Object3D[] | null>(null)
-const diaryList = ref([])
-const activeDiary = ref(null)
+const diaryList = ref<DiaryInterface[]>([])
+const activeDiary = ref<DiaryInterface | null>(null)
+const loading = ref(false)
+let uni: any;
 
 	
 
@@ -52,25 +115,32 @@ import type { App, Component } from 'vue';
 import { createApp  } from 'vue'
 const route = useRoute()
 const edit_mode = ref(false) // 编辑模式
+const add_mode = ref(false)
 const token = ref<string | null>(null) // 传入的token
 console.log(route.query, '路由')
 const toast = useToast()
 const userStore = useUserStore()
 const clickPosition = ref({ x: 0, y: 0 })
+const doubleClickTimer = ref<ReturnType<typeof setTimeout> | null>(null)
 
 if (route.query?.edit) {
 	edit_mode.value = true
 }
+if (route.query?.add) {
+	edit_mode.value = true
+	add_mode.value = true
+}
+
 if (route.query?.token) {
 	userStore.setToken(route.query.token.toString())
 }
 const id = route.params.id as string
 useHead({
-	title: 'Lo研社 Lolita图书馆',
+	title: 'Lo研社',
 	meta: [
 		{
 			name: 'keywords',
-			content: 'Lo研社,洛丽塔图书馆,Lolita,Lolita汇总'
+			content: '3D手账'
 		},
 		{
 			name: 'description',
@@ -79,6 +149,13 @@ useHead({
 	]
 })
 
+const editDiary = () => {
+	if (activeDiary.value?.object) {
+		activeDiary.value.object.userData.title = activeDiary.value.title
+		activeDiary.value.object.userData.content = activeDiary.value.content
+		showDiary.value = false
+	}
+}
 const deleteModel = () => {
 	if (clickObject.value && clickObject.value.length > 0) {
 		if (clickObject.value[0].userData.type === 'diary') {
@@ -94,23 +171,26 @@ const deleteModel = () => {
 		threeCore.gizmo.detach();
 	}
 }
-const handleClickDiary = (e: MouseEvent, item) => {
+const handleClickDiary = (e: MouseEvent, item: DiaryInterface) => {
   showDiary.value = true
   clickPosition.value = {
     x: e.clientX, y: e.clientY
   }
 	activeDiary.value = item
 }
+const deleteCamera = (index: number) => {
+	threeCore.cameraList.splice(index, 1)
+}
 const addAnimationFunc = () => {
 	if (clickObject.value && clickObject.value.length > 0) {
 		operaPosition.value = threeCore.screenPositionFromObject(clickObject.value[0])
 	}
-	const diary_list = []
+	const diary_list: DiaryInterface[] = []
 	if (threeCore.loadedDiary && threeCore.loadedDiary.length > 0) {
 		// biome-ignore lint/complexity/noForEach: <explanation>
 			threeCore.loadedDiary.forEach((diary) => {
 			const position = threeCore.screenPositionFromObject(diary.object)
-			diary_list.push({...diary, position})
+			diary_list.push({object: diary.object, title: diary.object.userData.title, content: diary.object.userData.content, position, id: diary.object.uuid})
 			// console.log('日记点位置', position)
 		})
 	}
@@ -121,7 +201,8 @@ const { data } = await useAsyncData('studyDeatil', () => {
 }, {})
 const detail = ref<Scene | null>(null)
 detail.value = data.value ?? null
-const initThreejs = () => {
+
+const initThreejs = async () => {
 	threeCore = new qhxCore({
 		enableCSS3DRenderer: true,
 		alpha: true
@@ -130,16 +211,20 @@ const initThreejs = () => {
 	threeCore.mount(document.getElementById('scene'));
 	// loadLibrary()
   if (detail.value?.json_data) {
-		threeCore.loadSceneFromJSON(detail.value.json_data)
+		await threeCore.loadSceneFromJSON(detail.value.json_data)
 	} else {
-		use$Get(`/sence/json/${id}.json?2`, undefined, { baseURL: BASE_IMG})
-    .then((res) => {
-      threeCore.loadSceneFromJSON(res)
-    }) 
+		try {
+			const res = await use$Get(`/sence/json/${id}.json`, undefined, { baseURL: BASE_IMG})
+    	await threeCore.loadSceneFromJSON(res)
+		} catch (error) {
+			
+		}
 	}
-  
 	threeCore.controls.enabled = true
-	threeCore.scene.background = new THREE.Color('#ffddf2')
+	if (threeCore.cameraList && threeCore.cameraList.length > 0) {
+		lookAtCameraState(threeCore.cameraList[0])
+	}
+	// threeCore.scene.background = new THREE.Color('#ffddf2')
 	// window.addEventListener('mousemove', gpuPick, false)
 	// window.addEventListener('touchmove', gpuPick, false)
 	// window.addEventListener('click', gpuPick, false)
@@ -180,6 +265,19 @@ const addDiary = async (form) => {
 	mesh.position.set(0,0,0)
 	threeCore.scene.add(mesh)
 }
+const clearTemplate = () => {
+	console.log('触发了', threeCore.loadTemplate, threeCore.loadTemplate.length)
+	if (threeCore.loadTemplate.length > 0) {
+		// biome-ignore lint/complexity/noForEach: <explanation>
+		threeCore.loadTemplate.forEach((child) => {
+			threeCore.clearGroup(child)
+		})
+		threeCore.loadTemplate = []
+	}
+}
+const recordCamera = () => {
+	threeCore.recordCamera()
+}
 const chooseTemplate = async (item: TemplateInterface) => {
 	if (threeCore.loadTemplate.length > 0) {
 		// biome-ignore lint/complexity/noForEach: <explanation>
@@ -189,9 +287,16 @@ const chooseTemplate = async (item: TemplateInterface) => {
 		threeCore.loadTemplate = []
 	}
 	if (item.json_data) {
-
+		const group = await threeCore.loadSceneFromJSON(item.json_data, true)
+			if (group) {
+				group.userData.type = 'template'
+				group.userData.template_id =  item.template_id
+				group.userData.ignorePick = true
+				threeCore.scene.add(group)
+				threeCore.loadTemplate.push(group)
+			}
 	} else if (item.json_url) {
-		use$Get(item.json_data || `/sence/json/${item.json_url}.json?2`, undefined, { baseURL: BASE_IMG})
+		use$Get(`/sence/json/${item.json_url}.json?2`, undefined, { baseURL: BASE_IMG})
     .then(async (res) => {
       const group = await threeCore.loadSceneFromJSON(res, true)
 			if (group) {
@@ -204,27 +309,87 @@ const chooseTemplate = async (item: TemplateInterface) => {
     })
 	}
 }
+const jumpToCommunity = (item: Community) => {
+	const isInUniApp =
+		typeof window !== 'undefined' &&
+		navigator.userAgent.includes('Html5Plus');
+
+	if (isInUniApp && typeof uni !== 'undefined' && uni.navigateTo) {
+		// UniApp WebView 环境
+		uni.navigateTo({
+			url: `/pages/community/communityDetail/communityDetail?id=${item.community_id}`,
+			fail: () => {
+				console.log('跳转错误')
+			}
+		});
+	} else {
+		// 普通网页环境
+		window.location.href = `https://lolitalibrary.com/community/detail/${item.community_id}`;
+	}
+}
 const saveScene = () => {
 	const json_data = threeCore.saveSceneToJSON()
 	const params = {
-		sence_id: Number.parseInt(id),
 		json_data
 	}
 	console.log('保存的数据', json_data)
-	return
-	updateScene(params)
-		.then((res) => {
-			toast.add({
-				title: '保存成功',
-				icon: 'i-heroicons-check-circle',
-				color: 'green'
+	if (add_mode.value) {
+		if (loading.value) {
+					toast.add({
+					title: '请求中……',
+					icon: 'i-heroicons-check-circle',
+					color: 'green'
+				})
+			return
+		}
+		loading.value = true
+		insertScene(params)
+			.then(async (res) => {
+				const communityParams = {
+					title: '3D帖子',
+					content: `<p><iframe style="width:100%; height:60vh" frameborder="0" allowfullscreen
+					mozallowfullscreen="true" webkitallowfullscreen="true" allow="autoplay; fullscreen; xr-spatial-tracking"
+					xr-spatial-tracking execution-while-out-of-viewport execution-while-not-rendered web-share
+					src="https://lolitalibrary.com/scene/detail/${res.sence_id}"> </iframe></p>`,
+					type: '3D'
+				}
+				try {
+					const community = await insertCommunity(communityParams)
+					jumpToCommunity(community)
+						toast.add({
+						title: '新增成功',
+						icon: 'i-heroicons-check-circle',
+						color: 'green'
+					})
+				} catch (error) {
+					
+				}
+				
 			})
+			.finally(() => {
+				loading.value = false
+			})
+	} else {
+		updateScene({
+			...params,
+			sence_id: Number.parseInt(id)
 		})
+			.then((res) => {
+				toast.add({
+					title: '保存成功',
+					icon: 'i-heroicons-check-circle',
+					color: 'green'
+				})
+			})
+	}
 }
 const onUpdateFiles = async (resault) => {
 	const mesh = await threeCore.loadImageMesh(BASE_IMG + resault.file_url)
 		console.log('当前面片', mesh)
 		threeCore.scene.add(mesh)
+}
+const addBackgroun = async (resault) => {
+	threeCore.background = resault.file_url
 }
 onUnmounted(() => {
 	// window.removeEventListener('mousemove', gpuPick, false)
@@ -237,13 +402,29 @@ const gpuPick = (ev: MouseEvent | TouchEvent) => {
 	const obj = threeCore.gpuPick(ev)
 	if (obj) {
 		console.log('点击到的', obj)
-		threeCore.gizmo.attach(obj);
+		if (edit_mode.value) {
+			threeCore.gizmo?.attach(obj);
+		}
+		if (doubleClickTimer.value) {
+			clearTimeout(doubleClickTimer.value)
+			doubleClickTimer.value = null
+			if (clickObject.value && clickObject.value.length > 0 && clickObject.value[0].uuid === obj.uuid) {
+				console.log('双击')
+				threeCore.lookAtSelectObj([obj])
+				return
+			}
+		}
+		doubleClickTimer.value = setTimeout(() => {
+			doubleClickTimer.value = null
+		}, 300)
 		clickObject.value = [obj]
 		operaPosition.value = threeCore.screenPositionFromObject(obj)
-	} else if (threeCore.gizmo.dragging) {
+	} else if (threeCore.gizmo?.dragging) {
 
 	} else {
-		threeCore.gizmo.detach();
+		if (edit_mode.value) {
+			threeCore.gizmo?.detach();
+		}
 		clickObject.value = null
 	}
 }
@@ -254,6 +435,9 @@ const throttledMouseMove = throttle((event: MouseEvent) => {
 	updateCameraLookAt();
 }, 20);
 
+const lookAtCameraState = (item: CameraState) => {
+	threeCore.lookAtCameraState(item)
+}
 // 像素转换threejs坐标
 const pxToThreeJSX = (px: number) => {
 	// 计算可见宽度
@@ -296,7 +480,10 @@ const updateCameraLookAt = () => {
 	// threeCore.camera.lookAt(targetPosition);
 	// threeCore.controls.target.set(targetPosition.x, targetPosition.y, targetPosition.z);
 };
-onMounted(() => {
+onMounted(async() => {
+	uni = await import('@dcloudio/uni-webview-js').catch((err) => {
+    console.error('Failed to load uni-webview-js:', err);
+  });
 	setTimeout(() => {
 		initThreejs()
 		// window.addEventListener('mousemove', throttledMouseMove, false);

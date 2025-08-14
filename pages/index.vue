@@ -83,8 +83,8 @@ const createUIDom = () => {
 }
 const loadLibrary = async () => {
 	const Group = new THREE.Group()
-	const model = await threeCore.loadModel(`${BASE_IMG}/sence/caomei.glb?12211333322`, { useDracoLoader: true, dracoDecoderPath: '/draco/gltf/' })
-	model.scale.set(1.514,1.514,1.514)
+	const model = await threeCore.loadModel(`${BASE_IMG}/sence/tuxiong3.glb?12211333322`, { useDracoLoader: true, dracoDecoderPath: '/draco/gltf/' })
+	model.scale.set(1,1,1)
 	model.rotateY(150* (Math.PI / 180))
 	model.position.set(0,0,0)
 	Group.add(model)
@@ -103,6 +103,7 @@ const initThreejs = () => {
 	createUIDom()
 	loadLibrary()
 	threeCore.controls.enabled = false
+	console.log(threeCore.controls, '控制器')
 	threeCore.scene.background = new THREE.Color('#ffddf2')
 	// threeCore.controls.autoRotate = true
 	// 开始渲染循环

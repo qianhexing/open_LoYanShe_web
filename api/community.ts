@@ -40,4 +40,17 @@ export async function getCommunityForeignList(
   );
   return response.data;
 }
-
+interface CommunityInterface {
+  title: string  // 可选字段
+  content: string
+  type: string
+}
+export async function insertCommunity(
+  params: CommunityInterface
+): Promise<Community> {
+  const response = await use$Post<BaseResponse<Community>>(
+    '/community/insert',
+    params
+  );
+  return response.data;
+}

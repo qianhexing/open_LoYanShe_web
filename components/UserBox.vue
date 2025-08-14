@@ -3,8 +3,9 @@
     <img :src="`${BASE_IMG}${user.user_face}`" :alt="user.user_name" v-if="user"
           class="w-8 h-8 object-cover rounded-[40px] border border-gray-200 my-2" loading="lazy" />
     <template #panel>
-      <div class="p-6 w-[22rem]">
-        <h3 class="text-lg font-semibold mb-4">登录账号</h3>
+      <div class="p-6 w-[22rem] text-center">
+        <div class="p-3 cursor-pointer" @click="jumpToMyWardrobe()">我的衣柜</div>
+        <div class="p-3 cursor-pointer" @click="logout()">退出登录</div>
       </div>
     </template>
   </UPopover>
@@ -15,7 +16,16 @@ const popover = ref() // 模板引用
 const open = ref(false)
 const userStore = storeToRefs(useUserStore()) 
 const { user } = userStore
+const router = useRouter();
 
+const jumpToMyWardrobe = () => {
+  if (user.value) {
+    navigateTo(`/wardrobe/detail/${user.value.user_id}`);
+  }
+}
+const logout = () => {
+  useUserStore().clearToken()
+}
 const loading = ref(false)
 
 const  onSubmit = async () => {
