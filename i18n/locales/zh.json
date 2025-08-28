@@ -11,8 +11,29 @@
 	"login.phone": "手机号",
 	"login.password": "密码",
 	"login.remember": "记住密码",
-
 	"login.enter_phone": "请输入手机号",
-  "login.enter_password": "请输入密码"
+	"login.enter_password": "请输入密码",
 
+	"register.title": "创建账号",
+	"register.subtitle": "加入Lo研社，开启学习之旅",
+	"register.phone": "手机号",
+	"register.username": "用户名",
+	"register.password": "密码",
+	"register.confirm_password": "确认密码",
+	"register.verification_code": "验证码",
+	"register.agreement": "我已阅读并同意",
+	"register.terms": "用户协议",
+	"register.privacy": "隐私政策",
+	"register.register": "注册",
+	"register.login_link": "已有账号？立即登录",
+	"register.enter_phone": "请输入手机号",
+	"register.enter_username": "请输入用户名",
+	"register.enter_password": "请输入密码",
+	"register.enter_confirm_password": "请再次输入密码",
+	"register.enter_code": "请输入验证码",
+	"register.send_code": "发送验证码",
+	"register.resend_code": "重新发送",
+	"register.success": "注册成功",
+	"register.password_mismatch": "两次输入的密码不一致",
+	"register.agree_terms": "请同意用户协议和隐私政策"
 }

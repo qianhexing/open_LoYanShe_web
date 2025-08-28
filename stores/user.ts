@@ -1,6 +1,6 @@
 // stores/auth.ts
 import { defineStore } from 'pinia'
-import { loginIn } from '@/api/user'
+import { loginIn, registerUser, sendVerificationCode } from '@/api/user'
 import type { Permission } from '@/api/user'
 import type { User } from '@/types/api';
 
@@ -82,6 +82,46 @@ export const useUserStore = defineStore('auth', {
         localStorage.removeItem('token')
         localStorage.removeItem('userInfo')
         window.location.reload()
+      }
+    },
+
+    // 注册方法
+    async register(params: {
+      user_phone: string
+      user_name: string
+      user_password: string
+      phone_code: string
+      verification_code: string
+    }) {
+      try {
+        const response = await registerUser(params)
+        
+        // 注册成功后自动登录
+        this.setToken(response.token)
+        if (response.data) {
+          this.setUserInfo({
+            user_id: response.data.userId,
+            user_name: response.data.userName,
+            user_face: response.data.userFace
+          })
+        }
+        this.permission = response.permission
+        return Promise.resolve(response)
+      } catch (error) {
+        return Promise.reject(error)
+      }
+    },
+
+    // 发送验证码
+    async sendCode(phone: string, phoneCode: string) {
+      try {
+        const response = await sendVerificationCode({
+          user_phone: phone,
+          phone_code: phoneCode
+        })
+        return Promise.resolve(response)
+      } catch (error) {
+        return Promise.reject(error)
       }
     },
     
