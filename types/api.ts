@@ -166,6 +166,58 @@ export interface Library {
 /** 衣柜 */
 export interface Wardrobe {
   wardrobe_id: number
+  wardrobe_cover?: string
+  wardrobe_name?: string
+  user_id: number
+  is_private?: number
+  wardrobe_desc?: string
+  count_clothes?: number
+  create_date: Date
+  is_enable?: number
+  sort?: number
+  show_price?: number
+  sort_type?: number
+  custom_style?: Record<string, any>
+  background?: string
+  password?: string
+  include_tags?: string
+  total_times?: number
+  total_community?: number
+  total_price?: number
+  total_count?: number
+}
+/** 服饰 */
+export interface WardrobeClothes {
+  clothes_id: number
+  wardrobe_id: number
+  clothes_img: string
+  clothes_note?: string
+  date: Date
+  is_enable?: number
+  library_id?: number
+  is_have?: number
+  plan_id?: number
+  wardrobe_status?: string
+  detail_image?: string
+  season?: string
+  price?: number
+  color?: string
+  times?: number
+  real_picture?: string
+  sort?: number
+  clothes_part?: string
+  tags?: string
+  note?: string
+  include_clothes?: string
+  origin?: string
+  sum_price?: number
+  size?: string
+  add_time?: Date
+  position?: string
+  is_favorite?: number
+  main_style?: string
+  num?: number
+  last_dress?: Date
 }
 /** 研习类型 */
 export interface Study {
@@ -339,4 +391,39 @@ export interface TemplateInterface {
   price: number
   title: string
   cover?: string
+}
+export interface Effect {
+  effect_id: number
+  effect_title?: string
+  cover?: string
+  is_remote?:number
+  effect_name: string
+  effect_url?: string
+  is_free?: number
+  create_time?: Date
+  only_one?: number
+  mian_style?: string
+  options?: Record<string, any>
+  target?: number
+}
+export interface Material {
+  materia_id: number
+  user_id: number
+  pk_type: number
+  pk_id: number
+  create_time: Date
+  is_enable?: number
+  is_private?: number
+  materia_title?: string
+  materia_url: string
+  cover?: string,
+  options: Record<string, any>
+}
+
+export interface FileInterface {
+  file_id: number
+  file_url: string
+  file_type: number
+  file_md5: string
+  create_time: Date
 }

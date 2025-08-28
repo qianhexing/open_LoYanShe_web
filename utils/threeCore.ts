@@ -12,16 +12,81 @@ import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js'
 import { BASE_IMG } from '@/utils/ipConfig.js'
 // @ts-ignore
 import { GPUPicker } from 'three_gpu_picking/src/gpupicker.js'
-import { TransformGizmo } from './TransformGizmo'
+// import { TransformGizmo } from './TransformGizmo'
 import { getTemplateOne } from '@/api/temeplate.js'
-import { EffectManager } from './EffectManager';
+import { EffectManager } from './EffectManager'
+import type { Effect } from '~/types/api'
+import type { LibraryInterface } from '~/types/sence'
+import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js'
+import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js'
+import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js'
+import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js'
+import { GammaCorrectionShader } from 'three/examples/jsm/shaders/GammaCorrectionShader.js'
+import gsap from 'gsap'
+import { TransformControls } from './TransformControls'
+// import { TransformControls } from 'three/examples/jsm/Addons.js';
+import { installUniformScale, restyleGizmo } from './MyTransformControls'
+import { FontLoader, TextGeometry } from 'three/examples/jsm/Addons.js'
+
 export interface CameraState {
 	position: THREE.Vector3
 	target: THREE.Vector3
 	fov?: number // 只有 PerspectiveCamera 会用到
 }
+import { WebGPURenderer } from 'three/webgpu'
+import { createKujialeGrid, updateKujialeGrid } from './Grid'
+const grid = createKujialeGrid({
+	cellSize: 1, // 次网格间距（单位：米）
+	majorEvery: 5, // 每 N 个次网格出现一条主网格
+	minorColor: '#cfd3dc',
+	majorColor: '#aab0bd',
+	axisColor: '#4c84ff', // X/Z 坐标轴强调色
+	minorThickness: 1.0, // 以像素为单位的线宽（屏幕空间）
+	majorThickness: 1.8,
+	axisThickness: 2.2,
+	fadeStart: 25.0, // 相机水平距离开始淡出
+	fadeEnd: 120.0 // 相机水平距离完全透明
+})
+export interface SceneEffectJSON {
+	type: 'animation' | 'effect' | 'timeline'
+	cycles?: number // 如果是动画时循环次数 0 为无限循环
+	// 动画特有
+	options?: Record<string, any> // 特效参数
+	// 特效特有
+	effect_name?: string // 特效 id，比如 "ToonOutlineEffect"
+	id?: number // 如果是动画，数字标识
+
+	// 动画属性
+	properties?: Record<string, number> // 要修改的属性，例如 { "position.x": 5, "rotation.y": 1.57 }
+	duration?: number
+	ease?: string
+	delay?: number
+
+	repeat?: number // -1 无限循环
+	yoyo?: boolean // 是否反复
+	repeatDelay?: number
+
+	// timeline
+	children?: SceneEffectJSON[]
+	sequence?: boolean // true = 顺序执行，false = 并行执行
+}
+
+interface TextureTransform {
+	offsetX: number
+	offsetY: number
+	scale: number
+	rotation: number // 单位: 弧度
+}
 export interface SceneObjectJSON {
-	type: 'box' | 'sphere' | 'model' | 'image' | 'diary' | 'template'
+	type:
+		| 'box'
+		| 'sphere'
+		| 'model'
+		| 'image'
+		| 'diary'
+		| 'template'
+		| 'effect'
+		| 'library'
 	position?: [number, number, number]
 	rotation?: [number, number, number]
 	baseWidth?: number
@@ -37,6 +102,12 @@ export interface SceneObjectJSON {
 	playAnimations?: string[]
 	loopOnce?: boolean
 	template_id?: number
+	options?: Record<string, any> // 如果是特效类型 或 模型属性
+	effect_name?: string // 特效名称
+	cover?: string // 图鉴类型
+	library_id?: number // 图鉴类型
+	effect?: SceneEffectJSON[] // 如果是model效果列表
+	material?: Record<string, any> // 替换过的贴图
 }
 export interface SceneJSON {
 	objects: SceneObjectJSON[]
@@ -54,12 +125,14 @@ interface ThreeCoreOptions {
 	enableStats?: boolean
 	pixelRatio?: number
 	enableCSS3DRenderer?: boolean // 新增选项：是否启用CSS3D渲染器
+	editMode?: boolean
 }
 
 class ThreeCore {
 	public scene: THREE.Scene
 	public camera: THREE.PerspectiveCamera | THREE.OrthographicCamera
-	public renderer: THREE.WebGLRenderer
+	public renderer: THREE.WebGLRenderer | WebGPURenderer
+	public rendererGPU: WebGPURenderer
 	public css3DRenderer?: CSS3DRenderer // CSS3D渲染器
 	public controls: OrbitControls
 	public allObjects: THREE.Object3D[] // 场景里的所有模型
@@ -74,20 +147,34 @@ class ThreeCore {
 	private resizeObserver?: ResizeObserver
 	public loadedModelURLs: Set<string> // 已加载过的模型地址集合
 	public loadedModels: THREE.Object3D[] // 加载成功的模型数组
+	private loadedTextures: Map<string, THREE.Texture> = new Map() // 加载过的贴图
+	private loadingTextures = new Map<string, Promise<THREE.Texture>>() // 正在加载的贴图
 	public effectManager: EffectManager
 	public background: string | null
+	public editMode: boolean
 
 	public loadedDiary: Array<{
 		title: string
 		content: string
 		object: THREE.Object3D
 	}> // 加载成功的模型数组
+	public loadedLibrary: LibraryInterface[] // 加载成功的模型数组
+	public allMat: THREE.Material[]
+
 	public loadTemplate: THREE.Group[] // 加载成功的模型数组
 	public cameraList: CameraState[]
-
 	public clock: THREE.Clock
 	public picker: GPUPicker | null
 	public gizmo: TransformGizmo | null
+	public transformControls: TransformControls
+	public showbloom: boolean
+	// bloom
+	bloomLayer = new THREE.Layers()
+	bloomPass!: UnrealBloomPass
+	bloomComposer!: EffectComposer
+	finalComposer!: EffectComposer
+	darkMaterial = new THREE.MeshBasicMaterial({ color: 'black' })
+	materials: Record<string, THREE.Material | THREE.Material[]> = {}
 
 	constructor(options: ThreeCoreOptions = {}) {
 		const defaultOptions: ThreeCoreOptions = {
@@ -101,25 +188,33 @@ class ThreeCore {
 			pixelRatio: window.devicePixelRatio || 1,
 			enableCSS3DRenderer: false // 默认不启用CSS3D渲染器
 		}
-
+		this.editMode = false
+		if (defaultOptions.editMode) {
+			this.editMode = defaultOptions.editMode
+		}
 		this.options = { ...defaultOptions, ...options }
 		this.scene = null!
 		this.camera = null!
 		this.renderer = null!
+		this.rendererGPU = null!
 		this.animationCallbacks = []
 		this.addAnimationFunc = () => {}
 		this.resizeCallbacks = []
 		this.container = null
 		this.controls = null!
 		this.picker = null!
+		this.allMat = []
+		this.transformControls = null!
 
 		this.loadedModelURLs = new Set()
 		this.loadedModels = []
 		this.allObjects = []
 		this.loadedDiary = [] // 加载的日记文本
+		this.loadedLibrary = []
 		this.loadTemplate = [] // 加载的模版
 		this.cameraList = []
 		this.background = null
+		this.showbloom = true
 
 		this.clock = new THREE.Clock()
 
@@ -127,16 +222,25 @@ class ThreeCore {
 		this.initCamera()
 		this.initRenderer()
 		this.initPicker()
-		this.effectManager = new EffectManager(this.scene, this.camera, this.renderer);
+		// const cloud = this.createCloud()
+		// this.scene.add(cloud)
+		// this.scene.add(grid)
+
+		this.effectManager = new EffectManager(
+			this.scene,
+			this.camera,
+			this.renderer
+		)
 		const cube = new THREE.Mesh(
 			new THREE.BoxGeometry(),
 			new THREE.MeshStandardMaterial({ color: 'orange' })
-		);
-		this.effectManager.addEffect('SnowEffect', this.scene, { count: 8000, onlyOne: true });
+		)
 		// 如果启用了CSS3D渲染器
 		if (this.options.enableCSS3DRenderer) {
 			this.initCSS3DRenderer()
 		}
+		// this.effectManager.addEffect('SnowEffect', this.scene, { count: 8000, onlyOne: true });
+
 		// setTimeout(() => {
 		// 	this.effectManager.removeEffect(this.scene, 'SnowEffect');
 		// 	console.log('删除特效')
@@ -147,18 +251,96 @@ class ThreeCore {
 		//   this.initOrbitControls();
 		// }
 		this.initOrbitControls()
+		this.initTransformontrols()
 		if (this.options.enableStats) {
 			this.initStats()
 		}
+		this.bloomLayer.set(1) // layer=1 专门给 bloom 对象
+		this.initBloom()
 
-		this.gizmo = new TransformGizmo(
-			this.scene,
-			this.camera,
-			this.controls,
-			this.renderer.domElement,
-			this.picker
-		)
-		this.scene.add(this.gizmo)
+		// this.gizmo = new TransformGizmo(
+		// 	this.scene,
+		// 	this.camera,
+		// 	this.controls,
+		// 	this.renderer.domElement,
+		// 	this.picker
+		// )
+		// this.scene.add(this.gizmo)
+	}
+	// 更新文本模型
+	public updateTextMesh(
+		mesh: THREE.Mesh,
+		text: string,
+		options: {
+			size?: number,
+			depth?: number,
+			curveSegments?: number,
+			bevelEnabled?: boolean
+		}
+	) {
+		const geometry = new TextGeometry(text, {
+			font: mesh.userData.font,
+			size: options.size ?? 1,
+			depth: options.depth ?? 0.05,
+			curveSegments: options.curveSegments ?? 12,
+			bevelEnabled: options.bevelEnabled ?? false
+		})
+		geometry.computeBoundingBox()
+		geometry.center()
+	
+		// 释放旧几何体资源，避免内存泄露
+		mesh.geometry.dispose()
+	
+		// 替换为新几何体
+		mesh.geometry = geometry
+	}
+	public async addTextToScene(
+		fontUrl: string,
+		text: string,
+		options: {
+			size?: number
+			depth?: number
+			color?: number
+			position?: { x: number; y: number; z: number }
+		} = {}
+	): Promise<THREE.Mesh> {
+		const loader = new FontLoader()
+		return new Promise((resolve, reject) => {
+			loader.load(fontUrl, font => {
+				const geometry = new TextGeometry(text, {
+					font: font,
+					size: options.size ?? 1,
+					depth: options.depth ?? 0.3,
+					curveSegments: 1,
+					bevelEnabled: true,
+					bevelThickness: 0.003,
+					bevelSize: 0.02,
+					bevelSegments: 5
+				})
+	
+				geometry.computeBoundingBox()
+				geometry.center() // 让文字居中
+	
+				const material = new THREE.MeshStandardMaterial({
+					color: options.color ?? 0xffffff
+				})
+				const mesh = new THREE.Mesh(geometry, material)
+	
+				// 设置位置
+				if (options.position) {
+					mesh.position.set(
+						options.position.x,
+						options.position.y,
+						options.position.z
+					)
+				}
+				mesh.userData.type = '3Dtext'
+				mesh.scale.y *= -1
+				mesh.userData.font = font
+				console.log('文本面', mesh)
+				resolve(mesh)
+			}, undefined, reject)
+		})
 	}
 	public async createDiary(obj: SceneObjectJSON): Promise<THREE.Mesh> {
 		const radius = 1
@@ -174,6 +356,92 @@ class ThreeCore {
 		this.loadedDiary.push({
 			title: obj.title || '没有标题',
 			content: obj.content || '没有内容',
+			object: mesh
+		})
+		return mesh
+	}
+	/** 🌟 API：添加辉光对象 */
+	addBloomObject(obj: THREE.Object3D) {
+		obj.layers.enable(1)
+	}
+
+	removeBloomObject(obj: THREE.Object3D) {
+		obj.layers.disable(1)
+	}
+
+	private initBloom() {
+		const renderScene = new RenderPass(this.scene, this.camera)
+
+		this.bloomPass = new UnrealBloomPass(
+			new THREE.Vector2(window.innerWidth, window.innerHeight),
+			0.5,
+			0.04,
+			0.85
+		)
+
+		this.bloomComposer = new EffectComposer(
+			this.renderer as THREE.WebGLRenderer
+		)
+		this.bloomComposer.renderToScreen = false
+		this.bloomComposer.addPass(renderScene)
+		this.bloomComposer.addPass(this.bloomPass)
+
+		// finalPass
+		const finalPass = new ShaderPass(
+			new THREE.ShaderMaterial({
+				uniforms: {
+					baseTexture: { value: null },
+					bloomTexture: { value: this.bloomComposer.renderTarget2.texture }
+				},
+				vertexShader: `
+      varying vec2 vUv;
+      void main() {
+        vUv = uv;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0);
+      }
+    `,
+				fragmentShader: `
+      uniform sampler2D baseTexture;
+      uniform sampler2D bloomTexture;
+      varying vec2 vUv;
+
+      void main() {
+        vec4 base = texture2D(baseTexture, vUv);
+        vec4 bloom = texture2D(bloomTexture, vUv);
+
+        // 🌟 每个物体的颜色和强度已经在 bloomTexture 里体现
+        // 直接叠加
+        gl_FragColor = vec4(base.rgb + bloom.rgb, base.a);
+      }
+    `
+			}),
+			'baseTexture'
+		)
+
+		this.finalComposer = new EffectComposer(
+			this.renderer as THREE.WebGLRenderer
+		)
+		this.finalComposer.addPass(renderScene)
+		this.finalComposer.addPass(finalPass)
+		const gammaCorrectionShader = new ShaderPass(GammaCorrectionShader)
+		this.finalComposer.addPass(gammaCorrectionShader)
+	}
+	public async createLibrary(obj: SceneObjectJSON): Promise<THREE.Mesh> {
+		const radius = 1
+		const geometry = new THREE.SphereGeometry(radius, 32, 32)
+		const material = new THREE.MeshStandardMaterial({
+			color: '#ffaa7f'
+		})
+
+		const mesh = new THREE.Mesh(geometry, material)
+		mesh.userData.type = 'library'
+		mesh.userData.title = obj.title
+		mesh.userData.cover = obj.cover
+		mesh.userData.library_id = obj.library_id
+		this.loadedLibrary.push({
+			title: obj.title || '没有标题',
+			cover: obj.cover || 'static/plan_cover/default.jpg',
+			library_id: obj.library_id || 0,
 			object: mesh
 		})
 		return mesh
@@ -197,6 +465,7 @@ class ThreeCore {
 				url,
 				texture => {
 					const image = texture.image
+					texture.colorSpace = THREE.SRGBColorSpace
 					if (!image || !image.width || !image.height) {
 						reject(new Error(`图片未能正确加载宽高: ${url}`))
 						return
@@ -207,16 +476,17 @@ class ThreeCore {
 					const height = baseWidth * aspect
 
 					const geometry = new THREE.PlaneGeometry(width, height)
-					
+
 					const material = new THREE.MeshBasicMaterial({
 						map: texture,
 						transparent: true,
-						depthTest: false,
+						// depthTest: false,
 						side: THREE.DoubleSide
 					})
 					const mesh = new THREE.Mesh(geometry, material)
 					mesh.userData.url = url
 					mesh.userData.type = 'image'
+					mesh.userData.effect = []
 
 					this.loadedModelURLs.add(url)
 					this.loadedModels.push(mesh)
@@ -232,13 +502,147 @@ class ThreeCore {
 		})
 	}
 
+	private createUniqueTexture(base: THREE.Texture): THREE.Texture {
+		const image = base.image as HTMLImageElement
+		const canvas = document.createElement('canvas')
+		canvas.width = image.width
+		canvas.height = image.height
+		const ctx = canvas.getContext('2d')!
+		ctx.drawImage(image, 0, 0)
+
+		const newTex = new THREE.Texture(canvas)
+		newTex.wrapS = base.wrapS
+		newTex.wrapT = base.wrapT
+		newTex.needsUpdate = true
+		return newTex
+	}
+	/**
+	 * 加载贴图，支持缓存与克隆
+	 * @param url 贴图路径
+	 * @returns Promise<THREE.Texture>
+	 */
+	public async loadTexture(url: string): Promise<THREE.Texture> {
+		// 如果已经加载过，返回克隆
+		if (this.loadedTextures.has(url)) {
+			// biome-ignore lint/style/noNonNullAssertion: <explanation>
+			const existing = this.loadedTextures.get(url)!
+			console.log('走了克隆2')
+			const cloned = existing.clone()
+			cloned.needsUpdate = true
+			return cloned
+		}
+
+		// 如果正在加载，复用 Promise
+		if (this.loadingTextures.has(url)) {
+			// biome-ignore lint/style/noNonNullAssertion: <explanation>
+			return this.loadingTextures.get(url)!.then(existing => {
+				const cloned = existing.clone()
+				console.log('走了克隆1')
+				cloned.needsUpdate = true
+				return cloned
+			})
+		}
+
+		// 创建一个新的加载 Promise
+		const promise = new Promise<THREE.Texture>((resolve, reject) => {
+			const loader = new THREE.TextureLoader()
+			loader.load(
+				url,
+				texture => {
+					texture.userData = { url }
+					texture.wrapS = THREE.RepeatWrapping
+					texture.wrapT = THREE.RepeatWrapping
+					texture.needsUpdate = true
+
+					// 缓存原始贴图
+					this.loadedTextures.set(url, texture)
+					this.loadingTextures.delete(url)
+
+					// 返回克隆
+					const cloned = texture.clone()
+					cloned.needsUpdate = true
+					resolve(cloned)
+				},
+				undefined,
+				err => {
+					console.error(`加载贴图失败: ${url}`, err)
+					this.loadingTextures.delete(url)
+					reject(err)
+				}
+			)
+		})
+
+		this.loadingTextures.set(url, promise)
+
+		return promise
+	}
+	/**
+	 * 使用 canvas 绘制贴图并应用变换
+	 * @param img 原始图片 (HTMLImageElement)
+	 * @param params 偏移、缩放、旋转参数
+	 * @param size 生成 canvas 尺寸（默认 1024x1024）
+	 */
+	createTransformedTexture(
+		img: HTMLImageElement,
+		params: TextureTransform,
+		size = 512
+	): THREE.CanvasTexture {
+		const { offsetX, offsetY, scale, rotation } = params
+
+		// 创建画布
+		const canvas = document.createElement('canvas')
+		canvas.width = size
+		canvas.height = size
+		const ctx = canvas.getContext('2d')!
+		ctx.clearRect(0, 0, size, size)
+
+		// 将画布中心作为变换中心
+		ctx.save()
+		// ctx.translate(size / 2 + offsetX, size / 2 + offsetY)
+		// ctx.rotate(rotation)
+		// ctx.scale(scale, scale)
+
+		// // 绘制图片 (以中心点对齐)
+		// ctx.drawImage(img, -img.width / 2, -img.height / 2)
+
+		ctx.translate(canvas.width / 2 + offsetX, canvas.height / 2 + offsetY)
+		ctx.rotate(rotation)
+		ctx.scale(scale, scale)
+
+		// === 新增：保持原图比例 ===
+		const imgAspect = img.width / img.height
+		const canvasAspect = canvas.width / canvas.height
+		let drawW: number
+		let drawH: number
+		if (imgAspect > canvasAspect) {
+			// 图片更宽 → 宽占满
+			drawW = canvas.width
+			drawH = drawW / imgAspect
+		} else {
+			// 图片更高 → 高占满
+			drawH = canvas.height
+			drawW = drawH * imgAspect
+		}
+
+		ctx.drawImage(img, -drawW / 2, -drawH / 2, drawW, drawH)
+
+		ctx.restore()
+
+		// 创建 threejs 贴图
+		const texture = new THREE.CanvasTexture(canvas)
+		texture.wrapS = THREE.ClampToEdgeWrapping
+		texture.wrapT = THREE.ClampToEdgeWrapping
+		texture.needsUpdate = true
+
+		return texture
+	}
 	public async loadModel(
 		url: string,
 		options = {
 			useDracoLoader: false,
 			dracoDecoderPath: 'jsm/libs/draco/gltf/'
 		}
-	): Promise<THREE.Object3D> {
+	): Promise<THREE.Object3D | THREE.Mesh> {
 		// 如果已经加载过，直接返回缓存的模型
 		const loader = new GLTFLoader()
 		if (options.useDracoLoader) {
@@ -249,11 +653,11 @@ class ThreeCore {
 		}
 
 		return new Promise((resolve, reject) => {
-			if (this.loadedModelURLs.has(url)) {
-				const existing = this.loadedModels.find(obj => obj.userData.url === url)
-				if (existing) {
-					resolve(existing.clone(true))
-				}
+			const existing = this.loadedModels.find(obj => obj.userData.url === url)
+			if (this.loadedModelURLs.has(url) && existing) {
+				const model = existing.clone(true)
+				this.copyMaterial(model)
+				resolve(model)
 			} else {
 				loader.load(
 					url,
@@ -261,14 +665,16 @@ class ThreeCore {
 						const model = gltf.scene
 						model.userData.url = url
 						model.userData.type = 'model'
+						model.userData.effect = []
 						model.userData.useDracoLoader = options.useDracoLoader
 						// this.scene.add(model);
 						this.loadedModelURLs.add(url)
-						this.loadedModels.push(model)
+						this.loadedModels.push(model.clone(true))
 
 						// 动画处理
 						if (gltf.animations && gltf.animations.length > 0) {
 							const mixer = new AnimationMixer(model)
+							// biome-ignore lint/complexity/noForEach: <explanation>
 							gltf.animations.forEach(clip => {
 								mixer.clipAction(clip).play()
 							})
@@ -276,6 +682,7 @@ class ThreeCore {
 								mixer.update(this.clock.getDelta())
 							)
 						}
+						this.copyMaterial(model)
 						resolve(model)
 					},
 					undefined,
@@ -287,16 +694,34 @@ class ThreeCore {
 			}
 		})
 	}
+	async initWebGPU() {
+		if (!navigator.gpu) {
+			console.warn('WebGPU not supported in this browser')
+			return null
+		}
 
+		const adapter = await navigator.gpu.requestAdapter()
+		if (!adapter) {
+			console.warn('No GPU adapter found')
+			return null
+		}
+
+		const device = await adapter.requestDevice()
+		return device
+	}
 	initRenderer() {
 		this.renderer = new THREE.WebGLRenderer({
 			antialias: this.options.antialias,
 			alpha: this.options.alpha
 		})
-		this.renderer.domElement.addEventListener('mousedown', e => {
-			// 将事件传递给底层的WebGL渲染器
-			console.log('webgl控制器被点击了')
+		this.rendererGPU = new WebGPURenderer({
+			antialias: true
+			// device: navigator.gpu?.requestAdapter()?.requestDevice() // 可选手动设置 device
 		})
+		this.rendererGPU.domElement.addEventListener('mousedown', e => {
+			// 将事件传递给底层的WebGL渲染器
+		})
+
 		this.renderer.setPixelRatio(this.options.pixelRatio)
 
 		const width = this.container
@@ -310,12 +735,39 @@ class ThreeCore {
 		this.renderer.physicallyCorrectLights = true
 		this.renderer.shadowMap.enabled = true
 		this.renderer.shadowMap.type = THREE.PCFSoftShadowMap
+		this.renderer.outputColorSpace = THREE.SRGBColorSpace
+
+		this.renderer.setClearColor(0x000000, 0) // 背景透明
+		this.renderer.toneMapping = THREE.ACESFilmicToneMapping
+		this.renderer.toneMappingExposure = 1.2 // 可调
+
+		this.rendererGPU.setSize(width, height)
+
+		// this.container.appendChild(this.rendererGPU.domElement);
 	}
 	initOrbitControls() {
 		if (!this.camera || !this.renderer) return
 		this.controls = new OrbitControls(this.camera, this.renderer.domElement)
 		this.controls.enableDamping = true
 		this.controls.dampingFactor = 0.05
+	}
+	initTransformontrols() {
+		if (!this.camera || !this.renderer) return
+		this.transformControls = new TransformControls(
+			this.camera,
+			this.renderer.domElement
+		)
+		this.scene.add(this.transformControls._root)
+		console.log(this.transformControls, '变换控制器')
+		this.transformControls.addEventListener('dragging-changed', event => {
+			this.controls.enabled = !event.value
+		})
+		// restyleGizmo(this.transformControls, {
+		// 	x: 0xff3b30,   // X轴颜色
+		// 	y: 0x34c759,   // Y轴颜色
+		// 	z: 0x0a84ff,   // Z轴颜色
+		// 	thickness: 1.3 // 手柄加粗
+		// })
 	}
 
 	initStats() {
@@ -324,20 +776,144 @@ class ThreeCore {
 		document.body.appendChild(this.stats.dom)
 	}
 
+	createCloud(size = 20, steps = 64): THREE.Mesh {
+		const geo = new THREE.BoxGeometry(size, size, size)
+		const mat = new THREE.ShaderMaterial({
+			glslVersion: THREE.GLSL3,
+			uniforms: {
+				uTime: { value: 0 },
+				uSteps: { value: steps },
+				uLightDir: { value: new THREE.Vector3(1, 1, 0).normalize() },
+				uCameraPos: { value: new THREE.Vector3() }
+			},
+			vertexShader: /* glsl */ `
+			varying vec3 vWorldPos;
+			void main(){
+				vWorldPos = (modelMatrix * vec4(position,1.0)).xyz;
+				gl_Position = projectionMatrix * viewMatrix * vec4(position,1.0);
+			}
+		`,
+			fragmentShader: /* glsl */ `
+			precision highp float;
+			uniform float uTime;
+			uniform int uSteps;
+			uniform vec3 uLightDir;
+			uniform vec3 uCameraPos;
+			varying vec3 vWorldPos;
+
+			// 简单伪随机和FBM函数
+			float rand(vec3 p){
+				return fract(sin(dot(p, vec3(12.9898,78.233,37.719))) * 43758.5453);
+			}
+			float noise(vec3 p){
+				vec3 i=floor(p), f=fract(p);
+				f = f*f*(3.0-2.0*f);
+				return mix(
+					mix(mix(rand(i+vec3(0,0,0)), rand(i+vec3(1,0,0)), f.x),
+							mix(rand(i+vec3(0,1,0)), rand(i+vec3(1,1,0)), f.x), f.y),
+					mix(mix(rand(i+vec3(0,0,1)), rand(i+vec3(1,0,1)), f.x),
+							mix(rand(i+vec3(0,1,1)), rand(i+vec3(1,1,1)), f.x), f.y), f.z);
+			}
+			float fbm(vec3 p){
+				float v = 0.0, amp = 0.5;
+				for(int i=0;i<5;i++){
+					v += amp * noise(p);
+					p *= 2.0;
+					amp *= 0.5;
+				}
+				return v;
+			}
+
+			void main(){
+				vec3 rayOrig = uCameraPos;
+				vec3 rayDir = normalize(vWorldPos - rayOrig);
+				float stepSize = length(vWorldPos - rayOrig) / float(uSteps);
+
+				float t = 0.0;
+				vec3 pos = rayOrig;
+				vec3 col = vec3(0.0);
+				float alpha = 0.0;
+
+				for(int i = 0; i < 128; i++){
+					if(i >= uSteps) break;
+					pos += rayDir * stepSize;
+					float d = fbm(pos * 0.1 + uTime * 0.01);
+					float density = smoothstep(0.5, 0.8, d);
+
+					// 光照简单模拟（仅方向光）
+					float light = clamp(dot(uLightDir, rayDir), 0.0, 1.0);
+
+					float contribution = (1.0 - alpha) * density * 0.05;
+					col += vec3(1.0) * contribution * light;
+					alpha += contribution;
+					if(alpha >= 0.95) break;
+				}
+
+				gl_FragColor = vec4(col, alpha);
+			}
+		`,
+			transparent: true,
+			side: THREE.BackSide,
+			depthWrite: false
+		})
+
+		const mesh = new THREE.Mesh(geo, mat)
+		return mesh
+	}
+
 	initLights() {
-		const ambientLight = new THREE.AmbientLight(0xffffff, 0.5)
+		// 环境光（基础照明，避免纯黑区域）
+		const ambientLight = new THREE.AmbientLight(0xffffff, 0.9)
 		this.scene.add(ambientLight)
 
-		const directionalLight = new THREE.DirectionalLight(0xffffff, 1.8)
-		directionalLight.position.set(1, 1, 1)
-		directionalLight.castShadow = true
-		directionalLight.shadow.mapSize.width = 1024
-		directionalLight.shadow.mapSize.height = 1024
-		this.scene.add(directionalLight)
+		// 主方向光（模拟太阳光，带阴影）
+		const dirLight = new THREE.DirectionalLight(0xffffff, 1.8)
+		dirLight.position.set(10, 20, 15) // 高处斜向照射
+		dirLight.castShadow = true
+		dirLight.shadow.mapSize.width = 2048
+		dirLight.shadow.mapSize.height = 2048
+		dirLight.shadow.camera.near = 0.5
+		dirLight.shadow.camera.far = 50
+		dirLight.shadow.camera.left = -15
+		dirLight.shadow.camera.right = 15
+		dirLight.shadow.camera.top = 15
+		dirLight.shadow.camera.bottom = -15
+		dirLight.shadow.bias = -0.0001
+		this.scene.add(dirLight)
 
-		const hemisphereLight = new THREE.HemisphereLight(0xffffff, 0xffffff, 1.7)
-		this.scene.add(hemisphereLight)
+		// 补光（柔和散射，填补阴影区域）
+		const fillLight = new THREE.DirectionalLight(0xffffff, 0.9)
+		fillLight.position.set(-5, 5, -5)
+		fillLight.castShadow = false
+		this.scene.add(fillLight)
+
+		// 半球光（环境氛围，模拟天空与地面反射）
+		const hemiLight = new THREE.HemisphereLight(0xe0e0ff, 0xffffff, 0.9)
+		hemiLight.position.set(0, 20, 0)
+		this.scene.add(hemiLight)
+
+		// 聚光灯（突出焦点物体，可以选加）
+		const spotLight = new THREE.SpotLight(
+			0xffffff,
+			0.7,
+			100,
+			Math.PI / 8,
+			0.3,
+			1
+		)
+		spotLight.position.set(15, 20, 10)
+		spotLight.target.position.set(0, 0, 0)
+		spotLight.castShadow = true
+		spotLight.shadow.mapSize.width = 2048
+		spotLight.shadow.mapSize.height = 2048
+		this.scene.add(spotLight)
+		this.scene.add(spotLight.target)
+
+		// 可视化调试光源范围（调试时可启用）
+		const helper = new THREE.CameraHelper(dirLight.shadow.camera)
+		this.scene.add(helper)
 	}
+
 	addAnimationCallback(callback: () => void) {
 		this.animationCallbacks.push(callback)
 	}
@@ -357,34 +933,6 @@ class ThreeCore {
 			this.idFromObject
 		)
 	}
-	// gpuPick (ev: MouseEvent | TouchEvent) {
-	// 	function shouldPickObject(object: THREE.Object3D) {
-	// 		// 如果对象具有 `ignorePick` 标志，则忽略它
-	//     return object.userData && !object.userData.ignorePick;
-
-	// 	}
-	// 	const inversePixelRatio = 1.0 / (window.devicePixelRatio || 1);
-
-	// 	let clientX : number
-	//   let clientY : number;
-	// 	// 处理触摸事件和鼠标事件
-	// 	if ('touches' in ev) {
-	// 		// 触摸事件
-	// 		clientX = ev.touches[0].clientX;
-	// 		clientY = ev.touches[0].clientY;
-	// 	} else {
-	// 		// 鼠标事件
-	// 		clientX = ev.clientX;
-	// 		clientY = ev.clientY;
-	// 	}
-	// 	let sub = 0
-	//   if (this.container) {
-	//     sub = this.container.getBoundingClientRect().left
-	//   }
-	//   console.log(clientX, clientY, 'clientX')
-	// 	const objId = this.picker.pick(clientX * window.devicePixelRatio - sub * inversePixelRatio, clientY * window.devicePixelRatio, shouldPickObject);
-	// 	return this.scene.getObjectById(objId)
-	// }
 	gpuPick(ev: MouseEvent | TouchEvent) {
 		function shouldPickObject(object: THREE.Object3D) {
 			return object.userData && !object.userData.ignorePick
@@ -475,11 +1023,13 @@ class ThreeCore {
 			this.camera = new THREE.PerspectiveCamera(75, aspect, 0.1, 1000)
 		}
 
-		this.camera.position.set(
-			cameraPosition.x,
-			cameraPosition.y,
-			cameraPosition.z
-		)
+		if (cameraPosition) {
+			this.camera.position.set(
+				cameraPosition.x,
+				cameraPosition.y,
+				cameraPosition.z
+			)
+		}
 		this.camera.lookAt(0, 0, 0)
 	}
 	// 新增方法：初始化CSS3D渲染器
@@ -535,48 +1085,149 @@ class ThreeCore {
 		}
 
 		// 执行注册的回调
+		// biome-ignore lint/complexity/noForEach: <explanation>
 		this.resizeCallbacks.forEach(callback => callback(width, height))
 	}
 
 	// 修改startAnimationLoop方法以支持CSS3D渲染器
+	// startAnimationLoop() {
+	// 	const animate = (time?: number) => {
+	// 		requestAnimationFrame(animate)
+	// 		const delta = this.clock.getDelta();
+	// 		this.effectManager.update(delta);
+	// 		// 更新 OrbitControls
+	// 		if (this.controls) {
+	// 			this.controls.update()
+	// 		}
+
+	// 		// updateKujialeGrid(grid, this.camera);
+
+	// 		// 调用额外的动画回调
+	// 		// biome-ignore lint/complexity/noForEach: <explanation>
+	// 		this.animationCallbacks.forEach(callback => callback())
+
+	// 		// 渲染 WebGL 场景
+	// 		this.renderer.render(this.scene, this.camera)
+	// 		// if (this.rendererGPU) {
+	// 		// 	this.rendererGPU.render(this.scene, this.camera);
+	// 		// 	this.rendererGPU.debug.checkShaderErrors = true;
+	// 		// }
+
+	// 		// 渲染 CSS3D 场景
+	// 		if (this.css3DRenderer) {
+	// 			this.css3DRenderer.render(this.scene, this.camera)
+	// 		}
+
+	// 		// 性能监控
+	// 		if (this.stats) {
+	// 			this.stats.update()
+	// 		}
+	// 		// 额外动画逻辑
+	// 		if (this.addAnimationFunc) {
+	// 			this.addAnimationFunc()
+	// 		}
+	// 		// 更新 Tween.js（传入毫秒时间戳）
+	// 		TWEEN.update(time || performance.now())
+
+	// 		// 1. 渲染 bloom 通道
+	// 		this.scene.traverse(obj => {
+	// 			if ((obj as any).isMesh) {
+	// 				const mesh = obj as THREE.Mesh
+	// 				if (!this.bloomLayer.test(mesh.layers)) {
+	// 					this.materials[mesh.uuid] = mesh.material
+	// 					mesh.material = this.darkMaterial
+	// 				}
+	// 			}
+	// 		})
+	// 		this.bloomComposer.render()
+
+	// 		// 还原材质
+	// 		this.scene.traverse(obj => {
+	// 			if ((obj as any).isMesh && this.materials[obj.uuid]) {
+	// 				mesh.material = this.materials[obj.uuid]
+	// 				delete this.materials[obj.uuid]
+	// 			}
+	// 		})
+
+	// 		// 2. 合成最终场景
+	// 		this.finalComposer.render()
+
+	// 	}
+
+	// 	animate()
+	// }
 	startAnimationLoop() {
 		const animate = (time?: number) => {
 			requestAnimationFrame(animate)
-			const delta = this.clock.getDelta();
-			this.effectManager.update(delta);
+			const delta = this.clock.getDelta()
+			this.effectManager.update(delta)
+
 			// 更新 OrbitControls
 			if (this.controls) {
 				this.controls.update()
 			}
-	
+			// if (this.transformControls) {
+			// 	this.transformControls.updateMatrixWorld(); // 自定义控制器更新
+			// }
+			// this.renderer.setClearColor(0x000000, 0)
+			// this.renderer.render(this.scene, this.camera)
+
 			// 调用额外的动画回调
 			// biome-ignore lint/complexity/noForEach: <explanation>
 			this.animationCallbacks.forEach(callback => callback())
-	
-			// 渲染 WebGL 场景
-			this.renderer.render(this.scene, this.camera)
-	
-			// 渲染 CSS3D 场景
+
+			// ⭐️ 渲染流程修改：Bloom 替代原生 WebGL 渲染
+			// 1. 渲染 bloom 通道
+			this.scene.traverse(obj => {
+				if ((obj as any).isMesh) {
+					const mesh = obj as THREE.Mesh
+					if (!this.bloomLayer.test(mesh.layers)) {
+						this.materials[mesh.uuid] = mesh.material
+						mesh.material = this.darkMaterial
+					}
+					if (obj.parent && obj.parent.isTransformControlsGizmo) {
+						this.materials[mesh.uuid] = mesh.material
+						mesh.material = this.darkMaterial
+					}
+				}
+			})
+			if (this.showbloom) {
+				this.bloomComposer.render()
+			}
+
+			// 还原材质
+			this.scene.traverse(obj => {
+				if ((obj as any).isMesh && this.materials[obj.uuid]) {
+					const mesh = obj as THREE.Mesh
+					mesh.material = this.materials[mesh.uuid] // 修改点：类型兼容
+					delete this.materials[mesh.uuid]
+				}
+			})
+			// 2. 合成最终场景
+			this.finalComposer.render()
+
+			// 渲染 CSS3D 场景（叠加在 WebGL 上）
 			if (this.css3DRenderer) {
 				this.css3DRenderer.render(this.scene, this.camera)
 			}
-	
+
 			// 性能监控
 			if (this.stats) {
 				this.stats.update()
 			}
+
 			// 额外动画逻辑
 			if (this.addAnimationFunc) {
 				this.addAnimationFunc()
 			}
+
 			// 更新 Tween.js（传入毫秒时间戳）
 			TWEEN.update(time || performance.now())
-			
 		}
-	
+
 		animate()
 	}
-	
+
 	// 修改mount方法以支持CSS3D渲染器
 	mount(container: HTMLElement | null) {
 		// 先清理之前的容器
@@ -607,6 +1258,9 @@ class ThreeCore {
 			// 如果启用了CSS3D渲染器，添加到容器中
 			if (this.css3DRenderer) {
 				this.container.appendChild(this.css3DRenderer.domElement)
+			}
+			if (this.rendererGPU) {
+				this.container.appendChild(this.rendererGPU.domElement)
 			}
 
 			// 使用ResizeObserver监听容器大小变化
@@ -639,6 +1293,16 @@ class ThreeCore {
 		}
 		return new CSS3DObject(element)
 	}
+	addEffect(item: Effect, target: THREE.Object3D | undefined = undefined) {
+		if (item.target === 0) {
+			this.effectManager.addEffect(item.effect_name, this.scene, item.options)
+		} else if (target) {
+			this.effectManager.addEffect(item.effect_name, target, item.options)
+		}
+	}
+	removeEffect(item: Effect, target: THREE.Object3D) {
+		this.effectManager.removeEffect(target, item.effect_name)
+	}
 	lookAtCameraState(
 		targetState: CameraState,
 		duration: number = 1000,
@@ -646,13 +1310,13 @@ class ThreeCore {
 	) {
 		console.log('切换镜头', targetState)
 		this.controls.enabled = false // 禁用操作
-	
+
 		const startPos = this.camera.position.clone()
 		const posObj = { x: startPos.x, y: startPos.y, z: startPos.z }
-	
+
 		const startTarget = this.controls.target.clone()
 		const targetObj = { x: startTarget.x, y: startTarget.y, z: startTarget.z }
-	
+
 		// 透视相机才考虑 fov
 		let fovObj: { fov: number } | null = null
 		if (
@@ -661,34 +1325,46 @@ class ThreeCore {
 		) {
 			fovObj = { fov: (this.camera as THREE.PerspectiveCamera).fov }
 		}
-	
-		TWEEN.add(new TWEEN.Tween(posObj)
-			.to(
-				{ x: targetState.position.x, y: targetState.position.y, z: targetState.position.z },
-				duration
-			)
-			.easing(TWEEN.Easing.Quadratic.InOut)
-			.onUpdate(() => {
-				this.camera.position.set(posObj.x, posObj.y, posObj.z)
-			})
-			.start())
-	
-		TWEEN.add(new TWEEN.Tween(targetObj)
-		.to(
-			{ x: targetState.target.x, y: targetState.target.y, z: targetState.target.z },
-			duration
+
+		TWEEN.add(
+			new TWEEN.Tween(posObj)
+				.to(
+					{
+						x: targetState.position.x,
+						y: targetState.position.y,
+						z: targetState.position.z
+					},
+					duration
+				)
+				.easing(TWEEN.Easing.Quadratic.InOut)
+				.onUpdate(() => {
+					this.camera.position.set(posObj.x, posObj.y, posObj.z)
+				})
+				.start()
 		)
-		.easing(TWEEN.Easing.Quadratic.InOut)
-		.onUpdate(() => {
-			this.controls.target.set(targetObj.x, targetObj.y, targetObj.z)
-			this.controls.update()
-		})
-		.onComplete(() => {
-			this.controls.enabled = true
-			if (onComplete) onComplete()
-		})
-		.start())
-	
+
+		TWEEN.add(
+			new TWEEN.Tween(targetObj)
+				.to(
+					{
+						x: targetState.target.x,
+						y: targetState.target.y,
+						z: targetState.target.z
+					},
+					duration
+				)
+				.easing(TWEEN.Easing.Quadratic.InOut)
+				.onUpdate(() => {
+					this.controls.target.set(targetObj.x, targetObj.y, targetObj.z)
+					this.controls.update()
+				})
+				.onComplete(() => {
+					this.controls.enabled = true
+					if (onComplete) onComplete()
+				})
+				.start()
+		)
+
 		// fov tween
 		if (fovObj) {
 			new TWEEN.Tween(fovObj)
@@ -703,12 +1379,12 @@ class ThreeCore {
 		}
 	}
 
-	public calcSelectObjSphere = (arr: THREE.Object3D[]) =>{
-		if(!arr||!arr.length) return 
+	public calcSelectObjSphere = (arr: THREE.Object3D[]) => {
+		if (!arr || !arr.length) return
 		const objectArr = arr
 		const object3D = new THREE.Object3D()
-		for(let i = 0,len = objectArr.length;i<len;i++){
-				object3D.children.push(objectArr[i])
+		for (let i = 0, len = objectArr.length; i < len; i++) {
+			object3D.children.push(objectArr[i])
 		}
 		const box3 = new THREE.Box3()
 		box3.expandByObject(object3D)
@@ -716,43 +1392,40 @@ class ThreeCore {
 		box3.getBoundingSphere(sphere)
 		return sphere
 	}
-	public lookAtSelectObj = (meshArr: THREE.Object3D[])  =>{
+	public lookAtSelectObj = (meshArr: THREE.Object3D[]) => {
 		TWEEN.removeAll()
 		const sphere = this.calcSelectObjSphere(meshArr)
 		if (!sphere) return
-		const {
-				center,
-				radius
-		} = sphere
-		const camera = this.camera;
-    if (!camera) return null;
+		const { center, radius } = sphere
+		const camera = this.camera
+		if (!camera) return null
 
-    // 计算理想距离
-    const fov = camera.fov * (Math.PI / 180);
-    const idealDistance = Math.abs(radius / Math.sin(fov / 2)) * 1.2;
+		// 计算理想距离
+		const fov = camera.fov * (Math.PI / 180)
+		const idealDistance = Math.abs(radius / Math.sin(fov / 2)) * 1.2
 
-    // 计算目标位置方向 (从中心指向当前相机位置)
-    const direction = new THREE.Vector3()
-        .subVectors(camera.position, center)
-        .normalize();
+		// 计算目标位置方向 (从中心指向当前相机位置)
+		const direction = new THREE.Vector3()
+			.subVectors(camera.position, center)
+			.normalize()
 
-    // 计算完整的目标位置
-    const fullTargetPosition = new THREE.Vector3()
-        .copy(center)
-        .add(direction.multiplyScalar(idealDistance));
+		// 计算完整的目标位置
+		const fullTargetPosition = new THREE.Vector3()
+			.copy(center)
+			.add(direction.multiplyScalar(idealDistance))
 
-    // 使用lerp在当前位置和目标位置之间插值
-    const lerpedPosition = new THREE.Vector3()
-        .copy(camera.position)
-        .lerp(fullTargetPosition, 1.0);
+		// 使用lerp在当前位置和目标位置之间插值
+		const lerpedPosition = new THREE.Vector3()
+			.copy(camera.position)
+			.lerp(fullTargetPosition, 1.0)
 
 		this.lookAtCameraState({
 			position: lerpedPosition,
 			target: new THREE.Vector3().copy(center) // 目标总是中心点
 		})
 	}
-	
-	public recordCamera(): CameraState {
+
+	public recordCamera(need_push = true): CameraState {
 		const item = {
 			position: this.camera.position.clone(),
 			target: this.controls.target.clone(),
@@ -760,7 +1433,9 @@ class ThreeCore {
 				? (this.camera as THREE.PerspectiveCamera).fov
 				: undefined
 		}
-		this.cameraList.push(item)
+		if (need_push) {
+			this.cameraList.push(item)
+		}
 		return item
 	}
 	public saveSceneToJSON(): SceneJSON {
@@ -769,13 +1444,21 @@ class ThreeCore {
 		// biome-ignore lint: <就用forEach>
 		this.scene.children.forEach(obj => {
 			// 忽略灯光、摄像机等非 Mesh 类型
-			if (!(obj instanceof THREE.Mesh) && !(obj instanceof THREE.Group)) return
+			if (
+				!(obj instanceof THREE.Mesh) &&
+				!(obj instanceof THREE.Group) &&
+				!(obj instanceof THREE.Points)
+			)
+				return
 			const typeGuess = (() => {
 				if (obj.userData.url) {
 					if (obj.userData.type === 'model') {
 						return 'model'
 					}
 					return 'image'
+				}
+				if (obj.userData.type === 'effect') {
+					return 'effect'
 				}
 				if (obj.userData.type && obj.userData.type === 'template') {
 					return 'template'
@@ -791,6 +1474,9 @@ class ThreeCore {
 				) {
 					if (obj.userData && obj.userData.type === 'diary') {
 						return 'diary'
+					}
+					if (obj.userData && obj.userData.type === 'library') {
+						return 'library'
 					}
 					return 'sphere'
 				}
@@ -864,14 +1550,33 @@ class ThreeCore {
 				if (obj.userData.useDracoLoader) {
 					jsonObj.useDracoLoader = obj.userData.useDracoLoader
 				}
+				if (obj.userData.options) {
+					jsonObj.options = obj.userData.options
+				}
+				if (obj.userData.effect && obj.userData.effect.length > 0) {
+					jsonObj.effect = obj.userData.effect
+				}
+				if (obj.userData.material) {
+					jsonObj.material = obj.userData.material
+				}
 			}
 			if (typeGuess === 'image') {
 				jsonObj.url = obj.userData.url.replace(BASE_IMG, '')
+			}
+			if (typeGuess === 'effect') {
+				jsonObj.options = obj.userData.options
+				jsonObj.effect_name = obj.userData.effectName
 			}
 			if (typeGuess === 'diary') {
 				jsonObj.title = obj.userData.title
 				jsonObj.content = obj.userData.content
 			}
+			if (typeGuess === 'library') {
+				jsonObj.title = obj.userData.title
+				jsonObj.cover = obj.userData.cover
+				jsonObj.library_id = obj.userData.library_id
+			}
+
 			if (typeGuess === 'template') {
 				jsonObj.template_id = obj.userData.template_id
 			}
@@ -887,6 +1592,172 @@ class ThreeCore {
 		}
 		return resault
 	}
+	// 为模型设置属性
+	public setOptionsModel(
+		mesh: THREE.Mesh | THREE.Object3D,
+		options: Record<string, any>
+	) {
+		if (options.color) {
+			if (mesh instanceof THREE.Mesh) {
+				mesh.material.color = new THREE.Color(options.color)
+			}
+			mesh.traverse(child => {
+				if (child instanceof THREE.Mesh) {
+					child.material.color = new THREE.Color(options.color)
+				}
+			})
+		}
+		mesh.userData.options = options
+	}
+	// 为模型设置特效
+	public setEffectModel(
+		mesh: THREE.Mesh | THREE.Object3D,
+		effects: SceneEffectJSON[]
+	) {
+		if (effects.length > 0) {
+			// biome-ignore lint/complexity/noForEach: <explanation>
+			effects.forEach(effect => {
+				if (effect.type === 'effect' && effect.effect_name) {
+					const { options } = effect
+					this.addEffect(
+						{ effect_name: effect.effect_name, effect_id: 0, options },
+						mesh
+					)
+				} else if (effect.type === 'animation' && effect.options) {
+					this.applyAnimation(mesh, effect)
+				}
+			})
+		}
+	}
+	// 为模型设置贴图
+	public setMaterialModel(
+		mesh: THREE.Mesh | THREE.Object3D,
+		material: Record<string, any>
+	) {
+		mesh.traverse(async child => {
+			if (child.name.includes('replace') && child instanceof THREE.Mesh) {
+				if (material[child.name]) {
+					const options = material[child.name]
+					// console.log('缓存的贴图属性', options)
+					// const texture = await this.loadTexture(BASE_IMG + options.url)
+					// texture.offset.set(options.offsetX ?? 0, options.offsetY ?? 0)
+					// texture.repeat.set(options.scaleX ?? 1, options.scaleY ?? 1)
+					// texture.rotation = options.rotation ?? 0
+					// texture.center.set(0.5, 0.5)
+					// child.material.map = texture
+					// child.material.transparent = true
+					const img = new Image()
+					img.src = BASE_IMG + options.url
+					console.log('参数', options)
+					img.onload = () => {
+						const tex = this.createTransformedTexture(img, {
+							offsetX: options.offsetX ?? 0,
+							offsetY: options.offsetY ?? 0,
+							scale: options.scale ?? 1,
+							rotation: options.rotation ?? 0
+						})
+						tex.flipY = false
+						child.material.map = tex
+						child.material.transparent = true
+						child.material.needsUpdate = true
+					}
+				}
+			}
+		})
+		mesh.userData.material = material
+	}
+
+	cloneMultiMaterial(obj: THREE.Mesh) {
+		// 如果有模型使用同一材质
+		//如果一个模型有多个材质
+		let flat = false
+		console.log(this.allMat, '所有贴图')
+		const Mlen = this.allMat.length
+		//查看是否有模型使用同一材质
+		for (let i = 0; i < Mlen; i++) {
+			if (this.allMat[i] === obj.material) {
+				obj.material = this.allMat[i].clone()
+				flat = true
+				break
+			}
+		}
+		if (!flat) {
+			if (Array.isArray(obj.material)) {
+				this.allMat.push(...obj.material)
+			} else {
+				this.allMat.push(obj.material)
+			}
+		}
+	}
+	copyMaterial(model: THREE.Mesh | THREE.Object3D) {
+		model.traverse(child => {
+			if (child instanceof THREE.Mesh) {
+				// 如果共享材质，需要克隆
+				if (child.material) {
+					if (Array.isArray(child.material)) {
+						child.material = child.material.map(mat => {
+							const clonedMat = mat.clone()
+							// 如果有贴图，贴图也要 clone
+							if (clonedMat.map) {
+								clonedMat.map = clonedMat.map.clone()
+								clonedMat.map.needsUpdate = true
+							}
+							return clonedMat
+						})
+					} else {
+						const clonedMat = child.material.clone()
+						if (clonedMat.map) {
+							clonedMat.map = clonedMat.map.clone()
+							clonedMat.map.needsUpdate = true
+						}
+						child.material = clonedMat
+					}
+				}
+			}
+		})
+	}
+	applyAnimation(obj: THREE.Object3D, anim: SceneEffectJSON) {
+		if (anim.type === 'animation') {
+			const props: any = {}
+			for (const key in anim.properties) {
+				const [prop, axis] = key.split('.')
+				if (axis) {
+					props[axis] = anim.properties[key]
+					gsap.to((obj as any)[prop], {
+						...props,
+						duration: anim.duration,
+						ease: anim.ease,
+						delay: anim.delay,
+						repeat: anim.repeat,
+						yoyo: anim.yoyo,
+						repeatDelay: anim.repeatDelay
+					})
+				} else {
+					gsap.to(obj as any, {
+						[prop]: anim.properties[key],
+						duration: anim.duration,
+						ease: anim.ease,
+						delay: anim.delay,
+						repeat: anim.repeat,
+						yoyo: anim.yoyo,
+						repeatDelay: anim.repeatDelay
+					})
+				}
+			}
+		} else if (anim.type === 'timeline') {
+			const tl = gsap.timeline()
+			// biome-ignore lint/complexity/noForEach: <explanation>
+			anim.children?.forEach(child => {
+				const targetObj = obj // 可以拓展为通过 uuid 查找
+				if (anim.sequence) {
+					tl.add(() => this.applyAnimation(targetObj, child), 0)
+					// tl.to(targetObj, this.applyAnimation(targetObj, child))
+				} else {
+					tl.add(() => this.applyAnimation(targetObj, child), 0)
+				}
+			})
+		}
+	}
 	public async loadSceneFromJSON(json: SceneJSON, renturGroup = false) {
 		let group = null
 		if (renturGroup) {
@@ -900,7 +1771,7 @@ class ThreeCore {
 				this.background = json.background
 			}
 		}
-		
+
 		for (const obj of json.objects) {
 			const position = obj.position || [0, 0, 0]
 			const rotation = obj.rotation || [0, 0, 0]
@@ -936,15 +1807,38 @@ class ThreeCore {
 						// (obj.useDracoLoader && obj.dracoDecoderPath) ? obj.dracoDecoderPath : 'jsm/libs/draco/gltf/',
 					})
 					mesh = model
+					if (obj.options) {
+						this.setOptionsModel(mesh, obj.options)
+					}
+					if (obj.effect) {
+						this.setEffectModel(mesh, obj.effect)
+					}
+					if (obj.material) {
+						this.setMaterialModel(mesh, obj.material)
+					}
 				} catch (e) {
 					console.warn(`模型加载失败：${obj.url}`, e)
 				}
+			}
+
+			if (obj.type === 'effect' && obj.effect_name) {
+				this.addEffect(
+					{
+						effect_name: obj.effect_name,
+						effect_id: 0,
+						options: obj.options ? obj.options : {}
+					},
+					this.scene
+				)
 			}
 			if (obj.type === 'image' && obj.url) {
 				mesh = await this.loadImageMesh(BASE_IMG + obj.url, obj.baseWidth || 5)
 			}
 			if (obj.type === 'diary') {
 				mesh = await this.createDiary(obj)
+			}
+			if (obj.type === 'library') {
+				mesh = await this.createLibrary(obj)
 			}
 			if (obj.type === 'template') {
 				// 加载模版类型
@@ -989,6 +1883,12 @@ class ThreeCore {
 				mesh.position.set(...position)
 				mesh.rotation.set(...rotation)
 				mesh.scale.set(...scale)
+				if (obj.type === 'diary' && !this.editMode) {
+					mesh.scale.set(0.001, 0.001, 0.001)
+				}
+				if (obj.type === 'library' && !this.editMode) {
+					mesh.scale.set(0.001, 0.001, 0.001)
+				}
 				if (renturGroup) {
 					mesh.userData.ignorePick = true
 					mesh.traverse(childMesh => {
@@ -1106,6 +2006,7 @@ class ThreeCore {
 		if (group.isMesh) {
 			this.clearObject(group)
 		}
+		console.log(this.loadedModels, '加载的模型')
 	}
 
 	// 修改dispose方法以清理CSS3D渲染器

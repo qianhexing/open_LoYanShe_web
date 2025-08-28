@@ -87,7 +87,6 @@ const loadMore = () => {
     isLoading.value = true
     handlePageChange(page.value + 1)
     console.log('加载更多')
-    loadMore()
   }
 }
 

@@ -1,12 +1,12 @@
 <script setup lang="ts">
-import type { TemplateInterface, PaginationResponse } from '@/types/api';
-import { getTemplateList } from '@/api/temeplate'
+import type { Material, PaginationResponse } from '@/types/api';
+import { getMaterialctList } from '@/api/material'
 const router = useRouter()
 const route = useRoute()
 // 分页参数
 const pageSize = 20
 // const total = ref(0)
-const list = ref<TemplateInterface[]>([])
+const list = ref<Material[]>([])
 const page = ref(Number(route.query.page) || 1)
 const keyword = ref('')
 const value = ref('')
@@ -15,7 +15,7 @@ const isLoading = ref(true)
 const getList = async () => {
   isLoading.value = true
   try {
-    const response = await getTemplateList({
+    const response = await getMaterialctList({
       page: page.value,
       pageSize: pageSize
     })
@@ -65,20 +65,8 @@ const handlePageChange = async (current: number) => {
   }
 }
 
-const showToast = () => {
-  const user = useUserStore()
-  console.log(user.token, '获取到的token')
-  const toast = useToast()
-
-  toast.add({
-    title: '成功',
-    description: '操作已成功完成',
-    icon: 'i-heroicons-check-circle',
-    color: 'green'
-  })
-}
 const emit = defineEmits(['choose'])
-const choose = (item: TemplateInterface) => {
+const choose = (item: Material) => {
   emit('choose', item)
 }
 // 统一处理搜索逻辑
@@ -96,10 +84,10 @@ onMounted(() => {
 </script>
 <template>
   <div class="container mx-auto p-4 pb-20">
-    
+    111
     <div class="grid grid-cols-3" v-if="total > 0">
       <div v-for="list in list">
-        <TemplateItem @choose="choose" :item="list"></TemplateItem>
+        <MateriaItem @choose="choose" :item="list"></MateriaItem>
       </div>
     </div>
     <div v-else class="text-center text-gray-500 py-8">

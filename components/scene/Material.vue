@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { TemplateInterface } from '@/types/api';
+import type { Effect, Material, TemplateInterface } from '@/types/api';
 const configStore = useConfigStore()
 import { uploadImage } from '@/api';
 import type QhxImagePicker from '@/components/Qhx/ImagePicker.vue'
@@ -47,16 +47,28 @@ const closeModel = () => {
 const props = withDefaults(defineProps<Props>(), {
 })
 const { loadTemplate } = toRefs(props)
-const emit = defineEmits(['addImage', 'saveScene', 'addDiary', 'chooseTemplate', 'clearTemplate', 'recordCamera', 'addBackgroun'])
+const emit = defineEmits(['addImage', 'saveScene', 'addDiary', 'chooseTemplate', 'chooseEffect', 'clearTemplate', 'recordCamera', 'addBackgroun', 'chooseMaterial', 'addText'])
+
 const saveScene = () => {
   emit('saveScene')
 }
+const addText = () => {
+  emit('addText')
+}
+
 const emitDiary = () => {
   emit('addDiary', diaryForm)
 }
 
 const chooseTemplate = (item: TemplateInterface) => {
   emit('chooseTemplate', item)
+}
+const chooseMaterial = (item: Material) => {
+  emit('chooseMaterial', item)
+}
+
+const chooseEffect = (item: Effect) => {
+  emit('chooseEffect', item)
 }
 const clearTemplate = () => {
   emit('clearTemplate')
@@ -172,6 +184,16 @@ defineExpose({
             <div  class=" text-sm">背景</div>
           </div>
         </QhxJellyButton>
+        <QhxJellyButton>
+          <div class="h-[60px] text-center px-1  cursor-pointer">
+            <div
+              class=" m-[5px] mx-auto text-white rounded-[50%] h-[30px] w-[30px] bg-qhx-primary flex items-center justify-center"
+              @click="addText()" style="font-size: 22px">
+              <UIcon name="icon-park-outline:add-text" class="text-[22px] text-[#ffffff]" />
+            </div>
+            <div  class=" text-sm">文本</div>
+          </div>
+        </QhxJellyButton>
       </div>
       <QhxJellyButton>
         <div class=" m-[5px] text-white rounded-[50%] h-[30px] w-[30px] bg-qhx-primary flex items-center justify-center cursor-pointer"
@@ -180,8 +202,15 @@ defineExpose({
         </div>
       </QhxJellyButton>
     </div>
-    <QhxTabs :tabs="['模版', '特效']">
+    <QhxTabs :tabs="['素材', '模版', '特效']">
       <QhxTabPanel :index="0">
+        <template #default="{ isActive }">
+          <div class="bg-white h-[370px] md:h-[calc(100vh-130px)] overflow-y-auto">
+            <MateriaList @choose="chooseMaterial"></MateriaList>
+          </div>
+        </template>
+      </QhxTabPanel>
+      <QhxTabPanel :index="1">
         <template #default="{ isActive }">
           <div class="bg-white h-[370px] md:h-[calc(100vh-130px)] overflow-y-auto">
             <QhxJellyButton v-show="loadTemplate">
@@ -198,10 +227,10 @@ defineExpose({
           </div>
         </template>
       </QhxTabPanel>
-      <QhxTabPanel :index="1">
+      <QhxTabPanel :index="2">
         <template #default="{ isActive }">
           <div class="bg-white h-[370px] md:h-[calc(100vh-130px)] overflow-y-auto">
-            还在做
+            <EffectList @choose="chooseEffect"></EffectList>
           </div>
         </template>
       </QhxTabPanel>

@@ -23,16 +23,20 @@
     "@types/three": "^0.177.0",
     "@vueuse/nuxt": "12.5.0",
     "ali-oss": "^6.23.0",
+    "gsap": "^3.13.0",
     "html2canvas": "^1.4.1",
     "nuxt": "^3.15.2",
     "pinia": "^3.0.3",
     "quill": "^2.0.3",
-    "three": "^0.177.0",
+    "three": "^0.179.1",
     "three_gpu_picking": "^1.0.4",
+    "troika-three-text": "^0.52.4",
     "typescript": "^5.7.3",
     "vue": "latest",
     "vue-easy-lightbox": "^1.19.0",
-    "vue-router": "latest"
+    "vue-router": "latest",
+    "vue3-colorpicker": "^2.3.0",
+    "vuedraggable": "^4.1.0"
   },
   "packageManager": "pnpm@9.15.4+sha512.b2dc20e2fc72b3e18848459b37359a32064663e5627a51e4c74b2c29dd8e8e0491483c3abb40789cfd578bf362fb6ba8261b05f0387d76792ed6e23ea3b1b6a0",
   "devDependencies": {

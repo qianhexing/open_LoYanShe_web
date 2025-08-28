@@ -41,7 +41,18 @@ const handleJump = (id: number) => {
         </h3>
       </div>
     </div>
-    <div v-if="size === 'mini'" :to="`/library/detail/${item.library_id}`" @click="handleJump(item.library_id)">
+    <div v-else-if="size === 'mid'" :to="`/library/detail/${item.library_id}`" class=" flex" @click="handleJump(item.library_id)">
+      <div class="px-4">
+        <img @load="imageLoad" :src="`${BASE_IMG}${item.cover}?x-oss-process=image/quality,q_100/resize,w_300`"
+          :alt="item.name" class="w-[100px] h-[100px] object-cover rounded-[10px] border border-gray-200 my-2" loading="lazy" />
+      </div>
+      <div class="mx-4 flex-1">
+        <h3 class="text-base font-semibold text-gray-900 w-full transition-colors duration-300">
+          {{ item.name }}
+        </h3>
+      </div>
+    </div>
+    <div v-else-if="size === 'mini'" :to="`/library/detail/${item.library_id}`" @click="handleJump(item.library_id)">
       <img @load="imageLoad" :src="`${BASE_IMG}${item.cover}?x-oss-process=image/quality,q_100/resize,w_300`"
         :alt="item.name" class="w-[100px] h-[100px] rounded-[10px]" loading="lazy" />
       <div class="mx-4">

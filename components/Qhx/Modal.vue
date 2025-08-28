@@ -40,7 +40,7 @@ const props = defineProps<{
   triggerPosition?: { x: number; y: number }
 }>()
 
-const emit = defineEmits(['update:modelValue'])
+const emit = defineEmits(['update:modelValue', 'close'])
 
 const modalBox = ref<HTMLElement | null>(null)
 const modalStyle = ref<Record<string, string>>({})
@@ -48,6 +48,7 @@ const modalStyle = ref<Record<string, string>>({})
 // 关闭方法
 const close = () => {
   emit('update:modelValue', false)
+  emit('close')
 }
 
 // 进入前设置初始位置和缩放
