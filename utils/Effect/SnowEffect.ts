@@ -8,12 +8,14 @@ export default class SnowEffect implements IEffect {
   private scene: THREE.Scene;
   private options: any;
   private particles?: THREE.Points;
+  private propsOptions: any;
 
   constructor(target: THREE.Object3D, scene: THREE.Scene, options: any = {}) {
     this.id = 'SnowEffect';
     this.target = target;
     this.scene = scene;
     this.options = Object.assign({ count: 800, size: 0.1 }, options);
+    this.propsOptions = options
   }
 
   init() {
@@ -34,6 +36,7 @@ export default class SnowEffect implements IEffect {
     this.particles = new THREE.Points(geometry, material);
     this.particles.userData.type = 'effect'
     this.particles.userData.effectName = this.id
+    this.particles.userData.options = this.propsOptions
     this.target.add(this.particles);
     console.log(this.target, '挂载对象')
   }

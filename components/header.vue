@@ -17,7 +17,7 @@
         <div class=" flex items-center">
           <LocaleSwitcher class="mr-3"/>
            <!-- 右侧操作区 -->
-          <div class="flex items-center gap-4" v-if="!user">
+          <div class="flex items-center gap-4" v-show="!user">
             <LoginBox />
           </div>
           <div class="flex items-center gap-4" v-show="user">

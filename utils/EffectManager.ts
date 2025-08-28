@@ -15,7 +15,7 @@ export class EffectManager {
     target: THREE.Object3D,      // 绑定的物体
     options: Record<string, any> = {}
   ) {
-
+    console.log(type, '类型')
     if (this.effects.has(type)) {
       if (options.onlyOne) {
         console.warn(`Effect ${type} 已经存在，先移除再添加`);
@@ -37,7 +37,7 @@ export class EffectManager {
 
     effect.init(this.scene, this.camera, this.renderer);
 
-    console.log(`✅ 添加特效: ${type}`);
+    console.log(`添加特效: ${type}`);
     return effect;
   }
   removeEffectById(typeOrId: string) {

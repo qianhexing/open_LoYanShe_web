@@ -1,98 +1,15 @@
-<template>
-	<div class="select-none touch-callout-none" :style="{ background: threeCore &&threeCore.background ? `url(${BASE_IMG}${threeCore.background})` : '', backgroundSize: 'cover' }">
-		
-		<div class=" fixed bottom-[20px] left-[20px] rounded-[50%] w-[50px] h-[50px] z-10 items-center justify-center shadow-lg flex cursor-pointer bg-qhx-bg-card"
-		@click="showMaterial()" v-show="edit_mode">加</div>
-		<div style="height: 100vh; width: 100vw; overflow: hidden; " id="scene"></div>
-		<div class="opera fixed p-3  bg-qhx-bg-card rounded-[30px] z-20 h-[60px] flex items-center whitespace-nowrap overflow-hidden" 
-		v-show="clickObject && edit_mode"
-		:style="{ left: operaPosition.x + 40 + 'px', top: operaPosition.y - 80 + 'px' }">
-			<div class=" cursor-pointer px-3" >缩放</div>
-			<div class=" cursor-pointer px-3" @click.stop="deleteModel()">删除</div>
-		</div>
-		<div class="camera-list fixed left-[10px] top-0 w-[40px] h-auto max-h-full" v-if="threeCore">
-			<div class=" relative" v-for="(camera_list, index) in threeCore.cameraList">
-				<QhxJellyButton>
-					<div class="text-center cursor-pointer" @click="lookAtCameraState(camera_list)">
-						<div
-							class=" relative m-[5px] mx-auto text-white rounded-[50%] h-[30px] w-[30px] bg-qhx-primary flex items-center justify-center"
-							style="font-size: 22px">
-							<div class="text-[#000] absolute left-0 top-0 h-[30px] w-[30px] flex items-center justify-center z-[1] text-[10px]">{{ index + 1 }}</div>
-							<UIcon name="material-symbols:video-camera-back" class="text-[22px] text-[#ffffff]"></UIcon>
-						</div>
-					</div>
-				</QhxJellyButton>
-				<div v-if="edit_mode" class=" absolute left-[40px] top-0">
-					<QhxJellyButton>
-						<div class="text-center cursor-pointer" @click="deleteCamera(index)">
-							<div
-								class=" m-[5px] mx-auto text-white rounded-[50%] h-[30px] w-[30px] bg-qhx-primary flex items-center justify-center"
-								style="font-size: 22px">
-								<UIcon name="ant-design:close-outlined" class="text-[22px] text-[#ffffff]" />
-							</div>
-						</div>
-					</QhxJellyButton>
-				</div>
-			</div>
-		</div>
-		<div @click.stop="(e) => {
-			handleClickDiary(e, diary)
-		}" class="fixed p-3 cursor-pointer bg-qhx-bg-card rounded-[30px] shadow-lg z-10 h-[60px] flex items-center whitespace-nowrap overflow-hidden" v-for="diary in diaryList" :style="{ left: diary.position.x + 'px', top: diary.position.y  - 30 + 'px' }">
-			{{ diary.title }}
-		</div>
-		<SceneMaterial 
-		v-if="edit_mode"
-		@recordCamera="recordCamera" 
-		@chooseTemplate="chooseTemplate" 
-		@clearTemplate="clearTemplate" @addDiary="addDiary" @saveScene="saveScene" 
-		@addImage="onUpdateFiles"
-		@addBackgroun="addBackgroun"
-		 ref="MaterialRef" 
-		:loadTemplate="threeCore && threeCore.loadTemplate.length > 0 ? true : false"></SceneMaterial>
-		<QhxModal v-model="showDiary" :trigger-position="clickPosition">
-			<div class="p-6 w-[400px] bg-white rounded-[10px] max-h-[50vh] overflow-y-auto" v-if="activeDiary && !edit_mode">
-				<div>{{ activeDiary.title }}</div>
-				<div>{{ activeDiary.content }}</div>
-			</div>
-			<div class="p-6 w-[400px] bg-white rounded-[10px] max-h-[50vh] overflow-y-auto" v-if="activeDiary && edit_mode">
-				<UInput v-model="activeDiary.title" :placeholder="'标题'" class="flex-1 focus:ring-0" :ui="{
-					base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
-					rounded: 'rounded-[10px]',
-					padding: { xs: 'px-4 py-2' },
-					color: {
-						white: {
-							outline: 'bg-gray-50 dark:bg-gray-800 ring-1 ring-gray-300 dark:ring-gray-600 focus:ring-2 focus:ring-qhx-primary'
-						}
-					}
-				}" />
-				<UTextarea v-model="activeDiary.content" :placeholder="'内容'" type="texare" class="flex-1 focus:ring-0 pt-3" :ui="{
-					base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
-					rounded: 'rounded-[10px]',
-					padding: { xs: 'px-4 py-2' },
-					color: {
-						white: {
-							outline: 'bg-gray-50 dark:bg-gray-800 ring-1 ring-gray-300 dark:ring-gray-600 focus:ring-2 focus:ring-qhx-primary'
-						}
-					}
-				}" />
-				<UButton type="submit" block class="bg-qhx-primary text-qhx-inverted hover:bg-qhx-primaryHover mt-6"
-					@click="editDiary()">
-					保存修改
-				</UButton>
-			</div>
-		</QhxModal>
-	</div>
-</template>
 <script setup lang="ts">
 import qhxCore, { type CameraState } from '@/utils/threeCore';
 import * as THREE from 'three';
 import type  { CSS3DObject } from 'three/examples/jsm/renderers/CSS3DRenderer.js';
 import { getSceneId, updateScene, insertScene } from '@/api/scene'
-import type { Community, PaginationResponse, Scene, TemplateInterface } from '@/types/api'
+import type { Community, Effect, Library, Material, PaginationResponse, Scene, TemplateInterface } from '@/types/api'
 import { insertCommunity } from '@/api/community'
-import type { DiaryInterface } from '@/types/sence'
+import type { DiaryInterface, LibraryInterface } from '@/types/sence'
 import type SceneMaterial from '@/components/scene/Material.vue'
-import { uploadImage } from '~/api';
+import type SceneTextureEditor from '@/components/scene/TextureEditor.vue'
+
+import { uploadImage, createFont } from '~/api';
 const showDiary = ref(false)
 let threeCore: qhxCore
 const theme = useThemeStore()
@@ -101,13 +18,27 @@ const Scene1Group = ref<THREE.Group | null>(null)
 const operaPosition = ref<Object<{ x: number, y: number}>>({ x: 0, y: 0})
 const clickObject = ref<THREE.Object3D[] | null>(null)
 const diaryList = ref<DiaryInterface[]>([])
+const libraryList = ref<LibraryInterface[]>([])
+
 const activeDiary = ref<DiaryInterface | null>(null)
 const loading = ref(false)
 let uni: any;
-
+// 判断是否可替换贴图
+const canTexture = computed(() => {
+	let flag = false
+	if (clickObject.value) {
+		clickObject.value[0].traverse((child) => {
+			if (child.name.includes('replace')) {
+				flag = true
+			}
+		})
+	}
+	return flag
+}); // 可以替换贴图
 	
 
 const MaterialRef = ref<InstanceType<typeof SceneMaterial> | null>(null)
+const SceneTextureEditorRef = ref<InstanceType<typeof SceneTextureEditor> | null>(null)
 
 import leftContent from '@/components/home/leftContent.vue'
 import rightContent from '@/components/home/rightContent.vue'
@@ -122,6 +53,8 @@ const toast = useToast()
 const userStore = useUserStore()
 const clickPosition = ref({ x: 0, y: 0 })
 const doubleClickTimer = ref<ReturnType<typeof setTimeout> | null>(null)
+const target = ref(null)
+const transformType  = ref('translate')
 
 if (route.query?.edit) {
 	edit_mode.value = true
@@ -135,25 +68,29 @@ if (route.query?.token) {
 	userStore.setToken(route.query.token.toString())
 }
 const id = route.params.id as string
-useHead({
-	title: 'Lo研社',
-	meta: [
-		{
-			name: 'keywords',
-			content: '3D手账'
-		},
-		{
-			name: 'description',
-			content: 'Lo研社 Lolita服饰与文化研习社'
-		}
-	]
-})
-
 const editDiary = () => {
 	if (activeDiary.value?.object) {
 		activeDiary.value.object.userData.title = activeDiary.value.title
 		activeDiary.value.object.userData.content = activeDiary.value.content
 		showDiary.value = false
+	}
+}
+const showTexture = async () => {
+	if (SceneTextureEditorRef.value) {
+		SceneTextureEditorRef.value.showModel()
+	}
+}
+const copyModel = async () => {
+	if (clickObject.value  && clickObject.value.length > 0) {
+		if (clickObject.value[0].userData.url) {
+			if (clickObject.value[0].userData.type === 'model') {
+				const mesh = await threeCore.loadModel(clickObject.value[0].userData.url)
+				if (clickObject.value[0].userData.options) {
+					threeCore.setOptionsModel(mesh, clickObject.value[0].userData.options)
+				}
+				threeCore.scene.add(mesh)
+			}
+		}
 	}
 }
 const deleteModel = () => {
@@ -168,7 +105,9 @@ const deleteModel = () => {
 		}
 		threeCore.clearGroup(clickObject.value[0])
 		clickObject.value = null
-		threeCore.gizmo.detach();
+		// threeCore.gizmo.detach();
+		threeCore.transformControls.detach()
+		threeCore.showbloom = true
 	}
 }
 const handleClickDiary = (e: MouseEvent, item: DiaryInterface) => {
@@ -178,8 +117,30 @@ const handleClickDiary = (e: MouseEvent, item: DiaryInterface) => {
   }
 	activeDiary.value = item
 }
+const handleClickLibrary = (item: LibraryInterface) => {
+	const isInUniApp =
+		typeof window !== 'undefined' &&
+		navigator.userAgent.includes('Html5Plus');
+	if (!item.library_id) return
+	if (isInUniApp && typeof uni !== 'undefined' && uni.navigateTo) {
+		// UniApp WebView 环境
+		uni.navigateTo({
+			url: `/pages/library/libraryDetail/libraryDetail?id=${item.library_id}`,
+			fail: () => {
+				console.log('跳转错误')
+			}
+		});
+	} else {
+		// 普通网页环境
+		window.location.href = `https://lolitalibrary.com/library/detail/${item.library_id}`;
+	}
+}
+
 const deleteCamera = (index: number) => {
 	threeCore.cameraList.splice(index, 1)
+}
+const resetCamera = (index: number) => {
+	threeCore.cameraList[index] = threeCore.recordCamera(false)
 }
 const addAnimationFunc = () => {
 	if (clickObject.value && clickObject.value.length > 0) {
@@ -195,6 +156,17 @@ const addAnimationFunc = () => {
 		})
 	}
 	diaryList.value = diary_list
+	const library_list: LibraryInterface[] = []
+	if (threeCore.loadedLibrary && threeCore.loadedLibrary.length > 0) {
+		// biome-ignore lint/complexity/noForEach: <explanation>
+			threeCore.loadedLibrary.forEach((library) => {
+			const position = threeCore.screenPositionFromObject(library.object)
+			library_list.push({object: library.object, title: library.object.userData.title, cover: library.object.userData.cover, position, id: library.object.uuid, library_id: library.object.userData.library_id})
+			// console.log('日记点位置', position)
+		})
+	}
+	libraryList.value = library_list
+
 }
 const { data } = await useAsyncData('studyDeatil', () => {
   return getSceneId({ sence_id: Number.parseInt(id) })
@@ -205,7 +177,8 @@ detail.value = data.value ?? null
 const initThreejs = async () => {
 	threeCore = new qhxCore({
 		enableCSS3DRenderer: true,
-		alpha: true
+		alpha: true,
+		editMode: edit_mode.value
 	})
 	// 挂载到DOM
 	threeCore.mount(document.getElementById('scene'));
@@ -277,6 +250,82 @@ const clearTemplate = () => {
 }
 const recordCamera = () => {
 	threeCore.recordCamera()
+}
+const chooseEffect = async (item: Effect) => {
+	let effectName = null
+	// biome-ignore lint/complexity/noForEach: <explanation>
+	threeCore.scene.children.forEach((child: THREE.Object3D) => {
+		console.log('场景中的元素', child)
+		if (child.userData && child.userData.type === 'effect') {
+			effectName = child.userData.effectName
+		}
+	})
+	if (effectName) {
+		threeCore.removeEffect( { effect_name: effectName, effect_id: 0}, threeCore.scene)
+	}
+	threeCore.addEffect(item)
+}
+const chooseMaterial = async (item: Material) => {
+	console.log('item素材', item)
+	if (item.pk_type === 1) {
+		const mesh = await threeCore.loadModel(BASE_IMG + item.materia_url, { useDracoLoader: item.options?.useDracoLoader ? item.options.useDracoLoader : true, dracoDecoderPath: '/draco/gltf/' })
+		// threeCore.addEffect({ effect_name: 'ScaleAnimate', effect_id: 0}, mesh)
+		// threeCore.addEffect({ effect_name: 'ToonOutlineEffect', effect_id: 0}, mesh)
+		// threeCore.addEffect({ effect_name: 'ToonOutlineEffect', effect_id: 0}, mesh)
+
+		// threeCore.applyAnimation(mesh, {
+		// 	id: 103,
+		// 	type: 'timeline',
+		// 	sequence: true, // 顺序执行
+		// 	children: [
+		// 		{
+		// 			id: 104,
+		// 			type: 'animation',
+		// 			effect_name: 'move',
+		// 			properties: {
+		// 				'position.x': 5,
+		// 				'position.y': 2
+		// 			},
+		// 			duration: 2,
+		// 			ease: 'sine.inOut'
+		// 		},
+		// 		{
+		// 			id: 105,
+		// 			type: 'animation',
+		// 			effect_name: 'rotate',
+		// 			properties: {
+		// 				'rotation.y': Math.PI * 2
+		// 			},
+		// 			duration: 3,
+		// 			ease: 'power1.inOut'
+		// 		},
+		// 		{
+		// 			id: 106,
+		// 			type: 'animation',
+		// 			effect_name: 'scale',
+		// 			properties: {
+		// 				'scale.x': 2,
+		// 				'scale.y': 2,
+		// 				'scale.z': 2
+		// 			},
+		// 			duration: 1.5,
+		// 			ease: 'sine.inOut'
+		// 		}
+		// 	]
+		// })
+		console.log(mesh, '对象')
+		if (item.options) {
+			threeCore.setOptionsModel(mesh, item.options)
+		}
+		// setTimeout(() => {
+		// 	mesh.traverse((child) => {
+		// 		threeCore.addBloomObject(child)
+		// 		console.log('添加的对象', child)
+		// 	})
+		// }, 1000);
+		mesh.position.set(0,0,0)
+		threeCore.scene.add(mesh)
+	}
 }
 const chooseTemplate = async (item: TemplateInterface) => {
 	if (threeCore.loadTemplate.length > 0) {
@@ -391,6 +440,15 @@ const onUpdateFiles = async (resault) => {
 const addBackgroun = async (resault) => {
 	threeCore.background = resault.file_url
 }
+const addText = async (resault) => {
+	const charset =  'Lo研社--嘎嘎'
+	const font = await createFont({ charset })
+	const mesh = await threeCore.addTextToScene(BASE_IMG +font.file_url, charset)
+	console.log('文本返回', mesh)
+	mesh.userData.url = font.file_url
+	threeCore.scene.add(mesh)
+}
+
 onUnmounted(() => {
 	// window.removeEventListener('mousemove', gpuPick, false)
 	// window.removeEventListener('touchmove', gpuPick, false)
@@ -398,13 +456,13 @@ onUnmounted(() => {
 	window.removeEventListener('pointermove', _onPointerMove, false)
 	window.removeEventListener('pointerup', _onPointerUp, false)
 })
+const setMode = (type: 'translate' | 'scale' | 'rotate') => {
+	transformType.value = type
+	threeCore.transformControls.setMode(type)
+}
 const gpuPick = (ev: MouseEvent | TouchEvent) => {
 	const obj = threeCore.gpuPick(ev)
 	if (obj) {
-		console.log('点击到的', obj)
-		if (edit_mode.value) {
-			threeCore.gizmo?.attach(obj);
-		}
 		if (doubleClickTimer.value) {
 			clearTimeout(doubleClickTimer.value)
 			doubleClickTimer.value = null
@@ -414,16 +472,34 @@ const gpuPick = (ev: MouseEvent | TouchEvent) => {
 				return
 			}
 		}
+		if (clickObject.value && clickObject.value[0].uuid === obj.uuid) {
+			console.log('点到同一个目标')
+			return
+		}
+		if (edit_mode.value) {
+			// threeCore.gizmo?.attach(obj);
+			threeCore.transformControls.attach(obj)
+			setMode('translate')
+			threeCore.showbloom = false
+		}
 		doubleClickTimer.value = setTimeout(() => {
 			doubleClickTimer.value = null
 		}, 300)
 		clickObject.value = [obj]
 		operaPosition.value = threeCore.screenPositionFromObject(obj)
+
+		obj.traverse((child) => {
+			if (child.name.includes('replace')) {
+				target.value = child
+			}
+		})
 	} else if (threeCore.gizmo?.dragging) {
 
 	} else {
 		if (edit_mode.value) {
-			threeCore.gizmo?.detach();
+			// threeCore.gizmo?.detach();
+			threeCore.transformControls.detach()
+			threeCore.showbloom = true
 		}
 		clickObject.value = null
 	}
@@ -489,9 +565,144 @@ onMounted(async() => {
 		// window.addEventListener('mousemove', throttledMouseMove, false);
 	});
 })
+useHead({
+	title: '3D手账',
+	meta: [
+		{
+			name: 'keywords',
+			content: '3D手账'
+		},
+		{
+			name: 'description',
+			content: 'Lo研社 Lolita服饰与文化研习社'
+		}
+	]
+})
 // 不需要手动引入布局
 </script>
-
+<template>
+	<div class="select-none touch-callout-none" :style="{ background: threeCore &&threeCore.background ? `url(${BASE_IMG}${threeCore.background})` : '', backgroundSize: 'cover' }">
+		<SceneTextureEditor
+			ref="SceneTextureEditorRef"
+			v-if="target"
+			:target="target"
+			:image-url="BASE_IMG + threeCore.background"
+			:mask-url="BASE_IMG + 'sence/8_mask.png'"
+			@close="target = null"
+		/>
+		<div class=" fixed bottom-[80px] left-[20px] rounded-[50%] w-[50px] h-[50px] z-10 items-center justify-center shadow-lg flex cursor-pointer bg-qhx-bg-card"
+		v-show="edit_mode">场景</div>
+		<div class=" fixed bottom-[20px] left-[20px] rounded-[50%] w-[50px] h-[50px] z-10 items-center justify-center shadow-lg flex cursor-pointer bg-qhx-bg-card"
+		@click="showMaterial()" v-show="edit_mode">加</div>
+		<div style="height: 100vh; width: 100vw; overflow: hidden; " id="scene"></div>
+		<div class="opera fixed p-3  z-20 flex items-center whitespace-nowrap" 
+		v-show="clickObject && edit_mode"
+		:style="{ left: operaPosition.x + 40 + 'px', top: operaPosition.y - 100 + 'px' }">
+			<QhxJellyButton>
+				<div class="opera fixed p-3  bg-qhx-bg-card rounded-[30px] z-20 h-[60px] flex items-center whitespace-nowrap overflow-hidden">
+					<div class=" cursor-pointer px-3" @click="setMode('translate')" v-show="transformType !== 'translate'">移动</div>
+					<div class=" cursor-pointer px-3" @click="setMode('rotate')" v-show="transformType !== 'rotate'">旋转</div>
+					<div class=" cursor-pointer px-3" @click="setMode('scale')" v-show="transformType !== 'scale'">缩放</div>
+					<div class=" cursor-pointer px-3" @click.stop="copyModel()" v-if="clickObject && clickObject[0].userData.type === 'model'">复制</div>
+					<div class=" cursor-pointer px-3" @click.stop="showTexture()" v-if="canTexture">贴图</div>
+					<div class=" cursor-pointer px-3" @click.stop="deleteModel()">删除</div>
+				</div>
+			</QhxJellyButton>
+		</div>
+		<div class="camera-list fixed right-[10px] bottom-0 w-[40px] h-auto max-h-full" v-if="threeCore">
+			<div class=" relative flex justify-center" v-for="(camera_list, index) in threeCore.cameraList">
+				<QhxJellyButton>
+					<div class="text-center cursor-pointer" @click="lookAtCameraState(camera_list)">
+						<div
+							class=" relative m-[5px] mx-auto text-white rounded-[50%] h-[30px] w-[30px] bg-qhx-primary flex items-center justify-center"
+							style="font-size: 22px">
+							<div class="text-[#000] absolute left-0 top-0 h-[30px] w-[30px] flex items-center justify-center z-[1] text-[10px]">{{ index + 1 }}</div>
+							<UIcon name="material-symbols:video-camera-back" class="text-[22px] text-[#ffffff]"></UIcon>
+						</div>
+					</div>
+				</QhxJellyButton>
+				<div v-if="edit_mode" class=" absolute right-[50px] top-0 flex">
+					<QhxJellyButton>
+						<div class="text-center cursor-pointer mr-2" @click="deleteCamera(index)">
+							<div
+								class=" m-[5px] mx-auto text-white rounded-[50%] h-[30px] w-[30px] bg-qhx-primary flex items-center justify-center"
+								style="font-size: 22px">
+								<UIcon name="ant-design:close-outlined" class="text-[22px] text-[#ffffff]" />
+							</div>
+						</div>
+					</QhxJellyButton>
+					<QhxJellyButton>
+						<div class="text-center cursor-pointer" @click="resetCamera(index)">
+							<div
+								class=" m-[5px] mx-auto text-white rounded-[50%] h-[30px] w-[30px] bg-qhx-primary flex items-center justify-center"
+								style="font-size: 22px">
+								<UIcon name="ri:reset-right-line" class="text-[22px] text-[#ffffff]" />
+							</div>
+						</div>
+					</QhxJellyButton>
+				</div>
+			</div>
+		</div>
+		<div @click.stop="(e) => {
+			handleClickDiary(e, diary)
+		}" class="fixed p-3 cursor-pointer bg-qhx-bg-card rounded-[30px] shadow-lg z-10 h-[60px] flex items-center whitespace-nowrap overflow-hidden" v-for="diary in diaryList" :style="{ left: diary.position.x + 'px', top: diary.position.y  - 30 + 'px' }">
+			{{ diary.title }}
+		</div>
+		<div @click.stop="handleClickLibrary(library)" class="fixed cursor-pointer bg-qhx-bg-card rounded-[30px] shadow-lg z-10 h-[60px] flex items-center whitespace-nowrap overflow-hidden" v-for="library in libraryList" :style="{ left: library.position.x + 'px', top: library.position.y  - 30 + 'px' }">
+			<div class=" flex items-center">
+				<div>
+					<img :src="`${BASE_IMG}${library.cover}`"
+          class="w-16 h-16 object-cover rounded-[60px] border border-gray-200 my-2 cursor-pointer" loading="lazy" />
+				</div>
+				<div class="p-2">{{ library.title }}</div>
+			</div>
+		</div>
+		<SceneMaterial 
+		v-if="edit_mode"
+		@recordCamera="recordCamera" 
+		@chooseTemplate="chooseTemplate" 
+		@choose-material="chooseMaterial"
+		@clearTemplate="clearTemplate" @addDiary="addDiary" @saveScene="saveScene" 
+		@addImage="onUpdateFiles"
+		@addBackgroun="addBackgroun"
+		@choose-effect="chooseEffect"
+		@addText="addText"
+		 ref="MaterialRef" 
+		:loadTemplate="threeCore && threeCore.loadTemplate.length > 0 ? true : false"></SceneMaterial>
+		<QhxModal v-model="showDiary" :trigger-position="clickPosition">
+			<div class="p-6 w-[400px] bg-white rounded-[10px] max-h-[50vh] overflow-y-auto" v-if="activeDiary && !edit_mode">
+				<div>{{ activeDiary.title }}</div>
+				<div>{{ activeDiary.content }}</div>
+			</div>
+			<div class="p-6 w-[400px] bg-white rounded-[10px] max-h-[50vh] overflow-y-auto" v-if="activeDiary && edit_mode">
+				<UInput v-model="activeDiary.title" :placeholder="'标题'" class="flex-1 focus:ring-0" :ui="{
+					base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
+					rounded: 'rounded-[10px]',
+					padding: { xs: 'px-4 py-2' },
+					color: {
+						white: {
+							outline: 'bg-gray-50 dark:bg-gray-800 ring-1 ring-gray-300 dark:ring-gray-600 focus:ring-2 focus:ring-qhx-primary'
+						}
+					}
+				}" />
+				<UTextarea v-model="activeDiary.content" :placeholder="'内容'" type="texare" class="flex-1 focus:ring-0 pt-3" :ui="{
+					base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
+					rounded: 'rounded-[10px]',
+					padding: { xs: 'px-4 py-2' },
+					color: {
+						white: {
+							outline: 'bg-gray-50 dark:bg-gray-800 ring-1 ring-gray-300 dark:ring-gray-600 focus:ring-2 focus:ring-qhx-primary'
+						}
+					}
+				}" />
+				<UButton type="submit" block class="bg-qhx-primary text-qhx-inverted hover:bg-qhx-primaryHover mt-6"
+					@click="editDiary()">
+					保存修改
+				</UButton>
+			</div>
+		</QhxModal>
+	</div>
+</template>
 <style>
 .left-box{
 	height: 100vh;

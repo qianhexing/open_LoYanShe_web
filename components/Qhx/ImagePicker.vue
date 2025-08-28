@@ -1,7 +1,7 @@
 <template>
   <div class="space-y-4">
     <!-- 上传按钮 -->
-    <UButton icon="i-heroicons-photo" @click="triggerInput" color="primary">
+    <UButton size="xs" class="bg-qhx-primary text-qhx-inverted hover:bg-qhx-primaryHover mt-2" icon="i-heroicons-photo" @click="triggerInput" color="primary">
       选择图片
     </UButton>
 
@@ -24,8 +24,8 @@
     </div>
 
     <!-- 预览区 -->
-    <div class="grid grid-cols-3 gap-4">
-      <div
+    <div class=" w-full">
+      <!-- <div
         v-for="(img, index) in previewImages"
         :key="index"
         class="relative group"
@@ -42,15 +42,33 @@
           class="absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition"
           @click="removeImage(index)"
         />
-      </div>
+      </div> -->
+      <Draggable :disabled="props.multiple" v-model="previewImages" item-key="id" animation="250" ghost-class="drag-ghost"
+          chosen-class="drag-chosen" drag-class="dragging"
+          class="grid grid-cols-3 gap-4 max-md:grid-cols-2">
+          <template #item="{ element, index }">
+            <transition-group tag="div" name="list">
+              <div class="relative group">
+                <img :src="element.url" alt="预览图" class="w-full aspect-square object-cover rounded" />
+                <UButton
+                  icon="i-heroicons-x-mark"
+                  color="red"
+                  size="2xs"
+                  variant="soft"
+                  class="absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition"
+                  @click="removeImage(index)"
+                />
+              </div>
+            </transition-group>
+          </template>
+        </Draggable>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-const emit = defineEmits<{
-  (e: 'update:files', value: File[]): void
-}>()
+import Draggable from "vuedraggable"
+const emit = defineEmits<(e: 'update:files', value: File[]) => void>()
 
 const props = defineProps<{
   multiple?: boolean
@@ -106,6 +124,6 @@ const clear = () => {
 }
 
 defineExpose({
-  triggerInput, clear
+  triggerInput, clear, previewImages
 })
 </script>

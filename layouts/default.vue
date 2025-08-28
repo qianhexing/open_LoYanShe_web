@@ -49,6 +49,20 @@ onMounted(() => {
   userStore.initialize()
   configStore.setIsPc(isPC())
   configStore.getConfig()
+
+  const preventZoom = (e: TouchEvent) => {
+    if (e.touches.length > 1) {
+      e.preventDefault();
+    }
+  };
+
+  document.addEventListener('touchstart', preventZoom, { passive: false });
+  document.addEventListener('gesturestart', (e) => e.preventDefault());
+
+  onBeforeUnmount(() => {
+    document.removeEventListener('touchstart', preventZoom);
+    document.removeEventListener('gesturestart', (e) => e.preventDefault());
+  });
   // themeStore.loadFromLocalStorage()
 })
 </script> 
@@ -165,4 +179,46 @@ onMounted(() => {
 .vel-img-title{
   font-size: 16px;
 }
+
+/* 容器 */
+.liquid-glass {
+  background: rgba(255, 255, 255, 0.15);
+  backdrop-filter: blur(10px) saturate(150%);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  overflow: hidden;
+}
+
+/* 波纹层 */
+.liquid-glass::before {
+  content: "";
+  position: absolute;
+  top: -50%;
+  left: -50%;
+  width: 200%;
+  height: 200%;
+  background: radial-gradient(circle at center, rgba(255,255,255,0.2) 25%, transparent 70%);
+  /* animation: liquid 6s infinite linear; */
+}
+
+/* 光泽层 */
+.liquid-glass::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(120deg, rgba(255,255,255,0.2), transparent, rgba(255,255,255,0.2));
+  mix-blend-mode: overlay;
+  /* animation: shine 5s infinite linear; */
+}
+
+/* 动画 */
+/* @keyframes liquid {
+  0% { transform: translate(0,0) rotate(0deg); }
+  50% { transform: translate(25%,25%) rotate(180deg); }
+  100% { transform: translate(0,0) rotate(360deg); }
+} */
+
+/* @keyframes shine {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+} */
 </style>
