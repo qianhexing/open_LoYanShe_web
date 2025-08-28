@@ -27,6 +27,7 @@ import { TransformControls } from './TransformControls'
 // import { TransformControls } from 'three/examples/jsm/Addons.js';
 import { installUniformScale, restyleGizmo } from './MyTransformControls'
 import { FontLoader, TextGeometry } from 'three/examples/jsm/Addons.js'
+import { useSceneStore } from '@/stores/sence'
 
 export interface CameraState {
 	position: THREE.Vector3
@@ -189,10 +190,10 @@ class ThreeCore {
 			enableCSS3DRenderer: false // 默认不启用CSS3D渲染器
 		}
 		this.editMode = false
-		if (defaultOptions.editMode) {
-			this.editMode = defaultOptions.editMode
-		}
 		this.options = { ...defaultOptions, ...options }
+		if (this.options.editMode) {
+			this.editMode = this.options.editMode
+		}
 		this.scene = null!
 		this.camera = null!
 		this.renderer = null!

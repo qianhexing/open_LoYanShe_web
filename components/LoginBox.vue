@@ -72,7 +72,7 @@
             {{ $t('login.login')}}
           </UButton>
 
-          <!-- <div class="mt-4 text-center text-sm text-gray-500 dark:text-gray-400">
+          <div class="mt-4 text-center text-sm text-gray-500 dark:text-gray-400">
             还没有账号?
             <NuxtLink 
               to="/register" 
@@ -80,7 +80,7 @@
             >
               立即注册
             </NuxtLink>
-          </div> -->
+          </div>
         </UForm>
       </div>
     </template>

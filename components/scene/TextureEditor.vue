@@ -122,13 +122,12 @@ onMounted(() => {
       rotation= options.rotation
       image.src = BASE_IMG + options.url
       image.onload = draw
-      setupTexture()
+      
     } else {
       image.src = props.imageUrl
       image.onload = draw
     }
   }
-  
   
   if (props.maskUrl) {
     mask.src = props.maskUrl
@@ -230,7 +229,10 @@ const onUpdateFiles = (file: File[]) => {
     .then(async (res) => {
       console.log('上传返回', res)
       image.src = BASE_IMG + res.file_url
-      image.onload = draw
+      image.onload = () => {
+        setupTexture()
+        draw()
+      }
       if (imagePicker.value) {
         imagePicker.value.clear()
       }

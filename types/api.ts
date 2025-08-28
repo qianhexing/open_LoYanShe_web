@@ -58,6 +58,10 @@ export interface Config {
   phone_code: Array<{
     value: number;
     label: string;
+    children: Array<{
+      value: number;
+      label: string;
+    }>;
     // 如果有更多字段可以在这里添加
   }>;
   reply_addr: Array<{ label: string; value: string }>;

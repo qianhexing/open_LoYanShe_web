@@ -8,8 +8,9 @@ import { insertCommunity } from '@/api/community'
 import type { DiaryInterface, LibraryInterface } from '@/types/sence'
 import type SceneMaterial from '@/components/scene/Material.vue'
 import type SceneTextureEditor from '@/components/scene/TextureEditor.vue'
-
+import { useSceneStore } from '@/stores/sence'
 import { uploadImage, createFont } from '~/api';
+const sceneStore = useSceneStore()
 const showDiary = ref(false)
 let threeCore: qhxCore
 const theme = useThemeStore()
@@ -265,9 +266,17 @@ const chooseEffect = async (item: Effect) => {
 	}
 	threeCore.addEffect(item)
 }
+// 获取屏幕中心坐标
+const getScreenCenter = () => {
+	const screenCenter = new THREE.Vector3()
+	console.log('屏幕中心坐标', threeCore.camera, )
+	threeCore.camera.getWorldPosition(screenCenter)
+	return threeCore.controls.target.clone()
+}
 const chooseMaterial = async (item: Material) => {
 	console.log('item素材', item)
 	if (item.pk_type === 1) {
+		sceneStore.setLoading(true)
 		const mesh = await threeCore.loadModel(BASE_IMG + item.materia_url, { useDracoLoader: item.options?.useDracoLoader ? item.options.useDracoLoader : true, dracoDecoderPath: '/draco/gltf/' })
 		// threeCore.addEffect({ effect_name: 'ScaleAnimate', effect_id: 0}, mesh)
 		// threeCore.addEffect({ effect_name: 'ToonOutlineEffect', effect_id: 0}, mesh)
@@ -314,16 +323,24 @@ const chooseMaterial = async (item: Material) => {
 		// 	]
 		// })
 		console.log(mesh, '对象')
+		const screenCenter = getScreenCenter()
+		mesh.position.set(screenCenter.x, screenCenter.y, screenCenter.z)
 		if (item.options) {
 			threeCore.setOptionsModel(mesh, item.options)
 		}
+		sceneStore.setLoading(false)
+		setTimeout(() => {
+			threeCore.lookAtSelectObj([mesh])
+		});
+
+
 		// setTimeout(() => {
 		// 	mesh.traverse((child) => {
 		// 		threeCore.addBloomObject(child)
 		// 		console.log('添加的对象', child)
 		// 	})
 		// }, 1000);
-		mesh.position.set(0,0,0)
+		// mesh.position.set(0,0,0)
 		threeCore.scene.add(mesh)
 	}
 }
@@ -598,16 +615,17 @@ useHead({
 		<div class="opera fixed p-3  z-20 flex items-center whitespace-nowrap" 
 		v-show="clickObject && edit_mode"
 		:style="{ left: operaPosition.x + 40 + 'px', top: operaPosition.y - 100 + 'px' }">
-			<QhxJellyButton>
-				<div class="opera fixed p-3  bg-qhx-bg-card rounded-[30px] z-20 h-[60px] flex items-center whitespace-nowrap overflow-hidden">
-					<div class=" cursor-pointer px-3" @click="setMode('translate')" v-show="transformType !== 'translate'">移动</div>
-					<div class=" cursor-pointer px-3" @click="setMode('rotate')" v-show="transformType !== 'rotate'">旋转</div>
-					<div class=" cursor-pointer px-3" @click="setMode('scale')" v-show="transformType !== 'scale'">缩放</div>
-					<div class=" cursor-pointer px-3" @click.stop="copyModel()" v-if="clickObject && clickObject[0].userData.type === 'model'">复制</div>
-					<div class=" cursor-pointer px-3" @click.stop="showTexture()" v-if="canTexture">贴图</div>
-					<div class=" cursor-pointer px-3" @click.stop="deleteModel()">删除</div>
-				</div>
-			</QhxJellyButton>
+			<!-- <QhxJellyButton>
+				
+			</QhxJellyButton> -->
+			<div class="opera fixed p-3  bg-qhx-bg-card rounded-[30px] z-20 h-[60px] flex items-center whitespace-nowrap overflow-hidden">
+				<div class=" cursor-pointer px-3" @click="setMode('translate')" v-show="transformType !== 'translate'">移动</div>
+				<div class=" cursor-pointer px-3" @click="setMode('rotate')" v-show="transformType !== 'rotate'">旋转</div>
+				<div class=" cursor-pointer px-3" @click="setMode('scale')" v-show="transformType !== 'scale'">缩放</div>
+				<div class=" cursor-pointer px-3" @click.stop="copyModel()" v-if="clickObject && clickObject[0].userData.type === 'model'">复制</div>
+				<div class=" cursor-pointer px-3" @click.stop="showTexture()" v-if="canTexture">贴图</div>
+				<div class=" cursor-pointer px-3" @click.stop="deleteModel()">删除</div>
+			</div>
 		</div>
 		<div class="camera-list fixed right-[10px] bottom-0 w-[40px] h-auto max-h-full" v-if="threeCore">
 			<div class=" relative flex justify-center" v-for="(camera_list, index) in threeCore.cameraList">
