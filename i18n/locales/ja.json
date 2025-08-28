@@ -11,7 +11,29 @@
 	"login.phone": "携帯電話番号",
 	"login.password": "パスワード",
 	"login.remember": "パスワードを記憶する",
-
 	"login.enter_phone": "携帯電話番号を入力してください",
-  "login.enter_password": "パスワードを入力してください"
+	"login.enter_password": "パスワードを入力してください",
+
+	"register.title": "アカウント作成",
+	"register.subtitle": "Lo研社に参加して学習の旅を始めましょう",
+	"register.phone": "携帯電話番号",
+	"register.username": "ユーザー名",
+	"register.password": "パスワード",
+	"register.confirm_password": "パスワード確認",
+	"register.verification_code": "認証コード",
+	"register.agreement": "私は以下に同意します",
+	"register.terms": "利用規約",
+	"register.privacy": "プライバシーポリシー",
+	"register.register": "登録",
+	"register.login_link": "既にアカウントをお持ちですか？今すぐログイン",
+	"register.enter_phone": "携帯電話番号を入力してください",
+	"register.enter_username": "ユーザー名を入力してください",
+	"register.enter_password": "パスワードを入力してください",
+	"register.enter_confirm_password": "パスワードを再入力してください",
+	"register.enter_code": "認証コードを入力してください",
+	"register.send_code": "コード送信",
+	"register.resend_code": "再送信",
+	"register.success": "登録完了",
+	"register.password_mismatch": "パスワードが一致しません",
+	"register.agree_terms": "利用規約とプライバシーポリシーに同意してください"
 }
