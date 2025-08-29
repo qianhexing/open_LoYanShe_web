@@ -35,19 +35,8 @@ export interface CameraState {
 	fov?: number // 只有 PerspectiveCamera 会用到
 }
 import { WebGPURenderer } from 'three/webgpu'
-import { createKujialeGrid, updateKujialeGrid } from './Grid'
-const grid = createKujialeGrid({
-	cellSize: 1, // 次网格间距（单位：米）
-	majorEvery: 5, // 每 N 个次网格出现一条主网格
-	minorColor: '#cfd3dc',
-	majorColor: '#aab0bd',
-	axisColor: '#4c84ff', // X/Z 坐标轴强调色
-	minorThickness: 1.0, // 以像素为单位的线宽（屏幕空间）
-	majorThickness: 1.8,
-	axisThickness: 2.2,
-	fadeStart: 25.0, // 相机水平距离开始淡出
-	fadeEnd: 120.0 // 相机水平距离完全透明
-})
+import { createGrid, updateGrid } from './Grid'
+const grid = createGrid();
 export interface SceneEffectJSON {
 	type: 'animation' | 'effect' | 'timeline'
 	cycles?: number // 如果是动画时循环次数 0 为无限循环
@@ -225,7 +214,7 @@ class ThreeCore {
 		this.initPicker()
 		// const cloud = this.createCloud()
 		// this.scene.add(cloud)
-		// this.scene.add(grid)
+		this.scene.add(grid)
 
 		this.effectManager = new EffectManager(
 			this.scene,
@@ -669,6 +658,13 @@ class ThreeCore {
 						model.userData.effect = []
 						model.userData.useDracoLoader = options.useDracoLoader
 						// this.scene.add(model);
+						// 接受光照
+						model.traverse(child => {
+							if (child instanceof THREE.Mesh) {
+								child.castShadow = true;
+								child.receiveShadow = true;
+							}
+						});
 						this.loadedModelURLs.add(url)
 						this.loadedModels.push(model.clone(true))
 
@@ -715,6 +711,7 @@ class ThreeCore {
 			antialias: this.options.antialias,
 			alpha: this.options.alpha
 		})
+		this.renderer.debug.checkShaderErrors = true; 
 		this.rendererGPU = new WebGPURenderer({
 			antialias: true
 			// device: navigator.gpu?.requestAdapter()?.requestDevice() // 可选手动设置 device
@@ -868,18 +865,18 @@ class ThreeCore {
 		this.scene.add(ambientLight)
 
 		// 主方向光（模拟太阳光，带阴影）
-		const dirLight = new THREE.DirectionalLight(0xffffff, 1.8)
+		const dirLight = new THREE.DirectionalLight(0xffffff, 1.2)
 		dirLight.position.set(10, 20, 15) // 高处斜向照射
 		dirLight.castShadow = true
 		dirLight.shadow.mapSize.width = 2048
 		dirLight.shadow.mapSize.height = 2048
 		dirLight.shadow.camera.near = 0.5
 		dirLight.shadow.camera.far = 50
-		dirLight.shadow.camera.left = -15
-		dirLight.shadow.camera.right = 15
-		dirLight.shadow.camera.top = 15
-		dirLight.shadow.camera.bottom = -15
-		dirLight.shadow.bias = -0.0001
+		dirLight.shadow.camera.left = -100
+		dirLight.shadow.camera.right = 100
+		dirLight.shadow.camera.top = 100
+		dirLight.shadow.camera.bottom = -100
+		dirLight.shadow.bias = -0.0005
 		this.scene.add(dirLight)
 
 		// 补光（柔和散射，填补阴影区域）
@@ -892,6 +889,20 @@ class ThreeCore {
 		const hemiLight = new THREE.HemisphereLight(0xe0e0ff, 0xffffff, 0.9)
 		hemiLight.position.set(0, 20, 0)
 		this.scene.add(hemiLight)
+		// 镜头光
+		const lensLight = new THREE.PointLight(0xffffff, 1.2)
+		lensLight.position.set(0, 0, 0)
+		lensLight.castShadow = true
+		lensLight.shadow.mapSize.width = 2048
+		lensLight.shadow.mapSize.height = 2048
+		lensLight.shadow.camera.near = 0.5
+		lensLight.shadow.camera.far = 50
+		lensLight.shadow.camera.left = -100
+		lensLight.shadow.camera.right = 100
+		lensLight.shadow.camera.top = 100
+		lensLight.shadow.camera.bottom = -100
+		lensLight.shadow.bias = -0.0005
+		this.scene.add(lensLight)
 
 		// 聚光灯（突出焦点物体，可以选加）
 		const spotLight = new THREE.SpotLight(
@@ -1221,6 +1232,7 @@ class ThreeCore {
 			if (this.addAnimationFunc) {
 				this.addAnimationFunc()
 			}
+			updateGrid(grid, this.camera);
 
 			// 更新 Tween.js（传入毫秒时间戳）
 			TWEEN.update(time || performance.now())

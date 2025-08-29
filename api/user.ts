@@ -49,7 +49,7 @@ export async function registerUser(
   params: RegisterParams
 ): Promise<RegisterResponse> {
   const response = await use$Post<BaseResponse<RegisterResponse>>(
-    '/user/register',
+    '/user/insert',
     params
   );
   return response.data;
@@ -59,7 +59,7 @@ export async function sendVerificationCode(
   params: SendCodeParams
 ): Promise<{ success: boolean }> {
   const response = await use$Post<BaseResponse<{ success: boolean }>>(
-    '/user/send-code',
+    '/user/sendSms',
     params
   );
   return response.data;

@@ -15,7 +15,7 @@ const jumpToLoyanshe = () => {
   }
 }
 const layout_style = ref(0) // 0是带上下栏的 1 是空白页面
-const blank_list = ['scene/detail', 'wardrobe/detail']
+const blank_list = ['scene/detail', 'wardrobe/detail', 'register']
 const route = useRoute()
 console.log(route.path, '初始路由地址')
 const judgeIsHome = () => {
@@ -23,11 +23,12 @@ const judgeIsHome = () => {
   const is_blank = blank_list.find((path) => {
     return route.path.includes(path)
   })
-  if (is_blank) {
+  if (is_blank && route.path !== '/') {
     layout_style.value = 1
   } else {
     layout_style.value = 0
   }
+  console.log(layout_style.value, '当前分割')
   if (route.path === '/') {
     isHome.value = true
   } else {
