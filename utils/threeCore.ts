@@ -476,6 +476,43 @@ class ThreeCore {
 		}
 	}
 
+	/**
+	 * 设置Bloom效果参数
+	 * @param strength 强度 0-3
+	 * @param radius 半径 0-1
+	 * @param threshold 阈值 0-2
+	 */
+	setBloomParams(strength: number, radius: number, threshold: number) {
+		if (this.bloomPass) {
+			this.bloomPass.strength = Math.max(0, Math.min(3, strength))
+			this.bloomPass.radius = Math.max(0, Math.min(1, radius))
+			this.bloomPass.threshold = Math.max(0, Math.min(2, threshold))
+		}
+	}
+
+	/**
+	 * 获取Bloom效果参数
+	 */
+	getBloomParams() {
+		if (this.bloomPass) {
+			return {
+				strength: this.bloomPass.strength,
+				radius: this.bloomPass.radius,
+				threshold: this.bloomPass.threshold,
+				enabled: this.showbloom
+			}
+		}
+		return null
+	}
+
+	/**
+	 * 切换Bloom效果开关
+	 * @param enabled 是否启用
+	 */
+	toggleBloom(enabled: boolean) {
+		this.showbloom = enabled
+	}
+
 	// ================ IBL环境光照 ================
 	
 	/**
