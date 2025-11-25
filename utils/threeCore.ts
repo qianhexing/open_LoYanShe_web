@@ -79,6 +79,7 @@ export interface SceneObjectJSON {
 		| 'template'
 		| 'effect'
 		| 'library'
+		| '3Dtext'
 	position?: [number, number, number]
 	rotation?: [number, number, number]
 	baseWidth?: number
@@ -233,7 +234,52 @@ class ThreeCore {
 		this.initPicker()
 		// const cloud = this.createCloud()
 		// this.scene.add(cloud)
-		this.scene.add(grid)
+		// this.scene.add(grid)
+
+		function createRadialGradientTexture(size = 512) {
+			const canvas = document.createElement('canvas');
+			canvas.width = canvas.height = size;
+			const ctx = canvas.getContext('2d');
+		
+			const gradient = ctx.createRadialGradient(
+				size / 2, size / 2, size * 0.4, // 中心
+				size / 2, size / 2, size * 0.5  // 边缘
+			);
+			gradient.addColorStop(0, 'rgba(255,255,255,1)');
+			gradient.addColorStop(1, 'rgba(255,255,255,0)');
+		
+			ctx.fillStyle = gradient;
+			ctx.fillRect(0, 0, size, size);
+		
+			const texture = new THREE.CanvasTexture(canvas);
+			texture.wrapS = texture.wrapT = THREE.ClampToEdgeWrapping;
+			return texture;
+		}
+		
+		const alphaMap = createRadialGradientTexture(1024);
+		
+		// ================ 圆形几何 ================
+		const circleGeometry = new THREE.CircleGeometry(60, 128);
+
+		// ================ 使用 MeshPhongMaterial ================
+		const circleMaterial = new THREE.MeshPhongMaterial({
+			color: 0xcccccc,
+			shininess: 0,
+			specular: 0xcccccc,
+			transparent: true,
+			alphaMap: alphaMap,   // 边缘渐隐
+			// side: THREE.DoubleSide,
+			side: THREE.FrontSide
+		});
+
+		// ================ Mesh设置 ================
+		const ground = new THREE.Mesh(circleGeometry, circleMaterial);
+		ground.rotation.x = -Math.PI / 2;
+		ground.position.set(0, -2, 0);
+		ground.receiveShadow = true;
+		ground.renderOrder = -1000;
+		ground.userData.ignorePick = true;
+		// this.scene.add(ground);
 
 		this.effectManager = new EffectManager(
 			this.scene,
@@ -334,19 +380,14 @@ class ThreeCore {
 					color: options.color ?? 0xffffff
 				})
 				const mesh = new THREE.Mesh(geometry, material)
-	
-				// 设置位置
-				if (options.position) {
-					mesh.position.set(
-						options.position.x,
-						options.position.y,
-						options.position.z
-					)
-				}
 				mesh.userData.type = '3Dtext'
+				mesh.userData.title = text
+				mesh.userData.url = fontUrl.replace(BASE_IMG, '')
+				mesh.userData.options = options
 				mesh.scale.y *= -1
 				mesh.userData.font = font
-				console.log('文本面', mesh)
+				mesh.receiveShadow = true
+				mesh.castShadow = true
 				resolve(mesh)
 			}, undefined, reject)
 		})
@@ -822,7 +863,6 @@ class ThreeCore {
 		if (this.loadedTextures.has(url)) {
 			// biome-ignore lint/style/noNonNullAssertion: <explanation>
 			const existing = this.loadedTextures.get(url)!
-			console.log('走了克隆2')
 			const cloned = existing.clone()
 			cloned.needsUpdate = true
 			return cloned
@@ -833,7 +873,6 @@ class ThreeCore {
 			// biome-ignore lint/style/noNonNullAssertion: <explanation>
 			return this.loadingTextures.get(url)!.then(existing => {
 				const cloned = existing.clone()
-				console.log('走了克隆1')
 				cloned.needsUpdate = true
 				return cloned
 			})
@@ -934,7 +973,7 @@ class ThreeCore {
 	}
 	public async loadModel(
 		url: string,
-		options = {
+		options: any = {
 			useDracoLoader: false,
 			dracoDecoderPath: 'jsm/libs/draco/gltf/'
 		}
@@ -973,6 +1012,7 @@ class ThreeCore {
 								// 确保材质支持阴影和环境贴图
 								if (child.material) {
 									if (Array.isArray(child.material)) {
+										// biome-ignore lint/complexity/noForEach: <explanation>
 										child.material.forEach(mat => {
 											if (mat instanceof THREE.MeshStandardMaterial || 
 												mat instanceof THREE.MeshPhongMaterial || 
@@ -990,6 +1030,24 @@ class ThreeCore {
 											// 应用环境贴图
 											this.updateMaterialEnvMap(child.material)
 										}
+									}
+									if (options.material && child.name === options.material[child.name]) {
+										if (options.material.color) {
+											child.material.color = new THREE.Color(options.material.color)
+										}
+										if (options.material.metalness) {
+											child.material.metalness = options.material.metalness
+										}
+										if (options.material.roughness) {
+											child.material.roughness = options.material.roughness
+										}
+										if (options.material.clearcoat) {
+											child.material.clearcoat = options.material.clearcoat
+										}
+										if (options.material.clearcoatRoughness) {
+											child.material.clearcoatRoughness = options.material.clearcoatRoughness
+										}
+										child.material.needsUpdate = true
 									}
 								}
 							}
@@ -1062,21 +1120,22 @@ class ThreeCore {
 		// 启用物理正确的光照
 		this.renderer.physicallyCorrectLights = true
 		
-		// 高质量阴影设置 - 关键配置来避免阴影条纹
-		this.renderer.shadowMap.enabled = true
-		this.renderer.shadowMap.type = THREE.PCFSoftShadowMap // 使用软阴影
-		this.renderer.shadowMap.autoUpdate = true
-		
 		// 色彩空间设置
 		this.renderer.outputColorSpace = THREE.SRGBColorSpace
 		this.renderer.toneMapping = THREE.ACESFilmicToneMapping
 		this.renderer.toneMappingExposure = 1.0
 		
+		// 高质量阴影设置 - 关键配置来避免阴影条纹
+		this.renderer.shadowMap.enabled = true
+		// this.renderer.shadowMap.type = THREE.PCFSoftShadowMap // 使用软阴影
+		this.renderer.shadowMap.type = THREE.VSMShadowMap;
+		this.renderer.shadowMap.autoUpdate = true
+		
 		// 背景设置
 		this.renderer.setClearColor(0x000000, 0) // 背景透明
 
 		this.rendererGPU.setSize(width, height)
-
+		console.log(this.renderer, '渲染器=======')
 		// this.container.appendChild(this.rendererGPU.domElement);
 	}
 	initOrbitControls() {
@@ -1198,7 +1257,7 @@ class ThreeCore {
 	initLights() {
 		// ================ 环境光设置 ================
 		// 基础环境光 - 为了避免完全黑暗的区域
-		const ambientLight = new THREE.AmbientLight(0x404040, 0.3)
+		const ambientLight = new THREE.AmbientLight(0xffffff, 0.8)
 		this.scene.add(ambientLight)
 
 		// 半球光 - 模拟天空散射和地面反射
@@ -1211,26 +1270,46 @@ class ThreeCore {
 		this.scene.add(hemiLight)
 
 		// ================ 主要方向光（太阳光） ================
-		const dirLight = new THREE.DirectionalLight(0xffffff, 1.5)
+		const dirLight = new THREE.DirectionalLight(0xFFEECC, 1.8)
 		dirLight.position.set(50, 50, 30)
 		dirLight.castShadow = true
 		
 		// 高质量阴影配置 - 解决阴影条纹问题
-		dirLight.shadow.mapSize.width = 4096  // 提高阴影贴图分辨率
-		dirLight.shadow.mapSize.height = 4096
+		dirLight.shadow.mapSize.width = 2048  // 提高阴影贴图分辨率
+		dirLight.shadow.mapSize.height = 2048
 		dirLight.shadow.camera.near = 0.1
 		dirLight.shadow.camera.far = 200
 		dirLight.shadow.camera.left = -80
 		dirLight.shadow.camera.right = 80
 		dirLight.shadow.camera.top = 80
 		dirLight.shadow.camera.bottom = -80
-		
+		console.log(dirLight, 'dirLight.shadow')
 		// 关键：减少阴影条纹的bias设置
 		dirLight.shadow.bias = -0.001
 		dirLight.shadow.normalBias = 0.02
-		dirLight.shadow.radius = 4  // 软阴影
+		dirLight.shadow.radius = 10  // 软阴影
+		dirLight.shadow.blurSamples = 20
 		
 		this.scene.add(dirLight)
+
+
+		// const dirLight = new THREE.DirectionalLight( 0xffffff, 2.6 );
+		// dirLight.position.set( 3, 12, 17 );
+		// dirLight.castShadow = true;
+		// dirLight.shadow.camera.near = 0.1;
+		// dirLight.shadow.camera.far = 200;
+		// dirLight.shadow.camera.right = 10;	
+		// dirLight.shadow.camera.left = - 10;
+		// dirLight.shadow.camera.top	= 10;
+		// dirLight.shadow.camera.bottom = - 10;
+		// dirLight.shadow.mapSize.width = 1024;
+		// dirLight.shadow.mapSize.height = 1024;
+		// dirLight.shadow.radius = 20;
+		// dirLight.shadow.bias = - 0.001;
+		// dirLight.shadow.normalBias = 0.02;
+		// dirLight.shadow.blurSamples = 25
+		// this.scene.add(dirLight)
+		// console.log(dirLight, 'dirLight.shadow')
 
 		// ================ 补光设置 ================
 		// 柔和补光 - 填补阴影区域
@@ -1251,12 +1330,13 @@ class ThreeCore {
 		lensLight.castShadow = true
 		
 		// 镜头光阴影配置
-		lensLight.shadow.mapSize.width = 2048
-		lensLight.shadow.mapSize.height = 2048
+		lensLight.shadow.mapSize.width = 1024
+		lensLight.shadow.mapSize.height = 1024
 		lensLight.shadow.camera.near = 0.1
 		lensLight.shadow.camera.far = 100
 		lensLight.shadow.bias = -0.0005
-		lensLight.shadow.radius = 3
+		lensLight.shadow.radius = 20
+		lensLight.shadow.blurSamples = 20
 		
 		this.scene.add(lensLight)
 		
@@ -1264,26 +1344,39 @@ class ThreeCore {
 		this.lensLight = lensLight
 
 		// ================ 聚光灯（焦点照明） ================
-		const spotLight = new THREE.SpotLight(
-			0xffffff,
-			1.0,
-			200,
-			Math.PI / 6,
-			0.25,
-			2
-		)
-		spotLight.position.set(40, 60, 20)
-		spotLight.target.position.set(0, 0, 0)
-		spotLight.castShadow = true
+		// const spotLight = new THREE.SpotLight(
+		// 	0xffffff,
+		// 	1.0,
+		// 	200,
+		// 	Math.PI / 6,
+		// 	0.25,
+		// 	2
+		// )
+		// spotLight.position.set(-40, 60, 20)
+		// spotLight.target.position.set(0, 0, 0)
+		// spotLight.castShadow = true
 		
-		// 聚光灯高质量阴影
-		spotLight.shadow.mapSize.width = 2048
-		spotLight.shadow.mapSize.height = 2048
-		spotLight.shadow.camera.near = 10
-		spotLight.shadow.camera.far = 200
-		spotLight.shadow.bias = -0.0005
-		spotLight.shadow.radius = 5
-		
+		// // 聚光灯高质量阴影
+		// spotLight.shadow.mapSize.width = 2048
+		// spotLight.shadow.mapSize.height = 2048
+		// spotLight.shadow.camera.near = 10
+		// spotLight.shadow.camera.far = 200
+		// spotLight.shadow.bias = -0.0005
+		// spotLight.shadow.radius = 10
+		// spotLight.shadow.blurSamples = 10
+		const spotLight = new THREE.SpotLight( 0xffffff, 2000 );
+		spotLight.angle = Math.PI / 5;
+		spotLight.penumbra = 0.3;
+		spotLight.position.set( -20, 30, 30 );
+		spotLight.castShadow = true;
+		spotLight.shadow.camera.near = 10;
+		spotLight.shadow.camera.far = 200;
+		spotLight.shadow.mapSize.width = 1024;
+		spotLight.shadow.mapSize.height = 1024;
+		spotLight.shadow.bias = - 0.002;
+		spotLight.shadow.radius = 5;
+	
+		console.log(spotLight, 'spotLight.shadow')
 		this.scene.add(spotLight)
 		this.scene.add(spotLight.target)
 
@@ -1307,7 +1400,7 @@ class ThreeCore {
 			
 			// 聚光灯helper
 			const spotLightHelper = new THREE.SpotLightHelper(spotLight)
-			spotLightHelper.visible = false // 默认隐藏
+			spotLightHelper.visible = true // 默认隐藏
 			this.scene.add(spotLightHelper)
 		}
 
@@ -1873,11 +1966,15 @@ class ThreeCore {
 					if (obj.userData.type === 'model') {
 						return 'model'
 					}
+					if (obj.userData.type === '3Dtext') {
+						return '3Dtext'
+					}
 					return 'image'
 				}
 				if (obj.userData.type === 'effect') {
 					return 'effect'
 				}
+				
 				if (obj.userData.type && obj.userData.type === 'template') {
 					return 'template'
 				}
@@ -1988,6 +2085,11 @@ class ThreeCore {
 			if (typeGuess === 'diary') {
 				jsonObj.title = obj.userData.title
 				jsonObj.content = obj.userData.content
+			}
+			if (typeGuess === '3Dtext') {
+				jsonObj.title = obj.userData.title
+				jsonObj.url = obj.userData.url
+				jsonObj.options = obj.userData.options
 			}
 			if (typeGuess === 'library') {
 				jsonObj.title = obj.userData.title
@@ -2237,6 +2339,10 @@ class ThreeCore {
 				} catch (e) {
 					console.warn(`模型加载失败：${obj.url}`, e)
 				}
+			}
+			if (obj.type === '3Dtext' && obj.url) {
+				mesh = await this.addTextToScene(BASE_IMG + obj.url, obj.title || '', obj.options || {})
+				console.log('mesh字体', obj.title, obj.url)
 			}
 
 			if (obj.type === 'effect' && obj.effect_name) {

@@ -8,25 +8,37 @@ interface configState {
   isPc: boolean
   config?: Config | null
   loading: boolean
+  port: MessagePort | null
 }
 export const useConfigStore = defineStore('config', {
   state: ():configState => ({
     isPc: true,
     config: null,
-    loading: false
+    loading: false,
+    port: null as MessagePort | null // 鸿蒙 WebView 的 MessagePort
   }),
   
   actions: {
     setIsPc(isPc: boolean) {
       this.isPc = isPc
     },
-    
+    setPort(port: MessagePort) {
+      this.port = port
+    },
+    getPort() {
+      return this.port
+    },
+    clearPort() {
+      this.port = null
+    },
     async getConfig(forceRefresh = false) {
       // 已有缓存且不强制刷新
+      if (process.client && typeof window !== 'undefined' && window.sessionStorage) {
       const storedConfig = sessionStorage.getItem('app_config');
-      if (storedConfig && !forceRefresh) {
-        this.config = JSON.parse(storedConfig); // 解析存储的 JSON
-        return this.config;
+        if (storedConfig && !forceRefresh) {
+          this.config = JSON.parse(storedConfig); // 解析存储的 JSON
+          return this.config;
+        }
       }
       
       this.loading = true
@@ -40,7 +52,9 @@ export const useConfigStore = defineStore('config', {
         // }
         // 更新状态
         this.config = response
-        sessionStorage.setItem('app_config', JSON.stringify(this.config));
+        if (process.client && typeof window !== 'undefined' && window.sessionStorage) {
+          sessionStorage.setItem('app_config', JSON.stringify(this.config));
+        }
         return response
       } catch (err) {
       } finally {

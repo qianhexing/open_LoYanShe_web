@@ -317,8 +317,8 @@ const lightingParams = reactive({
 // 预设方案
 const presets = {
   default: {
-    ambientIntensity: 0.3,
-    directionalIntensity: 1.5,
+    ambientIntensity: 1.2,
+    directionalIntensity: 2.6,
     directionalPosition: { x: 50, y: 50, z: 30 },
     lensLightIntensity: 0.8,
     shadowQuality: 'high',

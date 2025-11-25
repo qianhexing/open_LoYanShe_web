@@ -25,7 +25,7 @@ const { size, active } = toRefs(props)
 	border-radius: 20px;
 	margin: 2px;
 	font-size: 12px;
-	white-space: nowrap;
+	/* white-space: nowrap; */
 	transition: 0.3s;
 	display: inline-block;
 }

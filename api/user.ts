@@ -1,4 +1,4 @@
-import type { BaseResponse, PaginationParams, PaginationResponse } from '@/types/api';
+import type { BaseResponse, PaginationParams, PaginationResponse, User } from '@/types/api';
 export interface LoginUser {
   accessLevel: number
   userFace: string
@@ -14,8 +14,7 @@ interface RegisterParams {
   user_phone: string
   user_name: string
   user_password: string
-  phone_code: string
-  verification_code: string
+  sms_code: string
 }
 interface SendCodeParams {
   user_phone: string
@@ -61,6 +60,37 @@ export async function sendVerificationCode(
   const response = await use$Post<BaseResponse<{ success: boolean }>>(
     '/user/sendSms',
     params
+  );
+  return response.data;
+}
+
+// 检查手机号是否已存在
+export async function checkUserExist(
+  params: { user_phone: string }
+): Promise<boolean> {
+  const response = await use$Post<BaseResponse<boolean>>(
+    '/user/CheckUserExist',
+    params
+  );
+  return response.data;
+}
+
+// 检查用户名是否已存在
+export async function checkUserName(
+  params: { user_name: string }
+): Promise<boolean> {
+  const response = await use$Post<BaseResponse<boolean>>(
+    '/user/CheckUserName',
+    params
+  );
+  return response.data;
+}
+
+// 获取我的信息
+export async function getUserMy (): Promise<User> {
+  const response = await use$Post<BaseResponse<User>>(
+    '/user/my',
+    {}
   );
   return response.data;
 }

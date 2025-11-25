@@ -3,7 +3,8 @@
 const themeStore = useThemeStore()
 const userStore = useUserStore()
 const configStore = useConfigStore()
-
+const layoutReady = ref(false)
+provide('layoutReady', layoutReady)
 const times = ref(1)
 const isHome = ref(false)
 const cachedPages = ref(['library']) // 根据你的实际页面名称修改
@@ -15,7 +16,7 @@ const jumpToLoyanshe = () => {
   }
 }
 const layout_style = ref(0) // 0是带上下栏的 1 是空白页面
-const blank_list = ['scene/detail', 'wardrobe/detail', 'register']
+const blank_list = ['scene/detail', 'wardrobe/detail', 'register', 'lighting-debug', 'timepipe']
 const route = useRoute()
 console.log(route.path, '初始路由地址')
 const judgeIsHome = () => {
@@ -44,40 +45,53 @@ watch(
     // 在这里执行路由变化后的逻辑
   }
 )
-// 组件会自动导入
-onMounted(() => {
-  themeStore.setTheme('light')
-  userStore.initialize()
-  configStore.setIsPc(isPC())
-  configStore.getConfig()
-
-  const preventZoom = (e: TouchEvent) => {
-    if (e.touches.length > 1) {
-      e.preventDefault();
+const preventZoom = (e: TouchEvent) => {
+  if (e.touches.length > 1) {
+    e.preventDefault();
+  }
+};
+const handleInit = (event: MessageEvent) => {
+  if (event.data === "__init_port__") {
+    const [port] = event.ports
+    configStore.setPort(port)
+    // 监听应用发来的消息
+    port.onmessage = (e) => {
+      console.log(e.data, "收到应用消息")
     }
-  };
-
+  }
+}
+// 组件会自动导入
+onMounted(async () => {
+  if (process.client && typeof window !== 'undefined' && window.localStorage) {
+    console.log(route.query, '路由参数')
+    if (route.query.token) {
+    } else {
+      console.log('加载用户信息')
+      await userStore.initialize()
+    }
+    
+    configStore.setIsPc(isPC())
+    configStore.getConfig()
+  }
+  themeStore.setTheme('light')
+  layoutReady.value = true
   document.addEventListener('touchstart', preventZoom, { passive: false });
   document.addEventListener('gesturestart', (e) => e.preventDefault());
 
-  onBeforeUnmount(() => {
-    document.removeEventListener('touchstart', preventZoom);
-    document.removeEventListener('gesturestart', (e) => e.preventDefault());
-  });
   // themeStore.loadFromLocalStorage()
+  window.addEventListener('message', handleInit)
 })
+onBeforeUnmount(() => {
+  document.removeEventListener('touchstart', preventZoom);
+  document.removeEventListener('gesturestart', (e) => e.preventDefault());
+  window.removeEventListener('message', handleInit)
+});
 </script> 
 <template>
-  <div class="min-h-screen background transition-colors duration-300" v-if="layout_style === 0">
-    <Head>
-      <!-- 禁止缩放 -->
-      <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no">
-      <!-- 禁止 iOS 电话号码自动识别 -->
-      <meta name="format-detection" content="telephone=no">
-    </Head>
+  <div class="min-h-screen background transition-colors duration-300">
     <UNotifications position="top-0 right-0" />
-    <Header />
-    <main class="container mx-auto pb-4  pt-16 min-h-screen">
+    <Header v-show="layout_style === 0" />
+    <main :class="layout_style === 0 ? 'container mx-auto pb-4  pt-16 min-h-screen' : ''">
       <slot />
     </main>
     <!-- <KeepAlive :include="cachedPages" :max="5">
@@ -90,7 +104,7 @@ onMounted(() => {
       <slot name="screen"/>
     </main> -->
     <!-- Footer -->
-    <footer class="bg-white/80 dark:bg-gray-900/80 backdrop-blur-sm border-t border-gray-200 dark:border-gray-700 mt-8 left-0 bottom-0 w-full z-50" :class="isHome ? 'fixed' : ''">
+    <footer v-show="layout_style === 0" class="bg-white/80 dark:bg-gray-900/80 backdrop-blur-sm border-t border-gray-200 dark:border-gray-700 mt-8 left-0 bottom-0 w-full z-50" :class="isHome ? 'fixed' : ''">
       <div class="container mx-auto px-4 py-6">
         <!-- 备案信息 -->
         <div class="flex justify-center items-center mb-4">
@@ -159,12 +173,12 @@ onMounted(() => {
       </div>
     </footer>
   </div>
-  <div class="min-h-screen background transition-colors duration-300" v-else>
+  <!-- <div class="min-h-screen background transition-colors duration-300" v-else>
     <UNotifications position="top-0 right-0" />
     <main>
       <slot />
     </main>
-  </div>
+  </div> -->
 </template>
 
 <style>

@@ -244,7 +244,7 @@ const exchangeRate = (shop_country: number, price: number) => {
           <div v-if="library.secondary_cloth" class="mb-4">
             <h3 class="text-sm m-1">辅料/里衬</h3>
             <div class="flex flex-wrap gap-2">
-              <QhxTag v-for="(item, index) in library.secondary_cloth" :key="index"
+              <QhxTag v-for="(item, index) in library.secondary_cloth.split(',')" :key="index"
                 @click="jumpToWiki({ wiki_name: item, type_id: 5 })" class="cursor-pointer">
                 {{ item }}
               </QhxTag>

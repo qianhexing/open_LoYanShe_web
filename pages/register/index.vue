@@ -20,6 +20,7 @@
             <div class="flex gap-2">
               <USelectMenu 
                 v-model="form.phone_code" 
+                value-attribute="value"
                 :options="phoneCodeOptions" 
                 class="w-32"
                 :ui="{
@@ -178,6 +179,7 @@
 </template>
 
 <script setup lang="ts">
+import { checkUserExist, checkUserName } from '@/api/user'
 // 设置页面标题
 useHead({
   title: 'Lo研社 - 注册'
@@ -189,6 +191,15 @@ const toast = useToast()
 const router = useRouter()
 
 // 表单数据
+interface RegisterFormState {
+  phone_code: string
+  phone: string
+  verification_code: string
+  username: string
+  password: string
+  confirmPassword: string
+  agreeTerms: boolean
+}
 const form = reactive({
   phone_code: '+86',
   phone: '',
@@ -197,6 +208,17 @@ const form = reactive({
   password: '',
   confirmPassword: '',
   agreeTerms: false
+}) as RegisterFormState
+
+// 远程校验状态
+const checkingPhone = ref(false)
+const checkingUsername = ref(false)
+const phoneTaken = ref(false)
+const usernameTaken = ref(false)
+
+// 组装完整手机号（与注册提交保持一致规则）
+const fullPhone = computed(() => {
+  return (form.phone_code === '+86' ? '' : form.phone_code) + form.phone
 })
 
 // 手机区号选项
@@ -265,10 +287,10 @@ const sendVerificationCode = async () => {
         clearInterval(timer)
       }
     }, 1000)
-  } catch (error: any) {
+  } catch (error: unknown) {
     toast.add({
       title: '发送失败',
-      description: error.message || '请稍后重试',
+      description: getErrorMessage(error) || '请稍后重试',
       icon: 'i-heroicons-x-circle',
       color: 'red'
     })
@@ -277,13 +299,16 @@ const sendVerificationCode = async () => {
 }
 
 // 表单验证规则
-const validate = (state: any) => {
-  const errors: any[] = []
+type ValidationError = { path: string; message: string }
+const validate = (state: RegisterFormState) => {
+  const errors: ValidationError[] = []
   
   if (!state.phone) {
     errors.push({ path: 'phone', message: '请输入手机号' })
   } else if (!/^1[3-9]\d{9}$/.test(state.phone) && state.phone_code === '+86') {
     errors.push({ path: 'phone', message: '请输入有效的手机号' })
+  } else if (phoneTaken.value) {
+    errors.push({ path: 'phone', message: '该手机号已注册' })
   }
   
   if (!state.verification_code) {
@@ -294,6 +319,8 @@ const validate = (state: any) => {
     errors.push({ path: 'username', message: '请输入用户名' })
   } else if (state.username.length < 2) {
     errors.push({ path: 'username', message: '用户名至少2个字符' })
+  } else if (usernameTaken.value) {
+    errors.push({ path: 'username', message: '用户名已被占用' })
   }
   
   if (!state.password) {
@@ -315,17 +342,73 @@ const validate = (state: any) => {
   return errors
 }
 
+// 防抖工具
+function useDebounce(fn: () => void, delay = 400) {
+  let timer: ReturnType<typeof setTimeout> | null = null
+  return () => {
+    if (timer) clearTimeout(timer)
+    timer = setTimeout(() => fn(), delay)
+  }
+}
+
+// 远程检查：手机号是否存在
+const doCheckPhone = async () => {
+  // 基础校验未通过或为空时不查
+  if (!form.phone) {
+    phoneTaken.value = false
+    return
+  }
+  if (form.phone_code === '+86' && !/^1[3-9]\d{9}$/.test(form.phone)) {
+    phoneTaken.value = false
+    return
+  }
+  checkingPhone.value = true
+  try {
+    const res = await checkUserExist({ user_phone: fullPhone.value })
+    phoneTaken.value = !res
+  } catch (e) {
+    // 失败时不阻断用户流程，视为未占用
+    phoneTaken.value = false
+  }
+  checkingPhone.value = false
+}
+const debouncedCheckPhone = useDebounce(doCheckPhone, 500)
+
+// 远程检查：用户名是否存在
+const doCheckUsername = async () => {
+  if (!form.username || form.username.length < 2) {
+    usernameTaken.value = false
+    return
+  }
+  checkingUsername.value = true
+  try {
+    const res = await checkUserName({ user_name: form.username })
+    usernameTaken.value = !res
+  } catch (e) {
+    usernameTaken.value = false
+  }
+  checkingUsername.value = false
+}
+const debouncedCheckUsername = useDebounce(doCheckUsername, 500)
+
+// 监听输入并防抖触发远程校验
+watch(() => [form.phone, form.phone_code], () => {
+  debouncedCheckPhone()
+})
+watch(() => form.username, () => {
+  debouncedCheckUsername()
+})
+
 // 提交注册
 const onSubmit = async () => {
   loading.value = true
   
   try {
     await userStore.register({
-      user_phone: form.phone,
+      user_phone: (form.phone_code === '+86' ? '' : form.phone_code) + form.phone,
       user_name: form.username,
       user_password: form.password,
-      phone_code: form.phone_code,
-      verification_code: form.verification_code
+      sms_code: form.verification_code
     })
     
     toast.add({
@@ -336,17 +419,28 @@ const onSubmit = async () => {
     })
     
     // 注册成功后跳转到首页
+    window.location.href = '/'
     await router.push('/')
-  } catch (error: any) {
+  } catch (error: unknown) {
     toast.add({
       title: '注册失败',
-      description: error.message || '请检查输入信息',
+      description: getErrorMessage(error) || '请检查输入信息',
       icon: 'i-heroicons-x-circle',
       color: 'red'
     })
   }
   
   loading.value = false
+}
+
+function getErrorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message
+  if (typeof error === 'string') return error
+  if (error && typeof error === 'object') {
+    const maybeObj = error as Record<string, unknown>
+    if (typeof maybeObj.message === 'string') return maybeObj.message
+  }
+  return ''
 }
 </script>
 

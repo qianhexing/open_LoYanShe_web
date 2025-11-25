@@ -1,9 +1,9 @@
-<!-- 选择图鉴组件 -->
+<!-- 选择衣柜组件 -->
 <template>
   <UModal v-model="show" :overlay="true" :ui="{ width: 'max-w-3xl' }">
     <!-- 头部 -->
     <div class="flex items-center justify-between border-b px-4 py-3">
-      <h3 class="text-lg font-semibold">选择图鉴</h3>
+      <h3 class="text-lg font-semibold">选择衣柜</h3>
       <UButton color="gray" variant="ghost" icon="i-heroicons-x-mark" @click="closeModel" />
     </div>
 
@@ -13,7 +13,7 @@
         @keyup.enter="search" /> -->
         <UInput
           v-model="keywords"
-          placeholder="搜索图鉴 多条件空格分割."
+          placeholder="搜索衣柜 多条件空格分割."
           class="flex-1 focus:ring-0"
           :autofocus="false"
            @keyup.enter="search"
@@ -31,7 +31,6 @@
 
       <!-- 筛选栏 -->
       <div class="flex justify-between items-center">
-        <UCheckbox v-if="need_parent" v-model="parent_id" label="不显示子图鉴" @change="checkboxParentId" />
         <div v-show="choose_list.length !== 0">已选择 {{ choose_list.length }}</div>
         <UButton color="primary" @click="multipleChoose">确认选择</UButton>
       </div>
@@ -39,9 +38,9 @@
         <!-- 已选列表 -->
         <div v-if="choose_list.length" class="space-y-2">
           <div v-for="item in choose_list" class="bg-qhx-primary flex items-center">
-            <LibraryItem :needJump="false" :size="'mini-list'" :item="item" class="flex-1" :key="item.library_id"></LibraryItem>
+            <WardrobeItem :needJump="false" :size="'list'" :item="item" class="flex-1" :key="item.wardrobe_id"></WardrobeItem>
             <QhxJellyButton>
-              <div class="h-[30px] text-center px-1 cursor-pointer" @click="deleteList(item.library_id)">
+              <div class="h-[30px] text-center px-1 cursor-pointer" @click="deleteList(item.wardrobe_id)">
                 <div
                   class=" m-[5px] mx-auto text-white rounded-[50%] h-[30px] w-[30px] bg-qhx-primary flex items-center justify-center"
                   style="font-size: 22px">
@@ -54,12 +53,8 @@
 
         <!-- 可选列表 -->
         <div v-if="listData.length" class="space-y-2">
-          <div v-for="item in listData" v-show="choose_list.findIndex((child) => { return child.library_id === item.library_id}) === -1">
-            <div class="flex items-center justify-center mt-2" v-if="!props.needExamin">
-              <div>审核状态：</div>
-              <div>{{ formateExaminState(item.examin) }}</div>
-            </div>
-            <LibraryItem :needJump="false" :size="'mini-list'" :item="item" @click="chooseLibrary(item)" :key="item.library_id"></LibraryItem>
+          <div v-for="item in listData" v-show="choose_list.findIndex((child) => { return child.wardrobe_id === item.wardrobe_id}) === -1">
+            <WardrobeItem :needJump="false" :size="'list'" :item="item" @click="chooseWardrobe(item)" :key="item.wardrobe_id"></WardrobeItem>
           </div>
         </div>
 
@@ -77,17 +72,18 @@
 
 <script setup lang="ts">
 import { ref } from 'vue'
-import { getLibraryList as apiGetLibraryList } from '@/api/library'
-import type { Library } from '~/types/api'
-
+import type { Wardrobe } from '~/types/api'
+import { getWardrobeList as apiGetWardrobeList } from '@/api/wardrobe'
+import type { WardrobeSearchParams } from '@/api/wardrobe'
+const user = useUserStore()
 const props = defineProps({
   needStatus: { type: Boolean, default: true },
   needHiddenTabbar: { type: Boolean, default: false },
-  filter_list: { type: Array as () => any[], default: () => [] },
   multiple: { type: Boolean, default: false },
   need_parent: { type: Boolean, default: true },
   keywordMode: { type: Boolean, default: false },
-  needExamin: { type: Boolean, default: true }
+  needExamin: { type: Boolean, default: true },
+  user_id: { type: Number, default: 0 }
 })
 const emit = defineEmits(['choose'])
 
@@ -97,9 +93,9 @@ const page = ref(1)
 const pageSize = ref(10)
 const loading = ref(false)
 const total = ref(0)
-const listData = ref<Library[]>([])
+const listData = ref<Wardrobe[]>([])
 const parent_id = ref(true)
-const choose_list = ref<Library[]>([])
+const choose_list = ref<Wardrobe[]>([])
 const toast = useToast()
 
 const closeModel = () => {
@@ -119,7 +115,7 @@ const loadMore =async () => {
   if (page.value < Math.ceil(total.value / pageSize.value)) {
     page.value += 1
     try {
-      await getLibraryList()
+        await getWardrobeList()
     } catch (error) {
       page.value -= 1
     }
@@ -127,7 +123,7 @@ const loadMore =async () => {
 }
 const search = () => {
   page.value = 1
-  getLibraryList()
+  getWardrobeList()
 }
 const formateExaminState = (state: number) => {
   // 审核 0 通过 1待审核 2拒绝
@@ -143,15 +139,15 @@ const formateExaminState = (state: number) => {
   }
 }
 function deleteList(id: number) {
-  choose_list.value = choose_list.value.filter((i) => i.library_id !== id)
+  choose_list.value = choose_list.value.filter((i) => i.wardrobe_id !== id)
 }
 
 function checkboxParentId() {
   page.value = 1
-  getLibraryList()
+  getWardrobeList()
 }
 
-function chooseLibrary(item: Library) {
+function chooseWardrobe(item: Wardrobe) {
   if (props.multiple) {
     choose_list.value.push(item)
   } else {
@@ -162,7 +158,7 @@ function chooseLibrary(item: Library) {
 function multipleChoose() {
   if (!choose_list.value.length) {
     toast.add({
-      title: '请选择图鉴',
+      title: '请选择衣柜',
       icon: 'i-heroicons-exclamation-circle',
       color: 'red'
     })
@@ -178,37 +174,16 @@ function init() {
   page.value = 1
 }
 
-const getLibraryList = async (initPage: number | undefined = undefined, initPageSize: number | undefined = undefined) => {
+const getWardrobeList = async (initPage: number | undefined = undefined, initPageSize: number | undefined = undefined) => {
   if (loading.value) return
   loading.value = true
-  let params: any = {
+  const params: WardrobeSearchParams = {
     page: initPage || page.value,
     pageSize: initPageSize || pageSize.value,
-    filter_list: [
-      { field: 'name', value: keywords.value, op: 'and' },
-      ...props.filter_list
-    ]
+    user_id: props.user_id,
   }
-  if (!props.needExamin) {
-    params.examin = [0,1,2]
-  }
-  console.log(parent_id.value, '是否需要', props.need_parent)
-  if (parent_id.value && props.need_parent) {
-    params.filter_list.push({ field: 'parent_id', op: 'and', value: 0 })
-  }
-
-  if (props.keywordMode) {
-    params = {
-      page: page.value,
-      pageSize: pageSize.value,
-      parent_id: parent_id.value,
-      keyword: keywords.value,
-      need_Statistics: false
-    }
-  }
-
   try {
-    const res = await apiGetLibraryList(params)
+    const res = await apiGetWardrobeList(params)
     const data = res.rows
     total.value = res.count
     if (page.value === 1) listData.value = data
@@ -218,7 +193,7 @@ const getLibraryList = async (initPage: number | undefined = undefined, initPage
   }
 }
 onMounted(() => {
-  getLibraryList()
+  getWardrobeList()
 })
 defineExpose({
   showModel

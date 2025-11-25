@@ -2,6 +2,9 @@
 import type { Library, PaginationResponse } from '@/types/api';
 import useScrollBottom from '@/composables/useScrollBottom'
 import { getLibraryList } from '@/api/library';
+import authGlobal from '@/middleware/auth.global'
+import type QhxWaterList from '@/components/Qhx/WaterList.vue'
+const waterList = ref<InstanceType<typeof QhxWaterList> | null>(null)
 const user = useUserStore()
 const router = useRouter()
 const route = useRoute()
@@ -17,86 +20,6 @@ const isLoading = ref(true)
 const isServer = useState('isServer', () => false)
 const isCheck = ref(true)
 const parent_id = ref(true)
-
-// 使用`use$Post`请求函数
-const fetchLibraryList = async (): Promise<PaginationResponse<Library>> => {
-  if (import.meta.server) {
-    console.log('在服务端运行并且没有token', user.token)
-    if (!user.token) {
-      isServer.value = true
-    }
-  }
-  try {
-    const response = await getLibraryList({
-      page: page.value,
-      pageSize: pageSize,
-      keyword: keyword.value,
-      need_Statistics: true,
-      parent_id: parent_id.value
-    })
-    isLoading.value = false
-    isCheck.value = parent_id.value
-    return response
-  } catch (error) {
-    if (process.client) {
-      console.error('获取店铺列表失败:', error)
-    }
-    return {
-      rows: [],
-      count: 0
-    }
-  }
-}
-const { data, refresh  } = await useAsyncData('librarys', fetchLibraryList, 
-  {
-    watch: [page, keyword, parent_id]
-  }
-)
-const list = ref<Library[]>([])
-list.value = data.value?.rows ?? []
-watch(data, () => {
-  console.log('设置为false')
-  if (page.value === 1) {
-    list.value = data.value?.rows ?? []
-  } else {
-    list.value = [...list.value, ...(data.value?.rows ?? [])]
-  }
-})
-// watch(
-//   () => user.token,
-//   (newToken, oldToken) => {
-//     if (newToken && newToken !== oldToken) {
-//       console.log('token变化')
-//       debounce(() => {
-//         console.log('token变化111' )
-//         refresh()
-//       }, 3000)
-//     }
-//   }
-// )
-// const list = computed(() => data.value?.rows ?? [])
-const total = computed(() => data.value?.count ?? 0)
-const refreshLibrary = async () => {
-  isLoading.value = true
-  try {
-    const response = await getLibraryList({
-      page: 1,
-      pageSize: pageSize * page.value,
-      keyword: keyword.value,
-      need_Statistics: true,
-      parent_id: parent_id.value
-    })
-    isLoading.value = false
-    list.value = response.rows
-  } catch (error) {}
-  isLoading.value = false
-}
-// 监听总数变化
-watchEffect(() => {
-	console.log('当前总数:', total.value)
-})
-
-// SEO 配置
 useHead({
 	title: 'Lolita图鉴',
 	meta: [
@@ -111,7 +34,8 @@ useHead({
 	]
 })
 definePageMeta({
-  name: 'library'
+  name: 'library',
+  middleware: [authGlobal]
 })
 // 页码改变处理函数
 const handlePageChange = (current: number) => {
@@ -125,100 +49,31 @@ const handlePageChange = (current: number) => {
   // })
 }
 
-const showToast = () => {
-  const user = useUserStore()
-  console.log(user.token, '获取到的token')
-  const toast = useToast()
-
-  toast.add({
-    title: '成功',
-    description: '操作已成功完成',
-    icon: 'i-heroicons-check-circle',
-    color: 'green'
-  })
-}
 // 统一处理搜索逻辑
 const handleSearch = () => {
   keyword.value = value.value.trim()
-  console.log('触发了')
-  if (keyword.value) {
-    page.value = 1
-  }
+  waterList.value?.refresh()
 }
+
 const handleChange = (e: boolean) => {
-  if ( isLoading.value) {
-    return
-  }
-  isLoading.value = true
-  page.value = 1
   parent_id.value = e
-  console.log('测试', e)
-  
+  waterList.value?.refresh()
 }
-const waterLibrary = () => {
-  if (!window) {
-    return
-  }
-  const layout = useWaterfallLayout('.library-list', column.value)
-    // biome-ignore lint/complexity/noForEach: <explanation>
-    layout.forEach(({ index, top, left }) => {
-      const el = document.querySelectorAll<HTMLElement>('.library-list')[index]
-      el.style.position = 'absolute'
-      el.style.top = `${top}px`
-      el.style.left = `${left}px`
-      el.style.display = 'block'
-    })
-}
-const debounceWater = debounce(waterLibrary, 100);
 onMounted(() => {
   if (window.innerWidth < 768) {
     column.value = 2
   }
-  waterLibrary()
   if (user.token) {
     console.log('是否服务端渲染', isServer.value)
     if (isServer.value) {
       isServer.value = false
-      refreshLibrary()
+      waterList.value?.refresh()
     }
   } else {
     isLoading.value = false
   }
 })
-const loadMore = () => {
-  console.log('是否在加载', isLoading.value)
-  if (isLoading.value) {
-    return
-  }
-  isLoading.value = true
-  // 加载更多数据
-  handlePageChange(page.value + 1)
-  console.log('加载更多')
-}
 
-// 监听总数变化
-watchEffect(() => {
-	console.log('当前列表:', list.value.length)
-  if (process.client) {
-    setTimeout(() => {
-      debounceWater()
-    });
-  }
-})
-
-const { isFinished, setFinished } = useScrollBottom(
-  async () => {
-    // 加载更多数据的逻辑
-    if (page.value < Math.ceil(total.value / pageSize)) {
-      console.log('触发加载更多')
-      loadMore()
-    }
-  },
-  {
-    distance: 300, // 距离底部100px时触发
-    immediate: false // 初始化时立即加载一次
-  }
-)
 </script>
 <template>
   <div class="container mx-auto pt-4 pb-20 overflow-hidden">
@@ -268,15 +123,39 @@ const { isFinished, setFinished } = useScrollBottom(
         </div>
     </div>
     <!-- 空状态 -->
-    <div class="relative min-h-[600px]" v-if="total > 0">
+    <QhxWaterList ref="waterList"
+    :fetch-data="async (page, pageSize) => {
+      
+      const response = await getLibraryList({
+        page: page,
+        pageSize: pageSize,
+        keyword: keyword,
+        need_Statistics: true,
+        parent_id: parent_id
+      })
+      isLoading = false
+      isCheck = parent_id
+      return {
+        rows: response.rows,
+        count: response.count
+      }
+    }" :columns="4" :itemKey="0"  :columns_768="2" :enableWaterfall="true" :enableLoadMore="true">
+      <template #default="{ item, debouncedApplyLayout }">
+        <!-- 自定义内容 -->
+        <div class="custom-item" :key="item.library_id">
+          <LibraryItem :item="item" @image-load="debouncedApplyLayout"></LibraryItem>
+        </div>
+      </template>
+    </QhxWaterList>
+    <!-- <div class="relative min-h-[600px]" v-if="total > 0">
       <div class="library-list w-1/2 md:w-1/4" v-for="library in list" :key="library.library_id">
         <LibraryItem :item="library" @image-load="debounceWater"></LibraryItem>
       </div>
-    </div>
-    <div v-else class="text-center text-gray-500 py-8">
+    </div> -->
+    <!-- <div v-else class="text-center text-gray-500 py-8">
       暂无数据
-    </div>
-    <QhxLoading :loading="isLoading"></QhxLoading>
+    </div> -->
+    <!-- <QhxLoading :loading="isLoading"></QhxLoading> -->
     <!-- 分页组件 -->
     <!-- <div v-if="total > 0" class="mt-8 flex justify-center">
       <UPagination

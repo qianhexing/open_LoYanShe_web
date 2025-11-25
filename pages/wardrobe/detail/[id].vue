@@ -78,6 +78,7 @@ const initFilter = () => {
   }
 }
 const changeWardrobe = (item: Wardrobe) => {
+  console.log(item, 'item')
   if (currentWardrobe.value?.wardrobe_id === item.wardrobe_id) return
   if (isLoading.value) return
   if (Number.parseInt(id) !== user.user?.user_id && item.password) {
@@ -241,9 +242,10 @@ onMounted(() => {
   setTimeout(async () => {
     await fetchWardrobeList()
     let wardrobe = null
+    console.log(route.query.wardrobe_id, 'route.query')
     if (wardrobeList.value && wardrobeList.value.length > 0) {
       if (route.query.wardrobe_id) {
-        const index = wardrobeList.value.findIndex((item) => { item.wardrobe_id === Number.parseInt(route.query.wardrobe_id as string) })
+        const index = wardrobeList.value.findIndex((item) => { return item.wardrobe_id === Number.parseInt(route.query.wardrobe_id as string) })
         if (index !== -1) {
           wardrobe = wardrobeList.value[index]
         }
@@ -259,7 +261,11 @@ onMounted(() => {
           return item.is_private === 0 || item.password
         })
         if (index !== -1) {
-          changeWardrobe(wardrobeList.value[index])
+          if (wardrobe && wardrobe.is_private === 0) {
+            changeWardrobe(wardrobe)
+          } else {
+            changeWardrobe(wardrobeList.value[index])
+          }
         }
       }
 

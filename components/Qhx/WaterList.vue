@@ -177,7 +177,9 @@ onUnmounted(() => {
 // 暴露方法
 defineExpose({
   refresh,
-  loadMore
+  loadMore,
+  total,
+  debouncedApplyLayout
 })
 </script>
 

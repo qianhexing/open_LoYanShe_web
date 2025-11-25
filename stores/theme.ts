@@ -121,13 +121,29 @@ export const useThemeStore = defineStore('theme', {
       Object.entries(theme.colors).forEach(([key, value]) => {
         document.documentElement.style.setProperty(`--${key}-color`, value)
       })
+
+       // 粉色渐变（pink scale）
+      document.documentElement.style.setProperty('--color-pink-50', '255 240 244')
+      document.documentElement.style.setProperty('--color-pink-100', '255 225 234')
+      document.documentElement.style.setProperty('--color-pink-200', '255 200 214')
+      document.documentElement.style.setProperty('--color-pink-300', '255 175 196')
+      document.documentElement.style.setProperty('--color-pink-400', '255 150 178')
+      document.documentElement.style.setProperty('--color-pink-500', '255 158 181') // 基准色
+      document.documentElement.style.setProperty('--color-pink-600', '230 120 150')
+      document.documentElement.style.setProperty('--color-pink-700', '200 90 120')
+      document.documentElement.style.setProperty('--color-pink-800', '170 60 90')
+      document.documentElement.style.setProperty('--color-pink-900', '140 40 65')
+      document.documentElement.style.setProperty('--color-pink-950', '100 20 40')
     },
     
     saveToLocalStorage() {
-      localStorage.setItem('theme', JSON.stringify({
-        currentTheme: this.currentTheme,
-        themes: this.themes
-      }))
+      if (process.client && typeof window !== 'undefined' && window.localStorage) {
+        localStorage.setItem('theme', JSON.stringify({
+          currentTheme: this.currentTheme,
+          themes: this.themes
+        }))
+      }
+      
     },
     
     loadFromLocalStorage() {

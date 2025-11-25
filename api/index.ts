@@ -30,3 +30,18 @@ export async function createFont(data: fontParams): Promise<FileInterface> {
   const response = await use$Post<BaseResponse<FileInterface>>('/createFont', data);
   return response.data;
 }
+
+export async function uploadImageUrl(file: { file: File; url: string; }): Promise<string> {
+  try {
+    let url: string
+    if (file.file) {
+      const res = await uploadImage(file.file)
+      url = res.file_url
+    } else {
+      url = file.url.replace(BASE_IMG, '')
+    }
+    return url
+  } catch (error) {
+    throw error;
+  }
+}
