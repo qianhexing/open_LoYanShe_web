@@ -54,15 +54,18 @@ onMounted(() => {
 const props = withDefaults(defineProps<{
   tabs: string[]
   tab_scroll?: boolean
+  need_swipe?: boolean
 }>(), {
-  tab_scroll: false
+  tab_scroll: false,
+  need_swipe: true
 })
 
-
+const emit = defineEmits(['change'])
 const currentIndex = ref(0)
 provide('currentIndex', currentIndex)
 const goTo = (index: number) => {
   currentIndex.value = index
+  emit('change', index)
 }
 
 // 滑动逻辑
@@ -70,23 +73,28 @@ let startX = 0
 let deltaX = 0
 
 const handleTouchStart = (e: TouchEvent) => {
+  if (!props.need_swipe) return
   startX = e.touches[0].clientX
 }
 
 const handleTouchMove = (e: TouchEvent) => {
+  if (!props.need_swipe) return
   deltaX = e.touches[0].clientX - startX
 }
 
 const handleTouchEnd = () => {
+  if (!props.need_swipe) return
   if (Math.abs(deltaX) > 50) {
     if (deltaX < 0 && currentIndex.value < props.tabs.length - 1) {
       currentIndex.value++
     } else if (deltaX > 0 && currentIndex.value > 0) {
       currentIndex.value--
     }
+    emit('change', currentIndex.value)
   }
   deltaX = 0
 }
+
 </script>
 
 <style scoped>

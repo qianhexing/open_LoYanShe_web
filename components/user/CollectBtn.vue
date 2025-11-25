@@ -38,6 +38,13 @@ onMounted(async () => {
 // 处理收藏
 const toggleLike = async (e: MouseEvent) => {
   if (!user.token) {
+    const toast = useToast()
+    toast.add({
+      title: '请先登录',
+      description: '请先登录',
+      icon: 'i-heroicons-exclamation-circle',
+      color: 'red'
+    })
     return
   }
   if (!props.need_axios) {

@@ -11,7 +11,29 @@
 	"login.phone": "Phone Number",
 	"login.password": "Password",
 	"login.remember": "Remember Password",
-
 	"login.enter_phone": "Please enter your phone number",
-  "login.enter_password": "Please enter your password"
+	"login.enter_password": "Please enter your password",
+
+	"register.title": "Create Account",
+	"register.subtitle": "Join Lo Research Society",
+	"register.phone": "Phone Number",
+	"register.username": "Username",
+	"register.password": "Password",
+	"register.confirm_password": "Confirm Password",
+	"register.verification_code": "Verification Code",
+	"register.agreement": "I have read and agree to",
+	"register.terms": "Terms of Service",
+	"register.privacy": "Privacy Policy",
+	"register.register": "Register",
+	"register.login_link": "Already have an account? Sign in now",
+	"register.enter_phone": "Please enter your phone number",
+	"register.enter_username": "Please enter your username",
+	"register.enter_password": "Please enter your password",
+	"register.enter_confirm_password": "Please confirm your password",
+	"register.enter_code": "Please enter verification code",
+	"register.send_code": "Send Code",
+	"register.resend_code": "Resend",
+	"register.success": "Registration successful",
+	"register.password_mismatch": "Passwords do not match",
+	"register.agree_terms": "Please agree to the Terms of Service and Privacy Policy"
 }

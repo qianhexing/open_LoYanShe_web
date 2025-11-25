@@ -2,11 +2,11 @@
   <UPopover ref="popover1" v-model:open="open" :popper="{ placement: 'bottom-start' }" :ui="{ rounded: 'rounded-[18px]' }"" >
     <UButton class="bg-qhx-primary text-qhx-inverted hover:bg-qhx-primaryHover" variant="ghost" icon="i-heroicons-user-circle">{{ $t('login.login') }}</UButton>
     <template #panel>
-      <div class="p-6 w-[22rem]">
+      <div class="p-6 w-[400px]">
         <h3 class="text-lg font-semibold mb-4">{{ $t('login.account') }}</h3>
         
         <UForm :state="state" class="space-y-4" @submit="onSubmit">
-          <UFormGroup :label="$t('login.phone')" :ui="{ label: { base: 'my-1' } }" name="username">
+          <!-- <UFormGroup :label="$t('login.phone')" :ui="{ label: { base: 'my-1' } }" name="username">
             <UInput
               v-model="state.user_phone"
               :placeholder="$t('login.enter_phone')"
@@ -23,6 +23,32 @@
                 }
               }"
             />
+          </UFormGroup> -->
+          <!-- 手机号 -->
+          <UFormGroup :label="$t('register.phone')" name="phone">
+            <div class="flex gap-2">
+              <USelectMenu 
+                v-model="state.user_phone_code"
+                value-attribute="value"
+                :options="phoneCodeOptions" 
+                class="w-32"
+                :ui="{
+                  rounded: 'rounded-full',
+                  padding: { xs: 'px-3 py-2' }
+                }"
+              />
+              <UInput
+                v-model="state.user_phone"
+                :placeholder="$t('register.enter_phone')"
+                class="flex-1"
+                icon="i-heroicons-device-phone-mobile"
+                :ui="{
+                  base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
+                  rounded: 'rounded-full',
+                  padding: { xs: 'px-4 py-2' }
+                }"
+              />
+            </div>
           </UFormGroup>
 
           <UFormGroup :label="$t('login.password')" :ui="{ label: { base: 'my-1' } }"  name="password">
@@ -72,7 +98,7 @@
             {{ $t('login.login')}}
           </UButton>
 
-          <!-- <div class="mt-4 text-center text-sm text-gray-500 dark:text-gray-400">
+          <div class="mt-4 text-center text-sm text-gray-500 dark:text-gray-400">
             还没有账号?
             <NuxtLink 
               to="/register" 
@@ -80,7 +106,7 @@
             >
               立即注册
             </NuxtLink>
-          </div> -->
+          </div>
         </UForm>
       </div>
     </template>
@@ -91,19 +117,56 @@
 const popover1 = ref() // 模板引用
 const open = ref(false)
 const userStore = useUserStore()
+const config = useConfigStore()
 const state = reactive({
+  user_phone_code: '+86',
   user_phone: '',
   user_password: '',
   remember: false
 })
+// 手机区号选项
+const phoneCodeOptions = computed(() => {
+  const codeList = []
+  if (config.config?.phone_code) {
+    for (const item of config.config.phone_code) {
+      if (item.children) {
+        for (const child of item.children) {
+          codeList.push({
+            label: `${child.label} ${child.value}`,
+            value: child.value
+          })
+        }
+      }
+    }
+  }
+  // 默认选项
+  if (codeList.length === 0) {
+    codeList.push(
+      { label: '中国 +86', value: '+86' },
+      { label: '美国 +1', value: '+1' },
+      { label: '日本 +81', value: '+81' }
+    )
+  }
+  return codeList
+})
 
+onMounted(() => {
+  // state.user_phone_code = localStorage.getItem('user_phone_code') || '+86'
+  state.user_phone_code = '+86'
+})
 const loading = ref(false)
 
 const  onSubmit = async () => {
   loading.value = true
+  if (process.client && typeof window !== 'undefined' && window.sessionStorage) {
+    sessionStorage.setItem('user_phone_code', state.user_phone_code)
+  }
+  if (!state.user_phone_code) {
+    return
+  }
   // 这里添加登录逻辑
   try {
-    await userStore.login(state.user_phone, state.user_password)
+    await userStore.login((state.user_phone_code && state.user_phone_code === '+86' ? '' : state.user_phone_code) + state.user_phone, state.user_password)
     open.value = false
     const toast = useToast()
     toast.add({

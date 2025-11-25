@@ -35,12 +35,18 @@ importers:
       '@types/three':
         specifier: ^0.177.0
         version: 0.177.0
+      '@vuepic/vue-datepicker':
+        specifier: ^11.0.2
+        version: 11.0.2(vue@3.5.13(typescript@5.7.3))
       '@vueuse/nuxt':
         specifier: 12.5.0
         version: 12.5.0(magicast@0.3.5)(nuxt@3.15.2(@biomejs/biome@1.9.4)(@parcel/watcher@2.5.0)(@types/node@22.10.9)(db0@0.2.1)(eslint@9.32.0(jiti@2.4.2))(ioredis@5.4.2)(magicast@0.3.5)(optionator@0.9.4)(rollup@4.31.0)(terser@5.37.0)(typescript@5.7.3)(vite@6.0.11(@types/node@22.10.9)(jiti@2.4.2)(terser@5.37.0)(yaml@2.7.0))(xml2js@0.6.2)(yaml@2.7.0))(rollup@4.31.0)(typescript@5.7.3)
       ali-oss:
         specifier: ^6.23.0
         version: 6.23.0
+      dayjs:
+        specifier: ^1.11.18
+        version: 1.11.18
       gsap:
         specifier: ^3.13.0
         version: 3.13.0
@@ -1844,6 +1850,12 @@ packages:
   '@vue/shared@3.5.18':
     resolution: {integrity: sha512-cZy8Dq+uuIXbxCZpuLd2GJdeSO/lIzIspC2WtkqIpje5QyFbvLaI5wZtdUjLHjGZrlVX6GilejatWwVYYRc8tA==}
 
+  '@vuepic/vue-datepicker@11.0.2':
+    resolution: {integrity: sha512-uHh78mVBXCEjam1uVfTzZ/HkyDwut/H6b2djSN9YTF+l/EA+XONfdCnOVSi1g+qVGSy65DcQAwyBNidAssnudQ==}
+    engines: {node: '>=18.12.0'}
+    peerDependencies:
+      vue: '>=3.3.0'
+
   '@vueuse/core@12.5.0':
     resolution: {integrity: sha512-GVyH1iYqNANwcahAx8JBm6awaNgvR/SwZ1fjr10b8l1HIgDp82ngNbfzJUgOgWEoxjL+URAggnlilAEXwCOZtg==}
 
@@ -2448,8 +2460,14 @@ packages:
     engines: {node: '>=v12.20.0'}
     hasBin: true
 
+  date-fns@4.1.0:
+    resolution: {integrity: sha512-Ukq0owbQXxa/U3EGtsdVBkR1w7KOQ5gIBqdH2hkvknzZPYvBxb/aa6E8L7tmjFtkwZBu3UXBbjIgPo/Ez4xaNg==}
+
   dateformat@2.2.0:
     resolution: {integrity: sha512-GODcnWq3YGoTnygPfi02ygEiRxqUxpJwuRHjdhJYuxpcZmDq4rjBiXYmbCCzStxo176ixfLT6i4NPwQooRySnw==}
+
+  dayjs@1.11.18:
+    resolution: {integrity: sha512-zFBQ7WFRvVRhKcWoUh+ZA1g2HVgUbsZm9sbddh8EC5iv93sui8DVVz1Npvz+r6meo9VKfa8NyLWBsQK1VvIKPA==}
 
   db0@0.2.1:
     resolution: {integrity: sha512-BWSFmLaCkfyqbSEZBQINMVNjCVfrogi7GQ2RSy1tmtfK9OXlsup6lUMwLsqSD7FbAjD04eWFdXowSHHUp6SE/Q==}
@@ -7562,6 +7580,11 @@ snapshots:
 
   '@vue/shared@3.5.18': {}
 
+  '@vuepic/vue-datepicker@11.0.2(vue@3.5.13(typescript@5.7.3))':
+    dependencies:
+      date-fns: 4.1.0
+      vue: 3.5.13(typescript@5.7.3)
+
   '@vueuse/core@12.5.0(typescript@5.7.3)':
     dependencies:
       '@types/web-bluetooth': 0.0.20
@@ -8222,7 +8245,11 @@ snapshots:
 
   czg@1.11.1: {}
 
+  date-fns@4.1.0: {}
+
   dateformat@2.2.0: {}
+
+  dayjs@1.11.18: {}
 
   db0@0.2.1: {}
 

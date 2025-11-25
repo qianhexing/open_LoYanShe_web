@@ -43,7 +43,7 @@
           @click="removeImage(index)"
         />
       </div> -->
-      <Draggable :disabled="props.multiple" v-model="previewImages" item-key="id" animation="250" ghost-class="drag-ghost"
+      <Draggable :disabled="!props.multiple" v-model="previewImages" item-key="id" animation="250" ghost-class="drag-ghost"
           chosen-class="drag-chosen" drag-class="dragging"
           class="grid grid-cols-3 gap-4 max-md:grid-cols-2">
           <template #item="{ element, index }">
@@ -121,6 +121,7 @@ const removeImage = (index: number) => {
 }
 const clear = () => {
   files.value = []
+  previewImages.value = []
 }
 
 defineExpose({

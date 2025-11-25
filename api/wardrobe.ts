@@ -2,11 +2,13 @@
 // 没改好
 import type { BaseResponse, Wardrobe, WardrobeClothes, PaginationResponse, PaginationParams } from '@/types/api';
 
-interface WardrobeSearchParams {
+export interface WardrobeSearchParams {
+  page?: number
   user_id?: number
   pageSize?: number
   qrcode?: string
   password?: string
+  filter_list?: Record<string, any>
 }
 export async function getWardrobeList(
   params: WardrobeSearchParams

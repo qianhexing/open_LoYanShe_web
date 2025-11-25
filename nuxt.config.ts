@@ -90,18 +90,56 @@ export default defineNuxtConfig({
 	css: [
     '~/assets/css/tailwind.css'   // 再加载Tailwind
   ],
+	
 	tailwindcss: {
 		config: {
 			theme: {
-				// extend: {
-				// 	colors: {
-				// 		primary: '#3B82F6',
-				// 		secondary: '#10B981'
-				// 		// 您可以根据需要添加更多自定义颜色
-				// 	}
-				// }
 				extend: {
 					colors: {
+						pink: {
+							50: 'var(--color-pink-50)',
+							100: 'var(--color-pink-100)',
+							200: 'var(--color-pink-200)',
+							300: 'var(--color-pink-300)',
+							400: 'var(--color-pink-400)',
+							500: 'var(--color-pink-500)', // 基准色
+							600: 'var(--color-pink-600)',
+							700: 'var(--color-pink-700)',
+							800: 'var(--color-pink-800)',
+							900: 'var(--color-pink-900)',
+							950: 'var(--color-pink-950)',
+							DEFAULT: 'var(--color-pink-500)'
+						},
+						// 自定义主色调 - 粉色系
+						primary: {
+							50: '#FFF0F4',
+							100: '#FFE1EA',
+							200: '#FFC8D6',
+							300: '#FFAFC4',
+							400: '#FF96B2',
+							500: '#FF9EB5', // 基准色
+							600: '#E67896',
+							700: '#C85A78',
+							800: '#AA3C5A',
+							900: '#8C2841',
+							950: '#641428',
+							DEFAULT: '#FF9EB5'
+						},
+						// 自定义灰色系
+						gray: {
+							50: '#F9FAFB',
+							100: '#F3F4F6',
+							200: '#E5E7EB',
+							300: '#D1D5DB',
+							400: '#9CA3AF',
+							500: '#6B7280',
+							600: '#4B5563',
+							700: '#374151',
+							800: '#1F2937',
+							900: '#111827',
+							950: '#030712',
+							DEFAULT: '#6B7280'
+						},
 						// 基础颜色变量
 						'qhx-primary': 'var(--primary-color)',
 						'qhx-primaryHover': 'var(--primary-color)',

@@ -14,7 +14,7 @@ type GridOptions = {
   opacity?: number;         // 全局不透明度（0-1）
 };
 
-export function createKujialeGrid(opts: GridOptions = {}) {
+export function createGrid(opts: GridOptions = {}) {
   const {
     cellSize = 1,
     majorEvery = 5,
@@ -88,14 +88,15 @@ export function createKujialeGrid(opts: GridOptions = {}) {
       // 将线宽体现在阈值里：deriv * (thicknessPx)
       vec2 w = deriv * thicknessPx * 0.5;
       vec2 a = smoothstep(w, vec2(0.0), d);      // a 越大表示越靠近线
-      return 1.0 - min(min(a.x, a.y), 1.0);      // 线区域 ~1，非线区域 ~0
+      return max(a.x, a.y);                      // 返回线的透明度，修正原来的反向计算
     }
 
     // 坐标轴（x=0 或 z=0）加粗，高优先级覆盖
     float axisLine(vec2 worldXZ, float thicknessPx){
       // 使用世界坐标直接做 0 线，仍然用 fwidth 保证屏幕一致线宽
-      float ax = 1.0 - smoothstep(fwidth(worldXZ.x) * thicknessPx * 0.5, 0.0, abs(worldXZ.x));
-      float az = 1.0 - smoothstep(fwidth(worldXZ.y) * thicknessPx * 0.5, 0.0, abs(worldXZ.y));
+      float w = thicknessPx * 0.5;
+      float ax = smoothstep(fwidth(worldXZ.x) * w, 0.0, abs(worldXZ.x));
+      float az = smoothstep(fwidth(worldXZ.y) * w, 0.0, abs(worldXZ.y));
       return max(ax, az);
     }
 
@@ -108,9 +109,6 @@ export function createKujialeGrid(opts: GridOptions = {}) {
       float majorMask = gridLine(p, majorSpacing, uMajorPx);
       float minorMask = gridLine(p, uMinor,       uMinorPx);
 
-      // 主线覆盖在次线上
-      minorMask *= (1.0 - majorMask);
-
       // 坐标轴覆盖在所有线上
       float axisMask = axisLine(p, uAxisPx);
 
@@ -118,15 +116,17 @@ export function createKujialeGrid(opts: GridOptions = {}) {
       vec3 col = vec3(0.0);
       float alpha = 0.0;
 
-      // 次网格
-      col   = mix(col, uMinorColor, minorMask);
-      alpha = max(alpha, minorMask);
+      // 次网格（只在没有主网格和坐标轴的地方显示）
+      float minorContrib = minorMask * (1.0 - majorMask) * (1.0 - axisMask);
+      col   = mix(col, uMinorColor, minorContrib);
+      alpha = max(alpha, minorContrib);
 
-      // 主网格
-      col   = mix(col, uMajorColor, majorMask);
-      alpha = max(alpha, majorMask);
+      // 主网格（只在没有坐标轴的地方显示）
+      float majorContrib = majorMask * (1.0 - axisMask);
+      col   = mix(col, uMajorColor, majorContrib);
+      alpha = max(alpha, majorContrib);
 
-      // 坐标轴
+      // 坐标轴（最高优先级）
       col   = mix(col, uAxisColor, axisMask);
       alpha = max(alpha, axisMask);
 
@@ -150,15 +150,16 @@ export function createKujialeGrid(opts: GridOptions = {}) {
   });
 
   const mesh = new THREE.Mesh(geom, mat);
-  mesh.name = 'KujialeStyleGrid';
+  mesh.name = 'Grid';
   mesh.renderOrder = -9999; // 尽量早画，避免被半透明物体挡住
   mesh.userData.__gridUniforms = uniforms;
+  mesh.userData.ignorePick = true;
 
   return mesh;
 }
 
 // 在渲染循环中调用以更新相机位置（用于淡出）
-export function updateKujialeGrid(grid: THREE.Object3D, camera: THREE.Camera) {
+export function updateGrid(grid: THREE.Object3D, camera: THREE.Camera) {
   const u = (grid as any).userData.__gridUniforms;
   if (!u) return;
 

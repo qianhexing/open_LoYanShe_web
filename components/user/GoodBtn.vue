@@ -40,6 +40,13 @@ onMounted(async () => {
 const toggleLike = async () => {
   console.log(user.token)
   if (!user.token) {
+    const toast = useToast()
+    toast.add({
+      title: '请先登录',
+      description: '请先登录',
+      icon: 'i-heroicons-exclamation-circle',
+      color: 'red'
+    })
     return
   }
   console.log('走到这了111')

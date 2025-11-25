@@ -84,7 +84,6 @@ onMounted(() => {
 </script>
 <template>
   <div class="container mx-auto p-4 pb-20">
-    111
     <div class="grid grid-cols-3" v-if="total > 0">
       <div v-for="list in list">
         <MateriaItem @choose="choose" :item="list"></MateriaItem>

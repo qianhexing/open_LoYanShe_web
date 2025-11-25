@@ -39,7 +39,7 @@
         <!-- 已选列表 -->
         <div v-if="choose_list.length" class="space-y-2">
           <div v-for="item in choose_list" class="bg-qhx-primary flex items-center">
-            <LibraryItem :needJump="false" :size="'mid'" :item="item" class="flex-1" :key="item.library_id"></LibraryItem>
+            <LibraryItem :needJump="false" :size="'mini-list'" :item="item" class="flex-1" :key="item.library_id"></LibraryItem>
             <QhxJellyButton>
               <div class="h-[30px] text-center px-1 cursor-pointer" @click="deleteList(item.library_id)">
                 <div
@@ -55,7 +55,11 @@
         <!-- 可选列表 -->
         <div v-if="listData.length" class="space-y-2">
           <div v-for="item in listData" v-show="choose_list.findIndex((child) => { return child.library_id === item.library_id}) === -1">
-            <LibraryItem :needJump="false" :size="'mid'" :item="item" @click="chooseLibrary(item)"></LibraryItem>
+            <div class="flex items-center justify-center mt-2" v-if="!props.needExamin">
+              <div>审核状态：</div>
+              <div>{{ formateExaminState(item.examin) }}</div>
+            </div>
+            <LibraryItem :needJump="false" :size="'mini-list'" :item="item" @click="chooseLibrary(item)" :key="item.library_id"></LibraryItem>
           </div>
         </div>
 
@@ -82,7 +86,8 @@ const props = defineProps({
   filter_list: { type: Array as () => any[], default: () => [] },
   multiple: { type: Boolean, default: false },
   need_parent: { type: Boolean, default: true },
-  keywordMode: { type: Boolean, default: false }
+  keywordMode: { type: Boolean, default: false },
+  needExamin: { type: Boolean, default: true }
 })
 const emit = defineEmits(['choose'])
 
@@ -92,9 +97,9 @@ const page = ref(1)
 const pageSize = ref(10)
 const loading = ref(false)
 const total = ref(0)
-const listData = ref<any[]>([])
+const listData = ref<Library[]>([])
 const parent_id = ref(true)
-const choose_list = ref<any[]>([])
+const choose_list = ref<Library[]>([])
 const toast = useToast()
 
 const closeModel = () => {
@@ -124,7 +129,19 @@ const search = () => {
   page.value = 1
   getLibraryList()
 }
-
+const formateExaminState = (state: number) => {
+  // 审核 0 通过 1待审核 2拒绝
+  switch (state) {
+    case 0:
+      return '通过'
+    case 1:
+      return '待审核'
+    case 2:
+      return '拒绝'
+    case 3:
+      return '永久拒绝'
+  }
+}
 function deleteList(id: number) {
   choose_list.value = choose_list.value.filter((i) => i.library_id !== id)
 }
@@ -158,7 +175,7 @@ function multipleChoose() {
 function init() {
   keywords.value = ''
   choose_list.value = []
-  page.value = 0
+  page.value = 1
 }
 
 const getLibraryList = async (initPage: number | undefined = undefined, initPageSize: number | undefined = undefined) => {
@@ -172,8 +189,11 @@ const getLibraryList = async (initPage: number | undefined = undefined, initPage
       ...props.filter_list
     ]
   }
-
-  if (parent_id.value) {
+  if (!props.needExamin) {
+    params.examin = [0,1,2]
+  }
+  console.log(parent_id.value, '是否需要', props.need_parent)
+  if (parent_id.value && props.need_parent) {
     params.filter_list.push({ field: 'parent_id', op: 'and', value: 0 })
   }
 

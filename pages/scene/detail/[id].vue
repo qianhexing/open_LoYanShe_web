@@ -8,8 +8,11 @@ import { insertCommunity } from '@/api/community'
 import type { DiaryInterface, LibraryInterface } from '@/types/sence'
 import type SceneMaterial from '@/components/scene/Material.vue'
 import type SceneTextureEditor from '@/components/scene/TextureEditor.vue'
-
+import { useSceneStore } from '@/stores/sence'
 import { uploadImage, createFont } from '~/api';
+const sceneStore = useSceneStore()
+const configStore = storeToRefs(useConfigStore())
+const { port } = configStore
 const showDiary = ref(false)
 let threeCore: qhxCore
 const theme = useThemeStore()
@@ -19,7 +22,13 @@ const operaPosition = ref<Object<{ x: number, y: number}>>({ x: 0, y: 0})
 const clickObject = ref<THREE.Object3D[] | null>(null)
 const diaryList = ref<DiaryInterface[]>([])
 const libraryList = ref<LibraryInterface[]>([])
+// const lightingDebugGUIRef = ref<InstanceType<typeof LightingDebugGUI> | null>(null)
+const currentSettings = ref(null)
 
+const onLightingSettingsChanged = (settings) => {
+  currentSettings.value = settings
+  console.log('Lighting settings changed:', settings)
+}
 const activeDiary = ref<DiaryInterface | null>(null)
 const loading = ref(false)
 let uni: any;
@@ -239,7 +248,6 @@ const addDiary = async (form) => {
 	threeCore.scene.add(mesh)
 }
 const clearTemplate = () => {
-	console.log('触发了', threeCore.loadTemplate, threeCore.loadTemplate.length)
 	if (threeCore.loadTemplate.length > 0) {
 		// biome-ignore lint/complexity/noForEach: <explanation>
 		threeCore.loadTemplate.forEach((child) => {
@@ -255,7 +263,6 @@ const chooseEffect = async (item: Effect) => {
 	let effectName = null
 	// biome-ignore lint/complexity/noForEach: <explanation>
 	threeCore.scene.children.forEach((child: THREE.Object3D) => {
-		console.log('场景中的元素', child)
 		if (child.userData && child.userData.type === 'effect') {
 			effectName = child.userData.effectName
 		}
@@ -265,9 +272,15 @@ const chooseEffect = async (item: Effect) => {
 	}
 	threeCore.addEffect(item)
 }
+// 获取屏幕中心坐标
+const getScreenCenter = () => {
+	const screenCenter = new THREE.Vector3()
+	threeCore.camera.getWorldPosition(screenCenter)
+	return threeCore.controls.target.clone()
+}
 const chooseMaterial = async (item: Material) => {
-	console.log('item素材', item)
 	if (item.pk_type === 1) {
+		sceneStore.setLoading(true)
 		const mesh = await threeCore.loadModel(BASE_IMG + item.materia_url, { useDracoLoader: item.options?.useDracoLoader ? item.options.useDracoLoader : true, dracoDecoderPath: '/draco/gltf/' })
 		// threeCore.addEffect({ effect_name: 'ScaleAnimate', effect_id: 0}, mesh)
 		// threeCore.addEffect({ effect_name: 'ToonOutlineEffect', effect_id: 0}, mesh)
@@ -314,16 +327,24 @@ const chooseMaterial = async (item: Material) => {
 		// 	]
 		// })
 		console.log(mesh, '对象')
+		const screenCenter = getScreenCenter()
+		mesh.position.set(screenCenter.x, screenCenter.y, screenCenter.z)
 		if (item.options) {
 			threeCore.setOptionsModel(mesh, item.options)
 		}
+		sceneStore.setLoading(false)
+		setTimeout(() => {
+			threeCore.lookAtSelectObj([mesh])
+		});
+
+
 		// setTimeout(() => {
 		// 	mesh.traverse((child) => {
 		// 		threeCore.addBloomObject(child)
 		// 		console.log('添加的对象', child)
 		// 	})
 		// }, 1000);
-		mesh.position.set(0,0,0)
+		// mesh.position.set(0,0,0)
 		threeCore.scene.add(mesh)
 	}
 }
@@ -440,8 +461,8 @@ const onUpdateFiles = async (resault) => {
 const addBackgroun = async (resault) => {
 	threeCore.background = resault.file_url
 }
-const addText = async (resault) => {
-	const charset =  'Lo研社--嘎嘎'
+const addText = async (resault: string) => {
+	const charset =  resault
 	const font = await createFont({ charset })
 	const mesh = await threeCore.addTextToScene(BASE_IMG +font.file_url, charset)
 	console.log('文本返回', mesh)
@@ -590,24 +611,34 @@ useHead({
 			:mask-url="BASE_IMG + 'sence/8_mask.png'"
 			@close="target = null"
 		/>
-		<div class=" fixed bottom-[80px] left-[20px] rounded-[50%] w-[50px] h-[50px] z-10 items-center justify-center shadow-lg flex cursor-pointer bg-qhx-bg-card"
-		v-show="edit_mode">场景</div>
+		<!-- 光影调试GUI -->
+    <!-- <LightingDebugGUI 
+      v-if="threeCore" 
+      :three-core="threeCore"
+      @settings-changed="onLightingSettingsChanged"
+    /> -->
+		
+		<!-- <div class=" fixed bottom-[80px] left-[20px] rounded-[50%] w-[50px] h-[50px] z-10 items-center justify-center shadow-lg flex cursor-pointer bg-qhx-bg-card"
+		v-show="edit_mode">场景</div> -->
 		<div class=" fixed bottom-[20px] left-[20px] rounded-[50%] w-[50px] h-[50px] z-10 items-center justify-center shadow-lg flex cursor-pointer bg-qhx-bg-card"
-		@click="showMaterial()" v-show="edit_mode">加</div>
+		@click="showMaterial()" v-show="edit_mode">
+		<UIcon name="material-symbols:add" class="text-[22px] text-[#000000]" />
+	</div>
 		<div style="height: 100vh; width: 100vw; overflow: hidden; " id="scene"></div>
 		<div class="opera fixed p-3  z-20 flex items-center whitespace-nowrap" 
 		v-show="clickObject && edit_mode"
 		:style="{ left: operaPosition.x + 40 + 'px', top: operaPosition.y - 100 + 'px' }">
-			<QhxJellyButton>
-				<div class="opera fixed p-3  bg-qhx-bg-card rounded-[30px] z-20 h-[60px] flex items-center whitespace-nowrap overflow-hidden">
-					<div class=" cursor-pointer px-3" @click="setMode('translate')" v-show="transformType !== 'translate'">移动</div>
-					<div class=" cursor-pointer px-3" @click="setMode('rotate')" v-show="transformType !== 'rotate'">旋转</div>
-					<div class=" cursor-pointer px-3" @click="setMode('scale')" v-show="transformType !== 'scale'">缩放</div>
-					<div class=" cursor-pointer px-3" @click.stop="copyModel()" v-if="clickObject && clickObject[0].userData.type === 'model'">复制</div>
-					<div class=" cursor-pointer px-3" @click.stop="showTexture()" v-if="canTexture">贴图</div>
-					<div class=" cursor-pointer px-3" @click.stop="deleteModel()">删除</div>
-				</div>
-			</QhxJellyButton>
+			<!-- <QhxJellyButton>
+				
+			</QhxJellyButton> -->
+			<div class="opera fixed p-3  bg-qhx-bg-card rounded-[30px] z-20 h-[60px] flex items-center whitespace-nowrap overflow-hidden">
+				<div class=" cursor-pointer px-3" @click="setMode('translate')" v-show="transformType !== 'translate'">移动</div>
+				<div class=" cursor-pointer px-3" @click="setMode('rotate')" v-show="transformType !== 'rotate'">旋转</div>
+				<div class=" cursor-pointer px-3" @click="setMode('scale')" v-show="transformType !== 'scale'">缩放</div>
+				<div class=" cursor-pointer px-3" @click.stop="copyModel()" v-if="clickObject && clickObject[0].userData.type === 'model'">复制</div>
+				<div class=" cursor-pointer px-3" @click.stop="showTexture()" v-if="canTexture">贴图</div>
+				<div class=" cursor-pointer px-3" @click.stop="deleteModel()">删除</div>
+			</div>
 		</div>
 		<div class="camera-list fixed right-[10px] bottom-0 w-[40px] h-auto max-h-full" v-if="threeCore">
 			<div class=" relative flex justify-center" v-for="(camera_list, index) in threeCore.cameraList">

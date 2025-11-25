@@ -27,6 +27,9 @@ import { TransformControls } from './TransformControls'
 // import { TransformControls } from 'three/examples/jsm/Addons.js';
 import { installUniformScale, restyleGizmo } from './MyTransformControls'
 import { FontLoader, TextGeometry } from 'three/examples/jsm/Addons.js'
+import { useSceneStore } from '@/stores/sence'
+import { RGBELoader } from 'three/examples/jsm/loaders/RGBELoader.js'
+import { EXRLoader } from 'three/examples/jsm/loaders/EXRLoader.js'
 
 export interface CameraState {
 	position: THREE.Vector3
@@ -34,19 +37,8 @@ export interface CameraState {
 	fov?: number // 只有 PerspectiveCamera 会用到
 }
 import { WebGPURenderer } from 'three/webgpu'
-import { createKujialeGrid, updateKujialeGrid } from './Grid'
-const grid = createKujialeGrid({
-	cellSize: 1, // 次网格间距（单位：米）
-	majorEvery: 5, // 每 N 个次网格出现一条主网格
-	minorColor: '#cfd3dc',
-	majorColor: '#aab0bd',
-	axisColor: '#4c84ff', // X/Z 坐标轴强调色
-	minorThickness: 1.0, // 以像素为单位的线宽（屏幕空间）
-	majorThickness: 1.8,
-	axisThickness: 2.2,
-	fadeStart: 25.0, // 相机水平距离开始淡出
-	fadeEnd: 120.0 // 相机水平距离完全透明
-})
+import { createGrid, updateGrid } from './Grid'
+const grid = createGrid();
 export interface SceneEffectJSON {
 	type: 'animation' | 'effect' | 'timeline'
 	cycles?: number // 如果是动画时循环次数 0 为无限循环
@@ -87,6 +79,7 @@ export interface SceneObjectJSON {
 		| 'template'
 		| 'effect'
 		| 'library'
+		| '3Dtext'
 	position?: [number, number, number]
 	rotation?: [number, number, number]
 	baseWidth?: number
@@ -136,6 +129,23 @@ class ThreeCore {
 	public css3DRenderer?: CSS3DRenderer // CSS3D渲染器
 	public controls: OrbitControls
 	public allObjects: THREE.Object3D[] // 场景里的所有模型
+	
+	// 光源系统
+	public lights?: {
+		ambient: THREE.AmbientLight
+		hemisphere: THREE.HemisphereLight
+		directional: THREE.DirectionalLight
+		fill: THREE.DirectionalLight
+		back: THREE.DirectionalLight
+		lens: THREE.PointLight
+		spot: THREE.SpotLight
+		rim: THREE.DirectionalLight
+	}
+	public lensLight?: THREE.PointLight // 镜头光单独引用
+	
+	// IBL相关
+	public envMap?: THREE.Texture // 环境贴图
+	public envMapIntensity: number = 1.0 // 环境贴图强度
 
 	public mixers: AnimationMixer[] = [] // 用于管理多个模型动画混合器
 	public stats?: Stats
@@ -189,10 +199,10 @@ class ThreeCore {
 			enableCSS3DRenderer: false // 默认不启用CSS3D渲染器
 		}
 		this.editMode = false
-		if (defaultOptions.editMode) {
-			this.editMode = defaultOptions.editMode
-		}
 		this.options = { ...defaultOptions, ...options }
+		if (this.options.editMode) {
+			this.editMode = this.options.editMode
+		}
 		this.scene = null!
 		this.camera = null!
 		this.renderer = null!
@@ -225,6 +235,51 @@ class ThreeCore {
 		// const cloud = this.createCloud()
 		// this.scene.add(cloud)
 		// this.scene.add(grid)
+
+		function createRadialGradientTexture(size = 512) {
+			const canvas = document.createElement('canvas');
+			canvas.width = canvas.height = size;
+			const ctx = canvas.getContext('2d');
+		
+			const gradient = ctx.createRadialGradient(
+				size / 2, size / 2, size * 0.4, // 中心
+				size / 2, size / 2, size * 0.5  // 边缘
+			);
+			gradient.addColorStop(0, 'rgba(255,255,255,1)');
+			gradient.addColorStop(1, 'rgba(255,255,255,0)');
+		
+			ctx.fillStyle = gradient;
+			ctx.fillRect(0, 0, size, size);
+		
+			const texture = new THREE.CanvasTexture(canvas);
+			texture.wrapS = texture.wrapT = THREE.ClampToEdgeWrapping;
+			return texture;
+		}
+		
+		const alphaMap = createRadialGradientTexture(1024);
+		
+		// ================ 圆形几何 ================
+		const circleGeometry = new THREE.CircleGeometry(60, 128);
+
+		// ================ 使用 MeshPhongMaterial ================
+		const circleMaterial = new THREE.MeshPhongMaterial({
+			color: 0xcccccc,
+			shininess: 0,
+			specular: 0xcccccc,
+			transparent: true,
+			alphaMap: alphaMap,   // 边缘渐隐
+			// side: THREE.DoubleSide,
+			side: THREE.FrontSide
+		});
+
+		// ================ Mesh设置 ================
+		const ground = new THREE.Mesh(circleGeometry, circleMaterial);
+		ground.rotation.x = -Math.PI / 2;
+		ground.position.set(0, -2, 0);
+		ground.receiveShadow = true;
+		ground.renderOrder = -1000;
+		ground.userData.ignorePick = true;
+		// this.scene.add(ground);
 
 		this.effectManager = new EffectManager(
 			this.scene,
@@ -325,19 +380,14 @@ class ThreeCore {
 					color: options.color ?? 0xffffff
 				})
 				const mesh = new THREE.Mesh(geometry, material)
-	
-				// 设置位置
-				if (options.position) {
-					mesh.position.set(
-						options.position.x,
-						options.position.y,
-						options.position.z
-					)
-				}
 				mesh.userData.type = '3Dtext'
+				mesh.userData.title = text
+				mesh.userData.url = fontUrl.replace(BASE_IMG, '')
+				mesh.userData.options = options
 				mesh.scale.y *= -1
 				mesh.userData.font = font
-				console.log('文本面', mesh)
+				mesh.receiveShadow = true
+				mesh.castShadow = true
 				resolve(mesh)
 			}, undefined, reject)
 		})
@@ -367,6 +417,293 @@ class ThreeCore {
 
 	removeBloomObject(obj: THREE.Object3D) {
 		obj.layers.disable(1)
+	}
+
+	// ================ 光影控制API ================
+	
+	/**
+	 * 设置环境光强度
+	 * @param intensity 强度值 0-2
+	 */
+	setAmbientLightIntensity(intensity: number) {
+		if (this.lights?.ambient) {
+			this.lights.ambient.intensity = Math.max(0, Math.min(2, intensity))
+		}
+	}
+
+	/**
+	 * 设置主光源强度和位置
+	 * @param intensity 强度值 0-3
+	 * @param position 可选位置
+	 */
+	setMainLightIntensity(intensity: number, position?: THREE.Vector3) {
+		if (this.lights?.directional) {
+			this.lights.directional.intensity = Math.max(0, Math.min(3, intensity))
+			if (position) {
+				this.lights.directional.position.copy(position)
+			}
+		}
+	}
+
+	/**
+	 * 设置镜头光强度
+	 * @param intensity 强度值 0-2
+	 */
+	setLensLightIntensity(intensity: number) {
+		if (this.lensLight) {
+			this.lensLight.intensity = Math.max(0, Math.min(2, intensity))
+		}
+	}
+
+	/**
+	 * 切换阴影质量
+	 * @param quality 'low' | 'medium' | 'high' | 'ultra'
+	 */
+	setShadowQuality(quality: 'low' | 'medium' | 'high' | 'ultra') {
+		const qualitySettings = {
+			low: { mapSize: 1024, bias: -0.002, normalBias: 0.1 },
+			medium: { mapSize: 2048, bias: -0.001, normalBias: 0.05 },
+			high: { mapSize: 4096, bias: -0.0005, normalBias: 0.02 },
+			ultra: { mapSize: 8192, bias: -0.0001, normalBias: 0.01 }
+		}
+
+		const settings = qualitySettings[quality]
+		
+		// 更新所有投射阴影的光源
+		if (this.lights?.directional) {
+			this.lights.directional.shadow.mapSize.width = settings.mapSize
+			this.lights.directional.shadow.mapSize.height = settings.mapSize
+			this.lights.directional.shadow.bias = settings.bias
+			this.lights.directional.shadow.normalBias = settings.normalBias
+		}
+
+		if (this.lensLight) {
+			this.lensLight.shadow.mapSize.width = Math.min(settings.mapSize, 2048)
+			this.lensLight.shadow.mapSize.height = Math.min(settings.mapSize, 2048)
+			this.lensLight.shadow.bias = settings.bias
+		}
+
+		if (this.lights?.spot) {
+			this.lights.spot.shadow.mapSize.width = Math.min(settings.mapSize, 2048)
+			this.lights.spot.shadow.mapSize.height = Math.min(settings.mapSize, 2048)
+			this.lights.spot.shadow.bias = settings.bias
+		}
+	}
+
+	/**
+	 * 设置色调映射参数
+	 * @param exposure 曝光值 0.1-3.0
+	 * @param toneMapping 色调映射类型
+	 */
+	setToneMapping(exposure: number, toneMapping?: THREE.ToneMapping) {
+		if (this.renderer instanceof THREE.WebGLRenderer) {
+			this.renderer.toneMappingExposure = Math.max(0.1, Math.min(3.0, exposure))
+			if (toneMapping !== undefined) {
+				this.renderer.toneMapping = toneMapping
+			}
+		}
+	}
+
+	/**
+	 * 获取光源信息
+	 */
+	getLightingInfo() {
+		return {
+			ambient: this.lights?.ambient.intensity || 0,
+			directional: this.lights?.directional.intensity || 0,
+			lens: this.lensLight?.intensity || 0,
+			toneMappingExposure: this.renderer instanceof THREE.WebGLRenderer ? this.renderer.toneMappingExposure : 1.0,
+			envMapIntensity: this.envMapIntensity
+		}
+	}
+
+	/**
+	 * 设置Bloom效果参数
+	 * @param strength 强度 0-3
+	 * @param radius 半径 0-1
+	 * @param threshold 阈值 0-2
+	 */
+	setBloomParams(strength: number, radius: number, threshold: number) {
+		if (this.bloomPass) {
+			this.bloomPass.strength = Math.max(0, Math.min(3, strength))
+			this.bloomPass.radius = Math.max(0, Math.min(1, radius))
+			this.bloomPass.threshold = Math.max(0, Math.min(2, threshold))
+		}
+	}
+
+	/**
+	 * 获取Bloom效果参数
+	 */
+	getBloomParams() {
+		if (this.bloomPass) {
+			return {
+				strength: this.bloomPass.strength,
+				radius: this.bloomPass.radius,
+				threshold: this.bloomPass.threshold,
+				enabled: this.showbloom
+			}
+		}
+		return null
+	}
+
+	/**
+	 * 切换Bloom效果开关
+	 * @param enabled 是否启用
+	 */
+	toggleBloom(enabled: boolean) {
+		this.showbloom = enabled
+	}
+
+	// ================ IBL环境光照 ================
+	
+	/**
+	 * 加载HDR环境贴图
+	 * @param url HDR文件路径
+	 * @param intensity 环境光强度 0-2
+	 */
+	async loadHDREnvironment(url: string, intensity: number = 1.0): Promise<void> {
+		const loader = new RGBELoader()
+		
+		return new Promise((resolve, reject) => {
+			loader.load(
+				url,
+				(texture) => {
+					texture.mapping = THREE.EquirectangularReflectionMapping
+					
+					// 设置为场景环境贴图
+					this.scene.environment = texture
+					this.scene.background = texture // 可选：作为背景
+					
+					this.envMap = texture
+					this.envMapIntensity = intensity
+					
+					// 更新所有材质的环境贴图
+					this.updateAllMaterialsEnvMap()
+					
+					console.log('HDR环境贴图加载成功')
+					resolve()
+				},
+				undefined,
+				(error) => {
+					console.error('HDR环境贴图加载失败:', error)
+					reject(error)
+				}
+			)
+		})
+	}
+
+	/**
+	 * 加载EXR环境贴图
+	 * @param url EXR文件路径
+	 * @param intensity 环境光强度
+	 */
+	async loadEXREnvironment(url: string, intensity: number = 1.0): Promise<void> {
+		const loader = new EXRLoader()
+		
+		return new Promise((resolve, reject) => {
+			loader.load(
+				url,
+				(texture) => {
+					texture.mapping = THREE.EquirectangularReflectionMapping
+					
+					this.scene.environment = texture
+					this.scene.background = texture
+					
+					this.envMap = texture
+					this.envMapIntensity = intensity
+					
+					this.updateAllMaterialsEnvMap()
+					
+					console.log('EXR环境贴图加载成功')
+					resolve()
+				},
+				undefined,
+				(error) => {
+					console.error('EXR环境贴图加载失败:', error)
+					reject(error)
+				}
+			)
+		})
+	}
+
+	/**
+	 * 设置立方体贴图环境
+	 * @param urls 6个面的贴图路径数组 [px, nx, py, ny, pz, nz]
+	 * @param intensity 环境光强度
+	 */
+	setCubeMapEnvironment(urls: string[], intensity: number = 1.0): void {
+		const loader = new THREE.CubeTextureLoader()
+		
+		const cubeTexture = loader.load(urls, () => {
+			this.scene.environment = cubeTexture
+			this.scene.background = cubeTexture
+			
+			this.envMap = cubeTexture
+			this.envMapIntensity = intensity
+			
+			this.updateAllMaterialsEnvMap()
+			
+			console.log('立方体环境贴图设置成功')
+		})
+	}
+
+	/**
+	 * 设置环境贴图强度
+	 * @param intensity 强度值 0-3
+	 */
+	setEnvironmentIntensity(intensity: number): void {
+		this.envMapIntensity = Math.max(0, Math.min(3, intensity))
+		this.updateAllMaterialsEnvMap()
+	}
+
+	/**
+	 * 更新所有材质的环境贴图设置
+	 */
+	private updateAllMaterialsEnvMap(): void {
+		this.scene.traverse((object) => {
+			if (object instanceof THREE.Mesh) {
+				if (Array.isArray(object.material)) {
+					object.material.forEach(material => {
+						this.updateMaterialEnvMap(material)
+					})
+				} else {
+					this.updateMaterialEnvMap(object.material)
+				}
+			}
+		})
+	}
+
+	/**
+	 * 更新单个材质的环境贴图
+	 */
+	private updateMaterialEnvMap(material: THREE.Material): void {
+		if (material instanceof THREE.MeshStandardMaterial) {
+			material.envMap = this.envMap || null
+			material.envMapIntensity = this.envMapIntensity
+			material.needsUpdate = true
+		} else if (material instanceof THREE.MeshPhysicalMaterial) {
+			material.envMap = this.envMap || null
+			material.envMapIntensity = this.envMapIntensity
+			material.needsUpdate = true
+		} else if (material instanceof THREE.MeshLambertMaterial || 
+				   material instanceof THREE.MeshPhongMaterial) {
+			material.envMap = this.envMap || null
+			material.needsUpdate = true
+		}
+	}
+
+	/**
+	 * 移除环境贴图
+	 */
+	removeEnvironmentMap(): void {
+		this.scene.environment = null
+		this.scene.background = null
+		this.envMap = undefined
+		this.envMapIntensity = 1.0
+		
+		this.updateAllMaterialsEnvMap()
+		
+		console.log('环境贴图已移除')
 	}
 
 	private initBloom() {
@@ -526,7 +863,6 @@ class ThreeCore {
 		if (this.loadedTextures.has(url)) {
 			// biome-ignore lint/style/noNonNullAssertion: <explanation>
 			const existing = this.loadedTextures.get(url)!
-			console.log('走了克隆2')
 			const cloned = existing.clone()
 			cloned.needsUpdate = true
 			return cloned
@@ -537,7 +873,6 @@ class ThreeCore {
 			// biome-ignore lint/style/noNonNullAssertion: <explanation>
 			return this.loadingTextures.get(url)!.then(existing => {
 				const cloned = existing.clone()
-				console.log('走了克隆1')
 				cloned.needsUpdate = true
 				return cloned
 			})
@@ -638,7 +973,7 @@ class ThreeCore {
 	}
 	public async loadModel(
 		url: string,
-		options = {
+		options: any = {
 			useDracoLoader: false,
 			dracoDecoderPath: 'jsm/libs/draco/gltf/'
 		}
@@ -668,6 +1003,55 @@ class ThreeCore {
 						model.userData.effect = []
 						model.userData.useDracoLoader = options.useDracoLoader
 						// this.scene.add(model);
+						// 配置阴影和光照
+						model.traverse(child => {
+							if (child instanceof THREE.Mesh) {
+								child.castShadow = true
+								child.receiveShadow = true
+								
+								// 确保材质支持阴影和环境贴图
+								if (child.material) {
+									if (Array.isArray(child.material)) {
+										// biome-ignore lint/complexity/noForEach: <explanation>
+										child.material.forEach(mat => {
+											if (mat instanceof THREE.MeshStandardMaterial || 
+												mat instanceof THREE.MeshPhongMaterial || 
+												mat instanceof THREE.MeshLambertMaterial) {
+												mat.needsUpdate = true
+												// 应用环境贴图
+												this.updateMaterialEnvMap(mat)
+											}
+										})
+									} else {
+										if (child.material instanceof THREE.MeshStandardMaterial || 
+											child.material instanceof THREE.MeshPhongMaterial || 
+											child.material instanceof THREE.MeshLambertMaterial) {
+											child.material.needsUpdate = true
+											// 应用环境贴图
+											this.updateMaterialEnvMap(child.material)
+										}
+									}
+									if (options.material && child.name === options.material[child.name]) {
+										if (options.material.color) {
+											child.material.color = new THREE.Color(options.material.color)
+										}
+										if (options.material.metalness) {
+											child.material.metalness = options.material.metalness
+										}
+										if (options.material.roughness) {
+											child.material.roughness = options.material.roughness
+										}
+										if (options.material.clearcoat) {
+											child.material.clearcoat = options.material.clearcoat
+										}
+										if (options.material.clearcoatRoughness) {
+											child.material.clearcoatRoughness = options.material.clearcoatRoughness
+										}
+										child.material.needsUpdate = true
+									}
+								}
+							}
+						})
 						this.loadedModelURLs.add(url)
 						this.loadedModels.push(model.clone(true))
 
@@ -714,6 +1098,7 @@ class ThreeCore {
 			antialias: this.options.antialias,
 			alpha: this.options.alpha
 		})
+		this.renderer.debug.checkShaderErrors = true; 
 		this.rendererGPU = new WebGPURenderer({
 			antialias: true
 			// device: navigator.gpu?.requestAdapter()?.requestDevice() // 可选手动设置 device
@@ -732,17 +1117,25 @@ class ThreeCore {
 			: window.innerHeight
 		this.renderer.setSize(width, height)
 
+		// 启用物理正确的光照
 		this.renderer.physicallyCorrectLights = true
-		this.renderer.shadowMap.enabled = true
-		this.renderer.shadowMap.type = THREE.PCFSoftShadowMap
+		
+		// 色彩空间设置
 		this.renderer.outputColorSpace = THREE.SRGBColorSpace
-
-		this.renderer.setClearColor(0x000000, 0) // 背景透明
 		this.renderer.toneMapping = THREE.ACESFilmicToneMapping
-		this.renderer.toneMappingExposure = 1.2 // 可调
+		this.renderer.toneMappingExposure = 1.0
+		
+		// 高质量阴影设置 - 关键配置来避免阴影条纹
+		this.renderer.shadowMap.enabled = true
+		// this.renderer.shadowMap.type = THREE.PCFSoftShadowMap // 使用软阴影
+		this.renderer.shadowMap.type = THREE.VSMShadowMap;
+		this.renderer.shadowMap.autoUpdate = true
+		
+		// 背景设置
+		this.renderer.setClearColor(0x000000, 0) // 背景透明
 
 		this.rendererGPU.setSize(width, height)
-
+		console.log(this.renderer, '渲染器=======')
 		// this.container.appendChild(this.rendererGPU.domElement);
 	}
 	initOrbitControls() {
@@ -862,56 +1255,166 @@ class ThreeCore {
 	}
 
 	initLights() {
-		// 环境光（基础照明，避免纯黑区域）
-		const ambientLight = new THREE.AmbientLight(0xffffff, 0.9)
+		// ================ 环境光设置 ================
+		// 基础环境光 - 为了避免完全黑暗的区域
+		const ambientLight = new THREE.AmbientLight(0xffffff, 0.8)
 		this.scene.add(ambientLight)
 
-		// 主方向光（模拟太阳光，带阴影）
-		const dirLight = new THREE.DirectionalLight(0xffffff, 1.8)
-		dirLight.position.set(10, 20, 15) // 高处斜向照射
+		// 半球光 - 模拟天空散射和地面反射
+		const hemiLight = new THREE.HemisphereLight(
+			0x87CEEB, // 天空颜色 - 淡蓝色
+			0x2F4F4F, // 地面颜色 - 暗灰色
+			0.6
+		)
+		hemiLight.position.set(0, 50, 0)
+		this.scene.add(hemiLight)
+
+		// ================ 主要方向光（太阳光） ================
+		const dirLight = new THREE.DirectionalLight(0xFFEECC, 1.8)
+		dirLight.position.set(50, 50, 30)
 		dirLight.castShadow = true
-		dirLight.shadow.mapSize.width = 2048
+		
+		// 高质量阴影配置 - 解决阴影条纹问题
+		dirLight.shadow.mapSize.width = 2048  // 提高阴影贴图分辨率
 		dirLight.shadow.mapSize.height = 2048
-		dirLight.shadow.camera.near = 0.5
-		dirLight.shadow.camera.far = 50
-		dirLight.shadow.camera.left = -15
-		dirLight.shadow.camera.right = 15
-		dirLight.shadow.camera.top = 15
-		dirLight.shadow.camera.bottom = -15
-		dirLight.shadow.bias = -0.0001
+		dirLight.shadow.camera.near = 0.1
+		dirLight.shadow.camera.far = 200
+		dirLight.shadow.camera.left = -80
+		dirLight.shadow.camera.right = 80
+		dirLight.shadow.camera.top = 80
+		dirLight.shadow.camera.bottom = -80
+		console.log(dirLight, 'dirLight.shadow')
+		// 关键：减少阴影条纹的bias设置
+		dirLight.shadow.bias = -0.001
+		dirLight.shadow.normalBias = 0.02
+		dirLight.shadow.radius = 10  // 软阴影
+		dirLight.shadow.blurSamples = 20
+		
 		this.scene.add(dirLight)
 
-		// 补光（柔和散射，填补阴影区域）
-		const fillLight = new THREE.DirectionalLight(0xffffff, 0.9)
-		fillLight.position.set(-5, 5, -5)
+
+		// const dirLight = new THREE.DirectionalLight( 0xffffff, 2.6 );
+		// dirLight.position.set( 3, 12, 17 );
+		// dirLight.castShadow = true;
+		// dirLight.shadow.camera.near = 0.1;
+		// dirLight.shadow.camera.far = 200;
+		// dirLight.shadow.camera.right = 10;	
+		// dirLight.shadow.camera.left = - 10;
+		// dirLight.shadow.camera.top	= 10;
+		// dirLight.shadow.camera.bottom = - 10;
+		// dirLight.shadow.mapSize.width = 1024;
+		// dirLight.shadow.mapSize.height = 1024;
+		// dirLight.shadow.radius = 20;
+		// dirLight.shadow.bias = - 0.001;
+		// dirLight.shadow.normalBias = 0.02;
+		// dirLight.shadow.blurSamples = 25
+		// this.scene.add(dirLight)
+		// console.log(dirLight, 'dirLight.shadow')
+
+		// ================ 补光设置 ================
+		// 柔和补光 - 填补阴影区域
+		const fillLight = new THREE.DirectionalLight(0xffffff, 0.4)
+		fillLight.position.set(-30, 20, -30)
 		fillLight.castShadow = false
 		this.scene.add(fillLight)
 
-		// 半球光（环境氛围，模拟天空与地面反射）
-		const hemiLight = new THREE.HemisphereLight(0xe0e0ff, 0xffffff, 0.9)
-		hemiLight.position.set(0, 20, 0)
-		this.scene.add(hemiLight)
+		// 背景补光 - 从背景补充光线
+		const backLight = new THREE.DirectionalLight(0xe0e0ff, 0.3)
+		backLight.position.set(0, 10, -50)
+		backLight.castShadow = false
+		this.scene.add(backLight)
 
-		// 聚光灯（突出焦点物体，可以选加）
-		const spotLight = new THREE.SpotLight(
-			0xffffff,
-			0.7,
-			100,
-			Math.PI / 8,
-			0.3,
-			1
-		)
-		spotLight.position.set(15, 20, 10)
-		spotLight.target.position.set(0, 0, 0)
-		spotLight.castShadow = true
-		spotLight.shadow.mapSize.width = 2048
-		spotLight.shadow.mapSize.height = 2048
+		// ================ 镜头光（跟随相机） ================
+		const lensLight = new THREE.PointLight(0xffffff, 0.8, 100)
+		lensLight.position.copy(this.camera.position)
+		lensLight.castShadow = true
+		
+		// 镜头光阴影配置
+		lensLight.shadow.mapSize.width = 1024
+		lensLight.shadow.mapSize.height = 1024
+		lensLight.shadow.camera.near = 0.1
+		lensLight.shadow.camera.far = 100
+		lensLight.shadow.bias = -0.0005
+		lensLight.shadow.radius = 20
+		lensLight.shadow.blurSamples = 20
+		
+		this.scene.add(lensLight)
+		
+		// 将镜头光存储为实例变量，以便在相机移动时更新
+		this.lensLight = lensLight
+
+		// ================ 聚光灯（焦点照明） ================
+		// const spotLight = new THREE.SpotLight(
+		// 	0xffffff,
+		// 	1.0,
+		// 	200,
+		// 	Math.PI / 6,
+		// 	0.25,
+		// 	2
+		// )
+		// spotLight.position.set(-40, 60, 20)
+		// spotLight.target.position.set(0, 0, 0)
+		// spotLight.castShadow = true
+		
+		// // 聚光灯高质量阴影
+		// spotLight.shadow.mapSize.width = 2048
+		// spotLight.shadow.mapSize.height = 2048
+		// spotLight.shadow.camera.near = 10
+		// spotLight.shadow.camera.far = 200
+		// spotLight.shadow.bias = -0.0005
+		// spotLight.shadow.radius = 10
+		// spotLight.shadow.blurSamples = 10
+		const spotLight = new THREE.SpotLight( 0xffffff, 2000 );
+		spotLight.angle = Math.PI / 5;
+		spotLight.penumbra = 0.3;
+		spotLight.position.set( -20, 30, 30 );
+		spotLight.castShadow = true;
+		spotLight.shadow.camera.near = 10;
+		spotLight.shadow.camera.far = 200;
+		spotLight.shadow.mapSize.width = 1024;
+		spotLight.shadow.mapSize.height = 1024;
+		spotLight.shadow.bias = - 0.002;
+		spotLight.shadow.radius = 5;
+	
+		console.log(spotLight, 'spotLight.shadow')
 		this.scene.add(spotLight)
 		this.scene.add(spotLight.target)
 
-		// 可视化调试光源范围（调试时可启用）
-		const helper = new THREE.CameraHelper(dirLight.shadow.camera)
-		this.scene.add(helper)
+		// ================ 边缘光（轮廓照明） ================
+		const rimLight = new THREE.DirectionalLight(0xffffff, 0.6)
+		rimLight.position.set(-20, 5, 20)
+		rimLight.castShadow = false
+		this.scene.add(rimLight)
+
+		// ================ 调试helpers（开发时可启用） ================
+		if (this.editMode) {
+			// 方向光阴影相机helper
+			const dirLightHelper = new THREE.CameraHelper(dirLight.shadow.camera)
+			dirLightHelper.visible = false // 默认隐藏
+			this.scene.add(dirLightHelper)
+			
+			// 方向光helper
+			const dirLightVisHelper = new THREE.DirectionalLightHelper(dirLight, 5)
+			dirLightVisHelper.visible = false // 默认隐藏  
+			this.scene.add(dirLightVisHelper)
+			
+			// 聚光灯helper
+			const spotLightHelper = new THREE.SpotLightHelper(spotLight)
+			spotLightHelper.visible = true // 默认隐藏
+			this.scene.add(spotLightHelper)
+		}
+
+		// 存储光源引用以便后续控制
+		this.lights = {
+			ambient: ambientLight,
+			hemisphere: hemiLight,
+			directional: dirLight,
+			fill: fillLight,
+			back: backLight,
+			lens: lensLight,
+			spot: spotLight,
+			rim: rimLight
+		}
 	}
 
 	addAnimationCallback(callback: () => void) {
@@ -1166,6 +1669,13 @@ class ThreeCore {
 			if (this.controls) {
 				this.controls.update()
 			}
+			
+			// 更新镜头光位置跟随相机
+			if (this.lensLight && this.camera) {
+				// 让镜头光稍微偏离相机位置，避免直射
+				const offset = new THREE.Vector3(2, 1, 2)
+				this.lensLight.position.copy(this.camera.position).add(offset)
+			}
 			// if (this.transformControls) {
 			// 	this.transformControls.updateMatrixWorld(); // 自定义控制器更新
 			// }
@@ -1220,6 +1730,7 @@ class ThreeCore {
 			if (this.addAnimationFunc) {
 				this.addAnimationFunc()
 			}
+			updateGrid(grid, this.camera);
 
 			// 更新 Tween.js（传入毫秒时间戳）
 			TWEEN.update(time || performance.now())
@@ -1455,11 +1966,15 @@ class ThreeCore {
 					if (obj.userData.type === 'model') {
 						return 'model'
 					}
+					if (obj.userData.type === '3Dtext') {
+						return '3Dtext'
+					}
 					return 'image'
 				}
 				if (obj.userData.type === 'effect') {
 					return 'effect'
 				}
+				
 				if (obj.userData.type && obj.userData.type === 'template') {
 					return 'template'
 				}
@@ -1570,6 +2085,11 @@ class ThreeCore {
 			if (typeGuess === 'diary') {
 				jsonObj.title = obj.userData.title
 				jsonObj.content = obj.userData.content
+			}
+			if (typeGuess === '3Dtext') {
+				jsonObj.title = obj.userData.title
+				jsonObj.url = obj.userData.url
+				jsonObj.options = obj.userData.options
 			}
 			if (typeGuess === 'library') {
 				jsonObj.title = obj.userData.title
@@ -1819,6 +2339,10 @@ class ThreeCore {
 				} catch (e) {
 					console.warn(`模型加载失败：${obj.url}`, e)
 				}
+			}
+			if (obj.type === '3Dtext' && obj.url) {
+				mesh = await this.addTextToScene(BASE_IMG + obj.url, obj.title || '', obj.options || {})
+				console.log('mesh字体', obj.title, obj.url)
 			}
 
 			if (obj.type === 'effect' && obj.effect_name) {

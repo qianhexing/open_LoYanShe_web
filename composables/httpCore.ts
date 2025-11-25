@@ -4,8 +4,8 @@
  * 提供了自定义的 HTTP 请求方法，例如 `use$Get`，同时给出了一个获取动态内容的请求示例 `GetFeeds`。
  */
 import { $fetch } from 'ofetch'
-const baseURL = 'http://localhost:3002'
-// const baseURL = 'https://lolitalibrary.com/node/'
+// const baseURL = 'http://localhost:3002'  
+const baseURL = 'https://lolitalibrary.com/node/'
 interface RequestOptions {
   [key: string]: any;
 }
@@ -22,7 +22,9 @@ function handleRequest(options: RequestOptions) {
   
   let token = null as null | string
   if (typeof window !== 'undefined' && useUserStore) {
-    const userStore = storeToRefs(useUserStore()) 
+    const toast = useToast()
+    
+    const userStore = storeToRefs(useUserStore())
     token = userStore.token.value
   }
   const isFormData = options.data instanceof FormData
@@ -43,7 +45,7 @@ async function handleResponse<T>(response: any): Promise<T> {
     if (response.code === 401) {
       if (typeof window !== 'undefined' && useUserStore) {
         const userStore = useUserStore()
-        // userStore.clearToken()
+        // userStore.clearUserInfo()
       }
     }
     toast.add({

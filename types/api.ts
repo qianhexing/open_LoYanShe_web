@@ -58,6 +58,10 @@ export interface Config {
   phone_code: Array<{
     value: number;
     label: string;
+    children: Array<{
+      value: number;
+      label: string;
+    }>;
     // 如果有更多字段可以在这里添加
   }>;
   reply_addr: Array<{ label: string; value: string }>;
@@ -68,6 +72,7 @@ export interface Config {
   study_type: Array<{ type: number; value: string }>;
   user: Record<string, unknown>; // 或者定义更具体的用户接口
   wiki_type: Array<{ value: number; label: string }>;
+  pipe_state: Array<{ label: string; value: number, color: string }>;
 }
 
 /** 配置类型 */
@@ -127,8 +132,13 @@ export interface Shop {
 }
 
 export interface Wiki {
-  wiki_id: number
+  wiki_id: number | string
   wiki_name: string
+  type_id?: string
+}
+export interface WikiType {
+  wiki_type_id: number
+  wiki_type_name: string
 }
 export interface FilterList {
   field: string
@@ -142,6 +152,7 @@ export interface Library {
   name: string
   cover: string
   shop?: Shop
+  state?: string
   shop_id?: number
   library_type?: string
   theme?: string;
@@ -162,6 +173,17 @@ export interface Library {
   is_good?: boolean
   library_price?: number
   shop_country?: number
+  quality_test?: string;
+  parent?: Library;
+  style_list?: Wiki[];
+  start_time?: string;
+  end_time?: string;
+  arrears_start?: string;
+  arrears_end?: string;
+  season?: string
+  link?: string;
+  parent_id?: number;
+  detail_image?: string;
 }
 /** 衣柜 */
 export interface Wardrobe {
@@ -426,4 +448,39 @@ export interface FileInterface {
   file_type: number
   file_md5: string
   create_time: Date
+}
+
+export interface LibraryPipe {
+  pipe_id: number
+  pk_id?: number
+  create_time: Date
+  start_time?: string
+  end_time?: string
+  library_list?: Library[]
+  is_enable?: number
+  state?: number
+  user_id?: number
+  note?: string
+  url_list?: Array<Record<string, unknown>>
+  pk_type?: number
+  change_log?: Array<Record<string, unknown>>
+  library?: Library
+}
+
+export interface BrowTime {
+  times_id: number
+  id: string | number
+  type: string
+  data: string
+  count_times: number
+}
+export interface DisplayCabinet {
+  cabinet_id?: number
+  pk_id?: number
+  pk_type?: number
+  user_id?: number
+  wardrobe_id?: number
+  update_time?: string
+  wardrobe?: Wardrobe
+  wardrobe_clothes?: WardrobeClothes[]
 }

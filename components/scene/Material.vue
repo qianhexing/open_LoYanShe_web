@@ -7,11 +7,15 @@ import type * as THREE from 'three'
 const imagePicker = ref<InstanceType<typeof QhxImagePicker> | null>(null)
 const show = ref(false)
 const diary = ref(false)
+const textShow = ref(false)
 const clickPosition = ref({ x: 0, y: 0 })
 const imageType = ref(0) // 0是添加图片 1是添加背景
 const diaryForm = reactive({
   title: '',
   content: '',
+})
+const textForm = reactive({
+  title: '',
 })
 interface Props {
   className?: string,
@@ -53,7 +57,11 @@ const saveScene = () => {
   emit('saveScene')
 }
 const addText = () => {
-  emit('addText')
+  textShow.value = true
+  if (textForm.title) {
+    emit('addText', textForm.title)
+    textForm.title = ''
+  }
 }
 
 const emitDiary = () => {
@@ -130,6 +138,25 @@ defineExpose({
       </UButton>
     </div>
   </QhxModal>
+  <QhxModal v-model="textShow" :trigger-position="clickPosition">
+    <div class="p-6 w-[400px] bg-white rounded-[10px] max-h-[50vh] overflow-y-auto">
+      <UInput v-model="textForm.title" :placeholder="'文本内容'" class="flex-1 focus:ring-0" :ui="{
+        base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
+        rounded: 'rounded-[10px]',
+        padding: { xs: 'px-4 py-2' },
+        color: {
+          white: {
+            outline: 'bg-gray-50 dark:bg-gray-800 ring-1 ring-gray-300 dark:ring-gray-600 focus:ring-2 focus:ring-qhx-primary'
+          }
+        }
+      }" />
+      <div class="text-sm text-gray-500 mt-2">3D文本不会换行，需要换行请使用添加多个文本</div>
+      <UButton type="submit" block class="bg-qhx-primary text-qhx-inverted hover:bg-qhx-primaryHover mt-6"
+        @click="addText()">
+        添加
+      </UButton>
+    </div>
+  </QhxModal>
   <div class="w-full fixed transition-all duration-300 bottom-0 left-0 z-20 h-[500px] md:h-full md:w-[500px]  bg-qhx-bg"
     :class="show ? '' : 'bottom-[-500px] md:bottom-[0px] md:left-[-500px]'">
     <div class="fun-head h-[60px] border-b flex">
@@ -188,7 +215,7 @@ defineExpose({
           <div class="h-[60px] text-center px-1  cursor-pointer">
             <div
               class=" m-[5px] mx-auto text-white rounded-[50%] h-[30px] w-[30px] bg-qhx-primary flex items-center justify-center"
-              @click="addText()" style="font-size: 22px">
+              @click="textShow = true" style="font-size: 22px">
               <UIcon name="icon-park-outline:add-text" class="text-[22px] text-[#ffffff]" />
             </div>
             <div  class=" text-sm">文本</div>
