@@ -71,7 +71,7 @@ const defaultThemes = {
       card: "#FFFFFF",        // 纯白（卡片底色，带轻微阴影）
   
       // 文字（深色但柔和）
-      text: "#5A3D4F",         // 紫灰色（主要文字）
+      text: "#000000",         // 紫灰色（主要文字）
       textSecondary: "#9B8A97",// 灰粉紫（次要文字）
       textBg: "#212121",// 主背景颜色
       textInverted: "#FFFFFF", // 白色（深色背景上的文字）
@@ -87,9 +87,45 @@ const defaultThemes = {
       border: "#FFD1DC",       // 浅粉边框
       divider: "#FFE5EE"       // 极浅粉分割线
     }
+  },
+  dark: {
+    name: 'dark',
+    label: 'Dark',
+    colors: {
+      primary: "#FF9EB5",       // 樱花粉（主按钮、重点）
+      primaryHover: "#FFB3C6",  // 浅粉悬停
+      primaryActive: "#FF85A2", // 深粉点击
+      inverted: "#ffffff",       // 樱花粉（主按钮、重点）
+  
+      // 辅助色（柔和糖果色）
+      secondary: "#A5D8FF",     // 淡蓝（次要按钮）
+      accent: "#B5EAD7",       // 薄荷绿（高亮、标签）
+      tertiary: "#FFDAC1",     // 蜜桃橙（点缀）
+  
+      // 背景与卡片（奶白色/浅灰粉）
+      background: "#000000",   
+      surface: "#000000", 
+      card: "#000000",
+  
+      // 文字（深色但柔和）
+      text: "#ffffff",         // 紫色（主要文字）
+      textSecondary: "#9B8A97",// 灰粉紫（次要文字）
+      textBg: "#212121",// 主背景颜色
+      textInverted: "#000000", // 白色（深色背景上的文字）
+      textSeat: "#000000", // 白色（深色背景上的文字）
+      textBan: "#000000", // 白色（深色背景上的文字）
+      // 状态色（柔和版本）
+      success: "#B5EAD7",      // 薄荷绿（成功）
+      warning: "#FFD700",      // 浅金黄（警告）
+      error: "#df2343",        // 粉红色（错误）
+      info: "#A5D8FF",         // 淡蓝（信息）
+  
+      // 边框与分割线
+      border: "#FFD1DC",       // 浅粉边框
+      divider: "#FFE5EE"       // 极浅粉分割线
+    }
   }
 }
-
 export const useThemeStore = defineStore('theme', {
   state: (): ThemeState => ({
     currentTheme: 'light',

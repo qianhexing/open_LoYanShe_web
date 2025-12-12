@@ -1,9 +1,13 @@
 
 <script setup lang="ts">
+import { getUserMy } from '~/api/user'
+
 const themeStore = useThemeStore()
 const userStore = useUserStore()
 const configStore = useConfigStore()
 const layoutReady = ref(false)
+const HarmonyOS = ref<string | null>(null)
+const isFromMobie = ref(false)
 provide('layoutReady', layoutReady)
 const times = ref(1)
 const isHome = ref(false)
@@ -15,9 +19,13 @@ const jumpToLoyanshe = () => {
     times.value += 1
   }
 }
+
 const layout_style = ref(0) // 0是带上下栏的 1 是空白页面
 const blank_list = ['scene/detail', 'wardrobe/detail', 'register', 'lighting-debug', 'timepipe']
 const route = useRoute()
+if (route.query?.token) {
+  useUserStore().setToken(route.query.token.toString())
+}
 console.log(route.path, '初始路由地址')
 const judgeIsHome = () => {
   console.log('当前路由', route.path)
@@ -54,9 +62,17 @@ const handleInit = (event: MessageEvent) => {
   if (event.data === "__init_port__") {
     const [port] = event.ports
     configStore.setPort(port)
+    isFromMobie.value = true
     // 监听应用发来的消息
     port.onmessage = (e) => {
-      console.log(e.data, "收到应用消息")
+      const message = JSON.parse(e.data)
+      if (message.type === 'setTheme') {
+        if (message.data === 1) { 
+          themeStore.setTheme('dark')
+        } else {
+          themeStore.setTheme('light')
+        }
+      }
     }
   }
 }
@@ -65,6 +81,10 @@ onMounted(async () => {
   if (process.client && typeof window !== 'undefined' && window.localStorage) {
     console.log(route.query, '路由参数')
     if (route.query.token) {
+      await getUserMy().then((res) => {
+        console.log(res, '用户信息')
+        useUserStore().setUserInfo(res)
+      })
     } else {
       console.log('加载用户信息')
       await userStore.initialize()
@@ -90,8 +110,13 @@ onBeforeUnmount(() => {
 <template>
   <div class="min-h-screen background transition-colors duration-300">
     <UNotifications position="top-0 right-0" />
-    <Header v-show="layout_style === 0" />
-    <main :class="layout_style === 0 ? 'container mx-auto pb-4  pt-16 min-h-screen' : ''">
+    <Header v-show="layout_style === 0 && !isFromMobie" />
+    <div v-if="HarmonyOS" class="w-full h-full absolute top-0 left-0 z-50 bg-white/80 dark:bg-gray-900/80 backdrop-blur-sm border-t border-gray-200 dark:border-gray-700 left-0 bottom-0 w-full z-50">
+      <div class="container mx-auto px-4 py-6">
+        <p>鸿蒙消息：{{ HarmonyOS }}</p>
+      </div>
+    </div>
+    <main :class="layout_style === 0 && !isFromMobie ? 'container mx-auto pb-4  pt-16 min-h-screen' : ''">
       <slot />
     </main>
     <!-- <KeepAlive :include="cachedPages" :max="5">
@@ -104,7 +129,7 @@ onBeforeUnmount(() => {
       <slot name="screen"/>
     </main> -->
     <!-- Footer -->
-    <footer v-show="layout_style === 0" class="bg-white/80 dark:bg-gray-900/80 backdrop-blur-sm border-t border-gray-200 dark:border-gray-700 mt-8 left-0 bottom-0 w-full z-50" :class="isHome ? 'fixed' : ''">
+    <footer v-show="layout_style === 0 && !isFromMobie"" class="bg-white/80 dark:bg-gray-900/80 backdrop-blur-sm border-t border-gray-200 dark:border-gray-700 mt-8 left-0 bottom-0 w-full z-50" :class="isHome ? 'fixed' : ''">
       <div class="container mx-auto px-4 py-6">
         <!-- 备案信息 -->
         <div class="flex justify-center items-center mb-4">

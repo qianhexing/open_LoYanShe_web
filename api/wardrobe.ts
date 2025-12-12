@@ -78,3 +78,26 @@ export async function updateClothes(
   const response = await use$Post<BaseResponse<WardrobeClothes>>('/clothes/update', params);
   return response.data;
 }
+
+export async function insertWardrobe(
+  params: Wardrobe
+): Promise<Wardrobe> {
+  const response = await use$Post<BaseResponse<Wardrobe>>('/wardrobe/insert', params);
+  return response.data;
+}
+
+export async function updateWardrobe(
+  params: Wardrobe
+): Promise<Wardrobe> {
+  const response = await use$Post<BaseResponse<Wardrobe>>('/wardrobe/update', params);
+  return response.data;
+}
+
+export async function getClothesDetail(
+  params: {
+    clothes_id: number
+  }
+): Promise<WardrobeClothes> {
+  const response = await use$Post<BaseResponse<WardrobeClothes>>('/clothes/id', params);
+  return response.data;
+}

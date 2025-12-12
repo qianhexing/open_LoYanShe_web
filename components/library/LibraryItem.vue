@@ -16,6 +16,7 @@ const props = withDefaults(defineProps<Props>(), {
   size: 'big',
   needJump: true
 })
+const port = computed(() => configStore.getPort())
 // 响应式变量
 const size = toRef(props, 'size')
 const { needShop, needJump } = props
@@ -45,9 +46,20 @@ const handleJump = (id: number) => {
 			}
 		});
 	} else {
-		// 普通网页环境
-		// window.location.href = `https://lolitalibrary.com/library/detail/${item.library_id}`;
-    window.open(`/library/detail/${id}`, '_blank')
+    if (port.value) {
+      // 鸿蒙系统
+      port.value.postMessage(JSON.stringify({
+        type: 'jump',
+        path: 'LibraryDetail',
+        params: {
+          id: item.library_id
+        }
+      }));
+    } else {
+      // 普通网页环境
+      // window.location.href = `https://lolitalibrary.com/library/detail/${item.library_id}`;
+      window.open(`/library/detail/${id}`, '_blank')
+    }
 	}
   // navigateTo(`/library/detail/${id}`)
   

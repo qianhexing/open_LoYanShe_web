@@ -1,6 +1,6 @@
 <template>
   <div class="container mx-auto min-h-screen timepipe-wrapper">
-    <QhxTabs :tabs="['上新日历', '图表版总览', '实体店', '手作娘','出物']" :need_swipe="false" @change="onChangeTab">
+    <QhxTabs sticky :sticky_offset="0" :tabs="['上新日历', '图表版总览', '实体店', '手作娘','出物']" :need_swipe="false" @change="onChangeTab">
       <QhxTabPanel :index="0">
         <template #default="{ isActive }">
           <div>
