@@ -187,14 +187,14 @@ export interface Library {
 }
 /** 衣柜 */
 export interface Wardrobe {
-  wardrobe_id: number
-  wardrobe_cover?: string
+  wardrobe_id?: number
+  wardrobe_cover?: string | null
   wardrobe_name?: string
-  user_id: number
+  user_id?: number
   is_private?: number
   wardrobe_desc?: string
   count_clothes?: number
-  create_date: Date
+  create_date?: Date
   is_enable?: number
   sort?: number
   show_price?: number
@@ -210,6 +210,8 @@ export interface Wardrobe {
 }
 /** 服饰 */
 export interface WardrobeClothes {
+  main_style_list?: { label: string; value: number }[]
+  include?: WardrobeClothes[]
   clothes_id: number
   wardrobe_id: number
   clothes_img: string
@@ -221,6 +223,7 @@ export interface WardrobeClothes {
   plan_id?: number
   wardrobe_status?: string
   detail_image?: string
+  detail_image_list?: string[]
   season?: string
   price?: number
   color?: string
@@ -344,6 +347,7 @@ export interface Community {
   comments?: Comment[]
   collect?: Collect
   community_hide?: CommunityHide
+  sence_id?: number
 }
 
 export interface User {

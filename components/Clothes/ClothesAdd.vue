@@ -300,14 +300,17 @@ const insert = async () => {
     console.log(wardrobeCoverRef.value.previewImages, '图片')
     try {
       const clothes_img = await fetchUpload(wardrobeCoverRef.value.previewImages[0])
+      
       params.clothes_img = clothes_img
     } catch (error) {
+      console.log(params, '传图失败')
       params.clothes_img = null
     }
+    console.log(params, '传图成功')
   } else {
     params.clothes_img = null
   }
-
+  console.log(params, '参数')
   if (detailImageRef.value && detailImageRef.value.previewImages.length > 0) {
     const detail_image = []
     for (let index = 0; index < detailImageRef.value.previewImages.length; index++) {
@@ -321,7 +324,7 @@ const insert = async () => {
     }
     params.detail_image = detail_image.join()
   } else {
-    params.clothes_img = null
+    params.detail_image = null
   }
   if (type.value === 0) {
       insertClothes(params)

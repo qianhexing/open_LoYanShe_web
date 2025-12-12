@@ -29,13 +29,19 @@ const password = ref<string>('')
 let oldList: { clothes_id: number; sort: number }[] = [];
 const record = ref<Wardrobe | null>(null)
 import type ClothesAdd from '@/components/Clothes/ClothesAdd.vue'
+import type WardrobeAddEdit from '@/components/Wardrobe/WardrobeAddEdit.vue'
 const addEditClothesRef = ref<InstanceType<typeof ClothesAdd> | null>(null)
 const toast = useToast()
 const filter_list =  ref({
   tags: [] as string[],
   wardrobe_status: [] as string[]
 }) 
-
+const addEditWardrobeRef = ref<InstanceType<typeof WardrobeAddEdit> | null>(null)
+const showAddWardrobe = () => {
+  if (addEditWardrobeRef.value) {
+    addEditWardrobeRef.value.showModel()
+  }
+}
 const fetchWardrobeList = async () => {
   const response = await getWardrobeList({
     user_id: Number.parseInt(id),
@@ -184,6 +190,7 @@ const onDragEnd = async () => {
     });
 
     if (changed.length > 0 && currentWardrobe.value) {
+      if (!currentWardrobe.value.wardrobe_id) return
       const params = {
         wardrobe_id: currentWardrobe.value?.wardrobe_id,
         sort: changed.map((item) => ({
@@ -291,10 +298,13 @@ useHead({
   ]
 
 })
+const enableDrag = () => {
+  sortMode.value = true
+}
 </script>
 <template>
 
-  <div class="">
+  <div class="wardrobe-wrap">
     <div v-if="isSorting" class="absolute inset-0 bg-white/50 flex z-10 items-center justify-center">
       <span class="text-gray-600">正在保存排序……</span>
     </div>
@@ -302,6 +312,7 @@ useHead({
       <span class="text-gray-600">加载中……</span>
     </div>
     <clothes-add ref="addEditClothesRef" @success="reloadWardrobe"></clothes-add>
+    <wardrobe-add-edit ref="addEditWardrobeRef" @success="fetchWardrobeList"></wardrobe-add-edit>
     <QhxModal @close="password = ''" v-model="showPassword" :trigger-position="clickPosition">
       <div class="p-6 w-[400px] bg-white rounded-[10px] max-h-[50vh] overflow-y-auto">
         <UInput v-model="password" :placeholder="'请输入密码'" class="flex-1 focus:ring-0" :ui="{
@@ -324,8 +335,21 @@ useHead({
 
     <div class="bg-qhx-bg-card rounded-2xl flex">
       <div
-        class=" wardrobe-list shadow-xl h-[calc(100vh-20px)] m-[10px] rounded-[10px] w-[180px] max-md:w-[100px] bg-gradient-to-b from-white to-gray-50 overflow-y-auto">
-        <Draggable :disabled="!sortMode" v-model="wardrobeList" item-key="id" animation="250" ghost-class="drag-ghost"
+        class=" wardrobe-list shadow-xl h-[calc(100vh-20px)] 
+        m-[10px] rounded-[10px] w-[180px] max-md:w-[20vw]
+        bg-qhx-bg-card
+        overflow-y-auto">
+        <div v-if="user.user?.user_id === Number.parseInt(id)" class="text-center py-2">
+          <QhxJellyButton>
+            <div class="h-[60px] text-center px-1  cursor-pointer" @click="showAddWardrobe()">
+              <div class="my-[5px] mx-auto text-white rounded-[50%] h-[30px] w-[30px] bg-qhx-primary flex items-center justify-center">
+                <UIcon name="material-symbols:add-2" class="text-[22px] text-[#ffffff]" />
+              </div>
+              <div class=" text-sm text-qhx-text">新建衣柜</div>
+            </div>
+          </QhxJellyButton>
+        </div>
+        <Draggable :delay="150" :disabled="!sortMode" v-model="wardrobeList" item-key="id" animation="250" ghost-class="drag-ghost"
           chosen-class="drag-chosen" drag-class="dragging">
           <template #item="{ element }">
             <transition-group tag="div" name="list">
@@ -334,9 +358,10 @@ useHead({
                 :class="currentWardrobe?.wardrobe_id === element.wardrobe_id ? 'bg-qhx-primary text-qhx-inverted' : ''">
                 <img :src="`https://lolitalibrary.com/ali/${element.wardrobe_cover || 'static/plan_cover/default.jpg'}`"
                   :alt="element.wardrobe_name"
-                  class="object-cover w-[120px] h-[120px] max-md:w-[70px] max-md:h-[70px] rounded-xl border border-gray-200 shadow-md bg-white cursor-grab active:cursor-grabbing"
+                  draggable="false"
+                  class="object-cover w-[120px] h-[120px] max-md:w-[50px] max-md:h-[50px] rounded-xl border border-gray-200 shadow-md bg-white cursor-grab active:cursor-grabbing"
                   loading="lazy" />
-                <div class="mt-2 text-sm font-medium text-center w-[120px] truncate">
+                <div class="mt-2 text-sm font-medium text-center w-[120px] max-md:w-[auto] text-qhx-text line-clamp-2">
                   {{ element.wardrobe_name }}
                 </div>
               </div>
@@ -393,14 +418,14 @@ useHead({
             </div>
           </div>
         </div>
-        <div class=" flex flex-wrap" v-if="user.user?.user_id === Number.parseInt(id)">
+        <div class=" flex flex-wrap sticky top-[10px] z-10" v-if="user.user?.user_id === Number.parseInt(id)">
           <QhxJellyButton>
             <div class="h-[60px] text-center px-1  cursor-pointer" @click="showAddClothes()">
               <div
                 class=" m-[5px] text-white rounded-[50%] h-[30px] w-[30px] flex items-center justify-center bg-qhx-primary" >
                 <UIcon name="material-symbols:add-2" class="text-[22px] text-[#ffffff]" />
               </div>
-              <div class=" text-sm">添加</div>
+              <div class=" text-sm text-qhx-text">添加</div>
             </div>
           </QhxJellyButton>
           <QhxJellyButton>
@@ -409,7 +434,7 @@ useHead({
                 class=" m-[5px] text-white rounded-[50%] h-[30px] w-[30px] flex items-center justify-center" :class="sortMode ? 'bg-qhx-primary' : 'bg-qhx-info'">
                 <UIcon name="icon-park-outline:sort-two" class="text-[22px] text-[#ffffff]" />
               </div>
-              <div class=" text-sm">排序</div>
+              <div class=" text-sm text-qhx-text">排序</div>
             </div>
           </QhxJellyButton>
         </div>
@@ -422,14 +447,14 @@ useHead({
           </QhxJellyButton>
         </div>
         <div class="w-full">
-          <Draggable :disabled="!sortMode" @start="onDragStart" @end="onDragEnd" v-model="list" item-key="id"
+          <Draggable :delay="150" :disabled="!sortMode" @start="onDragStart" @end="onDragEnd" v-model="list" item-key="id"
             animation="300" ghost-class="drag-ghost" chosen-class="drag-chosen" drag-class="dragging"
             class=" flex flex-wrap">
             <template #item="{ element }">
               <transition-group tag="div"
                 class="[@media(min-width:1920px)]:w-[calc(100%/10)] xl:w-1/6 md:w-1/4 max-md:w-1/3" name="list">
                 <div
-                  class="group flex flex-col items-center transition-transform duration-300 ease-out hover:scale-105 py-[10px] px-[15px] max-md:px-[5px]">
+                  class="group drag-handle flex flex-col items-center transition-transform duration-300 ease-out hover:scale-105 py-[10px] px-[15px] max-md:px-[5px]">
                   <div class="w-full aspect-[1/1] relative shadow-xl">
                     <div
                       class=" absolute bg-qhx-primary text-qhx-inverted left-0 top-0 text-[12px] rounded-tl-[10px] px-1 py-[2px]"
@@ -437,11 +462,12 @@ useHead({
                       {{ element.wardrobe_status }}
                     </div>
                     <img :src="`https://lolitalibrary.com/ali/${element.clothes_img}`"
+                      draggable="false"
                       class="object-cover w-full aspect-[1/1.5] max-md:aspect-[1/1] rounded-xl border border-gray-200 cursor-grab active:cursor-grabbing"
                       loading="lazy">
                     </img>
                   </div>
-                  <div class="mt-2 text-sm text-gray-600 font-medium text-center w-[140px] truncate">
+                  <div class="mt-2 text-sm text-qhx-text font-medium text-center w-[140px] truncate">
                     {{ element.clothes_note }}
                   </div>
                   <div v-if="element.price"
@@ -509,5 +535,11 @@ useHead({
 /* 滚动条滑块悬停状态 */
 .wardrobe-list::-webkit-scrollbar-thumb:hover {
   background: #ccc;
+}
+.wardrobe-wrap{
+  user-select: none;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
 }
 </style>

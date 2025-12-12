@@ -11,8 +11,9 @@ import type SceneTextureEditor from '@/components/scene/TextureEditor.vue'
 import { useSceneStore } from '@/stores/sence'
 import { uploadImage, createFont } from '~/api';
 const sceneStore = useSceneStore()
-const configStore = storeToRefs(useConfigStore())
-const { port } = configStore
+const configStore = useConfigStore()
+const config = computed(() => configStore.config)
+const port = computed(() => configStore.getPort())
 const showDiary = ref(false)
 let threeCore: qhxCore
 const theme = useThemeStore()
@@ -140,8 +141,19 @@ const handleClickLibrary = (item: LibraryInterface) => {
 			}
 		});
 	} else {
-		// 普通网页环境
-		window.location.href = `https://lolitalibrary.com/library/detail/${item.library_id}`;
+		if (port.value) {
+			// 鸿蒙系统
+			port.value.postMessage(JSON.stringify({
+				type: 'jump',
+				path: 'LibraryDetail',
+				params: {
+					id: item.library_id
+				}
+			}));
+		} else {	
+			// 普通网页环境
+			window.open(`/library/detail/${item.library_id}`, '_blank')
+		}
 	}
 }
 
@@ -393,8 +405,17 @@ const jumpToCommunity = (item: Community) => {
 			}
 		});
 	} else {
-		// 普通网页环境
-		window.location.href = `https://lolitalibrary.com/community/detail/${item.community_id}`;
+		if (port.value) {
+			// 鸿蒙系统
+			port.value.postMessage(JSON.stringify({
+				type: 'back',
+				path: 'CommunityDetail',
+				params: { reload: true, sence_id: item.sence_id }
+			}));
+		} else {
+			// 普通网页环境
+			window.open(`/community/detail/${item.community_id}`, '_blank')
+		}
 	}
 }
 const saveScene = () => {
@@ -421,7 +442,8 @@ const saveScene = () => {
 					mozallowfullscreen="true" webkitallowfullscreen="true" allow="autoplay; fullscreen; xr-spatial-tracking"
 					xr-spatial-tracking execution-while-out-of-viewport execution-while-not-rendered web-share
 					src="https://lolitalibrary.com/scene/detail/${res.sence_id}"> </iframe></p>`,
-					type: '3D'
+					type: '3D',
+					sence_id: res.sence_id
 				}
 				try {
 					const community = await insertCommunity(communityParams)
