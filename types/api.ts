@@ -129,16 +129,21 @@ export interface Shop {
   shop_url?: string
   shop_describe?: string
   black_count?: number
+  
 }
 
 export interface Wiki {
   wiki_id: number | string
   wiki_name: string
   type_id?: string
+  cover?: string
+  sort?: number
 }
 export interface WikiType {
   wiki_type_id: number
   wiki_type_name: string
+  wiki_secondary_type?: string
+  wiki_type?: string
 }
 export interface FilterList {
   field: string

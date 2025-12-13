@@ -22,7 +22,7 @@ export async function getWikiOptionsByKeywords (params: WikiSearchParams): Promi
 }
 // 获取wiki列表
 export async function getWikiList (params: WikiSearchParams): Promise<PaginationResponse<Wiki>> {
-  const response = await use$Get<BaseResponse<PaginationResponse<Wiki>>>('/wiki/list', params);
+  const response = await use$Post<BaseResponse<PaginationResponse<Wiki>>>('/wiki/list', params);
   return response.data;
 }
 // 新增wiki片段
@@ -48,7 +48,14 @@ export async function getWikiWikiList (params: WikiSearchParams): Promise<WikiRe
   const response = await use$Post<BaseResponse<WikiResponse>>('/wiki/wiki/list', params);
   return response.data;
 }
-
+export interface SortParams {
+  type_id: number
+  sort: { wiki_id: number, sort: number }[]
+}
+export async function sortWikiList (params: SortParams): Promise<boolean> {
+  const response = await use$Post<BaseResponse<boolean>>('/wiki/sort', params);
+  return response.data;
+}
 // // 新增wiki片段
 // export async function insertWikiSection (data: Wiki): Promise<Wiki> {
 //   return request({
