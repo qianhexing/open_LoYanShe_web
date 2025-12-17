@@ -1,8 +1,8 @@
 <template>
   <QhxModal :model-value="modelValue" @update:model-value="handleUpdate" @close="handleClose">
-    <div class="bg-white dark:bg-gray-800 rounded-2xl overflow-hidden max-w-4xl w-full max-h-[90vh] flex flex-col">
+    <div class="bg-white dark:bg-gray-800 rounded-2xl overflow-hidden max-w-4xl w-full h-[90vh] flex flex-col">
       <!-- 头部 -->
-      <div class="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-700">
+      <div class="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-700 z-10 bg-white dark:bg-gray-800">
         <h3 class="text-xl font-bold text-gray-800 dark:text-gray-100">生成分享图</h3>
         <button
           @click="handleClose"
@@ -15,152 +15,127 @@
       </div>
 
       <!-- 预览区域 -->
-      <div class="flex-1 overflow-y-auto p-6 bg-gray-50 dark:bg-gray-900">
-        <div v-if="generating" class="flex flex-col items-center justify-center py-12">
-          <div class="animate-spin rounded-full h-16 w-16 border-t-4 border-b-4 border-pink-500 mb-4"></div>
-          <p class="text-gray-600 dark:text-gray-400">正在生成海报...</p>
+      <div class="flex-1 overflow-auto bg-gray-100 dark:bg-gray-900 flex justify-center p-4 md:p-8">
+        <div v-if="generating" class="flex flex-col items-center justify-center h-full">
+          <div class="animate-spin rounded-full h-12 w-12 border-t-4 border-b-4 border-pink-500 mb-4"></div>
+          <p class="text-gray-600 dark:text-gray-400 font-medium">绘制美好回忆中...</p>
         </div>
         
-        <div 
-          v-else
-          ref="posterRef"
-          class="poster-container bg-gradient-to-br from-pink-50 via-purple-50 to-pink-100 dark:from-gray-900 dark:via-purple-900 dark:to-gray-900 mx-auto rounded-2xl overflow-hidden"
-          :style="{ width: posterWidth + 'px', maxWidth: '100%' }"
-        >
-          <!-- 海报内容 -->
-          <div class="p-8 md:p-12">
-            <!-- 标题 -->
-            <div class="text-center mb-8">
-              <h1 class="text-4xl md:text-5xl font-bold mb-4 bg-gradient-to-r from-pink-500 via-purple-500 to-pink-500 bg-clip-text text-transparent">
-                {{ currentYear }}年度总结
-              </h1>
-              <p class="text-xl text-gray-600 dark:text-gray-300">记录你的Lolita时尚之旅 ✨</p>
+        <!-- 海报容器：固定宽度 750px (2x mobile width) 以保证清晰度和布局一致性 -->
+        <div class="relative shadow-2xl origin-top transform-gpu transition-transform duration-300" :style="previewStyle">
+          <div 
+            ref="posterRef"
+            class="w-[750px] bg-[#fffcfc] text-gray-800 overflow-hidden relative"
+          >
+            <!-- 装饰背景 (使用绝对定位图片或 SVG，避免使用复杂 CSS 渐变) -->
+            <div class="absolute inset-0 z-0 opacity-10 pointer-events-none">
+              <svg width="100%" height="100%" xmlns="http://www.w3.org/2000/svg">
+                <defs>
+                  <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+                    <path d="M 40 0 L 0 0 0 40" fill="none" stroke="currentColor" stroke-width="1"/>
+                  </pattern>
+                </defs>
+                <rect width="100%" height="100%" fill="url(#grid)" />
+              </svg>
             </div>
-
-            <!-- 入坑年数 -->
-            <div class="bg-white dark:bg-gray-800 rounded-3xl shadow-xl p-6 mb-6 border-2 border-pink-200 dark:border-pink-800">
-              <div class="flex items-center justify-center mb-4">
-                <div class="w-20 h-20 bg-gradient-to-br from-pink-400 to-purple-500 rounded-full flex items-center justify-center">
-                  <span class="text-4xl">🎀</span>
-                </div>
-              </div>
-              <h2 class="text-3xl font-bold text-center text-gray-800 dark:text-gray-100 mb-2">
-                入坑 {{ summaryData.years_in_lolita }} 年
-              </h2>
-            </div>
-
-            <!-- 消费统计 -->
-            <div class="bg-gradient-to-br from-pink-100 to-purple-100 dark:from-pink-900 dark:to-purple-900 rounded-3xl shadow-xl p-6 mb-6 border-2 border-pink-300 dark:border-pink-700">
-              <h2 class="text-2xl font-bold text-gray-800 dark:text-gray-100 mb-4 text-center">
-                💰 今年共消费
-              </h2>
+            
+            <!-- 内容区域 -->
+            <div class="relative z-10 p-12 flex flex-col items-center gap-8">
+              <!-- Header -->
               <div class="text-center">
-                <div class="text-5xl font-bold text-pink-600 dark:text-pink-400 mb-2">
-                  ¥{{ formatNumber(summaryData.total_spending) }}
-                </div>
+                <h1 class="text-6xl font-bold text-gray-900 mb-2 tracking-tight" style="font-family: serif;">{{ currentYear }}</h1>
+                <div class="h-1 w-20 bg-pink-500 mx-auto mb-4"></div>
+                <p class="text-xl text-gray-500 uppercase tracking-widest">Yearly Summary</p>
               </div>
-            </div>
 
-            <!-- 购买统计 -->
-            <div 
-              v-if="summaryData.purchase_stats && summaryData.purchase_stats.length > 0"
-              class="bg-white dark:bg-gray-800 rounded-3xl shadow-xl p-6 mb-6 border-2 border-pink-200 dark:border-pink-800"
-            >
-              <h2 class="text-2xl font-bold text-gray-800 dark:text-gray-100 mb-6 text-center">
-                📊 今年共买
-              </h2>
-              <div class="grid grid-cols-3 gap-4">
-                <div
-                  v-for="(stat, index) in summaryData.purchase_stats"
-                  :key="index"
-                  class="bg-gradient-to-br from-pink-50 to-purple-50 dark:from-pink-900 dark:to-purple-900 rounded-2xl p-4 text-center border border-pink-200 dark:border-pink-700"
-                >
-                  <div class="text-3xl font-bold text-pink-600 dark:text-pink-400 mb-1">
-                    {{ stat.value }}
-                  </div>
-                  <div class="text-base text-gray-700 dark:text-gray-300">
-                    {{ stat.label }}
+              <!-- 核心数据卡片 -->
+              <div class="w-full grid grid-cols-2 gap-6">
+                <!-- 入坑 -->
+                <div class="bg-white rounded-3xl p-6 shadow-lg border-2 border-pink-100 flex flex-col items-center justify-center aspect-square">
+                  <span class="text-5xl mb-4">🎀</span>
+                  <div class="text-center">
+                    <p class="text-gray-500 text-sm mb-1">LO娘生涯</p>
+                    <p class="text-4xl font-bold text-gray-800">
+                      {{ summaryData.years_in_lolita }}<span class="text-lg ml-1 font-normal">年</span>
+                    </p>
                   </div>
                 </div>
+
+                <!-- 消费 -->
+                <div class="bg-pink-50 rounded-3xl p-6 shadow-lg border-2 border-pink-200 flex flex-col items-center justify-center aspect-square text-center">
+                  <p class="text-pink-800/60 text-sm font-bold uppercase mb-2">Total</p>
+                  <p class="text-4xl font-bold text-pink-600 break-all leading-tight">
+                    <span class="text-2xl align-top">¥</span>{{ formatNumber(summaryData.total_spending) }}
+                  </p>
+                  <p class="text-xs text-pink-400 mt-2">为爱买单</p>
+                </div>
               </div>
-            </div>
 
-            <!-- 服饰展示区域 -->
-            <div v-if="hasItems" class="space-y-6">
-              <!-- 最新的裙子 -->
-              <PosterSection
-                v-if="summaryData.latest_dress && summaryData.latest_dress.length > 0"
-                title="👗 最新的裙子"
-                :items="summaryData.latest_dress.slice(0, 4)"
-              />
-
-              <!-- 最喜欢的小物 -->
-              <PosterSection
-                v-if="summaryData.favorite_accessories && summaryData.favorite_accessories.length > 0"
-                title="💍 最喜欢的小物"
-                :items="summaryData.favorite_accessories.slice(0, 4)"
-              />
-
-              <!-- 最喜欢的袜子 -->
-              <PosterSection
-                v-if="summaryData.favorite_socks && summaryData.favorite_socks.length > 0"
-                title="🧦 最喜欢的袜子"
-                :items="summaryData.favorite_socks.slice(0, 4)"
-              />
-
-              <!-- 最喜欢的包包 -->
-              <PosterSection
-                v-if="summaryData.favorite_bags && summaryData.favorite_bags.length > 0"
-                title="👜 最喜欢的包包"
-                :items="summaryData.favorite_bags.slice(0, 4)"
-              />
-
-              <!-- 穿着率最高的 -->
-              <PosterSection
-                v-if="summaryData.most_worn && summaryData.most_worn.length > 0"
-                title="⭐ 穿着率最高的"
-                :items="summaryData.most_worn.slice(0, 4)"
-              />
-            </div>
-
-            <!-- 拉黑的店铺 -->
-            <div 
-              v-if="summaryData.blacklisted_shops && summaryData.blacklisted_shops.length > 0"
-              class="bg-white dark:bg-gray-800 rounded-3xl shadow-xl p-6 border-2 border-red-200 dark:border-red-800"
-            >
-              <h2 class="text-2xl font-bold text-gray-800 dark:text-gray-100 mb-6 text-center">
-                ⛔ 今年拉黑的店铺
-              </h2>
-              <div class="grid grid-cols-3 gap-4">
-                <div
-                  v-for="shop in summaryData.blacklisted_shops.slice(0, 6)"
-                  :key="shop.shop_id"
-                  class="bg-gradient-to-br from-red-50 to-pink-50 dark:from-red-900 dark:to-pink-900 rounded-2xl p-4 border border-red-200 dark:border-red-700 text-center"
-                >
-                  <div v-if="shop.shop_logo" class="w-16 h-16 mx-auto mb-2 rounded-full overflow-hidden">
-                    <img 
-                      :src="`${BASE_IMG}${shop.shop_logo.replace(BASE_IMG, '')}?x-oss-process=image/quality,q_60/resize,w_150`"
-                      :alt="shop.shop_name"
-                      class="w-full h-full object-cover"
-                    />
-                  </div>
-                  <div class="text-sm font-semibold text-gray-800 dark:text-gray-100">
-                    {{ shop.shop_name }}
+              <!-- 购买统计 -->
+              <div class="w-full bg-white rounded-3xl p-8 shadow-lg border border-gray-100">
+                <h3 class="text-xl font-bold text-gray-800 mb-6 flex items-center gap-2 border-b pb-4">
+                  <span>📊</span> 年度战利品
+                </h3>
+                <div class="flex justify-between px-4">
+                  <div v-for="(stat, index) in summaryData.purchase_stats" :key="index" class="text-center">
+                    <div class="text-3xl font-bold text-gray-800 mb-1">{{ stat.value }}</div>
+                    <div class="text-sm text-gray-500">{{ stat.label }}</div>
                   </div>
                 </div>
               </div>
-            </div>
 
-            <!-- 底部信息 -->
-            <div class="text-center mt-8 pt-6 border-t border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 text-sm">
-              <p>Lo研社 - {{ currentYear }}年度总结</p>
+              <!-- 图片展示 Section (复用逻辑但简化样式以适应 html2canvas) -->
+              <div v-if="hasItems" class="w-full space-y-8">
+                <!-- Latest Dress -->
+                <div v-if="summaryData.latest_dress?.length" class="w-full">
+                  <h3 class="text-xl font-bold text-gray-800 mb-4 px-2 border-l-4 border-pink-500">最新的裙子</h3>
+                  <div class="grid grid-cols-4 gap-3">
+                    <div v-for="item in summaryData.latest_dress.slice(0, 4)" :key="item.clothes_id" class="aspect-[3/4] bg-gray-100 rounded-lg overflow-hidden relative">
+                       <img 
+                        :src="getImageUrl(item.clothes_img)"
+                        crossorigin="anonymous"
+                        class="w-full h-full object-cover"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Most Worn -->
+                <div v-if="summaryData.most_worn?.length" class="w-full">
+                  <h3 class="text-xl font-bold text-gray-800 mb-4 px-2 border-l-4 border-purple-500">穿着率最高</h3>
+                  <div class="grid grid-cols-4 gap-3">
+                    <div v-for="item in summaryData.most_worn.slice(0, 4)" :key="item.clothes_id" class="aspect-[3/4] bg-gray-100 rounded-lg overflow-hidden relative">
+                       <img 
+                        :src="getImageUrl(item.clothes_img)"
+                        crossorigin="anonymous"
+                        class="w-full h-full object-cover"
+                      />
+                      <div class="absolute bottom-0 left-0 right-0 bg-black/50 text-white text-[10px] p-1 text-center">
+                        {{ item.times }}次
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Footer -->
+              <div class="w-full text-center mt-4 pt-8 border-t border-dashed border-gray-300">
+                <div class="flex items-center justify-center gap-2 text-gray-400 text-sm tracking-widest uppercase">
+                  <span>Lo研社</span>
+                  <span>·</span>
+                  <span>Lolita Fashion</span>
+                </div>
+                <div class="mt-2 w-32 h-32 bg-gray-100 mx-auto rounded-lg flex items-center justify-center text-gray-400 text-xs">
+                  (QRCode)
+                </div>
+              </div>
             </div>
           </div>
         </div>
       </div>
 
       <!-- 底部操作按钮 -->
-      <div class="flex items-center justify-end gap-4 px-6 py-4 border-t border-gray-200 dark:border-gray-700">
+      <div class="flex items-center justify-end gap-4 px-6 py-4 border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 z-10">
         <button
           @click="handleClose"
           class="px-6 py-2 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
@@ -170,9 +145,9 @@
         <button
           @click="generatePoster"
           :disabled="generating"
-          class="px-6 py-2 bg-gradient-to-r from-pink-500 to-purple-500 hover:from-pink-600 hover:to-purple-600 text-white font-semibold rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+          class="px-8 py-2 bg-gray-900 dark:bg-white hover:bg-gray-800 dark:hover:bg-gray-100 text-white dark:text-gray-900 font-bold rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-lg"
         >
-          {{ generating ? '生成中...' : '生成并下载' }}
+          {{ generating ? '生成中...' : '保存图片' }}
         </button>
       </div>
     </div>
@@ -180,9 +155,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, nextTick } from 'vue'
+import { ref, computed, watch, nextTick, onMounted } from 'vue'
 import type { YearlySummaryData } from '@/api/yearlySummary'
 import { useScreenshot } from '@/composables/useScreenshot'
+import { BASE_IMG } from '@/utils/ipConfig'
 
 const props = defineProps<{
   modelValue: boolean
@@ -195,25 +171,39 @@ const emit = defineEmits(['update:modelValue'])
 const { captureElement } = useScreenshot()
 const posterRef = ref<HTMLElement | null>(null)
 const generating = ref(false)
+const scale = ref(1)
 
-// 海报宽度（移动端和PC端不同）
-const posterWidth = computed(() => {
-  if (typeof window === 'undefined') return 800
-  return window.innerWidth < 768 ? 600 : 800
-})
+// 计算预览缩放比例，适应屏幕
+const updateScale = () => {
+  if (window.innerWidth < 800) {
+    scale.value = (window.innerWidth - 48) / 750
+  } else {
+    scale.value = 1
+  }
+}
+
+const previewStyle = computed(() => ({
+  transform: `scale(${scale.value})`,
+  marginBottom: window.innerWidth < 800 ? `-${(750 * (1 - scale.value))}px` : '0' // 修正缩放后的空白
+}))
 
 const hasItems = computed(() => {
   return !!(
     (props.summaryData.latest_dress && props.summaryData.latest_dress.length > 0) ||
-    (props.summaryData.favorite_accessories && props.summaryData.favorite_accessories.length > 0) ||
-    (props.summaryData.favorite_socks && props.summaryData.favorite_socks.length > 0) ||
-    (props.summaryData.favorite_bags && props.summaryData.favorite_bags.length > 0) ||
     (props.summaryData.most_worn && props.summaryData.most_worn.length > 0)
   )
 })
 
 const formatNumber = (num: number): string => {
   return num.toLocaleString('zh-CN')
+}
+
+const getImageUrl = (url: string) => {
+  if (!url) return ''
+  // 确保使用 HTTPS
+  const fullUrl = `${BASE_IMG}${url.replace(BASE_IMG, '')}`.replace('http://', 'https://')
+  // 添加图片处理参数减小体积但保证清晰度
+  return `${fullUrl}?x-oss-process=image/quality,q_80/resize,w_300`
 }
 
 const handleClose = () => {
@@ -229,70 +219,49 @@ const generatePoster = async () => {
 
   try {
     generating.value = true
-    
-    // 等待DOM更新
     await nextTick()
     
-    // 等待所有图片加载完成
-    const images = posterRef.value.querySelectorAll('img')
-    const imagePromises = Array.from(images).map((img: HTMLImageElement) => {
-      if (img.complete) {
-        return Promise.resolve()
-      }
-      return new Promise((resolve, reject) => {
+    // 强制所有图片加载检查
+    const images = Array.from(posterRef.value.querySelectorAll('img'))
+    await Promise.all(images.map(img => {
+      if (img.complete) return Promise.resolve()
+      return new Promise(resolve => {
         img.onload = resolve
-        img.onerror = resolve // 即使失败也继续
-        setTimeout(resolve, 3000) // 超时保护
+        img.onerror = resolve
+        setTimeout(resolve, 5000) // 5s 超时
       })
-    })
+    }))
     
-    await Promise.all(imagePromises)
+    // 额外缓冲
+    await new Promise(resolve => setTimeout(resolve, 500))
     
-    // 额外等待确保渲染完成
-    await new Promise(resolve => setTimeout(resolve, 300))
+    const fileName = `Lo研社_年度总结_${props.currentYear}.png`
     
-    // 生成文件名
-    const fileName = `年度总结_${props.currentYear}_${Date.now()}.png`
-    
-    // 截图并下载（使用高质量设置）
     await captureElement(posterRef.value, fileName, {
-      scale: 2,
-      backgroundColor: '#ffffff'
+      scale: 2, // 导出 2x 清晰度 (1500px width)
+      backgroundColor: '#fffcfc'
     })
     
-    // 显示成功提示
-    const toast = useToast()
-    toast.add({
-      title: '成功',
-      description: '海报已生成并下载',
-      icon: 'i-heroicons-check-circle',
-      color: 'green'
-    })
+    // 成功提示 (如果没有 toast，这里 console 即可，或者用 alert)
+    console.log('海报生成成功')
+    
   } catch (error) {
     console.error('生成海报失败:', error)
-    const toast = useToast()
-    toast.add({
-      title: '错误',
-      description: '生成海报失败，请重试',
-      icon: 'i-heroicons-exclamation-circle',
-      color: 'red'
-    })
+    alert('生成失败，请重试')
   } finally {
     generating.value = false
   }
 }
 
-// 监听弹窗打开，重置状态
+onMounted(() => {
+  updateScale()
+  window.addEventListener('resize', updateScale)
+})
+
 watch(() => props.modelValue, (newVal) => {
   if (newVal) {
     generating.value = false
+    nextTick(() => updateScale())
   }
 })
 </script>
-
-<style scoped>
-.poster-container {
-  min-height: 600px;
-}
-</style>
-

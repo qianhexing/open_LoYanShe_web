@@ -10,7 +10,7 @@ export const useScreenshot = () => {
         scale: options?.scale || 2, // 提高分辨率，长图建议使用2
         logging: false,
         useCORS: true, // 如果需要加载跨域图片
-        allowTaint: true, // 如果需要加载跨域图片
+        // allowTaint: true, // 移除此项，因为它会导致 canvas 被污染无法导出
         backgroundColor: options?.backgroundColor || '#ffffff',
         scrollX: 0,
         scrollY: 0,
