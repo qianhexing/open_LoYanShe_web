@@ -19,174 +19,11 @@
         <div v-if="generating" class="flex flex-col items-center justify-center h-full absolute inset-0 z-50 bg-white/80 dark:bg-gray-900/80 backdrop-blur-sm">
           <div class="animate-spin rounded-full h-12 w-12 border-t-4 border-b-4 border-pink-500 mb-4"></div>
           <p class="text-gray-600 dark:text-gray-400 font-medium">正在绘制美好回忆...</p>
-          <p class="text-xs text-gray-400 mt-2">处理图片可能需要一点时间</p>
         </div>
         
-        <!-- 海报容器：固定宽度 750px (2x mobile width) -->
+        <!-- Canvas 容器 -->
         <div class="relative shadow-2xl origin-top transform-gpu transition-transform duration-300" :style="previewStyle">
-          <div 
-            ref="posterRef"
-            class="w-[750px] bg-[#fffcfc] text-gray-800 overflow-hidden relative pb-12"
-          >
-            <!-- 装饰背景 -->
-            <div class="absolute inset-0 z-0 pointer-events-none">
-              <!-- 顶部渐变 -->
-              <div class="absolute top-0 inset-x-0 h-[500px] bg-gradient-to-b from-pink-50 to-transparent"></div>
-              
-              <!-- 装饰圆点 -->
-              <div class="absolute top-[-100px] right-[-100px] w-[400px] h-[400px] bg-purple-100 rounded-full blur-3xl opacity-50"></div>
-              <div class="absolute top-[400px] left-[-100px] w-[300px] h-[300px] bg-pink-100 rounded-full blur-3xl opacity-50"></div>
-              
-              <!-- 网格纹理 -->
-              <svg width="100%" height="100%" xmlns="http://www.w3.org/2000/svg" class="opacity-[0.03]">
-                <defs>
-                  <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
-                    <path d="M 40 0 L 0 0 0 40" fill="none" stroke="currentColor" stroke-width="1"/>
-                  </pattern>
-                </defs>
-                <rect width="100%" height="100%" fill="url(#grid)" />
-              </svg>
-            </div>
-            
-            <!-- 内容区域 -->
-            <div class="relative z-10 p-10 flex flex-col gap-8">
-              <!-- Header: 保持与页面相似的排版 -->
-              <div class="text-center mt-8">
-                <h1 class="text-[80px] font-bold text-gray-800 leading-none tracking-tighter" style="font-family: serif;">
-                  {{ currentYear }}
-                </h1>
-                <div class="flex items-center justify-center gap-4 mt-2">
-                  <div class="h-[1px] w-12 bg-gray-300"></div>
-                  <p class="text-xl text-pink-500 font-medium tracking-widest uppercase">Yearly Summary</p>
-                  <div class="h-[1px] w-12 bg-gray-300"></div>
-                </div>
-                <p class="text-sm text-gray-400 mt-2 tracking-[0.3em] uppercase">Lolita Fashion Journey</p>
-              </div>
-
-              <!-- 核心数据卡片 -->
-              <div class="grid grid-cols-3 gap-6">
-                <!-- 入坑 -->
-                <div class="col-span-1 bg-white/80 rounded-[2rem] p-6 shadow-sm border border-gray-100 flex flex-col items-center justify-center aspect-square text-center">
-                  <span class="text-5xl mb-4 filter drop-shadow-sm">🕰️</span>
-                  <p class="text-gray-400 text-xs mb-1 uppercase tracking-wider">Since</p>
-                  <p class="text-4xl font-bold text-gray-800 font-serif">
-                    {{ summaryData.years_in_lolita }}<span class="text-base ml-1 font-sans font-normal text-gray-500">年</span>
-                  </p>
-                </div>
-
-                <!-- 消费 (占据2列) -->
-                <div class="col-span-2 bg-gradient-to-br from-pink-500 to-purple-600 rounded-[2rem] p-8 shadow-md text-white flex flex-col justify-between relative overflow-hidden">
-                  <div class="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -mr-8 -mt-8 blur-xl"></div>
-                  <p class="text-pink-100 text-sm font-medium uppercase tracking-widest z-10">Total Spending</p>
-                  <div class="z-10 mt-2">
-                    <p class="text-5xl font-bold leading-none">
-                      <span class="text-2xl opacity-80 align-top mr-1">¥</span>{{ formatNumber(summaryData.total_spending) }}
-                    </p>
-                  </div>
-                  <p class="text-pink-100/80 text-xs mt-4 z-10">每一分热爱都值得铭记</p>
-                </div>
-              </div>
-
-              <!-- 购买统计 -->
-              <div class="bg-white/80 rounded-[2rem] p-8 shadow-sm border border-gray-100">
-                <h3 class="text-lg font-bold text-gray-800 mb-6 flex items-center gap-2">
-                  <span class="w-1.5 h-6 bg-pink-500 rounded-full"></span>
-                  年度战利品
-                </h3>
-                <div class="flex justify-between px-2">
-                  <div v-for="(stat, index) in summaryData.purchase_stats" :key="index" class="flex flex-col items-center">
-                    <div class="text-3xl font-bold text-gray-800 mb-1 font-serif">{{ stat.value }}</div>
-                    <div class="text-xs text-gray-500 bg-gray-50 px-3 py-1 rounded-full">{{ stat.label }}</div>
-                  </div>
-                </div>
-              </div>
-
-              <!-- 图片展示 Section -->
-              <div class="space-y-8">
-                <!-- Latest Dress -->
-                <div v-if="summaryData.latest_dress?.length" class="w-full">
-                  <div class="flex items-center gap-3 mb-5 px-2">
-                    <span class="text-2xl">👗</span>
-                    <h3 class="text-xl font-bold text-gray-800 font-serif">最新的裙子</h3>
-                  </div>
-                  <div class="grid grid-cols-4 gap-4">
-                    <div 
-                      v-for="item in summaryData.latest_dress.slice(0, 4)" 
-                      :key="item.clothes_id" 
-                      class="group relative bg-white rounded-xl overflow-hidden shadow-sm border border-gray-100"
-                    >
-                       <div class="aspect-[3/4] overflow-hidden bg-gray-50">
-                         <img 
-                          :src="getImageUrl(item.clothes_img)"
-                          class="w-full h-full object-cover poster-image"
-                          crossorigin="anonymous"
-                        />
-                       </div>
-                       <div class="p-3 bg-white">
-                         <div class="text-[10px] text-gray-500 line-clamp-1 mb-1">{{ item.clothes_note }}</div>
-                         <div class="text-xs font-bold text-pink-500">¥{{ formatNumber(item.price) }}</div>
-                       </div>
-                    </div>
-                  </div>
-                </div>
-
-                <!-- Most Worn -->
-                <div v-if="summaryData.most_worn?.length" class="w-full">
-                  <div class="flex items-center gap-3 mb-5 px-2">
-                    <span class="text-2xl">⭐</span>
-                    <h3 class="text-xl font-bold text-gray-800 font-serif">穿着率最高</h3>
-                  </div>
-                  <div class="grid grid-cols-4 gap-4">
-                    <div 
-                      v-for="item in summaryData.most_worn.slice(0, 4)" 
-                      :key="item.clothes_id" 
-                      class="relative bg-white rounded-xl overflow-hidden shadow-sm border border-gray-100"
-                    >
-                       <div class="aspect-[3/4] overflow-hidden bg-gray-50">
-                         <img 
-                          :src="getImageUrl(item.clothes_img)"
-                          class="w-full h-full object-cover poster-image"
-                          crossorigin="anonymous"
-                        />
-                       </div>
-                       <div class="absolute bottom-2 right-2 bg-white/90 backdrop-blur-sm px-2 py-1 rounded-md shadow-sm">
-                         <span class="text-xs font-bold text-gray-800">{{ item.times }}次</span>
-                       </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <!-- 底部黑名单 (如果有) -->
-              <div v-if="summaryData.blacklisted_shops?.length" class="bg-red-50 rounded-[2rem] p-6 border border-red-100">
-                <div class="flex items-center justify-center gap-2 mb-4 text-red-800/70 font-bold">
-                  <span>⛔</span>
-                  <span>避雷指南</span>
-                </div>
-                <div class="flex flex-wrap justify-center gap-4">
-                  <span 
-                    v-for="shop in summaryData.blacklisted_shops" 
-                    :key="shop.shop_id"
-                    class="px-3 py-1 bg-white text-gray-600 text-xs rounded-full border border-red-100"
-                  >
-                    {{ shop.shop_name }}
-                  </span>
-                </div>
-              </div>
-
-              <!-- Footer -->
-              <div class="mt-8 pt-8 border-t border-dashed border-gray-300 text-center">
-                <div class="inline-flex items-center gap-3 px-6 py-2 bg-gray-900 text-white rounded-full">
-                  <span class="font-serif italic">Lo研社</span>
-                  <span class="w-1 h-1 bg-gray-500 rounded-full"></span>
-                  <span class="text-xs tracking-widest uppercase">My Lolita Summary</span>
-                </div>
-                <div class="mt-4 text-[10px] text-gray-400">
-                  Generated at {{ new Date().toLocaleDateString() }}
-                </div>
-              </div>
-            </div>
-          </div>
+          <canvas ref="canvasRef" class="bg-white"></canvas>
         </div>
       </div>
 
@@ -199,8 +36,8 @@
           取消
         </button>
         <button
-          @click="generatePoster"
-          :disabled="generating"
+          @click="downloadPoster"
+          :disabled="generating || !drawComplete"
           class="px-8 py-2 bg-gradient-to-r from-pink-500 to-purple-500 hover:from-pink-600 hover:to-purple-600 text-white font-bold rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-lg flex items-center gap-2"
         >
           <span v-if="!generating">保存图片</span>
@@ -214,7 +51,6 @@
 <script setup lang="ts">
 import { ref, computed, watch, nextTick, onMounted } from 'vue'
 import type { YearlySummaryData } from '@/api/yearlySummary'
-import { useScreenshot } from '@/composables/useScreenshot'
 import { BASE_IMG } from '@/utils/ipConfig'
 
 const props = defineProps<{
@@ -225,19 +61,32 @@ const props = defineProps<{
 
 const emit = defineEmits(['update:modelValue'])
 
-const { captureElement } = useScreenshot()
-const posterRef = ref<HTMLElement | null>(null)
+const canvasRef = ref<HTMLCanvasElement | null>(null)
 const generating = ref(false)
+const drawComplete = ref(false)
 const scale = ref(1)
 
-// 图片 Base64 缓存
-const imageCache = ref<Record<string, string>>({})
+// 画布尺寸配置
+const CANVAS_WIDTH = 750
+// 基础高度，后续会根据内容动态调整
+const BASE_HEIGHT = 1334
 
-// 计算预览缩放比例，适应屏幕
+// 颜色配置
+const COLORS = {
+  bg: '#fffcfc',
+  primary: '#ec4899', // pink-500
+  secondary: '#a855f7', // purple-500
+  text: '#1f2937', // gray-800
+  textLight: '#9ca3af', // gray-400
+  cardBg: '#ffffff',
+  cardBorder: '#f3f4f6', // gray-100
+  accent: '#fdf2f8', // pink-50
+}
+
+// 计算预览缩放比例
 const updateScale = () => {
   if (typeof window === 'undefined') return
   const isMobile = window.innerWidth < 800
-  // 留出 padding
   const availableWidth = window.innerWidth - (isMobile ? 32 : 64)
   if (availableWidth < 750) {
     scale.value = availableWidth / 750
@@ -248,58 +97,8 @@ const updateScale = () => {
 
 const previewStyle = computed(() => ({
   transform: `scale(${scale.value})`,
-  marginBottom: `-${(750 * (1 - scale.value))}px` // 修正缩放后的空白
+  marginBottom: `-${(canvasRef.value?.height || BASE_HEIGHT) * (1 - scale.value)}px`
 }))
-
-const formatNumber = (num: number): string => {
-  return num?.toLocaleString('zh-CN') || '0'
-}
-
-// 图片转 Base64 工具
-const urlToBase64 = (url: string): Promise<string> => {
-  return new Promise((resolve, reject) => {
-    const img = new Image()
-    img.crossOrigin = 'Anonymous'
-    img.src = url
-    img.onload = () => {
-      const canvas = document.createElement('canvas')
-      canvas.width = img.width
-      canvas.height = img.height
-      const ctx = canvas.getContext('2d')
-      if (ctx) {
-        ctx.drawImage(img, 0, 0)
-        try {
-          const dataURL = canvas.toDataURL('image/png')
-          resolve(dataURL)
-        } catch (e) {
-          // 如果 tainted，这里会报错，说明服务器不支持 CORS
-          console.warn('Image tainted, returning original url', e)
-          resolve(url)
-        }
-      } else {
-        resolve(url)
-      }
-    }
-    img.onerror = (e) => {
-      console.warn('Image load failed', url, e)
-      resolve(url)
-    }
-  })
-}
-
-// 获取图片 URL，优先使用缓存的 Base64
-const getImageUrl = (url: string) => {
-  if (!url) return ''
-  const fullUrl = `${BASE_IMG}${url.replace(BASE_IMG, '')}`.replace('http://', 'https://')
-  const processedUrl = `${fullUrl}?x-oss-process=image/quality,q_80/resize,w_300`
-  
-  // 如果生成中且有缓存，返回 base64
-  if (generating.value && imageCache.value[processedUrl]) {
-    return imageCache.value[processedUrl]
-  }
-  
-  return processedUrl
-}
 
 const handleClose = () => {
   emit('update:modelValue', false)
@@ -309,46 +108,461 @@ const handleUpdate = (value: boolean) => {
   emit('update:modelValue', value)
 }
 
-const generatePoster = async () => {
-  if (!posterRef.value || generating.value) return
+// 图片加载工具
+const loadImage = (url: string): Promise<HTMLImageElement> => {
+  return new Promise((resolve, reject) => {
+    const img = new Image()
+    img.crossOrigin = 'Anonymous'
+    // 替换为 HTTPS 并添加处理参数
+    const fullUrl = `${BASE_IMG}${url.replace(BASE_IMG, '')}`.replace('http://', 'https://')
+    img.src = `${fullUrl}?x-oss-process=image/quality,q_80/resize,w_300`
+    img.onload = () => resolve(img)
+    img.onerror = () => {
+      // 失败时尝试加载原图或占位图
+      console.warn('Failed to load image:', url)
+      resolve(img) // 仍然 resolve 以免阻塞流程，只是图片可能是空的
+    }
+  })
+}
+
+// 绘制圆角矩形
+const roundRect = (ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) => {
+  if (w < 2 * r) r = w / 2
+  if (h < 2 * r) r = h / 2
+  ctx.beginPath()
+  ctx.moveTo(x + r, y)
+  ctx.arcTo(x + w, y, x + w, y + h, r)
+  ctx.arcTo(x + w, y + h, x, y + h, r)
+  ctx.arcTo(x, y + h, x, y, r)
+  ctx.arcTo(x, y, x + w, y, r)
+  ctx.closePath()
+}
+
+// 绘制文本自动换行
+const wrapText = (ctx: CanvasRenderingContext2D, text: string, x: number, y: number, maxWidth: number, lineHeight: number) => {
+  const words = text.split('')
+  let line = ''
+  let currentY = y
+
+  for (let n = 0; n < words.length; n++) {
+    const testLine = line + words[n]
+    const metrics = ctx.measureText(testLine)
+    const testWidth = metrics.width
+    if (testWidth > maxWidth && n > 0) {
+      ctx.fillText(line, x, currentY)
+      line = words[n]
+      currentY += lineHeight
+    } else {
+      line = testLine
+    }
+  }
+  ctx.fillText(line, x, currentY)
+}
+
+// 主绘制逻辑
+const drawPoster = async () => {
+  if (!canvasRef.value) return
+  const ctx = canvasRef.value.getContext('2d')
+  if (!ctx) return
+
+  generating.value = true
+  drawComplete.value = false
 
   try {
-    generating.value = true
+    // 1. 计算总高度
+    let currentY = 0
+    const PADDING = 40
     
-    // 1. 预处理所有图片为 Base64
-    const images = Array.from(posterRef.value.querySelectorAll('img.poster-image'))
-    const tasks = images.map(async (img) => {
-      const src = img.getAttribute('src')
-      if (src && !src.startsWith('data:')) {
-        try {
-          const base64 = await urlToBase64(src)
-          imageCache.value[src] = base64
-        } catch (e) {
-          console.error('Failed to convert image', src)
+    // Header height approx 200
+    // Stats grid height approx 300
+    // Purchase stats height approx 150
+    // Each item section approx 350
+    // Footer approx 100
+    
+    const itemSections = [
+      props.summaryData.latest_dress,
+      props.summaryData.most_worn
+    ].filter(arr => arr && arr.length > 0).length
+    
+    const TOTAL_HEIGHT = 200 + 320 + 150 + (itemSections * 380) + 150 + (props.summaryData.blacklisted_shops?.length ? 150 : 0) + 100
+    
+    canvasRef.value.width = CANVAS_WIDTH
+    canvasRef.value.height = TOTAL_HEIGHT
+
+    // 2. 绘制背景
+    ctx.fillStyle = COLORS.bg
+    ctx.fillRect(0, 0, CANVAS_WIDTH, TOTAL_HEIGHT)
+    
+    // 顶部渐变装饰
+    const gradient = ctx.createLinearGradient(0, 0, 0, 500)
+    gradient.addColorStop(0, '#fff1f2') // pink-50
+    gradient.addColorStop(1, 'rgba(255, 255, 255, 0)')
+    ctx.fillStyle = gradient
+    ctx.fillRect(0, 0, CANVAS_WIDTH, 500)
+
+    // 装饰圆点
+    ctx.save()
+    ctx.filter = 'blur(60px)'
+    ctx.fillStyle = 'rgba(233, 213, 255, 0.5)' // purple-100
+    ctx.beginPath()
+    ctx.arc(CANVAS_WIDTH, 0, 200, 0, Math.PI * 2)
+    ctx.fill()
+    ctx.fillStyle = 'rgba(252, 231, 243, 0.5)' // pink-100
+    ctx.beginPath()
+    ctx.arc(0, 400, 150, 0, Math.PI * 2)
+    ctx.fill()
+    ctx.restore()
+
+    currentY += 80
+
+    // 3. Header
+    ctx.textAlign = 'center'
+    ctx.fillStyle = COLORS.text
+    ctx.font = 'bold 80px serif'
+    ctx.fillText(props.currentYear.toString(), CANVAS_WIDTH / 2, currentY)
+    
+    currentY += 40
+    
+    // 装饰线和标题
+    ctx.beginPath()
+    ctx.strokeStyle = '#d1d5db' // gray-300
+    ctx.lineWidth = 1
+    ctx.moveTo(CANVAS_WIDTH / 2 - 140, currentY - 10)
+    ctx.lineTo(CANVAS_WIDTH / 2 - 90, currentY - 10)
+    ctx.moveTo(CANVAS_WIDTH / 2 + 90, currentY - 10)
+    ctx.lineTo(CANVAS_WIDTH / 2 + 140, currentY - 10)
+    ctx.stroke()
+
+    ctx.fillStyle = COLORS.primary
+    ctx.font = '500 20px sans-serif'
+    ctx.letterSpacing = '4px'
+    ctx.fillText('YEARLY SUMMARY', CANVAS_WIDTH / 2, currentY)
+    
+    currentY += 30
+    ctx.fillStyle = COLORS.textLight
+    ctx.font = '14px sans-serif'
+    ctx.fillText('LOLITA FASHION JOURNEY', CANVAS_WIDTH / 2, currentY)
+
+    currentY += 60
+
+    // 4. 核心数据卡片 (Grid Layout)
+    const CARD_GAP = 20
+    const LEFT_COL_WIDTH = (CANVAS_WIDTH - PADDING * 2 - CARD_GAP) / 3
+    const RIGHT_COL_WIDTH = LEFT_COL_WIDTH * 2 + CARD_GAP
+    const CARD_HEIGHT = LEFT_COL_WIDTH // Square aspect for left card
+
+    // 入坑卡片
+    ctx.save()
+    roundRect(ctx, PADDING, currentY, LEFT_COL_WIDTH, CARD_HEIGHT, 30)
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.8)'
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.05)'
+    ctx.shadowBlur = 10
+    ctx.shadowOffsetY = 4
+    ctx.fill()
+    ctx.shadowColor = 'transparent' // Reset shadow
+    ctx.strokeStyle = '#f3f4f6'
+    ctx.lineWidth = 1
+    ctx.stroke()
+
+    // 内容
+    const cardCenterX = PADDING + LEFT_COL_WIDTH / 2
+    const cardCenterY = currentY + CARD_HEIGHT / 2
+    
+    ctx.font = '40px sans-serif'
+    ctx.fillText('🕰️', cardCenterX, cardCenterY - 20)
+    ctx.fillStyle = COLORS.textLight
+    ctx.font = '12px sans-serif'
+    ctx.fillText('SINCE', cardCenterX, cardCenterY + 10)
+    ctx.fillStyle = COLORS.text
+    ctx.font = 'bold 32px serif'
+    ctx.fillText(props.summaryData.years_in_lolita + '年', cardCenterX, cardCenterY + 45)
+    ctx.restore()
+
+    // 消费卡片
+    const rightCardX = PADDING + LEFT_COL_WIDTH + CARD_GAP
+    
+    ctx.save()
+    roundRect(ctx, rightCardX, currentY, RIGHT_COL_WIDTH, CARD_HEIGHT, 30)
+    // Gradient bg
+    const cardGradient = ctx.createLinearGradient(rightCardX, currentY, rightCardX + RIGHT_COL_WIDTH, currentY + CARD_HEIGHT)
+    cardGradient.addColorStop(0, '#ec4899')
+    cardGradient.addColorStop(1, '#9333ea')
+    ctx.fillStyle = cardGradient
+    ctx.shadowColor = 'rgba(236, 72, 153, 0.2)'
+    ctx.shadowBlur = 15
+    ctx.shadowOffsetY = 8
+    ctx.fill()
+
+    // 装饰圆圈
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.1)'
+    ctx.beginPath()
+    ctx.arc(rightCardX + RIGHT_COL_WIDTH - 20, currentY + 20, 60, 0, Math.PI * 2)
+    ctx.fill()
+
+    // 内容
+    ctx.textAlign = 'left'
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.9)'
+    ctx.font = 'bold 14px sans-serif'
+    ctx.fillText('TOTAL SPENDING', rightCardX + 30, currentY + 40)
+    
+    ctx.fillStyle = '#ffffff'
+    ctx.font = 'bold 60px sans-serif'
+    const spendingText = props.summaryData.total_spending.toLocaleString('zh-CN')
+    ctx.fillText('¥ ' + spendingText, rightCardX + 30, currentY + 110)
+    
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.8)'
+    ctx.font = '12px sans-serif'
+    ctx.fillText('每一分热爱都值得铭记', rightCardX + 30, currentY + 145)
+    ctx.restore()
+
+    currentY += CARD_HEIGHT + 30
+
+    // 5. 购买统计
+    const STATS_HEIGHT = 120
+    
+    ctx.save()
+    roundRect(ctx, PADDING, currentY, CANVAS_WIDTH - PADDING * 2, STATS_HEIGHT, 30)
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.8)'
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.05)'
+    ctx.shadowBlur = 10
+    ctx.shadowOffsetY = 4
+    ctx.fill()
+    ctx.stroke()
+
+    // Title
+    ctx.textAlign = 'left'
+    ctx.fillStyle = COLORS.text
+    ctx.font = 'bold 18px sans-serif'
+    // Pink pill
+    ctx.fillStyle = COLORS.primary
+    roundRect(ctx, PADDING + 20, currentY + 20, 6, 24, 3)
+    ctx.fill()
+    ctx.fillStyle = COLORS.text
+    ctx.fillText('年度战利品', PADDING + 35, currentY + 38)
+
+    // Grid
+    const statItemWidth = (CANVAS_WIDTH - PADDING * 2 - 40) / props.summaryData.purchase_stats.length
+    props.summaryData.purchase_stats.forEach((stat, index) => {
+      const x = PADDING + 20 + index * statItemWidth + statItemWidth / 2
+      const y = currentY + 70
+      
+      ctx.textAlign = 'center'
+      ctx.fillStyle = COLORS.text
+      ctx.font = 'bold 28px serif'
+      ctx.fillText(stat.value.toString(), x, y)
+      
+      // Label pill
+      ctx.font = '12px sans-serif'
+      const labelWidth = ctx.measureText(stat.label).width + 20
+      ctx.fillStyle = '#f9fafb' // gray-50
+      roundRect(ctx, x - labelWidth / 2, y + 10, labelWidth, 24, 12)
+      ctx.fill()
+      ctx.fillStyle = COLORS.textLight
+      ctx.fillText(stat.label, x, y + 26)
+    })
+    ctx.restore()
+
+    currentY += STATS_HEIGHT + 40
+
+    // 6. 图片展示区域 (Latest Dress & Most Worn)
+    const sections = [
+      { title: '最新的裙子', icon: '👗', items: props.summaryData.latest_dress },
+      { title: '穿着率最高', icon: '⭐', items: props.summaryData.most_worn }
+    ]
+
+    for (const section of sections) {
+      if (section.items && section.items.length > 0) {
+        // Section Title
+        ctx.textAlign = 'left'
+        ctx.fillStyle = COLORS.text
+        ctx.font = 'bold 24px serif'
+        ctx.fillText(`${section.icon} ${section.title}`, PADDING + 10, currentY)
+        currentY += 30
+
+        // Grid of 4
+        const GRID_GAP = 15
+        const ITEM_WIDTH = (CANVAS_WIDTH - PADDING * 2 - GRID_GAP * 3) / 4
+        const ITEM_HEIGHT = ITEM_WIDTH * 1.33 + 60 // Image + Text
+
+        for (let i = 0; i < Math.min(section.items.length, 4); i++) {
+          const item = section.items[i]
+          const x = PADDING + i * (ITEM_WIDTH + GRID_GAP)
+          
+          // Card bg
+          ctx.save()
+          roundRect(ctx, x, currentY, ITEM_WIDTH, ITEM_HEIGHT, 12)
+          ctx.fillStyle = '#ffffff'
+          ctx.shadowColor = 'rgba(0, 0, 0, 0.05)'
+          ctx.shadowBlur = 8
+          ctx.shadowOffsetY = 2
+          ctx.fill()
+          ctx.clip() // Clip for image
+
+          // Load and draw image
+          try {
+            const img = await loadImage(item.clothes_img)
+            // Object fit cover logic
+            const imgRatio = img.width / img.height
+            const targetRatio = ITEM_WIDTH / (ITEM_WIDTH * 1.33)
+            let drawW, drawH, drawX, drawY
+
+            if (imgRatio > targetRatio) {
+              drawH = ITEM_WIDTH * 1.33
+              drawW = drawH * imgRatio
+              drawX = x - (drawW - ITEM_WIDTH) / 2
+              drawY = currentY
+            } else {
+              drawW = ITEM_WIDTH
+              drawH = drawW / imgRatio
+              drawX = x
+              drawY = currentY - (drawH - (ITEM_WIDTH * 1.33)) / 2
+            }
+            
+            ctx.drawImage(img, drawX, drawY, drawW, drawH)
+          } catch (e) {
+            // Draw placeholder
+            ctx.fillStyle = '#f3f4f6'
+            ctx.fillRect(x, currentY, ITEM_WIDTH, ITEM_WIDTH * 1.33)
+          }
+          ctx.restore() // Remove clip
+
+          // Text info
+          const textY = currentY + ITEM_WIDTH * 1.33 + 10
+          ctx.fillStyle = COLORS.text
+          ctx.font = '12px sans-serif'
+          // Truncate text
+          let note = item.clothes_note || ''
+          if (ctx.measureText(note).width > ITEM_WIDTH - 10) {
+            while (ctx.measureText(note + '...').width > ITEM_WIDTH - 10 && note.length > 0) {
+              note = note.slice(0, -1)
+            }
+            note += '...'
+          }
+          ctx.fillText(note, x + 8, textY + 12)
+          
+          ctx.fillStyle = COLORS.primary
+          ctx.font = 'bold 14px sans-serif'
+          ctx.fillText(`¥${formatNumber(item.price)}`, x + 8, textY + 32)
+          
+          if (section.title === '穿着率最高') {
+             // Badge
+             const badgeW = 40
+             const badgeH = 20
+             const badgeX = x + ITEM_WIDTH - badgeW - 5
+             const badgeY = currentY + ITEM_WIDTH * 1.33 - badgeH - 5
+             ctx.save()
+             ctx.fillStyle = 'rgba(255, 255, 255, 0.9)'
+             roundRect(ctx, badgeX, badgeY, badgeW, badgeH, 4)
+             ctx.fill()
+             ctx.fillStyle = COLORS.text
+             ctx.font = 'bold 10px sans-serif'
+             ctx.textAlign = 'center'
+             ctx.fillText(`${item.times}次`, badgeX + badgeW/2, badgeY + 14)
+             ctx.restore()
+             ctx.textAlign = 'left' // Reset alignment
+          }
         }
+        
+        currentY += ITEM_HEIGHT + 40
       }
-    })
+    }
+
+    // 7. 黑名单
+    if (props.summaryData.blacklisted_shops?.length) {
+      const BL_HEIGHT = 120
+      ctx.save()
+      ctx.fillStyle = '#fef2f2' // red-50
+      ctx.strokeStyle = '#fee2e2' // red-100
+      roundRect(ctx, PADDING, currentY, CANVAS_WIDTH - PADDING * 2, BL_HEIGHT, 30)
+      ctx.fill()
+      ctx.stroke()
+      
+      ctx.textAlign = 'center'
+      ctx.fillStyle = '#991b1b' // red-800
+      ctx.font = 'bold 16px sans-serif'
+      ctx.fillText('⛔ 避雷指南', CANVAS_WIDTH / 2, currentY + 30)
+      
+      // Shops list
+      let shopX = PADDING + 30
+      let shopY = currentY + 70
+      ctx.font = '12px sans-serif'
+      
+      const shops = props.summaryData.blacklisted_shops
+      // Simple centered rendering logic for pills
+      const totalWidth = shops.reduce((acc, s) => acc + ctx.measureText(s.shop_name).width + 30, 0)
+      let startX = (CANVAS_WIDTH - totalWidth) / 2 + 15
+      
+      shops.forEach(shop => {
+        const textW = ctx.measureText(shop.shop_name).width
+        const pillW = textW + 24
+        
+        ctx.fillStyle = '#ffffff'
+        roundRect(ctx, startX - pillW/2, shopY - 15, pillW, 30, 15)
+        ctx.fill()
+        
+        ctx.fillStyle = '#4b5563'
+        ctx.fillText(shop.shop_name, startX, shopY + 5)
+        
+        startX += pillW + 10
+      })
+      
+      ctx.restore()
+      currentY += BL_HEIGHT + 40
+    }
+
+    // 8. Footer
+    // Dotted line
+    ctx.save()
+    ctx.strokeStyle = '#d1d5db'
+    ctx.setLineDash([5, 5])
+    ctx.beginPath()
+    ctx.moveTo(PADDING, currentY)
+    ctx.lineTo(CANVAS_WIDTH - PADDING, currentY)
+    ctx.stroke()
+    ctx.restore()
     
-    await Promise.all(tasks)
+    currentY += 40
     
-    // 2. 等待 Vue 更新 DOM (此时 getImageUrl 会返回 Base64)
-    await nextTick()
-    await new Promise(resolve => setTimeout(resolve, 500)) // 额外等待渲染
+    // Logo pill
+    ctx.save()
+    const footerText = 'Lo研社 · My Lolita Summary'
+    ctx.font = '14px serif'
+    const footerW = ctx.measureText(footerText).width + 60
     
-    // 3. 截图
-    const fileName = `Lo研社_年度总结_${props.currentYear}.png`
-    await captureElement(posterRef.value, fileName, {
-      scale: 2, 
-      backgroundColor: '#fffcfc'
-    })
+    ctx.fillStyle = '#111827' // gray-900
+    roundRect(ctx, (CANVAS_WIDTH - footerW) / 2, currentY, footerW, 36, 18)
+    ctx.fill()
     
+    ctx.fillStyle = '#ffffff'
+    ctx.textAlign = 'center'
+    ctx.fillText(footerText, CANVAS_WIDTH / 2, currentY + 22)
+    
+    ctx.fillStyle = COLORS.textLight
+    ctx.font = '12px sans-serif'
+    ctx.fillText(`Generated at ${new Date().toLocaleDateString()}`, CANVAS_WIDTH / 2, currentY + 60)
+    ctx.restore()
+
+    drawComplete.value = true
+
   } catch (error) {
-    console.error('生成海报失败:', error)
-    alert('生成失败，可能是网络原因或图片跨域限制')
+    console.error('Canvas drawing failed:', error)
   } finally {
     generating.value = false
-    // 清理缓存，恢复显示原图URL，减轻内存压力
-    imageCache.value = {} 
+  }
+}
+
+const downloadPoster = () => {
+  if (!canvasRef.value) return
+  try {
+    const dataURL = canvasRef.value.toDataURL('image/png')
+    const link = document.createElement('a')
+    link.download = `Lo研社_年度总结_${props.currentYear}.png`
+    link.href = dataURL
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+  } catch (error) {
+    console.error('Download failed:', error)
   }
 }
 
@@ -359,15 +573,10 @@ onMounted(() => {
 
 watch(() => props.modelValue, (newVal) => {
   if (newVal) {
-    generating.value = false
-    nextTick(() => updateScale())
+    nextTick(() => {
+      updateScale()
+      setTimeout(drawPoster, 100)
+    })
   }
 })
 </script>
-
-<style scoped>
-/* 确保字体加载 */
-.font-serif {
-  font-family: ui-serif, Georgia, Cambria, "Times New Roman", Times, serif;
-}
-</style>
