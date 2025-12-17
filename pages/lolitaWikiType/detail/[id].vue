@@ -12,6 +12,7 @@ interface WikiSearchParams {
   keywords?: string
   page?: number
   pageSize?: number
+  need_child?: boolean
 }
 
 interface WikiWithSort extends Wiki {
@@ -75,8 +76,8 @@ const fetchWikiList = async (Ipage: number | null = null, IpageSize: number | nu
     pageSize: IpageSize || pageSize,
     where: {
       type_id: type_id.value
-    }
-    
+    },
+    need_child: true
   }
   if (keyword.value) {
     params.keywords = keyword.value
@@ -183,8 +184,7 @@ onMounted(async () => {
     column.value = 2
   }
   setTimeout(async () => {
-    if (user.token) {
-      await fetchWikiTypeInfo()
+    await fetchWikiTypeInfo()
       console.log('是否服务端渲染', isServer.value)
       if (isServer.value) {
         isServer.value = false
@@ -192,11 +192,9 @@ onMounted(async () => {
       } else {
         await fetchWikiList()
       }
-    } else {
-      isLoading.value = false
-    }
-  }, 1000)
+  })
 })
+
 
 </script>
 <template>
@@ -264,8 +262,8 @@ onMounted(async () => {
     <!-- Wiki列表 -->
     <div class="px-4">
       <Draggable 
-        :delay="50" 
-        :disabled="!sortMode" 
+        :delay="50"
+        :disabled="!sortMode"
         @start="onDragStart" 
         @end="onDragEnd" 
         v-model="list" 
@@ -274,6 +272,11 @@ onMounted(async () => {
         ghost-class="drag-ghost" 
         chosen-class="drag-chosen" 
         drag-class="dragging"
+        :scroll="true"
+        :scroll-sensitivity="200"
+        :scroll-speed="15"
+        :force-fallback="true"
+        :fallback-tolerance="0"
         class="flex flex-wrap"
       >
         <template #item="{ element }">

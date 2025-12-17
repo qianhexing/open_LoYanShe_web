@@ -47,15 +47,14 @@ const handleJump = (id: number | string) => {
     if (port.value) {
       // 鸿蒙系统
       port.value.postMessage(JSON.stringify({
-        type: 'jump',
-        path: 'WikiTypeDetail',
+        type: 'Outlink',
         params: {
-          id: item.wiki_type_id
+          url: `https://lolitalibrary.com/lolitaWikiType/detail/${id}`
         }
       }));
     } else {
       // 普通网页环境
-      window.open(`/wikiType/detail/${item.wiki_type_id}`, '_blank')
+      window.open(`/lolitaWikiType/detail/${item.wiki_type_id}`, '_blank')
     }
 	}
 }

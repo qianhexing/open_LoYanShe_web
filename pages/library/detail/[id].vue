@@ -4,9 +4,15 @@ import { getLibraryDetail, getLibraryList, getLibraryVideo } from '@/api/library
 import html2canvas from 'html2canvas';
 import QhxTag from '~/components/Qhx/Tag.vue';
 import type { image } from 'html2canvas/dist/types/css/types/image';
+import LibraryTypeColorChoose from '@/components/library/LibraryTypeColorChoose.vue'
+import WardrobeAddLibrary from '@/components/Wardrobe/WardrobeAddLibrary.vue'
+import { getWardrobeListOptions } from '@/api/wardrobe'
+import { useToast } from '#imports'
+
 const user = useUserStore()
 const config = useConfigStore()
 const route = useRoute()
+const toast = useToast()
 const id = route.params.id as string
 const { data } = await useAsyncData('libraryDeatil', () => {
   return getLibraryDetail({ library_id: Number.parseInt(id) })
@@ -96,6 +102,89 @@ const exchangeRate = (shop_country: number, price: number) => {
   }
   return false
 }
+
+// 加入衣柜相关
+const libraryTypeColorChooseRef = ref<InstanceType<typeof LibraryTypeColorChoose> | null>(null)
+const wardrobeAddLibraryRef = ref<InstanceType<typeof WardrobeAddLibrary> | null>(null)
+const wardrobeCount = ref(0)
+const isInWardrobe = ref(false)
+const wardrobeLoading = ref(false)
+
+// 检查是否已加入衣柜
+const checkWardrobeStatus = async () => {
+  if (!library.value?.library_id || !user.token) {
+    return
+  }
+  
+  wardrobeLoading.value = true
+  try {
+    const data = await getWardrobeListOptions({
+      library_id: library.value.library_id
+    })
+    // 检查是否有至少一个衣柜包含该图鉴
+    isInWardrobe.value = data.some(item => item.is_wardrobe !== 0 && !!item.is_wardrobe)
+    // 统计已加入的衣柜数量
+    wardrobeCount.value = data.filter(item => item.is_wardrobe !== 0 && !!item.is_wardrobe).length
+  } catch (error) {
+    console.error('检查衣柜状态失败:', error)
+  } finally {
+    wardrobeLoading.value = false
+  }
+}
+
+// 监听衣柜添加成功事件
+const handleWardrobeChange = () => {
+  // 重新检查状态
+  checkWardrobeStatus()
+  // 更新总数
+  if (library.value) {
+    wardrobeCount.value = (wardrobeCount.value || 0) + 1
+    isInWardrobe.value = true
+  }
+}
+
+// 打开加入衣柜流程 - 第一步：选择图鉴颜色
+const handleAddToWardrobe = () => {
+  if (!user.token) {
+    toast.add({
+      title: '请先登录',
+      description: '请先登录',
+      icon: 'i-heroicons-exclamation-circle',
+      color: 'red'
+    })
+    return
+  }
+  
+  if (!library.value) {
+    toast.add({
+      title: '图鉴信息不存在',
+      icon: 'i-heroicons-exclamation-circle',
+      color: 'red'
+    })
+    return
+  }
+  libraryTypeColorChooseRef.value?.showModel(library.value)
+}
+
+// 图鉴颜色选择完成 - 第二步：打开衣柜选择组件
+const handleLibraryTypeColorChoose = (data: { library: Library; clothes_img: string }) => {
+  wardrobeAddLibraryRef.value?.showModel(data)
+}
+
+// 初始化时检查状态
+watch(() => library.value, (newLibrary) => {
+  if (newLibrary) {
+    wardrobeCount.value = newLibrary.wardrobe_count || 0
+    checkWardrobeStatus()
+  }
+}, { immediate: true })
+
+onMounted(() => {
+  if (library.value) {
+    wardrobeCount.value = library.value.wardrobe_count || 0
+    checkWardrobeStatus()
+  }
+})
 </script>
 <template>
   <div class="container mx-auto p-4 max-md:p-2">
@@ -272,6 +361,18 @@ const exchangeRate = (shop_country: number, price: number) => {
               <UserCollectBtn :collect_count="library.collect_count" :pk_type="2" :pk_id="library.library_id"
                 :need_judge="true"></UserCollectBtn>
             </div>
+            <div class=" flex-1 text-center">
+              <div @click="handleAddToWardrobe" class="cursor-pointer inline-block">
+                <div class="flex items-center">
+                  <UIcon 
+                    name="i-heroicons-archive-box-20-solid" 
+                    class="text-[26px]"
+                    :class="isInWardrobe ? 'text-[#409EFF]' : 'text-gray-500'" 
+                  />
+                  <div class="text-base ml-1">{{ wardrobeCount }}</div>
+                </div>
+              </div>
+            </div>
             <!-- <div class=" flex-1 text-center">
               <UIcon :name="'i-heroicons-heart-20-solid'" class=" text-[26px] text-[#409EFF] cursor-pointer" @click="captureScreen()"/>
             </div> -->
@@ -308,6 +409,10 @@ const exchangeRate = (shop_country: number, price: number) => {
         </QhxTabPanel>
       </QhxTabs>
     </div>
+    
+    <!-- 加入衣柜相关组件 -->
+    <LibraryTypeColorChoose ref="libraryTypeColorChooseRef" @choose="handleLibraryTypeColorChoose" />
+    <WardrobeAddLibrary ref="wardrobeAddLibraryRef" @change="handleWardrobeChange" />
   </div>
 </template>
 

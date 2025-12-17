@@ -21,7 +21,7 @@ const jumpToLoyanshe = () => {
 }
 
 const layout_style = ref(0) // 0是带上下栏的 1 是空白页面
-const blank_list = ['scene/detail', 'wardrobe/detail', 'register', 'lighting-debug', 'timepipe']
+const blank_list = ['/yearlySummary', '/user/changePassword','/matching/detail','/album/detail', '/album', 'clothes/detail', 'scene/detail', 'wardrobe/detail', 'register', 'lighting-debug', 'timepipe', 'user/edit']
 const route = useRoute()
 if (route.query?.token) {
   useUserStore().setToken(route.query.token.toString())
@@ -111,12 +111,13 @@ onBeforeUnmount(() => {
   <div class="min-h-screen background transition-colors duration-300">
     <UNotifications position="top-0 right-0" />
     <Header v-show="layout_style === 0 && !isFromMobie" />
+    <div v-show="layout_style === 0 && !isFromMobie" class="h-[80px]"></div>
     <div v-if="HarmonyOS" class="w-full h-full absolute top-0 left-0 z-50 bg-white/80 dark:bg-gray-900/80 backdrop-blur-sm border-t border-gray-200 dark:border-gray-700 left-0 bottom-0 w-full z-50">
       <div class="container mx-auto px-4 py-6">
         <p>鸿蒙消息：{{ HarmonyOS }}</p>
       </div>
     </div>
-    <main :class="layout_style === 0 && !isFromMobie ? 'container mx-auto pb-4  pt-16 min-h-screen' : ''">
+    <main :class="layout_style === 0 && !isFromMobie ? 'container mx-auto pb-4  pt-1 min-h-screen' : ''">
       <slot />
     </main>
     <!-- <KeepAlive :include="cachedPages" :max="5">

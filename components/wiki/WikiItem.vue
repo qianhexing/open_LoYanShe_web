@@ -49,14 +49,14 @@ const handleJump = (id: number | string) => {
       // 鸿蒙系统
       port.value.postMessage(JSON.stringify({
         type: 'jump',
-        path: 'LolitaWiki',
+        path: 'Outlink',
         params: {
-          id: item.wiki_id
+          url: `https://lolitalibrary.com/lolitaWiki/detail/${id}`
         }
       }));
     } else {
       // 普通网页环境
-      window.open(`/lolitaWiki/${id}`, '_blank')
+      window.open(`/lolitaWiki/detail/${id}`, '_blank')
     }
 	}
 }
@@ -65,16 +65,27 @@ const handleJump = (id: number | string) => {
   <div
     :class="props.className ? props.className : 'bg-qhx-bg-card polaroid-card cursor-pointer shadow-lg p-2 m-2 rounded'">
     <div v-if="size === 'big'" @click="handleJump(item.wiki_id)">
-      {{ needJump }}
-      <div class="px-4 py-8 flex items-center justify-center">
+      <div class=" py-1 flex items-center justify-center">
         <div class="text-center">
-          <div class="text-4xl mb-2">
-            <img :src="`${BASE_IMG}${item.cover || 'static/plan_cover/default.jpg'}`" :alt="item.wiki_name" class="w-[100%] h-[100%] object-cover rounded-[10px] border border-gray-200 my-2" loading="lazy" />
+          <div class="text-4xl mb-2 flex items-center justify-center">
+            <img :src="`${BASE_IMG}${item.cover || 'static/plan_cover/default.jpg'}`" :alt="item.wiki_name" class="w-[50px] h-[50px] object-cover rounded-[10px] border border-gray-200 my-2" loading="lazy" />
           </div>
           <h3 class="text-base font-semibold text-gray-900 truncate w-full transition-colors duration-300">
             {{ item.wiki_name }}
           </h3>
           <QhxTag v-if="item.type_id" class="mt-2">排序序号: {{ item.sort }}</QhxTag>
+          <div v-if="item.parent_list && item.parent_list.length > 0" class="w-full flex flex-wrap items-center">
+            <div>上级</div>
+            <div v-for="parent in item.parent_list" :key="parent.foreign_id" class="flex flex-wrap">
+              <QhxTag class="mt-2" :active="true">{{ parent.wiki.wiki_name }}</QhxTag>
+            </div>
+          </div>
+          <div v-if="item.child_list && item.child_list.length > 0" class="w-full flex flex-wrap">
+            <div>下级</div>
+            <div v-for="child in item.child_list" :key="child.foreign_id">
+              <QhxTag class="mt-2" :active="true" >{{ child.wiki.wiki_name }}</QhxTag>
+            </div>
+          </div>
         </div>
       </div>
     </div>
