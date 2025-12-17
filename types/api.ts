@@ -129,16 +129,33 @@ export interface Shop {
   shop_url?: string
   shop_describe?: string
   black_count?: number
+  
 }
 
 export interface Wiki {
   wiki_id: number | string
   wiki_name: string
   type_id?: string
+  cover?: string
+  sort?: number
+  parent_list?: WikiForeign[]
+  child_list?: WikiForeign[]
+}
+
+export interface WikiForeign {
+  foreign_id: number
+  pk_type: number
+  pk_id: number
+  wiki_id: number
+  create_time?: string
+  is_show: number
+  wiki: Wiki
 }
 export interface WikiType {
   wiki_type_id: number
   wiki_type_name: string
+  wiki_secondary_type?: string
+  wiki_type?: string
 }
 export interface FilterList {
   field: string
@@ -478,6 +495,16 @@ export interface BrowTime {
   data: string
   count_times: number
 }
+/** 相册 */
+export interface Album {
+  album_id: number
+  album_title: string
+  album_cover: string
+  parent_id?: number
+  create_time?: Date
+  sort?: number
+}
+
 export interface DisplayCabinet {
   cabinet_id?: number
   pk_id?: number

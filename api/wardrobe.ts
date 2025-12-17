@@ -79,6 +79,14 @@ export async function updateClothes(
   return response.data;
 }
 
+export async function deteleClothes(
+  params: {
+    clothes_id: number
+  }
+): Promise<boolean> {
+  const response = await use$Post<BaseResponse<boolean>>('/clothes/delete', params);
+  return response.data;
+}
 export async function insertWardrobe(
   params: Wardrobe
 ): Promise<Wardrobe> {
@@ -99,5 +107,32 @@ export async function getClothesDetail(
   }
 ): Promise<WardrobeClothes> {
   const response = await use$Post<BaseResponse<WardrobeClothes>>('/clothes/id', params);
+  return response.data;
+}
+
+// 衣柜排序
+interface WardrobeSortParams {
+  sort: Array<{ wardrobe_id: number; sort: number }>
+}
+
+export async function sortWardrobe(
+  params: WardrobeSortParams
+): Promise<boolean> {
+  const response = await use$Post<BaseResponse<boolean>>('/wardrobe/sort', params);
+  return response.data;
+}
+
+// 获取衣柜列表选项（用于添加图鉴到衣柜）
+export interface WardrobeListOption extends Wardrobe {
+  is_wardrobe?: number | boolean
+  checked?: boolean
+}
+
+export async function getWardrobeListOptions(
+  params: {
+    library_id: number
+  }
+): Promise<WardrobeListOption[]> {
+  const response = await use$Post<BaseResponse<WardrobeListOption[]>>('/wardrobe/options', params);
   return response.data;
 }

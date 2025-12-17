@@ -94,3 +94,58 @@ export async function getUserMy (): Promise<User> {
   );
   return response.data;
 }
+
+// 更新用户信息
+interface UpdateUserInfoParams {
+  signature?: string
+  main_style?: string | null
+  province?: string | null
+  city?: string | null
+  area?: string | null
+  show_area?: number
+  is_achieve?: number
+  user_face?: string
+}
+
+export async function changeUserInfo(
+  params: UpdateUserInfoParams
+): Promise<User> {
+  const response = await use$Post<BaseResponse<User>>(
+    '/user/update/my',
+    params
+  );
+  return response.data;
+}
+
+// 获取短信验证码（用于修改密码）
+interface GetSmsCodeParams {
+  user_phone: string
+  type: string
+}
+
+export async function getSmsCode(
+  params: GetSmsCodeParams
+): Promise<{ success: boolean }> {
+  const response = await use$Post<BaseResponse<{ success: boolean }>>(
+    '/user/sendSms',
+    params
+  );
+  return response.data;
+}
+
+// 修改密码
+interface ChangePasswordParams {
+  user_phone: string
+  user_password: string
+  sms_code: string
+}
+
+export async function changePassword(
+  params: ChangePasswordParams
+): Promise<{ success: boolean }> {
+  const response = await use$Post<BaseResponse<{ success: boolean }>>(
+    '/user/change/password',
+    params
+  );
+  return response.data;
+}

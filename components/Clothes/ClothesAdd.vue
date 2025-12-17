@@ -13,6 +13,18 @@ import type { default as QhxSelect, optionsInterface } from '@/components/Qhx/Se
 import customInput from './customInput.vue'
 const detailImageRef = ref<InstanceType<typeof QhxImagePicker> | null>(null)
 import { uploadImage } from '@/api';
+import { BASE_IMG } from '@/utils/ipConfig'
+import type { WardrobeClothes } from '@/types/api'
+
+// 扩展类型以包含详情页传递的数据
+interface ExtendedClothesItem extends Partial<WardrobeClothes> {
+  wardrobe_name?: string
+  wardrobe?: Wardrobe
+  library?: Library
+  origin_shop?: Shop
+  main_style_list?: { label: string; value: number }[]
+  detail_image_list?: string[]
+}
 
 const emit = defineEmits(['success'])
 
@@ -46,43 +58,59 @@ const show = ref(false)
 const loading = ref(false)
 const type = ref(0) // 0 添加 1 编辑
 
-const form = ref({
+const form = ref<{
+  wardrobe_id: number | null
+  clothes_id: number | null
+  clothes_note: string
+  is_have: boolean | number
+  wardrobe_status: string | null
+  color: string[]
+  tags: string[]
+  price: number
+  season: string[]
+  clothes_part: optionsInterface[]
+  note: string
+  sum_price: number
+  origin: string | number | null
+  size: string
+  add_time: Date | string | null
+  position: string
+  main_style: optionsInterface[]
+  plan_id: number | null
+  times: number
+}>({
   wardrobe_id: null,
   clothes_id: null,
   clothes_note: '',
   is_have: true,
   wardrobe_status: null,
-  color: [] as string[],
-  tags: [] as string[],
+  color: [],
+  tags: [],
   price: 0,
-  season: [] as any[],
-  clothes_part: [] as optionsInterface[],
+  season: [],
+  clothes_part: [],
   note: '',
   sum_price: 1,
   origin: null,
   size: '',
   add_time: null,
   position: '',
-  main_style: [] as optionsInterface[],
+  main_style: [],
   plan_id: null,
   times: 0
 })
 const shop_options_loading = ref(false)
 const shop_options = ref<Shop[]>([])
-const origin_shop = ref()
+const origin_shop = ref<Shop | undefined>(undefined)
 const fetchShopOptiosns = async (keywords: string) => {
-  const params: any = {}
-  if (keywords !== '') {
-    params.shop_name = keywords
-  }
   shop_options_loading.value = true
-  const response = await getShopOptiosns(params)
+  const response = await getShopOptiosns({ shop_name: keywords || '' })
   shop_options.value = response
-  let data = []
+  const data: Shop[] = []
   if (response.length > 20) {
-    data = response.slice(0, 19);
+    data.push(...response.slice(0, 19))
   } else {
-    data =  response
+    data.push(...response)
   }
   return data
 }
@@ -91,15 +119,8 @@ const showChooseLibrary = () => {
     LibraryChooseRef.value.showModel()
   }
 }
-const showModel = (item) => {
-  if (item?.wardrobe_id) {
-    form.value.wardrobe_id = item?.wardrobe_id
-  }
-  if (item.type) {
-    type.value = item.type
-  }
-  wardrobe.value = item
-  show.value = true
+const showModel = (item: ExtendedClothesItem | null, isCopy = false) => {
+  // 初始化配置选项
   const config = configStore.config
   if (wardrobeStore.config) {
     wardrobe_status_options.value = wardrobeStore.config?.wardrobe_status.map((child) => {
@@ -123,6 +144,189 @@ const showModel = (item) => {
       }
     })
   }
+
+  // 设置类型：0=添加，1=编辑
+  type.value = isCopy ? 0 : (item?.clothes_id ? 1 : 0)
+
+  // 初始化表单数据
+  console.log(item, '编辑服饰', item?.clothes_img, wardrobeCoverRef.value)
+  if (item) {
+    // 基本字段
+    form.value.wardrobe_id = item.wardrobe_id || null
+    form.value.clothes_id = isCopy ? null : (item.clothes_id || null)
+    form.value.clothes_note = item.clothes_note || ''
+    form.value.note = item.note || ''
+    form.value.price = item.price || 0
+    form.value.size = item.size || ''
+    form.value.position = item.position || ''
+    form.value.times = item.times || 0
+    form.value.sum_price = item.sum_price !== undefined ? item.sum_price : 1
+    form.value.is_have = item.is_have !== undefined ? item.is_have : true
+    form.value.wardrobe_status = item.wardrobe_status || null
+    form.value.plan_id = item.plan_id || null
+    form.value.add_time = item.add_time || null
+    form.value.origin = item.origin || null
+    setTimeout(() => {
+      if (item.detail_image_list && Array.isArray(item.detail_image_list) && item.detail_image_list.length > 0 && detailImageRef.value) {
+        detailImageRef.value.previewImages = item.detail_image_list.map((img: string) => ({
+          file: undefined as unknown as File,
+          url: BASE_IMG + img
+        }))
+      }
+      if (item.clothes_img && wardrobeCoverRef.value) {
+        wardrobeCoverRef.value.previewImages = [{
+          file: undefined as unknown as File,
+          url: BASE_IMG + item.clothes_img
+        }]
+        console.log(wardrobeCoverRef.value.previewImages, '主图')
+      }
+    });
+    // 处理颜色数组
+    if (item.color) {
+      if (typeof item.color === 'string') {
+        form.value.color = item.color.split(',').filter((c: string) => c.trim() !== '')
+      } else if (Array.isArray(item.color)) {
+        form.value.color = [...item.color]
+      } else {
+        form.value.color = []
+      }
+    } else {
+      form.value.color = []
+    }
+
+    // 处理标签数组
+    if (item.tags) {
+      if (typeof item.tags === 'string') {
+        form.value.tags = item.tags.split(',').filter((t: string) => t.trim() !== '')
+      } else if (Array.isArray(item.tags)) {
+        form.value.tags = [...item.tags]
+      } else {
+        form.value.tags = []
+      }
+    } else {
+      form.value.tags = []
+    }
+
+    // 处理季节数组
+    if (item.season) {
+      if (typeof item.season === 'string') {
+        form.value.season = item.season.split(',').filter((s: string) => s.trim() !== '')
+      } else if (Array.isArray(item.season)) {
+        form.value.season = [...item.season]
+      } else {
+        form.value.season = []
+      }
+    } else {
+      form.value.season = []
+    }
+
+    // 处理部位数组
+    if (item.clothes_part) {
+      if (typeof item.clothes_part === 'string') {
+        const parts = item.clothes_part.split(',').filter((p: string) => p.trim() !== '')
+        form.value.clothes_part = parts.map((part: string): optionsInterface => ({
+          value: part,
+          label: part
+        }))
+      } else if (Array.isArray(item.clothes_part)) {
+        // 如果已经是 optionsInterface 格式
+        form.value.clothes_part = (item.clothes_part as (string | optionsInterface)[]).map((part: string | optionsInterface): optionsInterface => {
+          if (typeof part === 'string') {
+            return { value: part, label: part }
+          }
+          return part
+        })
+      } else {
+        form.value.clothes_part = []
+      }
+    } else {
+      form.value.clothes_part = []
+    }
+
+    // 处理主要风格数组
+    if (item.main_style_list && Array.isArray(item.main_style_list) && item.main_style_list.length > 0) {
+      // 如果已经有 main_style_list（来自详情页）
+      form.value.main_style = item.main_style_list.map((style: { label: string; value: number }) => ({
+        value: style.value,
+        label: style.label
+      }))
+    } else if (item.main_style) {
+      // 如果是字符串格式
+      if (typeof item.main_style === 'string') {
+        const styles = item.main_style.split(',').filter((s: string) => s.trim() !== '')
+        form.value.main_style = styles.map((styleValue: string) => {
+          const styleNum = Number.parseInt(styleValue, 10)
+          const styleOption = main_style_options.value.find(opt => opt.value === styleNum)
+          return styleOption || { value: styleNum, label: styleValue }
+        })
+      } else if (Array.isArray(item.main_style)) {
+        form.value.main_style = (item.main_style as (string | optionsInterface)[]).map((style: string | optionsInterface): optionsInterface => {
+          if (typeof style === 'string') {
+            const styleNum = Number.parseInt(style, 10)
+            const styleOption = main_style_options.value.find(opt => opt.value === styleNum)
+            return styleOption || { value: styleNum, label: style }
+          }
+          return style
+        })
+      } else {
+        form.value.main_style = []
+      }
+    } else {
+      form.value.main_style = []
+    }
+
+    // 处理图鉴关联
+    if (item.library) {
+      library.value = item.library
+    } else {
+      library.value = null
+    }
+
+    // 处理来源店铺
+    if (item.origin_shop) {
+      origin_shop.value = item.origin_shop
+    } else {
+      // 如果 origin 存在但不是 origin_shop，暂时设为 undefined
+      // 后续可以通过 origin 字段查找店铺
+      origin_shop.value = undefined
+    }
+
+    // 处理衣柜名称
+    wardrobeName.value = item.wardrobe_name || item.wardrobe?.wardrobe_name || ''
+    wardrobe.value = item.wardrobe || null
+
+    // 处理主图
+    if (wardrobeCoverRef.value) {
+      if (item.clothes_img) {
+        wardrobeCoverRef.value.previewImages = [{ file: undefined as unknown as File, url: BASE_IMG + item.clothes_img }]
+      } else {
+        wardrobeCoverRef.value.previewImages = []
+      }
+    }
+
+    // 处理详情图
+    if (detailImageRef.value) {
+      if (item.detail_image_list && Array.isArray(item.detail_image_list) && item.detail_image_list.length > 0) {
+        detailImageRef.value.previewImages = item.detail_image_list.map((img: string) => ({
+          file: undefined as unknown as File,
+          url: BASE_IMG + img
+        }))
+      } else if (item.detail_image && typeof item.detail_image === 'string') {
+        const detailImages = item.detail_image.split(',').filter((img: string) => img.trim() !== '')
+        detailImageRef.value.previewImages = detailImages.map((img: string) => ({
+          file: undefined as unknown as File,
+          url: BASE_IMG + img
+        }))
+      } else {
+        detailImageRef.value.previewImages = []
+      }
+    }
+  } else {
+    // 如果没有传入 item，重置表单
+    initData()
+  }
+
+  show.value = true
 }
 
 const showColorPicker = () => {
@@ -183,6 +387,16 @@ const initData = () => {
 			// this.plan = null
 			library.value = null
 			wardrobe.value = null
+			wardrobeName.value = ''
+			origin_shop.value = undefined
+			
+			// 清空图片选择器
+			if (wardrobeCoverRef.value) {
+				wardrobeCoverRef.value.previewImages = []
+			}
+			if (detailImageRef.value) {
+				detailImageRef.value.previewImages = []
+			}
 		}
 const fetchUpload = async (file: { file: { readonly lastModified: number; readonly name: string; readonly webkitRelativePath: string; readonly size: number; readonly type: string; arrayBuffer: { (): Promise<ArrayBuffer>; (): Promise<ArrayBuffer> }; bytes: { (): Promise<Uint8Array<ArrayBuffer>>; (): Promise<Uint8Array<ArrayBuffer>> }; slice: { (start?: number, end?: number, contentType?: string): Blob; (start?: number, end?: number, contentType?: string): Blob }; stream: { (): ReadableStream<Uint8Array<ArrayBuffer>>; (): ReadableStream<Uint8Array<ArrayBuffer>> }; text: { (): Promise<string>; (): Promise<string> } }; url: string }) => {
   try {
@@ -257,8 +471,8 @@ const insert = async () => {
   } else {
     params.origin = null
   }
-  if (clothes_part.length > 0) {
-    params.clothes_part = clothes_part.join()
+  if (clothes_part && Array.isArray(clothes_part) && clothes_part.length > 0) {
+    params.clothes_part = clothes_part.map((p: optionsInterface) => p.label || String(p.value)).join(',')
   } else {
     params.clothes_part = null
   }
@@ -274,13 +488,13 @@ const insert = async () => {
     params.color = null
   }
 
-  if (price && price !== '') {
+  if (price && price !== 0) {
     params.price = price
   } else {
     params.price = null
   }
 
-  if (times && times !== '') {
+  if (times !== undefined && times !== null) {
     params.times = times
   } else {
     params.times = 0
@@ -291,8 +505,8 @@ const insert = async () => {
     params.tags = null
   }
 
-  if (main_style && main_style.length > 0) {
-    params.main_style = main_style.map((child) => { return child.value }).join()
+  if (main_style && Array.isArray(main_style) && main_style.length > 0) {
+    params.main_style = main_style.map((child: optionsInterface) => child.value).join(',')
   } else {
     params.main_style = null
   }
@@ -464,7 +678,7 @@ defineExpose({
             />
             <QhxJellyButton>
               <div class=" m-[5px] text-white rounded-[50%] h-[30px] w-[30px] bg-qhx-primary flex items-center justify-center cursor-pointer"
-                @click="origin_shop = null">
+                @click="origin_shop = undefined">
                 <UIcon name="ant-design:close-outlined" class="text-[22px] text-[#ffffff]" />
               </div>
             </QhxJellyButton>

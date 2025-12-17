@@ -33,11 +33,11 @@ const load = () => {
       :visible="visible"
       :imgs="preview && preview.length > 0 ? preview.map(item => {
         if (typeof item === 'string') {
-          return { src: BASE_IMG + item }
+          return { src: BASE_IMG + item || '' }
         }
-        return { src: BASE_IMG + item.src, title: item.title }
+        return { src: BASE_IMG + item.src || '', title: item.title }
       }) 
-      :list.map((item) => { return { src: BASE_IMG + item.src, title: item.title }})"
+      :list.map((item) => { return { src: BASE_IMG + item.src || '', title: item.title || '' }})"
       :index="index"
       append-to-body
       :teleport="'body'"

@@ -6,6 +6,14 @@ interface Props {
   size?: string  // 尺寸 mini small mid big
   needJump?: boolean // 是否需要跳转
 }
+let uni: any
+const configStore = useConfigStore()
+const port = computed(() => configStore.getPort())
+onMounted(async () => {
+  uni = await import('@dcloudio/uni-webview-js').catch((err) => {
+    console.error('Failed to load uni-webview-js:', err);
+  });
+})
 const image = ref<Array<string>>([])
 const text = ref('')
 const props = withDefaults(defineProps<Props>(), {
@@ -26,7 +34,30 @@ const handleJump = (id: number) => {
   if (!needJump) {
     return
   }
-  window.open(`/community/detail/${id}`, '_blank')
+  const isInUniApp =
+		typeof window !== 'undefined' &&
+		navigator.userAgent.includes('Html5Plus');
+	if (isInUniApp && typeof uni !== 'undefined' && uni.navigateTo) {
+		// UniApp WebView 环境
+		uni.navigateTo({
+			url: `/pages/community/detail/${id}`,
+			fail: () => {
+				console.log('跳转错误')
+			}
+		});
+	} else {
+    if (port.value) {
+      port.value.postMessage(JSON.stringify({
+        type: 'jump',
+        path: 'CommunityDetail',
+        params: {
+          id: id
+        }
+      }));
+    } else {
+      window.open(`/community/detail/${id}`, '_blank')
+    }
+  }
   // navigateTo(`/compilations/detail/${id}`)
 }
 const emit = defineEmits(['load'])
