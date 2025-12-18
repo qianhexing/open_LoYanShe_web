@@ -34,6 +34,15 @@
           <p class="text-xl md:text-2xl text-pink-500 dark:text-pink-400 font-medium tracking-wide">
             Yearly Summary
           </p>
+          <div v-if="summaryData.user_info" class="flex items-center justify-center gap-2 mt-4">
+             <img 
+              v-if="summaryData.user_info.user_face" 
+              :src="formatImg(summaryData.user_info.user_face)" 
+              class="w-8 h-8 rounded-full border border-pink-200"
+              alt="Avatar"
+            />
+            <span class="text-gray-600 dark:text-gray-300 font-medium">{{ summaryData.user_info.user_name }}</span>
+          </div>
           <p class="text-sm text-gray-500 dark:text-gray-400 uppercase tracking-[0.2em]">
             Lolita Fashion Journey
           </p>
@@ -98,16 +107,37 @@
           </div>
         </div>
       </div>
+      
+      <!-- 相册展示 (重点) -->
+      <div v-if="summaryData.ablumn_items?.length" class="max-w-5xl mx-auto px-4 md:px-8 mb-16">
+        <h3 class="text-xl font-bold text-gray-800 dark:text-gray-100 mb-6 flex items-center gap-2">
+          <span>📸</span>
+          <span>年度回忆</span>
+        </h3>
+        <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+          <div 
+            v-for="album in summaryData.ablumn_items" 
+            :key="album.album_id"
+            class="group relative aspect-square bg-white dark:bg-gray-800 rounded-2xl overflow-hidden shadow-md hover:shadow-xl transition-all duration-300"
+          >
+             <img 
+               v-if="album.ablumn?.album_cover"
+               :src="formatImg(album.ablumn.album_cover)"
+               class="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110"
+               alt="Album"
+             />
+             <div v-else class="w-full h-full bg-gray-100 dark:bg-gray-700 flex items-center justify-center text-3xl">
+               📁
+             </div>
+             <div class="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent flex flex-col justify-end p-4 opacity-0 group-hover:opacity-100 transition-opacity">
+               <span class="text-white font-medium truncate">{{ album.ablumn?.album_title || '未命名相册' }}</span>
+             </div>
+          </div>
+        </div>
+      </div>
 
       <!-- 详细列表区域 -->
       <div class="max-w-5xl mx-auto px-4 md:px-8 space-y-16">
-        <YearlySummarySection
-          v-if="summaryData.latest_dress?.length"
-          title="最新的裙子"
-          icon="👗"
-          :items="summaryData.latest_dress"
-          :delay="0.2"
-        />
 
         <!-- 最喜欢的物品，按部位分组 -->
         <template v-if="summaryData.favorite?.length">
@@ -149,6 +179,35 @@
           :delay="0.6"
         />
 
+        <!-- 店铺排行 -->
+        <div v-if="summaryData.shop_list?.length" class="bg-white/70 dark:bg-gray-800/70 backdrop-blur-md rounded-[2rem] p-8 shadow-xl border border-white/50 dark:border-gray-700">
+          <h3 class="text-xl font-bold text-gray-800 dark:text-gray-100 mb-6 flex items-center gap-2">
+            <span>🛍️</span>
+            <span>常逛店铺</span>
+          </h3>
+          <div class="flex flex-wrap gap-4">
+             <div 
+               v-for="(shopItem, idx) in summaryData.shop_list.slice(0, 6)"
+               :key="idx"
+               class="flex items-center gap-3 bg-white dark:bg-gray-700 p-3 rounded-xl shadow-sm border border-gray-100 dark:border-gray-600"
+             >
+                <div class="w-10 h-10 rounded-full overflow-hidden bg-gray-100">
+                  <img 
+                    v-if="shopItem.shop?.shop_logo"
+                    :src="formatImg(shopItem.shop.shop_logo)"
+                    class="w-full h-full object-cover"
+                    alt="Shop"
+                  />
+                  <span v-else class="flex items-center justify-center w-full h-full text-xs">Shop</span>
+                </div>
+                <div class="flex flex-col">
+                  <span class="text-sm font-bold text-gray-800 dark:text-gray-200">{{ shopItem.shop?.shop_name || shopItem.label }}</span>
+                  <span class="text-xs text-gray-500 dark:text-gray-400">购买 {{ shopItem.value }} 次</span>
+                </div>
+             </div>
+          </div>
+        </div>
+
         <!-- 拉黑店铺 -->
         <div 
           v-if="summaryData.blacklisted_shops?.length"
@@ -167,7 +226,7 @@
             >
               <div class="w-16 h-16 rounded-full overflow-hidden border-2 border-red-200 dark:border-red-800 shadow-sm group-hover:scale-110 transition-transform">
                 <img 
-                  :src="`${BASE_IMG}${shop.shop_logo.replace(BASE_IMG, '')}?x-oss-process=image/quality,q_60/resize,w_150`"
+                  :src="formatImg(shop.shop_logo)"
                   :alt="shop.shop_name"
                   class="w-full h-full object-cover grayscale group-hover:grayscale-0 transition-all"
                 />
@@ -211,9 +270,15 @@ const { $gsap } = useNuxtApp()
 
 const loading = ref(true)
 const summaryData = ref<YearlySummaryData>({
+  user_info: { user_id: 0, user_name: '', user_face: '', main_style_name: '' },
+  ablumn_items: [],
   years_in_lolita: 0,
   total_spending: 0,
-  purchase_stats: []
+  purchase_stats: [],
+  favorite: [],
+  most_worn: [],
+  blacklisted_shops: [],
+  shop_list: []
 })
 
 const currentYear = computed(() => new Date().getFullYear())
@@ -230,6 +295,11 @@ const showPosterModal = ref(false)
 
 const formatNumber = (num: number): string => {
   return num.toLocaleString('zh-CN')
+}
+
+const formatImg = (url: string) => {
+  if (!url) return ''
+  return `${BASE_IMG}${url.replace(BASE_IMG, '')}?x-oss-process=image/quality,q_60/resize,w_150`
 }
 
 // 根据部位名称获取图标
@@ -251,6 +321,22 @@ const getMockData = (): YearlySummaryData => {
   const baseImageUrl = 'static/library_app/20986_176590718554587.JPG'
   
   return {
+    user_info: {
+      user_id: 1,
+      user_name: 'Lo娘',
+      user_face: baseImageUrl,
+      main_style_name: '甜系,哥特'
+    },
+    ablumn_items: Array(5).fill({
+        album_id: 1,
+        user_id: 1,
+        ablumn: {
+            album_id: 1,
+            parent_id: 0,
+            album_title: '我的相册',
+            album_cover: baseImageUrl
+        }
+    }),
     years_in_lolita: 5,
     total_spending: 25888,
     purchase_stats: [
@@ -260,24 +346,24 @@ const getMockData = (): YearlySummaryData => {
       { label: '包包', value: 8 },
       { label: '鞋子', value: 6 }
     ],
-    latest_dress: Array(4).fill({
-      clothes_id: 1,
-      wardrobe_id: 1,
-      clothes_img: baseImageUrl,
-      clothes_note: '甜美系粉色OP',
-      price: 888,
-      times: 5,
-      date: new Date(),
-      is_enable: 1
-    }).map((item, i) => ({ ...item, clothes_id: i + 1 })),
     favorite: [
       {
         label: '小物',
         value: Array(4).fill({
           clothes_id: 5,
           wardrobe_id: 1,
-          clothes_img: baseImageUrl,
-          clothes_note: '蕾丝发带',
+          clothes_part: '小物',
+          is_favorite: 1,
+          add_time: new Date(),
+          library: {
+            library_id: 1,
+            name: '蕾丝发带',
+            cover: baseImageUrl,
+            square_cover: baseImageUrl,
+            pattern_elements: '',
+            design_elements: '',
+            theme: ''
+          },
           price: 88,
           times: 25,
           date: new Date(),
@@ -289,37 +375,41 @@ const getMockData = (): YearlySummaryData => {
         value: Array(4).fill({
           clothes_id: 9,
           wardrobe_id: 1,
-          clothes_img: baseImageUrl,
-          clothes_note: '白色蕾丝袜',
+          clothes_part: '袜子',
+          is_favorite: 1,
+          add_time: new Date(),
+          library: {
+              library_id: 2,
+              name: '白色蕾丝袜',
+              cover: baseImageUrl,
+              square_cover: baseImageUrl,
+              pattern_elements: '',
+              design_elements: '',
+              theme: ''
+          },
           price: 68,
           times: 35,
           date: new Date(),
           is_enable: 1
         }).map((item, i) => ({ ...item, clothes_id: i + 9 }))
-      },
-      {
-        label: '包包',
-        value: Array(4).fill({
-          clothes_id: 13,
-          wardrobe_id: 1,
-          clothes_img: baseImageUrl,
-          clothes_note: '粉色手提包',
-          price: 388,
-          times: 18,
-          date: new Date(),
-          is_enable: 1
-        }).map((item, i) => ({ ...item, clothes_id: i + 13 }))
       }
     ],
     most_worn: Array(4).fill({
       clothes_id: 17,
       wardrobe_id: 1,
-      clothes_img: baseImageUrl,
-      clothes_note: '经典款粉色OP',
       price: 988,
       times: 45,
       date: new Date(),
-      is_enable: 1
+      is_enable: 1,
+      library: {
+          library_id: 3,
+          name: '经典款粉色OP',
+          cover: baseImageUrl,
+          square_cover: baseImageUrl,
+          pattern_elements: '',
+          design_elements: '',
+          theme: ''
+      }
     }).map((item, i) => ({ ...item, clothes_id: i + 17 })),
     blacklisted_shops: [
       {
@@ -333,13 +423,29 @@ const getMockData = (): YearlySummaryData => {
         shop_name: 'YY店铺',
         shop_logo: baseImageUrl,
         shop_country: 1
-      },
-      {
-        shop_id: 3,
-        shop_name: 'ZZ店铺',
-        shop_logo: baseImageUrl,
-        shop_country: 1
       }
+    ],
+    shop_list: [
+        {
+            label: '1',
+            value: 10,
+            shop: {
+                shop_id: 1,
+                shop_name: 'Angelic Pretty',
+                shop_logo: baseImageUrl,
+                shop_country: 1
+            }
+        },
+        {
+            label: '2',
+            value: 5,
+            shop: {
+                shop_id: 2,
+                shop_name: 'Baby, the Stars Shine Bright',
+                shop_logo: baseImageUrl,
+                shop_country: 1
+            }
+        }
     ]
   }
 }

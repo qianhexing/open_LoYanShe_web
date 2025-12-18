@@ -114,6 +114,10 @@ const handleUpdate = (value: boolean) => {
 // 图片加载工具
 const loadImage = (url: string): Promise<HTMLImageElement> => {
   return new Promise((resolve, reject) => {
+    if (!url) {
+        resolve(new Image()) // 返回空图片对象
+        return
+    }
     const img = new Image()
     img.crossOrigin = 'Anonymous'
     // 替换为 HTTPS 并添加处理参数
@@ -123,7 +127,7 @@ const loadImage = (url: string): Promise<HTMLImageElement> => {
     img.onerror = () => {
       // 失败时尝试加载原图或占位图
       console.warn('Failed to load image:', url)
-      resolve(img) // 仍然 resolve 以免阻塞流程，只是图片可能是空的
+      resolve(img) // 仍然 resolve 以免阻塞流程
     }
   })
 }
@@ -141,27 +145,6 @@ const roundRect = (ctx: CanvasRenderingContext2D, x: number, y: number, w: numbe
   ctx.closePath()
 }
 
-// 绘制文本自动换行
-const wrapText = (ctx: CanvasRenderingContext2D, text: string, x: number, y: number, maxWidth: number, lineHeight: number) => {
-  const words = text.split('')
-  let line = ''
-  let currentY = y
-
-  for (let n = 0; n < words.length; n++) {
-    const testLine = line + words[n]
-    const metrics = ctx.measureText(testLine)
-    const testWidth = metrics.width
-    if (testWidth > maxWidth && n > 0) {
-      ctx.fillText(line, x, currentY)
-      line = words[n]
-      currentY += lineHeight
-    } else {
-      line = testLine
-    }
-  }
-  ctx.fillText(line, x, currentY)
-}
-
 // 主绘制逻辑
 const drawPoster = async () => {
   if (!canvasRef.value) return
@@ -172,54 +155,66 @@ const drawPoster = async () => {
   drawComplete.value = false
 
   try {
-    // 1. 计算总高度
-    let currentY = 0
     const PADDING = 40
+    let totalHeight = 0
     
-    // Header height approx 200
-    // Stats grid height approx 300
-    // Purchase stats height approx 150
-    // Each item section approx 350
-    // Footer approx 100
+    // 1. 计算总高度
+    totalHeight += 250 // Header
+    totalHeight += 320 // Stats Grid
+    totalHeight += 150 // Purchase Stats
     
-    const itemSections = [
-      props.summaryData.latest_dress,
-      props.summaryData.most_worn
-    ].filter(arr => arr && arr.length > 0).length
+    // 相册高度计算
+    const albumCount = props.summaryData.ablumn_items?.length || 0
+    let albumHeight = 0
+    if (albumCount > 0) {
+        const cols = 3
+        const rows = Math.ceil(albumCount / cols)
+        const gap = 15
+        const itemW = (CANVAS_WIDTH - PADDING * 2 - gap * (cols - 1)) / cols
+        const itemH = itemW + 40 // Image + Title
+        albumHeight = rows * itemH + (rows - 1) * gap + 80 // + Title
+        totalHeight += albumHeight + 40 // Padding
+    }
     
-    // 计算 favorite 数组的区块数量
-    const favoriteSections = props.summaryData.favorite?.filter(fav => fav.value && fav.value.length > 0).length || 0
+    // Favorite sections
+    let favSections = 0
+    if (props.summaryData.favorite?.length) {
+        favSections = props.summaryData.favorite.filter(f => f.value?.length).length
+    }
+    totalHeight += favSections * 380
     
-    const TOTAL_HEIGHT = 200 + 320 + 150 + (itemSections * 380) + (favoriteSections * 380) + 150 + (props.summaryData.blacklisted_shops?.length ? 150 : 0) + 100
+    // Most Worn
+    if (props.summaryData.most_worn?.length) {
+        totalHeight += 380
+    }
     
+    // Shop List (Optional)
+    if (props.summaryData.shop_list?.length) {
+        totalHeight += 200
+    }
+
+    // Blacklist
+    if (props.summaryData.blacklisted_shops?.length) {
+        totalHeight += 180
+    }
+    
+    totalHeight += 150 // Footer
+
     canvasRef.value.width = CANVAS_WIDTH
-    canvasRef.value.height = TOTAL_HEIGHT
+    canvasRef.value.height = totalHeight
 
     // 2. 绘制背景
     ctx.fillStyle = COLORS.bg
-    ctx.fillRect(0, 0, CANVAS_WIDTH, TOTAL_HEIGHT)
+    ctx.fillRect(0, 0, CANVAS_WIDTH, totalHeight)
     
     // 顶部渐变装饰
     const gradient = ctx.createLinearGradient(0, 0, 0, 500)
-    gradient.addColorStop(0, '#fff1f2') // pink-50
+    gradient.addColorStop(0, '#fff1f2')
     gradient.addColorStop(1, 'rgba(255, 255, 255, 0)')
     ctx.fillStyle = gradient
     ctx.fillRect(0, 0, CANVAS_WIDTH, 500)
 
-    // 装饰圆点
-    ctx.save()
-    ctx.filter = 'blur(60px)'
-    ctx.fillStyle = 'rgba(233, 213, 255, 0.5)' // purple-100
-    ctx.beginPath()
-    ctx.arc(CANVAS_WIDTH, 0, 200, 0, Math.PI * 2)
-    ctx.fill()
-    ctx.fillStyle = 'rgba(252, 231, 243, 0.5)' // pink-100
-    ctx.beginPath()
-    ctx.arc(0, 400, 150, 0, Math.PI * 2)
-    ctx.fill()
-    ctx.restore()
-
-    currentY += 80
+    let currentY = 80
 
     // 3. Header
     ctx.textAlign = 'center'
@@ -229,9 +224,8 @@ const drawPoster = async () => {
     
     currentY += 40
     
-    // 装饰线和标题
     ctx.beginPath()
-    ctx.strokeStyle = '#d1d5db' // gray-300
+    ctx.strokeStyle = '#d1d5db'
     ctx.lineWidth = 1
     ctx.moveTo(CANVAS_WIDTH / 2 - 140, currentY - 10)
     ctx.lineTo(CANVAS_WIDTH / 2 - 90, currentY - 10)
@@ -244,18 +238,23 @@ const drawPoster = async () => {
     ctx.letterSpacing = '4px'
     ctx.fillText('YEARLY SUMMARY', CANVAS_WIDTH / 2, currentY)
     
-    currentY += 30
-    ctx.fillStyle = COLORS.textLight
-    ctx.font = '14px sans-serif'
-    ctx.fillText('LOLITA FASHION JOURNEY', CANVAS_WIDTH / 2, currentY)
+    currentY += 40
+    
+    // User Info
+    if (props.summaryData.user_info) {
+        ctx.fillStyle = COLORS.text
+        ctx.font = 'bold 24px sans-serif'
+        ctx.fillText(props.summaryData.user_info.user_name, CANVAS_WIDTH / 2, currentY)
+        currentY += 30
+    }
 
-    currentY += 60
+    currentY += 40
 
     // 4. 核心数据卡片 (Grid Layout)
     const CARD_GAP = 20
     const LEFT_COL_WIDTH = (CANVAS_WIDTH - PADDING * 2 - CARD_GAP) / 3
     const RIGHT_COL_WIDTH = LEFT_COL_WIDTH * 2 + CARD_GAP
-    const CARD_HEIGHT = LEFT_COL_WIDTH // Square aspect for left card
+    const CARD_HEIGHT = LEFT_COL_WIDTH
 
     // 入坑卡片
     ctx.save()
@@ -265,15 +264,12 @@ const drawPoster = async () => {
     ctx.shadowBlur = 10
     ctx.shadowOffsetY = 4
     ctx.fill()
-    ctx.shadowColor = 'transparent' // Reset shadow
-    ctx.strokeStyle = '#f3f4f6'
-    ctx.lineWidth = 1
     ctx.stroke()
 
-    // 内容
     const cardCenterX = PADDING + LEFT_COL_WIDTH / 2
     const cardCenterY = currentY + CARD_HEIGHT / 2
     
+    ctx.textAlign = 'center'
     ctx.font = '40px sans-serif'
     ctx.fillText('🕰️', cardCenterX, cardCenterY - 20)
     ctx.fillStyle = COLORS.textLight
@@ -289,7 +285,6 @@ const drawPoster = async () => {
     
     ctx.save()
     roundRect(ctx, rightCardX, currentY, RIGHT_COL_WIDTH, CARD_HEIGHT, 30)
-    // Gradient bg
     const cardGradient = ctx.createLinearGradient(rightCardX, currentY, rightCardX + RIGHT_COL_WIDTH, currentY + CARD_HEIGHT)
     cardGradient.addColorStop(0, '#ec4899')
     cardGradient.addColorStop(1, '#9333ea')
@@ -299,13 +294,6 @@ const drawPoster = async () => {
     ctx.shadowOffsetY = 8
     ctx.fill()
 
-    // 装饰圆圈
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.1)'
-    ctx.beginPath()
-    ctx.arc(rightCardX + RIGHT_COL_WIDTH - 20, currentY + 20, 60, 0, Math.PI * 2)
-    ctx.fill()
-
-    // 内容
     ctx.textAlign = 'left'
     ctx.fillStyle = 'rgba(255, 255, 255, 0.9)'
     ctx.font = 'bold 14px sans-serif'
@@ -315,17 +303,12 @@ const drawPoster = async () => {
     ctx.font = 'bold 60px sans-serif'
     const spendingText = props.summaryData.total_spending.toLocaleString('zh-CN')
     ctx.fillText('¥ ' + spendingText, rightCardX + 30, currentY + 110)
-    
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.8)'
-    ctx.font = '12px sans-serif'
-    ctx.fillText('每一分热爱都值得铭记', rightCardX + 30, currentY + 145)
     ctx.restore()
 
     currentY += CARD_HEIGHT + 30
 
     // 5. 购买统计
     const STATS_HEIGHT = 120
-    
     ctx.save()
     roundRect(ctx, PADDING, currentY, CANVAS_WIDTH - PADDING * 2, STATS_HEIGHT, 30)
     ctx.fillStyle = 'rgba(255, 255, 255, 0.8)'
@@ -335,68 +318,122 @@ const drawPoster = async () => {
     ctx.fill()
     ctx.stroke()
 
-    // Title
     ctx.textAlign = 'left'
     ctx.fillStyle = COLORS.text
     ctx.font = 'bold 18px sans-serif'
-    // Pink pill
-    ctx.fillStyle = COLORS.primary
-    roundRect(ctx, PADDING + 20, currentY + 20, 6, 24, 3)
-    ctx.fill()
-    ctx.fillStyle = COLORS.text
-    ctx.fillText('年度战利品', PADDING + 35, currentY + 38)
+    ctx.fillText('📊 年度收获', PADDING + 30, currentY + 38)
 
-    // Grid
-    const statItemWidth = (CANVAS_WIDTH - PADDING * 2 - 40) / props.summaryData.purchase_stats.length
-    props.summaryData.purchase_stats.forEach((stat, index) => {
-      const x = PADDING + 20 + index * statItemWidth + statItemWidth / 2
-      const y = currentY + 70
-      
-      ctx.textAlign = 'center'
-      ctx.fillStyle = COLORS.text
-      ctx.font = 'bold 28px serif'
-      ctx.fillText(stat.value.toString(), x, y)
-      
-      // Label pill
-      ctx.font = '12px sans-serif'
-      const labelWidth = ctx.measureText(stat.label).width + 20
-      ctx.fillStyle = '#f9fafb' // gray-50
-      roundRect(ctx, x - labelWidth / 2, y + 10, labelWidth, 24, 12)
-      ctx.fill()
-      ctx.fillStyle = COLORS.textLight
-      ctx.fillText(stat.label, x, y + 26)
-    })
+    if (props.summaryData.purchase_stats?.length) {
+        const statItemWidth = (CANVAS_WIDTH - PADDING * 2 - 40) / props.summaryData.purchase_stats.length
+        props.summaryData.purchase_stats.forEach((stat, index) => {
+          const x = PADDING + 20 + index * statItemWidth + statItemWidth / 2
+          const y = currentY + 70
+          
+          ctx.textAlign = 'center'
+          ctx.fillStyle = COLORS.text
+          ctx.font = 'bold 28px serif'
+          ctx.fillText(stat.value.toString(), x, y)
+          
+          ctx.font = '12px sans-serif'
+          ctx.fillStyle = COLORS.textLight
+          ctx.fillText(stat.label, x, y + 26)
+        })
+    }
     ctx.restore()
 
     currentY += STATS_HEIGHT + 40
 
-    // 6. 图片展示区域 (Latest Dress & Most Worn)
-    const sections = [
-      { title: '最新的裙子', icon: '👗', items: props.summaryData.latest_dress },
-      { title: '穿着率最高', icon: '⭐', items: props.summaryData.most_worn }
-    ]
+    // 6. 相册展示 (重点)
+    if (albumCount > 0) {
+        ctx.textAlign = 'left'
+        ctx.fillStyle = COLORS.text
+        ctx.font = 'bold 24px serif'
+        ctx.fillText('📸 年度回忆', PADDING + 10, currentY)
+        currentY += 30
 
-    // 绘制通用物品区块的函数
+        const cols = 3
+        const gap = 15
+        const itemW = (CANVAS_WIDTH - PADDING * 2 - gap * (cols - 1)) / cols
+        const itemH = itemW
+        
+        for (let i = 0; i < albumCount; i++) {
+            const album = props.summaryData.ablumn_items[i]
+            const col = i % cols
+            const row = Math.floor(i / cols)
+            
+            const x = PADDING + col * (itemW + gap)
+            const y = currentY + row * (itemH + gap + 40) // + text space
+            
+            // Draw Cover
+            ctx.save()
+            roundRect(ctx, x, y, itemW, itemH, 12)
+            ctx.clip()
+            
+            if (album.ablumn?.album_cover) {
+                 try {
+                    const img = await loadImage(album.ablumn.album_cover)
+                    // Cover fit
+                    const imgRatio = img.width / img.height
+                    let dw, dh, dx, dy
+                    if (imgRatio > 1) {
+                        dh = itemH
+                        dw = dh * imgRatio
+                        dx = x - (dw - itemW) / 2
+                        dy = y
+                    } else {
+                        dw = itemW
+                        dh = dw / imgRatio
+                        dx = x
+                        dy = y - (dh - itemH) / 2
+                    }
+                    ctx.drawImage(img, dx, dy, dw, dh)
+                 } catch (e) {
+                     ctx.fillStyle = '#f3f4f6'
+                     ctx.fillRect(x, y, itemW, itemH)
+                 }
+            } else {
+                ctx.fillStyle = '#f3f4f6'
+                ctx.fillRect(x, y, itemW, itemH)
+            }
+            ctx.restore()
+            
+            // Draw Title
+            ctx.fillStyle = COLORS.text
+            ctx.font = 'bold 14px sans-serif'
+            const title = album.ablumn?.album_title || '未命名'
+            // Truncate
+            let displayTitle = title
+            if (ctx.measureText(title).width > itemW) {
+                while (ctx.measureText(displayTitle + '...').width > itemW && displayTitle.length > 0) {
+                    displayTitle = displayTitle.slice(0, -1)
+                }
+                displayTitle += '...'
+            }
+            ctx.textAlign = 'center'
+            ctx.fillText(displayTitle, x + itemW/2, y + itemH + 20)
+        }
+        
+        currentY += albumHeight + 40
+    }
+
+    // 7. 图片展示区域 (Favorite & Most Worn)
     const drawItemSection = async (title: string, icon: string, items: any[], showTimesBadge = false) => {
       if (!items || items.length === 0) return
       
-      // Section Title
       ctx.textAlign = 'left'
       ctx.fillStyle = COLORS.text
       ctx.font = 'bold 24px serif'
       ctx.fillText(`${icon} ${title}`, PADDING + 10, currentY)
       currentY += 30
 
-      // Grid of 4
       const GRID_GAP = 15
       const ITEM_WIDTH = (CANVAS_WIDTH - PADDING * 2 - GRID_GAP * 3) / 4
-      const ITEM_HEIGHT = ITEM_WIDTH * 1.33 + 60 // Image + Text
+      const ITEM_HEIGHT = ITEM_WIDTH * 1.33 + 60 
 
       for (let i = 0; i < Math.min(items.length, 4); i++) {
         const item = items[i]
         const x = PADDING + i * (ITEM_WIDTH + GRID_GAP)
         
-        // Card bg
         ctx.save()
         roundRect(ctx, x, currentY, ITEM_WIDTH, ITEM_HEIGHT, 12)
         ctx.fillStyle = '#ffffff'
@@ -404,56 +441,64 @@ const drawPoster = async () => {
         ctx.shadowBlur = 8
         ctx.shadowOffsetY = 2
         ctx.fill()
-        ctx.clip() // Clip for image
+        ctx.clip()
 
-        // Load and draw image
-        try {
-          const img = await loadImage(item.clothes_img)
-          // Object fit cover logic
-          const imgRatio = img.width / img.height
-          const targetRatio = ITEM_WIDTH / (ITEM_WIDTH * 1.33)
-          let drawW, drawH, drawX, drawY
+        // Get Image URL
+        let imgUrl = item.clothes_img
+        if (!imgUrl && item.library?.cover) imgUrl = item.library.cover
+        if (!imgUrl && item.library?.square_cover) imgUrl = item.library.square_cover
+        
+        if (imgUrl) {
+             try {
+                const img = await loadImage(imgUrl)
+                const imgRatio = img.width / img.height
+                const targetRatio = ITEM_WIDTH / (ITEM_WIDTH * 1.33)
+                let drawW, drawH, drawX, drawY
 
-          if (imgRatio > targetRatio) {
-            drawH = ITEM_WIDTH * 1.33
-            drawW = drawH * imgRatio
-            drawX = x - (drawW - ITEM_WIDTH) / 2
-            drawY = currentY
-          } else {
-            drawW = ITEM_WIDTH
-            drawH = drawW / imgRatio
-            drawX = x
-            drawY = currentY - (drawH - (ITEM_WIDTH * 1.33)) / 2
-          }
-          
-          ctx.drawImage(img, drawX, drawY, drawW, drawH)
-        } catch (e) {
-          // Draw placeholder
-          ctx.fillStyle = '#f3f4f6'
-          ctx.fillRect(x, currentY, ITEM_WIDTH, ITEM_WIDTH * 1.33)
+                if (imgRatio > targetRatio) {
+                    drawH = ITEM_WIDTH * 1.33
+                    drawW = drawH * imgRatio
+                    drawX = x - (drawW - ITEM_WIDTH) / 2
+                    drawY = currentY
+                } else {
+                    drawW = ITEM_WIDTH
+                    drawH = drawW / imgRatio
+                    drawX = x
+                    drawY = currentY - (drawH - (ITEM_WIDTH * 1.33)) / 2
+                }
+                ctx.drawImage(img, drawX, drawY, drawW, drawH)
+             } catch (e) {
+                 ctx.fillStyle = '#f3f4f6'
+                 ctx.fillRect(x, currentY, ITEM_WIDTH, ITEM_WIDTH * 1.33)
+             }
+        } else {
+             ctx.fillStyle = '#f3f4f6'
+             ctx.fillRect(x, currentY, ITEM_WIDTH, ITEM_WIDTH * 1.33)
         }
-        ctx.restore() // Remove clip
+        ctx.restore()
 
-        // Text info
         const textY = currentY + ITEM_WIDTH * 1.33 + 10
         ctx.fillStyle = COLORS.text
         ctx.font = '12px sans-serif'
-        // Truncate text
-        let note = item.clothes_note || ''
-        if (ctx.measureText(note).width > ITEM_WIDTH - 10) {
-          while (ctx.measureText(note + '...').width > ITEM_WIDTH - 10 && note.length > 0) {
-            note = note.slice(0, -1)
-          }
-          note += '...'
-        }
-        ctx.fillText(note, x + 8, textY + 12)
+        ctx.textAlign = 'left'
         
-        ctx.fillStyle = COLORS.primary
-        ctx.font = 'bold 14px sans-serif'
-        ctx.fillText(`¥${formatNumber(item.price)}`, x + 8, textY + 32)
+        // Name priority: item.clothes_note -> item.library.name
+        let name = item.clothes_note || item.library?.name || ''
+        if (ctx.measureText(name).width > ITEM_WIDTH - 10) {
+          while (ctx.measureText(name + '...').width > ITEM_WIDTH - 10 && name.length > 0) {
+            name = name.slice(0, -1)
+          }
+          name += '...'
+        }
+        ctx.fillText(name, x + 8, textY + 12)
+        
+        if (item.price) {
+            ctx.fillStyle = COLORS.primary
+            ctx.font = 'bold 14px sans-serif'
+            ctx.fillText(`¥${formatNumber(item.price)}`, x + 8, textY + 32)
+        }
         
         if (showTimesBadge && item.times) {
-           // Badge
            const badgeW = 40
            const badgeH = 20
            const badgeX = x + ITEM_WIDTH - badgeW - 5
@@ -467,29 +512,15 @@ const drawPoster = async () => {
            ctx.textAlign = 'center'
            ctx.fillText(`${item.times}次`, badgeX + badgeW/2, badgeY + 14)
            ctx.restore()
-           ctx.textAlign = 'left' // Reset alignment
         }
       }
-      
       currentY += ITEM_HEIGHT + 40
     }
 
-    // 绘制固定区块
-    for (const section of sections) {
-      await drawItemSection(section.title, section.icon, section.items, section.title === '穿着率最高')
-    }
-
-    // 7. 绘制 favorite 数组中的各个部位
     if (props.summaryData.favorite && props.summaryData.favorite.length > 0) {
       const getFavoriteIcon = (label: string): string => {
         const iconMap: Record<string, string> = {
-          '小物': '💍',
-          '袜子': '🧦',
-          '包包': '👜',
-          '鞋子': '👠',
-          '头饰': '👑',
-          '手套': '🧤',
-          '其他': '✨'
+          '小物': '💍', '袜子': '🧦', '包包': '👜', '鞋子': '👠', '头饰': '👑', '手套': '🧤', '其他': '✨'
         }
         return iconMap[label] || '✨'
       }
@@ -501,7 +532,42 @@ const drawPoster = async () => {
       }
     }
 
-    // 8. 黑名单
+    if (props.summaryData.most_worn?.length) {
+        await drawItemSection('穿着率最高', '⭐', props.summaryData.most_worn, true)
+    }
+
+    // 8. 店铺排行 (简单列表)
+    if (props.summaryData.shop_list?.length) {
+        ctx.textAlign = 'left'
+        ctx.fillStyle = COLORS.text
+        ctx.font = 'bold 24px serif'
+        ctx.fillText('🛍️ 常逛店铺', PADDING + 10, currentY)
+        currentY += 30
+        
+        const topShops = props.summaryData.shop_list.slice(0, 5)
+        let shopX = PADDING
+        
+        topShops.forEach((shop, i) => {
+            const name = shop.shop?.shop_name || shop.label
+            const text = `${i+1}. ${name} (${shop.value})`
+            ctx.font = '14px sans-serif'
+            ctx.fillStyle = COLORS.text
+            ctx.fillText(text, shopX, currentY + 20)
+            
+            // Draw simple bar
+            const barW = Math.min(shop.value * 2, 100)
+            ctx.fillStyle = COLORS.primary
+            ctx.globalAlpha = 0.6
+            roundRect(ctx, shopX + ctx.measureText(text).width + 10, currentY + 8, barW, 12, 6)
+            ctx.fill()
+            ctx.globalAlpha = 1.0
+            
+            currentY += 30
+        })
+        currentY += 40
+    }
+
+    // 9. 黑名单
     if (props.summaryData.blacklisted_shops?.length) {
       const BL_HEIGHT = 120
       ctx.save()
@@ -516,13 +582,10 @@ const drawPoster = async () => {
       ctx.font = 'bold 16px sans-serif'
       ctx.fillText('⛔ 避雷指南', CANVAS_WIDTH / 2, currentY + 30)
       
-      // Shops list
-      let shopX = PADDING + 30
       let shopY = currentY + 70
       ctx.font = '12px sans-serif'
       
       const shops = props.summaryData.blacklisted_shops
-      // Simple centered rendering logic for pills
       const totalWidth = shops.reduce((acc, s) => acc + ctx.measureText(s.shop_name).width + 30, 0)
       let startX = (CANVAS_WIDTH - totalWidth) / 2 + 15
       
@@ -544,8 +607,7 @@ const drawPoster = async () => {
       currentY += BL_HEIGHT + 40
     }
 
-    // 9. Footer
-    // Dotted line
+    // 10. Footer
     ctx.save()
     ctx.strokeStyle = '#d1d5db'
     ctx.setLineDash([5, 5])
@@ -557,13 +619,11 @@ const drawPoster = async () => {
     
     currentY += 40
     
-    // Logo pill
-    ctx.save()
     const footerText = 'Lo研社 · My Lolita Summary'
     ctx.font = '14px serif'
     const footerW = ctx.measureText(footerText).width + 60
     
-    ctx.fillStyle = '#111827' // gray-900
+    ctx.fillStyle = '#111827'
     roundRect(ctx, (CANVAS_WIDTH - footerW) / 2, currentY, footerW, 36, 18)
     ctx.fill()
     
@@ -574,7 +634,6 @@ const drawPoster = async () => {
     ctx.fillStyle = COLORS.textLight
     ctx.font = '12px sans-serif'
     ctx.fillText(`Generated at ${new Date().toLocaleDateString()}`, CANVAS_WIDTH / 2, currentY + 60)
-    ctx.restore()
 
     drawComplete.value = true
 
