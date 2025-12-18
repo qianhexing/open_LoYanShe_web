@@ -65,6 +65,9 @@ const canvasRef = ref<HTMLCanvasElement | null>(null)
 const generating = ref(false)
 const drawComplete = ref(false)
 const scale = ref(1)
+const formatNumber = (num: number): string => {
+  return num.toLocaleString('zh-CN')
+}
 
 // 画布尺寸配置
 const CANVAS_WIDTH = 750

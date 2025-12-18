@@ -12,7 +12,12 @@ const clickPosition = ref({ x: 0, y: 0 })
 const selectedOptions = ref<number[]>([])
 const fetchOptions = async () => {
   if (pk_id.value && collect_type.value) {
-    const params = { pk_id: pk_id.value, collect_type: collect_type.value }
+    const params = { pk_id: pk_id.value, 
+      collect_type: collect_type.value
+     }
+     if (collect_type.value === 4) {
+      params.collect_type = 2
+    }
     loading.value = true
     try {
       const resault = await getFavoriteOptions(params)
@@ -58,7 +63,8 @@ const fetchInsertCollect = async () => {
   }
   const params = {
     pk_id: pk_id.value,
-    ids: selectedOptions.value
+    ids: selectedOptions.value,
+    collect_type: collect_type.value
   }
   fetch_loading.value = true
   try {

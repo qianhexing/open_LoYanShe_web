@@ -227,7 +227,7 @@ const formatNumber = (num: number): string => {
 
 // 模拟数据 (保留原有逻辑)
 const getMockData = (): YearlySummaryData => {
-  const baseImageUrl = 'https://lolitalibrary.com/ali/static/library_app/20986_176590718554587.JPG'
+  const baseImageUrl = 'static/library_app/20986_176590718554587.JPG'
   
   return {
     years_in_lolita: 5,
