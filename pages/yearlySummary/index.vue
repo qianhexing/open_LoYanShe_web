@@ -51,7 +51,7 @@
             <div class="w-16 h-16 bg-pink-50 dark:bg-pink-900/30 rounded-full flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
               <span class="text-3xl">🕰️</span>
             </div>
-            <p class="text-gray-500 dark:text-gray-400 text-sm mb-1">入坑时长</p>
+            <p class="text-gray-500 dark:text-gray-400 text-sm mb-1">入驻Lo星时长</p>
             <h3 class="text-4xl font-bold text-gray-800 dark:text-gray-100">
               <span class="counter">{{ summaryData.years_in_lolita }}</span>
               <span class="text-lg ml-1 font-normal">年</span>
@@ -72,7 +72,7 @@
                   <span class="counter">{{ formatNumber(summaryData.total_spending) }}</span>
                 </h3>
               </div>
-              <p class="text-pink-100/80 text-sm mt-4">为热爱买单的每一分，都变成了更好的自己</p>
+              <p class="text-pink-100/80 text-sm mt-4">衣柜里永远缺一条裙子！</p>
             </div>
           </div>
 
@@ -83,7 +83,7 @@
           >
             <h3 class="text-xl font-bold text-gray-800 dark:text-gray-100 mb-6 flex items-center gap-2">
               <span>📊</span>
-              <span>年度战利品</span>
+              <span>年度收获</span>
             </h3>
             <div class="grid grid-cols-2 md:grid-cols-5 gap-4">
               <div 
@@ -109,31 +109,37 @@
           :delay="0.2"
         />
 
-        <YearlySummarySection
-          v-if="summaryData.favorite_accessories?.length"
-          title="最喜欢的小物"
-          icon="💍"
-          :items="summaryData.favorite_accessories"
-          :delay="0.3"
-        />
-        
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
-           <YearlySummarySection
-            v-if="summaryData.favorite_socks?.length"
-            title="最喜欢的袜子"
-            icon="🧦"
-            :items="summaryData.favorite_socks"
-            :delay="0.4"
-          />
-
-           <YearlySummarySection
-            v-if="summaryData.favorite_bags?.length"
-            title="最喜欢的包包"
-            icon="👜"
-            :items="summaryData.favorite_bags"
-            :delay="0.5"
-          />
-        </div>
+        <!-- 最喜欢的物品，按部位分组 -->
+        <template v-if="summaryData.favorite?.length">
+          <div v-if="summaryData.favorite.length === 1" class="w-full">
+            <YearlySummarySection
+              :title="`最喜欢的${summaryData.favorite[0].label}`"
+              :icon="getFavoriteIcon(summaryData.favorite[0].label)"
+              :items="summaryData.favorite[0].value"
+              :delay="0.3"
+            />
+          </div>
+          <div v-else-if="summaryData.favorite.length === 2" class="grid grid-cols-1 md:grid-cols-2 gap-8">
+            <YearlySummarySection
+              v-for="(fav, index) in summaryData.favorite"
+              :key="fav.label"
+              :title="`最喜欢的${fav.label}`"
+              :icon="getFavoriteIcon(fav.label)"
+              :items="fav.value"
+              :delay="0.3 + index * 0.1"
+            />
+          </div>
+          <template v-else>
+            <YearlySummarySection
+              v-for="(fav, index) in summaryData.favorite"
+              :key="fav.label"
+              :title="`最喜欢的${fav.label}`"
+              :icon="getFavoriteIcon(fav.label)"
+              :items="fav.value"
+              :delay="0.3 + index * 0.1"
+            />
+          </template>
+        </template>
 
         <YearlySummarySection
           v-if="summaryData.most_worn?.length"
@@ -198,6 +204,7 @@
 <script setup lang="ts">
 import { ref, onMounted, computed, nextTick } from 'vue'
 import type { YearlySummaryData } from '@/api/yearlySummary'
+import { getYearlySummary } from '@/api/yearlySummary'
 import { BASE_IMG } from '@/utils/ipConfig'
 
 const { $gsap } = useNuxtApp()
@@ -225,6 +232,20 @@ const formatNumber = (num: number): string => {
   return num.toLocaleString('zh-CN')
 }
 
+// 根据部位名称获取图标
+const getFavoriteIcon = (label: string): string => {
+  const iconMap: Record<string, string> = {
+    '小物': '💍',
+    '袜子': '🧦',
+    '包包': '👜',
+    '鞋子': '👠',
+    '头饰': '👑',
+    '手套': '🧤',
+    '其他': '✨'
+  }
+  return iconMap[label] || '✨'
+}
+
 // 模拟数据 (保留原有逻辑)
 const getMockData = (): YearlySummaryData => {
   const baseImageUrl = 'static/library_app/20986_176590718554587.JPG'
@@ -249,36 +270,47 @@ const getMockData = (): YearlySummaryData => {
       date: new Date(),
       is_enable: 1
     }).map((item, i) => ({ ...item, clothes_id: i + 1 })),
-    favorite_accessories: Array(4).fill({
-      clothes_id: 5,
-      wardrobe_id: 1,
-      clothes_img: baseImageUrl,
-      clothes_note: '蕾丝发带',
-      price: 88,
-      times: 25,
-      date: new Date(),
-      is_enable: 1
-    }).map((item, i) => ({ ...item, clothes_id: i + 5 })),
-    favorite_socks: Array(4).fill({
-      clothes_id: 9,
-      wardrobe_id: 1,
-      clothes_img: baseImageUrl,
-      clothes_note: '白色蕾丝袜',
-      price: 68,
-      times: 35,
-      date: new Date(),
-      is_enable: 1
-    }).map((item, i) => ({ ...item, clothes_id: i + 9 })),
-    favorite_bags: Array(4).fill({
-      clothes_id: 13,
-      wardrobe_id: 1,
-      clothes_img: baseImageUrl,
-      clothes_note: '粉色手提包',
-      price: 388,
-      times: 18,
-      date: new Date(),
-      is_enable: 1
-    }).map((item, i) => ({ ...item, clothes_id: i + 13 })),
+    favorite: [
+      {
+        label: '小物',
+        value: Array(4).fill({
+          clothes_id: 5,
+          wardrobe_id: 1,
+          clothes_img: baseImageUrl,
+          clothes_note: '蕾丝发带',
+          price: 88,
+          times: 25,
+          date: new Date(),
+          is_enable: 1
+        }).map((item, i) => ({ ...item, clothes_id: i + 5 }))
+      },
+      {
+        label: '袜子',
+        value: Array(4).fill({
+          clothes_id: 9,
+          wardrobe_id: 1,
+          clothes_img: baseImageUrl,
+          clothes_note: '白色蕾丝袜',
+          price: 68,
+          times: 35,
+          date: new Date(),
+          is_enable: 1
+        }).map((item, i) => ({ ...item, clothes_id: i + 9 }))
+      },
+      {
+        label: '包包',
+        value: Array(4).fill({
+          clothes_id: 13,
+          wardrobe_id: 1,
+          clothes_img: baseImageUrl,
+          clothes_note: '粉色手提包',
+          price: 388,
+          times: 18,
+          date: new Date(),
+          is_enable: 1
+        }).map((item, i) => ({ ...item, clothes_id: i + 13 }))
+      }
+    ],
     most_worn: Array(4).fill({
       clothes_id: 17,
       wardrobe_id: 1,
@@ -316,7 +348,7 @@ const loadData = async () => {
   try {
     loading.value = true
     await new Promise(resolve => setTimeout(resolve, 800))
-    summaryData.value = getMockData()
+    summaryData.value = await getYearlySummary()
   } catch (error) {
     console.error(error)
     summaryData.value = getMockData()
@@ -360,10 +392,10 @@ const initAnimations = () => {
 
   // 数字增长动画
   const counters = document.querySelectorAll('.counter')
-  counters.forEach(counter => {
+  for (const counter of counters) {
     // 简单的数字增长，不需要复杂插件
     const el = counter as HTMLElement
-    const target = parseInt(el.textContent?.replace(/,/g, '') || '0')
+    const target = Number.parseInt(el.textContent?.replace(/,/g, '') || '0', 10)
     const obj = { val: 0 }
     
     $gsap.to(obj, {
@@ -375,7 +407,7 @@ const initAnimations = () => {
       },
       delay: 0.8 // 稍晚于卡片出现
     })
-  })
+  }
 }
 
 onMounted(() => {
