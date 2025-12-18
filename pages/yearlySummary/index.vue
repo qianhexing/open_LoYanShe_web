@@ -1,188 +1,192 @@
 <template>
-  <div class="min-h-screen bg-gradient-to-br from-pink-50 via-purple-50 to-pink-100 dark:from-gray-900 dark:via-purple-900 dark:to-gray-900">
+  <div class="min-h-screen bg-[#fff8f8] dark:bg-[#1a1a1a] relative overflow-hidden font-serif">
+    <!-- 动态背景 -->
+    <div class="fixed inset-0 pointer-events-none z-0">
+      <div class="absolute top-0 left-0 w-full h-full bg-[url('https://lolitalibrary.com/assets/img/pattern-dot.png')] opacity-[0.03] dark:opacity-[0.05]"></div>
+      <div class="absolute -top-[20%] -right-[10%] w-[800px] h-[800px] bg-gradient-to-br from-pink-200/30 to-purple-200/30 dark:from-pink-900/20 dark:to-purple-900/20 rounded-full blur-3xl animate-blob"></div>
+      <div class="absolute top-[40%] -left-[10%] w-[600px] h-[600px] bg-gradient-to-tr from-blue-200/20 to-pink-200/20 dark:from-blue-900/10 dark:to-pink-900/10 rounded-full blur-3xl animate-blob animation-delay-2000"></div>
+      <div class="absolute -bottom-[20%] right-[20%] w-[700px] h-[700px] bg-gradient-to-t from-purple-200/20 to-pink-200/30 dark:from-purple-900/10 dark:to-pink-900/10 rounded-full blur-3xl animate-blob animation-delay-4000"></div>
+    </div>
+
     <!-- 加载状态 -->
-    <div v-if="loading" class="flex items-center justify-center min-h-screen">
-      <div class="text-center">
-        <div class="animate-spin rounded-full h-16 w-16 border-t-4 border-b-4 border-pink-500 mx-auto mb-4"></div>
-        <p class="text-pink-600 dark:text-pink-400 text-lg">加载年度总结中...</p>
+    <div v-if="loading" class="relative z-10 flex flex-col items-center justify-center min-h-screen">
+      <div class="relative">
+        <div class="w-16 h-16 border-4 border-pink-100 rounded-full"></div>
+        <div class="absolute top-0 left-0 w-16 h-16 border-4 border-pink-400 rounded-full border-t-transparent animate-spin"></div>
       </div>
+      <p class="mt-4 text-pink-400 dark:text-pink-300 tracking-widest text-sm uppercase">Loading Memories...</p>
     </div>
 
     <!-- 主要内容 -->
-    <div v-else ref="summaryContainer" class="pb-20">
-      <!-- 顶部标题区域 -->
-      <div class="relative overflow-hidden pt-8 pb-12 px-4 md:px-8">
-        <div class="max-w-4xl mx-auto text-center">
+    <div v-else class="relative z-10 pb-32">
+      <!-- 顶部 Header -->
+      <header class="pt-20 pb-12 px-4 text-center relative">
+        <div class="inline-block relative">
           <h1 
             ref="titleRef"
-            class="text-4xl md:text-6xl font-bold mb-4 bg-gradient-to-r from-pink-500 via-purple-500 to-pink-500 bg-clip-text text-transparent"
+            class="text-5xl md:text-7xl font-bold mb-4 bg-gradient-to-r from-gray-800 to-gray-600 dark:from-gray-100 dark:to-gray-300 bg-clip-text text-transparent tracking-tight"
           >
-            {{ currentYear }}年度总结
+            {{ currentYear }}
           </h1>
-          <p 
-            ref="subtitleRef"
-            class="text-lg md:text-xl text-gray-600 dark:text-gray-300"
-          >
-            记录你的Lolita时尚之旅 ✨
+          <span class="absolute -top-6 -right-8 text-2xl animate-bounce">✨</span>
+        </div>
+        <div ref="subtitleRef" class="space-y-2">
+          <p class="text-xl md:text-2xl text-pink-500 dark:text-pink-400 font-medium tracking-wide">
+            Yearly Summary
+          </p>
+          <p class="text-sm text-gray-500 dark:text-gray-400 uppercase tracking-[0.2em]">
+            Lolita Fashion Journey
           </p>
         </div>
-        <!-- 装饰性元素 -->
-        <div class="absolute top-0 left-0 w-full h-full overflow-hidden pointer-events-none">
-          <div class="decoration-1 absolute top-10 left-10 w-20 h-20 bg-pink-200 dark:bg-pink-900 rounded-full opacity-20 blur-xl"></div>
-          <div class="decoration-2 absolute top-20 right-20 w-32 h-32 bg-purple-200 dark:bg-purple-900 rounded-full opacity-20 blur-xl"></div>
-          <div class="decoration-3 absolute bottom-10 left-1/4 w-16 h-16 bg-pink-300 dark:bg-pink-800 rounded-full opacity-15 blur-lg"></div>
+      </header>
+
+      <!-- 核心数据网格 -->
+      <div class="max-w-5xl mx-auto px-4 md:px-8 mb-16">
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <!-- 入坑时间 -->
+          <div 
+            ref="yearsCardRef"
+            class="lg:col-span-1 bg-white/70 dark:bg-gray-800/70 backdrop-blur-md rounded-[2rem] p-8 shadow-xl border border-white/50 dark:border-gray-700 flex flex-col items-center justify-center text-center group hover:-translate-y-1 transition-transform duration-300"
+          >
+            <div class="w-16 h-16 bg-pink-50 dark:bg-pink-900/30 rounded-full flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
+              <span class="text-3xl">🕰️</span>
+            </div>
+            <p class="text-gray-500 dark:text-gray-400 text-sm mb-1">入坑时长</p>
+            <h3 class="text-4xl font-bold text-gray-800 dark:text-gray-100">
+              <span class="counter">{{ summaryData.years_in_lolita }}</span>
+              <span class="text-lg ml-1 font-normal">年</span>
+            </h3>
+          </div>
+
+          <!-- 年度消费 -->
+          <div 
+            ref="spendingCardRef"
+            class="lg:col-span-2 bg-gradient-to-br from-pink-500 to-purple-600 rounded-[2rem] p-8 shadow-xl text-white relative overflow-hidden group"
+          >
+            <div class="absolute top-0 right-0 w-64 h-64 bg-white/10 rounded-full -mr-16 -mt-16 blur-2xl group-hover:scale-125 transition-transform duration-700"></div>
+            <div class="relative z-10 flex flex-col justify-between h-full">
+              <div>
+                <p class="text-pink-100 text-sm font-medium uppercase tracking-wider mb-2">Total Spending</p>
+                <h3 class="text-5xl md:text-6xl font-bold mb-1">
+                  <span class="text-3xl align-top opacity-80">¥</span>
+                  <span class="counter">{{ formatNumber(summaryData.total_spending) }}</span>
+                </h3>
+              </div>
+              <p class="text-pink-100/80 text-sm mt-4">为热爱买单的每一分，都变成了更好的自己</p>
+            </div>
+          </div>
+
+          <!-- 购买统计 -->
+          <div 
+            ref="purchaseCardRef"
+            class="lg:col-span-3 bg-white/70 dark:bg-gray-800/70 backdrop-blur-md rounded-[2rem] p-8 shadow-xl border border-white/50 dark:border-gray-700"
+          >
+            <h3 class="text-xl font-bold text-gray-800 dark:text-gray-100 mb-6 flex items-center gap-2">
+              <span>📊</span>
+              <span>年度战利品</span>
+            </h3>
+            <div class="grid grid-cols-2 md:grid-cols-5 gap-4">
+              <div 
+                v-for="(stat, index) in summaryData.purchase_stats" 
+                :key="index"
+                class="flex flex-col items-center p-4 bg-gray-50 dark:bg-gray-700/50 rounded-2xl hover:bg-pink-50 dark:hover:bg-pink-900/20 transition-colors"
+              >
+                <span class="text-2xl font-bold text-gray-800 dark:text-gray-100 counter">{{ stat.value }}</span>
+                <span class="text-xs text-gray-500 dark:text-gray-400 mt-1">{{ stat.label }}</span>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
-      <!-- 数据卡片区域 -->
-      <div class="max-w-4xl mx-auto px-4 md:px-8 space-y-8">
-        <!-- 入坑年数 -->
-        <div 
-          ref="yearsCardRef"
-          class="card-animate bg-white dark:bg-gray-800 rounded-3xl shadow-xl p-6 md:p-8 border-2 border-pink-200 dark:border-pink-800"
-        >
-          <div class="flex items-center justify-center mb-4">
-            <div class="w-16 h-16 md:w-20 md:h-20 bg-gradient-to-br from-pink-400 to-purple-500 rounded-full flex items-center justify-center">
-              <span class="text-3xl md:text-4xl">🎀</span>
-            </div>
-          </div>
-          <h2 class="text-2xl md:text-3xl font-bold text-center text-gray-800 dark:text-gray-100 mb-2">
-            入坑 {{ summaryData.years_in_lolita }} 年
-          </h2>
-          <p class="text-center text-gray-600 dark:text-gray-400">
-            感谢你陪伴Lolita时尚走过的每一天
-          </p>
-        </div>
-
-        <!-- 消费统计 -->
-        <div 
-          ref="spendingCardRef"
-          class="card-animate bg-gradient-to-br from-pink-100 to-purple-100 dark:from-pink-900 dark:to-purple-900 rounded-3xl shadow-xl p-6 md:p-8 border-2 border-pink-300 dark:border-pink-700"
-        >
-          <h2 class="text-xl md:text-2xl font-bold text-gray-800 dark:text-gray-100 mb-4 text-center">
-            💰 今年共消费
-          </h2>
-          <div class="text-center">
-            <div class="text-4xl md:text-6xl font-bold text-pink-600 dark:text-pink-400 mb-2">
-              ¥{{ formatNumber(summaryData.total_spending) }}
-            </div>
-            <p class="text-gray-600 dark:text-gray-400">每一分都是对美好的投资</p>
-          </div>
-        </div>
-
-        <!-- 购买统计 -->
-        <div 
-          v-if="summaryData.purchase_stats && summaryData.purchase_stats.length > 0"
-          ref="purchaseCardRef"
-          class="card-animate bg-white dark:bg-gray-800 rounded-3xl shadow-xl p-6 md:p-8 border-2 border-pink-200 dark:border-pink-800"
-        >
-          <h2 class="text-xl md:text-2xl font-bold text-gray-800 dark:text-gray-100 mb-6 text-center">
-            📊 今年共买
-          </h2>
-          <div class="grid grid-cols-2 md:grid-cols-3 gap-4">
-            <div
-              v-for="(stat, index) in summaryData.purchase_stats"
-              :key="index"
-              class="bg-gradient-to-br from-pink-50 to-purple-50 dark:from-pink-900 dark:to-purple-900 rounded-2xl p-4 text-center border border-pink-200 dark:border-pink-700"
-            >
-              <div class="text-2xl md:text-3xl font-bold text-pink-600 dark:text-pink-400 mb-1">
-                {{ stat.value }}
-              </div>
-              <div class="text-sm md:text-base text-gray-700 dark:text-gray-300">
-                {{ stat.label }}
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- 最新的裙子 -->
+      <!-- 详细列表区域 -->
+      <div class="max-w-5xl mx-auto px-4 md:px-8 space-y-16">
         <YearlySummarySection
-          v-if="summaryData.latest_dress && summaryData.latest_dress.length > 0"
-          ref="latestDressRef"
-          title="👗 最新的裙子"
+          v-if="summaryData.latest_dress?.length"
+          title="最新的裙子"
+          icon="👗"
           :items="summaryData.latest_dress"
-          :delay="0.4"
+          :delay="0.2"
         />
 
-        <!-- 最喜欢的小物 -->
         <YearlySummarySection
-          v-if="summaryData.favorite_accessories && summaryData.favorite_accessories.length > 0"
-          ref="favoriteAccessoriesRef"
-          title="💍 最喜欢的小物"
+          v-if="summaryData.favorite_accessories?.length"
+          title="最喜欢的小物"
+          icon="💍"
           :items="summaryData.favorite_accessories"
-          :delay="0.5"
+          :delay="0.3"
         />
+        
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+           <YearlySummarySection
+            v-if="summaryData.favorite_socks?.length"
+            title="最喜欢的袜子"
+            icon="🧦"
+            :items="summaryData.favorite_socks"
+            :delay="0.4"
+          />
 
-        <!-- 最喜欢的袜子 -->
+           <YearlySummarySection
+            v-if="summaryData.favorite_bags?.length"
+            title="最喜欢的包包"
+            icon="👜"
+            :items="summaryData.favorite_bags"
+            :delay="0.5"
+          />
+        </div>
+
         <YearlySummarySection
-          v-if="summaryData.favorite_socks && summaryData.favorite_socks.length > 0"
-          ref="favoriteSocksRef"
-          title="🧦 最喜欢的袜子"
-          :items="summaryData.favorite_socks"
+          v-if="summaryData.most_worn?.length"
+          title="穿着率最高的"
+          icon="⭐"
+          :items="summaryData.most_worn"
           :delay="0.6"
         />
 
-        <!-- 最喜欢的包包 -->
-        <YearlySummarySection
-          v-if="summaryData.favorite_bags && summaryData.favorite_bags.length > 0"
-          ref="favoriteBagsRef"
-          title="👜 最喜欢的包包"
-          :items="summaryData.favorite_bags"
-          :delay="0.7"
-        />
-
-        <!-- 穿着率最高的 -->
-        <YearlySummarySection
-          v-if="summaryData.most_worn && summaryData.most_worn.length > 0"
-          ref="mostWornRef"
-          title="⭐ 穿着率最高的"
-          :items="summaryData.most_worn"
-          :delay="0.8"
-        />
-
-        <!-- 拉黑的店铺 -->
+        <!-- 拉黑店铺 -->
         <div 
-          v-if="summaryData.blacklisted_shops && summaryData.blacklisted_shops.length > 0"
+          v-if="summaryData.blacklisted_shops?.length"
           ref="blacklistRef"
-          class="card-animate bg-white dark:bg-gray-800 rounded-3xl shadow-xl p-6 md:p-8 border-2 border-red-200 dark:border-red-800"
+          class="bg-red-50/80 dark:bg-red-900/20 backdrop-blur-md rounded-[2rem] p-8 shadow-lg border border-red-100 dark:border-red-900/50"
         >
-          <h2 class="text-xl md:text-2xl font-bold text-gray-800 dark:text-gray-100 mb-6 text-center">
-            ⛔ 今年拉黑的店铺
-          </h2>
-          <div class="grid grid-cols-2 md:grid-cols-3 gap-4">
+          <div class="flex items-center gap-2 mb-6 justify-center">
+            <span class="text-2xl">⛔</span>
+            <h2 class="text-xl font-bold text-gray-800 dark:text-gray-100">避雷指南</h2>
+          </div>
+          <div class="flex flex-wrap justify-center gap-6">
             <div
-              v-for="(shop, index) in summaryData.blacklisted_shops"
+              v-for="shop in summaryData.blacklisted_shops"
               :key="shop.shop_id"
-              class="bg-gradient-to-br from-red-50 to-pink-50 dark:from-red-900 dark:to-pink-900 rounded-2xl p-4 border border-red-200 dark:border-red-700"
+              class="flex flex-col items-center gap-2 group"
             >
-              <div v-if="shop.shop_logo" class="w-16 h-16 mx-auto mb-2 rounded-full overflow-hidden">
+              <div class="w-16 h-16 rounded-full overflow-hidden border-2 border-red-200 dark:border-red-800 shadow-sm group-hover:scale-110 transition-transform">
                 <img 
                   :src="`${BASE_IMG}${shop.shop_logo.replace(BASE_IMG, '')}?x-oss-process=image/quality,q_60/resize,w_150`"
                   :alt="shop.shop_name"
-                  class="w-full h-full object-cover"
+                  class="w-full h-full object-cover grayscale group-hover:grayscale-0 transition-all"
                 />
               </div>
-              <div class="text-center text-sm md:text-base font-semibold text-gray-800 dark:text-gray-100">
+              <span class="text-sm font-medium text-gray-600 dark:text-gray-300 group-hover:text-red-500 transition-colors">
                 {{ shop.shop_name }}
-              </div>
+              </span>
             </div>
           </div>
         </div>
       </div>
 
-      <!-- 生成海报按钮 -->
-      <div class="fixed bottom-8 left-1/2 transform -translate-x-1/2 z-50">
+      <!-- 底部 FAB -->
+      <div class="fixed bottom-8 left-0 right-0 z-50 flex justify-center pointer-events-none">
         <button
           @click="showPosterModal = true"
-          class="bg-gradient-to-r from-pink-500 to-purple-500 hover:from-pink-600 hover:to-purple-600 text-white font-bold py-4 px-8 rounded-full shadow-2xl transform transition-all duration-300 hover:scale-110 active:scale-95 flex items-center gap-2"
+          class="pointer-events-auto bg-gray-900 dark:bg-white text-white dark:text-gray-900 px-8 py-4 rounded-full shadow-2xl flex items-center gap-3 transform transition-all duration-300 hover:scale-105 active:scale-95 group"
         >
-          <span class="text-xl">📸</span>
-          <span class="text-lg">生成分享图</span>
+          <span class="text-xl group-hover:rotate-12 transition-transform">📸</span>
+          <span class="font-bold tracking-wide">生成年度分享图</span>
         </button>
       </div>
     </div>
 
-    <!-- 海报生成弹窗 -->
+    <!-- 海报弹窗 -->
     <YearlySummaryPoster
       v-model="showPosterModal"
       :summary-data="summaryData"
@@ -207,8 +211,7 @@ const summaryData = ref<YearlySummaryData>({
 
 const currentYear = computed(() => new Date().getFullYear())
 
-// 动画引用
-const summaryContainer = ref<HTMLElement | null>(null)
+// Refs
 const titleRef = ref<HTMLElement | null>(null)
 const subtitleRef = ref<HTMLElement | null>(null)
 const yearsCardRef = ref<HTMLElement | null>(null)
@@ -218,14 +221,13 @@ const blacklistRef = ref<HTMLElement | null>(null)
 
 const showPosterModal = ref(false)
 
-// 格式化数字
 const formatNumber = (num: number): string => {
   return num.toLocaleString('zh-CN')
 }
 
-// 模拟数据
+// 模拟数据 (保留原有逻辑)
 const getMockData = (): YearlySummaryData => {
-  const baseImageUrl = 'https://lolitalibrary.com/ali/static/library_app/20986_176590718554587.JPG'
+  const baseImageUrl = 'static/library_app/20986_176590718554587.JPG'
   
   return {
     years_in_lolita: 5,
@@ -237,216 +239,56 @@ const getMockData = (): YearlySummaryData => {
       { label: '包包', value: 8 },
       { label: '鞋子', value: 6 }
     ],
-    latest_dress: [
-      {
-        clothes_id: 1,
-        wardrobe_id: 1,
-        clothes_img: baseImageUrl,
-        clothes_note: '甜美系粉色OP',
-        price: 888,
-        times: 5,
-        date: new Date(),
-        is_enable: 1
-      },
-      {
-        clothes_id: 2,
-        wardrobe_id: 1,
-        clothes_img: baseImageUrl,
-        clothes_note: '优雅系蓝色JSK',
-        price: 1288,
-        times: 8,
-        date: new Date(),
-        is_enable: 1
-      },
-      {
-        clothes_id: 3,
-        wardrobe_id: 1,
-        clothes_img: baseImageUrl,
-        clothes_note: '可爱系黄色OP',
-        price: 666,
-        times: 3,
-        date: new Date(),
-        is_enable: 1
-      },
-      {
-        clothes_id: 4,
-        wardrobe_id: 1,
-        clothes_img: baseImageUrl,
-        clothes_note: '复古系紫色JSK',
-        price: 1588,
-        times: 12,
-        date: new Date(),
-        is_enable: 1
-      }
-    ],
-    favorite_accessories: [
-      {
-        clothes_id: 5,
-        wardrobe_id: 1,
-        clothes_img: baseImageUrl,
-        clothes_note: '蕾丝发带',
-        price: 88,
-        times: 25,
-        date: new Date(),
-        is_enable: 1
-      },
-      {
-        clothes_id: 6,
-        wardrobe_id: 1,
-        clothes_img: baseImageUrl,
-        clothes_note: '珍珠项链',
-        price: 168,
-        times: 20,
-        date: new Date(),
-        is_enable: 1
-      },
-      {
-        clothes_id: 7,
-        wardrobe_id: 1,
-        clothes_img: baseImageUrl,
-        clothes_note: '蝴蝶结发夹',
-        price: 58,
-        times: 30,
-        date: new Date(),
-        is_enable: 1
-      },
-      {
-        clothes_id: 8,
-        wardrobe_id: 1,
-        clothes_img: baseImageUrl,
-        clothes_note: '蕾丝手套',
-        price: 128,
-        times: 15,
-        date: new Date(),
-        is_enable: 1
-      }
-    ],
-    favorite_socks: [
-      {
-        clothes_id: 9,
-        wardrobe_id: 1,
-        clothes_img: baseImageUrl,
-        clothes_note: '白色蕾丝袜',
-        price: 68,
-        times: 35,
-        date: new Date(),
-        is_enable: 1
-      },
-      {
-        clothes_id: 10,
-        wardrobe_id: 1,
-        clothes_img: baseImageUrl,
-        clothes_note: '粉色过膝袜',
-        price: 78,
-        times: 28,
-        date: new Date(),
-        is_enable: 1
-      },
-      {
-        clothes_id: 11,
-        wardrobe_id: 1,
-        clothes_img: baseImageUrl,
-        clothes_note: '黑色连裤袜',
-        price: 88,
-        times: 22,
-        date: new Date(),
-        is_enable: 1
-      },
-      {
-        clothes_id: 12,
-        wardrobe_id: 1,
-        clothes_img: baseImageUrl,
-        clothes_note: '白色短袜',
-        price: 48,
-        times: 40,
-        date: new Date(),
-        is_enable: 1
-      }
-    ],
-    favorite_bags: [
-      {
-        clothes_id: 13,
-        wardrobe_id: 1,
-        clothes_img: baseImageUrl,
-        clothes_note: '粉色手提包',
-        price: 388,
-        times: 18,
-        date: new Date(),
-        is_enable: 1
-      },
-      {
-        clothes_id: 14,
-        wardrobe_id: 1,
-        clothes_img: baseImageUrl,
-        clothes_note: '白色单肩包',
-        price: 488,
-        times: 15,
-        date: new Date(),
-        is_enable: 1
-      },
-      {
-        clothes_id: 15,
-        wardrobe_id: 1,
-        clothes_img: baseImageUrl,
-        clothes_note: '复古手提箱',
-        price: 688,
-        times: 10,
-        date: new Date(),
-        is_enable: 1
-      },
-      {
-        clothes_id: 16,
-        wardrobe_id: 1,
-        clothes_img: baseImageUrl,
-        clothes_note: '可爱小挎包',
-        price: 288,
-        times: 20,
-        date: new Date(),
-        is_enable: 1
-      }
-    ],
-    most_worn: [
-      {
-        clothes_id: 17,
-        wardrobe_id: 1,
-        clothes_img: baseImageUrl,
-        clothes_note: '经典款粉色OP',
-        price: 988,
-        times: 45,
-        date: new Date(),
-        is_enable: 1
-      },
-      {
-        clothes_id: 18,
-        wardrobe_id: 1,
-        clothes_img: baseImageUrl,
-        clothes_note: '百搭款蓝色JSK',
-        price: 1288,
-        times: 38,
-        date: new Date(),
-        is_enable: 1
-      },
-      {
-        clothes_id: 19,
-        wardrobe_id: 1,
-        clothes_img: baseImageUrl,
-        clothes_note: '日常款白色OP',
-        price: 888,
-        times: 32,
-        date: new Date(),
-        is_enable: 1
-      },
-      {
-        clothes_id: 20,
-        wardrobe_id: 1,
-        clothes_img: baseImageUrl,
-        clothes_note: '优雅款紫色JSK',
-        price: 1588,
-        times: 28,
-        date: new Date(),
-        is_enable: 1
-      }
-    ],
+    latest_dress: Array(4).fill({
+      clothes_id: 1,
+      wardrobe_id: 1,
+      clothes_img: baseImageUrl,
+      clothes_note: '甜美系粉色OP',
+      price: 888,
+      times: 5,
+      date: new Date(),
+      is_enable: 1
+    }).map((item, i) => ({ ...item, clothes_id: i + 1 })),
+    favorite_accessories: Array(4).fill({
+      clothes_id: 5,
+      wardrobe_id: 1,
+      clothes_img: baseImageUrl,
+      clothes_note: '蕾丝发带',
+      price: 88,
+      times: 25,
+      date: new Date(),
+      is_enable: 1
+    }).map((item, i) => ({ ...item, clothes_id: i + 5 })),
+    favorite_socks: Array(4).fill({
+      clothes_id: 9,
+      wardrobe_id: 1,
+      clothes_img: baseImageUrl,
+      clothes_note: '白色蕾丝袜',
+      price: 68,
+      times: 35,
+      date: new Date(),
+      is_enable: 1
+    }).map((item, i) => ({ ...item, clothes_id: i + 9 })),
+    favorite_bags: Array(4).fill({
+      clothes_id: 13,
+      wardrobe_id: 1,
+      clothes_img: baseImageUrl,
+      clothes_note: '粉色手提包',
+      price: 388,
+      times: 18,
+      date: new Date(),
+      is_enable: 1
+    }).map((item, i) => ({ ...item, clothes_id: i + 13 })),
+    most_worn: Array(4).fill({
+      clothes_id: 17,
+      wardrobe_id: 1,
+      clothes_img: baseImageUrl,
+      clothes_note: '经典款粉色OP',
+      price: 988,
+      times: 45,
+      date: new Date(),
+      is_enable: 1
+    }).map((item, i) => ({ ...item, clothes_id: i + 17 })),
     blacklisted_shops: [
       {
         shop_id: 1,
@@ -470,20 +312,13 @@ const getMockData = (): YearlySummaryData => {
   }
 }
 
-// 加载数据
 const loadData = async () => {
   try {
     loading.value = true
-    // 暂时使用模拟数据，等接口准备好后可以切换
-    // const data = await getYearlySummary({ year: currentYear.value })
-    // summaryData.value = data
-    
-    // 模拟网络延迟
     await new Promise(resolve => setTimeout(resolve, 800))
     summaryData.value = getMockData()
   } catch (error) {
-    console.error('加载年度总结数据失败:', error)
-    // 使用模拟数据作为fallback
+    console.error(error)
     summaryData.value = getMockData()
   } finally {
     loading.value = false
@@ -492,116 +327,80 @@ const loadData = async () => {
   }
 }
 
-// 初始化动画
 const initAnimations = () => {
   if (!$gsap) return
 
-  // 创建时间线
   const tl = $gsap.timeline()
 
-  // 标题动画
-  if (titleRef.value) {
-    tl.from(titleRef.value, {
-      opacity: 0,
-      y: -30,
-      duration: 0.8,
-      ease: 'power3.out'
-    }, 0)
-  }
-
-  if (subtitleRef.value) {
-    tl.from(subtitleRef.value, {
-      opacity: 0,
-      y: -20,
-      duration: 0.8,
-      ease: 'power3.out'
-    }, 0.2)
-  }
-
-  // 卡片依次出现动画
-  const cards = [
-    yearsCardRef.value,
-    spendingCardRef.value,
-    purchaseCardRef.value,
-    blacklistRef.value
-  ].filter(Boolean)
-
-  tl.from(cards, {
-    opacity: 0,
+  // Header 动画
+  tl.from(titleRef.value, {
     y: 50,
-    duration: 0.6,
-    stagger: 0.15,
-    ease: 'back.out(1.2)'
-  }, 0.4)
+    opacity: 0,
+    duration: 1,
+    ease: 'power4.out'
+  })
+  .from(subtitleRef.value, {
+    y: 20,
+    opacity: 0,
+    duration: 0.8,
+    ease: 'power2.out'
+  }, '-=0.5')
 
-  // 添加浮动动画到装饰元素
-  const decorations = summaryContainer.value?.querySelectorAll('.animate-pulse')
-  if (decorations && decorations.length > 0) {
-    $gsap.to(decorations, {
-      y: '+=20',
-      duration: 3,
-      ease: 'sine.inOut',
-      repeat: -1,
-      yoyo: true,
-      stagger: 0.5
+  // 卡片入场
+  const cards = [yearsCardRef.value, spendingCardRef.value, purchaseCardRef.value]
+  
+  $gsap.from(cards, {
+    y: 50,
+    opacity: 0,
+    duration: 0.8,
+    stagger: 0.2,
+    ease: 'power3.out',
+    delay: 0.5
+  })
+
+  // 数字增长动画
+  const counters = document.querySelectorAll('.counter')
+  counters.forEach(counter => {
+    // 简单的数字增长，不需要复杂插件
+    const el = counter as HTMLElement
+    const target = parseInt(el.textContent?.replace(/,/g, '') || '0')
+    const obj = { val: 0 }
+    
+    $gsap.to(obj, {
+      val: target,
+      duration: 2,
+      ease: 'power2.out',
+      onUpdate: () => {
+        el.innerText = Math.floor(obj.val).toLocaleString('zh-CN')
+      },
+      delay: 0.8 // 稍晚于卡片出现
     })
-  }
+  })
 }
 
 onMounted(() => {
   loadData()
 })
 
-// SEO
 useHead({
   title: `${currentYear.value}年度总结 - Lo研社`,
-  meta: [
-    {
-      name: 'description',
-      content: `查看你的${currentYear.value}年Lolita时尚之旅年度总结`
-    }
-  ]
 })
 </script>
 
 <style scoped>
-.card-animate {
-  animation: fadeInUp 0.6s ease-out forwards;
-  opacity: 0;
+@keyframes blob {
+  0% { transform: translate(0px, 0px) scale(1); }
+  33% { transform: translate(30px, -50px) scale(1.1); }
+  66% { transform: translate(-20px, 20px) scale(0.9); }
+  100% { transform: translate(0px, 0px) scale(1); }
 }
-
-@keyframes fadeInUp {
-  from {
-    opacity: 0;
-    transform: translateY(30px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+.animate-blob {
+  animation: blob 7s infinite;
 }
-
-.decoration-1,
-.decoration-2,
-.decoration-3 {
-  animation: float 6s ease-in-out infinite;
-}
-
-.decoration-2 {
+.animation-delay-2000 {
   animation-delay: 2s;
 }
-
-.decoration-3 {
+.animation-delay-4000 {
   animation-delay: 4s;
 }
-
-@keyframes float {
-  0%, 100% {
-    transform: translateY(0px) scale(1);
-  }
-  50% {
-    transform: translateY(-20px) scale(1.1);
-  }
-}
 </style>
-

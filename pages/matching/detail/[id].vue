@@ -211,7 +211,27 @@ const previewImage = (urls: string[], index = 0) => {
 
 // 跳转到用户空间
 const jumpToUserSpace = (userId: number) => {
-  navigateTo(`/user/space?id=${userId}`)
+  let isInUniApp = false
+  if (typeof window !== 'undefined' && navigator.userAgent.includes('Html5Plus')) {
+    isInUniApp = true
+  }
+  if (isInUniApp) {
+    uni.navigateTo({
+      url: `/pages/user/space?id=${userId}`,
+    })
+  } else {
+    if (port.value) {
+      port.value.postMessage(JSON.stringify({
+        type: 'jump',
+        path: 'UserSpace',
+        params: {
+          id: userId
+        }
+      }))
+    } else {
+      navigateTo(`/user/space?id=${userId}`)
+    }
+  }
 }
 
 // 跳转到图鉴详情

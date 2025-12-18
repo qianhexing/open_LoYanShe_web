@@ -14,6 +14,7 @@ const props = withDefaults(defineProps<Props>(), {
   size: 'big',
   needJump: true
 })
+
 const port = computed(() => configStore.getPort())
 // 响应式变量
 const size = toRef(props, 'size')
@@ -47,7 +48,8 @@ const handleJump = (id: number | string) => {
     if (port.value) {
       // 鸿蒙系统
       port.value.postMessage(JSON.stringify({
-        type: 'Outlink',
+        type: 'jump',
+        path: 'Outlink',
         params: {
           url: `https://lolitalibrary.com/lolitaWikiType/detail/${id}`
         }

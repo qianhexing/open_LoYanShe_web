@@ -571,7 +571,7 @@ const enableDrag = () => {
             </div>
           </QhxJellyButton>
         </div>
-        <Draggable :delay="150" :disabled="!sortMode" v-model="wardrobeList" item-key="wardrobe_id" animation="250" ghost-class="drag-ghost"
+        <Draggable :forceFallback="true" :delay="150" :disabled="!sortMode" v-model="wardrobeList" item-key="wardrobe_id" animation="250" ghost-class="drag-ghost"
           chosen-class="drag-chosen" drag-class="dragging" @start="onWardrobeDragStart" @end="onWardrobeDragEnd">
           <template #item="{ element }">
             <transition-group tag="div" name="list">
@@ -744,7 +744,12 @@ const enableDrag = () => {
           </QhxJellyButton>
         </div>
         <div class="w-full">
-          <Draggable :delay="150" :disabled="!sortMode" @start="onDragStart" @end="onDragEnd" v-model="list" item-key="id"
+          <Draggable 
+          :scroll="true"
+          :scroll-sensitivity="150"
+          :scroll-speed="15"
+          :fallback-tolerance="0"
+          :forceFallback="true" :delay="150" :disabled="!sortMode" @start="onDragStart" @end="onDragEnd" v-model="list" item-key="id"
             animation="300" ghost-class="drag-ghost" chosen-class="drag-chosen" drag-class="dragging"
             class=" flex flex-wrap">
             <template #item="{ element }">

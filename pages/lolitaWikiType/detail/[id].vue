@@ -240,7 +240,7 @@ onMounted(async () => {
       </div>
       
       <!-- 排序按钮 -->
-      <div class="flex items-center gap-2" v-if="user.token">
+      <div class="flex items-center gap-2" v-if="user.token && (user.user?.user_id === 1 || user.user?.user_id === 2018)">
         <QhxJellyButton>
           <div class="h-[60px] text-center px-1 cursor-pointer" @click="sortMode = !sortMode">
             <div

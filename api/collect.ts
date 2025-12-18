@@ -1,7 +1,7 @@
 import type { BaseResponse, PaginationParams, PaginationResponse, Favorite } from '@/types/api';
 interface InsertParams {
   pk_id?: number
-  collect_type?: number | string
+  collect_type?: number | string | null
   ids?: Array<number>
 }
 export async function insertCollect(
