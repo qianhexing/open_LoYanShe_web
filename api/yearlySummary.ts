@@ -10,12 +10,11 @@ export interface YearlySummaryData {
   purchase_stats: Array<{ label: string; value: number }>
   /** 最新的裙子 */
   latest_dress?: WardrobeClothes[]
-  /** 最喜欢的小物 */
-  favorite_accessories?: WardrobeClothes[]
-  /** 最喜欢的袜子 */
-  favorite_socks?: WardrobeClothes[]
-  /** 最喜欢的包包 */
-  favorite_bags?: WardrobeClothes[]
+  /** 最喜欢的物品，按部位分组 */
+  favorite?: Array<{
+    label: string              // 服饰部位名称（clothes_part的值）
+    value: Array<WardrobeClothes> // 该部位最喜欢的物品列表，最多5个
+  }>
   /** 穿着率最高的 */
   most_worn?: WardrobeClothes[]
   /** 今年拉黑的店铺 */

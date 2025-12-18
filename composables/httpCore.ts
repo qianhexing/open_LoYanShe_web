@@ -4,8 +4,8 @@
  * 提供了自定义的 HTTP 请求方法，例如 `use$Get`，同时给出了一个获取动态内容的请求示例 `GetFeeds`。
  */
 import { $fetch } from 'ofetch'
-// const baseURL = 'http://localhost:3002'
-const baseURL = 'https://lolitalibrary.com/node/'
+const baseURL = 'http://localhost:3002'
+// const baseURL = 'https://lolitalibrary.com/node/'
 interface RequestOptions {
   [key: string]: any;
 }
