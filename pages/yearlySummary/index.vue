@@ -58,6 +58,18 @@
             />
             <span class="text-gray-600 dark:text-gray-300 font-medium">{{ summaryData.user_info.user_name }}</span>
           </div>
+          
+          <!-- 风格标签 -->
+          <div v-if="summaryData.user_info?.main_style?.length" class="flex flex-wrap items-center justify-center gap-2 mt-3 mb-2 max-w-lg mx-auto">
+             <span 
+               v-for="(tag, idx) in summaryData.user_info.main_style" 
+               :key="idx"
+               class="px-3 py-1 text-xs rounded-full bg-pink-50 dark:bg-pink-900/30 text-pink-600 dark:text-pink-300 border border-pink-100 dark:border-pink-800"
+             >
+               # {{ tag.label }}
+             </span>
+          </div>
+
           <p class="text-sm text-gray-500 dark:text-gray-400 uppercase tracking-[0.2em]">
             Lolita Fashion Journey
           </p>
@@ -325,7 +337,7 @@ const loading = ref(true)
 const notLoggedIn = ref(false)
 
 const summaryData = ref<YearlySummaryData>({
-  user_info: { user_id: 0, user_name: '', user_face: '', main_style_name: '' },
+  user_info: { user_id: 0, user_name: '', user_face: '', main_style_name: '', main_style: [] },
   ablumn_items: [],
   years_in_lolita: 0,
   total_spending: 0,
@@ -386,7 +398,13 @@ const getMockData = (): YearlySummaryData => {
       user_id: 1,
       user_name: 'Lo娘',
       user_face: baseImageUrl,
-      main_style_name: '甜系,哥特'
+      main_style_name: '甜系,哥特',
+      main_style: [
+        { label: '甜系', value: 85 },
+        { label: '哥特', value: 40 },
+        { label: '古典', value: 20 },
+        { label: '日常', value: 15 }
+      ]
     },
     ablumn_items: Array(5).fill({
         album_id: 1,

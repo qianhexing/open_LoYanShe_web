@@ -6,6 +6,7 @@ export interface UserInfo {
   user_name: string
   user_face: string
   main_style_name: string | null
+  main_style?: Array<{ label: string; value: number }>
 }
 
 // 相册项接口
