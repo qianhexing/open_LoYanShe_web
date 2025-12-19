@@ -74,6 +74,9 @@ export interface YearlySummaryData {
   
   /** 总入柜统计 */
   total_wardrobe_stats?: Array<{ label: string; value: number }>
+
+  /** 总购买统计 (用户新增需求) */
+  total_purchase_stats?: Array<{ label: string; value: number }>
   
   /** 最喜欢的物品，按部位分组 */
   favorite: Array<{

@@ -191,7 +191,9 @@ const drawPoster = async () => {
     
     // Purchase Stats Height (包含 Total Wardrobe)
     let purchaseStatsHeight = 150
-    if (props.summaryData.total_wardrobe_stats?.length) {
+    // Check for either total_wardrobe_stats or total_purchase_stats
+    const totalStats = props.summaryData.total_purchase_stats || props.summaryData.total_wardrobe_stats
+    if (totalStats?.length) {
         purchaseStatsHeight += 160 // Extra space for Total Wardrobe section
     }
     totalHeight += purchaseStatsHeight
@@ -200,12 +202,12 @@ const drawPoster = async () => {
     const albumCount = props.summaryData.ablumn_items?.length || 0
     let albumSectionHeight = 0
     const albumRowHeights: number[] = []
-    const ALBUM_COLS = 2 // 改为2列以容纳 Note
+    const ALBUM_COLS = 3 // 改为3列
     
     if (albumCount > 0) {
         // 设置字体用于计算
         ctx.font = '14px sans-serif' // Note font
-        const gap = 20
+        const gap = 15 // 稍微减小间隙
         const itemW = (CANVAS_WIDTH - PADDING * 2 - gap * (ALBUM_COLS - 1)) / ALBUM_COLS
         
         let currentRowMaxHeight = 0
@@ -459,7 +461,8 @@ const drawPoster = async () => {
     }
 
     // 总入柜 (如果有)
-    if (props.summaryData.total_wardrobe_stats?.length) {
+    const totalStats = props.summaryData.total_purchase_stats || props.summaryData.total_wardrobe_stats
+    if (totalStats?.length) {
         // 分割线
         const dividerY = currentY + 110
         ctx.beginPath()
@@ -473,8 +476,8 @@ const drawPoster = async () => {
         ctx.font = 'bold 18px sans-serif'
         ctx.fillText('👗 衣柜总览', PADDING + 30, dividerY + 40)
         
-        const statItemWidth = (CANVAS_WIDTH - PADDING * 2 - 40) / props.summaryData.total_wardrobe_stats.length
-        props.summaryData.total_wardrobe_stats.forEach((stat, index) => {
+        const statItemWidth = (CANVAS_WIDTH - PADDING * 2 - 40) / totalStats.length
+        totalStats.forEach((stat, index) => {
           const x = PADDING + 20 + index * statItemWidth + statItemWidth / 2
           const y = dividerY + 75
           
@@ -502,7 +505,7 @@ const drawPoster = async () => {
         currentY += 30
 
         const cols = ALBUM_COLS
-        const gap = 20
+        const gap = 15 // Gap adjusted for 3 cols
         const itemW = (CANVAS_WIDTH - PADDING * 2 - gap * (cols - 1)) / cols
         
         // 遍历行
