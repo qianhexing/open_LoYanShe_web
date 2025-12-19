@@ -70,7 +70,7 @@
           <!-- 年度消费 -->
           <div 
             ref="spendingCardRef"
-            class="lg:col-span-2 bg-gradient-to-br from-pink-500 to-purple-600 rounded-[2rem] p-8 shadow-xl text-white relative overflow-hidden group"
+            class="bg-[#000] lg:col-span-2 bg-gradient-to-br from-pink-500 to-purple-600 rounded-[2rem] p-8 shadow-xl text-white relative overflow-hidden group"
           >
             <div class="absolute top-0 right-0 w-64 h-64 bg-white/10 rounded-full -mr-16 -mt-16 blur-2xl group-hover:scale-125 transition-transform duration-700"></div>
             <div class="relative z-10 flex flex-col justify-between h-full">
@@ -92,7 +92,7 @@
           >
             <h3 class="text-xl font-bold text-gray-800 dark:text-gray-100 mb-6 flex items-center gap-2">
               <span>📊</span>
-              <span>年度收获</span>
+              <span>年度入柜</span>
             </h3>
             <div class="grid grid-cols-2 md:grid-cols-5 gap-4">
               <div 
@@ -121,8 +121,8 @@
             class="group relative aspect-square bg-white dark:bg-gray-800 rounded-2xl overflow-hidden shadow-md hover:shadow-xl transition-all duration-300"
           >
              <img 
-               v-if="album.ablumn?.album_cover"
-               :src="formatImg(album.ablumn.album_cover)"
+               v-if="album?.cover"
+               :src="formatImg(album.cover)"
                class="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110"
                alt="Album"
              />
@@ -183,11 +183,11 @@
         <div v-if="summaryData.shop_list?.length" class="bg-white/70 dark:bg-gray-800/70 backdrop-blur-md rounded-[2rem] p-8 shadow-xl border border-white/50 dark:border-gray-700">
           <h3 class="text-xl font-bold text-gray-800 dark:text-gray-100 mb-6 flex items-center gap-2">
             <span>🛍️</span>
-            <span>常逛店铺</span>
+            <span>常买的店</span>
           </h3>
           <div class="flex flex-wrap gap-4">
              <div 
-               v-for="(shopItem, idx) in summaryData.shop_list.slice(0, 6)"
+               v-for="(shopItem, idx) in summaryData.shop_list.slice(0, 4)"
                :key="idx"
                class="flex items-center gap-3 bg-white dark:bg-gray-700 p-3 rounded-xl shadow-sm border border-gray-100 dark:border-gray-600"
              >
@@ -216,7 +216,7 @@
         >
           <div class="flex items-center gap-2 mb-6 justify-center">
             <span class="text-2xl">⛔</span>
-            <h2 class="text-xl font-bold text-gray-800 dark:text-gray-100">避雷指南</h2>
+            <h2 class="text-xl font-bold text-gray-800 dark:text-gray-100">拉黑的店</h2>
           </div>
           <div class="flex flex-wrap justify-center gap-6">
             <div
@@ -299,7 +299,7 @@ const formatNumber = (num: number): string => {
 
 const formatImg = (url: string) => {
   if (!url) return ''
-  return `${BASE_IMG}${url.replace(BASE_IMG, '')}?x-oss-process=image/quality,q_60/resize,w_150`
+  return `${BASE_IMG}${url.replace(BASE_IMG, '')}`
 }
 
 // 根据部位名称获取图标

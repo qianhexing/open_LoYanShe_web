@@ -321,7 +321,7 @@ const drawPoster = async () => {
     ctx.textAlign = 'left'
     ctx.fillStyle = COLORS.text
     ctx.font = 'bold 18px sans-serif'
-    ctx.fillText('📊 年度收获', PADDING + 30, currentY + 38)
+    ctx.fillText('📊 本年入柜', PADDING + 30, currentY + 38)
 
     if (props.summaryData.purchase_stats?.length) {
         const statItemWidth = (CANVAS_WIDTH - PADDING * 2 - 40) / props.summaryData.purchase_stats.length
@@ -404,6 +404,7 @@ const drawPoster = async () => {
             // Truncate
             let displayTitle = title
             if (ctx.measureText(title).width > itemW) {
+                // biome-ignore lint: <就用>
                 while (ctx.measureText(displayTitle + '...').width > itemW && displayTitle.length > 0) {
                     displayTitle = displayTitle.slice(0, -1)
                 }
@@ -541,7 +542,7 @@ const drawPoster = async () => {
         ctx.textAlign = 'left'
         ctx.fillStyle = COLORS.text
         ctx.font = 'bold 24px serif'
-        ctx.fillText('🛍️ 常逛店铺', PADDING + 10, currentY)
+        ctx.fillText('🛍️ 常买的店', PADDING + 10, currentY)
         currentY += 30
         
         const topShops = props.summaryData.shop_list.slice(0, 5)
@@ -580,7 +581,7 @@ const drawPoster = async () => {
       ctx.textAlign = 'center'
       ctx.fillStyle = '#991b1b' // red-800
       ctx.font = 'bold 16px sans-serif'
-      ctx.fillText('⛔ 避雷指南', CANVAS_WIDTH / 2, currentY + 30)
+      ctx.fillText('⛔ 拉黑的店', CANVAS_WIDTH / 2, currentY + 30)
       
       let shopY = currentY + 70
       ctx.font = '12px sans-serif'
@@ -588,7 +589,7 @@ const drawPoster = async () => {
       const shops = props.summaryData.blacklisted_shops
       const totalWidth = shops.reduce((acc, s) => acc + ctx.measureText(s.shop_name).width + 30, 0)
       let startX = (CANVAS_WIDTH - totalWidth) / 2 + 15
-      
+      // biome-ignore lint: <就用forEach>
       shops.forEach(shop => {
         const textW = ctx.measureText(shop.shop_name).width
         const pillW = textW + 24
