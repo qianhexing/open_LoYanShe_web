@@ -136,7 +136,7 @@
             </div>
 
             <!-- 总入柜 (新增) -->
-             <div v-if="summaryData.total_wardrobe_stats?.length">
+             <div v-if="summaryData.total_wardrobe_stats?.length || summaryData.total_purchase_stats?.length">
               <div class="h-px bg-gray-200 dark:bg-gray-700 my-6"></div>
               <h3 class="text-xl font-bold text-gray-800 dark:text-gray-100 mb-6 flex items-center gap-2">
                 <span>👗</span>
@@ -144,7 +144,7 @@
               </h3>
               <div class="grid grid-cols-2 md:grid-cols-5 gap-4">
                 <div 
-                  v-for="(stat, index) in summaryData.total_wardrobe_stats" 
+                  v-for="(stat, index) in (summaryData.total_purchase_stats || summaryData.total_wardrobe_stats)" 
                   :key="'total-'+index"
                   class="flex flex-col items-center p-4 bg-gray-50 dark:bg-gray-700/50 rounded-2xl hover:bg-purple-50 dark:hover:bg-purple-900/20 transition-colors"
                 >
@@ -157,13 +157,14 @@
         </div>
       </div>
       
-      <!-- 相册展示 (重点) -->
+        <!-- 相册展示 (重点) -->
       <div v-if="summaryData.ablumn_items?.length" class="max-w-5xl mx-auto px-4 md:px-8 mb-16">
         <h3 class="text-xl font-bold text-gray-800 dark:text-gray-100 mb-6 flex items-center gap-2">
           <span>📸</span>
           <span>年度打卡</span>
         </h3>
-        <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+        <!-- 改为 3 列布局 -->
+        <div class="grid grid-cols-3 gap-4">
           <div 
             v-for="album in summaryData.ablumn_items" 
             :key="album.album_id"
@@ -343,6 +344,7 @@ const summaryData = ref<YearlySummaryData>({
   total_spending: 0,
   purchase_stats: [],
   total_wardrobe_stats: [],
+  total_purchase_stats: [],
   favorite: [],
   most_worn: [],
   blacklisted_shops: [],
@@ -427,6 +429,13 @@ const getMockData = (): YearlySummaryData => {
       { label: '鞋子', value: 6 }
     ],
     total_wardrobe_stats: [
+      { label: '裙子', value: 150 },
+      { label: '小物', value: 300 },
+      { label: '袜子', value: 120 },
+      { label: '包包', value: 45 },
+      { label: '鞋子', value: 30 }
+    ],
+    total_purchase_stats: [
       { label: '裙子', value: 150 },
       { label: '小物', value: 300 },
       { label: '袜子', value: 120 },
