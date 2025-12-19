@@ -149,7 +149,7 @@
       <div v-if="summaryData.ablumn_items?.length" class="max-w-5xl mx-auto px-4 md:px-8 mb-16">
         <h3 class="text-xl font-bold text-gray-800 dark:text-gray-100 mb-6 flex items-center gap-2">
           <span>📸</span>
-          <span>年度回忆</span>
+          <span>年度打卡</span>
         </h3>
         <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
           <div 
@@ -160,8 +160,8 @@
              <!-- 保持宽高比容器 -->
              <div class="relative aspect-square overflow-hidden rounded-t-2xl">
                 <img 
-                  v-if="album?.ablumn?.album_cover || album?.ablumn?.cover"
-                  :src="formatImg(album.ablumn?.album_cover || album.ablumn?.cover)"
+                  v-if="album?.ablumn?.album_cover || album?.cover"
+                  :src="formatImg(album.ablumn?.album_cover || album?.cover)"
                   class="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110"
                   alt="Album"
                 />
@@ -539,7 +539,7 @@ const loadData = async () => {
     // 构建 API 参数
     const params: any = {}
     if (userId) {
-        params.user_id = userId
+        params.user_id = Number.parseInt(userId as string)
     }
     
     summaryData.value = await getYearlySummary(params)

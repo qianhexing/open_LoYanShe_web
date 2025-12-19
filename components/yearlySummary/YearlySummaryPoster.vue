@@ -1,6 +1,6 @@
 <template>
   <QhxModal :model-value="modelValue" @update:model-value="handleUpdate" @close="handleClose">
-    <div class="bg-white dark:bg-gray-800 rounded-2xl overflow-hidden max-w-4xl w-full h-[90vh] flex flex-col">
+    <div class="bg-white dark:bg-gray-800 rounded-2xl overflow-hidden max-w-4xl w-full h-[90vh] flex flex-col max-md:w-[100vw]">
       <!-- 头部 -->
       <div class="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-700 z-10 bg-white dark:bg-gray-800">
         <h3 class="text-xl font-bold text-gray-800 dark:text-gray-100">生成分享图</h3>
@@ -38,7 +38,7 @@
         <button
           @click="downloadPoster"
           :disabled="generating || !drawComplete"
-          class="px-8 py-2 bg-gradient-to-r from-pink-500 to-purple-500 hover:from-pink-600 hover:to-purple-600 text-white font-bold rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-lg flex items-center gap-2"
+          class="bg-[#000] px-8 py-2 bg-gradient-to-r from-pink-500 to-purple-500 hover:from-pink-600 hover:to-purple-600 text-white font-bold rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-lg flex items-center gap-2"
         >
           <span v-if="!generating">保存图片</span>
           <span v-else>处理中...</span>
@@ -484,9 +484,9 @@ const drawPoster = async () => {
                 ctx.closePath()
                 ctx.clip()
                 
-                if (album.ablumn?.album_cover || album.ablumn?.cover) {
+                if (album.ablumn?.album_cover || album?.cover) {
                      try {
-                        const img = await loadImage(album.ablumn.album_cover || album.ablumn.cover)
+                        const img = await loadImage(album.ablumn.album_cover || album.cover)
                         // Cover fit
                         const imgRatio = img.width / img.height
                         let dw, dh, dx, dy
