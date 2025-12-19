@@ -49,7 +49,8 @@
           <p class="text-xl md:text-2xl text-pink-500 dark:text-pink-400 font-medium tracking-wide">
             Yearly Summary
           </p>
-          <div v-if="summaryData.user_info" class="flex items-center justify-center gap-2 mt-4">
+          <div v-if="summaryData.user_info" class="flex flex-col items-center justify-center gap-2 mt-4">
+            <div class="flex items-center justify-center gap-2">
              <img 
               v-if="summaryData.user_info.user_face" 
               :src="formatImg(summaryData.user_info.user_face)" 
@@ -57,6 +58,20 @@
               alt="Avatar"
             />
             <span class="text-gray-600 dark:text-gray-300 font-medium">{{ summaryData.user_info.user_name }}</span>
+            </div>
+
+            <!-- 主风格标签（main_style[] 可能有也可能没有，兼容 main_style_name） -->
+            <div v-if="userMainStyleLabels.length" class="mt-2 flex flex-wrap justify-center gap-2 max-w-[90vw]">
+              <span
+                v-for="(label, index) in userMainStyleLabels"
+                :key="`${label}-${index}`"
+                class="px-3 py-1 rounded-full text-xs font-medium border bg-white/70 dark:bg-gray-800/70 backdrop-blur
+                       border-pink-100 dark:border-pink-900 text-pink-600 dark:text-pink-300
+                       shadow-sm"
+              >
+                {{ label }}
+              </span>
+            </div>
           </div>
           <p class="text-sm text-gray-500 dark:text-gray-400 uppercase tracking-[0.2em]">
             Lolita Fashion Journey
@@ -357,6 +372,29 @@ const formatImg = (url: string) => {
   if (!url) return ''
   return `${BASE_IMG}${url.replace(BASE_IMG, '')}`
 }
+
+const userMainStyleLabels = computed((): string[] => {
+  const info = summaryData.value?.user_info
+  if (!info) return []
+
+  const list = Array.isArray(info.main_style) ? info.main_style : []
+  const fromList = list
+    .map((s) => (s?.label || '').trim())
+    .filter((s) => s.length > 0)
+
+  if (fromList.length > 0) return fromList.slice(0, 12)
+
+  // 兼容旧字段 main_style_name: "甜系,哥特"
+  const legacy = (info as any).main_style_name
+  if (typeof legacy === 'string' && legacy.trim() !== '') {
+    return legacy
+      .split(/[，,]/g)
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0)
+      .slice(0, 12)
+  }
+  return []
+})
 
 const handleLogin = () => {
     // 假设有登录页路由 /login，或者触发全局登录弹窗
