@@ -65,6 +65,7 @@ const canvasRef = ref<HTMLCanvasElement | null>(null)
 const generating = ref(false)
 const drawComplete = ref(false)
 const scale = ref(1)
+const canvasHeight = ref(1334)
 
 const formatNumber = (num: number): string => {
   return num.toLocaleString('zh-CN')
@@ -101,7 +102,7 @@ const updateScale = () => {
 
 const previewStyle = computed(() => ({
   transform: `scale(${scale.value})`,
-  marginBottom: `-${(canvasRef.value?.height || BASE_HEIGHT) * (1 - scale.value)}px`
+  marginBottom: `-${(canvasHeight.value) * (1 - scale.value)}px`
 }))
 
 const handleClose = () => {
@@ -181,6 +182,11 @@ const drawPoster = async () => {
     
     // 1. 计算总高度
     totalHeight += 250 // Header
+    
+    // 风格标签高度预留
+    if (props.summaryData.user_info?.main_style?.length) {
+        totalHeight += 100 // 预留足够的空间防止换行裁剪
+    }
     totalHeight += 320 // Stats Grid (Years + Spending)
     
     // Purchase Stats Height (包含 Total Wardrobe)
@@ -261,6 +267,7 @@ const drawPoster = async () => {
 
     canvasRef.value.width = CANVAS_WIDTH
     canvasRef.value.height = totalHeight
+    canvasHeight.value = totalHeight
 
     // 2. 绘制背景
     ctx.fillStyle = COLORS.bg
@@ -305,6 +312,58 @@ const drawPoster = async () => {
         ctx.font = 'bold 24px sans-serif'
         ctx.fillText(props.summaryData.user_info.user_name, CANVAS_WIDTH / 2, currentY)
         currentY += 30
+
+        // Draw Main Style Tags
+        if (props.summaryData.user_info.main_style?.length) {
+            currentY += 10
+            const tags = props.summaryData.user_info.main_style
+            ctx.font = '14px sans-serif'
+            const tagHeight = 32
+            const tagPadding = 24 
+            const tagGap = 12
+            
+            let row: {text: string, width: number}[] = []
+            let rowWidth = 0
+            const maxRowWidth = CANVAS_WIDTH - 80 
+            
+            const drawRow = (items: typeof row, rWidth: number, y: number) => {
+                let startX = (CANVAS_WIDTH - rWidth) / 2
+                items.forEach(item => {
+                    ctx.fillStyle = '#fdf2f8'
+                    ctx.strokeStyle = '#fbcfe8'
+                    roundRect(ctx, startX, y, item.width, tagHeight, tagHeight/2)
+                    ctx.fill()
+                    ctx.stroke()
+                    
+                    ctx.fillStyle = '#db2777'
+                    ctx.textAlign = 'center'
+                    ctx.fillText('# ' + item.text, startX + item.width/2, y + 21)
+                    
+                    startX += item.width + tagGap
+                })
+            }
+            
+            tags.forEach((tag) => {
+                 const textWidth = ctx.measureText('# ' + tag.label).width
+                 const itemWidth = textWidth + tagPadding
+                 
+                 if (rowWidth + itemWidth > maxRowWidth && row.length > 0) {
+                     drawRow(row, rowWidth - tagGap, currentY)
+                     currentY += tagHeight + 10
+                     row = []
+                     rowWidth = 0
+                 }
+                 
+                 row.push({ text: tag.label, width: itemWidth })
+                 rowWidth += itemWidth + tagGap
+            })
+            
+            if (row.length > 0) {
+                drawRow(row, rowWidth - tagGap, currentY)
+                currentY += tagHeight
+            }
+            currentY += 10
+        }
     }
 
     currentY += 40
