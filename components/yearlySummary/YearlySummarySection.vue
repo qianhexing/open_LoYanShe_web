@@ -30,7 +30,7 @@
               <!-- 图片 -->
               <div class="h-3/4 overflow-hidden relative">
                 <img 
-                  :src="`${BASE_IMG}${item.clothes_img.replace(BASE_IMG, '')}?x-oss-process=image/quality,q_70/resize,w_300`"
+                  :src="`${BASE_IMG}${getItemImage(item).replace(BASE_IMG, '')}?x-oss-process=image/quality,q_70/resize,w_300`"
                   :alt="item.clothes_note || '服饰'"
                   class="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110"
                   loading="lazy"
@@ -63,11 +63,12 @@
 <script setup lang="ts">
 import { ref, onMounted, nextTick } from 'vue'
 import type { WardrobeClothes } from '@/types/api'
+import type { FavoriteItem, MostWornItem } from '@/api/yearlySummary'
 import { BASE_IMG } from '@/utils/ipConfig'
 
 const props = defineProps<{
   title: string
-  items: WardrobeClothes[]
+  items: (WardrobeClothes | FavoriteItem | MostWornItem)[]
   delay?: number
   icon?: string
 }>()
@@ -79,6 +80,13 @@ const itemRefs = ref<HTMLElement[]>([])
 
 const formatNumber = (num: number): string => {
   return num.toLocaleString('zh-CN')
+}
+
+const getItemImage = (item: any): string => {
+  if (item.clothes_img) return item.clothes_img
+  if (item.library?.cover) return item.library.cover
+  if (item.library?.square_cover) return item.library.square_cover
+  return ''
 }
 
 onMounted(async () => {
