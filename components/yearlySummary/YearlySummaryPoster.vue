@@ -1,6 +1,6 @@
 <template>
   <QhxModal :model-value="modelValue" @update:model-value="handleUpdate" @close="handleClose">
-    <div class="bg-white dark:bg-gray-800 rounded-2xl overflow-hidden max-w-4xl w-full h-[90vh] flex flex-col max-md:w-[100vw]">
+    <div class="bg-white dark:bg-gray-800 rounded-2xl overflow-hidden max-w-4xl w-full md:h-[90vh] h-[90dvh] flex flex-col max-md:w-[100vw]">
       <!-- 头部 -->
       <div class="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-700 z-10 bg-white dark:bg-gray-800">
         <h3 class="text-xl font-bold text-gray-800 dark:text-gray-100">生成分享图</h3>
@@ -22,8 +22,8 @@
         </div>
         
         <!-- Canvas 容器 -->
-        <div class="relative shadow-2xl origin-top transform-gpu transition-transform duration-300" :style="previewStyle">
-          <canvas ref="canvasRef" class="bg-white"></canvas>
+        <div class="relative shadow-2xl transition-all duration-300" :style="previewStyle">
+          <canvas ref="canvasRef" class="bg-white block" :style="canvasStyle"></canvas>
         </div>
       </div>
 
@@ -64,7 +64,8 @@ const emit = defineEmits(['update:modelValue'])
 const canvasRef = ref<HTMLCanvasElement | null>(null)
 const generating = ref(false)
 const drawComplete = ref(false)
-const scale = ref(1)
+const displayWidth = ref(CANVAS_WIDTH)
+const canvasPixelHeight = ref(BASE_HEIGHT)
 
 const formatNumber = (num: number): string => {
   return num.toLocaleString('zh-CN')
@@ -92,17 +93,21 @@ const updateScale = () => {
   if (typeof window === 'undefined') return
   const isMobile = window.innerWidth < 800
   const availableWidth = window.innerWidth - (isMobile ? 32 : 64)
-  if (availableWidth < 750) {
-    scale.value = availableWidth / 750
-  } else {
-    scale.value = 1
-  }
+  displayWidth.value = Math.max(260, Math.min(CANVAS_WIDTH, availableWidth))
 }
 
 const previewStyle = computed(() => ({
-  transform: `scale(${scale.value})`,
-  marginBottom: `-${(canvasRef.value?.height || BASE_HEIGHT) * (1 - scale.value)}px`
+  width: `${displayWidth.value}px`,
+  maxWidth: '100%',
 }))
+
+const canvasStyle = computed(() => {
+  const ratio = canvasPixelHeight.value / CANVAS_WIDTH
+  return {
+    width: `${displayWidth.value}px`,
+    height: `${Math.round(displayWidth.value * ratio)}px`,
+  }
+})
 
 const handleClose = () => {
   emit('update:modelValue', false)
@@ -166,6 +171,61 @@ const getWrappedLines = (ctx: CanvasRenderingContext2D, text: string, maxWidth: 
     return lines
 }
 
+const getUserMainStyleLabels = (): string[] => {
+  const info: any = props.summaryData?.user_info
+  if (!info) return []
+
+  const list = Array.isArray(info.main_style) ? info.main_style : []
+  const fromList = list
+    .map((s: any) => (s?.label || '').trim())
+    .filter((s: string) => s.length > 0)
+
+  if (fromList.length > 0) return fromList.slice(0, 12)
+
+  const legacy = info.main_style_name
+  if (typeof legacy === 'string' && legacy.trim() !== '') {
+    return legacy
+      .split(/[，,]/g)
+      .map((s: string) => s.trim())
+      .filter((s: string) => s.length > 0)
+      .slice(0, 12)
+  }
+  return []
+}
+
+const layoutTagLines = (
+  ctx: CanvasRenderingContext2D,
+  labels: string[],
+  maxWidth: number,
+  opts: { font: string; paddingX: number; gapX: number }
+) => {
+  const lines: Array<Array<{ label: string; w: number }>> = []
+  if (!labels.length) return lines
+
+  ctx.save()
+  ctx.font = opts.font
+
+  let current: Array<{ label: string; w: number }> = []
+  let currentW = 0
+  for (const label of labels) {
+    const textW = Math.ceil(ctx.measureText(label).width)
+    const pillW = textW + opts.paddingX * 2
+    const nextW = current.length === 0 ? pillW : currentW + opts.gapX + pillW
+    if (nextW > maxWidth && current.length > 0) {
+      lines.push(current)
+      current = [{ label, w: pillW }]
+      currentW = pillW
+    } else {
+      current.push({ label, w: pillW })
+      currentW = nextW
+    }
+  }
+  if (current.length) lines.push(current)
+
+  ctx.restore()
+  return lines
+}
+
 // 主绘制逻辑
 const drawPoster = async () => {
   if (!canvasRef.value) return
@@ -178,9 +238,22 @@ const drawPoster = async () => {
   try {
     const PADDING = 40
     let totalHeight = 0
+    const mainStyleLabels = getUserMainStyleLabels()
     
     // 1. 计算总高度
-    totalHeight += 250 // Header
+    // Header（动态：头像 + 风格标签会撑高）
+    let headerHeight = 250
+    const hasAvatar = !!props.summaryData.user_info?.user_face
+    if (hasAvatar) headerHeight += 120
+    if (mainStyleLabels.length) {
+      const lines = layoutTagLines(ctx, mainStyleLabels, CANVAS_WIDTH - PADDING * 2, {
+        font: '12px sans-serif',
+        paddingX: 12,
+        gapX: 10,
+      })
+      headerHeight += lines.length * 34 + 10
+    }
+    totalHeight += headerHeight
     totalHeight += 320 // Stats Grid (Years + Spending)
     
     // Purchase Stats Height (包含 Total Wardrobe)
@@ -261,6 +334,7 @@ const drawPoster = async () => {
 
     canvasRef.value.width = CANVAS_WIDTH
     canvasRef.value.height = totalHeight
+    canvasPixelHeight.value = totalHeight
 
     // 2. 绘制背景
     ctx.fillStyle = COLORS.bg
@@ -301,10 +375,73 @@ const drawPoster = async () => {
     
     // User Info
     if (props.summaryData.user_info) {
+        // Avatar
+        const avatarUrl = props.summaryData.user_info.user_face
+        if (avatarUrl) {
+          try {
+            const avatar = await loadImage(avatarUrl)
+            const AVATAR_SIZE = 96
+            const ax = CANVAS_WIDTH / 2
+            const ay = currentY + 20
+            ctx.save()
+            ctx.beginPath()
+            ctx.arc(ax, ay + AVATAR_SIZE / 2, AVATAR_SIZE / 2, 0, Math.PI * 2)
+            ctx.closePath()
+            ctx.clip()
+            ctx.drawImage(avatar, ax - AVATAR_SIZE / 2, ay, AVATAR_SIZE, AVATAR_SIZE)
+            ctx.restore()
+            // avatar ring
+            ctx.save()
+            ctx.beginPath()
+            ctx.arc(ax, ay + AVATAR_SIZE / 2, AVATAR_SIZE / 2 + 3, 0, Math.PI * 2)
+            ctx.strokeStyle = 'rgba(236, 72, 153, 0.25)'
+            ctx.lineWidth = 6
+            ctx.stroke()
+            ctx.restore()
+            currentY += AVATAR_SIZE + 40
+          } catch {
+            currentY += 20
+          }
+        }
+
         ctx.fillStyle = COLORS.text
-        ctx.font = 'bold 24px sans-serif'
+        ctx.font = 'bold 26px sans-serif'
         ctx.fillText(props.summaryData.user_info.user_name, CANVAS_WIDTH / 2, currentY)
-        currentY += 30
+        currentY += 26
+
+        // Main style tags under avatar/user name
+        if (mainStyleLabels.length) {
+          const tagLines = layoutTagLines(ctx, mainStyleLabels, CANVAS_WIDTH - PADDING * 2, {
+            font: '12px sans-serif',
+            paddingX: 12,
+            gapX: 10,
+          })
+          const TAG_H = 26
+          const GAP_Y = 8
+          ctx.save()
+          ctx.font = '12px sans-serif'
+          ctx.textAlign = 'left'
+          for (const line of tagLines) {
+            const lineW = line.reduce((acc, t, i) => acc + t.w + (i === 0 ? 0 : 10), 0)
+            let x = (CANVAS_WIDTH - lineW) / 2
+            for (const t of line) {
+              ctx.fillStyle = 'rgba(236, 72, 153, 0.10)'
+              ctx.strokeStyle = 'rgba(236, 72, 153, 0.25)'
+              ctx.lineWidth = 1
+              roundRect(ctx, x, currentY, t.w, TAG_H, TAG_H / 2)
+              ctx.fill()
+              ctx.stroke()
+              ctx.fillStyle = COLORS.primary
+              ctx.fillText(t.label, x + 12, currentY + 17)
+              x += t.w + 10
+            }
+            currentY += TAG_H + GAP_Y
+          }
+          ctx.restore()
+          currentY += 10
+        } else {
+          currentY += 8
+        }
     }
 
     currentY += 40

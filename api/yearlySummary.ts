@@ -5,7 +5,15 @@ export interface UserInfo {
   user_id: number
   user_name: string
   user_face: string
-  main_style_name: string | null
+  /**
+   * 兼容旧字段：以逗号分隔的风格名称
+   * 例如："甜系,哥特"
+   */
+  main_style_name?: string | null
+  /**
+   * 新增字段：主要风格（可能有也可能没有）
+   */
+  main_style?: Array<{ label: string; value: number }> | null
 }
 
 // 相册项接口
