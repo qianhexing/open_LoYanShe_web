@@ -200,7 +200,7 @@ const drawPoster = async () => {
     const albumCount = props.summaryData.ablumn_items?.length || 0
     let albumSectionHeight = 0
     const albumRowHeights: number[] = []
-    const ALBUM_COLS = 2 // 改为2列以容纳 Note
+    const ALBUM_COLS = 3 
     
     if (albumCount > 0) {
         // 设置字体用于计算
@@ -579,7 +579,14 @@ const drawPoster = async () => {
                 ctx.fillStyle = COLORS.text
                 ctx.font = 'bold 16px sans-serif'
                 ctx.textAlign = 'left'
-                const title = album.ablumn?.album_title || '未命名'
+                let title = album.ablumn?.album_title || '未命名'
+                if (ctx.measureText(title).width > itemW - 20) {
+                     let tempTitle = title
+                     while (ctx.measureText(tempTitle + '...').width > itemW - 20 && tempTitle.length > 0) {
+                         tempTitle = tempTitle.slice(0, -1)
+                     }
+                     title = tempTitle + '...'
+                }
                 ctx.fillText(title, x + 10, y + imgHeight + 25)
                 
                 // Draw Note

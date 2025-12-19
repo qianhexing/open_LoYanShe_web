@@ -163,7 +163,7 @@
           <span>📸</span>
           <span>年度打卡</span>
         </h3>
-        <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+        <div class="grid grid-cols-3 gap-4">
           <div 
             v-for="album in summaryData.ablumn_items" 
             :key="album.album_id"
