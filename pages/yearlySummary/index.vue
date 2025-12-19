@@ -17,6 +17,21 @@
       <p class="mt-4 text-pink-400 dark:text-pink-300 tracking-widest text-sm uppercase">Loading Memories...</p>
     </div>
 
+    <!-- 未登录状态 -->
+    <div v-else-if="notLoggedIn" class="relative z-10 flex flex-col items-center justify-center min-h-screen p-4 text-center">
+      <div class="bg-white/80 dark:bg-gray-800/80 backdrop-blur-md p-8 rounded-[2rem] shadow-xl border border-white/50 dark:border-gray-700 max-w-md w-full">
+         <div class="text-6xl mb-6">🔒</div>
+         <h2 class="text-2xl font-bold text-gray-800 dark:text-gray-100 mb-4">需要登录</h2>
+         <p class="text-gray-600 dark:text-gray-300 mb-8">请登录后查看您的年度总结，或者通过分享链接查看他人的总结。</p>
+         <button 
+           @click="handleLogin"
+           class="px-8 py-3 bg-pink-500 hover:bg-pink-600 text-white rounded-full font-bold transition-colors shadow-lg shadow-pink-500/30"
+         >
+           去登录
+         </button>
+      </div>
+    </div>
+
     <!-- 主要内容 -->
     <div v-else class="relative z-10 pb-32">
       <!-- 顶部 Header -->
@@ -85,23 +100,45 @@
             </div>
           </div>
 
-          <!-- 购买统计 -->
+          <!-- 购买统计 & 总入柜统计 -->
           <div 
             ref="purchaseCardRef"
             class="lg:col-span-3 bg-white/70 dark:bg-gray-800/70 backdrop-blur-md rounded-[2rem] p-8 shadow-xl border border-white/50 dark:border-gray-700"
           >
-            <h3 class="text-xl font-bold text-gray-800 dark:text-gray-100 mb-6 flex items-center gap-2">
-              <span>📊</span>
-              <span>年度入柜</span>
-            </h3>
-            <div class="grid grid-cols-2 md:grid-cols-5 gap-4">
-              <div 
-                v-for="(stat, index) in summaryData.purchase_stats" 
-                :key="index"
-                class="flex flex-col items-center p-4 bg-gray-50 dark:bg-gray-700/50 rounded-2xl hover:bg-pink-50 dark:hover:bg-pink-900/20 transition-colors"
-              >
-                <span class="text-2xl font-bold text-gray-800 dark:text-gray-100 counter">{{ stat.value }}</span>
-                <span class="text-xs text-gray-500 dark:text-gray-400 mt-1">{{ stat.label }}</span>
+            <!-- 年度入柜 -->
+            <div class="mb-8">
+              <h3 class="text-xl font-bold text-gray-800 dark:text-gray-100 mb-6 flex items-center gap-2">
+                <span>📊</span>
+                <span>年度入柜</span>
+              </h3>
+              <div class="grid grid-cols-2 md:grid-cols-5 gap-4">
+                <div 
+                  v-for="(stat, index) in summaryData.purchase_stats" 
+                  :key="index"
+                  class="flex flex-col items-center p-4 bg-gray-50 dark:bg-gray-700/50 rounded-2xl hover:bg-pink-50 dark:hover:bg-pink-900/20 transition-colors"
+                >
+                  <span class="text-2xl font-bold text-gray-800 dark:text-gray-100 counter">{{ stat.value }}</span>
+                  <span class="text-xs text-gray-500 dark:text-gray-400 mt-1">{{ stat.label }}</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- 总入柜 (新增) -->
+             <div v-if="summaryData.total_wardrobe_stats?.length">
+              <div class="h-px bg-gray-200 dark:bg-gray-700 my-6"></div>
+              <h3 class="text-xl font-bold text-gray-800 dark:text-gray-100 mb-6 flex items-center gap-2">
+                <span>👗</span>
+                <span>衣柜总览</span>
+              </h3>
+              <div class="grid grid-cols-2 md:grid-cols-5 gap-4">
+                <div 
+                  v-for="(stat, index) in summaryData.total_wardrobe_stats" 
+                  :key="'total-'+index"
+                  class="flex flex-col items-center p-4 bg-gray-50 dark:bg-gray-700/50 rounded-2xl hover:bg-purple-50 dark:hover:bg-purple-900/20 transition-colors"
+                >
+                  <span class="text-2xl font-bold text-gray-800 dark:text-gray-100 counter">{{ stat.value }}</span>
+                  <span class="text-xs text-gray-500 dark:text-gray-400 mt-1">{{ stat.label }}</span>
+                </div>
               </div>
             </div>
           </div>
@@ -118,19 +155,32 @@
           <div 
             v-for="album in summaryData.ablumn_items" 
             :key="album.album_id"
-            class="group relative aspect-square bg-white dark:bg-gray-800 rounded-2xl overflow-hidden shadow-md hover:shadow-xl transition-all duration-300"
+            class="group bg-white dark:bg-gray-800 rounded-2xl overflow-hidden shadow-md hover:shadow-xl transition-all duration-300 pb-2"
           >
-             <img 
-               v-if="album?.cover"
-               :src="formatImg(album.cover)"
-               class="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110"
-               alt="Album"
-             />
-             <div v-else class="w-full h-full bg-gray-100 dark:bg-gray-700 flex items-center justify-center text-3xl">
-               📁
+             <!-- 保持宽高比容器 -->
+             <div class="relative aspect-square overflow-hidden rounded-t-2xl">
+                <img 
+                  v-if="album?.ablumn?.album_cover || album?.ablumn?.cover"
+                  :src="formatImg(album.ablumn?.album_cover || album.ablumn?.cover)"
+                  class="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110"
+                  alt="Album"
+                />
+                <div v-else class="w-full h-full bg-gray-100 dark:bg-gray-700 flex items-center justify-center text-3xl">
+                  📁
+                </div>
+                <div class="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent flex flex-col justify-end p-4 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+                  <span class="text-white font-medium truncate">{{ album.ablumn?.album_title || '未命名相册' }}</span>
+                </div>
              </div>
-             <div class="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent flex flex-col justify-end p-4 opacity-0 group-hover:opacity-100 transition-opacity">
-               <span class="text-white font-medium truncate">{{ album.ablumn?.album_title || '未命名相册' }}</span>
+             
+             <!-- Note 展示 -->
+             <div v-if="album.note" class="px-3 py-3">
+               <p class="text-sm text-gray-600 dark:text-gray-300 line-clamp-3 leading-relaxed">
+                 {{ album.note }}
+               </p>
+             </div>
+             <div v-else class="px-3 py-3 text-center">
+                <span class="text-sm font-medium text-gray-800 dark:text-gray-200 truncate block">{{ album.ablumn?.album_title || '未命名相册' }}</span>
              </div>
           </div>
         </div>
@@ -265,16 +315,22 @@ import { ref, onMounted, computed, nextTick } from 'vue'
 import type { YearlySummaryData } from '@/api/yearlySummary'
 import { getYearlySummary } from '@/api/yearlySummary'
 import { BASE_IMG } from '@/utils/ipConfig'
+import { useUserStore } from '@/stores/user'
 
 const { $gsap } = useNuxtApp()
+const route = useRoute()
+const router = useRouter()
 
 const loading = ref(true)
+const notLoggedIn = ref(false)
+
 const summaryData = ref<YearlySummaryData>({
   user_info: { user_id: 0, user_name: '', user_face: '', main_style_name: '' },
   ablumn_items: [],
   years_in_lolita: 0,
   total_spending: 0,
   purchase_stats: [],
+  total_wardrobe_stats: [],
   favorite: [],
   most_worn: [],
   blacklisted_shops: [],
@@ -302,6 +358,11 @@ const formatImg = (url: string) => {
   return `${BASE_IMG}${url.replace(BASE_IMG, '')}`
 }
 
+const handleLogin = () => {
+    // 假设有登录页路由 /login，或者触发全局登录弹窗
+    router.push('/login')
+}
+
 // 根据部位名称获取图标
 const getFavoriteIcon = (label: string): string => {
   const iconMap: Record<string, string> = {
@@ -316,7 +377,7 @@ const getFavoriteIcon = (label: string): string => {
   return iconMap[label] || '✨'
 }
 
-// 模拟数据 (保留原有逻辑)
+// 模拟数据 (保留原有逻辑，更新结构)
 const getMockData = (): YearlySummaryData => {
   const baseImageUrl = 'static/library_app/20986_176590718554587.JPG'
   
@@ -330,6 +391,7 @@ const getMockData = (): YearlySummaryData => {
     ablumn_items: Array(5).fill({
         album_id: 1,
         user_id: 1,
+        note: '这是一段关于这个相册的美好回忆，记录了今年最喜欢的穿搭时刻。✨',
         ablumn: {
             album_id: 1,
             parent_id: 0,
@@ -345,6 +407,13 @@ const getMockData = (): YearlySummaryData => {
       { label: '袜子', value: 20 },
       { label: '包包', value: 8 },
       { label: '鞋子', value: 6 }
+    ],
+    total_wardrobe_stats: [
+      { label: '裙子', value: 150 },
+      { label: '小物', value: 300 },
+      { label: '袜子', value: 120 },
+      { label: '包包', value: 45 },
+      { label: '鞋子', value: 30 }
     ],
     favorite: [
       {
@@ -453,15 +522,36 @@ const getMockData = (): YearlySummaryData => {
 const loadData = async () => {
   try {
     loading.value = true
+    
+    // 检查登录状态
+    const userId = route.query.user_id
+    // 尝试从 cookie 或 localStorage 获取 token
+    const token = useCookie('token').value || (import.meta.client ? localStorage.getItem('token') : null)
+    
+    if (!userId && !token) {
+        notLoggedIn.value = true
+        loading.value = false
+        return
+    }
+
     await new Promise(resolve => setTimeout(resolve, 800))
-    summaryData.value = await getYearlySummary()
+    
+    // 构建 API 参数
+    const params: any = {}
+    if (userId) {
+        params.user_id = userId
+    }
+    
+    summaryData.value = await getYearlySummary(params)
   } catch (error) {
     console.error(error)
     summaryData.value = getMockData()
   } finally {
     loading.value = false
-    await nextTick()
-    initAnimations()
+    if (!notLoggedIn.value) {
+        await nextTick()
+        initAnimations()
+    }
   }
 }
 
@@ -471,30 +561,36 @@ const initAnimations = () => {
   const tl = $gsap.timeline()
 
   // Header 动画
-  tl.from(titleRef.value, {
-    y: 50,
-    opacity: 0,
-    duration: 1,
-    ease: 'power4.out'
-  })
-  .from(subtitleRef.value, {
-    y: 20,
-    opacity: 0,
-    duration: 0.8,
-    ease: 'power2.out'
-  }, '-=0.5')
+  if (titleRef.value) {
+    tl.from(titleRef.value, {
+        y: 50,
+        opacity: 0,
+        duration: 1,
+        ease: 'power4.out'
+    })
+  }
+  if (subtitleRef.value) {
+    tl.from(subtitleRef.value, {
+        y: 20,
+        opacity: 0,
+        duration: 0.8,
+        ease: 'power2.out'
+    }, '-=0.5')
+  }
 
   // 卡片入场
-  const cards = [yearsCardRef.value, spendingCardRef.value, purchaseCardRef.value]
+  const cards = [yearsCardRef.value, spendingCardRef.value, purchaseCardRef.value].filter(Boolean)
   
-  $gsap.from(cards, {
-    y: 50,
-    opacity: 0,
-    duration: 0.8,
-    stagger: 0.2,
-    ease: 'power3.out',
-    delay: 0.5
-  })
+  if (cards.length > 0) {
+      $gsap.from(cards, {
+        y: 50,
+        opacity: 0,
+        duration: 0.8,
+        stagger: 0.2,
+        ease: 'power3.out',
+        delay: 0.5
+      })
+  }
 
   // 数字增长动画
   const counters = document.querySelectorAll('.counter')
