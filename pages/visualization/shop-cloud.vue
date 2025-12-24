@@ -350,7 +350,8 @@ const createPointCloud = () => {
     `,
     transparent: true,
     depthWrite: false, // 防止透明线遮挡
-    blending: THREE.AdditiveBlending
+    blending: THREE.AdditiveBlending,
+    vertexColors: true
   });
 
   const lines = new THREE.LineSegments(lineGeometry, lineShaderMaterial);
