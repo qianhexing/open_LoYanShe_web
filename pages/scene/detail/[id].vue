@@ -65,6 +65,9 @@ const clickPosition = ref({ x: 0, y: 0 })
 const doubleClickTimer = ref<ReturnType<typeof setTimeout> | null>(null)
 const target = ref(null)
 const transformType  = ref('translate')
+const showToolbar = ref(true) // 控制工具栏显示/隐藏
+const showRightPanel = ref(false) // 控制右侧面板显示/隐藏
+const rightPanelType = ref<'material' | 'template' | 'effect' | null>(null) // 右侧面板类型
 
 if (route.query?.edit) {
 	edit_mode.value = true
@@ -246,8 +249,65 @@ const _onPointerUp = (event: PointerEvent) => {
 }
 
 const showMaterial = () => {
+	if (rightPanelType.value === 'material') {
+		showRightPanel.value = false
+		rightPanelType.value = null
+	} else {
+		showRightPanel.value = true
+		rightPanelType.value = 'material'
+	}
+}
+
+const showTemplate = () => {
+	if (rightPanelType.value === 'template') {
+		showRightPanel.value = false
+		rightPanelType.value = null
+	} else {
+		showRightPanel.value = true
+		rightPanelType.value = 'template'
+	}
+}
+
+const showEffect = () => {
+	if (rightPanelType.value === 'effect') {
+		showRightPanel.value = false
+		rightPanelType.value = null
+	} else {
+		showRightPanel.value = true
+		rightPanelType.value = 'effect'
+	}
+}
+
+const closeRightPanel = () => {
+	showRightPanel.value = false
+	rightPanelType.value = null
+}
+
+// 添加图片
+const addImage = () => {
 	if (MaterialRef.value) {
-		MaterialRef.value.showModel()
+		MaterialRef.value.addImage()
+	}
+}
+
+// 添加日记点
+const addDiaryClick = (e: MouseEvent) => {
+	if (MaterialRef.value) {
+		MaterialRef.value.addDiary(e)
+	}
+}
+
+// 添加背景
+const addBackgroundClick = () => {
+	if (MaterialRef.value) {
+		MaterialRef.value.addBackground()
+	}
+}
+
+// 添加文本
+const addTextClick = () => {
+	if (MaterialRef.value) {
+		MaterialRef.value.addText()
 	}
 }
 const addDiary = async (form) => {
@@ -642,10 +702,177 @@ useHead({
 		
 		<!-- <div class=" fixed bottom-[80px] left-[20px] rounded-[50%] w-[50px] h-[50px] z-10 items-center justify-center shadow-lg flex cursor-pointer bg-qhx-bg-card"
 		v-show="edit_mode">场景</div> -->
-		<div class=" fixed bottom-[20px] left-[20px] rounded-[50%] w-[50px] h-[50px] z-10 items-center justify-center shadow-lg flex cursor-pointer bg-qhx-bg-card"
-		@click="showMaterial()" v-show="edit_mode">
-		<UIcon name="material-symbols:add" class="text-[22px] text-[#000000]" />
-	</div>
+		<!-- 左侧功能列表 - 手机端 -->
+		<div 
+			v-if="edit_mode || add_mode"
+			class="fixed left-2 top-1/2 -translate-y-1/2 z-30 transition-all duration-300"
+			:class="showToolbar ? 'translate-x-0' : '-translate-x-[calc(100%-16px)]'"
+		>
+			<div class="bg-white/90 dark:bg-gray-800/90 backdrop-blur-md rounded-2xl shadow-xl border border-white/50 dark:border-gray-700 overflow-hidden">
+				<!-- 隐藏/显示按钮 -->
+				<button
+					@click="showToolbar = !showToolbar"
+					class="w-full flex items-center justify-center p-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors rounded-t-2xl"
+					:class="showToolbar ? '' : 'rounded-2xl'"
+				>
+					<UIcon 
+						:name="showToolbar ? 'material-symbols:chevron-left' : 'material-symbols:chevron-right'" 
+						class="text-base text-gray-600 dark:text-gray-300"
+					/>
+				</button>
+				
+				<!-- 功能按钮列表 -->
+				<div 
+					v-show="showToolbar"
+					class="w-[48px] max-h-[75vh] overflow-y-auto scrollbar-hide space-y-1.5 p-1.5"
+				>
+					<!-- 保存 -->
+					<button
+						@click="saveScene"
+						class="w-full flex flex-col items-center gap-1 p-1.5 rounded-xl hover:bg-pink-50 dark:hover:bg-pink-900/20 transition-colors group active:scale-95"
+						title="保存"
+					>
+						<div class="w-7 h-7 bg-pink-500 dark:bg-pink-600 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform">
+							<UIcon name="ant-design:file-filled" class="text-sm text-white" />
+						</div>
+						<span class="text-[9px] text-gray-700 dark:text-gray-200 font-medium leading-tight">保存</span>
+					</button>
+
+					<!-- 图片 -->
+					<button
+						@click="addImage"
+						class="w-full flex flex-col items-center gap-1 p-1.5 rounded-xl hover:bg-pink-50 dark:hover:bg-pink-900/20 transition-colors group active:scale-95"
+						title="图片"
+					>
+						<div class="w-7 h-7 bg-pink-500 dark:bg-pink-600 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform">
+							<UIcon name="ant-design:picture-filled" class="text-sm text-white" />
+						</div>
+						<span class="text-[9px] text-gray-700 dark:text-gray-200 font-medium leading-tight">图片</span>
+					</button>
+
+					<!-- 日记点 -->
+					<button
+						@click="addDiaryClick"
+						class="w-full flex flex-col items-center gap-1 p-1.5 rounded-xl hover:bg-pink-50 dark:hover:bg-pink-900/20 transition-colors group active:scale-95"
+						title="日记点"
+					>
+						<div class="w-7 h-7 bg-pink-500 dark:bg-pink-600 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform">
+							<UIcon name="material-symbols:note-edit-outline" class="text-sm text-white" />
+						</div>
+						<span class="text-[9px] text-gray-700 dark:text-gray-200 font-medium leading-tight">日记点</span>
+					</button>
+
+					<!-- 记录镜头 -->
+					<button
+						@click="recordCamera"
+						class="w-full flex flex-col items-center gap-1 p-1.5 rounded-xl hover:bg-pink-50 dark:hover:bg-pink-900/20 transition-colors group active:scale-95"
+						title="记录镜头"
+					>
+						<div class="w-7 h-7 bg-pink-500 dark:bg-pink-600 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform">
+							<UIcon name="material-symbols:video-camera-back" class="text-sm text-white" />
+						</div>
+						<span class="text-[9px] text-gray-700 dark:text-gray-200 font-medium leading-tight">镜头</span>
+					</button>
+
+					<!-- 背景 -->
+					<button
+						@click="addBackgroundClick"
+						class="w-full flex flex-col items-center gap-1 p-1.5 rounded-xl hover:bg-pink-50 dark:hover:bg-pink-900/20 transition-colors group active:scale-95"
+						title="背景"
+					>
+						<div class="w-7 h-7 bg-pink-500 dark:bg-pink-600 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform">
+							<UIcon name="material-symbols:image-outline" class="text-sm text-white" />
+						</div>
+						<span class="text-[9px] text-gray-700 dark:text-gray-200 font-medium leading-tight">背景</span>
+					</button>
+
+					<!-- 文本 -->
+					<button
+						@click="addTextClick"
+						class="w-full flex flex-col items-center gap-1 p-1.5 rounded-xl hover:bg-pink-50 dark:hover:bg-pink-900/20 transition-colors group active:scale-95"
+						title="文本"
+					>
+						<div class="w-7 h-7 bg-pink-500 dark:bg-pink-600 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform">
+							<UIcon name="material-symbols:text-fields" class="text-sm text-white" />
+						</div>
+						<span class="text-[9px] text-gray-700 dark:text-gray-200 font-medium leading-tight">文本</span>
+					</button>
+
+					<!-- 素材 -->
+					<button
+						@click="showMaterial()"
+						class="w-full flex flex-col items-center gap-1 p-1.5 rounded-xl hover:bg-purple-50 dark:hover:bg-purple-900/20 transition-colors group active:scale-95"
+						:class="rightPanelType === 'material' ? 'bg-purple-100 dark:bg-purple-900/40' : ''"
+						title="素材"
+					>
+						<div class="w-7 h-7 bg-purple-500 dark:bg-purple-600 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform">
+							<UIcon name="material-symbols:widgets-outline" class="text-sm text-white" />
+						</div>
+						<span class="text-[9px] text-gray-700 dark:text-gray-200 font-medium leading-tight">素材</span>
+					</button>
+
+					<!-- 模版 -->
+					<button
+						@click="showTemplate()"
+						class="w-full flex flex-col items-center gap-1 p-1.5 rounded-xl hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors group active:scale-95"
+						:class="rightPanelType === 'template' ? 'bg-blue-100 dark:bg-blue-900/40' : ''"
+						title="模版"
+					>
+						<div class="w-7 h-7 bg-blue-500 dark:bg-blue-600 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform">
+							<UIcon name="material-symbols:view-module-outline" class="text-sm text-white" />
+						</div>
+						<span class="text-[9px] text-gray-700 dark:text-gray-200 font-medium leading-tight">模版</span>
+					</button>
+
+					<!-- 特效 -->
+					<button
+						@click="showEffect()"
+						class="w-full flex flex-col items-center gap-1 p-1.5 rounded-xl hover:bg-orange-50 dark:hover:bg-orange-900/20 transition-colors group active:scale-95"
+						:class="rightPanelType === 'effect' ? 'bg-orange-100 dark:bg-orange-900/40' : ''"
+						title="特效"
+					>
+						<div class="w-7 h-7 bg-orange-500 dark:bg-orange-600 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform">
+							<UIcon name="material-symbols:auto-awesome-outline" class="text-sm text-white" />
+						</div>
+						<span class="text-[9px] text-gray-700 dark:text-gray-200 font-medium leading-tight">特效</span>
+					</button>
+				</div>
+			</div>
+		</div>
+
+		<!-- 右侧素材/模版/特效面板 -->
+		<div 
+			v-if="showRightPanel && rightPanelType"
+			class="fixed right-2 top-0 z-30 transition-all duration-300 w-[100px] h-screen"
+		>
+			<div class="bg-white dark:bg-gray-800 backdrop-blur-md rounded-l-2xl shadow-xl border-l border-t border-b border-gray-200 dark:border-gray-700 overflow-hidden flex flex-col h-full">
+				<!-- 头部标题和关闭按钮 -->
+				<div class="flex items-center justify-between p-1.5 border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
+					<h3 class="text-[10px] font-semibold text-gray-700 dark:text-gray-200">
+						{{ rightPanelType === 'material' ? '素材' : rightPanelType === 'template' ? '模版' : '特效' }}
+					</h3>
+					<button
+						@click="closeRightPanel"
+						class="w-4 h-4 flex items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+					>
+						<UIcon name="ant-design:close-outlined" class="text-[10px] text-gray-600 dark:text-gray-300" />
+					</button>
+				</div>
+				
+				<!-- 内容区域 -->
+				<div class="flex-1 overflow-y-auto scrollbar-hide min-h-0">
+					<SceneMaterial 
+						:panel-type="rightPanelType"
+						:load-template="threeCore && threeCore.loadTemplate.length > 0 ? true : false"
+						@choose-material="chooseMaterial"
+						@choose-template="chooseTemplate"
+						@choose-effect="chooseEffect"
+						@clear-template="clearTemplate"
+					/>
+				</div>
+			</div>
+		</div>
+
 		<div style="height: 100vh; width: 100vw; overflow: hidden; " id="scene"></div>
 		<div class="opera fixed p-3  z-20 flex items-center whitespace-nowrap" 
 		v-show="clickObject && edit_mode"
@@ -766,5 +993,22 @@ useHead({
 	height: 100vh;
 	width: 30vw;
 	/* background: #000; */
+}
+
+/* 隐藏滚动条但保持滚动功能 */
+.scrollbar-hide {
+	-ms-overflow-style: none;  /* IE and Edge */
+	scrollbar-width: none;  /* Firefox */
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+	display: none;  /* Chrome, Safari and Opera */
+}
+
+/* 手机端优化 */
+@media (max-width: 768px) {
+	.scrollbar-hide {
+		max-height: calc(100vh - 2rem);
+	}
 }
 </style>

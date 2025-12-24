@@ -68,6 +68,7 @@ export interface YearlySummaryData {
   
   /** 今年总消费 */
   total_spending: number
+  total_year_spending: number
   
   /** 购买统计 */
   purchase_stats: Array<{ label: string; value: number }>

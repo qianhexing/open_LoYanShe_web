@@ -68,7 +68,7 @@
 
 <script setup lang="ts">
 import { ref } from 'vue'
-import type { Library } from '@/types/api'
+import type { Library, WardrobeClothes } from '@/types/api'
 import { getWardrobeListOptions, insertClothes, type WardrobeListOption } from '@/api/wardrobe'
 import { BASE_IMG } from '@/utils/ipConfig'
 import { useToast } from '#imports'
@@ -173,7 +173,7 @@ const add = async () => {
 		return
 	}
 
-	const params = {
+	const params:WardrobeClothes = {
 		wardrobe_id: active.value,
 		clothes_note: library.value.name || '',
 		clothes_img: clothes_img.value || library.value.cover?.replace(BASE_IMG, '') || '',
@@ -190,7 +190,7 @@ const add = async () => {
 		})
 		active.value = null
 		closeModel()
-		emit('change', data)
+		emit('change', params)
 	} catch (error) {
 		console.error('添加失败:', error)
 		toast.add({

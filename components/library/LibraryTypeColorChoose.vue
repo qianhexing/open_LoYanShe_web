@@ -1,6 +1,6 @@
 <template>
-	<QhxDrawer v-model="show" direction="bottom" size="80vh">
-		<div class="bg-white dark:bg-gray-800 rounded-t-lg overflow-hidden flex flex-col h-full max-h-[80vh]">
+	<QhxDrawer v-model="show" :direction="drawerDirection" :size="drawerSize">
+		<div class="bg-white dark:bg-gray-800 rounded-t-lg md:rounded-l-lg overflow-hidden flex flex-col h-full max-h-[80vh] md:max-h-full">
 			<!-- 头部 -->
 			<div class="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
 				<h3 class="text-lg font-semibold text-gray-900 dark:text-gray-100">选择图鉴型色</h3>
@@ -93,10 +93,43 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { getLibraryList, getLibraryVideo } from '@/api/library'
 import type { Library, LibraryVideo } from '@/types/api'
 import { BASE_IMG } from '@/utils/ipConfig'
+
+// 响应式检测屏幕尺寸
+const windowWidth = ref(typeof window !== 'undefined' ? window.innerWidth : 1024)
+const isDesktop = computed(() => windowWidth.value >= 768) // md breakpoint
+
+// 根据屏幕尺寸动态设置抽屉方向和大小
+const drawerDirection = computed(() => {
+  return isDesktop.value ? 'right' : 'bottom'
+})
+
+const drawerSize = computed(() => {
+  return isDesktop.value ? '400px' : '80vh'
+})
+
+// 监听窗口大小变化
+const handleResize = () => {
+  if (typeof window !== 'undefined') {
+    windowWidth.value = window.innerWidth
+  }
+}
+
+onMounted(() => {
+  if (typeof window !== 'undefined') {
+    window.addEventListener('resize', handleResize)
+    windowWidth.value = window.innerWidth
+  }
+})
+
+onBeforeUnmount(() => {
+  if (typeof window !== 'undefined') {
+    window.removeEventListener('resize', handleResize)
+  }
+})
 
 const props = defineProps({
 	needStatus: {

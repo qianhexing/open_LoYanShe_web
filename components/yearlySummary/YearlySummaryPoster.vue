@@ -397,7 +397,7 @@ const drawPoster = async () => {
     ctx.fillText('SINCE', cardCenterX, cardCenterY + 10)
     ctx.fillStyle = COLORS.text
     ctx.font = 'bold 32px serif'
-    ctx.fillText(props.summaryData.years_in_lolita + '年', cardCenterX, cardCenterY + 45)
+    ctx.fillText(props.summaryData.years_in_lolita + '天', cardCenterX, cardCenterY + 45)
     ctx.restore()
 
     // 消费卡片
@@ -417,12 +417,12 @@ const drawPoster = async () => {
     ctx.textAlign = 'left'
     ctx.fillStyle = 'rgba(255, 255, 255, 0.9)'
     ctx.font = 'bold 14px sans-serif'
-    ctx.fillText('TOTAL SPENDING', rightCardX + 30, currentY + 40)
+    ctx.fillText('总花费', rightCardX + 30, currentY + 40)
     
     ctx.fillStyle = '#ffffff'
-    ctx.font = 'bold 60px sans-serif'
-    const spendingText = props.summaryData.total_spending.toLocaleString('zh-CN')
-    ctx.fillText('¥ ' + spendingText, rightCardX + 30, currentY + 110)
+    ctx.font = 'bold 40px sans-serif'
+    const spendingText = props.summaryData.total_year_spending.toLocaleString('zh-CN')
+    ctx.fillText(`¥ ${spendingText}`, rightCardX + 10, currentY + 110)
     ctx.restore()
 
     currentY += CARD_HEIGHT + 30
@@ -461,8 +461,8 @@ const drawPoster = async () => {
     }
 
     // 总入柜 (如果有)
-    const totalStats = props.summaryData.total_purchase_stats || props.summaryData.total_wardrobe_stats
-    if (totalStats?.length) {
+    const totalStats1 = props.summaryData.total_purchase_stats || props.summaryData.total_wardrobe_stats
+    if (totalStats1?.length) {
         // 分割线
         const dividerY = currentY + 110
         ctx.beginPath()
@@ -476,8 +476,8 @@ const drawPoster = async () => {
         ctx.font = 'bold 18px sans-serif'
         ctx.fillText('👗 衣柜总览', PADDING + 30, dividerY + 40)
         
-        const statItemWidth = (CANVAS_WIDTH - PADDING * 2 - 40) / totalStats.length
-        totalStats.forEach((stat, index) => {
+        const statItemWidth = (CANVAS_WIDTH - PADDING * 2 - 40) / totalStats1.length
+        totalStats1.forEach((stat, index) => {
           const x = PADDING + 20 + index * statItemWidth + statItemWidth / 2
           const y = dividerY + 75
           

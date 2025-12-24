@@ -20,6 +20,12 @@ const props = withDefaults(defineProps<Props>(), {
 // 内部状态
 const collectCount = ref(props.collect_count || 0)
 const isCollect = ref(props.is_collect || false)
+watch(() => props.collect_count, (newVal) => {
+  collectCount.value = newVal || 0
+})
+watch(() => props.is_collect, (newVal) => {
+  isCollect.value = newVal
+})
 const loading = ref(false)
 const FavoriteRef = ref<InstanceType<typeof FavoriteModel> | null>(null)
 const emit = defineEmits(['change', 'handleClick'])

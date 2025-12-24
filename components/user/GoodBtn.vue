@@ -18,7 +18,14 @@ const props = withDefaults(defineProps<Props>(), {
 
 // 内部状态
 const goodCount = ref(props.good_count || 0)
+watch(() => props.good_count, (newVal) => {
+  goodCount.value = newVal || 0
+})
+// 响应式数据
 const isGood = ref(props.is_good || false)
+watch(() => props.is_good, (newVal) => {
+  isGood.value = newVal
+})
 const loading = ref(false)
 const emit = defineEmits(['change', 'handleClick'])
 const user = useUserStore()

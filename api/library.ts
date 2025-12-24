@@ -1,4 +1,5 @@
 import type { BaseResponse, PaginationParams, PaginationResponse, Library, FilterList, Shop, LibraryVideo, LibraryPipe } from '@/types/api';
+import type { Wiki } from '@/types/api'
 interface SearchParams extends PaginationParams {
   keyword?: string | null  // 可选字段
   filter_list?: FilterList[]
@@ -23,6 +24,7 @@ interface DetailResponse extends PaginationParams {
   library: Library
   parent?: Library
   shop?: Shop
+  style_list?: Wiki[]
 }
 export async function getLibraryDetail(
   params: DetailParams

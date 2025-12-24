@@ -54,6 +54,7 @@ console.log(wardrobeStore, '衣柜配置')
 const wardrobe_status_options = ref<optionsInterface[]>([])
 const main_style_options = ref<optionsInterface[]>([])
 const clothes_part_options = ref<optionsInterface[]>([])
+const season_options = [{ value: '春', label: '春' }, { value: '夏', label: '夏' }, { value: '秋', label: '秋' }, { value: '冬', label: '冬' }]
 const show = ref(false)
 const loading = ref(false)
 const type = ref(0) // 0 添加 1 编辑
@@ -510,6 +511,26 @@ const insert = async () => {
   } else {
     params.main_style = null
   }
+  if (season && Array.isArray(season) && season.length > 0) {
+    params.season = season.join(',')
+  } else {
+    params.season = null
+  }
+  if (add_time) {
+    // 处理日期格式：如果是 Date 对象，转换为 YYYY-MM-DD 格式；如果是字符串，直接使用
+    if (add_time instanceof Date) {
+      const year = add_time.getFullYear()
+      const month = String(add_time.getMonth() + 1).padStart(2, '0')
+      const day = String(add_time.getDate()).padStart(2, '0')
+      params.add_time = `${year}-${month}-${day}`
+    } else if (typeof add_time === 'string') {
+      params.add_time = add_time
+    } else {
+      params.add_time = null
+    }
+  } else {
+    params.add_time = null
+  }
   if (wardrobeCoverRef.value && wardrobeCoverRef.value.previewImages.length > 0) {
     console.log(wardrobeCoverRef.value.previewImages, '图片')
     try {
@@ -563,6 +584,23 @@ const insert = async () => {
 
 
 }
+
+// 日期输入的计算属性，用于处理 Date | string | null 到 string 的转换
+const addTimeInput = computed({
+  get: () => {
+    if (!form.value.add_time) return ''
+    if (form.value.add_time instanceof Date) {
+      const year = form.value.add_time.getFullYear()
+      const month = String(form.value.add_time.getMonth() + 1).padStart(2, '0')
+      const day = String(form.value.add_time.getDate()).padStart(2, '0')
+      return `${year}-${month}-${day}`
+    }
+    return String(form.value.add_time)
+  },
+  set: (value: string) => {
+    form.value.add_time = value || null
+  }
+})
 
 defineExpose({
   showModel
@@ -709,8 +747,7 @@ defineExpose({
         <UFormGroup label="尺码">
           <UInput
             v-model="form.size"
-            type="number"
-            placeholder="价格"
+            placeholder="尺码"
             class="flex-1 focus:ring-0"
             :ui="{
               base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
@@ -948,10 +985,56 @@ defineExpose({
           </UButton>
         </UFormGroup>
         <UFormGroup label="适宜季节">
-          
+          <div v-if="form.season.length > 0" class="flex flex-wrap gap-2 mb-2">
+            <QhxTag
+              v-for="(season, index) in form.season"
+              :key="index"
+            >
+              <div class="flex">
+                <QhxJellyButton class="cursor-pointer flex items-center mr-[5px] text-white rounded-[50%] w-[18px] h-[18px] justify-center bg-qhx-primary" @click="form.season.splice(index, 1)">
+                  <UIcon name="ant-design:close-outlined" class="text-[14px] text-[#ffffff]" />
+                </QhxJellyButton>
+                <div>{{ season }}</div>
+              </div>
+            </QhxTag>
+          </div>
+          <USelectMenu 
+            v-model="form.season" 
+            :options="season_options" 
+            placeholder="请选择季节" 
+            multiple
+            value-attribute="value"
+            option-attribute="label"
+            class="flex-1"
+            :ui="{
+              base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
+              rounded: 'rounded-full',
+              padding: { xs: 'px-4 py-2' },
+              color: {
+                white: {
+                  outline: 'bg-gray-50 dark:bg-gray-800 ring-1 ring-gray-300 dark:ring-gray-600 focus:ring-2 focus:ring-qhx-primary'
+                }
+              }
+            }"
+          />
         </UFormGroup>
         <UFormGroup label="购入时间">
-          
+          <UInput
+            v-model="addTimeInput"
+            type="date"
+            placeholder="选择购入时间"
+            class="flex-1 focus:ring-0"
+            :ui="{
+              base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
+              rounded: 'rounded-full',
+              padding: { xs: 'px-4 py-2' },
+              color: {
+                white: {
+                  outline: 'bg-gray-50 dark:bg-gray-800 ring-1 ring-gray-300 dark:ring-gray-600 focus:ring-2 focus:ring-qhx-primary'
+                }
+              }
+            }"
+          />
         </UFormGroup>
         <UFormGroup label="详情图">
           <QhxImagePicker :multiple="true" @update:files="onUpdateFiles" ref="detailImageRef" />

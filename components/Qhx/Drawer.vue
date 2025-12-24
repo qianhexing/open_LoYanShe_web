@@ -182,7 +182,7 @@ onBeforeUnmount(() => {
   position: fixed;
   inset: 0;
   background-color: rgba(0, 0, 0, 0.4);
-  z-index: 40;
+  z-index: 9998;
   touch-action: none;
 }
 
@@ -199,7 +199,7 @@ onBeforeUnmount(() => {
 /* 抽屉基础样式 */
 .drawer-base {
   position: fixed;
-  z-index: 50;
+  z-index: 9999;
   background-color: white;
   box-shadow: -4px 0 20px rgba(0, 0, 0, 0.15);
   overflow: hidden;
