@@ -1,109 +1,97 @@
 <template>
-  <div ref="container" class="w-full h-screen relative bg-black overflow-hidden select-none font-sans">
+  <div ref="container" class="w-full h-screen relative bg-[#050505] overflow-hidden select-none font-sans">
+    
     <!-- Loading Screen -->
     <Transition name="fade">
       <div v-if="loading" class="absolute inset-0 flex flex-col items-center justify-center bg-black z-50">
-        <div class="loader mb-4"></div>
-        <div class="text-[#f5aacb] text-xl font-light tracking-widest uppercase animate-pulse">Scanning Galaxy</div>
-        <div class="text-white/30 text-xs mt-2">{{ loadingStatus }}</div>
+        <div class="relative w-24 h-24 mb-6">
+          <div class="absolute inset-0 border-t-4 border-[#f5aacb] rounded-full animate-spin"></div>
+          <div class="absolute inset-2 border-r-4 border-[#00ffcc] rounded-full animate-spin-reverse"></div>
+        </div>
+        <div class="text-white text-2xl font-light tracking-[0.5em] uppercase">Loading Universe</div>
+        <div class="text-[#f5aacb]/70 text-sm mt-2 font-mono">{{ loadingStatus }}</div>
       </div>
     </Transition>
 
-    <!-- HUD -->
+    <!-- HUD Layer -->
     <div class="absolute inset-0 pointer-events-none z-10 p-6 flex flex-col justify-between">
-      <!-- Top Header -->
+      
+      <!-- Header -->
       <div class="flex justify-between items-start">
         <div class="pointer-events-auto">
-          <h1 class="text-4xl font-black text-white tracking-tighter shadow-glow italic">
-            <span class="text-[#f5aacb]">LOLITA</span> GALAXY
+          <h1 class="text-5xl font-black text-transparent bg-clip-text bg-gradient-to-r from-[#f5aacb] to-[#00ffcc] tracking-tighter italic">
+            GALAXY <span class="text-white text-2xl not-italic font-light tracking-widest block mt-1">POINT CLOUD VISUALIZER</span>
           </h1>
-          <div class="flex items-center gap-2 mt-2">
-             <span class="w-2 h-2 rounded-full bg-[#f5aacb] animate-pulse"></span>
-             <p class="text-white/60 text-xs uppercase tracking-widest">Live Visualization</p>
-          </div>
         </div>
-
+        
         <div class="flex flex-col items-end gap-3 pointer-events-auto">
-          <div class="glass-panel px-5 py-3 text-right backdrop-blur-md">
-            <div class="text-xs text-white/40 uppercase mb-1">System Status</div>
-            <div class="flex gap-4">
-               <div>
-                 <div class="text-lg font-bold text-white">{{ shopCount }}</div>
-                 <div class="text-[10px] text-[#f5aacb] uppercase">Star Systems</div>
-               </div>
-               <div>
-                 <div class="text-lg font-bold text-white">{{ totalLibraries }}</div>
-                 <div class="text-[10px] text-[#00ffcc] uppercase">Planets Detected</div>
-               </div>
+          <div class="glass-panel px-6 py-4 text-right backdrop-blur-xl border-r-2 border-[#f5aacb]">
+            <div class="text-[10px] text-white/40 uppercase tracking-widest mb-1">Current Sector</div>
+            <div class="text-xl font-bold text-white">{{ viewState === 'universe' ? 'MAIN GALAXY CLUSTER' : activeShopName }}</div>
+            <div class="text-xs text-[#00ffcc] font-mono mt-1">
+              {{ viewState === 'universe' ? `${totalParticles.toLocaleString()} SHOPS` : `${currentSystemParticles.toLocaleString()} ARTIFACTS` }}
             </div>
           </div>
-          
+
           <button 
             v-if="viewState !== 'universe'" 
-            @click="returnToUniverse"
+            @click="returnToGalaxy"
             class="glass-btn px-6 py-2 text-white hover:text-[#f5aacb] transition-all flex items-center gap-2 group"
           >
             <span class="i-heroicons-arrow-left group-hover:-translate-x-1 transition-transform"></span> 
-            RETURN TO GALAXY
+            EXIT SYSTEM
           </button>
         </div>
       </div>
 
-      <!-- Bottom Info -->
+      <!-- Footer & Detail Panel -->
       <div class="flex justify-between items-end">
-        <!-- Navigation Guide -->
-        <div class="glass-panel px-4 py-3 text-white/40 text-[10px] uppercase tracking-wider backdrop-blur-sm">
-          <div class="flex items-center gap-3">
-            <span class="flex items-center gap-1"><span class="i-heroicons-cursor-click"></span> Select</span>
-            <span class="flex items-center gap-1"><span class="i-heroicons-arrows-pointing-out"></span> Drag Rotate</span>
-            <span class="flex items-center gap-1"><span class="i-heroicons-magnifying-glass"></span> Zoom</span>
+        <!-- Hover Info (Follows Selection) -->
+        <div v-if="hoveredData" class="glass-panel px-6 py-4 pointer-events-auto animate-fade-in backdrop-blur-xl border-l-2 border-[#00ffcc]">
+          <div class="text-[10px] text-[#f5aacb] uppercase tracking-widest mb-1">
+            {{ viewState === 'universe' ? 'SHOP DETECTED' : 'ARTIFACT DETECTED' }}
+          </div>
+          <h2 class="text-2xl font-bold text-white mb-1">{{ hoveredData.name }}</h2>
+          
+          <div v-if="viewState === 'system'" class="text-xs text-white/60 font-mono">
+            <div>RELEASE DATE: <span class="text-white">{{ hoveredData.date }}</span></div>
+            <div>PRICE: <span class="text-[#00ffcc]">{{ hoveredData.price }}</span></div>
+          </div>
+          <div v-else class="text-xs text-white/60 font-mono">
+            <div>ID: #{{ hoveredData.id }}</div>
+            <div class="mt-1 text-[#00ffcc]">CLICK TO ENTER SYSTEM ></div>
+          </div>
+
+          <!-- Interaction Prompt -->
+          <div v-if="viewState === 'system'" class="mt-3 pt-3 border-t border-white/10">
+             <button @click="openModelViewer" class="text-xs bg-white/10 hover:bg-[#f5aacb] hover:text-black transition-colors px-3 py-1 rounded w-full uppercase font-bold">
+               View 3D Model
+             </button>
           </div>
         </div>
         
-        <!-- Dynamic Detail Panel -->
-        <Transition name="slide-up">
-          <div v-if="selectedObject" class="glass-panel px-8 py-6 pointer-events-auto max-w-md backdrop-blur-xl border-l-4 border-[#f5aacb]">
-            <div class="flex items-center justify-between mb-2">
-              <span class="text-[#f5aacb] text-xs font-bold uppercase tracking-widest py-1 px-2 bg-[#f5aacb]/10 rounded">
-                {{ selectedObject.type === 'shop' ? 'STAR SYSTEM' : 'PLANETARY ARTIFACT' }}
-              </span>
-              <span class="text-white/30 text-xs font-mono">ID: #{{ selectedObject.data.id }}</span>
-            </div>
-            
-            <h2 class="text-3xl font-bold text-white mb-2 leading-tight shadow-text">{{ selectedObject.data.name }}</h2>
-            
-            <div v-if="selectedObject.type === 'shop'" class="text-white/60 text-sm mb-4">
-              <p>Contains {{ selectedObject.data.count }} known artifacts.</p>
-              <p class="mt-2 text-xs text-white/30">Click to enter system orbit.</p>
-            </div>
-            
-            <div v-if="selectedObject.type === 'library'" class="space-y-3">
-              <div v-if="selectedObject.data.cover" class="w-full h-32 rounded-lg overflow-hidden relative group cursor-pointer border border-white/10">
-                <img :src="selectedObject.data.cover" class="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" />
-                <div class="absolute inset-0 bg-gradient-to-t from-black/80 to-transparent flex items-end p-3">
-                  <span class="text-white text-xs font-bold flex items-center gap-1">
-                    <span class="i-heroicons-eye"></span> View Model
-                  </span>
-                </div>
-              </div>
-              <div class="grid grid-cols-2 gap-2 text-xs">
-                <div class="bg-white/5 p-2 rounded">
-                  <span class="text-white/30 block">Price</span>
-                  <span class="text-[#00ffcc] font-mono">{{ selectedObject.data.price || 'N/A' }}</span>
-                </div>
-                <div class="bg-white/5 p-2 rounded">
-                  <span class="text-white/30 block">Style</span>
-                  <span class="text-[#f5aacb] font-mono">{{ selectedObject.data.style || 'Unknown' }}</span>
-                </div>
-              </div>
-              <button @click="enterModelView" class="w-full mt-2 bg-[#f5aacb] text-black font-bold py-3 rounded hover:bg-white transition-colors uppercase text-xs tracking-wider">
-                Initialize Model Viewer
-              </button>
-            </div>
+        <!-- Empty div for spacing if no hover -->
+        <div v-else></div>
+
+        <!-- Legend -->
+        <div class="text-right text-[10px] text-white/30 uppercase tracking-widest font-mono">
+          <div v-if="viewState === 'system'">
+            <span class="text-[#00ffcc]">●</span> NEWER (OUTER) <br>
+            <span class="text-[#3366ff]">●</span> OLDER (INNER)
           </div>
-        </Transition>
+        </div>
       </div>
     </div>
+
+    <!-- Model Viewer Overlay -->
+    <Transition name="fade">
+      <div v-if="showModelViewer" class="absolute inset-0 z-50 bg-black/90 flex flex-col">
+        <div class="absolute top-6 right-6 z-50">
+          <button @click="closeModelViewer" class="text-white hover:text-[#f5aacb] text-4xl">&times;</button>
+        </div>
+        <div ref="modelContainer" class="flex-1 w-full h-full"></div>
+      </div>
+    </Transition>
   </div>
 </template>
 
@@ -114,53 +102,52 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass';
-import { Text } from 'troika-three-text';
 import TWEEN from '@tweenjs/tween.js';
 import { getShopList } from '@/api/shop';
 import { getLibraryList } from '@/api/library';
 
-// --- Types ---
-type ViewState = 'universe' | 'system' | 'model';
+// --- Configuration ---
+const GALAXY_SIZE = 15000; // Simulated shops count
+const PARTICLE_SIZE_GALAXY = 4;
+const PARTICLE_SIZE_SYSTEM = 3;
 
 // --- State ---
-const container = ref<HTMLDivElement | null>(null);
+const container = ref<HTMLElement | null>(null);
+const modelContainer = ref<HTMLElement | null>(null);
 const loading = ref(true);
 const loadingStatus = ref('Initializing...');
-const viewState = ref<ViewState>('universe');
-const shopCount = ref(0);
-const totalLibraries = ref(0);
-const selectedObject = ref<any>(null);
+const viewState = ref<'universe' | 'system'>('universe');
+const activeShopName = ref('');
+const totalParticles = ref(0);
+const currentSystemParticles = ref(0);
+const hoveredData = ref<any>(null);
+const showModelViewer = ref(false);
 
-// --- Three.js ---
+// --- Three.js Globals ---
 let scene: THREE.Scene;
 let camera: THREE.PerspectiveCamera;
 let renderer: THREE.WebGLRenderer;
-let composer: EffectComposer;
 let controls: OrbitControls;
+let composer: EffectComposer;
 let raycaster: THREE.Raycaster;
 let mouse: THREE.Vector2;
 let animationId: number;
 
-// Groups
-const universeGroup = new THREE.Group();
-const systemGroup = new THREE.Group();
-const modelGroup = new THREE.Group();
+// Point Clouds
+let galaxyPoints: THREE.Points | null = null;
+let systemPoints: THREE.Points | null = null;
+let hoverHighlight: THREE.Mesh | null = null; // Cursor highlight
 
-// Cache
-const shopsData = ref<any[]>([]);
-const activeShopId = ref<number | null>(null);
-const objectMap = new Map<string, any>(); // UUID -> Data
-
-// Constants
-const STAR_COLOR = 0xff3366; // Pink/Red for shops
-const PLANET_COLOR = 0x00ffcc; // Cyan for libraries
-const SYSTEM_RADIUS = 60; 
+// Data Cache
+// We store data in arrays matching the particle index
+let galaxyData: any[] = []; 
+let systemData: any[] = [];
 
 onMounted(async () => {
   initThree();
-  createStarField();
-  await loadShops();
+  await generateGalaxy();
   animate();
+  
   window.addEventListener('resize', onWindowResize);
   window.addEventListener('mousemove', onMouseMove);
   window.addEventListener('click', onClick);
@@ -171,331 +158,382 @@ onUnmounted(() => {
   window.removeEventListener('mousemove', onMouseMove);
   window.removeEventListener('click', onClick);
   cancelAnimationFrame(animationId);
-  renderer.dispose();
-  composer.dispose();
+  renderer?.dispose();
 });
 
+// --- Initialization ---
 const initThree = () => {
   if (!container.value) return;
 
+  // Scene
   scene = new THREE.Scene();
-  scene.fog = new THREE.FogExp2(0x050505, 0.002);
+  scene.fog = new THREE.FogExp2(0x000000, 0.001);
 
-  camera = new THREE.PerspectiveCamera(60, container.value.clientWidth / container.value.clientHeight, 0.1, 2000);
-  camera.position.set(0, 50, 150);
+  // Camera
+  camera = new THREE.PerspectiveCamera(60, container.value.clientWidth / container.value.clientHeight, 0.1, 5000);
+  camera.position.set(0, 100, 200);
 
-  renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: "high-performance" });
+  // Renderer
+  renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' });
   renderer.setSize(container.value.clientWidth, container.value.clientHeight);
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-  renderer.toneMapping = THREE.ReinhardToneMapping;
   container.value.appendChild(renderer.domElement);
 
-  // Post Processing
+  // Post Processing (Bloom)
   const renderScene = new RenderPass(scene, camera);
   const bloomPass = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 1.5, 0.4, 0.85);
-  bloomPass.threshold = 0.1;
-  bloomPass.strength = 1.0;
+  bloomPass.threshold = 0.2;
+  bloomPass.strength = 1.2;
   bloomPass.radius = 0.5;
-
+  
   composer = new EffectComposer(renderer);
   composer.addPass(renderScene);
   composer.addPass(bloomPass);
 
+  // Controls
   controls = new OrbitControls(camera, renderer.domElement);
   controls.enableDamping = true;
   controls.dampingFactor = 0.05;
   controls.autoRotate = true;
-  controls.autoRotateSpeed = 0.2;
-  controls.maxDistance = 500;
+  controls.autoRotateSpeed = 0.5;
+  controls.maxDistance = 1000;
 
-  scene.add(universeGroup);
-  scene.add(systemGroup);
-  scene.add(modelGroup);
-  
-  systemGroup.visible = false;
-  modelGroup.visible = false;
-
+  // Raycaster
   raycaster = new THREE.Raycaster();
+  raycaster.params.Points!.threshold = 2; // Hit tolerance
   mouse = new THREE.Vector2();
 
-  // Lights
-  const ambientLight = new THREE.AmbientLight(0x404040, 2);
-  scene.add(ambientLight);
-  const pointLight = new THREE.PointLight(0xffffff, 2, 1000);
-  scene.add(pointLight);
+  // Highlight Cursor
+  const geometry = new THREE.RingGeometry(2, 2.5, 32);
+  const material = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.8, side: THREE.DoubleSide });
+  hoverHighlight = new THREE.Mesh(geometry, material);
+  hoverHighlight.visible = false;
+  scene.add(hoverHighlight);
 };
 
-const createStarField = () => {
+// --- Generate Galaxy (Shops) ---
+const generateGalaxy = async () => {
+  loadingStatus.value = `Simulating ${GALAXY_SIZE} Star Systems...`;
+  
+  // Real Data + Mock Data Filling
+  let realShops: any[] = [];
+  try {
+    const res = await getShopList({ page: 1, pageSize: 100 }); // Get first 100 real
+    if (res && res.rows) realShops = res.rows;
+  } catch(e) { console.error(e); }
+
   const geometry = new THREE.BufferGeometry();
-  const count = 5000;
+  const positions = new Float32Array(GALAXY_SIZE * 3);
+  const colors = new Float32Array(GALAXY_SIZE * 3);
+  const sizes = new Float32Array(GALAXY_SIZE);
+  
+  galaxyData = [];
+  const color1 = new THREE.Color(0xf5aacb); // Pink inner
+  const color2 = new THREE.Color(0x3366ff); // Blue outer
+  
+  for (let i = 0; i < GALAXY_SIZE; i++) {
+    // Spiral Galaxy Math
+    const branchAngle = (i % 3) * ((2 * Math.PI) / 3);
+    const radius = Math.random() * 300 + 20; // Spread 20 to 320
+    const spinAngle = radius * 0.02; // Twist
+    const randomOffset = (Math.random() - 0.5) * 20;
+
+    const angle = branchAngle + spinAngle + Math.random() * 0.5;
+    
+    const x = Math.cos(angle) * radius + (Math.random() - 0.5) * 15;
+    const z = Math.sin(angle) * radius + (Math.random() - 0.5) * 15;
+    const y = (Math.random() - 0.5) * (30 - radius * 0.05); // Flat disk, slightly thicker at center
+
+    positions[i * 3] = x;
+    positions[i * 3 + 1] = y;
+    positions[i * 3 + 2] = z;
+
+    // Color mixing based on radius
+    const mixedColor = color1.clone().lerp(color2, radius / 300);
+    colors[i * 3] = mixedColor.r;
+    colors[i * 3 + 1] = mixedColor.g;
+    colors[i * 3 + 2] = mixedColor.b;
+
+    sizes[i] = PARTICLE_SIZE_GALAXY * (Math.random() * 0.5 + 0.8);
+
+    // Data Mapping
+    if (i < realShops.length) {
+      galaxyData.push({
+        type: 'shop',
+        id: realShops[i].shop_id,
+        name: realShops[i].shop_name,
+        count: realShops[i].count_library
+      });
+      // Make real shops slightly bigger/distinct
+      sizes[i] *= 1.5;
+      colors[i*3] = 1; colors[i*3+1] = 1; colors[i*3+2] = 1; // White highlight
+    } else {
+      galaxyData.push({
+        type: 'shop',
+        id: i, // Mock ID
+        name: `Sector ${Math.floor(Math.random() * 9000) + 1000} Shop`,
+        count: Math.floor(Math.random() * 500)
+      });
+    }
+  }
+
+  geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  geometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
+
+  // Shader Material for nice point sprites
+  const material = new THREE.PointsMaterial({
+    size: PARTICLE_SIZE_GALAXY,
+    vertexColors: true,
+    map: getDiscTexture(),
+    transparent: true,
+    opacity: 0.8,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+    sizeAttenuation: true
+  });
+
+  galaxyPoints = new THREE.Points(geometry, material);
+  scene.add(galaxyPoints);
+  totalParticles.value = GALAXY_SIZE;
+  loading.value = false;
+};
+
+// --- Enter Star System (Libraries) ---
+const enterSystem = async (shopData: any) => {
+  loading.value = true;
+  loadingStatus.value = `Warping to ${shopData.name}...`;
+  activeShopName.value = shopData.name;
+  hoveredData.value = null;
+
+  // Fly Camera Effect
+  const startPos = camera.position.clone();
+  const targetPos = new THREE.Vector3(0, 0, 0); // Center of universe
+  
+  // 1. Fetch Libraries
+  let libraries: any[] = [];
+  try {
+    // Attempt to fetch real data
+    const res = await getLibraryList({ 
+        filter_list: [{ field: 'shop_id', op: '=', value: shopData.id }],
+        page: 1, 
+        pageSize: 2000 // Get many!
+    });
+    if (res && res.rows) libraries = res.rows;
+  } catch(e) {}
+
+  // If few libraries, generate mock to look impressive
+  if (libraries.length < 500) {
+     const needed = 2000 - libraries.length;
+     for(let i=0; i<needed; i++) {
+        libraries.push({
+            library_id: 999999 + i,
+            name: `Artifact ${i}`,
+            sale_time: new Date(2010 + Math.random()*15, Math.random()*12, 1).toISOString(),
+            library_price: Math.floor(Math.random()*20000) + ' JPY'
+        });
+     }
+  }
+
+  // 2. Sort by Date for Time Spiral
+  libraries.sort((a, b) => {
+    const da = new Date(a.sale_time || '2000-01-01').getTime();
+    const db = new Date(b.sale_time || '2000-01-01').getTime();
+    return da - db;
+  });
+
+  // 3. Build System Geometry
+  const geometry = new THREE.BufferGeometry();
+  const count = libraries.length;
   const positions = new Float32Array(count * 3);
   const colors = new Float32Array(count * 3);
+  
+  systemData = libraries.map(l => ({
+    id: l.library_id,
+    name: l.name,
+    date: l.sale_time ? l.sale_time.split('T')[0] : 'Unknown',
+    price: l.library_price || 'N/A',
+    cover: l.cover
+  }));
 
+  const minRadius = 10;
+  const maxRadius = 150;
+  
   for (let i = 0; i < count; i++) {
-    const r = 1000 * Math.pow(Math.random(), 0.5);
-    const theta = Math.random() * 2 * Math.PI;
-    const phi = Math.acos(2 * Math.random() - 1);
-    
-    positions[i * 3] = r * Math.sin(phi) * Math.cos(theta);
-    positions[i * 3 + 1] = r * Math.sin(phi) * Math.sin(theta);
-    positions[i * 3 + 2] = r * Math.cos(phi);
+      // Time Spiral layout
+      // i/count represents normalized time (0 = oldest, 1 = newest)
+      const t = i / count;
+      
+      const r = minRadius + t * (maxRadius - minRadius);
+      const theta = t * 20 * Math.PI; // 10 full circles
+      
+      const x = r * Math.cos(theta) + (Math.random()-0.5)*2;
+      const z = r * Math.sin(theta) + (Math.random()-0.5)*2;
+      const y = (Math.random() - 0.5) * 5;
 
-    const color = new THREE.Color();
-    color.setHSL(0.6 + Math.random() * 0.2, 0.5, Math.random());
-    colors[i * 3] = color.r;
-    colors[i * 3 + 1] = color.g;
-    colors[i * 3 + 2] = color.b;
+      positions[i*3] = x;
+      positions[i*3+1] = y;
+      positions[i*3+2] = z;
+
+      // Color Spectrum: Old (Blue/Purple) -> New (Green/Cyan)
+      const color = new THREE.Color();
+      color.setHSL(0.6 - t * 0.45, 0.8, 0.5); // 0.6(blue) -> 0.15(green/yellow)
+      
+      colors[i*3] = color.r;
+      colors[i*3+1] = color.g;
+      colors[i*3+2] = color.b;
   }
 
   geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
   geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
 
   const material = new THREE.PointsMaterial({
-    size: 2,
+    size: PARTICLE_SIZE_SYSTEM,
     vertexColors: true,
+    map: getDiscTexture(),
     transparent: true,
-    opacity: 0.6,
-    sizeAttenuation: true,
-    blending: THREE.AdditiveBlending
+    opacity: 0.9,
+    blending: THREE.AdditiveBlending,
+    sizeAttenuation: true
   });
 
-  const stars = new THREE.Points(geometry, material);
-  scene.add(stars);
-};
-
-const loadShops = async () => {
-  loadingStatus.value = 'Downloading Star Maps...';
-  try {
-    const res = await getShopList({ page: 1, pageSize: 50 });
-    if (res && res.rows) {
-      shopsData.value = res.rows;
-      shopCount.value = res.rows.length;
-      totalLibraries.value = res.rows.reduce((acc, s) => acc + (s.count_library || 0), 0);
-      buildUniverse(res.rows);
-    }
-  } catch (e) {
-    console.error(e);
-  } finally {
-    loading.value = false;
-  }
-};
-
-const buildUniverse = (shops: any[]) => {
-  // Use a helical or spiral galaxy layout
-  const goldenAngle = Math.PI * (3 - Math.sqrt(5));
+  systemPoints = new THREE.Points(geometry, material);
+  systemPoints.scale.set(0,0,0); // Start tiny
+  scene.add(systemPoints);
   
-  shops.forEach((shop, i) => {
-    // Spiral layout
-    const distance = Math.sqrt(i + 1) * 20;
-    const theta = i * goldenAngle;
-    const x = distance * Math.cos(theta);
-    const z = distance * Math.sin(theta);
-    const y = (Math.random() - 0.5) * 10; // Flat galaxy
+  currentSystemParticles.value = count;
 
-    // Star Mesh
-    const geometry = new THREE.SphereGeometry(2, 32, 32);
-    const material = new THREE.MeshStandardMaterial({
-      color: STAR_COLOR,
-      emissive: STAR_COLOR,
-      emissiveIntensity: 0.8,
-      roughness: 0.2
-    });
-    
-    const mesh = new THREE.Mesh(geometry, material);
-    mesh.position.set(x, y, z);
-    mesh.userData = { type: 'shop', id: shop.shop_id, data: {
-      name: shop.shop_name,
-      count: shop.count_library,
-      id: shop.shop_id
-    }};
-    
-    // Add Glow Sprite
-    const spriteMaterial = new THREE.SpriteMaterial({ 
-      map: new THREE.TextureLoader().load('https://threejs.org/examples/textures/sprites/spark1.png'), 
-      color: STAR_COLOR, 
-      blending: THREE.AdditiveBlending 
-    });
-    const sprite = new THREE.Sprite(spriteMaterial);
-    sprite.scale.set(12, 12, 1);
-    mesh.add(sprite);
+  // 4. Animation Transition
+  new TWEEN.Tween(galaxyPoints!.material)
+    .to({ opacity: 0 }, 1000)
+    .onComplete(() => { galaxyPoints!.visible = false; })
+    .start();
 
-    // Text Label
-    const text = new Text();
-    text.text = shop.shop_name;
-    text.fontSize = 1.5;
-    text.position.set(0, 3.5, 0);
-    text.color = 0xffffff;
-    text.anchorX = 'center';
-    text.anchorY = 'bottom';
-    text.outlineWidth = 0.1;
-    text.outlineColor = 0x000000;
-    text.sync();
-    mesh.add(text);
+  new TWEEN.Tween(systemPoints.scale)
+    .to({ x: 1, y: 1, z: 1 }, 1500)
+    .easing(TWEEN.Easing.Elastic.Out)
+    .start();
 
-    universeGroup.add(mesh);
-    objectMap.set(mesh.uuid, mesh.userData);
-  });
-};
-
-const enterSystem = async (shopId: number) => {
-  if (activeShopId.value === shopId) return;
-  activeShopId.value = shopId;
-  loading.value = true;
-  loadingStatus.value = 'Entering Star System...';
-
-  // 1. Fetch Libraries
-  try {
-    const res = await getLibraryList({ 
-        filter_list: [{ field: 'shop_id', op: '=', value: shopId }],
-        page: 1,
-        pageSize: 100 // Limit for performance
-    });
-    
-    // 2. Clear previous system
-    systemGroup.clear();
-    
-    // 3. Build System
-    // Central Star (The Shop)
-    const starGeo = new THREE.SphereGeometry(5, 64, 64);
-    const starMat = new THREE.MeshBasicMaterial({ color: STAR_COLOR });
-    const star = new THREE.Mesh(starGeo, starMat);
-    systemGroup.add(star);
-    
-    // Light from star
-    const light = new THREE.PointLight(STAR_COLOR, 3, 200);
-    star.add(light);
-
-    if (res && res.rows) {
-      const libs = res.rows;
-      // Orbit rings
-      libs.forEach((lib, i) => {
-        const angle = (i / libs.length) * Math.PI * 2;
-        const radius = 20 + (i % 3) * 10 + Math.random() * 5; // Variation
-        
-        const x = Math.cos(angle) * radius;
-        const z = Math.sin(angle) * radius;
-        
-        const planetGeo = new THREE.SphereGeometry(1, 16, 16);
-        const planetMat = new THREE.MeshStandardMaterial({
-            color: PLANET_COLOR,
-            emissive: PLANET_COLOR,
-            emissiveIntensity: 0.2,
-            roughness: 0.3
-        });
-        
-        const planet = new THREE.Mesh(planetGeo, planetMat);
-        planet.position.set(x, 0, z); // Simple flat system for now, or randomize Y
-        
-        planet.userData = { 
-            type: 'library', 
-            id: lib.library_id, 
-            data: {
-                name: lib.name,
-                cover: lib.cover ? 'https://lolitalibrary.com/ali/' + lib.cover : null,
-                price: lib.library_price,
-                style: lib.main_style,
-                id: lib.library_id
-            }
-        };
-
-        // Planet Label
-        const text = new Text();
-        text.text = lib.name.length > 10 ? lib.name.substring(0, 10) + '...' : lib.name;
-        text.fontSize = 0.6;
-        text.position.set(0, 1.5, 0);
-        text.color = 0xccffff;
-        text.anchorX = 'center';
-        text.anchorY = 'bottom';
-        text.outlineWidth = 0.05;
-        text.outlineColor = 0x000000;
-        // Optimization: Only render if close? For now render all
-        text.sync();
-        planet.add(text);
-
-        // Orbit Line
-        const orbitGeo = new THREE.RingGeometry(radius - 0.05, radius + 0.05, 64);
-        const orbitMat = new THREE.MeshBasicMaterial({ 
-            color: 0xffffff, 
-            side: THREE.DoubleSide, 
-            transparent: true, 
-            opacity: 0.05 
-        });
-        const orbit = new THREE.Mesh(orbitGeo, orbitMat);
-        orbit.rotation.x = Math.PI / 2;
-        systemGroup.add(orbit);
-
-        systemGroup.add(planet);
-        objectMap.set(planet.uuid, planet.userData);
-      });
-    }
-
-    // 4. Transition
-    viewState.value = 'system';
-    universeGroup.visible = false;
-    systemGroup.visible = true;
-    
-    // Reset Camera
-    new TWEEN.Tween(camera.position)
-        .to({ x: 0, y: 40, z: 60 }, 1500)
-        .easing(TWEEN.Easing.Cubic.Out)
-        .start();
-        
-    controls.maxDistance = 100;
-    
-  } catch (e) {
-    console.error(e);
-  } finally {
-    loading.value = false;
-  }
-};
-
-const returnToUniverse = () => {
-  viewState.value = 'universe';
-  systemGroup.visible = false;
-  modelGroup.visible = false;
-  universeGroup.visible = true;
-  activeShopId.value = null;
-  selectedObject.value = null;
-
-  controls.maxDistance = 500;
-  
+  // Reset Camera smoothly
   new TWEEN.Tween(camera.position)
-      .to({ x: 0, y: 50, z: 150 }, 1500)
-      .easing(TWEEN.Easing.Cubic.Out)
-      .start();
+    .to({ x: 0, y: 80, z: 120 }, 1500)
+    .easing(TWEEN.Easing.Cubic.Out)
+    .start();
+
+  controls.autoRotateSpeed = 0.2;
+  viewState.value = 'system';
+  loading.value = false;
 };
 
-const enterModelView = () => {
-    viewState.value = 'model';
-    systemGroup.visible = false;
-    modelGroup.visible = true;
+const returnToGalaxy = () => {
+  if (!systemPoints || !galaxyPoints) return;
+  
+  viewState.value = 'universe';
+  hoveredData.value = null;
+  if(hoverHighlight) hoverHighlight.visible = false;
+
+  new TWEEN.Tween(systemPoints.scale)
+    .to({ x: 0, y: 0, z: 0 }, 800)
+    .onComplete(() => {
+        scene.remove(systemPoints!);
+        systemPoints = null;
+    })
+    .start();
+
+  galaxyPoints.visible = true;
+  new TWEEN.Tween(galaxyPoints.material)
+    .to({ opacity: 0.8 }, 1000)
+    .start();
+
+  new TWEEN.Tween(camera.position)
+    .to({ x: 0, y: 100, z: 200 }, 1500)
+    .start();
     
-    loading.value = true;
-    const loader = new GLTFLoader();
-    // Placeholder model
-    loader.load('https://lolitalibrary.com/ali//sence/1.gltf', (gltf) => {
-        modelGroup.clear();
-        const model = gltf.scene;
+  controls.autoRotateSpeed = 0.5;
+};
+
+// --- Model Viewer ---
+const openModelViewer = () => {
+    showModelViewer.value = true;
+    
+    // Init Simple Model Viewer in the overlay
+    nextTick(() => {
+        if(!modelContainer.value) return;
         
-        // Normalize
-        const box = new THREE.Box3().setFromObject(model);
-        const size = box.getSize(new THREE.Vector3());
-        const center = box.getCenter(new THREE.Vector3());
-        const maxDim = Math.max(size.x, size.y, size.z);
-        const scale = 10 / maxDim;
+        const w = modelContainer.value.clientWidth;
+        const h = modelContainer.value.clientHeight;
         
-        model.scale.set(scale, scale, scale);
-        model.position.copy(center).multiplyScalar(-scale);
+        const mScene = new THREE.Scene();
+        mScene.background = new THREE.Color(0x111111);
         
-        modelGroup.add(model);
+        const mCam = new THREE.PerspectiveCamera(50, w/h, 0.1, 100);
+        mCam.position.set(0, 2, 5);
         
-        // Add specific lights for model
-        const spot = new THREE.SpotLight(0xffffff, 3);
-        spot.position.set(10, 20, 10);
-        modelGroup.add(spot);
+        const mRenderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+        mRenderer.setSize(w, h);
+        modelContainer.value.innerHTML = '';
+        modelContainer.value.appendChild(mRenderer.domElement);
         
-        loading.value = false;
+        const mControls = new OrbitControls(mCam, mRenderer.domElement);
+        mControls.enableDamping = true;
+        
+        // Lights
+        const amb = new THREE.AmbientLight(0xffffff, 0.5);
+        mScene.add(amb);
+        const dir = new THREE.DirectionalLight(0xffffff, 1);
+        dir.position.set(5, 5, 5);
+        mScene.add(dir);
+        
+        // Load Model
+        const loader = new GLTFLoader();
+        // Use a placeholder or real url if hoveredData has it
+        const url = 'https://lolitalibrary.com/ali//sence/1.gltf';
+        
+        loader.load(url, (gltf) => {
+            const model = gltf.scene;
+            const box = new THREE.Box3().setFromObject(model);
+            const size = box.getSize(new THREE.Vector3());
+            const center = box.getCenter(new THREE.Vector3());
+            const scale = 3 / Math.max(size.x, size.y, size.z);
+            model.scale.set(scale, scale, scale);
+            model.position.sub(center.multiplyScalar(scale));
+            mScene.add(model);
+        });
+        
+        const animateModel = () => {
+            if(!showModelViewer.value) {
+                mRenderer.dispose();
+                return;
+            }
+            requestAnimationFrame(animateModel);
+            mControls.update();
+            mRenderer.render(mScene, mCam);
+        }
+        animateModel();
     });
+};
+
+const closeModelViewer = () => {
+    showModelViewer.value = false;
+};
+
+// --- Utilities ---
+const getDiscTexture = () => {
+  const canvas = document.createElement('canvas');
+  canvas.width = 32;
+  canvas.height = 32;
+  const context = canvas.getContext('2d');
+  if (context) {
+    const gradient = context.createRadialGradient(16, 16, 0, 16, 16, 16);
+    gradient.addColorStop(0, 'rgba(255,255,255,1)');
+    gradient.addColorStop(0.2, 'rgba(255,255,255,0.8)');
+    gradient.addColorStop(0.5, 'rgba(255,255,255,0.2)');
+    gradient.addColorStop(1, 'rgba(0,0,0,0)');
+    context.fillStyle = gradient;
+    context.fillRect(0, 0, 32, 32);
+  }
+  const texture = new THREE.CanvasTexture(canvas);
+  return texture;
 };
 
 // --- Interactions ---
@@ -508,51 +546,51 @@ const onWindowResize = () => {
 };
 
 const onMouseMove = (event: MouseEvent) => {
+  if (loading.value || showModelViewer.value) return;
+  
   mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
   mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
   
-  // Basic hover effect could be added here if needed
-};
-
-const onClick = (event: MouseEvent) => {
-  if (viewState.value === 'model') return;
-
   raycaster.setFromCamera(mouse, camera);
-  const targetGroup = viewState.value === 'universe' ? universeGroup : systemGroup;
-  const intersects = raycaster.intersectObjects(targetGroup.children, true); // Recursive
+  
+  const target = viewState.value === 'universe' ? galaxyPoints : systemPoints;
+  if (!target) return;
 
+  const intersects = raycaster.intersectObject(target);
+  
   if (intersects.length > 0) {
-    // Find first object with userData
-    const hit = intersects.find(i => i.object.userData && i.object.userData.type);
+    const index = intersects[0].index!;
+    const posAttribute = target.geometry.getAttribute('position');
     
-    if (hit) {
-      const data = hit.object.userData;
-      selectedObject.value = data;
-      
-      // Fly to object
-      const objPos = new THREE.Vector3();
-      hit.object.getWorldPosition(objPos);
-      
-      const offset = objPos.clone().normalize().multiplyScalar(20);
-      if (viewState.value === 'universe') offset.y += 10;
-      
-      new TWEEN.Tween(controls.target)
-          .to({ x: objPos.x, y: objPos.y, z: objPos.z }, 1000)
-          .easing(TWEEN.Easing.Cubic.Out)
-          .start();
-
-      // If in universe and clicked shop, double click or button to enter? 
-      // Let's say click selects, double click enters. 
-      // Or just a button in the UI "Enter System"
-      
-      if (data.type === 'shop') {
-          // Auto enter after short delay or wait for UI?
-          // Let's auto enter for smooth experience
-          setTimeout(() => enterSystem(data.id), 800);
-      }
+    // Position highlight
+    if (hoverHighlight) {
+        hoverHighlight.visible = true;
+        hoverHighlight.position.set(
+            posAttribute.getX(index),
+            posAttribute.getY(index),
+            posAttribute.getZ(index)
+        );
+        hoverHighlight.lookAt(camera.position);
+    }
+    
+    // Update Data
+    const dataList = viewState.value === 'universe' ? galaxyData : systemData;
+    if (dataList[index]) {
+        hoveredData.value = dataList[index];
+        document.body.style.cursor = 'pointer';
     }
   } else {
-    selectedObject.value = null;
+    hoveredData.value = null;
+    if (hoverHighlight) hoverHighlight.visible = false;
+    document.body.style.cursor = 'default';
+  }
+};
+
+const onClick = () => {
+  if (hoveredData.value && viewState.value === 'universe') {
+    enterSystem(hoveredData.value);
+  } else if (hoveredData.value && viewState.value === 'system') {
+      // Maybe zoom to library or open stats?
   }
 };
 
@@ -561,19 +599,12 @@ const animate = (time?: number) => {
   TWEEN.update(time);
   controls.update();
   
-  // Billboard Text
-  scene.traverse((obj) => {
-    if (obj instanceof Text) {
-      obj.lookAt(camera.position);
-    }
-  });
-  
-  // Rotation
-  if (viewState.value === 'universe') {
-      universeGroup.rotation.y += 0.0005;
-  } else if (viewState.value === 'system') {
-      systemGroup.rotation.y += 0.001;
-      // Also rotate planets locally?
+  // Rotate Universe slowly
+  if (galaxyPoints && viewState.value === 'universe') {
+      galaxyPoints.rotation.y += 0.0002;
+  }
+  if (systemPoints) {
+      systemPoints.rotation.y -= 0.0005; // Counter rotate inner system
   }
 
   composer.render();
@@ -581,37 +612,34 @@ const animate = (time?: number) => {
 </script>
 
 <style scoped>
-.loader {
-  width: 48px;
-  height: 48px;
-  border: 3px solid #FFF;
-  border-bottom-color: #f5aacb;
-  border-radius: 50%;
-  animation: rotation 1s linear infinite;
-}
-@keyframes rotation { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-
 .glass-panel {
-  background: rgba(0, 0, 0, 0.6);
+  background: rgba(10, 10, 10, 0.6);
   backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 8px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+  border-radius: 4px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
 }
 
 .glass-btn {
   background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  border-radius: 6px;
-  backdrop-filter: blur(4px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
 }
 
-.shadow-glow { text-shadow: 0 0 20px rgba(245, 170, 203, 0.6); }
-.shadow-text { text-shadow: 0 2px 10px rgba(0,0,0,0.5); }
+.animate-spin-reverse {
+  animation: spin-reverse 1.5s linear infinite;
+}
 
-.slide-up-enter-active, .slide-up-leave-active { transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1); }
-.slide-up-enter-from, .slide-up-leave-to { opacity: 0; transform: translateY(40px); }
+@keyframes spin-reverse {
+  from { transform: rotate(360deg); }
+  to { transform: rotate(0deg); }
+}
 
-.fade-enter-active, .fade-leave-active { transition: opacity 0.5s; }
-.fade-enter-from, .fade-leave-to { opacity: 0; }
+.animate-fade-in {
+    animation: fadeIn 0.3s ease-out forwards;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
 </style>
