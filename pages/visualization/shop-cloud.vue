@@ -12,6 +12,7 @@ const container = ref<HTMLElement | null>(null);
 const threeCore = shallowRef<ThreeCore | null>(null);
 const loading = ref(true);
 const shopMap = new Map<number, Shop>();
+const libraryMap = new Map<number, Library>(); // 为了快速查找 parent
 const libraryList = ref<Library[]>([]);
 
 // 选中信息（点击后锁定）
@@ -56,6 +57,11 @@ const fetchData = async () => {
     // 获取图鉴列表
     const libRes = await getLibraryList({ page: 1, pageSize: 999 });
     libraryList.value = libRes.rows.filter(l => l.shop_id && l.sale_time);
+    
+    // 构建 Map 供后续查找
+    libraryList.value.forEach(lib => {
+      libraryMap.set(lib.library_id, lib);
+    });
 
     console.log(`Loaded ${libraryList.value.length} libraries from ${shopMap.size} shops.`);
 
@@ -89,12 +95,11 @@ const createPointCloud = () => {
 
   // 1. 计算店铺聚类位置 (Grid Layout - Random Space)
   const shopClusters = new Map<number, {cx: number, cy: number, cz: number}>();
-  // 收集所有出现的 shop_id
   const uniqueShopIds = new Set(libraries.map(l => l.shop_id).filter(id => id));
   const uniqueShopIdsArray = Array.from(uniqueShopIds);
   
-  // 星系排布紧凑一些：减小半径
-  const GALAXY_RADIUS = 60; // 原来 120
+  // 星系排布
+  const GALAXY_RADIUS = 60; 
   uniqueShopIdsArray.forEach((id, index) => {
     const r = Math.random() * GALAXY_RADIUS + 10;
     const theta = Math.random() * Math.PI * 2;
@@ -107,7 +112,57 @@ const createPointCloud = () => {
     });
   });
 
-  // 2. 准备数据数组
+  // 2. 计算每个图鉴的位置 (需要先计算所有位置，因为子图鉴依赖父图鉴位置)
+  // 为了简单，我们先计算所有关联了店铺的父级图鉴位置，以及店铺位置。
+  // 然后对于有 parent_id 的图鉴，我们在其 parent 周围分布。
+  // 注意：如果层级很深，或者顺序不对，可能找不到 parent 位置。
+  // 简便方法：所有顶层图鉴(parent_id=0)围绕店铺分布。子图鉴(parent_id!=0)围绕父图鉴分布。
+  // 我们需要一个 Map 来存储已计算出的图鉴位置。
+  
+  const libPosMap = new Map<number, {x: number, y: number, z: number}>();
+  
+  // 分两步处理：
+  // Step 1: 处理 parent_id === 0 的图鉴
+  libraries.forEach(lib => {
+    if (!lib.parent_id || lib.parent_id === 0) {
+      const shopId = lib.shop_id!;
+      const center = shopClusters.get(shopId) || { cx: 0, cy: 0, cz: 0 };
+      const offset = 25; 
+      const x = center.cx + (Math.random() - 0.5) * offset;
+      const y = center.cy + (Math.random() - 0.5) * offset;
+      const z = center.cz + (Math.random() - 0.5) * offset;
+      libPosMap.set(lib.library_id, {x, y, z});
+    }
+  });
+
+  // Step 2: 处理 parent_id !== 0 的图鉴 (可能存在多级，这里简单假设大多数只有一层或通过多次循环解决)
+  // 为了确保所有 parent 都被处理，我们可以循环几次，或者递归。这里简单循环两次覆盖大部分情况。
+  for(let p = 0; p < 3; p++) {
+    libraries.forEach(lib => {
+      if (lib.parent_id && lib.parent_id !== 0 && !libPosMap.has(lib.library_id)) {
+        const parentPos = libPosMap.get(lib.parent_id);
+        if (parentPos) {
+          // 围绕父图鉴分布，范围更小，体现聚合
+          const offset = 8; 
+          const x = parentPos.x + (Math.random() - 0.5) * offset;
+          const y = parentPos.y + (Math.random() - 0.5) * offset;
+          const z = parentPos.z + (Math.random() - 0.5) * offset;
+          libPosMap.set(lib.library_id, {x, y, z});
+        } else {
+          // 如果找不到父图鉴位置（可能父图鉴数据没加载），暂时按店铺分布
+          const shopId = lib.shop_id!;
+          const center = shopClusters.get(shopId) || { cx: 0, cy: 0, cz: 0 };
+          const offset = 25; 
+          const x = center.cx + (Math.random() - 0.5) * offset;
+          const y = center.cy + (Math.random() - 0.5) * offset;
+          const z = center.cz + (Math.random() - 0.5) * offset;
+          libPosMap.set(lib.library_id, {x, y, z});
+        }
+      }
+    });
+  }
+
+  // 3. 准备 Buffer 数据
   const libPositions = new Float32Array(count * 3);
   const libColors = new Float32Array(count * 3);
   const libSizes = new Float32Array(count);
@@ -120,22 +175,18 @@ const createPointCloud = () => {
   const linePositions = new Float32Array(count * 2 * 3);
   const lineColors = new Float32Array(count * 2 * 3);
 
-  // 3. 构建图鉴点和连线数据
+  // 4. 填充数据
   libraries.forEach((lib, i) => {
     const shopId = lib.shop_id!;
-    const center = shopClusters.get(shopId) || { cx: 0, cy: 0, cz: 0 };
     const color = getShopColor(shopId);
-
-    // 图鉴点扩散的开一些：增大 offset
-    const offset = 25; // 原来 12
-    const x = center.cx + (Math.random() - 0.5) * offset;
-    const y = center.cy + (Math.random() - 0.5) * offset;
-    const z = center.cz + (Math.random() - 0.5) * offset;
+    
+    // 获取已计算的位置，如果没有(理论上不应该)，则给个默认值
+    const pos = libPosMap.get(lib.library_id) || {x: 0, y: 0, z: 0};
 
     // Fill Lib Data
-    libPositions[i * 3] = x;
-    libPositions[i * 3 + 1] = y;
-    libPositions[i * 3 + 2] = z;
+    libPositions[i * 3] = pos.x;
+    libPositions[i * 3 + 1] = pos.y;
+    libPositions[i * 3 + 2] = pos.z;
 
     libColors[i * 3] = color.r;
     libColors[i * 3 + 1] = color.g;
@@ -145,24 +196,41 @@ const createPointCloud = () => {
     libSizes[i] = Math.max(1.5, Math.min(6, Math.log(popularity + 1) * 1.5));
 
     // Fill Line Data
-    linePositions[i * 6] = x;
-    linePositions[i * 6 + 1] = y;
-    linePositions[i * 6 + 2] = z;
+    // Vertex 0: Lib itself
+    linePositions[i * 6] = pos.x;
+    linePositions[i * 6 + 1] = pos.y;
+    linePositions[i * 6 + 2] = pos.z;
     
     lineColors[i * 6] = color.r;
     lineColors[i * 6 + 1] = color.g;
     lineColors[i * 6 + 2] = color.b;
 
-    linePositions[i * 6 + 3] = center.cx;
-    linePositions[i * 6 + 4] = center.cy;
-    linePositions[i * 6 + 5] = center.cz;
+    // Vertex 1: Target (Parent Lib or Shop Center)
+    let targetX, targetY, targetZ;
+    if (lib.parent_id && lib.parent_id !== 0 && libPosMap.has(lib.parent_id)) {
+       // 连接到父图鉴
+       const pPos = libPosMap.get(lib.parent_id)!;
+       targetX = pPos.x;
+       targetY = pPos.y;
+       targetZ = pPos.z;
+    } else {
+       // 连接到店铺中心
+       const center = shopClusters.get(shopId) || { cx: 0, cy: 0, cz: 0 };
+       targetX = center.cx;
+       targetY = center.cy;
+       targetZ = center.cz;
+    }
+
+    linePositions[i * 6 + 3] = targetX;
+    linePositions[i * 6 + 4] = targetY;
+    linePositions[i * 6 + 5] = targetZ;
     
     lineColors[i * 6 + 3] = color.r * 0.4;
     lineColors[i * 6 + 4] = color.g * 0.4;
     lineColors[i * 6 + 5] = color.b * 0.4;
   });
 
-  // 4. 构建店铺点数据
+  // 5. 构建店铺点数据
   uniqueShopIdsArray.forEach((id) => {
     const center = shopClusters.get(id!)!;
     const color = getShopColor(id!);
