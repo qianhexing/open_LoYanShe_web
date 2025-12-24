@@ -357,6 +357,7 @@ import type QhxImagePicker from '@/components/Qhx/ImagePicker.vue'
 import { getShopOptiosns } from '@/api/shop'
 import { zhCN } from "date-fns/locale"
 import { uploadImageUrl } from '@/api'
+import { uploadFileToOSS, uploadImageOSS } from '@/utils/ossUpload'
 import dayjs from 'dayjs'
 const showConfirmLibrary = ref(false)
 // 定义组件
@@ -1089,6 +1090,146 @@ const coverRemove = (file: FileItem) => {
   console.log(fileList.value, index)
 }
 
+/**
+ * 上传所有图片（并行上传）
+ * @returns 返回上传结果对象，包含 coverImage, square_cover, sizeImage, detail_image, quality_test
+ */
+const uploadAllImages = async () => {
+  // 收集所有需要上传的图片
+  const uploadTasks: Array<{
+    type: 'cover' | 'size' | 'detail' | 'quality'
+    index?: number
+    image: { file?: File; url: string }
+  }> = []
+
+  // 封面图
+  if (coverRef.value && coverRef.value.previewImages.length > 0) {
+    uploadTasks.push({
+      type: 'cover',
+      image: coverRef.value.previewImages[0]
+    })
+  }
+
+  // 尺寸图
+  if (sizeImageRef.value && sizeImageRef.value.previewImages.length > 0) {
+    sizeImageRef.value.previewImages.forEach((img, index) => {
+      uploadTasks.push({
+        type: 'size',
+        index,
+        image: img
+      })
+    })
+  }
+
+  // 详情图
+  if (detailImageRef.value && detailImageRef.value.previewImages.length > 0) {
+    detailImageRef.value.previewImages.forEach((img, index) => {
+      uploadTasks.push({
+        type: 'detail',
+        index,
+        image: img
+      })
+    })
+  }
+
+  // 质检图
+  if (qualityImageRef.value && qualityImageRef.value.previewImages.length > 0) {
+    qualityImageRef.value.previewImages.forEach((img, index) => {
+      uploadTasks.push({
+        type: 'quality',
+        index,
+        image: img
+      })
+    })
+  }
+
+  // 如果没有需要上传的图片，直接返回
+  if (uploadTasks.length === 0) {
+    return {
+      coverImage: null,
+      square_cover: null,
+      sizeImage: [],
+      detail_image: [],
+      quality_test: []
+    }
+  }
+
+  // 使用 Promise.allSettled 并行上传所有图片
+  const uploadPromises = uploadTasks.map((task) =>
+    uploadImageOSS(task.image).then((url) => ({
+      type: task.type,
+      index: task.index,
+      url,
+      success: true
+    })).catch((error) => {
+      console.error(`上传${task.type}图片失败:`, error)
+      return {
+        type: task.type,
+        index: task.index,
+        url: null,
+        success: false
+      }
+    })
+  )
+
+  const results = await Promise.allSettled(uploadPromises)
+
+  // 处理上传结果
+  let coverImage: string | null = null
+  let square_cover: string | null = null
+  const sizeImageMap = new Map<number, string>()
+  const detailImageMap = new Map<number, string>()
+  const qualityTestMap = new Map<number, string>()
+
+  results.forEach((result, idx) => {
+    const task = uploadTasks[idx]
+    if (result.status === 'fulfilled' && result.value.success && result.value.url) {
+      const { type, index, url } = result.value
+
+      switch (type) {
+        case 'cover':
+          coverImage = url
+          square_cover = url
+          break
+        case 'size':
+          if (index !== undefined) {
+            sizeImageMap.set(index, url)
+          }
+          break
+        case 'detail':
+          if (index !== undefined) {
+            detailImageMap.set(index, url)
+          }
+          break
+        case 'quality':
+          if (index !== undefined) {
+            qualityTestMap.set(index, url)
+          }
+          break
+      }
+    }
+  })
+
+  // 将 Map 转换为有序数组（只包含成功上传的图片）
+  const sizeImage = Array.from(sizeImageMap.entries())
+    .sort((a, b) => a[0] - b[0])
+    .map(([, url]) => url)
+  const detail_image = Array.from(detailImageMap.entries())
+    .sort((a, b) => a[0] - b[0])
+    .map(([, url]) => url)
+  const quality_test = Array.from(qualityTestMap.entries())
+    .sort((a, b) => a[0] - b[0])
+    .map(([, url]) => url)
+
+  return {
+    coverImage,
+    square_cover,
+    sizeImage,
+    detail_image,
+    quality_test
+  }
+}
+
 const add = async () => {
   try {
     const valid = await libraryForm.value?.validate()
@@ -1136,64 +1277,15 @@ const add = async () => {
       arrears_start
     } = library.value
     console.log(start_time, '预约时间')
-    let coverImage: string | null = null
-    let square_cover: string | null = null
-    if (coverRef.value && coverRef.value.previewImages.length > 0) {
-      try {
-        const clothes_img = await uploadImageUrl(coverRef.value.previewImages[0])
-        coverImage = clothes_img
-        square_cover = clothes_img
-      } catch (error) {
-        coverImage = null
-        square_cover = null
-      }
-    } else {
-      coverImage = null
-      square_cover = null
-    }
-
-    let sizeImage: string[] = []
-    if (sizeImageRef.value && sizeImageRef.value.previewImages.length > 0) {
-      const sizeImages = sizeImageRef.value.previewImages
-      for (const sizeImg of sizeImages) {
-        try {
-          const size_img = await uploadImageUrl(sizeImg)
-          sizeImage.push(size_img)
-        } catch (error) {
-        }
-      }
-    } else {
-      sizeImage = []
-    }
-
-    let detail_image: string[] = []
-
-    if (detailImageRef.value && detailImageRef.value.previewImages.length > 0) {
-      const detailImages = detailImageRef.value.previewImages
-      for (const detailImage of detailImages) {
-        try {
-          const detail_img = await uploadImageUrl(detailImage)
-          detail_image.push(detail_img)
-        } catch (error) {
-        }
-      }
-    } else {
-      detail_image = []
-    }
-
-    let quality_test: string[] = []
-    if (qualityImageRef.value && qualityImageRef.value.previewImages.length > 0) {
-      const qualityImages = qualityImageRef.value.previewImages
-      for (const qualityImage of qualityImages) {
-        try {
-          const quality_img = await uploadImageUrl(qualityImage)
-          quality_test.push(quality_img)
-        } catch (error) {
-        }
-      }
-    } else {
-      quality_test = []
-    }
+    
+    // 并行上传所有图片
+    const {
+      coverImage,
+      square_cover,
+      sizeImage,
+      detail_image,
+      quality_test
+    } = await uploadAllImages()
 
     const params: InsertParams = {
       name,

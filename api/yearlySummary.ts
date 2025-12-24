@@ -6,12 +6,14 @@ export interface UserInfo {
   user_name: string
   user_face: string
   main_style_name: string | null
+  main_style?: Array<{ label: string; value: number }>
 }
 
 // 相册项接口
 export interface AlbumItem {
   album_id: number
   user_id: number
+  note?: string
   ablumn: { // 保持用户给的拼写
     album_id: number
     parent_id: number
@@ -66,9 +68,16 @@ export interface YearlySummaryData {
   
   /** 今年总消费 */
   total_spending: number
+  total_year_spending: number
   
   /** 购买统计 */
   purchase_stats: Array<{ label: string; value: number }>
+  
+  /** 总入柜统计 */
+  total_wardrobe_stats?: Array<{ label: string; value: number }>
+
+  /** 总购买统计 (用户新增需求) */
+  total_purchase_stats?: Array<{ label: string; value: number }>
   
   /** 最喜欢的物品，按部位分组 */
   favorite: Array<{
@@ -90,6 +99,7 @@ export interface YearlySummaryData {
 export async function getYearlySummary(
   params: {
     year?: number // 年份，默认为当前年份
+    user_id?: string | number
   } = {}
 ): Promise<YearlySummaryData> {
   const response = await use$Post<BaseResponse<YearlySummaryData>>(

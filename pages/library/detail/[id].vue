@@ -8,7 +8,7 @@ import LibraryTypeColorChoose from '@/components/library/LibraryTypeColorChoose.
 import WardrobeAddLibrary from '@/components/Wardrobe/WardrobeAddLibrary.vue'
 import { getWardrobeListOptions } from '@/api/wardrobe'
 import { useToast } from '#imports'
-
+import type { Wiki } from '@/types/api'
 const user = useUserStore()
 const config = useConfigStore()
 const route = useRoute()
@@ -20,11 +20,12 @@ const { data } = await useAsyncData('libraryDeatil', () => {
 const library = ref<Library | null>(null)
 const libraryRef = ref(null)
 const shop = ref<Shop | null>(null)
+const style_list = ref<Wiki[]>([])
 const parent = ref<Library | null>(null)
 const child_list = ref<Library[]>([])
 const library_video = ref<LibraryVideo[]>([])
 library.value = data.value?.library ?? null
-
+style_list.value = data.value?.style_list ?? []
 parent.value = data.value?.parent ?? null
 shop.value = data.value?.shop ?? null
 if (library.value && library.value?.library_type === '系列') {
@@ -276,7 +277,14 @@ onMounted(() => {
             <h3 class="text-sm m-1">发售时间</h3>
             <p class="text-xs p-2">{{ library.sale_time }}</p>
           </div>
-
+          <div v-if="style_list" class="mb-1">
+            <h3 class="text-sm m-1">主要风格</h3>
+            <div class="flex flex-wrap gap-2">
+              <QhxTag v-for="(tags, index) in style_list" :key="index">
+                {{ tags.wiki_name }}
+              </QhxTag>
+            </div>
+          </div>
           <!-- 颜色 -->
           <div v-if="library.color" class="mb-1">
             <h3 class="text-sm m-1">颜色</h3>

@@ -45,21 +45,19 @@
       </div> -->
       <Draggable :disabled="!props.multiple" v-model="previewImages" item-key="id" animation="250" ghost-class="drag-ghost"
           chosen-class="drag-chosen" drag-class="dragging"
-          class="grid grid-cols-3 gap-4 max-md:grid-cols-2">
+          class="grid grid-cols-3 gap-4">
           <template #item="{ element, index }">
-            <transition-group tag="div" name="list">
-              <div class="relative group">
-                <img :src="element.url" alt="预览图" class="w-full aspect-square object-cover rounded" />
-                <UButton
-                  icon="i-heroicons-x-mark"
-                  color="red"
-                  size="2xs"
-                  variant="soft"
-                  class="absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition"
-                  @click="removeImage(index)"
-                />
-              </div>
-            </transition-group>
+            <div class="relative group">
+              <img :src="element.url" alt="预览图" class="w-full aspect-square object-cover rounded" />
+              <UButton
+                icon="i-heroicons-x-mark"
+                color="red"
+                size="2xs"
+                variant="soft"
+                class="absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition"
+                @click="removeImage(index)"
+              />
+            </div>
           </template>
         </Draggable>
     </div>
@@ -72,11 +70,15 @@ const emit = defineEmits<(e: 'update:files', value: File[]) => void>()
 
 const props = defineProps<{
   multiple?: boolean
+  max?: number  // 最大图片数量
 }>()
 
 const fileInput = ref<HTMLInputElement | null>(null)
 const files = ref<File[]>([])
-const previewImages = ref<{ file: File; url: string }[]>([])
+const previewImages = ref<{ id: string; file: File; url: string }[]>([])
+
+let idCounter = 0
+const generateId = () => `img_${Date.now()}_${++idCounter}`
 
 const triggerInput = () => {
   fileInput.value?.click()
@@ -99,12 +101,23 @@ function handleDrop(event: DragEvent) {
 const addFiles = (newFiles: File[]) => {
   const imageFiles = newFiles.filter((f) => f.type.startsWith('image/'))
   const newPreviews = imageFiles.map((file) => ({
+    id: generateId(),
     file,
     url: URL.createObjectURL(file)
   }))
   if (props.multiple) {
-    previewImages.value.push(...newPreviews)
-    files.value.push(...imageFiles)
+    // 如果有最大数量限制
+    if (props.max && props.max > 0) {
+      const remaining = props.max - previewImages.value.length
+      if (remaining > 0) {
+        const toAdd = newPreviews.slice(0, remaining)
+        previewImages.value.push(...toAdd)
+        files.value.push(...imageFiles.slice(0, remaining))
+      }
+    } else {
+      previewImages.value.push(...newPreviews)
+      files.value.push(...imageFiles)
+    }
   } else {
     // 单选模式
     previewImages.value = newPreviews.slice(0, 1)

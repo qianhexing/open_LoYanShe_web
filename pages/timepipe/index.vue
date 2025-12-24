@@ -1,5 +1,21 @@
 <template>
   <div class="container mx-auto min-h-screen timepipe-wrapper">
+    <!-- 弹幕组件 - 一直存在，只在"上新日历"标签页时显示 -->
+    
+    <div class="fixed top-0 left-0 w-full h-full pointer-events-none z-40" style="pointer-events: none;">
+      <CommentDanmakuComment
+        v-show="currentTab === 0"
+        ref="danmakuRef"
+        type="library_pipe"
+        :id="dateId"
+        width="100%"
+        height="100vh"
+        :pageSize="50"
+        :speed="danmakuSpeed"
+        fontSize="14px"
+        class="pointer-events-none"
+      />
+    </div>
     <QhxTabs sticky :sticky_offset="0" :tabs="['上新日历', '图表版总览', '实体店', '手作娘','出物']" :need_swipe="false" @change="onChangeTab">
       <QhxTabPanel :index="0">
         <template #default="{ isActive }">
@@ -22,7 +38,7 @@
               <div class="text-sm text-gray-600">当前选择：{{ dayjs(formatted).format('YY-MM-DD') }}</div>
               <div class="flex items-center gap-2">
                 <UButton color="primary" size="sm" @click="layout = layout === '0' ? '1' : '0'"> {{ layout === '0' ?
-                  '列表:详细' :
+                  '列表:大图' :
                   '列表:简洁' }} </UButton>
                 <UButton color="primary" size="sm" @click="showLibraryPipeAdd()" v-if="userStore.token">自主投稿上新</UButton>
               </div>
@@ -65,17 +81,17 @@
                 rows: response.rows,
                 count: response.count
               }
-            }" :columns="3" :itemKey="0" :columns_768="1" :enableWaterfall="true" :enableLoadMore="isActive ? true : false">
+            }" :columns="3" :itemKey="0" :columns_768="layout === '0' ? 2 : 1" :enableWaterfall="true" :enableLoadMore="isActive ? true : false">
               <template #default="{ item, debouncedApplyLayout }">
                 <!-- 自定义内容 -->
-                <div class="custom-item m-2" :key="item.pipe_id">
+                <div class="custom-item mr-[1px] mb-1" :key="item.pipe_id">
                   <div class="polaroid-card">
                     <div class="flex justify-between items-center px-2">
                       <QhxTag :active="true"> {{ formateState(item.state) }} </QhxTag>
                       <div class="p-2 flex items-center">
                         <!-- <h3 class="p-2">起止时间</h3> -->
-                        <QhxTag :active="true">{{ dayjs(item.start_time).format('YY-MM-DD') }}</QhxTag> -
-                        <QhxTag :active="true">{{ dayjs(item.end_time).format('YY-MM-DD') }}</QhxTag>
+                        <QhxTag :active="true" v-show="layout !== '0'">{{ dayjs(item.start_time).format('YY-MM-DD') }}</QhxTag> -
+                        <QhxTag :active="true" v-show="layout !== '0'">{{ dayjs(item.end_time).format('YY-MM-DD') }}</QhxTag>
                         <h3 class="p-1 text-sm text-gray-600">截团: {{ dayjs(item.end_time).diff(dayjs(), 'day') }}天</h3>
                       </div>
                     </div>
@@ -83,23 +99,11 @@
                       备注: {{ item.note }}
                     </div>
                     <div v-if="item.item">
-                      <LibraryItem :className="'p-1'" :size="layout === '0' ? 'mid' : 'mini-list'" :item="item.item"
+                      <LibraryItem :className="'p-1'" :size="layout === '0' ? 'big' : 'mini-list'" :item="item.item"
                         @image-load="debouncedApplyLayout">
-                        <template #tagInfo>
+                        <template #tagInfo v-if="layout !== '0'">
                           <div v-if="item.library_list && item.library_list.length > 0">
-                            <!-- <h3 class="" v-if="layout === '0'">包含版型</h3> -->
-                            <div class="flex flex-wrap" v-if="layout === '0'">
-                              <div v-for="library in item.library_list" :key="library.library_id"
-                                class="flex items-center py-1">
-                                <div class="ml-1">
-                                  <QhxTag :active="true">{{ `￥ ${library.library_price}
-                                    ${formatLabel(library.shop_country
-                                    || 0,
-                                    config?.money_type)} ${library.library_type}` }}</QhxTag>
-                                </div>
-                              </div>
-                            </div>
-                            <div v-else class="text-sm text-gray-600">
+                            <div class="text-sm text-gray-600">
                               {{item.library_list.map((library: Library) => `￥ ${library.library_price}
                               ${formatLabel(library.shop_country || 0, config?.money_type)}
                               ${library.library_type}`).join(',')
@@ -116,6 +120,13 @@
                         <div class=" flex-1 text-center">
                           <UserCollectBtn :collect_count="item.item.collect_count" :pk_type="2" :pk_id="item.item.library_id" :is_collect="item.is_collect === 1 ? true : false"
                             :need_judge="false"></UserCollectBtn>
+                        </div>
+                        <div class=" flex-1 text-center flex justify-center">
+                          <div @click="handleAddToWardrobe(item.item)" class="cursor-pointer inline-block">
+                            <UIcon name="i-heroicons-archive-box-20-solid" class="text-[26px]" 
+                            :class="item.is_wardrobe === 1 ? 'text-[#409EFF]' : 'text-gray-500'" />
+                          </div>
+                          <div class="text-base ml-1">{{ item.item.wardrobe_count || 0 }}</div>
                         </div>
                         <!-- <div class=" flex-1 text-center">
                           <UIcon :name="'i-heroicons-heart-20-solid'" class=" text-[26px] text-[#409EFF] cursor-pointer" @click="captureScreen()"/>
@@ -289,15 +300,17 @@
     <LibraryPipeAdd ref="libraryPipeAddRef" />
     <!-- <QhxLoading :loading="isLoading" :page="page" :total="total" :page-size="pageSize" @load-more="loadMore">
     </QhxLoading> -->
+    <LibraryTypeColorChoose ref="libraryTypeColorChooseRef" @choose="handleLibraryTypeColorChoose" />
+    <WardrobeAddLibrary ref="wardrobeAddLibraryRef" @change="handleWardrobeChange" />
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, ref, onMounted } from 'vue'
+import { computed, ref, onMounted, onBeforeUnmount } from 'vue'
 import HorizontalDatePicker from '@/components/Qhx/HorizontalDatePicker.vue'
 import { getLibraryPipeList } from '@/api/library'
 import type QhxWaterList from '@/components/Qhx/WaterList.vue'
-import type { LibraryPipe, Shop, Wardrobe } from '@/types/api'
+import type { LibraryPipe, Shop, Wardrobe, WardrobeClothes } from '@/types/api'
 import { getUserMy } from '@/api/user'
 import type { User } from '@/types/api'
 import { getBrowTimeOne, insertBrowTime } from '@/api/brow_time'
@@ -307,9 +320,37 @@ const libraryPipeAddRef = ref<InstanceType<typeof LibraryPipeAdd> | null>(null)
 import { getLibraryPipeListAll } from '@/api/library'
 import { getDisplayCabinetList, insertDisplayCabinet } from '@/api/display_cabinet'
 import type WardrobeChoose from '@/components/Wardrobe/WardrobeChoose.vue'
-
+import type WardrobeAddLibrary from '@/components/Wardrobe/WardrobeAddLibrary.vue'
+import type FavoriteOptionsModal from '@/components/Favorite/OptionsModal.vue'
+import type LibraryTypeColorChoose from '@/components/library/LibraryTypeColorChoose.vue'
+import type DanmakuComment from '@/components/comment/DanmakuComment.vue'
+const wardrobeAddLibraryRef = ref<InstanceType<typeof WardrobeAddLibrary> | null>(null)
+const favoriteOptionsModalRef = ref<InstanceType<typeof FavoriteOptionsModal> | null>(null)
+const libraryTypeColorChooseRef = ref<InstanceType<typeof LibraryTypeColorChoose> | null>(null)
+const danmakuRef = ref<InstanceType<typeof DanmakuComment> | null>(null)
 const route = useRoute()
 const token = ref<string | null>(null) // 传入的token
+
+// 窗口宽度响应式变量
+const windowWidth = ref(typeof window !== 'undefined' ? window.innerWidth : 1920)
+
+// 根据窗口宽度计算弹幕速度
+// 速度值越小，弹幕移动越快。窗口越宽，需要的时间应该相应增加
+// 基准：1920px 宽度对应速度 40，按比例计算
+const danmakuSpeed = computed(() => {
+  const baseWidth = 1920 // 基准宽度（像素）
+  const baseSpeed = 40 // 基准速度
+  // 根据窗口宽度按比例调整速度
+  // 窗口越宽，速度值越大（移动越慢），以保持视觉一致性
+  return Math.round((windowWidth.value / baseWidth) * baseSpeed)
+})
+
+// 监听窗口大小变化
+const handleResize = () => {
+  if (typeof window !== 'undefined') {
+    windowWidth.value = window.innerWidth
+  }
+}
 import type { default as QhxSelect, optionsInterface } from '@/components/Qhx/Select.vue'
 const configStore = useConfigStore()
 const config = computed(() => configStore.config)
@@ -373,6 +414,61 @@ const wardrobeChooseRef = ref<InstanceType<typeof WardrobeChoose> | null>(null)
 const showChooseWardrobe = () => {
   wardrobeChooseRef.value?.showModel()
 }
+// 图鉴颜色选择完成
+const handleLibraryTypeColorChoose = (data: { library: Library; clothes_img: string }) => {
+  wardrobeAddLibraryRef.value?.showModel(data)
+}
+const handleWardrobeChange = (data?: WardrobeClothes) => {
+  toast.add({
+    title: '添加成功',
+    icon: 'i-heroicons-check-circle',
+    color: 'green'
+  })
+  
+  // 更新对应 item 的状态
+  if (waterList.value && data?.library_id) {
+    const currentItem = waterList.value.list?.find((item: LibraryPipe) => item.item?.library_id === data.library_id)
+    if (currentItem) {
+      const updates: Partial<LibraryPipe> = {
+        is_wardrobe: 1,
+        item: {
+          ...currentItem.item,
+          is_wardrobe: 1,
+          wardrobe_count: (currentItem.item?.wardrobe_count || 0) + 1
+        }
+      }
+      console.log(updates, '刷新item')
+      waterList.value.updateItem('pk_id', data.library_id, updates)
+    }
+  } else {
+    // 如果没有传递 library_id，刷新整个列表
+    waterList.value?.refresh()
+  }
+}
+// 处理加衣柜点击
+const handleAddToWardrobe = (data: Library) => {
+  if (!userStore.token.value) {
+    toast.add({
+      title: '请先登录',
+      description: '请先登录',
+      icon: 'i-heroicons-exclamation-circle',
+      color: 'red'
+    })
+    return
+  }
+  
+  if (!data) {
+    toast.add({
+      title: '衣柜信息不存在',
+      icon: 'i-heroicons-exclamation-circle',
+      color: 'red'
+    })
+    return
+  }
+  
+  // 打开图鉴颜色选择
+  libraryTypeColorChooseRef.value?.showModel(data)
+}
 const chooseWardrobe = (wardrobe: Wardrobe[]) => {
   console.log(wardrobe, '选择衣柜')
   showConfirm.value = true
@@ -386,6 +482,12 @@ const openPicker = (e: MouseEvent) => {
 const onChangeTab = (index: number) => {
   if (index === 0) {
     waterList.value?.debouncedApplyLayout()
+    // 切换到上新日历 tab 时，如果弹幕未加载则加载弹幕
+    nextTick(() => {
+      if (danmakuRef.value) {
+        danmakuRef.value.reload()
+      }
+    })
   }
   currentTab.value = index
 }
@@ -530,6 +632,24 @@ const formatted = computed(() => {
   const day = String(d.getDate()).padStart(2, '0')
   return `${y}-${m}-${day}`
 })
+
+// 计算日期ID（YYMMDD格式，例如：251224 表示 2025-12-24）
+const dateId = computed(() => {
+  const d = picked.value ?? new Date()
+  const yy = String(d.getFullYear()).slice(-2)
+  const mm = String(d.getMonth() + 1).padStart(2, '0')
+  const dd = String(d.getDate()).padStart(2, '0')
+  return Number.parseInt(`${yy}${mm}${dd}`, 10)
+})
+
+// 监听日期ID变化，自动重新加载弹幕
+watch(dateId, () => {
+  if (currentTab.value === 0 && danmakuRef.value) {
+    nextTick(() => {
+      danmakuRef.value?.reload()
+    })
+  }
+})
 const reload = () => {
   fetchLibraryPipeList(1, pageSize * page.value)
 }
@@ -553,6 +673,12 @@ function onChange(d: Date) {
   // page.value = 1
   // reload()
   waterList.value?.refresh()
+  // 切换日期时重新加载弹幕
+  if (currentTab.value === 0 && danmakuRef.value) {
+    nextTick(() => {
+      danmakuRef.value?.reload()
+    })
+  }
 }
 const list = ref<LibraryPipe[]>([])
 const total = ref(0)
@@ -611,6 +737,7 @@ onMounted(async () => {
     })
   }
   setTimeout(() => {
+    handleResize()
     if (user.value?.user_id === 1) {
       return
     }
@@ -620,6 +747,18 @@ onMounted(async () => {
     console.error('Failed to load uni-webview-js:', err);
   });
   // fetchLibraryPipeList()
+  
+  // 监听窗口大小变化
+  if (typeof window !== 'undefined') {
+    window.addEventListener('resize', handleResize)
+  }
+})
+
+onBeforeUnmount(() => {
+  // 移除窗口大小监听器
+  if (typeof window !== 'undefined') {
+    window.removeEventListener('resize', handleResize)
+  }
 })
 </script>
 

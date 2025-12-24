@@ -77,6 +77,13 @@ const showToast = () => {
     color: 'green'
   })
 }
+interface Props {
+  compact?: boolean // 紧凑模式
+}
+const props = withDefaults(defineProps<Props>(), {
+  compact: false
+})
+
 const emit = defineEmits(['choose'])
 const choose = (item: TemplateInterface) => {
   emit('choose', item)
@@ -95,14 +102,13 @@ onMounted(() => {
 })
 </script>
 <template>
-  <div class="container mx-auto p-4 pb-20">
-    
-    <div class="grid grid-cols-3" v-if="total > 0">
+  <div :class="compact ? 'p-1 pb-4' : 'container mx-auto p-4 pb-20'">
+    <div :class="compact ? 'space-y-1' : 'grid grid-cols-3'" v-if="total > 0">
       <div v-for="list in list">
-        <TemplateItem @choose="choose" :item="list"></TemplateItem>
+        <TemplateItem @choose="choose" :item="list" :compact="compact"></TemplateItem>
       </div>
     </div>
-    <div v-else class="text-center text-gray-500 py-8">
+    <div v-else class="text-center text-gray-500 py-4 text-xs">
       暂无数据
     </div>
     <QhxLoading :loading="isLoading" :page="page" :total="total" :page-size="pageSize" @load-more="loadMore"></QhxLoading>

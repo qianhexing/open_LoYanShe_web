@@ -174,6 +174,14 @@ const { isFinished, setFinished } = useScrollBottom(
     immediate: false // 初始化时立即加载一次
   }
 )
+
+// 发帖相关
+const showPostModal = ref(false)
+const handlePostSuccess = () => {
+  // 发帖成功后刷新列表
+  page.value = 1
+  refreshCommunity()
+}
 </script>
 <template>
   <div class="container mx-auto pt-4 pb-20 overflow-hidden">
@@ -213,6 +221,27 @@ const { isFinished, setFinished } = useScrollBottom(
     <div v-else class="text-center text-gray-500 py-8">
       暂无数据
     </div>
+
+    <!-- 左下角发帖按钮 -->
+    <div class="fixed bottom-8 left-8 z-50 pointer-events-none">
+      <button
+        @click="showPostModal = true"
+        class="pointer-events-auto bg-gray-900 dark:bg-white text-white dark:text-gray-900 px-6 py-3 rounded-full shadow-2xl flex items-center gap-2 transform transition-all duration-300 hover:scale-105 active:scale-95 group"
+      >
+        <span class="text-xl group-hover:rotate-12 transition-transform">📝</span>
+        <span class="font-bold tracking-wide">发帖</span>
+      </button>
+    </div>
+
+    <!-- 发帖弹窗 -->
+    <ClientOnly>
+      <YearlySummaryPostModal
+        v-model="showPostModal"
+        :user-id="user?.user_id"
+        :skip-summary-link="true"
+        @success="handlePostSuccess"
+      />
+    </ClientOnly>
   </div>
 </template>
 

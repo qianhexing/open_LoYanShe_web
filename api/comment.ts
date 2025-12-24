@@ -32,8 +32,8 @@ interface InsertParams extends PaginationParams {
 }
 export async function insertComment(
   params: InsertParams
-): Promise<PaginationResponse<Comment>> {
-  const response = await use$Post<BaseResponse<PaginationResponse<Comment>>>(
+): Promise<Comment> {
+  const response = await use$Post<BaseResponse<Comment>>(
     '/comment/insert',
     params
   );

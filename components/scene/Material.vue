@@ -21,6 +21,7 @@ interface Props {
   className?: string,
   needJump?: boolean // 是否需要跳转
   loadTemplate?: boolean
+  panelType?: 'material' | 'template' | 'effect' | null // 面板类型
 }
 const addImage = () => {
   imageType.value = 0
@@ -49,8 +50,9 @@ const closeModel = () => {
   show.value = false
 }
 const props = withDefaults(defineProps<Props>(), {
+  panelType: null
 })
-const { loadTemplate } = toRefs(props)
+const { loadTemplate, panelType } = toRefs(props)
 const emit = defineEmits(['addImage', 'saveScene', 'addDiary', 'chooseTemplate', 'chooseEffect', 'clearTemplate', 'recordCamera', 'addBackgroun', 'chooseMaterial', 'addText'])
 
 const saveScene = () => {
@@ -58,9 +60,13 @@ const saveScene = () => {
 }
 const addText = () => {
   textShow.value = true
+}
+
+const confirmAddText = () => {
   if (textForm.title) {
     emit('addText', textForm.title)
     textForm.title = ''
+    textShow.value = false
   }
 }
 
@@ -105,7 +111,11 @@ const onUpdateFiles = (file: File[]) => {
 }
 const { needJump } = props
 defineExpose({
-  showModel
+  showModel,
+  addImage,
+  addBackground,
+  addDiary,
+  addText
 })
 </script>
 <template>
@@ -152,12 +162,13 @@ defineExpose({
       }" />
       <div class="text-sm text-gray-500 mt-2">3D文本不会换行，需要换行请使用添加多个文本</div>
       <UButton type="submit" block class="bg-qhx-primary text-qhx-inverted hover:bg-qhx-primaryHover mt-6"
-        @click="addText()">
+        @click="confirmAddText()">
         添加
       </UButton>
     </div>
   </QhxModal>
-  <div class="w-full fixed transition-all duration-300 bottom-0 left-0 z-20 h-[500px] md:h-full md:w-[500px]  bg-qhx-bg"
+  <!-- 旧版弹窗模式（保留兼容性） -->
+  <div v-if="!panelType" class="w-full fixed transition-all duration-300 bottom-0 left-0 z-20 h-[500px] md:h-full md:w-[500px]  bg-qhx-bg"
     :class="show ? '' : 'bottom-[-500px] md:bottom-[0px] md:left-[-500px]'">
     <div class="fun-head h-[60px] border-b flex">
       <div class="flex flex-1">
@@ -262,6 +273,33 @@ defineExpose({
         </template>
       </QhxTabPanel>
     </QhxTabs>
+  </div>
+
+  <!-- 新版右侧面板模式 -->
+  <div v-else class="w-full">
+    <!-- 素材列表 -->
+    <div v-if="panelType === 'material'" class="w-full">
+      <MateriaList @choose="chooseMaterial" :compact="true"></MateriaList>
+    </div>
+    
+    <!-- 模版列表 -->
+    <div v-if="panelType === 'template'" class="w-full">
+      <div v-if="loadTemplate" class="mb-1 px-1 pt-1">
+        <button 
+          @click="clearTemplate()"
+          class="w-full h-6 text-[10px] text-center px-1.5 cursor-pointer flex items-center justify-center gap-0.5 bg-red-50 dark:bg-red-900/20 hover:bg-red-100 dark:hover:bg-red-900/30 text-red-600 dark:text-red-400 rounded transition-colors active:scale-95"
+        >
+          <UIcon name="material-symbols:delete-outline" class="text-[10px]" />
+          <span>清空模版</span>
+        </button>
+      </div>
+      <TemplateList @choose="chooseTemplate" :compact="true"></TemplateList>
+    </div>
+    
+    <!-- 特效列表 -->
+    <div v-if="panelType === 'effect'" class="w-full">
+      <EffectList @choose="chooseEffect" :compact="true"></EffectList>
+    </div>
   </div>
 </template>
 

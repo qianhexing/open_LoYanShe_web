@@ -4,17 +4,30 @@ import useScrollBottom from '@/composables/useScrollBottom'
 import { getLibraryList } from '@/api/library';
 import { getWikiOptionsByKeywords } from '@/api/wiki';
 import { getShopOptiosns } from '@/api/shop';
+import { insertGood } from '@/api/good';
+import { insertCollect } from '@/api/collect';
 import authGlobal from '@/middleware/auth.global'
 import type QhxWaterList from '@/components/Qhx/WaterList.vue'
 import WikiOptionsChoose from '@/components/wiki/wikiOptionsChoose.vue'
 import type WikiOptionsChooseType from '@/components/wiki/wikiOptionsChoose.vue'
 import type { default as QhxSelect } from '@/components/Qhx/Select.vue'
-
+import type FavoriteOptionsModal from '@/components/Favorite/OptionsModal.vue'
+import type LibraryTypeColorChoose from '@/components/library/LibraryTypeColorChoose.vue'
+import type WardrobeAddLibrary from '@/components/Wardrobe/WardrobeAddLibrary.vue'
+import { useToast } from '#imports'
+const layoutReady = inject('layoutReady') as Ref<boolean>
 const waterList = ref<InstanceType<typeof QhxWaterList> | null>(null)
 const user = useUserStore()
 const configStore = useConfigStore()
 const router = useRouter()
 const route = useRoute()
+const toast = useToast()
+const opearItem = ref<number | null>(null)
+
+// 加衣柜相关
+const libraryTypeColorChooseRef = ref<InstanceType<typeof LibraryTypeColorChoose> | null>(null)
+const wardrobeAddLibraryRef = ref<InstanceType<typeof WardrobeAddLibrary> | null>(null)
+const favoriteOptionsModalRef = ref<InstanceType<typeof FavoriteOptionsModal> | null>(null)
 // 分页参数
 const pageSize = 20
 // const total = ref(0)
@@ -40,13 +53,13 @@ const filterForm = reactive({
   library_type: [] as Array<{ label: string; value: number }>,
   state: [] as Array<{ label: string; value: number }>,
   shop_country: -1,
-  main_style: [] as Array<{ label: string; value: number }>,
-  theme: [] as Array<{ label: string; value: number }>,
-  color: [] as Array<{ label: string; value: number }>,
-  library_pattern: [] as Array<{ label: string; value: number }>,
-  design_elements: [] as Array<{ label: string; value: number }>,
-  pattern_elements: [] as Array<{ label: string; value: number }>,
-  cloth_elements: [] as Array<{ label: string; value: number }>,
+  main_style: [] as Array<{ label: string; value: number; type?: string }>,
+  theme: [] as Array<{ label: string; value: number; type?: string }>,
+  color: [] as Array<{ label: string; value: number; type?: string }>,
+  library_pattern: [] as Array<{ label: string; value: number; type?: string }>,
+  design_elements: [] as Array<{ label: string; value: number; type?: string }>,
+  pattern_elements: [] as Array<{ label: string; value: number; type?: string }>,
+  cloth_elements: [] as Array<{ label: string; value: number; type?: string }>,
   price: {
     start: '',
     end: ''
@@ -84,6 +97,14 @@ definePageMeta({
   name: 'library',
   middleware: [authGlobal]
 })
+const changeFilterType = (index: number, type: string) => {
+  const field = filterForm[type as keyof typeof filterForm] as Array<{ label: string; value: number; type?: string }>
+  if (field[index].type === 'and') {
+    field[index].type = 'not'
+  } else {
+    field[index].type = 'and'
+  }
+}
 // 页码改变处理函数
 const handlePageChange = (current: number) => {
   page.value = current
@@ -207,14 +228,15 @@ const chooseWiki = (type: string) => {
 const onWikiChoose = (list: Array<{ wiki_id?: number; wiki_name?: string }>) => {
   const type = currentWikiType.value
   if (type && filterForm[type as keyof typeof filterForm]) {
-    const arr = filterForm[type as keyof typeof filterForm] as Array<{ label: string; value: number }>
+    const arr = filterForm[type as keyof typeof filterForm] as Array<{ label: string; value: number; type?: string }>
     for (const child of list) {
       if (child.wiki_name && child.wiki_id) {
         const index = arr.findIndex((element) => element.label === child.wiki_name)
         if (index === -1) {
           arr.push({
             label: child.wiki_name,
-            value: child.wiki_id as number
+            value: child.wiki_id as number,
+            type: 'and'
           })
         }
       }
@@ -234,7 +256,7 @@ const confirmMainStyle = (selected: { label: string; value: number }) => {
   if (selected) {
     const hasValue = filterForm.main_style.some(item => item.value === selected.value)
     if (!hasValue) {
-      filterForm.main_style.push(selected)
+      filterForm.main_style.push({ ...selected, type: 'and' })
     }
   }
 }
@@ -343,42 +365,102 @@ const applyFilter = () => {
 
   // 颜色
   if (filterForm.color.length > 0) {
-    const colorValue = filterForm.color.map(v => v.label).join(',')
-    temp.push({
-      field: 'color',
-      op: 'and',
-      value: colorValue
-    })
+    const colorValueAnd: string[] = []
+    for (const v of filterForm.color) {
+      if (v.type === 'and') {
+        colorValueAnd.push(v.label)
+      } else {
+        temp.push({
+          field: 'color',
+          op: 'not',
+          value: v.label
+        })
+      }
+    }
+    if (colorValueAnd.length > 0) {
+      temp.push({
+        field: 'color',
+        op: 'and',
+        value: colorValueAnd.join(',')
+      })
+    }
   }
 
   // 主题
   if (filterForm.theme.length > 0) {
-    const themeValue = filterForm.theme.map(v => v.label).join(',')
-    temp.push({
-      field: 'theme',
-      op: 'and',
-      value: themeValue
-    })
+    const themeValueAnd: string[] = []
+    for (const v of filterForm.theme) {
+      if (v.type === 'and') {
+        themeValueAnd.push(v.label)
+      } else {
+        temp.push({
+          field: 'theme',
+          op: 'not',
+          value: v.label
+        })
+      }
+    }
+    if (themeValueAnd.length > 0) {
+      temp.push({
+        field: 'theme',
+        op: 'and',
+        value: themeValueAnd.join(',')
+      })
+    }
   }
 
   // 版型部位
   if (filterForm.library_pattern.length > 0) {
-    const patternValue = filterForm.library_pattern.map(v => v.label).join(',')
-    temp.push({
-      field: 'library_pattern',
-      op: 'and',
-      value: patternValue
-    })
+    const patternValueAnd: string[] = []
+    for (const v of filterForm.library_pattern) {
+      if (v.type === 'and') {
+        patternValueAnd.push(v.label)
+      } else {
+        temp.push({
+          field: 'library_pattern',
+          op: 'not',
+          value: v.label
+        })
+      }
+    }
+    if (patternValueAnd.length > 0) {
+      temp.push({
+        field: 'library_pattern',
+        op: 'and',
+        value: patternValueAnd.join(',')
+      })
+    }
   }
 
   // 主要风格
   if (filterForm.main_style.length > 0) {
-    const mainStyleValue = filterForm.main_style.map(v => v.value).join(',')
-    temp.push({
-      field: 'main_style',
-      op: 'and',
-      value: mainStyleValue
+    // const mainStyleValue = filterForm.main_style.map(v => v.value).join(',')
+    const mainStyleValueAnd: number[] = []
+    const mainStyleValueOr: number[] = []
+    const mainStyleValueNot: number[] = []
+
+    // biome-ignore lint/complexity/noForEach: <explanation>
+    filterForm.main_style.forEach(v => {
+      if (v.type === 'and') {
+        mainStyleValueAnd.push(v.value)
+      } else if (v.type === 'or') {
+
+        mainStyleValueOr.push(v.value)
+      } else {
+        temp.push({
+          field: 'main_style',
+          op: 'not',
+          value: v.value
+        })
+      }
     })
+    if (mainStyleValueAnd.length > 0) {
+      temp.push({
+        field: 'main_style',
+        op: 'and',
+        value: mainStyleValueAnd.join(',')
+      })
+    }
   }
 
   // 店铺名称
@@ -419,32 +501,71 @@ const applyFilter = () => {
 
   // 柄图元素
   if (filterForm.pattern_elements.length > 0) {
-    const patternElementsValue = filterForm.pattern_elements.map(v => v.label).join(',')
-    temp.push({
-      field: 'pattern_elements',
-      op: 'and',
-      value: patternElementsValue
-    })
+    const patternElementsValueAnd: string[] = []
+    for (const v of filterForm.pattern_elements) {
+      if (v.type === 'and') {
+        patternElementsValueAnd.push(v.label)
+      } else {
+        temp.push({
+          field: 'pattern_elements',
+          op: 'not',
+          value: v.label
+        })
+      }
+    }
+    if (patternElementsValueAnd.length > 0) {
+      temp.push({
+        field: 'pattern_elements',
+        op: 'and',
+        value: patternElementsValueAnd.join(',')
+      })
+    }
   }
 
   // 设计元素
   if (filterForm.design_elements.length > 0) {
-    const designElementsValue = filterForm.design_elements.map(v => v.label).join(',')
-    temp.push({
-      field: 'design_elements',
-      op: 'and',
-      value: designElementsValue
-    })
+    const designElementsValueAnd: string[] = []
+    for (const v of filterForm.design_elements) {
+      if (v.type === 'and') {
+        designElementsValueAnd.push(v.label)
+      } else {
+        temp.push({
+          field: 'design_elements',
+          op: 'not',
+          value: v.label
+        })
+      }
+    }
+    if (designElementsValueAnd.length > 0) {
+      temp.push({
+        field: 'design_elements',
+        op: 'and',
+        value: designElementsValueAnd.join(',')
+      })
+    }
   }
 
   // 材质布料
   if (filterForm.cloth_elements.length > 0) {
-    const clothElementsValue = filterForm.cloth_elements.map(v => v.label).join(',')
-    temp.push({
-      field: 'cloth_elements',
-      op: 'and',
-      value: clothElementsValue
-    })
+    const clothElementsValueAnd: string[] = []
+    for (const v of filterForm.cloth_elements) {
+      if (v.type === 'and') {
+        clothElementsValueAnd.push(v.label)
+      } else {
+        temp.push({
+          field: 'cloth_elements',
+          op: 'not',
+          value: v.label
+        })
+      }
+    }
+    if (clothElementsValueAnd.length > 0) {
+      temp.push({
+        field: 'cloth_elements',
+        op: 'and',
+        value: clothElementsValueAnd.join(',')
+      })
+    }
   }
 
   filterList.value = temp
@@ -472,19 +593,204 @@ const clearFilter = () => {
   filterList.value = []
   waterList.value?.refresh()
 }
+// 处理点赞点击
+const handleGoodClick = async (data: { pk_id: number; pk_type: number; type: number; library_id: number }) => {
+  if (!user.token) {
+    toast.add({
+      title: '请先登录',
+      description: '请先登录',
+      icon: 'i-heroicons-exclamation-circle',
+      color: 'red'
+    })
+    return
+  }
+  
+  try {
+    const result = await insertGood({
+      pk_id: data.pk_id,
+      pk_type: data.pk_type,
+      type: data.type
+    })
+    console.log(result, '点赞结果')
+    // 更新对应 item 的状态
+    if (waterList.value && opearItem.value) {
+      // 获取当前 item 的状态
+      const currentItem = waterList.value.list?.find((item: Library) => item.library_id === opearItem.value)
+      if (currentItem) {
+        const updates: Partial<Library> = {}
+        // result 为 true 表示点赞，false 表示取消点赞
+        if (result) {
+          updates.is_good = 1
+          updates.good_count = (currentItem.good_count || 0) + 1
+        } else {
+          updates.is_good = 0
+          updates.good_count = Math.max((currentItem.good_count || 0) - 1, 0)
+        }
+        console.log(updates.is_good, '更新后的item')
+        waterList.value.updateItem('library_id', opearItem.value, updates)
+      }
+    }
+    
+    if (result) {
+      toast.add({
+        title: '点赞成功',
+        icon: 'i-heroicons-check-circle',
+        color: 'green'
+      })
+    } else {
+      toast.add({
+        title: '取消点赞',
+        icon: 'i-heroicons-check-circle',
+        color: 'green'
+      })
+    }
+  } catch (error) {
+    console.error('点赞操作失败:', error)
+    toast.add({
+      title: '操作失败',
+      icon: 'i-heroicons-x-circle',
+      color: 'red'
+    })
+  }
+}
+
+// 当前操作的 library_id（用于收藏成功后更新状态）
+const currentCollectLibraryId = ref<number | null>(null)
+
+// 处理收藏点击
+const handleCollectClick = (data: { pk_id: number; collect_type: number; library_id: number }, event?: MouseEvent) => {
+  if (!user.token) {
+    toast.add({
+      title: '请先登录',
+      description: '请先登录',
+      icon: 'i-heroicons-exclamation-circle',
+      color: 'red'
+    })
+    return
+  }
+  
+  // 保存当前操作的 library_id
+  currentCollectLibraryId.value = data.library_id
+  
+  // 打开收藏夹选择弹窗
+  const clickEvent = event || new MouseEvent('click', { clientX: 0, clientY: 0 })
+  favoriteOptionsModalRef.value?.showModel({
+    pk_id: data.pk_id,
+    collect_type: data.collect_type
+  }, clickEvent)
+}
+
+// 收藏变更处理
+const handleCollectChange = (result: boolean) => {
+  if (result) {
+    toast.add({
+      title: '收藏成功',
+      icon: 'i-heroicons-check-circle',
+      color: 'green'
+    })
+    
+    // 更新对应 item 的状态
+    if (waterList.value && currentCollectLibraryId.value) {
+      const currentItem = waterList.value.list?.find((item: Library) => item.library_id === currentCollectLibraryId.value)
+      if (currentItem) {
+        const updates: Partial<Library> = {
+          is_collect: 1,
+          collect_count: (currentItem.collect_count || 0) + 1
+        }
+        waterList.value.updateItem('library_id', currentCollectLibraryId.value, updates)
+      }
+    }
+  } else {
+    toast.add({
+      title: '取消收藏',
+      icon: 'i-heroicons-x-circle',
+      color: 'red'
+    })
+    if (waterList.value && currentCollectLibraryId.value) {
+      const currentItem = waterList.value.list?.find((item: Library) => item.library_id === currentCollectLibraryId.value)
+      if (currentItem) {
+        const updates: Partial<Library> = {
+          is_collect: 0,
+          collect_count: (currentItem.collect_count || 0) - 1
+        }
+        waterList.value.updateItem('library_id', currentCollectLibraryId.value, updates)
+      }
+    }
+  }
+  // 清空当前操作的 library_id
+  opearItem.value = null
+  currentCollectLibraryId.value = null
+}
+
+// 处理加衣柜点击
+const handleWardrobeClick = (data: { library: Library }) => {
+  if (!user.token) {
+    toast.add({
+      title: '请先登录',
+      description: '请先登录',
+      icon: 'i-heroicons-exclamation-circle',
+      color: 'red'
+    })
+    return
+  }
+  
+  if (!data.library) {
+    toast.add({
+      title: '图鉴信息不存在',
+      icon: 'i-heroicons-exclamation-circle',
+      color: 'red'
+    })
+    return
+  }
+  
+  // 打开图鉴颜色选择
+  libraryTypeColorChooseRef.value?.showModel(data.library)
+}
+
+// 图鉴颜色选择完成
+const handleLibraryTypeColorChoose = (data: { library: Library; clothes_img: string }) => {
+  wardrobeAddLibraryRef.value?.showModel(data)
+}
+
+// 衣柜添加成功
+const handleWardrobeChange = (data?: { library_id?: number }) => {
+  toast.add({
+    title: '添加成功',
+    icon: 'i-heroicons-check-circle',
+    color: 'green'
+  })
+  
+  // 更新对应 item 的状态
+  if (waterList.value && data?.library_id) {
+    const currentItem = waterList.value.list?.find((item: Library) => item.library_id === data.library_id)
+    if (currentItem) {
+      const updates: Partial<Library> = {
+        is_wardrobe: 1,
+        wardrobe_count: (currentItem.wardrobe_count || 0) + 1
+      }
+      waterList.value.updateItem('library_id', data.library_id, updates)
+    }
+  } else {
+    // 如果没有传递 library_id，刷新整个列表
+    waterList.value?.refresh()
+  }
+}
+
 onMounted(async () => {
   if (window.innerWidth < 768) {
     column.value = 2
   }
-  if (user.token) {
-    console.log('是否服务端渲染', isServer.value)
-    if (isServer.value) {
-      isServer.value = false
-      waterList.value?.refresh()
-    }
-  } else {
-    isLoading.value = false
-  }
+  // setTimeout(() => {
+  //   if (user.token) {
+  //     console.log('是否服务端渲染', isServer.value)
+  //     if (isServer.value) {
+  //       isServer.value = false
+  //       waterList.value?.refresh()
+  //     }
+  //   } else {
+  //     isLoading.value = false
+  //   }
+  // });
   // 初始化选项数据
   await initOptions()
   // 获取配置
@@ -700,9 +1006,10 @@ onMounted(async () => {
             :key="index"
             :active="true"
             class="cursor-pointer"
+            :backgroundColor="item.type === 'and' ? '#317e10' : item.type === 'or' ? '#107e31' : '#e11031'"
           >
             <div class="flex items-center gap-1">
-              <span>{{ item.label }}</span>
+              <span @click="changeFilterType(index, 'main_style')">{{ item.label }}</span>
               <UIcon
                 name="i-heroicons-x-mark"
                 class="text-xs cursor-pointer"
@@ -728,9 +1035,10 @@ onMounted(async () => {
             :key="index"
             :active="true"
             class="cursor-pointer"
+            :backgroundColor="item.type === 'and' ? '#317e10' : '#e11031'"
           >
             <div class="flex items-center gap-1">
-              <span>{{ item.label }}</span>
+              <span @click="changeFilterType(index, 'theme')">{{ item.label }}</span>
               <UIcon
                 name="i-heroicons-x-mark"
                 class="text-xs cursor-pointer"
@@ -756,9 +1064,10 @@ onMounted(async () => {
             :key="index"
             :active="true"
             class="cursor-pointer"
+            :backgroundColor="item.type === 'and' ? '#317e10' : '#e11031'"
           >
             <div class="flex items-center gap-1">
-              <span>{{ item.label }}</span>
+              <span @click="changeFilterType(index, 'color')">{{ item.label }}</span>
               <UIcon
                 name="i-heroicons-x-mark"
                 class="text-xs cursor-pointer"
@@ -784,9 +1093,10 @@ onMounted(async () => {
             :key="index"
             :active="true"
             class="cursor-pointer"
+            :backgroundColor="item.type === 'and' ? '#317e10' : '#e11031'"
           >
             <div class="flex items-center gap-1">
-              <span>{{ item.label }}</span>
+              <span @click="changeFilterType(index, 'library_pattern')">{{ item.label }}</span>
               <UIcon
                 name="i-heroicons-x-mark"
                 class="text-xs cursor-pointer"
@@ -812,9 +1122,10 @@ onMounted(async () => {
             :key="index"
             :active="true"
             class="cursor-pointer"
+            :backgroundColor="item.type === 'and' ? '#317e10' : '#e11031'"
           >
             <div class="flex items-center gap-1">
-              <span>{{ item.label }}</span>
+              <span @click="changeFilterType(index, 'design_elements')">{{ item.label }}</span>
               <UIcon
                 name="i-heroicons-x-mark"
                 class="text-xs cursor-pointer"
@@ -840,9 +1151,10 @@ onMounted(async () => {
             :key="index"
             :active="true"
             class="cursor-pointer"
+            :backgroundColor="item.type === 'and' ? '#317e10' : '#e11031'"
           >
             <div class="flex items-center gap-1">
-              <span>{{ item.label }}</span>
+              <span @click="changeFilterType(index, 'pattern_elements')">{{ item.label }}</span>
               <UIcon
                 name="i-heroicons-x-mark"
                 class="text-xs cursor-pointer"
@@ -868,9 +1180,10 @@ onMounted(async () => {
             :key="index"
             :active="true"
             class="cursor-pointer"
+            :backgroundColor="item.type === 'and' ? '#317e10' : '#e11031'"
           >
             <div class="flex items-center gap-1">
-              <span>{{ item.label }}</span>
+              <span @click="changeFilterType(index, 'cloth_elements')">{{ item.label }}</span>
               <UIcon
                 name="i-heroicons-x-mark"
                 class="text-xs cursor-pointer"
@@ -987,6 +1300,7 @@ onMounted(async () => {
     </div>
     <!-- 空状态 -->
     <QhxWaterList ref="waterList"
+    v-if="layoutReady"
     :fetch-data="async (page, pageSize) => {
       
       const response = await getLibraryList({
@@ -1007,7 +1321,23 @@ onMounted(async () => {
       <template #default="{ item, debouncedApplyLayout }">
         <!-- 自定义内容 -->
         <div class="custom-item" :key="item.library_id">
-          <LibraryItem :item="item" @image-load="debouncedApplyLayout"></LibraryItem>
+          <LibraryItem 
+            :item="item" 
+            :show-actions="true"
+            @image-load="debouncedApplyLayout"
+            @good-click="(props: any) => {
+              opearItem = item.library_id
+              handleGoodClick(props)
+            }"
+            @collect-click="(props: any) => {
+              opearItem = item.library_id
+              handleCollectClick(props)
+            }"
+            @wardrobe-click="(props: any) => {
+              opearItem = item.library_id
+              handleWardrobeClick(props)
+            }"
+          ></LibraryItem>
         </div>
       </template>
     </QhxWaterList>
@@ -1062,6 +1392,13 @@ onMounted(async () => {
 
     <!-- Wiki选择组件 -->
     <WikiOptionsChoose ref="wikiOptionsChooseRef" @choose="onWikiChoose" />
+    
+    <!-- 加入衣柜相关组件 -->
+    <LibraryTypeColorChoose ref="libraryTypeColorChooseRef" @choose="handleLibraryTypeColorChoose" />
+    <WardrobeAddLibrary ref="wardrobeAddLibraryRef" @change="handleWardrobeChange" />
+    
+    <!-- 收藏夹选择组件 -->
+    <FavoriteOptionsModal ref="favoriteOptionsModalRef" @change="handleCollectChange" />
   </div>
 </template>
 

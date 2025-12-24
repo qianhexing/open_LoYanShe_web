@@ -4,6 +4,7 @@ interface Props {
   size?: string // 尺寸 mini small mid big
   needJump?: boolean // 是否需要跳转
   active?: boolean
+  backgroundColor?: string
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -13,7 +14,10 @@ const props = withDefaults(defineProps<Props>(), {
 const { size, active } = toRefs(props)
 </script>
 <template>
-  <div :class="props.className ? `${props.className} qhx-tags-list` :`qhx-tags-list border-qhx-primary border bg-qhx-bg-card px-2 py-1 ${active ? 'bg-qhx-primary text-qhx-inverted' : 'bg-qhx-inverted text-qhx-primary' }`">
+  <div :class="props.className ? `${props.className} qhx-tags-list` :
+  `qhx-tags-list border-qhx-primary border bg-qhx-bg-card px-2 py-1 
+  ${active ? 'bg-qhx-primary text-qhx-inverted' : 'bg-qhx-inverted text-qhx-primary' }`"
+  :style="{ backgroundColor: props.backgroundColor }">
     <div v-if="size === 'mini'">
         <slot></slot>
     </div>

@@ -105,6 +105,7 @@ interface UpdateUserInfoParams {
   show_area?: number
   is_achieve?: number
   user_face?: string
+  is_annual_report?: number
 }
 
 export async function changeUserInfo(

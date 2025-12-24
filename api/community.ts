@@ -40,10 +40,11 @@ export async function getCommunityForeignList(
   );
   return response.data;
 }
-interface CommunityInterface {
+export interface CommunityInterface {
   title: string  // 可选字段
   content: string
   type: string
+  img_list?: string | null  // JSON字符串格式的图片列表
 }
 export async function insertCommunity(
   params: CommunityInterface

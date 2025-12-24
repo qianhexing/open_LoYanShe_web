@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { ref, watch, watchEffect, onMounted } from 'vue'
+import { ref, watch, watchEffect, onMounted, onUnmounted, nextTick } from 'vue'
+import { debounce } from '@/utils/public'
 
 interface Props<T> {
   // 获取数据的方法
@@ -137,7 +138,11 @@ const handleScroll = () => {
     loadMore()
   }
 }
-
+watch(() => props.columns_768, () => {
+  if (process.client) {
+    updateColumns()
+  }
+})
 // 响应式调整列数
 const updateColumns = () => {
   if (!process.client) return
@@ -174,12 +179,33 @@ onUnmounted(() => {
   }
 })
 
+// 更新单个 item
+const updateItem = <T = unknown>(idKey: string, idValue: unknown, updates: Partial<T>) => {
+  const index = list.value.findIndex((item: T) => (item as Record<string, unknown>)[idKey] === idValue)
+  if (index !== -1) {
+    // 使用 Object.assign 或展开运算符来更新对象
+    list.value[index] = { ...list.value[index], ...updates } as T
+    list.value.splice(index, 1, { ...list.value[index], ...updates } as T)
+    console.log({ ...list.value[index], ...updates }, '更新后的item')
+
+    // this.￥set
+    // 如果启用了瀑布流，需要重新布局
+    if (props.enableWaterfall) {
+      nextTick(() => {
+        debouncedApplyLayout()
+      })
+    }
+  }
+}
+
 // 暴露方法
 defineExpose({
   refresh,
   loadMore,
   total,
-  debouncedApplyLayout
+  debouncedApplyLayout,
+  updateItem,
+  list
 })
 </script>
 

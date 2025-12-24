@@ -187,7 +187,7 @@ export interface Library {
   good_count?: number
   collect_count?: number
   wardrobe_count?: number
-  is_good?: boolean
+  is_good?: number
   library_price?: number
   shop_country?: number
   quality_test?: string;
@@ -201,6 +201,8 @@ export interface Library {
   link?: string;
   parent_id?: number;
   detail_image?: string;
+  is_collect?: number;
+  is_wardrobe?: number;
 }
 /** 衣柜 */
 export interface Wardrobe {
@@ -229,11 +231,11 @@ export interface Wardrobe {
 export interface WardrobeClothes {
   main_style_list?: { label: string; value: number }[]
   include?: WardrobeClothes[]
-  clothes_id: number
+  clothes_id?: number
   wardrobe_id: number
   clothes_img: string
   clothes_note?: string
-  date: Date
+  date?: Date
   is_enable?: number
   library_id?: number
   is_have?: number
@@ -486,6 +488,10 @@ export interface LibraryPipe {
   pk_type?: number
   change_log?: Array<Record<string, unknown>>
   library?: Library
+  item?: Library
+  is_wardrobe?: number
+  is_good?: number
+  is_collect?: number
 }
 
 export interface BrowTime {
