@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import type { Comment, PaginationResponse } from '@/types/api';
+import type { Comment } from '@/types/api';
 import { getCommentList } from '@/api/comment';
 import { formatRich } from '@/utils/public';
-import UserInfo from '@/components/user/UserInfo.vue';
+import { BASE_IMG } from '@/utils/ipConfig';
+import { onMounted, onBeforeUnmount, ref, watch, nextTick } from 'vue';
 
 interface Props {
   type: string;
@@ -10,7 +11,7 @@ interface Props {
   width?: string;
   height?: string;
   pageSize?: number;
-  speed?: number; // 弹幕速度，单位：秒
+  speed?: number; // 弹幕穿过屏幕的基准时间（秒）
   fontSize?: string;
   className?: string;
 }
@@ -19,83 +20,296 @@ const props = withDefaults(defineProps<Props>(), {
   width: '100%',
   height: '100vh',
   pageSize: 50,
-  speed: 15, // 默认15秒完成滚动
+  speed: 15,
   fontSize: '14px',
 });
 
-// 弹幕数据
-const danmakuList = ref<Comment[]>([]);
-const isLoading = ref(false);
 const containerRef = ref<HTMLElement | null>(null);
-const containerWidth = ref(0);
-const containerHeight = ref(0);
+const canvasRef = ref<HTMLCanvasElement | null>(null);
+const isLoading = ref(false);
+const danmakuList = ref<Comment[]>([]);
 
-// 弹幕轨道管理
-interface DanmakuTrack {
-  id: number;
-  top: number;
-  isAvailable: boolean;
+// Canvas 上下文与状态
+let ctx: CanvasRenderingContext2D | null = null;
+let animationFrameId: number | null = null;
+let screenWidth = 0;
+let screenHeight = 0;
+let dpr = 1;
+
+// 弹幕配置
+const config = {
+  trackHeight: 44, // 轨道高度
+  margin: 8,       // 轨道间距
+  avatarSize: 26,  // 头像大小
+  padding: 8,      // 左右内边距
+  fontSize: 14,    // 字体大小
+  gap: 8           // 头像与文字间距
+};
+
+// 辅助函数：绘制圆角矩形
+const drawRoundedPath = (ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) => {
+  ctx.beginPath();
+  if (ctx.roundRect) {
+    ctx.roundRect(x, y, w, h, r);
+  } else {
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + w - r, y);
+    ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+    ctx.lineTo(x + w, y + h - r);
+    ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+    ctx.lineTo(x + r, y + h);
+    ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+    ctx.lineTo(x, y + r);
+    ctx.quadraticCurveTo(x, y, x + r, y);
+  }
+  ctx.closePath();
+};
+
+// 弹幕类
+class Danmaku {
+  x: number;
+  y: number;
+  speed: number;
+  text: string;
+  userFace: string;
+  width: number = 0;
+  height: number;
+  cacheCanvas: HTMLCanvasElement | null = null;
+  isReady: boolean = false;
+
+  constructor(comment: Comment, trackIndex: number, speed: number) {
+    this.text = this.processText(comment.comment_content);
+    this.userFace = comment.user?.user_face ? `${BASE_IMG}${comment.user.user_face}` : '';
+    // 计算 Y 坐标：垂直居中于轨道
+    this.height = 34; // 弹幕胶囊的高度
+    const trackTop = trackIndex * config.trackHeight;
+    const offset = (config.trackHeight - this.height) / 2;
+    this.y = trackTop + offset;
+    this.x = 0; // 将在初始化后被设置为 screenWidth
+    this.speed = speed;
+    
+    // 立即进行预渲染
+    this.preRender();
+  }
+
+  processText(content: string): string {
+    if (!content) return '...';
+    try {
+      const richRes = formatRich(content);
+      const text = richRes.text || content;
+      const plainText = text.replace(/<[^>]*>/g, '').trim();
+      return plainText.length > 50 ? `${plainText.substring(0, 50)}...` : plainText;
+    } catch {
+      return content.replace(/<[^>]*>/g, '').trim().substring(0, 50);
+    }
+  }
+
+  preRender() {
+    if (typeof document === 'undefined') return;
+
+    const offscreen = document.createElement('canvas');
+    const oCtx = offscreen.getContext('2d');
+    if (!oCtx) return;
+
+    // 设置字体以测量宽度
+    oCtx.font = `${config.fontSize}px sans-serif`;
+    const textMetrics = oCtx.measureText(this.text);
+    const textWidth = textMetrics.width;
+    
+    // 计算总宽度
+    const hasAvatar = !!this.userFace;
+    const avatarAreaWidth = hasAvatar ? config.avatarSize + config.gap : 0;
+    this.width = config.padding * 2 + avatarAreaWidth + textWidth;
+    
+    // 增加一点宽度容错，防止文字被截断
+    offscreen.width = this.width + 2; 
+    offscreen.height = this.height + 2;
+
+    // 绘制背景 (胶囊形状)
+    oCtx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+    drawRoundedPath(oCtx, 0, 0, this.width, this.height, this.height / 2);
+    oCtx.fill();
+
+    // 绘制文本
+    oCtx.fillStyle = '#ffffff';
+    oCtx.font = `${config.fontSize}px sans-serif`;
+    oCtx.textBaseline = 'middle';
+    const textX = config.padding + avatarAreaWidth;
+    oCtx.fillText(this.text, textX, this.height / 2 + 1); // +1 微调垂直居中
+
+    this.cacheCanvas = offscreen;
+    this.isReady = true;
+
+    // 异步加载头像
+    if (this.userFace) {
+      const img = new Image();
+      img.crossOrigin = 'Anonymous';
+      img.src = this.userFace;
+      img.onload = () => {
+        // 重绘以包含头像
+        if (!this.cacheCanvas) return;
+        const ctx = this.cacheCanvas.getContext('2d');
+        if (!ctx) return;
+        
+        ctx.save();
+        ctx.beginPath();
+        const avatarX = config.padding;
+        const avatarY = (this.height - config.avatarSize) / 2;
+        ctx.arc(avatarX + config.avatarSize / 2, avatarY + config.avatarSize / 2, config.avatarSize / 2, 0, Math.PI * 2);
+        ctx.clip();
+        ctx.drawImage(img, avatarX, avatarY, config.avatarSize, config.avatarSize);
+        ctx.restore();
+      };
+      // 错误处理：如果图片加载失败，就保持原样（只有背景和文字）
+      img.onerror = () => {
+         // console.warn('头像加载失败', this.userFace);
+      };
+    }
+  }
 }
 
-const tracks = ref<DanmakuTrack[]>([]);
-const trackHeight = 50; // 每条轨道的高度
-const minTrackSpacing = 10; // 轨道之间的最小间距
+// 运行时状态管理
+const activeDanmakus: Danmaku[] = [];
+const lastDanmakuOnTracks: (Danmaku | null)[] = [];
+let currentIndex = 0;
+let lastEmitTime = 0;
+let isRunning = false;
 
-// 计算可用轨道
-const calculateTracks = () => {
-  if (!containerHeight.value) return;
+// 更新 Canvas 尺寸
+const resizeCanvas = () => {
+  if (!containerRef.value || !canvasRef.value) return;
+  const rect = containerRef.value.getBoundingClientRect();
+  if (rect.width === 0) return;
+
+  screenWidth = rect.width;
+  screenHeight = rect.height;
+  dpr = window.devicePixelRatio || 1;
+
+  canvasRef.value.width = screenWidth * dpr;
+  canvasRef.value.height = screenHeight * dpr;
+  canvasRef.value.style.width = `${screenWidth}px`;
+  canvasRef.value.style.height = `${screenHeight}px`;
+
+  if (ctx) {
+    ctx.scale(dpr, dpr);
+  }
   
-  const trackCount = Math.floor((containerHeight.value - 20) / (trackHeight + minTrackSpacing));
-  const newTracks = Array.from({ length: trackCount }, (_, i) => ({
-    id: i,
-    top: 20 + i * (trackHeight + minTrackSpacing),
-    isAvailable: true,
-  }));
+  // 重置轨道状态
+  const trackCount = Math.floor((screenHeight - 20) / config.trackHeight);
+  if (lastDanmakuOnTracks.length !== trackCount) {
+    lastDanmakuOnTracks.length = trackCount;
+    lastDanmakuOnTracks.fill(null);
+  }
+};
+
+// 尝试发射弹幕
+const tryEmitDanmaku = () => {
+  if (danmakuList.value.length === 0) return;
+
+  const now = Date.now();
+  // 发射间隔控制，根据轨道数量动态调整，避免过于密集或稀疏
+  const minInterval = Math.max(100, 1500 / (lastDanmakuOnTracks.length || 1));
+  if (now - lastEmitTime < minInterval) return;
+
+  // 寻找可用轨道
+  const availableTracks: number[] = [];
+  for (let i = 0; i < lastDanmakuOnTracks.length; i++) {
+    const last = lastDanmakuOnTracks[i];
+    // 规则：轨道为空，或者上一条弹幕已经完全进入屏幕一段距离
+    // 增加间距：min(50px, random)
+    const minDistance = 50 + Math.random() * 50;
+    if (!last || (last.x + last.width + minDistance < screenWidth)) {
+      availableTracks.push(i);
+    }
+  }
+
+  if (availableTracks.length === 0) return;
+
+  // 随机选择一个可用轨道
+  const trackIndex = availableTracks[Math.floor(Math.random() * availableTracks.length)];
   
-  // 更新现有弹幕的轨道位置缓存
-  if (tracks.value.length > 0 && activeDanmakus.value.length > 0) {
-    for (const danmaku of activeDanmakus.value) {
-      const newTrack = newTracks.find(t => t.id === danmaku.trackId);
-      if (newTrack) {
-        danmaku.trackTop = newTrack.top;
+  // 获取数据
+  const comment = danmakuList.value[currentIndex];
+  currentIndex = (currentIndex + 1) % danmakuList.value.length;
+
+  // 计算速度：像素/帧
+  // 基准速度：screenWidth / (props.speed * 60)
+  // 加上随机波动 (0.8 ~ 1.2 倍)
+  const baseSpeed = (screenWidth + 200) / (props.speed * 60); 
+  const speed = baseSpeed * (0.8 + Math.random() * 0.4);
+
+  const danmaku = new Danmaku(comment, trackIndex, speed);
+  danmaku.x = screenWidth; // 设置起始位置
+  
+  activeDanmakus.push(danmaku);
+  lastDanmakuOnTracks[trackIndex] = danmaku;
+  lastEmitTime = now;
+};
+
+// 渲染循环
+const render = () => {
+  if (!isRunning) return;
+  
+  // 如果容器大小变化（简单检测）
+  if (containerRef.value && Math.abs(containerRef.value.clientWidth - screenWidth) > 10) {
+    resizeCanvas();
+  }
+
+  if (ctx && screenWidth > 0) {
+    ctx.clearRect(0, 0, screenWidth, screenHeight);
+
+    // 倒序遍历以便安全删除
+    for (let i = activeDanmakus.length - 1; i >= 0; i--) {
+      const d = activeDanmakus[i];
+      d.x -= d.speed;
+
+      // 绘制
+      if (d.cacheCanvas && d.isReady) {
+        ctx.drawImage(d.cacheCanvas, d.x, d.y, d.width, d.height);
+      } else {
+        // 如果离屏 Canvas 还没准备好（虽然构造函数是同步的，但 Image 是异步的，这里主要防止异常）
+        // 也可以选择在这里直接 fillText 作为 fallback
+      }
+
+      // 移除
+      if (d.x + d.width < -100) {
+        activeDanmakus.splice(i, 1);
+        // 如果它是轨道上最后一条，需要更新轨道状态吗？
+        // 不需要，lastDanmakuOnTracks 引用的是对象，只要对象还在内存中就可以读取属性
+        // 但为了防止内存泄漏，lastDanmakuOnTracks 里的引用应该被新弹幕覆盖，或者无需手动清理
       }
     }
   }
-  
-  tracks.value = newTracks;
+
+  tryEmitDanmaku();
+  animationFrameId = requestAnimationFrame(render);
 };
 
-// 防抖函数
-const debounce = <T extends (...args: unknown[]) => void>(fn: T, delay: number) => {
-  let timer: ReturnType<typeof setTimeout> | null = null;
-  return (...args: Parameters<T>) => {
-    if (timer) clearTimeout(timer);
-    timer = setTimeout(() => fn(...args), delay);
-  };
+// 启动/停止
+const start = () => {
+  if (isRunning) return;
+  isRunning = true;
+  render();
 };
 
-// 监听窗口大小变化
-const updateContainerSize = () => {
-  if (containerRef.value) {
-    const width = containerRef.value.clientWidth;
-    const height = containerRef.value.clientHeight;
-    containerWidth.value = width;
-    containerHeight.value = height;
-    calculateTracks();
-    // 调试信息
-    if (process.client && width === 0) {
-      console.warn('弹幕容器宽度为0，可能导致动画无法显示');
-    }
+const stop = () => {
+  isRunning = false;
+  if (animationFrameId !== null) {
+    cancelAnimationFrame(animationFrameId);
+    animationFrameId = null;
   }
 };
 
-// 防抖后的更新函数
-const debouncedUpdateContainerSize = debounce(updateContainerSize, 150);
+const reloadDanmaku = async () => {
+  stop();
+  activeDanmakus.length = 0;
+  lastDanmakuOnTracks.fill(null);
+  ctx?.clearRect(0, 0, screenWidth, screenHeight);
+  await fetchDanmakuData();
+};
 
-// 获取弹幕数据
 const fetchDanmakuData = async () => {
   if (isLoading.value) return;
-  
   isLoading.value = true;
   try {
     const response = await getCommentList({
@@ -104,23 +318,12 @@ const fetchDanmakuData = async () => {
       type: props.type,
       id: props.id,
     });
-    
     if (response?.rows && response.rows.length > 0) {
       danmakuList.value = response.rows;
-      // 等待容器尺寸和轨道计算完成后再启动
+      currentIndex = 0;
       nextTick(() => {
-        updateContainerSize(); // 确保容器尺寸已更新
-        if (tracks.value.length > 0 && containerWidth.value > 0) {
-          startDanmaku();
-        } else {
-          // 如果轨道未计算，延迟启动
-          setTimeout(() => {
-            updateContainerSize(); // 再次更新容器尺寸
-            if (tracks.value.length > 0 && containerWidth.value > 0) {
-              startDanmaku();
-            }
-          }, 300);
-        }
+        resizeCanvas();
+        start();
       });
     }
   } catch (error) {
@@ -130,244 +333,36 @@ const fetchDanmakuData = async () => {
   }
 };
 
-// 弹幕项接口
-interface DanmakuItem {
-  id: number;
-  comment: Comment;
-  trackId: number;
-  trackTop: number; // 缓存轨道位置，避免模板中频繁查找
-  left: number;
-  animationDuration: number;
-  delay: number;
-  text: string; // 缓存处理后的文本
-  translateX: string; // 缓存的 translateX 值，避免模板中计算
-}
-
-const activeDanmakus = ref<DanmakuItem[]>([]);
-let danmakuIndex = 0;
-let sendTimer: ReturnType<typeof setTimeout> | null = null;
-let isDanmakuRunning = false;
-const releaseTimers = new Set<ReturnType<typeof setTimeout>>(); // 保存所有释放定时器
-
-// 启动弹幕
-const startDanmaku = () => {
-  if (danmakuList.value.length === 0 || tracks.value.length === 0 || containerWidth.value === 0) {
-    // 如果数据或轨道未准备好，延迟启动
-    setTimeout(() => {
-      if (danmakuList.value.length > 0 && tracks.value.length > 0 && containerWidth.value > 0) {
-        startDanmaku();
-      }
-    }, 500);
-    return;
-  }
-  
-  // 清空现有弹幕和定时器
-  stopDanmaku();
-  
-  isDanmakuRunning = true;
-  danmakuIndex = 0;
-  
-  // 开始发送弹幕
-  sendNextDanmaku();
-};
-
-// 停止弹幕
-const stopDanmaku = () => {
-  isDanmakuRunning = false;
-  if (sendTimer) {
-    clearTimeout(sendTimer);
-    sendTimer = null;
-  }
-  // 清理所有释放定时器
-  for (const timer of releaseTimers) {
-    clearTimeout(timer);
-  }
-  releaseTimers.clear();
-};
-
-// 发送下一条弹幕
-const sendNextDanmaku = () => {
-  if (!isDanmakuRunning) return;
-  
-  if (danmakuList.value.length === 0 || tracks.value.length === 0) {
-    stopDanmaku();
-    return;
-  }
-  
-  if (danmakuIndex >= danmakuList.value.length) {
-    // 循环播放
-    danmakuIndex = 0;
-  }
-  
-  const comment = danmakuList.value[danmakuIndex];
-  if (!comment) {
-    danmakuIndex++;
-    sendTimer = setTimeout(() => sendNextDanmaku(), 100);
-    return;
-  }
-  
-  // 找到可用轨道（随机选择，避免总是从第一条开始）
-  const availableTracks = tracks.value.filter(track => track.isAvailable);
-  if (availableTracks.length === 0) {
-    // 如果没有可用轨道，延迟重试
-    sendTimer = setTimeout(() => sendNextDanmaku(), 300);
-    return;
-  }
-  
-  const availableTrack = availableTracks[Math.floor(Math.random() * availableTracks.length)];
-  
-  // 确保容器宽度有效
-  if (containerWidth.value === 0) {
-    console.warn('容器宽度为0，跳过弹幕创建');
-    sendTimer = setTimeout(() => sendNextDanmaku(), 100);
-    return;
-  }
-  
-  // 计算动画时长（根据速度和容器宽度）
-  const baseDuration = props.speed;
-  const randomDuration = Math.max(8, baseDuration + (Math.random() * 4 - 2)); // 随机变化 ±2秒，最少8秒
-  
-  // 计算动画结束位置的 translateX 值（容器宽度 + 弹幕自身宽度，使用负值）
-  // 由于弹幕宽度是动态的，我们使用一个足够大的值确保完全移出屏幕
-  const translateXEnd = `-${containerWidth.value + 500}px`; // 500px 作为弹幕最大宽度的估算值
-  
-  // 创建弹幕项
-  const danmakuItem: DanmakuItem = {
-    id: Date.now() + Math.random(),
-    comment,
-    trackId: availableTrack.id,
-    trackTop: availableTrack.top, // 缓存轨道位置
-    left: containerWidth.value,
-    animationDuration: randomDuration,
-    delay: Math.random() * 1, // 随机延迟0-1秒
-    text: getDanmakuText(comment.comment_content), // 预处理文本
-    translateX: translateXEnd, // 缓存 translateX 值
-  };
-  
-  activeDanmakus.value.push(danmakuItem);
-  
-  // 标记轨道为不可用
-  availableTrack.isAvailable = false;
-  
-  // 弹幕结束后释放轨道
-  const releaseTimeout = setTimeout(() => {
-    const track = tracks.value.find(t => t.id === availableTrack.id);
-    if (track) {
-      track.isAvailable = true;
-    }
-    // 移除弹幕
-    const index = activeDanmakus.value.findIndex(d => d.id === danmakuItem.id);
-    if (index > -1) {
-      activeDanmakus.value.splice(index, 1);
-    }
-    releaseTimers.delete(releaseTimeout);
-  }, (randomDuration + danmakuItem.delay) * 1000);
-  releaseTimers.add(releaseTimeout);
-  
-  danmakuIndex++;
-  
-  // 计算下一条弹幕的发送时间（根据轨道数量和速度动态调整）
-  const interval = Math.max(200, (props.speed * 1000) / tracks.value.length / 3);
-  sendTimer = setTimeout(() => sendNextDanmaku(), interval);
-};
-
-// 重新加载弹幕
-const reloadDanmaku = async () => {
-  stopDanmaku();
-  activeDanmakus.value = [];
-  danmakuIndex = 0;
-  textCache.clear(); // 清空文本缓存
-  // 重置所有轨道为可用
-  for (const track of tracks.value) {
-    track.isAvailable = true;
-  }
-  await fetchDanmakuData();
-};
-
-// 缓存文本处理结果
-const textCache = new Map<string, string>();
-
-// 处理弹幕文本内容
-const getDanmakuText = (content?: string): string => {
-  if (!content) return '评论';
-  
-  // 检查缓存
-  const cached = textCache.get(content);
-  if (cached !== undefined) {
-    return cached;
-  }
-  
-  let result: string;
-  // 使用 formatRich 提取纯文本
-  try {
-    const richRes = formatRich(content);
-    const text = richRes.text || content;
-    // 移除 HTML 标签
-    const plainText = text.replace(/<[^>]*>/g, '').trim();
-    // 限制长度
-    result = plainText.length > 40 ? `${plainText.substring(0, 40)}...` : plainText;
-  } catch (error) {
-    // 如果格式化失败，直接移除 HTML 标签
-    const plainText = content.replace(/<[^>]*>/g, '').trim();
-    result = plainText.length > 40 ? `${plainText.substring(0, 40)}...` : plainText;
-  }
-  
-  // 缓存结果（限制缓存大小，避免内存泄漏）
-  if (textCache.size > 100) {
-    const firstKey = textCache.keys().next().value;
-    if (firstKey !== undefined) {
-      textCache.delete(firstKey);
-    }
-  }
-  textCache.set(content, result);
-  return result;
-};
-
-// 暴露重新加载方法
 defineExpose({
-  reload: reloadDanmaku,
+  reload: reloadDanmaku
 });
 
-// 生命周期
 onMounted(() => {
-  // 等待 DOM 渲染完成后再更新容器尺寸
+  if (canvasRef.value) {
+    ctx = canvasRef.value.getContext('2d');
+  }
+  
+  // 监听 Resize
+  if (typeof window !== 'undefined') {
+    window.addEventListener('resize', resizeCanvas);
+  }
+
   nextTick(() => {
-    updateContainerSize();
+    resizeCanvas();
     fetchDanmakuData();
   });
-  
-  // 监听窗口大小变化（使用防抖）
-  if (process.client) {
-    window.addEventListener('resize', debouncedUpdateContainerSize);
-  }
 });
 
 onBeforeUnmount(() => {
-  stopDanmaku();
-  textCache.clear(); // 清理缓存
-  if (process.client) {
-    window.removeEventListener('resize', debouncedUpdateContainerSize);
+  stop();
+  if (typeof window !== 'undefined') {
+    window.removeEventListener('resize', resizeCanvas);
   }
+  activeDanmakus.length = 0;
 });
 
-// 监听容器尺寸变化
 watch([() => props.width, () => props.height], () => {
-  nextTick(() => {
-    updateContainerSize();
-    // 如果弹幕正在运行但轨道未初始化，重新启动
-    if (isDanmakuRunning && tracks.value.length === 0 && danmakuList.value.length > 0) {
-      startDanmaku();
-    }
-  });
-});
-
-// 监听轨道变化，如果弹幕数据已加载但未启动，则启动
-watch([() => tracks.value.length, () => danmakuList.value.length], ([trackLen, listLen]) => {
-  if (trackLen > 0 && listLen > 0 && !isDanmakuRunning) {
-    nextTick(() => {
-      startDanmaku();
-    });
-  }
+  nextTick(resizeCanvas);
 });
 </script>
 
@@ -378,57 +373,18 @@ watch([() => tracks.value.length, () => danmakuList.value.length], ([trackLen, l
     :style="{
       width: props.width,
       height: props.height,
-      position: 'relative',
-      overflow: 'hidden',
     }"
   >
-    <!-- 弹幕列表 -->
-    <TransitionGroup
-      name="danmaku"
-      tag="div"
-      class="danmaku-wrapper"
-    >
-      <div
-        v-for="danmaku in activeDanmakus"
-        :key="danmaku.id"
-        class="danmaku-item"
-        :style="{
-          top: `${danmaku.trackTop}px`,
-          fontSize: props.fontSize,
-          left: `${containerWidth}px`,
-          '--animation-duration': `${danmaku.animationDuration}s`,
-          '--animation-delay': `${danmaku.delay}s`,
-          '--translate-x': danmaku.translateX,
-          animation: containerWidth > 0 ? `danmakuMove ${danmaku.animationDuration}s linear ${danmaku.delay}s forwards` : 'none',
-        }"
-        :class="{ 'danmaku-moving': containerWidth > 0 }"
-      >
-        <div class="danmaku-content">
-          <div class="danmaku-user">
-            <!-- <UserInfo :user="danmaku.comment.user" size="mini" /> -->
-            <UserFace :user="danmaku.comment.user" :size="'mini'"></UserFace>
-          </div>
-          <div class="danmaku-text">
-            {{ danmaku.text }}
-          </div>
-        </div>
-      </div>
-    </TransitionGroup>
+    <canvas ref="canvasRef" class="danmaku-canvas"></canvas>
 
     <!-- 加载状态 -->
-    <div
-      v-if="isLoading"
-      class="danmaku-loading"
-    >
+    <div v-if="isLoading" class="danmaku-loading">
       <div class="loading-spinner"></div>
-      <span class="loading-text">加载弹幕中...</span>
+      <span class="loading-text">加载中...</span>
     </div>
 
     <!-- 空状态 -->
-    <div
-      v-if="!isLoading && danmakuList.length === 0"
-      class="danmaku-empty"
-    >
+    <div v-if="!isLoading && danmakuList.length === 0" class="danmaku-empty">
       <span>暂无弹幕</span>
     </div>
 
@@ -438,21 +394,13 @@ watch([() => tracks.value.length, () => danmakuList.value.length], ([trackLen, l
         class="reload-btn"
         @click="reloadDanmaku"
         :disabled="isLoading"
-        title="重新加载弹幕"
+        title="重新加载"
       >
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          class="w-4 h-4"
-          fill="none"
-          viewBox="0 0 24 24"
-          stroke="currentColor"
-        >
-          <path
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            stroke-width="2"
-            d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-          />
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
+          <path d="M3 3v5h5"/>
+          <path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/>
+          <path d="M16 21h5v-5"/>
         </svg>
       </button>
     </div>
@@ -461,78 +409,19 @@ watch([() => tracks.value.length, () => danmakuList.value.length], ([trackLen, l
 
 <style scoped>
 .danmaku-container {
-  background: transparent;
-  user-select: none;
-}
-
-.danmaku-wrapper {
   position: relative;
-  width: 100%;
-  height: 100%;
-}
-
-.danmaku-item {
-  position: absolute;
-  white-space: nowrap;
-  pointer-events: none;
-  z-index: 10;
-  will-change: transform;
-  backface-visibility: hidden; /* 优化渲染性能 */
-  /* 注意：不在这里设置 transform，让动画控制 transform */
-}
-
-.danmaku-content {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 12px;
-  background: rgba(0, 0, 0, 0.6);
-  backdrop-filter: blur(10px);
-  border-radius: 20px;
-  color: #fff;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
-  max-width: 400px;
-}
-
-.danmaku-user {
-  flex-shrink: 0;
-  font-size: 12px;
-}
-
-.danmaku-text {
-  flex: 1;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: inherit;
+  user-select: none;
+  background: transparent;
 }
 
-/* 弹幕动画 - 使用 GPU 加速 */
-@keyframes danmakuMove {
-  from {
-    transform: translateX(0) translateZ(0);
-  }
-  to {
-    /* 使用 CSS 变量传递 translateX 值 */
-    transform: translateX(var(--translate-x, -100vw)) translateZ(0);
-  }
+.danmaku-canvas {
+  display: block;
+  pointer-events: none; /* 穿透点击 */
 }
 
-/* 移动端适配 */
-@media (max-width: 768px) {
-  .danmaku-content {
-    max-width: 280px;
-    padding: 4px 10px;
-    font-size: 12px;
-  }
-
-  .danmaku-user {
-    font-size: 10px;
-  }
-}
-
-/* 加载状态 */
-.danmaku-loading {
+.danmaku-loading,
+.danmaku-empty {
   position: absolute;
   top: 50%;
   left: 50%;
@@ -542,6 +431,7 @@ watch([() => tracks.value.length, () => danmakuList.value.length], ([trackLen, l
   align-items: center;
   gap: 12px;
   z-index: 20;
+  pointer-events: none;
 }
 
 .loading-spinner {
@@ -554,28 +444,14 @@ watch([() => tracks.value.length, () => danmakuList.value.length], ([trackLen, l
 }
 
 @keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
+  to { transform: rotate(360deg); }
 }
 
-.loading-text {
+.loading-text, .danmaku-empty {
   color: rgba(255, 255, 255, 0.8);
   font-size: 14px;
 }
 
-/* 空状态 */
-.danmaku-empty {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  color: rgba(255, 255, 255, 0.6);
-  font-size: 14px;
-  z-index: 20;
-}
-
-/* 控制按钮 */
 .danmaku-controls {
   position: absolute;
   top: 12px;
@@ -587,54 +463,24 @@ watch([() => tracks.value.length, () => danmakuList.value.length], ([trackLen, l
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 36px;
-  height: 36px;
-  background: rgba(0, 0, 0, 0.6);
-  backdrop-filter: blur(10px);
+  width: 32px;
+  height: 32px;
+  background: rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(4px);
   border: none;
   border-radius: 50%;
   color: #fff;
   cursor: pointer;
-  transition: all 0.3s ease;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  transition: all 0.2s ease;
 }
 
 .reload-btn:hover:not(:disabled) {
-  background: rgba(0, 0, 0, 0.8);
+  background: rgba(0, 0, 0, 0.7);
   transform: rotate(180deg);
 }
 
 .reload-btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
-}
-
-.reload-btn:active:not(:disabled) {
-  transform: scale(0.95) rotate(180deg);
-}
-
-/* 弹幕进入动画 */
-.danmaku-enter-active {
-  transition: opacity 0.3s ease;
-}
-
-.danmaku-enter-from {
-  opacity: 0;
-}
-
-.danmaku-enter-to {
-  opacity: 1;
-}
-
-.danmaku-leave-active {
-  transition: opacity 0.3s ease;
-}
-
-.danmaku-leave-from {
-  opacity: 1;
-}
-
-.danmaku-leave-to {
-  opacity: 0;
 }
 </style>
