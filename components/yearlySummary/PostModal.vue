@@ -115,7 +115,7 @@ import { insertCommunity, type CommunityInterface } from '@/api/community'
 import { useUserStore } from '@/stores/user'
 import type { Community } from '@/types/api'
 import type QhxImagePicker from '@/components/Qhx/ImagePicker.vue'
-import { uploadImage } from '@/api'
+import { uploadFileToOSS, uploadImageOSS } from '@/utils/ossUpload'
 import { BASE_IMG } from '@/utils/ipConfig'
 interface Props {
   modelValue: boolean
@@ -187,13 +187,8 @@ const destroyEditor = () => {
 // 图片上传处理函数
 const fetchUpload = async (file: { file?: File; url: string }): Promise<string> => {
   try {
-    let url: string
-    if (file.file) {
-      const res = await uploadImage(file.file)
-      url = res.file_url
-    } else {
-      url = file.url.replace(BASE_IMG, '')
-    }
+    const res = await uploadImageOSS(file)
+    const url = res
     return url
   } catch (error) {
     console.error('图片上传失败:', error)

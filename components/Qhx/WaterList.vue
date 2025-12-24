@@ -138,7 +138,11 @@ const handleScroll = () => {
     loadMore()
   }
 }
-
+watch(() => props.columns_768, () => {
+  if (process.client) {
+    updateColumns()
+  }
+})
 // 响应式调整列数
 const updateColumns = () => {
   if (!process.client) return

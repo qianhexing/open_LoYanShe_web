@@ -50,7 +50,7 @@ export async function getLibraryVideo(
 export interface InsertParams {
   library_id?: number | null
   name: string
-  cover: string
+  cover?: string
   shop_id: number | null
   main_style?: string | null
   library_type?: string | null

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { Comment } from '@/types/api';
-import { getCommentList } from '@/api/comment';
+import { getCommentList, insertComment } from '@/api/comment';
 import { formatRich } from '@/utils/public';
 import { BASE_IMG } from '@/utils/ipConfig';
 import { onMounted, onBeforeUnmount, ref, watch, nextTick } from 'vue';
@@ -32,6 +32,10 @@ const danmakuList = ref<Comment[]>([]);
 const isVisible = ref(true); // 控制弹幕显示隐藏
 const selectedDanmaku = ref<Danmaku | null>(null); // 当前选中的弹幕
 const isPaused = ref(false); // 动画是否暂停
+const showSendDialog = ref(false); // 显示发送弹幕对话框
+const sendContent = ref(''); // 发送内容
+const isSending = ref(false); // 是否正在发送
+const latestSentCommentId = ref<number | null>(null); // 最近发送的评论ID
 
 // Canvas 上下文与状态
 let ctx: CanvasRenderingContext2D | null = null;
@@ -77,15 +81,17 @@ class Danmaku {
   text: string;
   userFace: string;
   comment: Comment; // 保存原始数据以便弹窗使用
-  width: number = 0;
+  width = 0;
   height: number;
   cacheCanvas: HTMLCanvasElement | null = null;
-  isReady: boolean = false;
+  isReady = false;
+  isHighlighted = false; // 是否高亮（刚刚发送的）
 
-  constructor(comment: Comment, trackIndex: number, speed: number) {
+  constructor(comment: Comment, trackIndex: number, speed: number, isHighlighted = false) {
     this.comment = comment;
     this.text = this.processText(comment.comment_content);
     this.userFace = comment.user?.user_face ? `${BASE_IMG}${comment.user.user_face}` : '';
+    this.isHighlighted = isHighlighted;
     // 计算 Y 坐标：垂直居中于轨道
     this.height = 36; // 弹幕胶囊的高度
     const trackTop = trackIndex * config.trackHeight;
@@ -131,13 +137,23 @@ class Danmaku {
     offscreen.width = this.width + 4; 
     offscreen.height = this.height + 4;
 
-    // 绘制背景 (胶囊形状) - 半透明黑色
-    oCtx.fillStyle = 'rgba(0, 0, 0, 0.5)'; 
+    // 绘制背景 (胶囊形状) - 根据是否高亮选择不同颜色
+    if (this.isHighlighted) {
+      // 高亮背景 - 使用更亮的颜色，比如蓝色或绿色
+      oCtx.fillStyle = 'rgba(59, 130, 246, 0.7)'; // 蓝色高亮
+    } else {
+      // 普通背景 - 半透明黑色
+      oCtx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+    }
     drawRoundedPath(oCtx, 1, 1, this.width, this.height, this.height / 2);
     oCtx.fill();
 
-    // 绘制边框 - 淡淡的白色
-    oCtx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
+    // 绘制边框 - 高亮时使用更亮的边框
+    if (this.isHighlighted) {
+      oCtx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
+    } else {
+      oCtx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
+    }
     oCtx.lineWidth = 1;
     oCtx.stroke();
 
@@ -217,13 +233,13 @@ const tryEmitDanmaku = () => {
 
   const now = Date.now();
   // 发射间隔控制
-  let minInterval = Math.max(100, 1500 / (lastDanmakuOnTracks.length || 1));
+  let minInterval = Math.max(100, 50000 / (lastDanmakuOnTracks.length || 1));
   
   // 如果弹幕数量很少，增加间隔以避免重复感
   if (danmakuList.value.length <= 5) {
-    minInterval = 3000; // 3秒
+    minInterval = 8000; // 3秒
   } else if (danmakuList.value.length <= 10) {
-    minInterval = 2000;
+    minInterval = 5000;
   }
 
   if (now - lastEmitTime < minInterval) return;
@@ -253,12 +269,21 @@ const tryEmitDanmaku = () => {
   const baseSpeed = (screenWidth + 200) / (props.speed * 60); 
   const speed = baseSpeed * (0.9 + Math.random() * 0.2); // 减小随机波动
 
-  const danmaku = new Danmaku(comment, trackIndex, speed);
+  // 判断是否高亮（刚刚发送的）
+  const isHighlighted = latestSentCommentId.value === comment.comment_id;
+  const danmaku = new Danmaku(comment, trackIndex, speed, isHighlighted);
   danmaku.x = screenWidth; // 设置起始位置
   
   activeDanmakus.push(danmaku);
   lastDanmakuOnTracks[trackIndex] = danmaku;
   lastEmitTime = now;
+  
+  // 如果这是高亮的弹幕，5秒后清除高亮标记
+  if (isHighlighted) {
+    setTimeout(() => {
+      latestSentCommentId.value = null;
+    }, 5000);
+  }
 };
 
 // 渲染循环
@@ -393,6 +418,68 @@ const reloadDanmaku = async () => {
   await fetchDanmakuData();
 };
 
+// 打开发送弹幕对话框
+const openSendDialog = () => {
+  showSendDialog.value = true;
+  sendContent.value = '';
+};
+
+// 关闭发送弹幕对话框
+const closeSendDialog = () => {
+  showSendDialog.value = false;
+  sendContent.value = '';
+};
+
+// 发送弹幕
+const sendDanmaku = async () => {
+  if (!sendContent.value.trim() || isSending.value) return;
+  
+  isSending.value = true;
+  try {
+    const response = await insertComment({
+      page: 1,
+      pageSize: 1,
+      type: props.type,
+      id: props.id,
+      comment_content: sendContent.value.trim(),
+    });
+    
+    if (response) {
+      const newComment = response;
+      // 添加到弹幕列表
+      danmakuList.value.unshift(newComment);
+      // 记录最新发送的评论ID
+      latestSentCommentId.value = newComment.comment_id;
+      
+      // 立即发射这条弹幕
+      if (isVisible.value && !isPaused.value) {
+        const trackCount = Math.floor((screenHeight - 20) / config.trackHeight);
+        if (trackCount > 0) {
+          // 随机选择一个轨道
+          const trackIndex = Math.floor(Math.random() * trackCount);
+          const baseSpeed = (screenWidth + 200) / (props.speed * 60);
+          const speed = baseSpeed * (0.9 + Math.random() * 0.2);
+          const danmaku = new Danmaku(newComment, trackIndex, speed, true);
+          danmaku.x = screenWidth;
+          activeDanmakus.push(danmaku);
+          lastDanmakuOnTracks[trackIndex] = danmaku;
+          
+          // 5秒后清除高亮
+          setTimeout(() => {
+            latestSentCommentId.value = null;
+          }, 5000);
+        }
+      }
+      
+      closeSendDialog();
+    }
+  } catch (error) {
+    console.error('发送弹幕失败:', error);
+  } finally {
+    isSending.value = false;
+  }
+};
+
 const fetchDanmakuData = async () => {
   if (isLoading.value) return;
   isLoading.value = true;
@@ -491,7 +578,36 @@ watch([() => props.width, () => props.height], () => {
 
     <!-- 空状态 -->
     <div v-if="!isLoading && danmakuList.length === 0" class="danmaku-empty">
-      <span>暂无弹幕</span>
+      <!-- <span>暂无弹幕</span> -->
+    </div>
+
+    <!-- 发送弹幕对话框 -->
+    <div v-if="showSendDialog" class="send-dialog-overlay" @click="closeSendDialog">
+      <div class="send-dialog" @click.stop>
+        <div class="dialog-header">
+          <span class="dialog-title">发送弹幕</span>
+          <button class="close-btn" @click="closeSendDialog">&times;</button>
+        </div>
+        <div class="dialog-content">
+          <textarea
+            v-model="sendContent"
+            class="send-textarea"
+            placeholder="输入弹幕内容..."
+            rows="4"
+            maxlength="200"
+          ></textarea>
+        </div>
+        <div class="dialog-footer">
+          <button class="dialog-btn cancel-btn" @click="closeSendDialog">取消</button>
+          <button 
+            class="dialog-btn send-btn" 
+            @click="sendDanmaku"
+            :disabled="!sendContent.trim() || isSending"
+          >
+            {{ isSending ? '发送中...' : '发送' }}
+          </button>
+        </div>
+      </div>
     </div>
 
     <!-- 控制按钮 -->
@@ -513,15 +629,12 @@ watch([() => props.width, () => props.height], () => {
 
       <button
         class="control-btn"
-        @click="reloadDanmaku"
-        :disabled="isLoading"
-        title="重新加载"
+        @click="openSendDialog"
+        title="发送弹幕"
       >
         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
-          <path d="M3 3v5h5"/>
-          <path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/>
-          <path d="M16 21h5v-5"/>
+          <line x1="22" y1="2" x2="11" y2="13"></line>
+          <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
         </svg>
       </button>
     </div>
@@ -685,5 +798,110 @@ watch([() => props.width, () => props.height], () => {
   line-height: 1.5;
   max-height: 100px;
   overflow-y: auto;
+}
+
+/* 发送弹幕对话框 */
+.send-dialog-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 200;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: auto;
+}
+
+.send-dialog {
+  background: rgba(30, 30, 30, 0.95);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  padding: 20px;
+  width: 90%;
+  max-width: 400px;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+  animation: popup-enter 0.3s cubic-bezier(0.18, 0.89, 0.32, 1.28);
+}
+
+.dialog-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.dialog-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #fff;
+}
+
+.dialog-content {
+  margin-bottom: 16px;
+}
+
+.send-textarea {
+  width: 100%;
+  padding: 12px;
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  color: #fff;
+  font-size: 14px;
+  font-family: inherit;
+  resize: none;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.send-textarea:focus {
+  border-color: rgba(59, 130, 246, 0.5);
+}
+
+.send-textarea::placeholder {
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.dialog-footer {
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+}
+
+.dialog-btn {
+  padding: 8px 20px;
+  border: none;
+  border-radius: 6px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.cancel-btn {
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.cancel-btn:hover {
+  background: rgba(255, 255, 255, 0.2);
+  color: #fff;
+}
+
+.send-btn {
+  background: rgba(59, 130, 246, 0.8);
+  color: #fff;
+}
+
+.send-btn:hover:not(:disabled) {
+  background: rgba(59, 130, 246, 1);
+}
+
+.send-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 </style>
