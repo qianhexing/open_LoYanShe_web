@@ -281,6 +281,7 @@ const createPointCloud = () => {
   geometry.setAttribute('position', new THREE.BufferAttribute(libPositions, 3));
   geometry.setAttribute('color', new THREE.BufferAttribute(libColors, 3));
   geometry.setAttribute('size', new THREE.BufferAttribute(libSizes, 1));
+  geometry.computeBoundingSphere(); // 关键：计算包围球
 
   const material = new THREE.ShaderMaterial({
     uniforms: {
@@ -317,6 +318,7 @@ const createPointCloud = () => {
   shopGeometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(shopPositions), 3));
   shopGeometry.setAttribute('color', new THREE.BufferAttribute(new Float32Array(shopColors), 3));
   shopGeometry.setAttribute('size', new THREE.BufferAttribute(new Float32Array(shopSizes), 1));
+  shopGeometry.computeBoundingSphere(); // 关键：计算包围球
   
   const shopMaterial = material.clone();
   
@@ -383,7 +385,7 @@ const initThree = () => {
 
   // Raycaster setup
   const raycaster = new THREE.Raycaster();
-  raycaster.params.Points.threshold = 1.5; 
+  raycaster.params.Points.threshold = 5.0; 
   const mouse = new THREE.Vector2();
 
   // 通用 Raycast 函数
