@@ -21,7 +21,7 @@ const props = withDefaults(defineProps<Props>(), {
   width: '100%',
   height: '100vh',
   pageSize: 50,
-  speed: 20, // 降低默认速度
+  speed: 28, // 进一步降低默认速度 (原来是20)
   fontSize: '14px',
 });
 
@@ -42,7 +42,7 @@ let dpr = 1;
 
 // 弹幕配置
 const config = {
-  trackHeight: 46, // 轨道高度，稍微增加一点
+  trackHeight: 46, // 轨道高度
   margin: 10,       // 轨道间距
   avatarSize: 28,  // 头像大小
   padding: 10,     // 左右内边距
@@ -131,9 +131,6 @@ class Danmaku {
     offscreen.width = this.width + 4; 
     offscreen.height = this.height + 4;
 
-    // 绘制阴影 (虽然在离屏Canvas绘制阴影可能被裁剪，我们留一点边距)
-    // 但为了性能，简单背景+边框即可，阴影可以通过CSS给容器加，或者在这里画
-    
     // 绘制背景 (胶囊形状) - 半透明黑色
     oCtx.fillStyle = 'rgba(0, 0, 0, 0.5)'; 
     drawRoundedPath(oCtx, 1, 1, this.width, this.height, this.height / 2);
@@ -160,7 +157,6 @@ class Danmaku {
       img.crossOrigin = 'Anonymous';
       img.src = this.userFace;
       img.onload = () => {
-        // 重绘以包含头像
         if (!this.cacheCanvas) return;
         const ctx = this.cacheCanvas.getContext('2d');
         if (!ctx) return;
@@ -275,8 +271,6 @@ const render = () => {
   }
 
   if (ctx && screenWidth > 0) {
-    // 只有在弹幕显示时才清空和绘制
-    // 如果不显示，可以清空后不绘制，或者保留当前帧（根据需求，这里选择清空）
     ctx.clearRect(0, 0, screenWidth, screenHeight);
 
     if (isVisible.value) {
@@ -306,6 +300,37 @@ const render = () => {
   animationFrameId = requestAnimationFrame(render);
 };
 
+// 鼠标位置监测，用于动态切换 pointer-events
+const handleMouseMove = (e: MouseEvent) => {
+  if (!isVisible.value || !canvasRef.value) return;
+
+  const rect = canvasRef.value.getBoundingClientRect();
+  const mouseX = e.clientX - rect.left;
+  const mouseY = e.clientY - rect.top;
+  
+  let isHoveringDanmaku = false;
+
+  // 检查是否悬停在任意弹幕上
+  for (let i = activeDanmakus.length - 1; i >= 0; i--) {
+    const d = activeDanmakus[i];
+    if (mouseX >= d.x && mouseX <= d.x + d.width &&
+        mouseY >= d.y && mouseY <= d.y + d.height) {
+      isHoveringDanmaku = true;
+      break;
+    }
+  }
+
+  // 只有当鼠标悬停在弹幕上时，Canvas 才接收点击事件
+  // 否则让点击穿透到底层元素
+  if (isHoveringDanmaku) {
+    canvasRef.value.style.pointerEvents = 'auto';
+    canvasRef.value.style.cursor = 'pointer';
+  } else {
+    canvasRef.value.style.pointerEvents = 'none';
+    canvasRef.value.style.cursor = 'default';
+  }
+};
+
 // 点击处理
 const handleCanvasClick = (e: MouseEvent) => {
   if (!isVisible.value || !canvasRef.value) return;
@@ -314,22 +339,20 @@ const handleCanvasClick = (e: MouseEvent) => {
   const clickX = e.clientX - rect.left;
   const clickY = e.clientY - rect.top;
 
-  // 查找被点击的弹幕（倒序查找，因为后绘制的在上面）
-  // 简单的矩形碰撞检测
+  // 查找被点击的弹幕
   for (let i = activeDanmakus.length - 1; i >= 0; i--) {
     const d = activeDanmakus[i];
-    // d.x, d.y 是逻辑坐标，clickX, clickY 也是逻辑坐标（相对于元素尺寸）
     if (clickX >= d.x && clickX <= d.x + d.width &&
         clickY >= d.y && clickY <= d.y + d.height) {
       
-      // 选中了弹幕
       selectedDanmaku.value = d;
-      isPaused.value = true; // 暂停所有动画
+      isPaused.value = true;
       return;
     }
   }
   
-  // 如果点击空白处，关闭弹窗并恢复
+  // 如果已选中弹幕但点击了非弹幕区域，且该点击事件被 canvas 捕获了
+  // (通常不会发生，因为 handleMouseMove 会把 pointerEvents 设为 none)
   if (selectedDanmaku.value) {
     closePopup();
   }
@@ -342,7 +365,6 @@ const closePopup = () => {
 
 const toggleVisibility = () => {
   isVisible.value = !isVisible.value;
-  // 如果关闭可见性，也关闭弹窗
   if (!isVisible.value) {
     closePopup();
   }
@@ -409,6 +431,8 @@ onMounted(() => {
   // 监听 Resize
   if (typeof window !== 'undefined') {
     window.addEventListener('resize', resizeCanvas);
+    // 监听全局鼠标移动以实现精确的点击穿透
+    window.addEventListener('mousemove', handleMouseMove);
   }
 
   nextTick(() => {
@@ -421,6 +445,7 @@ onBeforeUnmount(() => {
   stop();
   if (typeof window !== 'undefined') {
     window.removeEventListener('resize', resizeCanvas);
+    window.removeEventListener('mousemove', handleMouseMove);
   }
   if (canvasRef.value) {
     canvasRef.value.removeEventListener('click', handleCanvasClick);
@@ -509,11 +534,12 @@ watch([() => props.width, () => props.height], () => {
   overflow: hidden;
   user-select: none;
   background: transparent;
+  pointer-events: none; /* 关键：允许点击穿透整个容器 */
 }
 
 .danmaku-canvas {
   display: block;
-  cursor: pointer; /* 提示可点击 */
+  pointer-events: none; /* 默认不接收点击，由 JS 动态开启 */
 }
 
 .danmaku-loading,
@@ -556,6 +582,7 @@ watch([() => props.width, () => props.height], () => {
   z-index: 30;
   display: flex;
   gap: 10px;
+  pointer-events: auto; /* 关键：允许按钮被点击 */
 }
 
 .control-btn {
@@ -599,6 +626,7 @@ watch([() => props.width, () => props.height], () => {
   display: flex;
   align-items: center;
   justify-content: center;
+  pointer-events: auto; /* 关键：弹窗层允许交互 */
 }
 
 .user-popup {
