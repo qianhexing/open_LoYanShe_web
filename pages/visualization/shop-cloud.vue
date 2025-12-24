@@ -113,12 +113,6 @@ const createPointCloud = () => {
   });
 
   // 2. 计算每个图鉴的位置 (需要先计算所有位置，因为子图鉴依赖父图鉴位置)
-  // 为了简单，我们先计算所有关联了店铺的父级图鉴位置，以及店铺位置。
-  // 然后对于有 parent_id 的图鉴，我们在其 parent 周围分布。
-  // 注意：如果层级很深，或者顺序不对，可能找不到 parent 位置。
-  // 简便方法：所有顶层图鉴(parent_id=0)围绕店铺分布。子图鉴(parent_id!=0)围绕父图鉴分布。
-  // 我们需要一个 Map 来存储已计算出的图鉴位置。
-  
   const libPosMap = new Map<number, {x: number, y: number, z: number}>();
   
   // 分两步处理：
@@ -135,8 +129,7 @@ const createPointCloud = () => {
     }
   });
 
-  // Step 2: 处理 parent_id !== 0 的图鉴 (可能存在多级，这里简单假设大多数只有一层或通过多次循环解决)
-  // 为了确保所有 parent 都被处理，我们可以循环几次，或者递归。这里简单循环两次覆盖大部分情况。
+  // Step 2: 处理 parent_id !== 0 的图鉴
   for(let p = 0; p < 3; p++) {
     libraries.forEach(lib => {
       if (lib.parent_id && lib.parent_id !== 0 && !libPosMap.has(lib.library_id)) {
@@ -172,15 +165,19 @@ const createPointCloud = () => {
   const shopSizes: number[] = [];
   const shopDataList: Shop[] = []; 
 
-  const linePositions = new Float32Array(count * 2 * 3);
-  const lineColors = new Float32Array(count * 2 * 3);
+  // --- 连线数据准备 (曲线) ---
+  const CURVE_SEGMENTS = 20; // 曲线分段数
+  // 每个图鉴一条线，每条线 CURVE_SEGMENTS 段，每段 2 个顶点，每个顶点 3 个坐标
+  const linePositions = new Float32Array(count * CURVE_SEGMENTS * 2 * 3);
+  const lineColors = new Float32Array(count * CURVE_SEGMENTS * 2 * 3);
+  const lineAlphas = new Float32Array(count * CURVE_SEGMENTS * 2 * 1); // 透明度
 
   // 4. 填充数据
   libraries.forEach((lib, i) => {
     const shopId = lib.shop_id!;
     const color = getShopColor(shopId);
     
-    // 获取已计算的位置，如果没有(理论上不应该)，则给个默认值
+    // 获取已计算的位置
     const pos = libPosMap.get(lib.library_id) || {x: 0, y: 0, z: 0};
 
     // Fill Lib Data
@@ -195,17 +192,7 @@ const createPointCloud = () => {
     const popularity = (lib.good_count || 0) + (lib.wardrobe_count || 0) * 2;
     libSizes[i] = Math.max(1.5, Math.min(6, Math.log(popularity + 1) * 1.5));
 
-    // Fill Line Data
-    // Vertex 0: Lib itself
-    linePositions[i * 6] = pos.x;
-    linePositions[i * 6 + 1] = pos.y;
-    linePositions[i * 6 + 2] = pos.z;
-    
-    lineColors[i * 6] = color.r;
-    lineColors[i * 6 + 1] = color.g;
-    lineColors[i * 6 + 2] = color.b;
-
-    // Vertex 1: Target (Parent Lib or Shop Center)
+    // Fill Line Data (Curve)
     let targetX, targetY, targetZ;
     if (lib.parent_id && lib.parent_id !== 0 && libPosMap.has(lib.parent_id)) {
        // 连接到父图鉴
@@ -221,13 +208,58 @@ const createPointCloud = () => {
        targetZ = center.cz;
     }
 
-    linePositions[i * 6 + 3] = targetX;
-    linePositions[i * 6 + 4] = targetY;
-    linePositions[i * 6 + 5] = targetZ;
+    // 起点 (Lib)
+    const start = new THREE.Vector3(pos.x, pos.y, pos.z);
+    // 终点 (Target)
+    const end = new THREE.Vector3(targetX, targetY, targetZ);
     
-    lineColors[i * 6 + 3] = color.r * 0.4;
-    lineColors[i * 6 + 4] = color.g * 0.4;
-    lineColors[i * 6 + 5] = color.b * 0.4;
+    // 控制点：中点 + 随机偏移/径向偏移
+    const mid = new THREE.Vector3().addVectors(start, end).multiplyScalar(0.5);
+    const dist = start.distanceTo(end);
+    // 简单的弧度：使用 mid 向量本身方向（即远离原点）或者随机向量
+    // 为了更美观，可以尝试垂直于 Start-End 向量的方向，或者统一向某个轴弯曲
+    // 这里使用：mid 点向原点外推一定距离
+    // 如果 mid 在原点附近，可能效果不好，加个随机偏移
+    let controlOffset = mid.clone().normalize();
+    if (controlOffset.lengthSq() < 0.01) controlOffset = new THREE.Vector3(0, 1, 0);
+    
+    const control = mid.add(controlOffset.multiplyScalar(dist * 0.3));
+
+    const curve = new THREE.QuadraticBezierCurve3(start, control, end);
+    const points = curve.getPoints(CURVE_SEGMENTS); // 返回 segments + 1 个点
+
+    for (let j = 0; j < CURVE_SEGMENTS; j++) {
+      const p1 = points[j];
+      const p2 = points[j + 1];
+      
+      const baseIndex = (i * CURVE_SEGMENTS + j) * 2; // 当前线段的起始顶点索引
+      
+      // Vertex 1
+      linePositions[baseIndex * 3] = p1.x;
+      linePositions[baseIndex * 3 + 1] = p1.y;
+      linePositions[baseIndex * 3 + 2] = p1.z;
+      
+      lineColors[baseIndex * 3] = color.r;
+      lineColors[baseIndex * 3 + 1] = color.g;
+      lineColors[baseIndex * 3 + 2] = color.b;
+
+      // 渐变：靠近 Lib (start) 不透明，靠近 Target (end) 透明
+      // t 越大越接近 end
+      const t1 = j / CURVE_SEGMENTS;
+      lineAlphas[baseIndex] = 0.6 * (1.0 - t1) + 0.1; // 0.7 -> 0.1
+
+      // Vertex 2
+      linePositions[(baseIndex + 1) * 3] = p2.x;
+      linePositions[(baseIndex + 1) * 3 + 1] = p2.y;
+      linePositions[(baseIndex + 1) * 3 + 2] = p2.z;
+
+      lineColors[(baseIndex + 1) * 3] = color.r;
+      lineColors[(baseIndex + 1) * 3 + 1] = color.g;
+      lineColors[(baseIndex + 1) * 3 + 2] = color.b;
+
+      const t2 = (j + 1) / CURVE_SEGMENTS;
+      lineAlphas[(baseIndex + 1)] = 0.6 * (1.0 - t2) + 0.1;
+    }
   });
 
   // 5. 构建店铺点数据
@@ -249,6 +281,7 @@ const createPointCloud = () => {
   geometry.setAttribute('position', new THREE.BufferAttribute(libPositions, 3));
   geometry.setAttribute('color', new THREE.BufferAttribute(libColors, 3));
   geometry.setAttribute('size', new THREE.BufferAttribute(libSizes, 1));
+  geometry.computeBoundingSphere(); // 关键：计算包围球
 
   const material = new THREE.ShaderMaterial({
     uniforms: {
@@ -285,6 +318,7 @@ const createPointCloud = () => {
   shopGeometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(shopPositions), 3));
   shopGeometry.setAttribute('color', new THREE.BufferAttribute(new Float32Array(shopColors), 3));
   shopGeometry.setAttribute('size', new THREE.BufferAttribute(new Float32Array(shopSizes), 1));
+  shopGeometry.computeBoundingSphere(); // 关键：计算包围球
   
   const shopMaterial = material.clone();
   
@@ -292,19 +326,37 @@ const createPointCloud = () => {
   shopPoints.userData = { isShopPoints: true, shops: shopDataList };
   scene.add(shopPoints);
 
-  // --- Render Lines ---
+  // --- Render Lines (Curves with Gradient) ---
   const lineGeometry = new THREE.BufferGeometry();
   lineGeometry.setAttribute('position', new THREE.BufferAttribute(linePositions, 3));
   lineGeometry.setAttribute('color', new THREE.BufferAttribute(lineColors, 3));
+  lineGeometry.setAttribute('alpha', new THREE.BufferAttribute(lineAlphas, 1));
 
-  const lineMaterial = new THREE.LineBasicMaterial({
-    vertexColors: true,
+  const lineShaderMaterial = new THREE.ShaderMaterial({
+    vertexShader: `
+      attribute float alpha;
+      varying float vAlpha;
+      varying vec3 vColor;
+      void main() {
+        vAlpha = alpha;
+        vColor = color;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `,
+    fragmentShader: `
+      varying float vAlpha;
+      varying vec3 vColor;
+      void main() {
+        gl_FragColor = vec4(vColor, vAlpha);
+      }
+    `,
     transparent: true,
-    opacity: 0.2, 
-    blending: THREE.AdditiveBlending
+    depthWrite: false, // 防止透明线遮挡
+    blending: THREE.AdditiveBlending,
+    vertexColors: true
   });
 
-  const lines = new THREE.LineSegments(lineGeometry, lineMaterial);
+  const lines = new THREE.LineSegments(lineGeometry, lineShaderMaterial);
   lines.userData = { isLines: true };
   scene.add(lines);
 
@@ -333,7 +385,7 @@ const initThree = () => {
 
   // Raycaster setup
   const raycaster = new THREE.Raycaster();
-  raycaster.params.Points.threshold = 1.5; 
+  raycaster.params.Points.threshold = 5.0; 
   const mouse = new THREE.Vector2();
 
   // 通用 Raycast 函数
@@ -472,83 +524,120 @@ onBeforeUnmount(() => {
     <!-- Loading Overlay -->
     <div v-if="loading" class="absolute inset-0 flex flex-col items-center justify-center bg-black bg-opacity-90 text-white z-50">
       <div class="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500 mb-4"></div>
-      <div class="text-xl tracking-widest">LOADING GALAXY</div>
+      <div class="text-xl tracking-widest font-light">正在加载星系数据...</div>
     </div>
 
     <!-- UI Overlay -->
-    <div class="absolute top-6 left-6 z-40 pointer-events-none">
-      <h1 class="text-2xl font-bold text-white mb-1 tracking-wider">SHOP GALAXY</h1>
-      <p class="text-gray-400 text-sm">{{ libraryList.length }} Libraries | {{ shopMap.size }} Shops</p>
+    <div class="absolute top-6 left-6 z-40 pointer-events-none select-none">
+      <h1 class="text-3xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-purple-500 mb-2 tracking-wider drop-shadow-lg">店铺星云</h1>
+      <div class="flex items-center space-x-4 text-gray-400 text-sm bg-gray-900 bg-opacity-50 px-3 py-1 rounded-full backdrop-blur-sm border border-gray-800">
+        <span>📚 {{ libraryList.length }} 图鉴</span>
+        <span class="w-px h-3 bg-gray-700"></span>
+        <span>🏪 {{ shopMap.size }} 店铺</span>
+      </div>
     </div>
 
     <!-- Info Card (Based on selectedInfo) -->
-    <div 
-      v-if="selectedInfo.visible && selectedInfo.data"
-      class="fixed z-50 bg-gray-900 bg-opacity-95 border border-gray-700 rounded-lg p-4 text-white shadow-2xl backdrop-blur-md w-80 transform transition-opacity duration-150"
-      :style="{ left: `${selectedInfo.x}px`, top: `${selectedInfo.y}px` }"
+    <transition
+      enter-active-class="transition ease-out duration-200"
+      enter-from-class="opacity-0 translate-y-2"
+      enter-to-class="opacity-100 translate-y-0"
+      leave-active-class="transition ease-in duration-150"
+      leave-from-class="opacity-100 translate-y-0"
+      leave-to-class="opacity-0 translate-y-2"
     >
-      <!-- Shop Info -->
-      <div v-if="selectedInfo.type === 'shop'" class="flex items-center gap-4 mb-3">
-         <div class="w-16 h-16 flex-shrink-0 bg-gray-800 rounded-full overflow-hidden flex items-center justify-center border-2 border-blue-500">
-           <img 
-            v-if="(selectedInfo.data as Shop).shop_logo" 
-            :src="(selectedInfo.data as Shop).shop_logo" 
-            class="w-full h-full object-cover"
-            alt="logo"
-          />
-          <span v-else class="text-xs text-gray-500">Logo</span>
-         </div>
-         <div class="flex-1">
-            <h3 class="font-bold text-lg text-blue-400">{{ (selectedInfo.data as Shop).shop_name }}</h3>
-            <p class="text-sm text-gray-400">{{ (selectedInfo.data as Shop).shop_country === 0 ? 'China' : 'Overseas' }}</p>
-         </div>
-      </div>
-
-      <!-- Library Info -->
-      <div v-else class="flex items-start gap-4 mb-3">
-        <div class="w-16 h-20 flex-shrink-0 bg-gray-800 rounded overflow-hidden">
-          <img 
-            v-if="(selectedInfo.data as Library).cover" 
-            :src="(selectedInfo.data as Library).cover" 
-            class="w-full h-full object-cover"
-            alt="cover"
-          />
+      <div 
+        v-if="selectedInfo.visible && selectedInfo.data"
+        class="fixed z-50 bg-gray-900 bg-opacity-80 border border-blue-500/30 rounded-xl p-5 text-white shadow-[0_0_20px_rgba(0,0,0,0.5)] backdrop-blur-md w-80"
+        :style="{ left: `${Math.min(selectedInfo.x, window.innerWidth - 340)}px`, top: `${Math.min(selectedInfo.y, window.innerHeight - 250)}px` }"
+      >
+        <!-- Shop Info -->
+        <div v-if="selectedInfo.type === 'shop'" class="flex items-center gap-4 mb-4">
+           <div class="w-16 h-16 flex-shrink-0 bg-gray-800 rounded-full overflow-hidden flex items-center justify-center border-2 border-blue-500 shadow-[0_0_10px_rgba(59,130,246,0.5)]">
+             <img 
+              v-if="(selectedInfo.data as Shop).shop_logo" 
+              :src="(selectedInfo.data as Shop).shop_logo" 
+              class="w-full h-full object-cover"
+              alt="logo"
+            />
+            <span v-else class="text-xs text-gray-500">Logo</span>
+           </div>
+           <div class="flex-1">
+              <h3 class="font-bold text-lg text-blue-400 leading-tight">{{ (selectedInfo.data as Shop).shop_name }}</h3>
+              <div class="flex items-center mt-1">
+                <span class="text-xs px-2 py-0.5 rounded-full bg-blue-900/50 text-blue-300 border border-blue-800">
+                  {{ (selectedInfo.data as Shop).shop_country === 0 ? '中国' : '海外' }}
+                </span>
+              </div>
+           </div>
         </div>
-        <div class="flex-1 min-w-0">
-          <h3 class="font-bold text-base text-blue-400 truncate leading-tight mb-1">{{ (selectedInfo.data as Library).name }}</h3>
-          <p class="text-xs text-gray-400 truncate mb-2">
-            {{ shopMap.get((selectedInfo.data as Library).shop_id!)?.shop_name || 'Unknown Shop' }}
-          </p>
-          <div class="grid grid-cols-2 gap-2 text-xs text-gray-300">
-            <div class="flex items-center gap-1">
-              <span class="opacity-50">📅</span>
-              <span>{{ (selectedInfo.data as Library).sale_time?.split(' ')[0] || 'N/A' }}</span>
-            </div>
-            <div class="flex items-center gap-1">
-              <span class="opacity-50">🔥</span>
-              <span>{{ (selectedInfo.data as Library).good_count || 0 }}</span>
+
+        <!-- Library Info -->
+        <div v-else class="flex items-start gap-4 mb-4">
+          <div class="w-16 h-20 flex-shrink-0 bg-gray-800 rounded-lg overflow-hidden border border-gray-700 shadow-md">
+            <img 
+              v-if="(selectedInfo.data as Library).cover" 
+              :src="(selectedInfo.data as Library).cover" 
+              class="w-full h-full object-cover"
+              alt="cover"
+            />
+          </div>
+          <div class="flex-1 min-w-0">
+            <h3 class="font-bold text-base text-blue-400 truncate leading-tight mb-2">{{ (selectedInfo.data as Library).name }}</h3>
+            <p class="text-xs text-gray-400 truncate mb-3 flex items-center gap-1">
+              <span class="i-carbon-store text-gray-500"></span>
+              {{ shopMap.get((selectedInfo.data as Library).shop_id!)?.shop_name || '未知店铺' }}
+            </p>
+            <div class="grid grid-cols-2 gap-2 text-xs text-gray-300">
+              <div class="flex items-center gap-1 bg-gray-800/50 px-2 py-1 rounded">
+                <span class="opacity-70">📅</span>
+                <span>{{ (selectedInfo.data as Library).sale_time?.split(' ')[0] || '未知' }}</span>
+              </div>
+              <div class="flex items-center gap-1 bg-gray-800/50 px-2 py-1 rounded">
+                <span class="opacity-70">🔥</span>
+                <span>{{ (selectedInfo.data as Library).good_count || 0 }}</span>
+              </div>
             </div>
           </div>
         </div>
+        
+        <!-- Action Button -->
+        <div class="flex justify-end pt-3 border-t border-gray-700/50">
+          <button 
+            @click.stop="goToDetail" 
+            class="group relative px-5 py-2 overflow-hidden rounded-md bg-blue-600 text-sm font-medium text-white shadow hover:bg-blue-500 transition-all duration-300"
+          >
+            <span class="relative z-10 flex items-center gap-2">
+              查看详情
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3 transition-transform group-hover:translate-x-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3" />
+              </svg>
+            </span>
+          </button>
+        </div>
       </div>
-      
-      <!-- Action Button -->
-      <div class="flex justify-end pt-2 border-t border-gray-700">
-        <button 
-          @click.stop="goToDetail" 
-          class="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-sm rounded transition-colors"
-        >
-          查看详情
-        </button>
-      </div>
-    </div>
+    </transition>
 
     <!-- Footer Controls -->
-    <div class="absolute bottom-6 left-6 text-gray-600 text-xs pointer-events-none select-none">
-      <p>Left Click to Select Info</p>
-      <p>Double Click to Focus</p>
-      <p>Left Click + Drag to Rotate</p>
-      <p>Scroll to Zoom</p>
+    <div class="absolute bottom-6 left-6 text-gray-500 text-xs pointer-events-none select-none bg-black/30 backdrop-blur-sm p-3 rounded-lg border border-white/5">
+      <div class="flex items-center gap-4">
+        <div class="flex items-center gap-2">
+          <div class="w-4 h-4 border border-gray-600 rounded flex items-center justify-center text-[10px]">L</div>
+          <span>点击选中</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <div class="w-4 h-4 border border-gray-600 rounded flex items-center justify-center text-[10px]">2x</div>
+          <span>双击聚焦</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <div class="w-4 h-4 border border-gray-600 rounded flex items-center justify-center text-[10px]">D</div>
+          <span>拖拽旋转</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <div class="w-4 h-4 border border-gray-600 rounded flex items-center justify-center text-[10px]">S</div>
+          <span>滚轮缩放</span>
+        </div>
+      </div>
     </div>
   </div>
 </template>
