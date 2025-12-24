@@ -8,7 +8,7 @@
           <div class="absolute inset-0 border-t-4 border-[#f5aacb] rounded-full animate-spin"></div>
           <div class="absolute inset-2 border-r-4 border-[#00ffcc] rounded-full animate-spin-reverse"></div>
         </div>
-        <div class="text-white text-2xl font-light tracking-[0.5em] uppercase">Loading Universe</div>
+        <div class="text-white text-2xl font-light tracking-[0.5em] uppercase">Generating Nature Galaxy</div>
         <div class="text-[#f5aacb]/70 text-sm mt-2 font-mono">{{ loadingStatus }}</div>
       </div>
     </Transition>
@@ -20,108 +20,82 @@
       <div class="flex justify-between items-start">
         <div class="pointer-events-auto">
           <h1 class="text-5xl font-black text-transparent bg-clip-text bg-gradient-to-r from-[#f5aacb] to-[#00ffcc] tracking-tighter italic">
-            GALAXY <span class="text-white text-2xl not-italic font-light tracking-widest block mt-1">POINT CLOUD VISUALIZER</span>
+            NATURE <span class="text-white text-2xl not-italic font-light tracking-widest block mt-1">150TH STYLE VISUALIZATION</span>
           </h1>
         </div>
         
         <div class="flex flex-col items-end gap-3 pointer-events-auto">
           <div class="glass-panel px-6 py-4 text-right backdrop-blur-xl border-r-2 border-[#f5aacb]">
-            <div class="text-[10px] text-white/40 uppercase tracking-widest mb-1">Current Sector</div>
-            <div class="text-xl font-bold text-white">{{ viewState === 'universe' ? 'MAIN GALAXY CLUSTER' : activeShopName }}</div>
+            <div class="text-[10px] text-white/40 uppercase tracking-widest mb-1">Total Entities</div>
+            <div class="text-xl font-bold text-white">{{ totalPoints.toLocaleString() }} NODES</div>
             <div class="text-xs text-[#00ffcc] font-mono mt-1">
-              {{ viewState === 'universe' ? `${totalParticles.toLocaleString()} SHOPS` : `${currentSystemParticles.toLocaleString()} ARTIFACTS` }}
+              CONNECTED CLUSTERS
             </div>
           </div>
-
-          <button 
-            v-if="viewState !== 'universe'" 
-            @click="returnToGalaxy"
-            class="glass-btn px-6 py-2 text-white hover:text-[#f5aacb] transition-all flex items-center gap-2 group"
-          >
-            <span class="i-heroicons-arrow-left group-hover:-translate-x-1 transition-transform"></span> 
-            EXIT SYSTEM
-          </button>
+          
+          <div class="glass-panel px-4 py-2 text-right">
+              <div class="text-[10px] text-white/40 uppercase mb-1">Time Axis (Vertical)</div>
+              <div class="h-24 w-2 bg-gradient-to-t from-blue-900 via-purple-500 to-white rounded-full mx-auto relative">
+                  <span class="absolute -left-8 top-0 text-[9px] text-white">NOW</span>
+                  <span class="absolute -left-8 bottom-0 text-[9px] text-blue-500">PAST</span>
+              </div>
+          </div>
         </div>
       </div>
 
       <!-- Footer & Detail Panel -->
       <div class="flex justify-between items-end">
         <!-- Hover Info (Follows Selection) -->
-        <div v-if="hoveredData" class="glass-panel px-6 py-4 pointer-events-auto animate-fade-in backdrop-blur-xl border-l-2 border-[#00ffcc]">
-          <div class="text-[10px] text-[#f5aacb] uppercase tracking-widest mb-1">
-            {{ viewState === 'universe' ? 'SHOP DETECTED' : 'ARTIFACT DETECTED' }}
+        <div v-if="hoveredData" class="glass-panel px-6 py-4 pointer-events-auto animate-fade-in backdrop-blur-xl border-l-2 border-[#00ffcc] max-w-sm">
+          <div class="text-[10px] font-bold uppercase tracking-widest mb-1" :class="hoveredData.type === 'shop' ? 'text-[#f5aacb]' : 'text-[#00ffcc]'">
+            {{ hoveredData.type === 'shop' ? 'STAR SYSTEM (SHOP)' : 'PLANETARY ARTIFACT (ITEM)' }}
           </div>
-          <h2 class="text-2xl font-bold text-white mb-1">{{ hoveredData.name }}</h2>
+          <h2 class="text-2xl font-bold text-white mb-1 leading-tight">{{ hoveredData.name }}</h2>
           
-          <div v-if="viewState === 'system'" class="text-xs text-white/60 font-mono">
-            <div>RELEASE DATE: <span class="text-white">{{ hoveredData.date }}</span></div>
-            <div>PRICE: <span class="text-[#00ffcc]">{{ hoveredData.price }}</span></div>
-          </div>
-          <div v-else class="text-xs text-white/60 font-mono">
-            <div>ID: #{{ hoveredData.id }}</div>
-            <div class="mt-1 text-[#00ffcc]">CLICK TO ENTER SYSTEM ></div>
-          </div>
-
-          <!-- Interaction Prompt -->
-          <div v-if="viewState === 'system'" class="mt-3 pt-3 border-t border-white/10">
-             <button @click="openModelViewer" class="text-xs bg-white/10 hover:bg-[#f5aacb] hover:text-black transition-colors px-3 py-1 rounded w-full uppercase font-bold">
-               View 3D Model
-             </button>
+          <div class="text-xs text-white/60 font-mono space-y-1 mt-2">
+            <div v-if="hoveredData.type === 'library'">
+                 <div>RELEASE: <span class="text-white">{{ hoveredData.dateStr }}</span></div>
+                 <div>PRICE: <span class="text-[#00ffcc]">{{ hoveredData.price }}</span></div>
+                 <div class="mt-2 text-[#f5aacb] cursor-pointer" @click="focusShop(hoveredData.parentId)">
+                    BELONGS TO: {{ getShopName(hoveredData.parentId) }} >
+                 </div>
+            </div>
+            <div v-else>
+                 <div>ID: #{{ hoveredData.id }}</div>
+                 <div>ITEMS: <span class="text-white">{{ hoveredData.childCount }}</span></div>
+            </div>
           </div>
         </div>
         
-        <!-- Empty div for spacing if no hover -->
         <div v-else></div>
-
-        <!-- Legend -->
-        <div class="text-right text-[10px] text-white/30 uppercase tracking-widest font-mono">
-          <div v-if="viewState === 'system'">
-            <span class="text-[#00ffcc]">●</span> NEWER (OUTER) <br>
-            <span class="text-[#3366ff]">●</span> OLDER (INNER)
-          </div>
-        </div>
       </div>
     </div>
-
-    <!-- Model Viewer Overlay -->
-    <Transition name="fade">
-      <div v-if="showModelViewer" class="absolute inset-0 z-50 bg-black/90 flex flex-col">
-        <div class="absolute top-6 right-6 z-50">
-          <button @click="closeModelViewer" class="text-white hover:text-[#f5aacb] text-4xl">&times;</button>
-        </div>
-        <div ref="modelContainer" class="flex-1 w-full h-full"></div>
-      </div>
-    </Transition>
   </div>
 </template>
 
 <script setup lang="ts">
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass';
 import TWEEN from '@tweenjs/tween.js';
-import { getShopList } from '@/api/shop';
-import { getLibraryList } from '@/api/library';
 
 // --- Configuration ---
-const GALAXY_SIZE = 15000; // Simulated shops count
-const PARTICLE_SIZE_GALAXY = 4;
-const PARTICLE_SIZE_SYSTEM = 3;
+const SHOP_COUNT = 500;        // Number of shops
+const MAX_ITEMS_PER_SHOP = 100; // Max items per shop
+const TOTAL_TIME_SPAN = 20 * 365 * 24 * 60 * 60 * 1000; // 20 years in ms
+const START_DATE = new Date('2005-01-01').getTime();
+const VERTICAL_SCALE = 0.00000002; // Scale time to Y axis
+const SPIRAL_TIGHTNESS = 0.5;
+const CLUSTER_RADIUS_FACTOR = 0.5;
 
 // --- State ---
 const container = ref<HTMLElement | null>(null);
-const modelContainer = ref<HTMLElement | null>(null);
 const loading = ref(true);
 const loadingStatus = ref('Initializing...');
-const viewState = ref<'universe' | 'system'>('universe');
-const activeShopName = ref('');
-const totalParticles = ref(0);
-const currentSystemParticles = ref(0);
+const totalPoints = ref(0);
 const hoveredData = ref<any>(null);
-const showModelViewer = ref(false);
 
 // --- Three.js Globals ---
 let scene: THREE.Scene;
@@ -133,19 +107,18 @@ let raycaster: THREE.Raycaster;
 let mouse: THREE.Vector2;
 let animationId: number;
 
-// Point Clouds
-let galaxyPoints: THREE.Points | null = null;
-let systemPoints: THREE.Points | null = null;
-let hoverHighlight: THREE.Mesh | null = null; // Cursor highlight
+let pointCloud: THREE.Points | null = null;
+let connectionLines: THREE.LineSegments | null = null;
+let hoverHighlight: THREE.Mesh | null = null;
 
-// Data Cache
-// We store data in arrays matching the particle index
-let galaxyData: any[] = []; 
-let systemData: any[] = [];
+// Data Store
+// Stores metadata for each point index
+const pointsMetadata: any[] = [];
+const shopMap = new Map<number, string>(); // ID -> Name
 
 onMounted(async () => {
   initThree();
-  await generateGalaxy();
+  await generateNatureGalaxy();
   animate();
   
   window.addEventListener('resize', onWindowResize);
@@ -161,129 +134,190 @@ onUnmounted(() => {
   renderer?.dispose();
 });
 
-// --- Initialization ---
 const initThree = () => {
   if (!container.value) return;
 
-  // Scene
   scene = new THREE.Scene();
-  scene.fog = new THREE.FogExp2(0x000000, 0.001);
+  scene.fog = new THREE.FogExp2(0x050505, 0.0005);
 
-  // Camera
-  camera = new THREE.PerspectiveCamera(60, container.value.clientWidth / container.value.clientHeight, 0.1, 5000);
-  camera.position.set(0, 100, 200);
+  camera = new THREE.PerspectiveCamera(60, container.value.clientWidth / container.value.clientHeight, 0.1, 10000);
+  camera.position.set(400, 200, 400);
 
-  // Renderer
   renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' });
   renderer.setSize(container.value.clientWidth, container.value.clientHeight);
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   container.value.appendChild(renderer.domElement);
 
-  // Post Processing (Bloom)
+  // Bloom
   const renderScene = new RenderPass(scene, camera);
   const bloomPass = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 1.5, 0.4, 0.85);
-  bloomPass.threshold = 0.2;
-  bloomPass.strength = 1.2;
+  bloomPass.threshold = 0.1;
+  bloomPass.strength = 1.0;
   bloomPass.radius = 0.5;
   
   composer = new EffectComposer(renderer);
   composer.addPass(renderScene);
   composer.addPass(bloomPass);
 
-  // Controls
   controls = new OrbitControls(camera, renderer.domElement);
   controls.enableDamping = true;
   controls.dampingFactor = 0.05;
   controls.autoRotate = true;
-  controls.autoRotateSpeed = 0.5;
-  controls.maxDistance = 1000;
+  controls.autoRotateSpeed = 0.2;
+  controls.maxDistance = 2000;
 
-  // Raycaster
   raycaster = new THREE.Raycaster();
-  raycaster.params.Points!.threshold = 2; // Hit tolerance
+  raycaster.params.Points!.threshold = 3;
   mouse = new THREE.Vector2();
 
-  // Highlight Cursor
-  const geometry = new THREE.RingGeometry(2, 2.5, 32);
-  const material = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.8, side: THREE.DoubleSide });
-  hoverHighlight = new THREE.Mesh(geometry, material);
+  // Highlight Ring
+  const ringGeo = new THREE.RingGeometry(1, 1.2, 32);
+  const ringMat = new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide });
+  hoverHighlight = new THREE.Mesh(ringGeo, ringMat);
   hoverHighlight.visible = false;
   scene.add(hoverHighlight);
 };
 
-// --- Generate Galaxy (Shops) ---
-const generateGalaxy = async () => {
-  loadingStatus.value = `Simulating ${GALAXY_SIZE} Star Systems...`;
+// --- Core Generation Logic ---
+const generateNatureGalaxy = async () => {
+  loadingStatus.value = "Simulating temporal clusters...";
   
-  // Real Data + Mock Data Filling
-  let realShops: any[] = [];
-  try {
-    const res = await getShopList({ page: 1, pageSize: 100 }); // Get first 100 real
-    if (res && res.rows) realShops = res.rows;
-  } catch(e) { console.error(e); }
+  // Buffers
+  // Estimate total points
+  const estimatedTotal = SHOP_COUNT * (MAX_ITEMS_PER_SHOP / 2) + SHOP_COUNT; 
+  const positions = [];
+  const colors = [];
+  const sizes = [];
+  
+  // Line buffers (Shop center -> Item)
+  const linePositions = [];
+  const lineColors = [];
 
-  const geometry = new THREE.BufferGeometry();
-  const positions = new Float32Array(GALAXY_SIZE * 3);
-  const colors = new Float32Array(GALAXY_SIZE * 3);
-  const sizes = new Float32Array(GALAXY_SIZE);
+  const shopColor = new THREE.Color(0xf5aacb);
   
-  galaxyData = [];
-  const color1 = new THREE.Color(0xf5aacb); // Pink inner
-  const color2 = new THREE.Color(0x3366ff); // Blue outer
-  
-  for (let i = 0; i < GALAXY_SIZE; i++) {
-    // Spiral Galaxy Math
-    const branchAngle = (i % 3) * ((2 * Math.PI) / 3);
-    const radius = Math.random() * 300 + 20; // Spread 20 to 320
-    const spinAngle = radius * 0.02; // Twist
-    const randomOffset = (Math.random() - 0.5) * 20;
-
-    const angle = branchAngle + spinAngle + Math.random() * 0.5;
+  for (let i = 0; i < SHOP_COUNT; i++) {
+    // 1. Create Shop (Cluster Center)
+    const shopId = i;
+    const shopName = `Star System #${i}`;
+    shopMap.set(shopId, shopName);
     
-    const x = Math.cos(angle) * radius + (Math.random() - 0.5) * 15;
-    const z = Math.sin(angle) * radius + (Math.random() - 0.5) * 15;
-    const y = (Math.random() - 0.5) * (30 - radius * 0.05); // Flat disk, slightly thicker at center
+    // Shop base position determines its "Thread" in the universe
+    // We distribute shops in a large ring or phyllotaxis spiral on the XZ plane
+    // But they drift upward over time? No, shops usually persist.
+    // Nature 150th style: Roots at bottom, branches growing up.
+    // Let's make Shop center follow a large spiral path UPWARDS too, 
+    // or keep shops static in XZ and items spiraling up.
+    
+    // Let's place Shops in a Phyllotaxis spiral on XZ plane to separate them
+    const angle = i * 2.39996; // Golden angle approx
+    const radius = 30 * Math.sqrt(i) + 50; 
+    const shopX = Math.cos(angle) * radius;
+    const shopZ = Math.sin(angle) * radius;
+    const shopY = -100; // Base level
+    
+    // Push Shop Point
+    positions.push(shopX, shopY, shopZ);
+    colors.push(shopColor.r, shopColor.g, shopColor.b);
+    sizes.push(10.0); // Big shop node
+    
+    const shopIndex = pointsMetadata.length;
+    pointsMetadata.push({
+      type: 'shop',
+      id: shopId,
+      name: shopName,
+      childCount: 0
+    });
+    
+    // 2. Create Items (Library) for this Shop
+    const itemCount = Math.floor(Math.random() * MAX_ITEMS_PER_SHOP) + 10;
+    pointsMetadata[shopIndex].childCount = itemCount;
 
-    positions[i * 3] = x;
-    positions[i * 3 + 1] = y;
-    positions[i * 3 + 2] = z;
-
-    // Color mixing based on radius
-    const mixedColor = color1.clone().lerp(color2, radius / 300);
-    colors[i * 3] = mixedColor.r;
-    colors[i * 3 + 1] = mixedColor.g;
-    colors[i * 3 + 2] = mixedColor.b;
-
-    sizes[i] = PARTICLE_SIZE_GALAXY * (Math.random() * 0.5 + 0.8);
-
-    // Data Mapping
-    if (i < realShops.length) {
-      galaxyData.push({
-        type: 'shop',
-        id: realShops[i].shop_id,
-        name: realShops[i].shop_name,
-        count: realShops[i].count_library
+    for (let j = 0; j < itemCount; j++) {
+      // Random Date within 20 years
+      const timeOffset = Math.random() * TOTAL_TIME_SPAN;
+      const itemDate = START_DATE + timeOffset;
+      const dateStr = new Date(itemDate).toISOString().split('T')[0];
+      
+      // Calculate Height (Y) based on Time
+      // Newer items are higher
+      const y = (timeOffset * VERTICAL_SCALE) - 50; 
+      
+      // Spiral around the shop center
+      // The higher (newer), the wider the spiral? Or consistent?
+      // Nature 150th creates "branches".
+      // Let's add some noise to X/Z relative to Shop Center
+      
+      // Local spiral for the shop's history
+      const itemAngle = (timeOffset / TOTAL_TIME_SPAN) * 10 * Math.PI; // 5 rotations over history
+      const itemRadius = 10 + (timeOffset / TOTAL_TIME_SPAN) * 20; // Expands slightly over time
+      
+      const x = shopX + Math.cos(itemAngle) * itemRadius;
+      const z = shopZ + Math.sin(itemAngle) * itemRadius;
+      
+      positions.push(x, y, z);
+      
+      // Color based on Time (Blue -> Cyan -> White)
+      const t = timeOffset / TOTAL_TIME_SPAN;
+      const itemColor = new THREE.Color();
+      itemColor.setHSL(0.6 - t * 0.4, 0.8, 0.5 + t * 0.3);
+      colors.push(itemColor.r, itemColor.g, itemColor.b);
+      
+      sizes.push(4.0);
+      
+      pointsMetadata.push({
+        type: 'library',
+        id: `${shopId}-${j}`,
+        name: `Artifact ${shopId}-${j}`,
+        dateStr: dateStr,
+        price: Math.floor(Math.random() * 20000) + ' JPY',
+        parentId: shopId
       });
-      // Make real shops slightly bigger/distinct
-      sizes[i] *= 1.5;
-      colors[i*3] = 1; colors[i*3+1] = 1; colors[i*3+2] = 1; // White highlight
-    } else {
-      galaxyData.push({
-        type: 'shop',
-        id: i, // Mock ID
-        name: `Sector ${Math.floor(Math.random() * 9000) + 1000} Shop`,
-        count: Math.floor(Math.random() * 500)
-      });
+      
+      // Add Line from Previous Item (to form a thread) OR from Shop Center?
+      // Nature 150th connects nodes. 
+      // Let's connect items sequentially in time for this shop -> DNA strand look
+      // OR connect to center. Connecting to center looks like a messy cone.
+      // Connecting sequentially looks like a rising vine.
+      
+      // Let's connect to the previous item of this shop to make a strand
+      if (j > 0) {
+        // Prev item is at positions.length - 6 (current x,y,z is at -3)
+        // Actually accessing via index is safer
+        const prevIndex = (positions.length / 3) - 2;
+        const currIndex = (positions.length / 3) - 1;
+        
+        linePositions.push(
+            positions[prevIndex*3], positions[prevIndex*3+1], positions[prevIndex*3+2],
+            x, y, z
+        );
+        
+        // Line color matches item color but dimmer
+        lineColors.push(
+            itemColor.r, itemColor.g, itemColor.b,
+            itemColor.r, itemColor.g, itemColor.b
+        );
+      } else {
+        // Connect first item to Shop Center
+        linePositions.push(
+            shopX, shopY, shopZ,
+            x, y, z
+        );
+        lineColors.push(
+            shopColor.r, shopColor.g, shopColor.b,
+            itemColor.r, itemColor.g, itemColor.b
+        );
+      }
     }
   }
-
-  geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-  geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-  geometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
-
-  // Shader Material for nice point sprites
-  const material = new THREE.PointsMaterial({
-    size: PARTICLE_SIZE_GALAXY,
+  
+  // Create Point Cloud
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+  geo.setAttribute('size', new THREE.Float32BufferAttribute(sizes, 1));
+  
+  const mat = new THREE.PointsMaterial({
+    size: 4,
     vertexColors: true,
     map: getDiscTexture(),
     transparent: true,
@@ -292,232 +326,30 @@ const generateGalaxy = async () => {
     blending: THREE.AdditiveBlending,
     sizeAttenuation: true
   });
-
-  galaxyPoints = new THREE.Points(geometry, material);
-  scene.add(galaxyPoints);
-  totalParticles.value = GALAXY_SIZE;
-  loading.value = false;
-};
-
-// --- Enter Star System (Libraries) ---
-const enterSystem = async (shopData: any) => {
-  loading.value = true;
-  loadingStatus.value = `Warping to ${shopData.name}...`;
-  activeShopName.value = shopData.name;
-  hoveredData.value = null;
-
-  // Fly Camera Effect
-  const startPos = camera.position.clone();
-  const targetPos = new THREE.Vector3(0, 0, 0); // Center of universe
   
-  // 1. Fetch Libraries
-  let libraries: any[] = [];
-  try {
-    // Attempt to fetch real data
-    const res = await getLibraryList({ 
-        filter_list: [{ field: 'shop_id', op: '=', value: shopData.id }],
-        page: 1, 
-        pageSize: 2000 // Get many!
-    });
-    if (res && res.rows) libraries = res.rows;
-  } catch(e) {}
-
-  // If few libraries, generate mock to look impressive
-  if (libraries.length < 500) {
-     const needed = 2000 - libraries.length;
-     for(let i=0; i<needed; i++) {
-        libraries.push({
-            library_id: 999999 + i,
-            name: `Artifact ${i}`,
-            sale_time: new Date(2010 + Math.random()*15, Math.random()*12, 1).toISOString(),
-            library_price: Math.floor(Math.random()*20000) + ' JPY'
-        });
-     }
-  }
-
-  // 2. Sort by Date for Time Spiral
-  libraries.sort((a, b) => {
-    const da = new Date(a.sale_time || '2000-01-01').getTime();
-    const db = new Date(b.sale_time || '2000-01-01').getTime();
-    return da - db;
-  });
-
-  // 3. Build System Geometry
-  const geometry = new THREE.BufferGeometry();
-  const count = libraries.length;
-  const positions = new Float32Array(count * 3);
-  const colors = new Float32Array(count * 3);
+  pointCloud = new THREE.Points(geo, mat);
+  scene.add(pointCloud);
   
-  systemData = libraries.map(l => ({
-    id: l.library_id,
-    name: l.name,
-    date: l.sale_time ? l.sale_time.split('T')[0] : 'Unknown',
-    price: l.library_price || 'N/A',
-    cover: l.cover
-  }));
-
-  const minRadius = 10;
-  const maxRadius = 150;
+  // Create Lines
+  const lineGeo = new THREE.BufferGeometry();
+  lineGeo.setAttribute('position', new THREE.Float32BufferAttribute(linePositions, 3));
+  lineGeo.setAttribute('color', new THREE.Float32BufferAttribute(lineColors, 3));
   
-  for (let i = 0; i < count; i++) {
-      // Time Spiral layout
-      // i/count represents normalized time (0 = oldest, 1 = newest)
-      const t = i / count;
-      
-      const r = minRadius + t * (maxRadius - minRadius);
-      const theta = t * 20 * Math.PI; // 10 full circles
-      
-      const x = r * Math.cos(theta) + (Math.random()-0.5)*2;
-      const z = r * Math.sin(theta) + (Math.random()-0.5)*2;
-      const y = (Math.random() - 0.5) * 5;
-
-      positions[i*3] = x;
-      positions[i*3+1] = y;
-      positions[i*3+2] = z;
-
-      // Color Spectrum: Old (Blue/Purple) -> New (Green/Cyan)
-      const color = new THREE.Color();
-      color.setHSL(0.6 - t * 0.45, 0.8, 0.5); // 0.6(blue) -> 0.15(green/yellow)
-      
-      colors[i*3] = color.r;
-      colors[i*3+1] = color.g;
-      colors[i*3+2] = color.b;
-  }
-
-  geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-  geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-
-  const material = new THREE.PointsMaterial({
-    size: PARTICLE_SIZE_SYSTEM,
+  const lineMat = new THREE.LineBasicMaterial({
     vertexColors: true,
-    map: getDiscTexture(),
     transparent: true,
-    opacity: 0.9,
-    blending: THREE.AdditiveBlending,
-    sizeAttenuation: true
+    opacity: 0.15, // Subtle connections
+    blending: THREE.AdditiveBlending
   });
-
-  systemPoints = new THREE.Points(geometry, material);
-  systemPoints.scale.set(0,0,0); // Start tiny
-  scene.add(systemPoints);
   
-  currentSystemParticles.value = count;
+  connectionLines = new THREE.LineSegments(lineGeo, lineMat);
+  scene.add(connectionLines);
 
-  // 4. Animation Transition
-  new TWEEN.Tween(galaxyPoints!.material)
-    .to({ opacity: 0 }, 1000)
-    .onComplete(() => { galaxyPoints!.visible = false; })
-    .start();
-
-  new TWEEN.Tween(systemPoints.scale)
-    .to({ x: 1, y: 1, z: 1 }, 1500)
-    .easing(TWEEN.Easing.Elastic.Out)
-    .start();
-
-  // Reset Camera smoothly
-  new TWEEN.Tween(camera.position)
-    .to({ x: 0, y: 80, z: 120 }, 1500)
-    .easing(TWEEN.Easing.Cubic.Out)
-    .start();
-
-  controls.autoRotateSpeed = 0.2;
-  viewState.value = 'system';
+  totalPoints.value = pointsMetadata.length;
   loading.value = false;
 };
 
-const returnToGalaxy = () => {
-  if (!systemPoints || !galaxyPoints) return;
-  
-  viewState.value = 'universe';
-  hoveredData.value = null;
-  if(hoverHighlight) hoverHighlight.visible = false;
-
-  new TWEEN.Tween(systemPoints.scale)
-    .to({ x: 0, y: 0, z: 0 }, 800)
-    .onComplete(() => {
-        scene.remove(systemPoints!);
-        systemPoints = null;
-    })
-    .start();
-
-  galaxyPoints.visible = true;
-  new TWEEN.Tween(galaxyPoints.material)
-    .to({ opacity: 0.8 }, 1000)
-    .start();
-
-  new TWEEN.Tween(camera.position)
-    .to({ x: 0, y: 100, z: 200 }, 1500)
-    .start();
-    
-  controls.autoRotateSpeed = 0.5;
-};
-
-// --- Model Viewer ---
-const openModelViewer = () => {
-    showModelViewer.value = true;
-    
-    // Init Simple Model Viewer in the overlay
-    nextTick(() => {
-        if(!modelContainer.value) return;
-        
-        const w = modelContainer.value.clientWidth;
-        const h = modelContainer.value.clientHeight;
-        
-        const mScene = new THREE.Scene();
-        mScene.background = new THREE.Color(0x111111);
-        
-        const mCam = new THREE.PerspectiveCamera(50, w/h, 0.1, 100);
-        mCam.position.set(0, 2, 5);
-        
-        const mRenderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-        mRenderer.setSize(w, h);
-        modelContainer.value.innerHTML = '';
-        modelContainer.value.appendChild(mRenderer.domElement);
-        
-        const mControls = new OrbitControls(mCam, mRenderer.domElement);
-        mControls.enableDamping = true;
-        
-        // Lights
-        const amb = new THREE.AmbientLight(0xffffff, 0.5);
-        mScene.add(amb);
-        const dir = new THREE.DirectionalLight(0xffffff, 1);
-        dir.position.set(5, 5, 5);
-        mScene.add(dir);
-        
-        // Load Model
-        const loader = new GLTFLoader();
-        // Use a placeholder or real url if hoveredData has it
-        const url = 'https://lolitalibrary.com/ali//sence/1.gltf';
-        
-        loader.load(url, (gltf) => {
-            const model = gltf.scene;
-            const box = new THREE.Box3().setFromObject(model);
-            const size = box.getSize(new THREE.Vector3());
-            const center = box.getCenter(new THREE.Vector3());
-            const scale = 3 / Math.max(size.x, size.y, size.z);
-            model.scale.set(scale, scale, scale);
-            model.position.sub(center.multiplyScalar(scale));
-            mScene.add(model);
-        });
-        
-        const animateModel = () => {
-            if(!showModelViewer.value) {
-                mRenderer.dispose();
-                return;
-            }
-            requestAnimationFrame(animateModel);
-            mControls.update();
-            mRenderer.render(mScene, mCam);
-        }
-        animateModel();
-    });
-};
-
-const closeModelViewer = () => {
-    showModelViewer.value = false;
-};
-
-// --- Utilities ---
+// --- Utils ---
 const getDiscTexture = () => {
   const canvas = document.createElement('canvas');
   canvas.width = 32;
@@ -532,9 +364,32 @@ const getDiscTexture = () => {
     context.fillStyle = gradient;
     context.fillRect(0, 0, 32, 32);
   }
-  const texture = new THREE.CanvasTexture(canvas);
-  return texture;
+  return new THREE.CanvasTexture(canvas);
 };
+
+const getShopName = (id: number) => shopMap.get(id) || 'Unknown Shop';
+
+const focusShop = (shopId: number) => {
+    // Find the shop node index (it's stored sequentially but we need to search metadata to be safe or store index map)
+    // Optimization: Metadata is index aligned.
+    const index = pointsMetadata.findIndex(p => p.type === 'shop' && p.id === shopId);
+    if (index !== -1 && pointCloud) {
+        const pos = pointCloud.geometry.getAttribute('position');
+        const x = pos.getX(index);
+        const y = pos.getY(index);
+        const z = pos.getZ(index);
+        
+        new TWEEN.Tween(controls.target)
+            .to({ x, y, z }, 1000)
+            .easing(TWEEN.Easing.Cubic.Out)
+            .start();
+            
+        new TWEEN.Tween(camera.position)
+            .to({ x: x + 50, y: y + 50, z: z + 50 }, 1000)
+            .easing(TWEEN.Easing.Cubic.Out)
+            .start();
+    }
+}
 
 // --- Interactions ---
 const onWindowResize = () => {
@@ -546,100 +401,70 @@ const onWindowResize = () => {
 };
 
 const onMouseMove = (event: MouseEvent) => {
-  if (loading.value || showModelViewer.value) return;
+  if (loading.value) return;
   
   mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
   mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
   
   raycaster.setFromCamera(mouse, camera);
   
-  const target = viewState.value === 'universe' ? galaxyPoints : systemPoints;
-  if (!target) return;
-
-  const intersects = raycaster.intersectObject(target);
-  
-  if (intersects.length > 0) {
-    const index = intersects[0].index!;
-    const posAttribute = target.geometry.getAttribute('position');
-    
-    // Position highlight
-    if (hoverHighlight) {
-        hoverHighlight.visible = true;
-        hoverHighlight.position.set(
-            posAttribute.getX(index),
-            posAttribute.getY(index),
-            posAttribute.getZ(index)
-        );
-        hoverHighlight.lookAt(camera.position);
+  if (pointCloud) {
+    const intersects = raycaster.intersectObject(pointCloud);
+    if (intersects.length > 0) {
+      const index = intersects[0].index!;
+      const pos = pointCloud.geometry.getAttribute('position');
+      
+      // Highlight
+      if (hoverHighlight) {
+          hoverHighlight.visible = true;
+          hoverHighlight.position.set(pos.getX(index), pos.getY(index), pos.getZ(index));
+          hoverHighlight.lookAt(camera.position);
+      }
+      
+      hoveredData.value = pointsMetadata[index];
+      document.body.style.cursor = 'pointer';
+    } else {
+      hoveredData.value = null;
+      if (hoverHighlight) hoverHighlight.visible = false;
+      document.body.style.cursor = 'default';
     }
-    
-    // Update Data
-    const dataList = viewState.value === 'universe' ? galaxyData : systemData;
-    if (dataList[index]) {
-        hoveredData.value = dataList[index];
-        document.body.style.cursor = 'pointer';
-    }
-  } else {
-    hoveredData.value = null;
-    if (hoverHighlight) hoverHighlight.visible = false;
-    document.body.style.cursor = 'default';
   }
 };
 
-const onClick = () => {
-  if (hoveredData.value && viewState.value === 'universe') {
-    enterSystem(hoveredData.value);
-  } else if (hoveredData.value && viewState.value === 'system') {
-      // Maybe zoom to library or open stats?
-  }
+const onClick = (event: MouseEvent) => {
+    if (hoveredData.value) {
+        // Fly to clicked item
+        if (hoverHighlight) {
+            const target = hoverHighlight.position.clone();
+            new TWEEN.Tween(controls.target)
+                .to({ x: target.x, y: target.y, z: target.z }, 800)
+                .easing(TWEEN.Easing.Cubic.Out)
+                .start();
+        }
+    }
 };
 
 const animate = (time?: number) => {
   animationId = requestAnimationFrame(animate);
   TWEEN.update(time);
   controls.update();
-  
-  // Rotate Universe slowly
-  if (galaxyPoints && viewState.value === 'universe') {
-      galaxyPoints.rotation.y += 0.0002;
-  }
-  if (systemPoints) {
-      systemPoints.rotation.y -= 0.0005; // Counter rotate inner system
-  }
-
   composer.render();
 };
 </script>
 
 <style scoped>
 .glass-panel {
-  background: rgba(10, 10, 10, 0.6);
-  backdrop-filter: blur(12px);
+  background: rgba(10, 10, 10, 0.7);
+  backdrop-filter: blur(16px);
   border-radius: 4px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
-}
-
-.glass-btn {
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 4px;
+  box-shadow: 0 4px 30px rgba(0, 0, 0, 0.5);
 }
 
 .animate-spin-reverse {
   animation: spin-reverse 1.5s linear infinite;
 }
+@keyframes spin-reverse { from { transform: rotate(360deg); } to { transform: rotate(0deg); } }
 
-@keyframes spin-reverse {
-  from { transform: rotate(360deg); }
-  to { transform: rotate(0deg); }
-}
-
-.animate-fade-in {
-    animation: fadeIn 0.3s ease-out forwards;
-}
-
-@keyframes fadeIn {
-    from { opacity: 0; transform: translateY(10px); }
-    to { opacity: 1; transform: translateY(0); }
-}
+.animate-fade-in { animation: fadeIn 0.3s ease-out forwards; }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
 </style>
