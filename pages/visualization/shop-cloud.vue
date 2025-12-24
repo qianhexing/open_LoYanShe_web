@@ -17,12 +17,14 @@ const hoverInfo = ref<{
   visible: boolean;
   x: number;
   y: number;
-  data: Library | null;
+  data: Library | Shop | null;
+  type: 'library' | 'shop';
 }>({
   visible: false,
   x: 0,
   y: 0,
-  data: null
+  data: null,
+  type: 'library'
 });
 
 // 颜色生成器
@@ -50,7 +52,7 @@ const fetchData = async () => {
     });
 
     // 获取图鉴列表
-    const libRes = await getLibraryList({ page: 1, pageSize: 1500 });
+    const libRes = await getLibraryList({ page: 1, pageSize: 999 }); // Changed to 999
     libraryList.value = libRes.rows.filter(l => l.shop_id && l.sale_time);
 
     console.log(`Loaded ${libraryList.value.length} libraries from ${shopMap.size} shops.`);
@@ -62,6 +64,20 @@ const fetchData = async () => {
   }
 };
 
+const createFocusRing = () => {
+  const geometry = new THREE.RingGeometry(0.8, 1.0, 32);
+  const material = new THREE.MeshBasicMaterial({ 
+    color: 0xffff00, 
+    side: THREE.DoubleSide,
+    transparent: true,
+    opacity: 0.8
+  });
+  const ring = new THREE.Mesh(geometry, material);
+  ring.visible = false;
+  ring.userData.isFocusRing = true;
+  return ring;
+}
+
 const createPointCloud = () => {
   if (!threeCore.value || libraryList.value.length === 0) return;
 
@@ -69,17 +85,19 @@ const createPointCloud = () => {
   const libraries = libraryList.value;
   const count = libraries.length;
 
-  // 1. 计算店铺聚类位置 (Grid Layout)
+  // 1. 计算店铺聚类位置 (Grid Layout - Random Space)
   const shopClusters = new Map<number, {cx: number, cy: number, cz: number}>();
-  // 收集所有出现的 shop_id (有些图鉴的 shop_id 可能不在 shopMap 里)
+  // 收集所有出现的 shop_id
   const uniqueShopIds = new Set(libraries.map(l => l.shop_id).filter(id => id));
   const uniqueShopIdsArray = Array.from(uniqueShopIds);
   
+  // 类比星空，随机分布在一个较大的空间内
+  const GALAXY_RADIUS = 120;
   uniqueShopIdsArray.forEach((id, index) => {
-    // 球面均匀分布
-    const r = 80;
-    const phi = Math.acos(-1 + (2 * index) / uniqueShopIdsArray.length);
-    const theta = Math.sqrt(uniqueShopIdsArray.length * Math.PI) * phi;
+    // 使用球坐标随机分布，但在半径上也有随机性，避免只是一个球壳
+    const r = Math.random() * GALAXY_RADIUS + 20; // 20 ~ 140
+    const theta = Math.random() * Math.PI * 2;
+    const phi = Math.acos(2 * Math.random() - 1);
     
     shopClusters.set(id!, {
       cx: r * Math.sin(phi) * Math.cos(theta),
@@ -96,6 +114,7 @@ const createPointCloud = () => {
   const shopPositions: number[] = [];
   const shopColors: number[] = [];
   const shopSizes: number[] = [];
+  const shopDataList: Shop[] = []; // Store Shop Data for interaction
 
   const linePositions = new Float32Array(count * 2 * 3);
   const lineColors = new Float32Array(count * 2 * 3);
@@ -121,12 +140,10 @@ const createPointCloud = () => {
     libColors[i * 3 + 1] = color.g;
     libColors[i * 3 + 2] = color.b;
 
-    // Size based on popularity
     const popularity = (lib.good_count || 0) + (lib.wardrobe_count || 0) * 2;
     libSizes[i] = Math.max(1.5, Math.min(6, Math.log(popularity + 1) * 1.5));
 
     // Fill Line Data
-    // Vertex 0: Lib
     linePositions[i * 6] = x;
     linePositions[i * 6 + 1] = y;
     linePositions[i * 6 + 2] = z;
@@ -135,26 +152,27 @@ const createPointCloud = () => {
     lineColors[i * 6 + 1] = color.g;
     lineColors[i * 6 + 2] = color.b;
 
-    // Vertex 1: Shop Center
     linePositions[i * 6 + 3] = center.cx;
     linePositions[i * 6 + 4] = center.cy;
     linePositions[i * 6 + 5] = center.cz;
     
-    // Line end color (slightly darker)
     lineColors[i * 6 + 3] = color.r * 0.4;
     lineColors[i * 6 + 4] = color.g * 0.4;
     lineColors[i * 6 + 5] = color.b * 0.4;
   });
 
   // 4. 构建店铺点数据
-  // 注意：uniqueShopIdsArray 里的顺序就是 shopClusters 里的顺序
   uniqueShopIdsArray.forEach((id) => {
     const center = shopClusters.get(id!)!;
     const color = getShopColor(id!);
+    const shop = shopMap.get(id!);
 
-    shopPositions.push(center.cx, center.cy, center.cz);
-    shopColors.push(color.r, color.g, color.b);
-    shopSizes.push(15.0); // 店铺点固定较大
+    if (shop) {
+      shopPositions.push(center.cx, center.cy, center.cz);
+      shopColors.push(color.r, color.g, color.b);
+      shopSizes.push(8.0); // 缩小店铺点大小 (was 15.0)
+      shopDataList.push(shop);
+    }
   });
 
   // --- Render Library Points ---
@@ -199,11 +217,10 @@ const createPointCloud = () => {
   shopGeometry.setAttribute('color', new THREE.BufferAttribute(new Float32Array(shopColors), 3));
   shopGeometry.setAttribute('size', new THREE.BufferAttribute(new Float32Array(shopSizes), 1));
   
-  // Use same shader but with larger points
   const shopMaterial = material.clone();
   
   const shopPoints = new THREE.Points(shopGeometry, shopMaterial);
-  shopPoints.userData = { isShopPoints: true };
+  shopPoints.userData = { isShopPoints: true, shops: shopDataList };
   scene.add(shopPoints);
 
   // --- Render Lines ---
@@ -221,6 +238,10 @@ const createPointCloud = () => {
   const lines = new THREE.LineSegments(lineGeometry, lineMaterial);
   lines.userData = { isLines: true };
   scene.add(lines);
+
+  // --- Focus Ring ---
+  const focusRing = createFocusRing();
+  scene.add(focusRing);
 };
 
 const initThree = () => {
@@ -228,7 +249,7 @@ const initThree = () => {
 
   const core = new ThreeCore({
     container: container.value,
-    cameraPosition: { x: 0, y: 0, z: 180 },
+    cameraPosition: { x: 0, y: 0, z: 200 },
     clearColor: 0x000000,
     alpha: false,
     enableStats: true,
@@ -243,7 +264,7 @@ const initThree = () => {
 
   // Raycaster setup
   const raycaster = new THREE.Raycaster();
-  raycaster.params.Points.threshold = 2; 
+  raycaster.params.Points.threshold = 1.5; 
   const mouse = new THREE.Vector2();
 
   const onMouseMove = (event: MouseEvent) => {
@@ -256,24 +277,71 @@ const initThree = () => {
     raycaster.setFromCamera(mouse, core.camera);
 
     const pointsObject = core.scene.children.find(child => (child as any).userData?.isPointCloud) as THREE.Points;
-    if (pointsObject) {
-      const intersections = raycaster.intersectObject(pointsObject);
-      
+    const shopPointsObject = core.scene.children.find(child => (child as any).userData?.isShopPoints) as THREE.Points;
+    const focusRing = core.scene.children.find(child => (child as any).userData?.isFocusRing) as THREE.Mesh;
+
+    let intersected = false;
+
+    // Check Shops first (usually larger and more sparse)
+    if (shopPointsObject) {
+      const intersections = raycaster.intersectObject(shopPointsObject);
       if (intersections.length > 0) {
         const index = intersections[0].index!;
-        const lib = (pointsObject as any).userData.libraries[index] as Library;
+        const shop = (shopPointsObject as any).userData.shops[index] as Shop;
+        const pointPosition = new THREE.Vector3();
+        pointPosition.fromBufferAttribute(shopPointsObject.geometry.attributes.position as THREE.BufferAttribute, index);
         
         hoverInfo.value = {
           visible: true,
           x: event.clientX + 15,
           y: event.clientY + 15,
-          data: lib
+          data: shop,
+          type: 'shop'
         };
         document.body.style.cursor = 'pointer';
-      } else {
-        hoverInfo.value.visible = false;
-        document.body.style.cursor = 'default';
+        
+        if (focusRing) {
+          focusRing.visible = true;
+          focusRing.position.copy(pointPosition);
+          focusRing.lookAt(core.camera.position);
+          focusRing.scale.set(3, 3, 3); // Larger ring for shops
+        }
+        intersected = true;
       }
+    }
+
+    // Check Libraries if no shop intersected
+    if (!intersected && pointsObject) {
+      const intersections = raycaster.intersectObject(pointsObject);
+      if (intersections.length > 0) {
+        const index = intersections[0].index!;
+        const lib = (pointsObject as any).userData.libraries[index] as Library;
+        const pointPosition = new THREE.Vector3();
+        pointPosition.fromBufferAttribute(pointsObject.geometry.attributes.position as THREE.BufferAttribute, index);
+
+        hoverInfo.value = {
+          visible: true,
+          x: event.clientX + 15,
+          y: event.clientY + 15,
+          data: lib,
+          type: 'library'
+        };
+        document.body.style.cursor = 'pointer';
+
+        if (focusRing) {
+          focusRing.visible = true;
+          focusRing.position.copy(pointPosition);
+          focusRing.lookAt(core.camera.position);
+          focusRing.scale.set(1.5, 1.5, 1.5); // Smaller ring for libraries
+        }
+        intersected = true;
+      }
+    }
+
+    if (!intersected) {
+      hoverInfo.value.visible = false;
+      document.body.style.cursor = 'default';
+      if (focusRing) focusRing.visible = false;
     }
   };
   
@@ -322,32 +390,46 @@ onBeforeUnmount(() => {
       class="fixed pointer-events-none z-50 bg-gray-900 bg-opacity-95 border border-gray-700 rounded-lg p-4 text-white shadow-2xl backdrop-blur-md w-80 transform transition-opacity duration-150"
       :style="{ left: `${hoverInfo.x}px`, top: `${hoverInfo.y}px` }"
     >
-      <div class="flex items-start gap-4">
+      <!-- Shop Info -->
+      <div v-if="hoverInfo.type === 'shop'" class="flex items-center gap-4">
+         <div class="w-16 h-16 flex-shrink-0 bg-gray-800 rounded-full overflow-hidden flex items-center justify-center border-2 border-blue-500">
+           <img 
+            v-if="(hoverInfo.data as Shop).shop_logo" 
+            :src="(hoverInfo.data as Shop).shop_logo" 
+            class="w-full h-full object-cover"
+            alt="logo"
+          />
+          <span v-else class="text-xs text-gray-500">Logo</span>
+         </div>
+         <div class="flex-1">
+            <h3 class="font-bold text-lg text-blue-400">{{ (hoverInfo.data as Shop).shop_name }}</h3>
+            <p class="text-sm text-gray-400">{{ (hoverInfo.data as Shop).shop_country === 0 ? 'China' : 'Overseas' }}</p>
+         </div>
+      </div>
+
+      <!-- Library Info -->
+      <div v-else class="flex items-start gap-4">
         <div class="w-16 h-20 flex-shrink-0 bg-gray-800 rounded overflow-hidden">
           <img 
-            v-if="hoverInfo.data.cover" 
-            :src="hoverInfo.data.cover" 
+            v-if="(hoverInfo.data as Library).cover" 
+            :src="(hoverInfo.data as Library).cover" 
             class="w-full h-full object-cover"
             alt="cover"
           />
         </div>
         <div class="flex-1 min-w-0">
-          <h3 class="font-bold text-base text-blue-400 truncate leading-tight mb-1">{{ hoverInfo.data.name }}</h3>
+          <h3 class="font-bold text-base text-blue-400 truncate leading-tight mb-1">{{ (hoverInfo.data as Library).name }}</h3>
           <p class="text-xs text-gray-400 truncate mb-2">
-            {{ shopMap.get(hoverInfo.data.shop_id!)?.shop_name || 'Unknown Shop' }}
+            {{ shopMap.get((hoverInfo.data as Library).shop_id!)?.shop_name || 'Unknown Shop' }}
           </p>
           <div class="grid grid-cols-2 gap-2 text-xs text-gray-300">
             <div class="flex items-center gap-1">
               <span class="opacity-50">📅</span>
-              <span>{{ hoverInfo.data.sale_time?.split(' ')[0] || 'N/A' }}</span>
+              <span>{{ (hoverInfo.data as Library).sale_time?.split(' ')[0] || 'N/A' }}</span>
             </div>
             <div class="flex items-center gap-1">
               <span class="opacity-50">🔥</span>
-              <span>{{ hoverInfo.data.good_count || 0 }}</span>
-            </div>
-            <div class="flex items-center gap-1">
-              <span class="opacity-50">👗</span>
-              <span>{{ hoverInfo.data.wardrobe_count || 0 }}</span>
+              <span>{{ (hoverInfo.data as Library).good_count || 0 }}</span>
             </div>
           </div>
         </div>
