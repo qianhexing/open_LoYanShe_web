@@ -5,15 +5,17 @@ import * as THREE from 'three';
 import { getShopList } from '@/api/shop';
 import { getLibraryList } from '@/api/library';
 import type { Shop, Library } from '@/types/api';
+import { useRouter } from 'vue-router';
 
+const router = useRouter();
 const container = ref<HTMLElement | null>(null);
 const threeCore = shallowRef<ThreeCore | null>(null);
 const loading = ref(true);
 const shopMap = new Map<number, Shop>();
 const libraryList = ref<Library[]>([]);
 
-// 鼠标悬停信息
-const hoverInfo = ref<{
+// 选中信息（点击后锁定）
+const selectedInfo = ref<{
   visible: boolean;
   x: number;
   y: number;
@@ -52,7 +54,7 @@ const fetchData = async () => {
     });
 
     // 获取图鉴列表
-    const libRes = await getLibraryList({ page: 1, pageSize: 999 }); // Changed to 999
+    const libRes = await getLibraryList({ page: 1, pageSize: 999 });
     libraryList.value = libRes.rows.filter(l => l.shop_id && l.sale_time);
 
     console.log(`Loaded ${libraryList.value.length} libraries from ${shopMap.size} shops.`);
@@ -91,11 +93,10 @@ const createPointCloud = () => {
   const uniqueShopIds = new Set(libraries.map(l => l.shop_id).filter(id => id));
   const uniqueShopIdsArray = Array.from(uniqueShopIds);
   
-  // 类比星空，随机分布在一个较大的空间内
-  const GALAXY_RADIUS = 120;
+  // 星系排布紧凑一些：减小半径
+  const GALAXY_RADIUS = 60; // 原来 120
   uniqueShopIdsArray.forEach((id, index) => {
-    // 使用球坐标随机分布，但在半径上也有随机性，避免只是一个球壳
-    const r = Math.random() * GALAXY_RADIUS + 20; // 20 ~ 140
+    const r = Math.random() * GALAXY_RADIUS + 10;
     const theta = Math.random() * Math.PI * 2;
     const phi = Math.acos(2 * Math.random() - 1);
     
@@ -114,7 +115,7 @@ const createPointCloud = () => {
   const shopPositions: number[] = [];
   const shopColors: number[] = [];
   const shopSizes: number[] = [];
-  const shopDataList: Shop[] = []; // Store Shop Data for interaction
+  const shopDataList: Shop[] = []; 
 
   const linePositions = new Float32Array(count * 2 * 3);
   const lineColors = new Float32Array(count * 2 * 3);
@@ -125,8 +126,8 @@ const createPointCloud = () => {
     const center = shopClusters.get(shopId) || { cx: 0, cy: 0, cz: 0 };
     const color = getShopColor(shopId);
 
-    // 图鉴位置：在店铺中心周围随机分布
-    const offset = 12; 
+    // 图鉴点扩散的开一些：增大 offset
+    const offset = 25; // 原来 12
     const x = center.cx + (Math.random() - 0.5) * offset;
     const y = center.cy + (Math.random() - 0.5) * offset;
     const z = center.cz + (Math.random() - 0.5) * offset;
@@ -170,7 +171,7 @@ const createPointCloud = () => {
     if (shop) {
       shopPositions.push(center.cx, center.cy, center.cz);
       shopColors.push(color.r, color.g, color.b);
-      shopSizes.push(8.0); // 缩小店铺点大小 (was 15.0)
+      shopSizes.push(8.0);
       shopDataList.push(shop);
     }
   });
@@ -252,7 +253,7 @@ const initThree = () => {
     cameraPosition: { x: 0, y: 0, z: 200 },
     clearColor: 0x000000,
     alpha: false,
-    enableStats: true,
+    enableStats: false, // 1. 去掉性能监控
     enableOrbitControls: true
   });
   
@@ -267,22 +268,18 @@ const initThree = () => {
   raycaster.params.Points.threshold = 1.5; 
   const mouse = new THREE.Vector2();
 
-  const onMouseMove = (event: MouseEvent) => {
-    if (!core.camera) return;
-    
+  // 通用 Raycast 函数
+  const performRaycast = (clientX: number, clientY: number) => {
+    if (!core.camera) return null;
     const rect = container.value!.getBoundingClientRect();
-    mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-    mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
-
+    mouse.x = ((clientX - rect.left) / rect.width) * 2 - 1;
+    mouse.y = -((clientY - rect.top) / rect.height) * 2 + 1;
     raycaster.setFromCamera(mouse, core.camera);
 
     const pointsObject = core.scene.children.find(child => (child as any).userData?.isPointCloud) as THREE.Points;
     const shopPointsObject = core.scene.children.find(child => (child as any).userData?.isShopPoints) as THREE.Points;
-    const focusRing = core.scene.children.find(child => (child as any).userData?.isFocusRing) as THREE.Mesh;
 
-    let intersected = false;
-
-    // Check Shops first (usually larger and more sparse)
+    // Check Shops
     if (shopPointsObject) {
       const intersections = raycaster.intersectObject(shopPointsObject);
       if (intersections.length > 0) {
@@ -290,69 +287,101 @@ const initThree = () => {
         const shop = (shopPointsObject as any).userData.shops[index] as Shop;
         const pointPosition = new THREE.Vector3();
         pointPosition.fromBufferAttribute(shopPointsObject.geometry.attributes.position as THREE.BufferAttribute, index);
-        
-        hoverInfo.value = {
-          visible: true,
-          x: event.clientX + 15,
-          y: event.clientY + 15,
-          data: shop,
-          type: 'shop'
-        };
-        document.body.style.cursor = 'pointer';
-        
-        if (focusRing) {
-          focusRing.visible = true;
-          focusRing.position.copy(pointPosition);
-          focusRing.lookAt(core.camera.position);
-          focusRing.scale.set(3, 3, 3); // Larger ring for shops
-        }
-        intersected = true;
+        return { type: 'shop', data: shop, position: pointPosition, index } as const;
       }
     }
 
-    // Check Libraries if no shop intersected
-    if (!intersected && pointsObject) {
+    // Check Libraries
+    if (pointsObject) {
       const intersections = raycaster.intersectObject(pointsObject);
       if (intersections.length > 0) {
         const index = intersections[0].index!;
         const lib = (pointsObject as any).userData.libraries[index] as Library;
         const pointPosition = new THREE.Vector3();
         pointPosition.fromBufferAttribute(pointsObject.geometry.attributes.position as THREE.BufferAttribute, index);
-
-        hoverInfo.value = {
-          visible: true,
-          x: event.clientX + 15,
-          y: event.clientY + 15,
-          data: lib,
-          type: 'library'
-        };
-        document.body.style.cursor = 'pointer';
-
-        if (focusRing) {
-          focusRing.visible = true;
-          focusRing.position.copy(pointPosition);
-          focusRing.lookAt(core.camera.position);
-          focusRing.scale.set(1.5, 1.5, 1.5); // Smaller ring for libraries
-        }
-        intersected = true;
+        return { type: 'library', data: lib, position: pointPosition, index } as const;
       }
     }
+    return null;
+  };
 
-    if (!intersected) {
-      hoverInfo.value.visible = false;
+  const onMouseMove = (event: MouseEvent) => {
+    const result = performRaycast(event.clientX, event.clientY);
+    const focusRing = core.scene.children.find(child => (child as any).userData?.isFocusRing) as THREE.Mesh;
+
+    if (result) {
+      document.body.style.cursor = 'pointer';
+      if (focusRing) {
+        focusRing.visible = true;
+        focusRing.position.copy(result.position);
+        focusRing.lookAt(core.camera.position);
+        focusRing.scale.set(result.type === 'shop' ? 3 : 1.5, result.type === 'shop' ? 3 : 1.5, 1);
+      }
+    } else {
       document.body.style.cursor = 'default';
+      // 如果没有选中任何东西，且鼠标移开，我们只隐藏聚焦环
+      // 信息框的显隐由 Click 控制
       if (focusRing) focusRing.visible = false;
     }
   };
   
   const onClick = (event: MouseEvent) => {
-     if (hoverInfo.value.visible && hoverInfo.value.data) {
-        console.log('Clicked:', hoverInfo.value.data);
-     }
+    const result = performRaycast(event.clientX, event.clientY);
+    if (result) {
+       selectedInfo.value = {
+         visible: true,
+         x: event.clientX + 15,
+         y: event.clientY + 15,
+         data: result.data,
+         type: result.type
+       };
+    } else {
+       // 点击空白处，隐藏信息框
+       selectedInfo.value.visible = false;
+    }
+  }
+
+  // 2. 双击聚焦
+  const onDblClick = (event: MouseEvent) => {
+    const result = performRaycast(event.clientX, event.clientY);
+    if (result && core) {
+      // 移动相机到目标点附近
+      const targetPos = result.position.clone();
+      const currentPos = core.camera.position.clone();
+      
+      // 计算新的相机位置：保持当前方向，但推进距离
+      // 或者：移动到目标点前方固定距离
+      // 简单策略：在目标点 Z 轴方向偏移一点
+      const offset = new THREE.Vector3(0, 0, 40); 
+      // 如果当前相机在反面，就反向偏移
+      if (currentPos.z < targetPos.z) offset.z = -40;
+      
+      const newCamPos = targetPos.clone().add(offset);
+      
+      core.lookAtCameraState({
+        position: newCamPos,
+        target: targetPos
+      }, 1500); // 1.5s 动画
+    }
   }
 
   container.value.addEventListener('mousemove', onMouseMove);
   container.value.addEventListener('click', onClick);
+  container.value.addEventListener('dblclick', onDblClick);
+};
+
+// 跳转详情页
+const goToDetail = () => {
+  if (!selectedInfo.value.data) return;
+  const id = selectedInfo.value.type === 'shop' 
+    ? (selectedInfo.value.data as Shop).shop_id 
+    : (selectedInfo.value.data as Library).library_id;
+  
+  const path = selectedInfo.value.type === 'shop' 
+    ? `/shop/detail/${id}` 
+    : `/library/detail/${id}`;
+    
+  router.push(path);
 };
 
 onMounted(async () => {
@@ -384,62 +413,73 @@ onBeforeUnmount(() => {
       <p class="text-gray-400 text-sm">{{ libraryList.length }} Libraries | {{ shopMap.size }} Shops</p>
     </div>
 
-    <!-- Info Card -->
+    <!-- Info Card (Based on selectedInfo) -->
     <div 
-      v-if="hoverInfo.visible && hoverInfo.data"
-      class="fixed pointer-events-none z-50 bg-gray-900 bg-opacity-95 border border-gray-700 rounded-lg p-4 text-white shadow-2xl backdrop-blur-md w-80 transform transition-opacity duration-150"
-      :style="{ left: `${hoverInfo.x}px`, top: `${hoverInfo.y}px` }"
+      v-if="selectedInfo.visible && selectedInfo.data"
+      class="fixed z-50 bg-gray-900 bg-opacity-95 border border-gray-700 rounded-lg p-4 text-white shadow-2xl backdrop-blur-md w-80 transform transition-opacity duration-150"
+      :style="{ left: `${selectedInfo.x}px`, top: `${selectedInfo.y}px` }"
     >
       <!-- Shop Info -->
-      <div v-if="hoverInfo.type === 'shop'" class="flex items-center gap-4">
+      <div v-if="selectedInfo.type === 'shop'" class="flex items-center gap-4 mb-3">
          <div class="w-16 h-16 flex-shrink-0 bg-gray-800 rounded-full overflow-hidden flex items-center justify-center border-2 border-blue-500">
            <img 
-            v-if="(hoverInfo.data as Shop).shop_logo" 
-            :src="(hoverInfo.data as Shop).shop_logo" 
+            v-if="(selectedInfo.data as Shop).shop_logo" 
+            :src="(selectedInfo.data as Shop).shop_logo" 
             class="w-full h-full object-cover"
             alt="logo"
           />
           <span v-else class="text-xs text-gray-500">Logo</span>
          </div>
          <div class="flex-1">
-            <h3 class="font-bold text-lg text-blue-400">{{ (hoverInfo.data as Shop).shop_name }}</h3>
-            <p class="text-sm text-gray-400">{{ (hoverInfo.data as Shop).shop_country === 0 ? 'China' : 'Overseas' }}</p>
+            <h3 class="font-bold text-lg text-blue-400">{{ (selectedInfo.data as Shop).shop_name }}</h3>
+            <p class="text-sm text-gray-400">{{ (selectedInfo.data as Shop).shop_country === 0 ? 'China' : 'Overseas' }}</p>
          </div>
       </div>
 
       <!-- Library Info -->
-      <div v-else class="flex items-start gap-4">
+      <div v-else class="flex items-start gap-4 mb-3">
         <div class="w-16 h-20 flex-shrink-0 bg-gray-800 rounded overflow-hidden">
           <img 
-            v-if="(hoverInfo.data as Library).cover" 
-            :src="(hoverInfo.data as Library).cover" 
+            v-if="(selectedInfo.data as Library).cover" 
+            :src="(selectedInfo.data as Library).cover" 
             class="w-full h-full object-cover"
             alt="cover"
           />
         </div>
         <div class="flex-1 min-w-0">
-          <h3 class="font-bold text-base text-blue-400 truncate leading-tight mb-1">{{ (hoverInfo.data as Library).name }}</h3>
+          <h3 class="font-bold text-base text-blue-400 truncate leading-tight mb-1">{{ (selectedInfo.data as Library).name }}</h3>
           <p class="text-xs text-gray-400 truncate mb-2">
-            {{ shopMap.get((hoverInfo.data as Library).shop_id!)?.shop_name || 'Unknown Shop' }}
+            {{ shopMap.get((selectedInfo.data as Library).shop_id!)?.shop_name || 'Unknown Shop' }}
           </p>
           <div class="grid grid-cols-2 gap-2 text-xs text-gray-300">
             <div class="flex items-center gap-1">
               <span class="opacity-50">📅</span>
-              <span>{{ (hoverInfo.data as Library).sale_time?.split(' ')[0] || 'N/A' }}</span>
+              <span>{{ (selectedInfo.data as Library).sale_time?.split(' ')[0] || 'N/A' }}</span>
             </div>
             <div class="flex items-center gap-1">
               <span class="opacity-50">🔥</span>
-              <span>{{ (hoverInfo.data as Library).good_count || 0 }}</span>
+              <span>{{ (selectedInfo.data as Library).good_count || 0 }}</span>
             </div>
           </div>
         </div>
+      </div>
+      
+      <!-- Action Button -->
+      <div class="flex justify-end pt-2 border-t border-gray-700">
+        <button 
+          @click.stop="goToDetail" 
+          class="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-sm rounded transition-colors"
+        >
+          查看详情
+        </button>
       </div>
     </div>
 
     <!-- Footer Controls -->
     <div class="absolute bottom-6 left-6 text-gray-600 text-xs pointer-events-none select-none">
+      <p>Left Click to Select Info</p>
+      <p>Double Click to Focus</p>
       <p>Left Click + Drag to Rotate</p>
-      <p>Right Click + Drag to Pan</p>
       <p>Scroll to Zoom</p>
     </div>
   </div>
