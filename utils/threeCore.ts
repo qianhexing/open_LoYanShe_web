@@ -711,9 +711,9 @@ class ThreeCore {
 
 		this.bloomPass = new UnrealBloomPass(
 			new THREE.Vector2(window.innerWidth, window.innerHeight),
-			0.5,
+			0.3,
 			0.04,
-			0.85
+			1.0
 		)
 
 		this.bloomComposer = new EffectComposer(
@@ -1122,7 +1122,7 @@ class ThreeCore {
 		
 		// 色彩空间设置
 		this.renderer.outputColorSpace = THREE.SRGBColorSpace
-		this.renderer.toneMapping = THREE.ACESFilmicToneMapping
+		this.renderer.toneMapping = THREE.LinearToneMapping
 		this.renderer.toneMappingExposure = 1.0
 		
 		// 高质量阴影设置 - 关键配置来避免阴影条纹
@@ -1257,20 +1257,20 @@ class ThreeCore {
 	initLights() {
 		// ================ 环境光设置 ================
 		// 基础环境光 - 为了避免完全黑暗的区域
-		const ambientLight = new THREE.AmbientLight(0xffffff, 0.8)
+		const ambientLight = new THREE.AmbientLight(0xffffff, 0.4)
 		this.scene.add(ambientLight)
 
 		// 半球光 - 模拟天空散射和地面反射
 		const hemiLight = new THREE.HemisphereLight(
 			0x87CEEB, // 天空颜色 - 淡蓝色
 			0x2F4F4F, // 地面颜色 - 暗灰色
-			0.6
+			0.3
 		)
 		hemiLight.position.set(0, 50, 0)
 		this.scene.add(hemiLight)
 
 		// ================ 主要方向光（太阳光） ================
-		const dirLight = new THREE.DirectionalLight(0xFFEECC, 1.8)
+		const dirLight = new THREE.DirectionalLight(0xFFEECC, 2.0)
 		dirLight.position.set(50, 50, 30)
 		dirLight.castShadow = true
 		
