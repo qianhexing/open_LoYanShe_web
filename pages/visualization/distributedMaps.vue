@@ -104,14 +104,34 @@ const createGeoJsonMap = (geojson: any, options: { totalCount: number }) => {
         depth: 2,
         bevelEnabled: false
       })
-      
-      // Compute color based on rank or count if needed
-      // const color = new THREE.Color().setHSL(Math.random(), 0.5, 0.5)
-      // const mat = material.clone()
-      // mat.color = color
 
-      const mesh = new THREE.Mesh(geometry, material)
+      // Determine color based on rank if available
+      let color = new THREE.Color(0x333333)
+      if (feature.rank) {
+        // Top ranks get brighter colors
+        if (feature.rank <= 3) {
+           color = new THREE.Color().setHSL(0.1, 0.8, 0.6) // Gold-ish
+        } else if (feature.rank <= 10) {
+           color = new THREE.Color().setHSL(0.6, 0.5, 0.5) // Blue-ish
+        } else {
+           // Gradient based on rank
+           color = new THREE.Color().setHSL(0.6, 0.3, 0.3 + (1/feature.rank)*0.5)
+        }
+      } else if (feature.count > 0) {
+          color = new THREE.Color().setHSL(0.6, 0.5, 0.4)
+      }
+
+      const mat = new THREE.MeshPhongMaterial({
+        color: color,
+        transparent: true,
+        opacity: 0.9,
+        side: THREE.DoubleSide
+      })
+
+      const mesh = new THREE.Mesh(geometry, mat)
       mesh.userData = feature.properties
+      mesh.receiveShadow = true
+      mesh.castShadow = true
       group.add(mesh)
 
       // Add border line
@@ -153,6 +173,8 @@ const createCylinderAtLatLng = (lat: number, lon: number, height: number, name: 
   
   mesh.position.set(pos.x, pos.y, 2) // On top of map
   mesh.userData = { name, height }
+  mesh.castShadow = true
+  mesh.receiveShadow = true
   
   return mesh
 }
@@ -175,28 +197,60 @@ const rankDistribution = (features: any[], topN: number | null = null) => {
 onMounted(async () => {
   if (!container.value) return
 
-  // Initialize ThreeCore
+  // Initialize ThreeCore with high performance settings
   const app = new ThreeCore({
     antialias: true,
     alpha: true,
-    cameraPosition: { x: 0, y: 0, z: 600 }, // Adjust based on scale
-    enableOrbitControls: true
+    cameraPosition: { x: 0, y: 0, z: 600 },
+    enableOrbitControls: true,
+    pixelRatio: window.devicePixelRatio,
+    // clearColor: 0x000000 
   })
   
   app.mount(container.value)
   app.startAnimationLoop()
   threeCore.value = app
+  
+  // Use Bloom
+  app.toggleBloom(true)
+  if (app.bloomPass) {
+      app.bloomPass.strength = 0.5
+      app.bloomPass.radius = 0.5
+      app.bloomPass.threshold = 0
+  }
 
-  // Setup basic lights
-  const ambientLight = new THREE.AmbientLight(0xffffff, 0.6)
-  app.scene.add(ambientLight)
-  const dirLight = new THREE.DirectionalLight(0xffffff, 0.8)
-  dirLight.position.set(100, 100, 200)
-  app.scene.add(dirLight)
+  // Clear existing lights and setup scene specific lights
+  // app.scene.remove(...app.scene.children.filter(o => o instanceof THREE.Light)) // Rough cleanup if needed
+  
+  // Setup lights based on the requested "old code" style
+  // Ambient Light
+  if (app.lights?.ambient) app.lights.ambient.intensity = 2
+  
+  // Directional Light with Shadows
+  if (app.lights?.directional) {
+      const dirLight = app.lights.directional
+      dirLight.intensity = 6
+      dirLight.position.set(50, 100, 50)
+      dirLight.castShadow = true
+      dirLight.shadow.mapSize.width = 4096
+      dirLight.shadow.mapSize.height = 4096
+      dirLight.shadow.bias = -0.0001
+      dirLight.shadow.camera.near = 0.5
+      dirLight.shadow.camera.far = 500
+      dirLight.shadow.camera.left = -300
+      dirLight.shadow.camera.right = 300
+      dirLight.shadow.camera.top = 300
+      dirLight.shadow.camera.bottom = -300
+      
+      // Add helper for debugging if needed
+      // const helper = new THREE.DirectionalLightHelper(dirLight)
+      // app.scene.add(helper)
+  }
 
   try {
-    // 1. Fetch GeoJSON
-    const geoJsonRes = await fetch(BASE_IMG + 'ssr/geoJson.json')
+    // 1. Fetch World JSON (changed from geoJson.json)
+    const geoJsonRes = await fetch(BASE_IMG + 'ssr/world.json')
+    if (!geoJsonRes.ok) throw new Error('Failed to load world.json')
     const geojson = await geoJsonRes.json()
 
     // 2. Calculate Ranges
@@ -211,8 +265,6 @@ onMounted(async () => {
     // 4. Merge Data
     let totalCount = 0
     const features = geojson.features.map((item: any) => {
-        // Find center if not present (simple approximation or property)
-        // The user code assumed item.properties.center exists
         return {
             name: item.properties.name,
             center: item.properties.center, 
@@ -221,55 +273,84 @@ onMounted(async () => {
     })
 
     statsData.forEach((child) => {
-        // Fuzzy match province name
         const index = features.findIndex((item: any) => item.name && item.name.includes(child.ip_location))
         if (index !== -1) {
             features[index].count = child.COUNT
             totalCount += child.COUNT
-            
-            // Also update geojson feature for consistency if needed
             geojson.features[index].count = child.COUNT
         }
     })
 
-    // 5. Update Rank List
+    // 5. Rank Logic (from old React code)
+    const provinceName = [
+        '北京市', '天津市', '河北省', '山西省', '内蒙古自治区', '辽宁省', '吉林省', '黑龙江省',
+        '上海市', '江苏省', '浙江省', '安徽省', '福建省', '江西省', '山东省', '河南省',
+        '湖北省', '湖南省', '广东省', '广西壮族自治区', '海南省', '重庆市', '四川省', '贵州省',
+        '云南省', '西藏自治区', '陕西省', '甘肃省', '青海省', '宁夏回族自治区', '新疆维吾尔自治区',
+        '台湾省', '香港特别行政区', '澳门特别行政区'
+    ];
+    
+    // Rank features for coloring logic
+    const chinaFeaturesWithIndex = geojson.features
+        .map((f: any, i: number) => ({ feature: f, index: i }))
+        .filter((item: any) => provinceName.includes(item.feature.properties.name));
+        
+    chinaFeaturesWithIndex
+        .sort((a: any, b: any) => (b.feature.count || 0) - (a.feature.count || 0))
+        .forEach((item: any, i: number) => {
+          geojson.features[item.index].rank = i + 1;
+        });
+
     rankList.value = rankDistribution(features)
 
     // 6. Create Map
     const mapGroup = createGeoJsonMap(geojson, { totalCount })
-    // Center the map group? The latLonToXYZ handles centering reasonably well if ranges are correct.
     app.scene.add(mapGroup)
 
     // 7. Create Cylinders (Data Bars)
     const barsGroup = new THREE.Group()
     features.forEach((child: any) => {
         if (child.count > 0 && child.center) {
-            // center is [lon, lat] usually
             const height = (child.count / totalCount) * 500 // Scale factor
             const cylinder = createCylinderAtLatLng(child.center[1], child.center[0], height, `${child.name} ${child.count}`)
             
             // Color coding based on count intensity
-            const intensity = Math.min(child.count / (totalCount * 0.1), 1) // Heuristic
+            const intensity = Math.min(child.count / (totalCount * 0.1), 1)
             const color = new THREE.Color().setHSL(0.3 - intensity * 0.3, 1.0, 0.5) // Green to Red
             if (cylinder.material instanceof THREE.MeshPhongMaterial) {
                cylinder.material.color = color
+               // Add emissive for bloom
+               cylinder.material.emissive = color
+               cylinder.material.emissiveIntensity = 0.5
             }
+            
+            // Enable bloom layer for this object
+            app.addBloomObject(cylinder)
             
             barsGroup.add(cylinder)
         }
     })
     app.scene.add(barsGroup)
 
-    // Adjust Camera
-    // Focus on China (approx center)
-    // 31.51, 121.4 is Shanghai, user focused there.
-    // China center roughly 35, 105
-    const centerPos = latLonToXYZ(35, 105)
+    // Breathing Animation
+    const animateBreathing = () => {
+        const time = Date.now() * 0.002;
+        barsGroup.children.forEach((child) => {
+            if (child instanceof THREE.Mesh && child.material instanceof THREE.MeshPhongMaterial) {
+                // Pulse emissive intensity
+                const pulse = (Math.sin(time) + 1) * 0.5 * 0.5 + 0.2; // 0.2 to 0.7
+                child.material.emissiveIntensity = pulse;
+            }
+        });
+    }
+    app.addAnimationCallback(animateBreathing);
+
+    // Adjust Camera Focus
+    const centerPos = latLonToXYZ(35, 105) // China center roughly
     app.controls.target.set(centerPos.x, centerPos.y, 0)
     app.camera.position.set(centerPos.x, centerPos.y - 300, 300)
     app.camera.lookAt(centerPos.x, centerPos.y, 0)
     app.controls.update()
-
 
   } catch (e) {
     console.error('Failed to load map data', e)
