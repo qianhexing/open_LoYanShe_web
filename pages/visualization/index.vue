@@ -261,57 +261,55 @@ const createDefaultAvatarTexture = (nickname: string) => {
     return texture;
 }
 
-// 创建恒星 (用户) - 头像展示
+// 创建恒星 (用户) - 精灵贴图头像
 const createStar = async (user: User) => {
-  // 1. 头像平面 (Billboard)
+  // 1. 获取头像纹理
   const avatarTexture = await createAvatarTexture(user);
-  const circleGeo = new THREE.CircleGeometry(4.0, 64);
-  const circleMat = new THREE.MeshBasicMaterial({ 
-      map: avatarTexture, 
-      side: THREE.DoubleSide,
-      transparent: true 
-  });
-  avatarMesh = new THREE.Mesh(circleGeo, circleMat);
-  avatarMesh.name = 'STAR_AVATAR';
   
-  // 2. 外部水晶球壳 (保护层+光泽)
-  const sphereGeo = new THREE.SphereGeometry(4.1, 64, 64);
-  const sphereMat = new THREE.MeshPhysicalMaterial({
-    color: 0xFFFFFF,
-    metalness: 0,
-    roughness: 0,
-    transmission: 0.9, // 高透光
+  // 2. 创建头像 Sprite
+  const spriteMat = new THREE.SpriteMaterial({ 
+    map: avatarTexture,
     transparent: true,
-    opacity: 0.3,
-    clearcoat: 1.0,
-    clearcoatRoughness: 0.1,
-    side: THREE.FrontSide
+    depthWrite: false, // 避免遮挡半透明物体
   });
-  const glassSphere = new THREE.Mesh(sphereGeo, sphereMat);
+  const sprite = new THREE.Sprite(spriteMat);
+  sprite.scale.set(8, 8, 1); // 调整头像大小
+  sprite.name = 'STAR_AVATAR';
   
-  // 3. 柔和光晕 (Bloom)
-  const glowGeo = new THREE.SphereGeometry(4.5, 32, 32);
-  const glowMat = new THREE.MeshBasicMaterial({
-    color: 0xFF69B4, // 热粉色光晕
+  // 3. 添加一个发光背景 Sprite (增强层次感)
+  const glowCanvas = document.createElement('canvas');
+  glowCanvas.width = 128;
+  glowCanvas.height = 128;
+  const ctx = glowCanvas.getContext('2d');
+  if (ctx) {
+    const gradient = ctx.createRadialGradient(64, 64, 0, 64, 64, 64);
+    gradient.addColorStop(0, 'rgba(255, 183, 197, 0.8)'); // 粉色中心
+    gradient.addColorStop(0.5, 'rgba(255, 105, 180, 0.2)'); // 扩散
+    gradient.addColorStop(1, 'rgba(0, 0, 0, 0)');
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, 128, 128);
+  }
+  const glowTexture = new THREE.CanvasTexture(glowCanvas);
+  const glowMat = new THREE.SpriteMaterial({ 
+    map: glowTexture, 
     transparent: true,
-    opacity: 0.15, // 稍微提高一点可见度
-    side: THREE.BackSide,
     blending: THREE.AdditiveBlending,
     depthWrite: false
   });
-  const glow = new THREE.Mesh(glowGeo, glowMat);
-
-  // 4. 装饰环
-  const ringGeo = new THREE.TorusGeometry(5.5, 0.05, 16, 100);
+  const glowSprite = new THREE.Sprite(glowMat);
+  glowSprite.scale.set(15, 15, 1); // 光晕比头像大
+  
+  // 4. 装饰环 (Mesh) - 让它围绕 Sprite 旋转，增加 3D 空间感
+  // 稍微倾斜一点，避免完全侧面对着镜头看不见
+  const ringGeo = new THREE.TorusGeometry(6.0, 0.05, 16, 100);
   const ringMat = new THREE.MeshBasicMaterial({ color: 0xFFD700, transparent: true, opacity: 0.6 });
   const ring = new THREE.Mesh(ringGeo, ringMat);
-  ring.rotation.x = Math.PI / 2;
+  ring.rotation.x = Math.PI / 1.8; // 稍微倾斜
   
   // 组装
-  starGroup.add(avatarMesh); // 头像在中心
-  starGroup.add(glassSphere); // 玻璃壳包在外面
-  starGroup.add(glow); // 光晕
-  starGroup.add(ring); // 环
+  starGroup.add(glowSprite); // 光晕在最底层
+  starGroup.add(ring);       // 环
+  starGroup.add(sprite);     // 头像在最上层
 
   // 名字标签
   try {
@@ -324,7 +322,7 @@ const createStar = async (user: User) => {
       context.fillRect(0, 0, 512, 128);
       
       // 描边文字
-      context.font = 'bold 50px "Georgia", "Times New Roman", serif'; // 衬线体更优雅
+      context.font = 'bold 50px "Georgia", "Times New Roman", serif';
       context.textAlign = 'center';
       context.lineWidth = 4;
       context.strokeStyle = '#FF69B4'; // 粉色描边
@@ -334,8 +332,8 @@ const createStar = async (user: User) => {
       context.fillText(user.nickname, 256, 80);
       
       const texture = new THREE.CanvasTexture(canvas);
-      const spriteMat = new THREE.SpriteMaterial({ map: texture, transparent: true });
-      nameSprite = new THREE.Sprite(spriteMat);
+      const nameMat = new THREE.SpriteMaterial({ map: texture, transparent: true });
+      nameSprite = new THREE.Sprite(nameMat);
       nameSprite.position.y = 6.5;
       nameSprite.scale.set(12, 3, 1);
       starGroup.add(nameSprite);
@@ -626,24 +624,17 @@ onMounted(async () => {
   core.value.addAnimationCallback(() => {
     if (isPaused.value) return;
 
-    // 1. 头像始终面向镜头
-    if (avatarMesh && core.value?.camera) {
-      avatarMesh.lookAt(core.value.camera.position);
-    }
-
     // 2. 恒星组其他部分自转 (环、光晕等)
-    // 注意：avatarMesh 是 starGroup 的子元素，如果 starGroup 转了，它也会跟着转位置，但 lookAt 会修正朝向。
-    // 为了不让头像位置乱跑，starGroup 本身只做 z 轴摆动，不做 y 轴自转。
-    // 或者我们将装饰环单独旋转，不旋转整个 starGroup。
     if (starGroup) {
       // 只有装饰环旋转
       starGroup.children.forEach(child => {
+         // 识别环 (TorusGeometry)
          if (child instanceof THREE.Mesh && child.geometry instanceof THREE.TorusGeometry) {
              child.rotation.z += 0.001; // 环自转
          }
       });
-      // 整体轻微摆动
-      starGroup.rotation.z = Math.sin(Date.now() * 0.0002) * 0.05; 
+      // 移除整体摆动，避免 Sprite 头像歪斜
+      // starGroup.rotation.z = Math.sin(Date.now() * 0.0002) * 0.05; 
     }
 
     // 3. 行星公转和自转
