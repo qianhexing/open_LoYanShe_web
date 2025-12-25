@@ -1,6 +1,6 @@
 
 // 没改好
-import type { BaseResponse, Wardrobe, WardrobeClothes, PaginationResponse, PaginationParams } from '@/types/api';
+import type { BaseResponse, Wardrobe, WardrobeClothes, PaginationResponse, PaginationParams, User } from '@/types/api';
 
 export interface WardrobeSearchParams {
   page?: number
@@ -134,5 +134,21 @@ export async function getWardrobeListOptions(
   }
 ): Promise<WardrobeListOption[]> {
   const response = await use$Post<BaseResponse<WardrobeListOption[]>>('/wardrobe/options', params);
+  return response.data;
+}
+
+// 获取衣柜可视化数据
+export interface WardrobeVisualizationData {
+  user: User;
+  wardrobe: Wardrobe[];
+  wardrobe_clothes: WardrobeClothes[];
+}
+
+export async function getWardrobeVisualization(
+  params: {
+    user_id: number
+  }
+): Promise<WardrobeVisualizationData> {
+  const response = await use$Post<BaseResponse<WardrobeVisualizationData>>('/visualization/wardrobe', params);
   return response.data;
 }
