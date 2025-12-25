@@ -182,8 +182,8 @@ const createParticleTexture = (type: 'star' | 'heart' = 'star') => {
     ctx.closePath();
     
     // 添加发光效果
-    ctx.shadowBlur = 10;
-    ctx.shadowColor = "white";
+    ctx.shadowBlur = 5; // 降低阴影模糊，减少发光
+    ctx.shadowColor = "rgba(255, 255, 255, 0.5)"; // 降低发光强度
     ctx.fill();
   } else {
     // 绘制心形
@@ -195,8 +195,8 @@ const createParticleTexture = (type: 'star' | 'heart' = 'star') => {
     ctx.bezierCurveTo(32, 10, 54, 10, 54, 25); // 中上控制点，右上顶部控制点，右上结束点
     ctx.bezierCurveTo(54, 40, 32, 55, 32, 58); // 右上控制点，右下控制点，底部点
     ctx.closePath();
-    ctx.shadowBlur = 10;
-    ctx.shadowColor = "white";
+    ctx.shadowBlur = 5; // 降低阴影模糊
+    ctx.shadowColor = "rgba(255, 255, 255, 0.5)";
     ctx.fill();
   }
 
@@ -211,13 +211,13 @@ const createStar = async (user: User) => {
   const material = new THREE.MeshPhysicalMaterial({
     color: 0xFFF0F5, // 薰衣草/粉白
     emissive: 0xFFB7C5, // 浅粉发光
-    emissiveIntensity: 0.2,
+    emissiveIntensity: 0.1, // 降低自发光
     metalness: 0.1,
-    roughness: 0.1, // 光滑
-    clearcoat: 1.0, // 清漆层，制造玻璃/珍珠质感
-    clearcoatRoughness: 0.1,
-    transmission: 0.2, // 轻微透光
-    thickness: 2.0,
+    roughness: 0.2, // 稍微粗糙一点，减少反光
+    clearcoat: 0.8, // 降低清漆层
+    clearcoatRoughness: 0.2,
+    transmission: 0.1, // 降低透光
+    thickness: 1.5,
   });
   const star = new THREE.Mesh(geometry, material);
   star.name = 'STAR_USER';
@@ -227,7 +227,7 @@ const createStar = async (user: User) => {
   const glowMat = new THREE.MeshBasicMaterial({
     color: 0xFF69B4, // 热粉色光晕
     transparent: true,
-    opacity: 0.1,
+    opacity: 0.05, // 降低透明度
     side: THREE.BackSide,
     blending: THREE.AdditiveBlending
   });
@@ -236,7 +236,7 @@ const createStar = async (user: User) => {
 
   // 内部装饰环 (类似行星环，增加层次)
   const ringGeo = new THREE.TorusGeometry(6.5, 0.05, 16, 100);
-  const ringMat = new THREE.MeshBasicMaterial({ color: 0xFFD700, transparent: true, opacity: 0.6 });
+  const ringMat = new THREE.MeshBasicMaterial({ color: 0xFFD700, transparent: true, opacity: 0.4 }); // 降低不透明度
   const ring = new THREE.Mesh(ringGeo, ringMat);
   ring.rotation.x = Math.PI / 2;
   star.add(ring);
@@ -282,11 +282,11 @@ const createCloudMaterial = (color: number) => {
 
   return new THREE.PointsMaterial({
     color: color,
-    size: 1.2, // 增大粒子尺寸
+    size: 1.0, // 稍微减小粒子尺寸
     map: texture,
     transparent: true,
-    opacity: 0.9,
-    blending: THREE.AdditiveBlending,
+    opacity: 0.7, // 降低不透明度
+    blending: THREE.NormalBlending, // 改为 NormalBlending，减少叠加过曝
     depthWrite: false,
     sizeAttenuation: true,
     vertexColors: false // 使用统一颜色
@@ -300,9 +300,9 @@ const initGalaxy = async () => {
   // 0. 设置背景色和 Bloom 参数
   core.value.renderer.setClearColor(0x1a0b2e, 1); // 深紫色背景
   // 增加环境光亮度，让 Pastel 颜色更明显
-  core.value.setAmbientLightIntensity(1.2); 
+  core.value.setAmbientLightIntensity(0.8); // 降低环境光
   // 开启并调整 Bloom
-  core.value.setBloomParams(1.5, 0.5, 0.2); // 增强辉光强度
+  core.value.setBloomParams(0.4, 0.4, 0.85); // 大幅降低强度，提高阈值
 
   // 1. 创建恒星
   await createStar(userData.value.user);
@@ -340,10 +340,10 @@ const initGalaxy = async () => {
     const pColor = planetColors[index % planetColors.length];
     const planetMat = new THREE.MeshStandardMaterial({ 
       color: pColor, 
-      roughness: 0.3,
-      metalness: 0.1,
+      roughness: 0.4, // 增加粗糙度
+      metalness: 0.0, // 减少金属感
       emissive: pColor,
-      emissiveIntensity: 0.2
+      emissiveIntensity: 0.05 // 降低自发光
     });
     const planet = new THREE.Mesh(planetGeo, planetMat);
     planet.userData = { 
@@ -355,7 +355,7 @@ const initGalaxy = async () => {
 
     // 添加行星环装饰 (丝带感)
     const ribbonGeo = new THREE.TorusGeometry(2.8, 0.05, 16, 64);
-    const ribbonMat = new THREE.MeshBasicMaterial({ color: 0xFFFFFF, transparent: true, opacity: 0.4 });
+    const ribbonMat = new THREE.MeshBasicMaterial({ color: 0xFFFFFF, transparent: true, opacity: 0.3 }); // 降低不透明度
     const ribbon = new THREE.Mesh(ribbonGeo, ribbonMat);
     ribbon.rotation.x = Math.PI / 2.5; // 稍微倾斜
     planetWrapper.add(ribbon);
@@ -365,7 +365,7 @@ const initGalaxy = async () => {
     const orbitMat = new THREE.MeshBasicMaterial({ 
       color: 0xFF69B4, // 粉色轨道
       side: THREE.DoubleSide, 
-      opacity: 0.15, 
+      opacity: 0.1, // 降低不透明度
       transparent: true, 
       blending: THREE.AdditiveBlending 
     });
@@ -410,16 +410,16 @@ const initGalaxy = async () => {
         group: planetOrbitGroup,
         mesh: planet,
         cloud: cloud,
-        orbitSpeed: 0.0015 + (Math.random() * 0.001), // 稍慢一点更优雅
-        rotateSpeed: 0.008 + (Math.random() * 0.004)
+        orbitSpeed: 0.0005 + (Math.random() * 0.0005), // 大幅降低公转速度
+        rotateSpeed: 0.002 + (Math.random() * 0.002) // 大幅降低自转速度
       });
     } else {
        planetGroups.push({
         group: planetOrbitGroup,
         mesh: planet,
         cloud: null as any,
-        orbitSpeed: 0.0015 + (Math.random() * 0.001),
-        rotateSpeed: 0.01
+        orbitSpeed: 0.0005 + (Math.random() * 0.0005),
+        rotateSpeed: 0.005
       });
     }
 
@@ -448,7 +448,7 @@ const addBackgroundStars = () => {
     size: 0.8,
     color: 0xE6E6FA, // 浅紫
     transparent: true,
-    opacity: 0.6,
+    opacity: 0.4, // 降低不透明度
     map: createParticleTexture('star'),
     blending: THREE.AdditiveBlending,
     depthWrite: false
@@ -562,8 +562,8 @@ onMounted(async () => {
     // 缓慢旋转整个星系背景，制造梦幻感
     // galaxyGroup.rotation.y += 0.0002;
 
-    starGroup.rotation.y += 0.002;
-    starGroup.rotation.z = Math.sin(Date.now() * 0.0005) * 0.05; // 微微摆动
+    starGroup.rotation.y += 0.0005; // 减慢恒星自转
+    starGroup.rotation.z = Math.sin(Date.now() * 0.0002) * 0.05; // 减慢摆动频率
 
     planetGroups.forEach(pg => {
       pg.group.rotation.y += pg.orbitSpeed;
@@ -572,7 +572,7 @@ onMounted(async () => {
       if (pg.cloud) {
         pg.cloud.rotation.y -= pg.rotateSpeed * 0.5;
         // 让云层有呼吸感
-        const scale = 1 + Math.sin(Date.now() * 0.001 + pg.mesh.id) * 0.05;
+        const scale = 1 + Math.sin(Date.now() * 0.0005 + pg.mesh.id) * 0.05; // 减慢呼吸
         pg.cloud.scale.set(scale, scale, scale);
       }
     });
