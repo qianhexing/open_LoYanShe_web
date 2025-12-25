@@ -19,6 +19,7 @@ export async function getLibraryList(
 
 interface DetailParams{
   library_id?: number | null  // 可选字段
+  attributes?: string[]
 }
 interface DetailResponse extends PaginationParams {
   library: Library
