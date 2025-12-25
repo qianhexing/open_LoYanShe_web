@@ -99,7 +99,7 @@
           <!-- Action Button -->
           <div class="flex justify-end pt-3 border-t border-gray-200 dark:border-gray-700 mt-4">
             <button @click.stop="goToDetail"
-              class="px-6 py-2 bg-pink-500 hover:bg-pink-600 text-white text-sm rounded-full font-medium transition-all shadow-lg shadow-pink-500/30 hover:shadow-pink-500/50 hover:scale-105">
+              class="px-6 py-2 bg-qhx-primary text-white text-sm rounded-full font-medium transition-all shadow-lg shadow-pink-500/30 hover:shadow-pink-500/50 hover:scale-105">
               🔍 查看详情
             </button>
           </div>
@@ -911,7 +911,7 @@ const goToDetail = () => {
     if (isInUniApp && typeof uni !== 'undefined' && uni.navigateTo) {
       // UniApp WebView 环境
       uni.navigateTo({
-        url: `/pages/clothes/detail/${cloth.clothes_id}`,
+        url: `/pages/wardrobe/clothesDetail/clothesDetail?id=${cloth.clothes_id}`,
         fail: () => {
           console.log('跳转错误');
         }
