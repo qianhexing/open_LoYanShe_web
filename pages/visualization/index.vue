@@ -101,6 +101,9 @@ const mouse = new THREE.Vector2();
 // 场景对象引用，用于动画
 const galaxyGroup = new THREE.Group(); // 整个星系容器
 const starGroup = new THREE.Group(); // 恒星容器
+let avatarMesh: THREE.Mesh | null = null; // 用户头像Mesh
+let nameSprite: THREE.Sprite | null = null; // 名字Sprite
+
 const planetGroups: {
   group: THREE.Group; // 包含行星和卫星的组，用于公转
   mesh: THREE.Mesh; // 行星本体，用于自转
@@ -138,6 +141,7 @@ const fetchMockData = async (userId: string): Promise<MockData> => {
     user: {
       id: userId || 'u1',
       nickname: 'Alice',
+      // 这里可以填写真实头像 URL，如果为空则自动生成首字母头像
       avatar: '', 
     },
     wardrobes,
@@ -204,42 +208,110 @@ const createParticleTexture = (type: 'star' | 'heart' = 'star') => {
   return texture;
 };
 
-// 创建恒星 (用户) - 珍珠/水晶球风格
+// 生成头像纹理
+const createAvatarTexture = (user: User) => {
+  if (user.avatar) {
+    const loader = new THREE.TextureLoader();
+    // 注意：真实场景下需要处理跨域问题，这里假设 avatar 是同域或支持 CORS 的
+    // 如果是外部链接，可以尝试设置 loader.crossOrigin = 'Anonymous';
+    // 但为了演示稳定，如果加载失败我们回退到 Canvas 生成
+    return new Promise<THREE.Texture>((resolve) => {
+        loader.load(user.avatar, (tex) => {
+            tex.colorSpace = THREE.SRGBColorSpace;
+            resolve(tex);
+        }, undefined, () => {
+            // 加载失败回退
+             resolve(createDefaultAvatarTexture(user.nickname));
+        });
+    });
+  } else {
+    return Promise.resolve(createDefaultAvatarTexture(user.nickname));
+  }
+};
+
+const createDefaultAvatarTexture = (nickname: string) => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 256;
+    canvas.height = 256;
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+        // 背景
+        const gradient = ctx.createRadialGradient(128, 128, 0, 128, 128, 128);
+        gradient.addColorStop(0, '#FFB7C5');
+        gradient.addColorStop(1, '#FF69B4');
+        ctx.fillStyle = gradient;
+        ctx.fillRect(0, 0, 256, 256);
+        
+        // 文字
+        ctx.fillStyle = '#FFFFFF';
+        ctx.font = 'bold 120px "Quicksand", sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(nickname[0]?.toUpperCase() || 'U', 128, 128);
+        
+        // 边框
+        ctx.strokeStyle = '#FFFFFF';
+        ctx.lineWidth = 10;
+        ctx.beginPath();
+        ctx.arc(128, 128, 120, 0, Math.PI * 2);
+        ctx.stroke();
+    }
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    return texture;
+}
+
+// 创建恒星 (用户) - 头像展示
 const createStar = async (user: User) => {
-  // 核心：珍珠光泽
-  const geometry = new THREE.SphereGeometry(4.5, 64, 64);
-  const material = new THREE.MeshPhysicalMaterial({
-    color: 0xFFF0F5, // 薰衣草/粉白
-    emissive: 0xFFB7C5, // 浅粉发光
-    emissiveIntensity: 0.1, // 降低自发光
-    metalness: 0.1,
-    roughness: 0.2, // 稍微粗糙一点，减少反光
-    clearcoat: 0.8, // 降低清漆层
-    clearcoatRoughness: 0.2,
-    transmission: 0.1, // 降低透光
-    thickness: 1.5,
+  // 1. 头像平面 (Billboard)
+  const avatarTexture = await createAvatarTexture(user);
+  const circleGeo = new THREE.CircleGeometry(4.0, 64);
+  const circleMat = new THREE.MeshBasicMaterial({ 
+      map: avatarTexture, 
+      side: THREE.DoubleSide,
+      transparent: true 
   });
-  const star = new THREE.Mesh(geometry, material);
-  star.name = 'STAR_USER';
+  avatarMesh = new THREE.Mesh(circleGeo, circleMat);
+  avatarMesh.name = 'STAR_AVATAR';
   
-  // 外层光晕 (Bloom 效果增强)
-  const glowGeo = new THREE.SphereGeometry(5.2, 32, 32);
+  // 2. 外部水晶球壳 (保护层+光泽)
+  const sphereGeo = new THREE.SphereGeometry(4.1, 64, 64);
+  const sphereMat = new THREE.MeshPhysicalMaterial({
+    color: 0xFFFFFF,
+    metalness: 0,
+    roughness: 0,
+    transmission: 0.9, // 高透光
+    transparent: true,
+    opacity: 0.3,
+    clearcoat: 1.0,
+    clearcoatRoughness: 0.1,
+    side: THREE.FrontSide
+  });
+  const glassSphere = new THREE.Mesh(sphereGeo, sphereMat);
+  
+  // 3. 柔和光晕 (Bloom)
+  const glowGeo = new THREE.SphereGeometry(4.5, 32, 32);
   const glowMat = new THREE.MeshBasicMaterial({
     color: 0xFF69B4, // 热粉色光晕
     transparent: true,
-    opacity: 0.05, // 降低透明度
+    opacity: 0.15, // 稍微提高一点可见度
     side: THREE.BackSide,
-    blending: THREE.AdditiveBlending
+    blending: THREE.AdditiveBlending,
+    depthWrite: false
   });
   const glow = new THREE.Mesh(glowGeo, glowMat);
-  star.add(glow);
 
-  // 内部装饰环 (类似行星环，增加层次)
-  const ringGeo = new THREE.TorusGeometry(6.5, 0.05, 16, 100);
-  const ringMat = new THREE.MeshBasicMaterial({ color: 0xFFD700, transparent: true, opacity: 0.4 }); // 降低不透明度
+  // 4. 装饰环
+  const ringGeo = new THREE.TorusGeometry(5.5, 0.05, 16, 100);
+  const ringMat = new THREE.MeshBasicMaterial({ color: 0xFFD700, transparent: true, opacity: 0.6 });
   const ring = new THREE.Mesh(ringGeo, ringMat);
   ring.rotation.x = Math.PI / 2;
-  star.add(ring);
+  
+  // 组装
+  starGroup.add(avatarMesh); // 头像在中心
+  starGroup.add(glassSphere); // 玻璃壳包在外面
+  starGroup.add(glow); // 光晕
+  starGroup.add(ring); // 环
 
   // 名字标签
   try {
@@ -263,16 +335,15 @@ const createStar = async (user: User) => {
       
       const texture = new THREE.CanvasTexture(canvas);
       const spriteMat = new THREE.SpriteMaterial({ map: texture, transparent: true });
-      const sprite = new THREE.Sprite(spriteMat);
-      sprite.position.y = 7;
-      sprite.scale.set(12, 3, 1);
-      star.add(sprite);
+      nameSprite = new THREE.Sprite(spriteMat);
+      nameSprite.position.y = 6.5;
+      nameSprite.scale.set(12, 3, 1);
+      starGroup.add(nameSprite);
     }
   } catch (e) {
     console.error('Text load failed', e);
   }
 
-  starGroup.add(star);
   galaxyGroup.add(starGroup);
 };
 
@@ -282,14 +353,14 @@ const createCloudMaterial = (color: number) => {
 
   return new THREE.PointsMaterial({
     color: color,
-    size: 1.0, // 稍微减小粒子尺寸
+    size: 1.0, 
     map: texture,
     transparent: true,
-    opacity: 0.7, // 降低不透明度
-    blending: THREE.NormalBlending, // 改为 NormalBlending，减少叠加过曝
+    opacity: 0.7, 
+    blending: THREE.NormalBlending, 
     depthWrite: false,
     sizeAttenuation: true,
-    vertexColors: false // 使用统一颜色
+    vertexColors: false 
   });
 };
 
@@ -298,13 +369,12 @@ const initGalaxy = async () => {
   if (!core.value || !userData.value) return;
 
   // 0. 设置背景色和 Bloom 参数
-  core.value.renderer.setClearColor(0x1a0b2e, 1); // 深紫色背景
-  // 增加环境光亮度，让 Pastel 颜色更明显
-  core.value.setAmbientLightIntensity(0.8); // 降低环境光
-  // 开启并调整 Bloom
-  core.value.setBloomParams(0.4, 0.4, 0.85); // 大幅降低强度，提高阈值
+  core.value.renderer.setClearColor(0x1a0b2e, 1); 
+  core.value.setAmbientLightIntensity(0.8); 
+  // 保持较低的 Bloom 参数
+  core.value.setBloomParams(0.4, 0.4, 0.85); 
 
-  // 1. 创建恒星
+  // 1. 创建恒星 (头像)
   await createStar(userData.value.user);
 
   // 2. 创建行星和卫星
@@ -315,7 +385,6 @@ const initGalaxy = async () => {
   const baseOrbitRadius = 15;
   const radiusIncrement = 9;
   
-  // Lolita 专属配色 (Pastel Colors)
   const planetColors = [
     0xFFB7C5, // Baby Pink
     0xB0E0E6, // Powder Blue
@@ -335,15 +404,15 @@ const initGalaxy = async () => {
     planetWrapper.position.set(orbitRadius, 0, 0);
     planetOrbitGroup.add(planetWrapper);
 
-    // 行星 Mesh - 使用 Toon 或 Standard 材质让颜色更鲜艳
+    // 行星 Mesh
     const planetGeo = new THREE.SphereGeometry(1.8, 32, 32);
     const pColor = planetColors[index % planetColors.length];
     const planetMat = new THREE.MeshStandardMaterial({ 
       color: pColor, 
-      roughness: 0.4, // 增加粗糙度
-      metalness: 0.0, // 减少金属感
+      roughness: 0.4, 
+      metalness: 0.0, 
       emissive: pColor,
-      emissiveIntensity: 0.05 // 降低自发光
+      emissiveIntensity: 0.05 
     });
     const planet = new THREE.Mesh(planetGeo, planetMat);
     planet.userData = { 
@@ -353,19 +422,19 @@ const initGalaxy = async () => {
     };
     planetWrapper.add(planet);
 
-    // 添加行星环装饰 (丝带感)
+    // 添加行星环装饰
     const ribbonGeo = new THREE.TorusGeometry(2.8, 0.05, 16, 64);
-    const ribbonMat = new THREE.MeshBasicMaterial({ color: 0xFFFFFF, transparent: true, opacity: 0.3 }); // 降低不透明度
+    const ribbonMat = new THREE.MeshBasicMaterial({ color: 0xFFFFFF, transparent: true, opacity: 0.3 });
     const ribbon = new THREE.Mesh(ribbonGeo, ribbonMat);
-    ribbon.rotation.x = Math.PI / 2.5; // 稍微倾斜
+    ribbon.rotation.x = Math.PI / 2.5; 
     planetWrapper.add(ribbon);
 
-    // 轨道线 (虚线或发光线)
+    // 轨道线
     const orbitGeo = new THREE.RingGeometry(orbitRadius - 0.08, orbitRadius + 0.08, 128);
     const orbitMat = new THREE.MeshBasicMaterial({ 
-      color: 0xFF69B4, // 粉色轨道
+      color: 0xFF69B4, 
       side: THREE.DoubleSide, 
-      opacity: 0.1, // 降低不透明度
+      opacity: 0.1, 
       transparent: true, 
       blending: THREE.AdditiveBlending 
     });
@@ -373,15 +442,14 @@ const initGalaxy = async () => {
     orbitLine.rotation.x = Math.PI / 2;
     galaxyGroup.add(orbitLine);
 
-    // 卫星 (点云 - 星光/糖果)
+    // 卫星 (点云)
     const wardrobeClothes = allClothes.filter(c => c.wardrobe_id === wardrobe.id);
     if (wardrobeClothes.length > 0) {
       const positions = [];
-      const cloudRadius = 4.0; // 扩大一点范围
+      const cloudRadius = 4.0;
       const count = wardrobeClothes.length;
       
       for (let i = 0; i < count; i++) {
-        // 螺旋分布或者球状分布
         const r = cloudRadius + (Math.random() - 0.5) * 2.0;
         const theta = Math.random() * Math.PI * 2;
         const phi = Math.acos(2 * Math.random() - 1);
@@ -394,7 +462,6 @@ const initGalaxy = async () => {
       const pointsGeo = new THREE.BufferGeometry();
       pointsGeo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
       
-      // 使用更亮的颜色作为粒子颜色
       const cloudColor = new THREE.Color(pColor).offsetHSL(0, 0.2, 0.1); 
       const cloud = new THREE.Points(pointsGeo, createCloudMaterial(cloudColor.getHex()));
       
@@ -410,23 +477,23 @@ const initGalaxy = async () => {
         group: planetOrbitGroup,
         mesh: planet,
         cloud: cloud,
-        orbitSpeed: 0.0005 + (Math.random() * 0.0005), // 大幅降低公转速度
-        rotateSpeed: 0.002 + (Math.random() * 0.002) // 大幅降低自转速度
+        // 极慢的公转和自转
+        orbitSpeed: 0.0001 + (Math.random() * 0.0001), 
+        rotateSpeed: 0.001 + (Math.random() * 0.001) 
       });
     } else {
        planetGroups.push({
         group: planetOrbitGroup,
         mesh: planet,
         cloud: null as any,
-        orbitSpeed: 0.0005 + (Math.random() * 0.0005),
-        rotateSpeed: 0.005
+        orbitSpeed: 0.0001 + (Math.random() * 0.0001),
+        rotateSpeed: 0.002
       });
     }
 
     galaxyGroup.add(planetOrbitGroup);
   });
   
-  // 添加背景星尘 (增加氛围感)
   addBackgroundStars();
 
   if (core.value) {
@@ -448,7 +515,7 @@ const addBackgroundStars = () => {
     size: 0.8,
     color: 0xE6E6FA, // 浅紫
     transparent: true,
-    opacity: 0.4, // 降低不透明度
+    opacity: 0.4, 
     map: createParticleTexture('star'),
     blending: THREE.AdditiveBlending,
     depthWrite: false
@@ -485,7 +552,7 @@ const onMouseClick = (event: MouseEvent) => {
     }
   }
 
-  raycaster.params.Points.threshold = 0.8; // 稍微增加阈值，更容易点中星星
+  raycaster.params.Points.threshold = 0.8; 
   const clouds = planetGroups.filter(pg => pg.cloud).map(pg => pg.cloud);
   const cloudIntersects = raycaster.intersectObjects(clouds);
 
@@ -533,7 +600,7 @@ onMounted(async () => {
   const options = {
     antialias: true,
     alpha: true,
-    clearColor: 0x1a0b2e, // 初始背景色，会被 initGalaxy 覆盖
+    clearColor: 0x1a0b2e, 
     cameraPosition: { x: 0, y: 35, z: 65 },
     enableOrbitControls: true
   };
@@ -559,20 +626,34 @@ onMounted(async () => {
   core.value.addAnimationCallback(() => {
     if (isPaused.value) return;
 
-    // 缓慢旋转整个星系背景，制造梦幻感
-    // galaxyGroup.rotation.y += 0.0002;
+    // 1. 头像始终面向镜头
+    if (avatarMesh && core.value?.camera) {
+      avatarMesh.lookAt(core.value.camera.position);
+    }
 
-    starGroup.rotation.y += 0.0005; // 减慢恒星自转
-    starGroup.rotation.z = Math.sin(Date.now() * 0.0002) * 0.05; // 减慢摆动频率
+    // 2. 恒星组其他部分自转 (环、光晕等)
+    // 注意：avatarMesh 是 starGroup 的子元素，如果 starGroup 转了，它也会跟着转位置，但 lookAt 会修正朝向。
+    // 为了不让头像位置乱跑，starGroup 本身只做 z 轴摆动，不做 y 轴自转。
+    // 或者我们将装饰环单独旋转，不旋转整个 starGroup。
+    if (starGroup) {
+      // 只有装饰环旋转
+      starGroup.children.forEach(child => {
+         if (child instanceof THREE.Mesh && child.geometry instanceof THREE.TorusGeometry) {
+             child.rotation.z += 0.001; // 环自转
+         }
+      });
+      // 整体轻微摆动
+      starGroup.rotation.z = Math.sin(Date.now() * 0.0002) * 0.05; 
+    }
 
+    // 3. 行星公转和自转
     planetGroups.forEach(pg => {
       pg.group.rotation.y += pg.orbitSpeed;
       pg.mesh.rotation.y += pg.rotateSpeed;
 
       if (pg.cloud) {
         pg.cloud.rotation.y -= pg.rotateSpeed * 0.5;
-        // 让云层有呼吸感
-        const scale = 1 + Math.sin(Date.now() * 0.0005 + pg.mesh.id) * 0.05; // 减慢呼吸
+        const scale = 1 + Math.sin(Date.now() * 0.0003 + pg.mesh.id) * 0.03; // 更慢的呼吸
         pg.cloud.scale.set(scale, scale, scale);
       }
     });
