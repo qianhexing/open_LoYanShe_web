@@ -53,13 +53,15 @@ const MAP_SCALE = 3.0; // 缩放比例
 // Lolita 风格配色
 const LOLITA_COLORS = {
   bg: 0x1a1120, // 深紫色背景
-  province: 0x2c1e38, // 板块基础色
-  provinceHover: 0x4a3b59, // 悬停色
   bar: 0x96D296, // 柱状图颜色 (参考旧代码 selectColor)
   text: 0xffffff,
   rankText: 0x7130ae, // 排行榜排名颜色
   border: 0xd8bfd8, // 边框浅紫色
 };
+
+// 渐变色配置：从白到深紫
+// 0% (低占比) -> 100% (高占比)
+// 颜色插值函数将在 drawMap 中实现
 
 // 交互相关
 const raycaster = new THREE.Raycaster();
@@ -74,6 +76,19 @@ const project = (lng: number, lat: number) => {
   const x = (lng - MAP_CENTER[0]) * MAP_SCALE;
   const y = (lat - MAP_CENTER[1]) * MAP_SCALE;
   return { x, y };
+};
+
+// 颜色插值函数：根据比例 (0-1) 获取颜色
+const getGradientColor = (ratio: number) => {
+  // 定义颜色节点
+  const startColor = new THREE.Color(0xffffff); // 白色 (0%)
+  // const midColor = new THREE.Color(0xd8bfd8);   // 浅紫 (可选中间点)
+  const endColor = new THREE.Color(0x7130ae);   // 深紫 (100%) - 参考旧代码的 ranking-rank 颜色
+
+  // 使用 HSL 插值通常比 RGB 更自然，但这里简单的 RGB 线性插值配合这种色系也不错
+  // 也可以尝试 lerpHSL
+  const color = startColor.clone().lerp(endColor, ratio);
+  return color;
 };
 
 // 创建字体 Sprite
@@ -119,16 +134,9 @@ const createTextSprite = (text: string, color: string = '#ffffff') => {
 // 1. 加载地图数据
 const loadMapData = async () => {
   try {
-    // 使用用户指定的数据源 BASE_IMG + ssr/word.json (修正拼写为 world.json 如果需要，但先遵循用户指令)
-    // 假设用户确实想要 ssr/word.json，但通常是 world.json。这里为了稳妥，尝试 world.json
-    // 如果 BASE_IMG 是 http://localhost:3000/ali/
     const url = `${BASE_IMG}ssr/world.json`; 
     console.log('Loading map data from:', url);
     
-    // 由于我这里无法真正请求到这个地址，我还是先用之前的在线地址兜底，或者直接用空数据模拟结构
-    // 在真实环境会使用 url
-    
-    // 注意：这里为了保证演示效果，如果 fetch 失败，会回退到阿里云数据
     try {
         const res = await fetch(url);
         if (res.ok) {
@@ -168,9 +176,17 @@ const drawMap = (geojson: GeoJSON, scene: THREE.Scene, dataMap: Map<string, numb
         }
     }
 
-    // 根据数量决定厚度
-    // 基础厚度 0.5，最大增加 3.0
-    const depth = 0.5 + (count > 0 ? (count / maxCount) * 3.0 : 0);
+    // 根据占比计算颜色和厚度
+    const ratio = maxCount > 0 ? Math.min(count / maxCount, 1) : 0;
+    // 厚度：基础 0.5，最大增加 3.0
+    const depth = 0.5 + (count > 0 ? ratio * 3.0 : 0);
+    // 颜色：从白到深紫 (如果 count 为 0，使用默认深色底色，或者也是白色起始？根据"区块根据占比从白渐变到深紫"，暂定 0 也是白色或极淡紫色)
+    // 通常无数据的区块会给一个深色背景以示区分，但根据描述"从白渐变到深紫"，可能意味着 0 是白色，满是深紫。
+    // 不过考虑到背景是深紫，如果 0 是白色会很亮。
+    // 我们假设 0 也是参与渐变的起点，或者 0 可以是一个基础深色。
+    // 为了美观，我们设定：有数据且 > 0 才参与渐变计算，无数据的使用基础深色。
+    // 或者完全按照描述：占比 0 -> 白， 占比 1 -> 深紫。
+    const baseColor = count > 0 ? getGradientColor(ratio) : new THREE.Color(0x333333); // 无数据给深灰色，避免太亮抢眼
 
     const provinceGroup = new THREE.Group();
     provinceGroup.name = provinceName;
@@ -178,7 +194,8 @@ const drawMap = (geojson: GeoJSON, scene: THREE.Scene, dataMap: Map<string, numb
         isProvince: true, 
         name: provinceName,
         count: count,
-        depth: depth 
+        depth: depth,
+        baseColor: baseColor // 存储基础色以便 hover 恢复
     };
 
     const drawPolygon = (polygon: number[][]) => {
@@ -199,9 +216,8 @@ const drawMap = (geojson: GeoJSON, scene: THREE.Scene, dataMap: Map<string, numb
 
       const geometry = new THREE.ExtrudeGeometry(shape, extrudeSettings);
       
-      // 使用 MeshPhysicalMaterial 获得更好的光感
       const material = new THREE.MeshPhysicalMaterial({
-        color: LOLITA_COLORS.province,
+        color: baseColor,
         transparent: true,
         opacity: 0.95,
         roughness: 0.4,
@@ -243,7 +259,6 @@ const drawMap = (geojson: GeoJSON, scene: THREE.Scene, dataMap: Map<string, numb
   });
 
   // 整体居中调整
-  // 计算包围盒
   const box = new THREE.Box3().setFromObject(mapGroup);
   const center = box.getCenter(new THREE.Vector3());
   mapGroup.position.x = -center.x;
@@ -257,7 +272,6 @@ const drawMap = (geojson: GeoJSON, scene: THREE.Scene, dataMap: Map<string, numb
 const drawBars = (data: DistributedMapData[], geojson: GeoJSON, scene: THREE.Scene, mapGroupOffset: THREE.Vector3) => {
   const barGroup = new THREE.Group();
   barGroup.name = 'BarGroup';
-  // 加上地图的偏移量，确保对齐
   barGroup.position.copy(mapGroupOffset);
 
   const maxCount = Math.max(...data.map(d => d.COUNT));
@@ -271,13 +285,9 @@ const drawBars = (data: DistributedMapData[], geojson: GeoJSON, scene: THREE.Sce
       const { x, y } = project(center[0], center[1]);
       
       const count = item.COUNT;
-      // 柱子高度
-      const height = (count / maxCount) * 15 + 1; 
-      // 对应省份的厚度
-      const provinceDepth = 0.5 + (count / maxCount) * 3.0;
-
-      // 只有当数量比较多时才显示柱子，或者都显示
-      // 这里的柱子底部应该在省份板块的顶面
+      const ratio = maxCount > 0 ? count / maxCount : 0;
+      const height = ratio * 15 + 1; 
+      const provinceDepth = 0.5 + ratio * 3.0;
       const zBase = provinceDepth;
 
       const geometry = new THREE.CylinderGeometry(0.3, 0.3, height, 16);
@@ -356,43 +366,48 @@ const initThree = async () => {
   if (!container.value) return;
 
   // 使用 ThreeCore 初始化
-  // 设置相机为 45度角俯视，类似旧项目逻辑
-  // 旧项目：app.focusOnLatLng(31.51, 121.4, 5, 0) -> camera lookAt target
+  // 目标：初始镜头对准上海
+  // 上海大概坐标：121.47, 31.23
+  // 我们的 project 函数是基于 map center [104.0, 37.5]
+  const shanghaiGeo = [121.47, 31.23];
+  const { x: sx, y: sy } = project(shanghaiGeo[0], shanghaiGeo[1]);
+  
+  // 地图整体被平移了 (-centerX, -centerY)
+  // 我们需要在数据加载后，计算出这个偏移量，才能准确得出上海在世界坐标中的位置
+  // 但我们可以在 camera lookAt 时动态调整
+  
   const core = new ThreeCore({
     container: container.value,
-    cameraPosition: { x: 0, y: -40, z: 40 }, // 斜视角度
+    cameraPosition: { x: 0, y: -40, z: 40 }, // 初始位置稍后会被覆盖
     clearColor: LOLITA_COLORS.bg,
-    alpha: false, // 不透明，使用背景色
-    enableOrbitControls: true, // 稍后禁用旋转
+    alpha: false, 
+    enableOrbitControls: true, 
     enableStats: false,
   });
 
   threeCore.value = core;
   core.mount(container.value);
 
-  // 限制控制器：只允许平移和缩放，禁止旋转
+  // 限制控制器
   if (core.controls) {
-      core.controls.enableRotate = false; // 禁止旋转
+      core.controls.enableRotate = false;
       core.controls.enablePan = true;
       core.controls.mouseButtons = {
           LEFT: THREE.MOUSE.PAN,
           MIDDLE: THREE.MOUSE.DOLLY,
           RIGHT: THREE.MOUSE.PAN
       };
-      // 调整平移速度
       core.controls.panSpeed = 1.0;
   }
 
   // 开启 Bloom 效果
   core.toggleBloom(true);
-  core.setBloomParams(1.5, 0.4, 0.85); // 调整参数以获得柔和发光
+  core.setBloomParams(1.5, 0.4, 0.85);
 
   // 添加光源
-  // 环境光
   const ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
   core.scene.add(ambientLight);
 
-  // 主光源 (产生阴影)
   const dirLight = new THREE.DirectionalLight(0xffffff, 1.0);
   dirLight.position.set(20, -20, 50);
   dirLight.castShadow = true;
@@ -400,7 +415,6 @@ const initThree = async () => {
   dirLight.shadow.mapSize.height = 2048;
   core.scene.add(dirLight);
   
-  // 补光 (紫色氛围)
   const purpleLight = new THREE.PointLight(0xa020f0, 0.8, 200);
   purpleLight.position.set(-50, 50, 50);
   core.scene.add(purpleLight);
@@ -412,7 +426,6 @@ const initThree = async () => {
   ]);
 
   if (geojson) {
-    // 准备数据 Map
     const dataMap = new Map<string, number>();
     const maxCount = distData ? Math.max(...distData.map(d => d.COUNT)) : 1;
     if (distData) {
@@ -420,23 +433,48 @@ const initThree = async () => {
         distData.forEach(d => dataMap.set(d.ip_location, d.COUNT));
     }
 
-    // 绘制地图 (厚度由 count 决定)
     const mapGroup = drawMap(geojson, core.scene, dataMap, maxCount);
     
-    // 绘制柱状图和标签
     if (distData) {
       drawBars(distData, geojson, core.scene, mapGroup.position);
+    }
+
+    // --- 调整镜头对准上海 ---
+    // 计算地图整体偏移
+    const mapBox = new THREE.Box3().setFromObject(mapGroup);
+    const mapCenter = mapBox.getCenter(new THREE.Vector3()); // 应该是 (0,0, z) 附近，因为我们在 drawMap 里把 mapGroup 归零了
+    
+    // 上海在 mapGroup 内部的相对坐标
+    // 注意：drawMap 中我们对 mapGroup 做了 position 平移 mapGroup.position.x = -center.x
+    // 所以上海的世界坐标 = 上海的原始投影坐标 + mapGroup.position
+    
+    // 上海投影坐标
+    const { x: rawSx, y: rawSy } = project(shanghaiGeo[0], shanghaiGeo[1]);
+    
+    // mapGroup 的位移
+    const groupOffset = mapGroup.position;
+    
+    // 上海的世界坐标
+    const shanghaiWorldX = rawSx + groupOffset.x;
+    const shanghaiWorldY = rawSy + groupOffset.y;
+    
+    // 设置相机目标
+    // 保持 45 度视角: z = 40, y = targetY - 40
+    const cameraHeight = 35;
+    const cameraOffsetZ = 30; // 控制俯视角度
+    
+    // 我们希望相机看着上海
+    if (core.controls) {
+        core.controls.target.set(shanghaiWorldX, shanghaiWorldY, 0);
+        core.camera.position.set(shanghaiWorldX, shanghaiWorldY - cameraOffsetZ, cameraHeight);
+        core.controls.update();
     }
   }
 
   loading.value = false;
   core.startAnimationLoop();
 
-  // 添加交互事件
   container.value.addEventListener('mousemove', onMouseMove);
-  
-  // 模拟旧项目的鼠标平移逻辑（虽然 OrbitControls 的 Pan 已经够用了，但这里微调体验）
-  // 如果 OrbitControls 已经接管，这里就不需要手动实现了。
 };
 
 // 鼠标移动事件
@@ -447,7 +485,6 @@ const onMouseMove = (event: MouseEvent) => {
   mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
   mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
 
-  // 更新 Tooltip 位置
   tooltip.value.x = event.clientX + 15;
   tooltip.value.y = event.clientY + 15;
 
@@ -457,7 +494,6 @@ const onMouseMove = (event: MouseEvent) => {
 
   let found = false;
   if (intersects.length > 0) {
-    // 找到第一个非 EdgeLine 的物体
     const object = intersects.find(i => i.object.type === 'Mesh')?.object;
     
     if (object) {
@@ -466,33 +502,20 @@ const onMouseMove = (event: MouseEvent) => {
             found = true;
             if (hoveredObject !== object) {
                 // 恢复上一个
-                if (hoveredObject && hoveredObject.userData.isBar) {
-                    (hoveredObject as THREE.Mesh).material = new THREE.MeshPhysicalMaterial({ 
-                        color: LOLITA_COLORS.bar,
-                        emissive: LOLITA_COLORS.bar,
-                        emissiveIntensity: 0.5,
-                        transparent: true,
-                        opacity: 0.9
-                    });
-                } else if (hoveredObject && hoveredObject.parent?.userData.isProvince) {
-                     (hoveredObject as THREE.Mesh).material = new THREE.MeshPhysicalMaterial({
-                        color: LOLITA_COLORS.province,
-                        transparent: true,
-                        opacity: 0.95,
-                        roughness: 0.4,
-                        metalness: 0.1,
-                        clearcoat: 0.5,
-                        clearcoatRoughness: 0.1,
-                        side: THREE.DoubleSide
-                    });
+                if (hoveredObject) {
+                    restoreObjectMaterial(hoveredObject);
                 }
 
                 hoveredObject = object;
-                // 高亮省份
+                // 高亮省份 (更亮的发光)
+                const baseColor = object.parent.userData.baseColor || new THREE.Color(LOLITA_COLORS.province);
+                // 高亮色可以是基础色的加亮版，或者统一高亮色
+                const hoverColor = baseColor.clone().offsetHSL(0, 0, 0.2); // 亮度增加
+
                 (object as THREE.Mesh).material = new THREE.MeshPhysicalMaterial({
-                    color: LOLITA_COLORS.provinceHover,
-                    emissive: LOLITA_COLORS.provinceHover,
-                    emissiveIntensity: 0.2,
+                    color: hoverColor,
+                    emissive: hoverColor,
+                    emissiveIntensity: 0.4,
                     transparent: true,
                     opacity: 1.0,
                     roughness: 0.2,
@@ -511,25 +534,8 @@ const onMouseMove = (event: MouseEvent) => {
             found = true;
             if (hoveredObject !== object) {
                  // 恢复上一个
-                if (hoveredObject && hoveredObject.userData.isBar) {
-                    (hoveredObject as THREE.Mesh).material = new THREE.MeshPhysicalMaterial({ 
-                        color: LOLITA_COLORS.bar,
-                        emissive: LOLITA_COLORS.bar,
-                        emissiveIntensity: 0.5,
-                        transparent: true,
-                        opacity: 0.9
-                    });
-                } else if (hoveredObject && hoveredObject.parent?.userData.isProvince) {
-                     (hoveredObject as THREE.Mesh).material = new THREE.MeshPhysicalMaterial({
-                        color: LOLITA_COLORS.province,
-                        transparent: true,
-                        opacity: 0.95,
-                        roughness: 0.4,
-                        metalness: 0.1,
-                        clearcoat: 0.5,
-                        clearcoatRoughness: 0.1,
-                        side: THREE.DoubleSide
-                    });
+                if (hoveredObject) {
+                    restoreObjectMaterial(hoveredObject);
                 }
 
                 hoveredObject = object;
@@ -551,18 +557,27 @@ const onMouseMove = (event: MouseEvent) => {
   }
 
   if (!found && hoveredObject) {
-    // 恢复颜色
-    if (hoveredObject.userData.isBar) {
-        (hoveredObject as THREE.Mesh).material = new THREE.MeshPhysicalMaterial({ 
+    restoreObjectMaterial(hoveredObject);
+    hoveredObject = null;
+    tooltip.value.visible = false;
+  }
+};
+
+// 恢复物体材质
+const restoreObjectMaterial = (obj: THREE.Object3D) => {
+    if (obj.userData.isBar) {
+        (obj as THREE.Mesh).material = new THREE.MeshPhysicalMaterial({ 
             color: LOLITA_COLORS.bar,
             emissive: LOLITA_COLORS.bar,
             emissiveIntensity: 0.5,
             transparent: true,
             opacity: 0.9
         });
-    } else if (hoveredObject.parent?.userData.isProvince) {
-        (hoveredObject as THREE.Mesh).material = new THREE.MeshPhysicalMaterial({
-            color: LOLITA_COLORS.province,
+    } else if (obj.parent?.userData.isProvince) {
+        // 恢复到基础渐变色
+        const baseColor = obj.parent.userData.baseColor || new THREE.Color(LOLITA_COLORS.province);
+        (obj as THREE.Mesh).material = new THREE.MeshPhysicalMaterial({
+            color: baseColor,
             transparent: true,
             opacity: 0.95,
             roughness: 0.4,
@@ -572,10 +587,7 @@ const onMouseMove = (event: MouseEvent) => {
             side: THREE.DoubleSide
         });
     }
-    hoveredObject = null;
-    tooltip.value.visible = false;
-  }
-};
+}
 
 
 onMounted(() => {
