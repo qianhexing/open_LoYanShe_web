@@ -66,8 +66,8 @@ const LOLITA_COLORS = {
   borderOther: 0x000000, // 国外边框
   tooltipBg: 'rgba(255, 255, 255, 0.95)',
   tooltipText: '#333333',
-  highlight: '#2e006a', // 深紫色高亮
-  highlightBar: '#4a148c' // 圆柱高亮深紫
+  highlight: '#cdb1ef', // 淡紫色高亮
+  highlightBar: '#cdb1ef' // 圆柱高亮淡紫
 };
 
 const PROVINCE_COLORS = [
