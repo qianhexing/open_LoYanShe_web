@@ -131,7 +131,13 @@ export interface Shop {
   black_count?: number
   
 }
-
+export interface PhysicalShop {
+	physical_id?: number
+  physical_name?: string
+  latitude?: number
+  longitude?: number
+  physical_logo?: string
+}
 export interface Wiki {
   wiki_id: number | string
   wiki_name: string
