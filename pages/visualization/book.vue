@@ -54,7 +54,7 @@ const totalPages = 20
 const imageUrls = Array.from({ length: totalPages }).map((_, i) => {
   // Use placeholder images with different themes/colors to distinguish pages
   const id = 10 + i
-  return `https://picsum.photos/id/${id}/600/900`
+  return `${BASE_IMG}static/library_app/2018_1766770808923142.jpg`
 })
 
 // --- State ---
