@@ -46,14 +46,14 @@
 
 <script setup lang="ts">
 import * as THREE from 'three'
-import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import gsap from 'gsap'
+import ThreeCore from '@/utils/threeCore'
+import { BASE_IMG } from '@/utils/ipConfig'
 
 // --- Mock Data ---
 const totalPages = 20
 const imageUrls = Array.from({ length: totalPages }).map((_, i) => {
   // Use placeholder images with different themes/colors to distinguish pages
-  const id = 10 + i
   return `${BASE_IMG}static/library_app/2018_1766770808923142.jpg`
 })
 
@@ -64,11 +64,9 @@ const isAnimating = ref(false)
 const currentPageIndex = ref(0) // 0 means displaying page 0 (left) and page 1 (right)
 
 // --- Three.js Variables ---
+let core: ThreeCore
 let scene: THREE.Scene
-let camera: THREE.PerspectiveCamera
-let renderer: THREE.WebGLRenderer
-let controls: OrbitControls
-let lights: { ambient: THREE.AmbientLight; dir: THREE.DirectionalLight }
+// let camera: THREE.PerspectiveCamera | THREE.OrthographicCamera
 
 // Book Parts
 let bookGroup: THREE.Group
@@ -79,70 +77,56 @@ let flipperFront: THREE.Mesh
 let flipperBack: THREE.Mesh
 let spine: THREE.Mesh
 
-// Materials Cache
-const textureLoader = new THREE.TextureLoader()
-const loadedTextures: Map<string, THREE.Texture> = new Map()
+// Materials Cache (Using ThreeCore's texture loader wrapper if possible, or standard)
+// ThreeCore has loadTexture but it's async. We can use it.
 
 const PAGE_WIDTH = 5
 const PAGE_HEIGHT = 7.5
-const PAGE_SEGMENTS = 10 // For bending effects later if needed
+const PAGE_SEGMENTS = 10 
 
 // --- Lifecycle ---
 onMounted(async () => {
   initThree()
   await initBook()
-  animate()
-  window.addEventListener('resize', onResize)
   loading.value = false
 })
 
 onUnmounted(() => {
-  window.removeEventListener('resize', onResize)
-  renderer?.dispose()
+  if (core) {
+    core.dispose()
+  }
 })
 
 // --- Initialization ---
 function initThree() {
   if (!canvasContainer.value) return
 
-  // Scene
-  scene = new THREE.Scene()
-  scene.background = new THREE.Color(0xfdf2f5) // Lolita pink background
+  // 实例化 ThreeCore
+  core = new ThreeCore({
+    antialias: true,
+    alpha: true, // Allow CSS background to show through
+    cameraPosition: { x: 0, y: 0, z: 18 }, // Adjusted camera position to see the book from front
+    enableOrbitControls: true,
+    enableStats: false,
+    clearColor: 0x000000 // Transparent anyway
+  })
 
-  // Camera
-  const width = canvasContainer.value.clientWidth
-  const height = canvasContainer.value.clientHeight
-  camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 100)
-  camera.position.set(0, 0, 18)
-
-  // Renderer
-  renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true })
-  renderer.setSize(width, height)
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
-  renderer.shadowMap.enabled = true
-  renderer.outputColorSpace = THREE.SRGBColorSpace
-  canvasContainer.value.appendChild(renderer.domElement)
-
-  // Controls
-  controls = new OrbitControls(camera, renderer.domElement)
-  controls.enableDamping = true
-  controls.dampingFactor = 0.05
-  controls.minDistance = 10
-  controls.maxDistance = 30
-  controls.maxPolarAngle = Math.PI / 1.5 // Don't let go below ground too much
-
-  // Lights
-  lights = {
-    ambient: new THREE.AmbientLight(0xffffff, 0.6),
-    dir: new THREE.DirectionalLight(0xffffff, 1.2)
-  }
-  lights.dir.position.set(5, 10, 10)
-  lights.dir.castShadow = true
-  lights.dir.shadow.mapSize.width = 2048
-  lights.dir.shadow.mapSize.height = 2048
+  // Mount to container
+  core.mount(canvasContainer.value)
+  scene = core.scene
   
-  scene.add(lights.ambient)
-  scene.add(lights.dir)
+  // Custom Scene Setup
+  // If ThreeCore sets a background, we might want to clear it or set it to match our CSS
+  scene.background = new THREE.Color(0xfdf2f5) 
+
+  // Adjust Controls
+  if (core.controls) {
+    core.controls.minDistance = 10
+    core.controls.maxDistance = 30
+    core.controls.maxPolarAngle = Math.PI / 1.5
+    core.controls.target.set(0, 0, 0)
+    core.controls.update()
+  }
 
   // Floor (Decorative)
   const floorGeo = new THREE.PlaneGeometry(100, 100)
@@ -155,6 +139,9 @@ function initThree() {
   floor.position.y = -5
   floor.receiveShadow = true
   scene.add(floor)
+  
+  // Start Loop
+  core.startAnimationLoop()
 }
 
 // --- Book Logic ---
@@ -178,10 +165,8 @@ async function initBook() {
   rightStack = new THREE.Mesh(pageGeo, baseMat.clone())
   rightStack.castShadow = true
   rightStack.receiveShadow = true
-  // rightStack.position.x = 0 // Pivot is at 0
   
   // 2. Left Stack (Static bottom)
-  // Left stack needs to be mirrored or just rotated
   leftStack = new THREE.Mesh(pageGeo, baseMat.clone())
   leftStack.castShadow = true
   leftStack.receiveShadow = true
@@ -198,24 +183,7 @@ async function initBook() {
   // Back Mesh
   flipperBack = new THREE.Mesh(pageGeo, baseMat.clone())
   flipperBack.rotation.y = Math.PI // Back to back
-  // IMPORTANT: For the back mesh, since we rotated it PI, 
-  // its "local left" is now "global right". 
-  // But wait, the geometry is translated +Width/2.
-  // If we rotate Y 180, the +Width/2 becomes -Width/2. 
-  // So the back mesh pivots correctly around 0.
-  // However, we want the textures to be upright.
-  // Standard Plane UVs: (0,0) bottom-left, (1,1) top-right.
-  // If we rotate the mesh 180 Y, the texture is mirrored horizontally? 
-  // No, looking at back of plane is mirrored. Rotating 180 makes it look normal?
-  // Let's test.
   
-  // Actually, simpler approach for Flipper:
-  // Just use one Mesh with DoubleSide? No, need different textures.
-  // Use Group with 2 meshes back-to-back.
-  
-  // Front: 0 to Width. Normal.
-  // Back: 0 to Width. Rotated 180 Y. 
-  // To avoid z-fighting between front/back meshes in the group:
   flipperFront.position.z = 0.005
   flipperBack.position.z = -0.005
   
@@ -232,60 +200,52 @@ async function initBook() {
   const spineMat = new THREE.MeshStandardMaterial({ color: 0x8b5e3c })
   spine = new THREE.Mesh(spineGeo, spineMat)
   spine.position.z = 0
-  spine.rotation.x = Math.PI / 2 // Lay down? No, vertical along Y? No, spine is along Y axis of the book?
-  // Wait, if pages are WxH, spine is along H (Y axis).
+  spine.rotation.x = 0 
   spine.position.set(0, 0, 0)
   bookGroup.add(spine)
 
   // Initial Texture Load
-  updateTextures()
+  await updateTextures()
   
   // Hide flipper initially if at start
   flipper.visible = false
 }
 
-function getTexture(index: number) {
+// Helper to get texture using ThreeCore or TextureLoader
+// Since ThreeCore.loadTexture is async, let's just use it but handle async inside update
+async function getTexture(index: number): Promise<THREE.Texture | null> {
   if (index < 0 || index >= imageUrls.length) return null
   const url = imageUrls[index]
-  if (loadedTextures.has(url)) return loadedTextures.get(url)
-  
-  const tex = textureLoader.load(url)
-  tex.colorSpace = THREE.SRGBColorSpace
-  loadedTextures.set(url, tex)
-  return tex
+  try {
+    const tex = await core.loadTexture(url)
+    tex.colorSpace = THREE.SRGBColorSpace
+    return tex
+  } catch (e) {
+    console.warn('Failed to load texture', url)
+    return null
+  }
 }
 
-function updateTextures() {
-  // We view the book as:
-  // Left Page: index i - 1 (Back of previous sheet)
-  // Right Page: index i (Front of current sheet)
-  
+async function updateTextures() {
   const i = currentPageIndex.value
   
-  // Left Stack (Top)
-  // Should show image i-1
+  // Left Stack (Top) - Shows i-1
   if (i > 0) {
-    const tex = getTexture(i - 1)
+    const tex = await getTexture(i - 1)
     if (tex) {
       (leftStack.material as THREE.MeshStandardMaterial).map = tex
       ;(leftStack.material as THREE.MeshStandardMaterial).needsUpdate = true
       leftStack.visible = true
     }
   } else {
-    // Cover or empty
     leftStack.visible = false
   }
 
-  // Right Stack (Underneath)
-  // Should show image i + 1? No.
-  // Current view is: Left=Img(i-1), Right=Img(i).
-  // If we assume single page = single image.
-  // Page 0 (Right). Page -1 (Left, invalid).
-  // Right Stack currently displays Img i.
-  const tex = getTexture(i)
+  // Right Stack (Underneath) - Shows i
+  const tex = await getTexture(i)
   if (tex) {
     (rightStack.material as THREE.MeshStandardMaterial).map = tex
-    ;    (rightStack.material as THREE.MeshStandardMaterial).needsUpdate = true
+    ;(rightStack.material as THREE.MeshStandardMaterial).needsUpdate = true
      rightStack.visible = true
   } else {
      rightStack.visible = false
@@ -300,64 +260,81 @@ function updateTextures() {
 
 // --- Animation ---
 
-function nextPage() {
+async function nextPage() {
   if (isAnimating.value || currentPageIndex.value >= totalPages - 1) return
   isAnimating.value = true
 
   const i = currentPageIndex.value
   
-  // Flipper Logic for Next (Right to Left)
-  // We are flipping the page currently at `i`.
   // Flipper Front: Img i
   // Flipper Back: Img i+1
-  // Right Underneath: Img i+2? Or just the next one in stack?
-  // Let's assume standard array traversal.
   
-  // Setup Flipper
   flipper.visible = true
   flipper.rotation.y = 0
   
-  const frontTex = getTexture(i)
-  const backTex = getTexture(i + 1)
+  const frontTex = await getTexture(i)
+  const backTex = await getTexture(i + 1)
   
   if (frontTex) (flipperFront.material as THREE.MeshStandardMaterial).map = frontTex
-  if (backTex) {
-    // We need to flip the texture horizontally for the back page because the mesh is rotated 180?
-    // Let's check visual results. Usually THREE.Texture.repeat.x = -1 handles mirror.
-    // For now, let's just assign.
-    (flipperBack.material as THREE.MeshStandardMaterial).map = backTex
-  }
+  if (backTex) (flipperBack.material as THREE.MeshStandardMaterial).map = backTex
   
-  // Setup Underneath (Right Stack)
-  // While flipping `i`, we reveal `i+2`? 
-  // Standard: [i-1][i] -> flip -> [i+1][i+2] ?
-  // If we flip one sheet, we reveal one back and one front.
-  // If i is "Right Page", then next Right Page is i+2?
-  // Let's assume pages are single sided images for simplicity of array?
-  // Or:
-  // Array: [P1, P2, P3, P4]
-  // Open: Left(Empty), Right(P1)
-  // Flip P1: Left(P1-Back?), Right(P2)
-  // If we just want to "browse images":
-  // Left always shows Previous. Right always shows Current.
-  // Flip: Current moves to Left. Next appears on Right.
-  
-  // So: 
-  // Flipper Front = Current (i)
-  // Flipper Back = Next (i+1) ? No, Back of flipper will become Left Page.
-  // So Back of flipper = Current (i) ?? No, that's same image.
-  // User wants "Infinite Book".
-  
-  // Let's do:
-  // Flipper Front: Img(i)
-  // Flipper Back: Img(i+1)
-  // Right Stack (Underneath): Img(i+1)
-  
-  // Animation:
   // 1. Right Stack immediately shows i+1 (Next).
-  const nextRightTex = getTexture(i + 1)
+  // Ideally this should be i+2 if we were simulating a thick book, but for infinite scroll:
+  // We just show the next page.
+  // Actually, if we flip page 'i', the right stack underneath should reveal page 'i+1'.
+  // But wait, page i+1 is on the BACK of the flipper.
+  // So the right stack should reveal page i+2 (if it exists).
+  // But here we are simplifying. Let's make Right Stack show i+1?
+  // No, if Right Stack shows i+1, then as soon as we lift the page (Flipper Front=i), 
+  // we see i+1 underneath.
+  // And Flipper Back is also i+1.
+  // So when it lands on left, Left becomes i+1? No, Left becomes i (Flipper Front) -> No.
+  
+  // Correct logic for flipping single sheets (Page N = Sheet N/2? No, Page N = Image N):
+  // Let's treat indices as "spreads"? Or just sequence of images?
+  // User asked for "image array".
+  // Sequence: [0, 1, 2, 3]
+  // Start: Left: Empty, Right: 0
+  // Next -> Flip 0. 0 lands on Left. 1 appears on Right?
+  // This means 0 is on Flipper Front. Flipper Back is... 0? (If 0 is a single sheet front/back same?)
+  // Usually books have P1 front, P2 back.
+  // If we treat array as [P1, P2, P3...], then:
+  // Sheet 1: Front=P1, Back=P2.
+  // Sheet 2: Front=P3, Back=P4.
+  
+  // BUT the user just gave a list of images.
+  // Let's assume the "Photo Album" mode where each "sheet" has Image[i] on Front and Image[i] on Back?
+  // Or Image[i] on Front, and Image[i+1] on Back?
+  // If we do Image[i] Front, Image[i+1] Back.
+  // Then when we flip 0 (Front) -> 1 (Back).
+  // 1 is now on Left.
+  // Right Stack should show 2.
+  // So:
+  // Flipper Front: i
+  // Flipper Back: i+1 (Wait, if Back is i+1, it will end up on Left side facing up).
+  // So Left side will show i+1.
+  // Right side (revealed) will show i+2?
+  // This skips images fast.
+  
+  // "Standard" Photo Album:
+  // Left: i-1. Right: i.
+  // Flip: Move i to Left. Reveal i+1 on Right.
+  // Flipper Front: i.
+  // Flipper Back: i. (Same image on back, or blank?)
+  // If we want to see i on the left after flip, Flipper Back must be i.
+  // And underneath on Right, we reveal i+1.
+  
+  // Let's try this: Flipper Front = i, Flipper Back = i.
+  // Right Stack = i+1.
+  const nextRightTex = await getTexture(i + 1)
   if (nextRightTex) (rightStack.material as THREE.MeshStandardMaterial).map = nextRightTex
   
+  // Flipper Texture
+  if (frontTex) {
+    (flipperFront.material as THREE.MeshStandardMaterial).map = frontTex
+    (flipperBack.material as THREE.MeshStandardMaterial).map = frontTex // Same image on back
+  }
+
   // 2. Animate Flipper from 0 to -180
   gsap.to(flipper.rotation, {
     y: -Math.PI,
@@ -366,52 +343,34 @@ function nextPage() {
     onComplete: () => {
       // Finished flipping
       currentPageIndex.value += 1
-      updateTextures() // Sets Left=i(now i-1), Right=i+1(now i)
+      updateTextures() // Left=i(now shows prev i), Right=i+1(now current i)
       flipper.visible = false
       isAnimating.value = false
     }
   })
 }
 
-function prevPage() {
+async function prevPage() {
   if (isAnimating.value || currentPageIndex.value <= 0) return
   isAnimating.value = true
   
-  // Reverse Logic (Left to Right)
-  // We want to bring back the page from Left.
-  // Current: Left(i-1), Right(i)
-  // Target: Left(i-2), Right(i-1)
-  
   const i = currentPageIndex.value
   
-  // Flipper Front: Img(i-1) (The one on the left)
-  // Flipper Back: Img(i) (The one currently on right? No)
-  // We are flipping the Left page back to the Right.
+  // We want to bring back page i-1 from Left.
+  // Flipper Front (will land on Right): i-1.
+  // Flipper Back (starts visible on Left): i-1.
   
-  // Flipper needs to start at -180 (Left side)
   flipper.visible = true
   flipper.rotation.y = -Math.PI
   
-  // Texture Setup
-  // When flipping back, the "Front" of the flipper (local +Z) faces LEFT when rotated -180?
-  // If rotation is -180 (or PI), Front faces -Z (Global Back).
-  // Back faces +Z (Global Front).
-  // So visible side on Left is "Back" mesh.
-  // Wait, my FlipperBack mesh is rotated PI relative to group.
-  // Group is rotated -PI. Total rotation 0.
-  // So FlipperBack is facing Camera.
-  // So FlipperBack should be Img(i-1).
+  const prevTex = await getTexture(i - 1)
+  if (prevTex) {
+    (flipperFront.material as THREE.MeshStandardMaterial).map = prevTex
+    (flipperBack.material as THREE.MeshStandardMaterial).map = prevTex
+  }
   
-  const prevTex = getTexture(i - 1) // Content of left page
-  if (prevTex) (flipperBack.material as THREE.MeshStandardMaterial).map = prevTex
-  
-  // Flipper Front (which will land on Right) should be Img(i-1)? 
-  // Yes, because it lands on right.
-  if (prevTex) (flipperFront.material as THREE.MeshStandardMaterial).map = prevTex
-  
-  // Setup Underneath (Left Stack)
-  // Reveals i-2
-  const prevLeftTex = getTexture(i - 2)
+  // Underneath on Left: i-2
+  const prevLeftTex = await getTexture(i - 2)
   if (prevLeftTex) {
     (leftStack.material as THREE.MeshStandardMaterial).map = prevLeftTex
     leftStack.visible = true
@@ -433,19 +392,10 @@ function prevPage() {
   })
 }
 
-function animate() {
-  requestAnimationFrame(animate)
-  controls.update()
-  renderer.render(scene, camera)
-}
-
 function onResize() {
-  if (!canvasContainer.value) return
-  const width = canvasContainer.value.clientWidth
-  const height = canvasContainer.value.clientHeight
-  camera.aspect = width / height
-  camera.updateProjectionMatrix()
-  renderer.setSize(width, height)
+  // ThreeCore handles resize internally via resizeObserver on container,
+  // but if we need manual control:
+  // core.onContainerResize()
 }
 </script>
 
