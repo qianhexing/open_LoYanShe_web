@@ -1,8 +1,6 @@
 <template>
   <div class="time-ruler-container" ref="container">
     <canvas ref="canvas"></canvas>
-    <!-- Center Indicator Line (can also be drawn in canvas, but CSS is easier for some things, though canvas is requested for the ruler) -->
-    <!-- We will draw the indicator in canvas as per requirement "red scale mark in the middle" -->
   </div>
 </template>
 
@@ -25,10 +23,10 @@ const ctx = ref<CanvasRenderingContext2D | null>(null);
 
 // Configuration
 const PIXELS_PER_DAY = 20; // Height of one day
-const RULER_WIDTH = 80;
-const MARK_LENGTH_DAY = 15;
-const MARK_LENGTH_MONTH = 25;
-const MARK_LENGTH_YEAR = 35;
+const RULER_WIDTH = 50; // Narrower as requested
+const MARK_LENGTH_DAY = 10;
+const MARK_LENGTH_MONTH = 18;
+const MARK_LENGTH_YEAR = 25;
 
 // Colors
 const COLOR_DAY = '#cccccc';
@@ -122,22 +120,16 @@ const draw = () => {
   context.fillStyle = 'rgba(255, 255, 255, 0.8)';
   context.fillRect(0, 0, width, height);
   
-  // Calculate range
-  // We offset by currentTranslateY which simulates dragging
-  // Real logic: current date is at center. 
-  // Dragging changes the "effective" center.
-  
-  // To implement smooth scrolling, we can adjust the `currentDate` slightly or use a pixel offset.
-  // Using pixel offset `currentTranslateY` relative to `currentDate`.
-  // When drag ends, we commit `currentTranslateY` to `currentDate`.
+  // Logic FLIPPED: Top is FUTURE (larger date), Bottom is PAST (smaller date)
+  // Drag Down (positive deltaY) -> Go to Future (larger date)
+  // Originally: currentDate.subtract(dayOffset). Now: currentDate.add(dayOffset)
   
   const totalPixelOffset = currentTranslateY;
   const dayOffset = totalPixelOffset / PIXELS_PER_DAY;
   
-  // The temporary date we are looking at (center)
-  // Dragging DOWN (positive Y) means looking at EARLIER dates (moving content down)
-  // So we SUBTRACT the day offset
-  const centerDate = currentDate.subtract(dayOffset, 'day');
+  // Center Date Calculation
+  // Drag Down -> currentTranslateY > 0 -> dayOffset > 0 -> add -> future date
+  const centerDate = currentDate.add(dayOffset, 'day');
   
   // Determine visible range
   const halfHeight = height / 2;
@@ -146,34 +138,20 @@ const draw = () => {
   
   context.textAlign = 'right';
   context.textBaseline = 'middle';
-  context.font = '12px sans-serif';
   
   // Loop through days
   for (let i = -daysVisible - buffer; i <= daysVisible + buffer; i++) {
-    // Determine the date for this tick
-    // We iterate integer offsets from the rounded center date to avoid jitter?
-    // Let's stick to relative integer offsets from the `currentDate` (anchored)
-    // The `centerDate` is floating point.
-    
-    // We need to draw lines at integer day intervals relative to the Unix Epoch or similar absolute reference.
-    // `currentDate` might be 12:00. We want lines at 00:00.
-    
-    // Let's find the "base" day (00:00 of centerDate)
     const baseDay = centerDate.startOf('day');
-    const diffFromBase = centerDate.diff(baseDay, 'day', true); // e.g. 0.5 if noon
     
-    // We want to draw `targetDate = baseDay.add(i, 'day')`
-    // Its position Y:
-    // center is at `centerY`.
-    // center corresponds to `centerDate`.
-    // Y = centerY + (targetDate - centerDate) * PIXELS_PER_DAY
-    
+    // Target date
     const targetDate = baseDay.add(i, 'day');
     const diffDays = targetDate.diff(centerDate, 'day', true);
-    const y = centerY + diffDays * PIXELS_PER_DAY;
     
-    // Skip if out of bounds (should be covered by loop limits but safety first)
-    // if (y < -50 || y > height + 50) continue;
+    // Y Calculation FLIPPED
+    // If targetDate > centerDate (Future), diffDays > 0
+    // We want Future at Top (smaller Y)
+    // Y = centerY - diffDays * PIXELS_PER_DAY
+    const y = centerY - diffDays * PIXELS_PER_DAY;
     
     // Determine Type
     const isYear = targetDate.date() === 1 && targetDate.month() === 0;
@@ -190,7 +168,7 @@ const draw = () => {
     } else if (isMonth) {
       length = MARK_LENGTH_MONTH;
       color = COLOR_MONTH;
-      lineWidth = 2;
+      lineWidth = 1.5;
     }
     
     // Draw Tick
@@ -204,21 +182,17 @@ const draw = () => {
     // Draw Text
     if (isYear) {
       context.fillStyle = COLOR_TEXT;
-      context.font = 'bold 14px sans-serif';
-      context.fillText(targetDate.format('YYYY'), width - length - 5, y);
+      context.font = 'bold 12px sans-serif';
+      context.fillText(targetDate.format('YYYY'), width - length - 4, y);
     } else if (isMonth) {
       context.fillStyle = COLOR_TEXT;
-      context.font = '12px sans-serif';
-      context.fillText(targetDate.format('M月'), width - length - 5, y);
-    } else if (Math.abs(diffDays) < 0.1) {
-       // Optional: Highlight current day text if close to center?
-       // Requirement says "red scale in middle", we draw text for major ticks. 
-       // Maybe we can draw day numbers for every 5 days?
-       if (targetDate.date() % 5 === 0) {
-           context.fillStyle = '#999';
-           context.font = '10px sans-serif';
-           context.fillText(targetDate.format('D'), width - length - 5, y);
-       }
+      context.font = '10px sans-serif';
+      context.fillText(targetDate.format('M月'), width - length - 4, y);
+    } else {
+       // Draw Day Number for every day
+       context.fillStyle = '#999';
+       context.font = '9px sans-serif';
+       context.fillText(targetDate.format('DD'), width - length - 4, y);
     }
   }
   
@@ -227,7 +201,7 @@ const draw = () => {
   context.moveTo(0, centerY);
   context.lineTo(width, centerY);
   context.strokeStyle = COLOR_INDICATOR;
-  context.lineWidth = 2;
+  context.lineWidth = 1.5;
   context.stroke();
 };
 
@@ -260,16 +234,11 @@ const onEnd = () => {
   
   // Commit change
   const dayOffset = currentTranslateY / PIXELS_PER_DAY;
-  // Dragging DOWN (positive) -> Move to EARLIER date (subtract)
-  currentDate = currentDate.subtract(dayOffset, 'day');
+  // FLIPPED: Drag Down (positive) -> Future (add)
+  currentDate = currentDate.add(dayOffset, 'day');
   currentTranslateY = 0;
   
   // Snap to nearest day
-  // Round to nearest start of day
-  // If we are at 12:00, we want to stay at 12:00 or snap to 00:00?
-  // Requirement: "Precise to day"
-  // Let's snap to 12:00 (midday) or just 00:00. 
-  // Usually dates are just dates. Let's snap to start of day.
   currentDate = currentDate.startOf('day');
   
   draw();
@@ -287,7 +256,7 @@ const onEnd = () => {
   right: 0;
   top: 0;
   bottom: 0;
-  width: 80px; /* Match RULER_WIDTH */
+  width: 50px; /* Match RULER_WIDTH */
   height: 100vh;
   z-index: 50; /* Above map */
   pointer-events: auto;
