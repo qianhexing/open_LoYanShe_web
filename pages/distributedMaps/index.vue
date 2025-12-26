@@ -293,6 +293,31 @@ const drawMap = (geojson: GeoJSON, scene: THREE.Scene, dataMap: Map<string, Data
   return mapGroup;
 };
 
+// 辅助函数：计算几何中心
+const getGeometryCenter = (coordinates: any[], type: string): [number, number] | null => {
+    let xMin = Infinity, xMax = -Infinity, yMin = Infinity, yMax = -Infinity;
+    
+    const updateBounds = (ring: number[][]) => {
+        ring.forEach(pt => {
+            if (pt[0] < xMin) xMin = pt[0];
+            if (pt[0] > xMax) xMax = pt[0];
+            if (pt[1] < yMin) yMin = pt[1];
+            if (pt[1] > yMax) yMax = pt[1];
+        });
+    };
+
+    if (type === 'Polygon') {
+        (coordinates as number[][][]).forEach(ring => updateBounds(ring));
+    } else if (type === 'MultiPolygon') {
+        (coordinates as number[][][][]).forEach(polygon => {
+            polygon.forEach(ring => updateBounds(ring));
+        });
+    }
+
+    if (xMin === Infinity) return null;
+    return [(xMin + xMax) / 2, (yMin + yMax) / 2];
+};
+
 const drawBars = (data: DistributedMapData[], geojson: GeoJSON, scene: THREE.Scene, mapGroupOffset: THREE.Vector3) => {
   const barGroup = new THREE.Group();
   barGroup.name = 'BarGroup';
@@ -304,79 +329,96 @@ const drawBars = (data: DistributedMapData[], geojson: GeoJSON, scene: THREE.Sce
     // 确保有数据的区块都生成圆柱
     if (item.COUNT === 0) return;
 
-    const feature = geojson.features.find(f => f.properties.name.includes(item.ip_location));
-    if (feature && feature.properties.centroid) {
-      const center = feature.properties.centroid;
-      const { x, y } = project(center[0], center[1]);
-      
-      const count = item.COUNT;
-      const ratio = maxCount > 0 ? count / maxCount : 0;
-      // 缩短高度比：系数从 15 改为 8
-      const height = ratio * 8 + 1; 
-      
-      // 重新计算底座高度，保持和 drawMap 里的逻辑一致
-      const mapRatio = maxCount > 0 ? count / maxCount : 0;
-      const maxHeight = 6; 
-      const provinceDepth = Math.max(0.01, mapRatio * maxHeight);
-      
-      const zBase = provinceDepth;
+    // 尝试匹配 feature (增强匹配逻辑)
+    let feature = geojson.features.find(f => f.properties.name === item.ip_location);
+    if (!feature) {
+        feature = geojson.features.find(f => f.properties.name.includes(item.ip_location) || item.ip_location.includes(f.properties.name));
+    }
 
-      // 加粗圆柱：半径从 0.3 改为 0.6
-      const geometry = new THREE.CylinderGeometry(0.6, 0.6, height, 16);
-      const material = new THREE.MeshStandardMaterial({ 
-          color: LOLITA_COLORS.bar,
-          roughness: 0.6,
-          metalness: 0.1,
-          transparent: true,
-          opacity: 0.9
-      });
-      const mesh = new THREE.Mesh(geometry, material);
-      
-      if (isMobile.value) {
-        mesh.castShadow = false;
-        mesh.receiveShadow = false;
-      } else {
-        mesh.castShadow = true;
-        mesh.receiveShadow = true;
-      }
+    if (feature) {
+        let center: [number, number] | undefined = feature.properties.centroid;
+        // 如果没有 centroid，尝试 center，或者手动计算
+        if (!center) {
+            if (feature.properties.center) {
+                center = feature.properties.center;
+            } else {
+                const computed = getGeometryCenter(feature.geometry.coordinates, feature.geometry.type);
+                if (computed) center = computed;
+            }
+        }
 
-      mesh.rotation.x = Math.PI / 2;
-      mesh.position.set(x, y, zBase + height / 2);
-      
-      // 添加圆柱边框
-      const edges = new THREE.EdgesGeometry(geometry);
-      const borderMaterial = new THREE.LineBasicMaterial({ 
-          color: 0xfaa2ae, // 浅粉色边框，参考用户代码
-          linewidth: 1, 
-          opacity: 1, 
-          transparent: true 
-      });
-      const border = new THREE.LineSegments(edges, borderMaterial);
-      mesh.add(border);
+        if (center) {
+            const { x, y } = project(center[0], center[1]);
+            
+            const count = item.COUNT;
+            const ratio = maxCount > 0 ? count / maxCount : 0;
+            // 缩短高度比：系数从 15 改为 8
+            const height = ratio * 8 + 1; 
+            
+            // 重新计算底座高度，保持和 drawMap 里的逻辑一致
+            const mapRatio = maxCount > 0 ? count / maxCount : 0;
+            const maxHeight = 6; 
+            const provinceDepth = Math.max(0.01, mapRatio * maxHeight);
+            
+            const zBase = provinceDepth;
 
-      const label = createTextSprite(`${item.ip_location}`, '#333333');
-      const numLabel = createTextSprite(`${count}`, '#7130ae');
-      
-      if (label && numLabel) {
-        label.position.set(x, y, zBase + height + 2.0);
-        numLabel.position.set(x, y, zBase + height + 0.8);
-        barGroup.add(label);
-        barGroup.add(numLabel);
-      }
+            // 加粗圆柱：半径从 0.3 改为 0.6
+            const geometry = new THREE.CylinderGeometry(0.6, 0.6, height, 16);
+            const material = new THREE.MeshStandardMaterial({ 
+                color: LOLITA_COLORS.bar,
+                roughness: 0.6,
+                metalness: 0.1,
+                transparent: true,
+                opacity: 0.9
+            });
+            const mesh = new THREE.Mesh(geometry, material);
+            
+            if (isMobile.value) {
+                mesh.castShadow = false;
+                mesh.receiveShadow = false;
+            } else {
+                mesh.castShadow = true;
+                mesh.receiveShadow = true;
+            }
 
-      mesh.userData = { isBar: true, name: item.ip_location, count: count };
-      barGroup.add(mesh);
-      
-      const ringGeo = new THREE.RingGeometry(0.7, 0.9, 32); // 调整圆环大小以适应更粗的圆柱
-      const ringMat = new THREE.MeshBasicMaterial({ 
-          color: LOLITA_COLORS.bar, 
-          side: THREE.DoubleSide,
-          transparent: true,
-          opacity: 0.6
-      });
-      const ring = new THREE.Mesh(ringGeo, ringMat);
-      ring.position.set(x, y, zBase + 0.1);
-      barGroup.add(ring);
+            mesh.rotation.x = Math.PI / 2;
+            mesh.position.set(x, y, zBase + height / 2);
+            
+            // 添加圆柱边框
+            const edges = new THREE.EdgesGeometry(geometry);
+            const borderMaterial = new THREE.LineBasicMaterial({ 
+                color: 0xfaa2ae, // 浅粉色边框
+                linewidth: 1, 
+                opacity: 1, 
+                transparent: true 
+            });
+            const border = new THREE.LineSegments(edges, borderMaterial);
+            mesh.add(border);
+
+            const label = createTextSprite(`${item.ip_location}`, '#333333');
+            const numLabel = createTextSprite(`${count}`, '#7130ae');
+            
+            if (label && numLabel) {
+                label.position.set(x, y, zBase + height + 2.0);
+                numLabel.position.set(x, y, zBase + height + 0.8);
+                barGroup.add(label);
+                barGroup.add(numLabel);
+            }
+
+            mesh.userData = { isBar: true, name: item.ip_location, count: count };
+            barGroup.add(mesh);
+            
+            const ringGeo = new THREE.RingGeometry(0.7, 0.9, 32); 
+            const ringMat = new THREE.MeshBasicMaterial({ 
+                color: LOLITA_COLORS.bar, 
+                side: THREE.DoubleSide,
+                transparent: true,
+                opacity: 0.6
+            });
+            const ring = new THREE.Mesh(ringGeo, ringMat);
+            ring.position.set(x, y, zBase + 0.1);
+            barGroup.add(ring);
+        }
     }
   });
 
