@@ -143,6 +143,33 @@ const createTextSprite = (text: string, color: string = '#333333') => {
 
 // --- 核心逻辑 ---
 
+// 颜色插值函数：根据 Rank 计算渐变色
+const getInterpolatedColor = (rank: number, maxRank: number) => {
+    // 排名越前(rank小) 颜色越深(index小)
+    // 排名越后(rank大) 颜色越浅(index大)
+    
+    // 如果只有1个数据，直接用最深色
+    if (maxRank <= 1) return new THREE.Color(GRADIENT_COLORS[0]);
+    
+    // 计算在整个渐变数组中的位置 (0 ~ 1)
+    // rank: 1 ~ maxRank
+    // ratio: 0 ~ 1
+    const ratio = Math.max(0, Math.min(1, (rank - 1) / (maxRank - 1)));
+    
+    // 映射到 GRADIENT_COLORS 的索引区间
+    const maxIndex = GRADIENT_COLORS.length - 1;
+    const position = ratio * maxIndex;
+    
+    const lowerIndex = Math.floor(position);
+    const upperIndex = Math.ceil(position);
+    const t = position - lowerIndex;
+    
+    const color1 = new THREE.Color(GRADIENT_COLORS[lowerIndex]);
+    const color2 = new THREE.Color(GRADIENT_COLORS[upperIndex]);
+    
+    return color1.clone().lerp(color2, t);
+};
+
 const loadMapData = async () => {
   try {
     const url = `${BASE_IMG}ssr/world.json`; 
@@ -166,6 +193,9 @@ const loadMapData = async () => {
 const drawMap = (geojson: GeoJSON, scene: THREE.Scene, dataMap: Map<string, DataItem>, maxCount: number) => {
   const mapGroup = new THREE.Group();
   mapGroup.name = 'MapGroup';
+
+  // 获取总排名数（有数据的地区数量）
+  const totalRanks = rankList.value.length;
 
   geojson.features.forEach((feature, index) => {
     const provinceName = feature.properties.name;
@@ -196,17 +226,13 @@ const drawMap = (geojson: GeoJSON, scene: THREE.Scene, dataMap: Map<string, Data
     const maxHeight = 6;
     const depth = Math.max(0.01, ratio * maxHeight);
 
-    let baseColorHex: string | number;
-    // 全球统一使用渐变色逻辑
-    if (rank > 0 && rank <= GRADIENT_COLORS.length) {
-        baseColorHex = GRADIENT_COLORS[rank - 1];
+    // 颜色逻辑：如果有数据，则根据全球排名计算插值渐变色；无数据则为浅灰
+    let baseColor: THREE.Color;
+    if (count > 0) {
+        baseColor = getInterpolatedColor(rank, totalRanks);
     } else {
-            baseColorHex = GRADIENT_COLORS[GRADIENT_COLORS.length - 1]; 
+        baseColor = new THREE.Color(0xeeeeee);
     }
-    // 如果没有数据，给一个默认浅色
-    if (count === 0) baseColorHex = 0xeeeeee;
-
-    const baseColor = new THREE.Color(baseColorHex);
 
     const provinceGroup = new THREE.Group();
     provinceGroup.name = provinceName;
