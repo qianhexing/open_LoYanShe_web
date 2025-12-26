@@ -1,7 +1,7 @@
 <template>
   <div class="book-page w-full h-full relative overflow-hidden bg-[#fdf2f5]">
     <!-- Canvas Container -->
-    <div ref="canvasContainer" class="absolute inset-0 z-0"></div>
+    <div ref="canvasContainer" class="absolute inset-0 z-0 canvasContainer"></div>
 
     <!-- UI Overlay (Lolita Style) -->
     <div class="ui-overlay absolute inset-0 pointer-events-none flex flex-col justify-between p-8">
@@ -92,9 +92,14 @@ const PAGE_SEGMENTS = 10
 
 // --- Lifecycle ---
 onMounted(async () => {
-  initThree()
-  await initBook()
-  loading.value = false
+  // 等待 DOM 渲染完成，确保容器有正确的尺寸
+  await nextTick()
+  
+  setTimeout(async () => {
+    initThree()
+    await initBook()
+    loading.value = false
+  }, 1000)
 })
 
 onUnmounted(() => {
@@ -105,9 +110,20 @@ onUnmounted(() => {
 
 // --- Initialization ---
 function initThree() {
-  if (!canvasContainer.value) return
+  if (!canvasContainer.value) {
+    console.error('Canvas container not found')
+    return
+  }
 
-  // 实例化 ThreeCore
+  // 确保容器有尺寸
+  const rect = canvasContainer.value.getBoundingClientRect()
+  if (rect.width === 0 || rect.height === 0) {
+    console.warn('Container has zero size, retrying...')
+    setTimeout(() => initThree(), 100)
+    return
+  }
+
+  // 实例化 ThreeCore（不传 container，使用 mount 方法挂载）
   core = new ThreeCore({
     antialias: true,
     alpha: true, // Allow CSS background to show through
@@ -118,8 +134,9 @@ function initThree() {
     clearColor: 0x000000 // Transparent anyway
   })
 
-  // Mount to container
+  // 挂载到容器（必须在容器有尺寸后调用）
   core.mount(canvasContainer.value)
+  
   scene = core.scene
   
   // Custom Scene Setup
@@ -131,9 +148,72 @@ function initThree() {
     const axesHelper = new THREE.AxesHelper(10)
     scene.add(axesHelper)
 
+    // XYZ轴辅助器 - 使用箭头更清晰地显示方向
+    const axisLength = 8
+    const arrowLength = 1.5
+    const arrowHeadLength = 0.5
+    const arrowHeadWidth = 0.3
+    
+    // X轴 - 红色
+    const xAxisHelper = new THREE.ArrowHelper(
+      new THREE.Vector3(1, 0, 0),
+      new THREE.Vector3(0, 0, 0),
+      axisLength,
+      0xff0000,
+      arrowHeadLength,
+      arrowHeadWidth
+    )
+    scene.add(xAxisHelper)
+    
+    // Y轴 - 绿色
+    const yAxisHelper = new THREE.ArrowHelper(
+      new THREE.Vector3(0, 1, 0),
+      new THREE.Vector3(0, 0, 0),
+      axisLength,
+      0x00ff00,
+      arrowHeadLength,
+      arrowHeadWidth
+    )
+    scene.add(yAxisHelper)
+    
+    // Z轴 - 蓝色
+    const zAxisHelper = new THREE.ArrowHelper(
+      new THREE.Vector3(0, 0, 1),
+      new THREE.Vector3(0, 0, 0),
+      axisLength,
+      0x0000ff,
+      arrowHeadLength,
+      arrowHeadWidth
+    )
+    scene.add(zAxisHelper)
+
     const gridHelper = new THREE.GridHelper(50, 50, 0x888888, 0xdddddd)
     gridHelper.position.y = -5.01 // Slightly below floor
     scene.add(gridHelper)
+
+    // Debug Cube - 用于确定场景位置
+    const cubeGeometry = new THREE.BoxGeometry(2, 2, 2)
+    const cubeMaterial = new THREE.MeshStandardMaterial({ 
+      color: 0xff6b9d,
+      wireframe: false,
+      transparent: true,
+      opacity: 0.7
+    })
+    const debugCube = new THREE.Mesh(cubeGeometry, cubeMaterial)
+    debugCube.position.set(0, 0, 0) // 放在原点位置
+    debugCube.castShadow = true
+    debugCube.receiveShadow = true
+    scene.add(debugCube)
+
+    // 添加线框版本，更清晰
+    const wireframeGeometry = new THREE.BoxGeometry(2, 2, 2)
+    const wireframeMaterial = new THREE.MeshBasicMaterial({ 
+      color: 0xff0000,
+      wireframe: true
+    })
+    const wireframeCube = new THREE.Mesh(wireframeGeometry, wireframeMaterial)
+    wireframeCube.position.set(0, 0, 0)
+    scene.add(wireframeCube)
   }
 
   // Adjust Controls
@@ -230,10 +310,10 @@ async function initBook() {
   spine.rotation.x = 0 
   spine.position.set(0, 0, 0)
   bookGroup.add(spine)
-
+  core.lookAtSelectObj([bookGroup])
   // Initial Texture Load
   await updateTextures()
-  
+  console.log(bookGroup, 'bookGroup')
   // Hide flipper initially if at start
   flipper.visible = false
 }
@@ -429,6 +509,19 @@ function onResize() {
 <style scoped>
 /* Lolita Font & Utilities */
 @import url('https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@400;700&family=Playfair+Display:ital@0;1&display=swap');
+
+.book-page {
+  width: 100%;
+  height: 100%;
+  min-height: 100vh;
+}
+
+.canvasContainer {
+  width: 100%;
+  height: 100%;
+  min-width: 100%;
+  min-height: 100%;
+}
 
 .lolita-title {
   font-family: 'Cinzel Decorative', cursive;
