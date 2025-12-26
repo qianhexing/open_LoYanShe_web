@@ -50,6 +50,8 @@ const loading = ref(true);
 const rankList = ref<RankItem[]>([]);
 const isRankExpanded = ref(true); 
 const totalCount = ref(0);
+// 存储最大数量，用于计算比例
+const maxCountVal = ref(1);
 
 // 地图相关配置
 const MAP_CENTER = [104.0, 37.5]; 
@@ -58,12 +60,14 @@ const MAP_SCALE = 3.0;
 // 颜色定义 (参考旧代码)
 const LOLITA_COLORS = {
   bg: 0xffffff,
-  bar: '#ffaa7f', 
+  bar: '#7130ae', // 改为紫色
   text: 0x333333,
   borderChina: 0x7130ae, // 国内边框
   borderOther: 0x000000, // 国外边框
   tooltipBg: 'rgba(255, 255, 255, 0.95)',
-  tooltipText: '#333333'
+  tooltipText: '#333333',
+  highlight: '#2e006a', // 深紫色高亮
+  highlightBar: '#4a148c' // 圆柱高亮深紫
 };
 
 const PROVINCE_COLORS = [
@@ -178,9 +182,7 @@ const drawMap = (geojson: GeoJSON, scene: THREE.Scene, dataMap: Map<string, Data
     // 查找数据
     let count = 0;
     let rank = 0;
-    // 尝试直接匹配
     let dataItem = dataMap.get(provinceName);
-    // 如果没找到，尝试模糊匹配 (dataMap key 可能只是 '上海', '北京' 等)
     if (!dataItem) {
         for (const [key, value] of dataMap.entries()) {
             if (provinceName.includes(key) || key.includes(provinceName)) {
@@ -195,26 +197,20 @@ const drawMap = (geojson: GeoJSON, scene: THREE.Scene, dataMap: Map<string, Data
     }
 
     const isChina = CHINA_PROVINCES.includes(provinceName);
-    const ratio = totalCount.value > 0 ? count / totalCount.value : 0;
+    // 使用 maxCount 来归一化，使得高度差更明显
+    const ratio = maxCount > 0 ? count / maxCount : 0;
     
-    // 旧代码逻辑：
-    // depth = is_china ? Math.max(0.01, ratio * maxHeight) : 0.008
-    // maxHeight = 15
-    const maxHeight = 15;
+    // 最大高度调整为 20，增强高低错落感
+    const maxHeight = 20;
     const depth = isChina ? Math.max(0.01, ratio * maxHeight) : 0.008;
 
-    // 颜色逻辑：
-    // is_china ? randColor[rank - 1] : provinceColors[index % 5]
     let baseColorHex: string | number;
     if (isChina) {
-        // rank 是从 1 开始的
         if (rank > 0 && rank <= GRADIENT_COLORS.length) {
             baseColorHex = GRADIENT_COLORS[rank - 1];
         } else {
-             // 默认颜色或者最后一个颜色
              baseColorHex = GRADIENT_COLORS[GRADIENT_COLORS.length - 1]; 
         }
-        // 如果没有数据，且是中国省份，给一个默认浅色，或者保持渐变逻辑的最末端
         if (count === 0) baseColorHex = 0xeeeeee;
     } else {
         baseColorHex = PROVINCE_COLORS[index % PROVINCE_COLORS.length];
@@ -242,12 +238,11 @@ const drawMap = (geojson: GeoJSON, scene: THREE.Scene, dataMap: Map<string, Data
 
       const extrudeSettings = {
         depth: depth, 
-        bevelEnabled: false // 旧代码 bevelEnabled: false
+        bevelEnabled: false 
       };
 
       const geometry = new THREE.ExtrudeGeometry(shape, extrudeSettings);
       
-      // 旧代码使用 MeshLambertMaterial
       const material = new THREE.MeshLambertMaterial({
         color: baseColor,
         side: THREE.DoubleSide,
@@ -265,7 +260,7 @@ const drawMap = (geojson: GeoJSON, scene: THREE.Scene, dataMap: Map<string, Data
       
       // 边框逻辑
       const borderColor = isChina ? LOLITA_COLORS.borderChina : LOLITA_COLORS.borderOther;
-      const opacity = isChina ? 0.3 : 0.3; // 旧代码都是 0.3，虽然写了 borderColor = 0x000000 但 opacity 还是 0.3
+      const opacity = 0.3; 
       
       const lineGeometry = new THREE.EdgesGeometry(geometry);
       const lineMaterial = new THREE.LineBasicMaterial({ 
@@ -295,7 +290,6 @@ const drawMap = (geojson: GeoJSON, scene: THREE.Scene, dataMap: Map<string, Data
     mapGroup.add(provinceGroup);
   });
 
-  // Center map
   const box = new THREE.Box3().setFromObject(mapGroup);
   const center = box.getCenter(new THREE.Vector3());
   mapGroup.position.x = -center.x;
@@ -313,6 +307,7 @@ const drawBars = (data: DistributedMapData[], geojson: GeoJSON, scene: THREE.Sce
   const maxCount = Math.max(...data.map(d => d.COUNT));
 
   data.forEach((item) => {
+    // 确保有数据的区块都生成圆柱
     if (item.COUNT === 0) return;
 
     const feature = geojson.features.find(f => f.properties.name.includes(item.ip_location));
@@ -324,10 +319,10 @@ const drawBars = (data: DistributedMapData[], geojson: GeoJSON, scene: THREE.Sce
       const ratio = maxCount > 0 ? count / maxCount : 0;
       const height = ratio * 15 + 1; 
       
-      // 计算底座高度 (对应地图块的厚度)
-      // 需要重新计算该省份的 depth
-      const provRatio = totalCount.value > 0 ? count / totalCount.value : 0;
-      const provinceDepth = Math.max(0.01, provRatio * 15);
+      // 重新计算底座高度，保持和 drawMap 里的逻辑一致
+      const mapRatio = maxCount > 0 ? count / maxCount : 0;
+      const maxHeight = 20; 
+      const provinceDepth = Math.max(0.01, mapRatio * maxHeight);
       
       const zBase = provinceDepth;
 
@@ -350,10 +345,19 @@ const drawBars = (data: DistributedMapData[], geojson: GeoJSON, scene: THREE.Sce
       }
 
       mesh.rotation.x = Math.PI / 2;
-      // Cylinder 默认中心在原点，高 h。旋转后沿 y 轴变沿 z 轴。
-      // 需要向上平移 h/2 + zBase
       mesh.position.set(x, y, zBase + height / 2);
       
+      // 添加圆柱边框
+      const edges = new THREE.EdgesGeometry(geometry);
+      const borderMaterial = new THREE.LineBasicMaterial({ 
+          color: 0xfaa2ae, // 浅粉色边框，参考用户代码
+          linewidth: 1, 
+          opacity: 1, 
+          transparent: true 
+      });
+      const border = new THREE.LineSegments(edges, borderMaterial);
+      mesh.add(border);
+
       const label = createTextSprite(`${item.ip_location}`, '#333333');
       const numLabel = createTextSprite(`${count}`, '#7130ae');
       
@@ -387,6 +391,7 @@ const processData = (data: DistributedMapData[]) => {
   const sorted = [...data].sort((a, b) => b.COUNT - a.COUNT);
   const total = sorted.reduce((sum, i) => sum + i.COUNT, 0);
   totalCount.value = total;
+  maxCountVal.value = sorted.length > 0 ? sorted[0].COUNT : 1;
 
   let lastCount: number | null = null;
   let lastRank = 0;
@@ -455,7 +460,6 @@ const initThree = async () => {
   
   if (!isMobile.value) {
     dirLight.castShadow = true;
-    // 增加阴影贴图分辨率
     dirLight.shadow.mapSize.width = 4096;
     dirLight.shadow.mapSize.height = 4096;
     dirLight.shadow.camera.near = 0.5;
@@ -464,18 +468,13 @@ const initThree = async () => {
     dirLight.shadow.camera.right = 100;
     dirLight.shadow.camera.top = 100;
     dirLight.shadow.camera.bottom = -100;
-    
-    // 软化阴影
     dirLight.shadow.radius = 2;
     dirLight.shadow.bias = -0.0001;
-
-    // 开启 PCFSoftShadowMap
     if (core.renderer) {
         (core.renderer as THREE.WebGLRenderer).shadowMap.enabled = true;
         (core.renderer as THREE.WebGLRenderer).shadowMap.type = THREE.PCFSoftShadowMap;
     }
   } else {
-     // 移动端关闭
      if (core.renderer) {
         (core.renderer as THREE.WebGLRenderer).shadowMap.enabled = false;
      }
@@ -497,8 +496,6 @@ const initThree = async () => {
     
     if (distData) {
         processData(distData);
-        // 将 rank 信息也存入 Map
-        // rankList 已经计算好了 rank，可以直接用 ip_location 匹配
         distData.forEach(d => {
             const rankItem = rankList.value.find(r => r.name === d.ip_location);
             dataMap.set(d.ip_location, { 
@@ -599,11 +596,11 @@ const onMouseMove = (event: MouseEvent) => {
                 if (hoveredObject) restoreObjectMaterial(hoveredObject);
                 hoveredObject = object;
                 
-                const baseColor = object.parent.userData.baseColor || new THREE.Color(0xeeeeee);
-                const hoverColor = baseColor.clone().offsetHSL(0, 0, -0.1); 
+                // 地图块高亮色
+                const highlightColor = new THREE.Color(LOLITA_COLORS.highlight);
 
                 (object as THREE.Mesh).material = new THREE.MeshLambertMaterial({
-                    color: hoverColor,
+                    color: highlightColor,
                     side: THREE.DoubleSide
                 });
 
@@ -618,8 +615,9 @@ const onMouseMove = (event: MouseEvent) => {
                 if (hoveredObject) restoreObjectMaterial(hoveredObject);
                 hoveredObject = object;
                 
+                // 圆柱高亮色
                 (object as THREE.Mesh).material = new THREE.MeshStandardMaterial({ 
-                    color: 0xe74c3c,
+                    color: LOLITA_COLORS.highlightBar,
                     transparent: true,
                     opacity: 1.0,
                     roughness: 0.6,
