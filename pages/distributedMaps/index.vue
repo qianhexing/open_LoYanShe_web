@@ -1,11 +1,10 @@
 <script setup lang="ts">
-import { ref, onMounted, onBeforeUnmount, shallowRef, computed, watch } from 'vue';
+import { ref, onMounted, onBeforeUnmount, shallowRef } from 'vue';
 import * as THREE from 'three';
 import ThreeCore from '@/utils/threeCore';
 import { getDistributedMaps, type DistributedMapData } from '@/api/statistics';
 import { useHead } from '@unhead/vue';
 import { BASE_IMG } from '@/utils/ipConfig';
-// import { MapControls } from 'three/examples/jsm/controls/MapControls.js'; // ThreeCore 内置了 OrbitControls
 
 // --- 类型定义 ---
 interface ProvinceFeature {
@@ -39,30 +38,41 @@ interface RankItem {
   percent: string;
 }
 
+interface DataItem {
+    count: number;
+    rank: number;
+}
+
 // --- 状态 ---
 const container = ref<HTMLElement | null>(null);
 const threeCore = shallowRef<ThreeCore | null>(null);
 const loading = ref(true);
 const rankList = ref<RankItem[]>([]);
-const isRankExpanded = ref(true); // 排行榜展开状态，默认展开
+const isRankExpanded = ref(true); 
 const totalCount = ref(0);
 
 // 地图相关配置
-const MAP_CENTER = [104.0, 37.5]; // 地图中心经纬度
-const MAP_SCALE = 3.0; // 缩放比例
+const MAP_CENTER = [104.0, 37.5]; 
+const MAP_SCALE = 3.0; 
 
-// Lolita 风格配色 - 浅色系
+// 颜色定义 (参考旧代码)
 const LOLITA_COLORS = {
-  bg: 0xffffff, // 纯白背景
-  bar: '#ffaa7f', // 柱状图颜色 (主色，参考 diary 颜色)
-  text: 0x333333, // 深色文字
-  rankText: 0x7130ae, // 排行榜排名颜色
-  border: 0x999999, // 边框深灰色
+  bg: 0xffffff,
+  bar: '#ffaa7f', 
+  text: 0x333333,
+  borderChina: 0x7130ae, // 国内边框
+  borderOther: 0x000000, // 国外边框
   tooltipBg: 'rgba(255, 255, 255, 0.95)',
   tooltipText: '#333333'
 };
 
-// 指定的过渡色数组：从深(多) -> 浅(少)
+const PROVINCE_COLORS = [
+    "#FADADD", "#FFC3A0", "#FFD1DC", "#FFABAB", "#FFCCCC", "#FFB7C5", "#FF9AA2", "#FF85A1", "#FF6F61", "#FFB6C1",
+    "#FF69B4", "#FF1493", "#FFC0CB", "#FFA07A", "#FF7F50", "#FFD700", "#FFE4E1", "#FFE5B4", "#FFDEAD", "#FFE4C4",
+    "#FFF0F5", "#FAF0E6", "#F5DEB3", "#F4C2C2", "#F8C8DC", "#F0E68C", "#F5F5DC", "#F5F5F5", "#F0FFF0", "#E6E6FA",
+    "#E0FFFF", "#DDA0DD", "#D8BFD8", "#D2B48C"
+];
+
 const GRADIENT_COLORS = [
   "#7130ae", "#7740bb", "#7e51c6", "#865ccc", "#8e66d2", "#9670d7",
   "#9f7bdc", "#a784e0", "#b08fe4", "#ba99e8", "#c4a3eb", "#cdb1ef",
@@ -72,13 +82,18 @@ const GRADIENT_COLORS = [
   "#ffffff", "#ffffff", "#ffffff", "#ffffff"
 ];
 
+const CHINA_PROVINCES = [
+    '北京市', '天津市', '河北省', '山西省', '内蒙古自治区', '辽宁省', '吉林省', '黑龙江省', '上海市', '江苏省', 
+    '浙江省', '安徽省', '福建省', '江西省', '山东省', '河南省', '湖北省', '湖南省', '广东省', '广西壮族自治区', 
+    '海南省', '重庆市', '四川省', '贵州省', '云南省', '西藏自治区', '陕西省', '甘肃省', '青海省', '宁夏回族自治区', 
+    '新疆维吾尔自治区', '台湾省', '香港特别行政区', '澳门特别行政区'
+];
+
 // 交互相关
 const raycaster = new THREE.Raycaster();
 const mouse = new THREE.Vector2();
 let hoveredObject: THREE.Object3D | null = null;
 const tooltip = ref({ visible: false, x: 0, y: 0, name: '', count: 0 });
-
-// --- 辅助函数 ---
 
 const isMobile = ref(false);
 const checkIsMobile = () => {
@@ -87,36 +102,12 @@ const checkIsMobile = () => {
   }
 };
 
-// 墨卡托投影简化版 (经纬度 -> XY坐标)
 const project = (lng: number, lat: number) => {
   const x = (lng - MAP_CENTER[0]) * MAP_SCALE;
   const y = (lat - MAP_CENTER[1]) * MAP_SCALE;
   return { x, y };
 };
 
-// 颜色采样函数：根据比例 (0-1) 获取颜色
-const getGradientColor = (ratio: number) => {
-  // ratio: 0 (Min) -> 1 (Max)
-  // GRADIENT_COLORS: 0 (Deep/Max) -> Last (Light/Min)
-  // 所以需要反向映射: ratio 1 -> Index 0, ratio 0 -> Index Last
-  
-  const invertRatio = 1 - ratio;
-  
-  if (invertRatio <= 0) return new THREE.Color(GRADIENT_COLORS[0]);
-  if (invertRatio >= 1) return new THREE.Color(GRADIENT_COLORS[GRADIENT_COLORS.length - 1]);
-
-  const index = invertRatio * (GRADIENT_COLORS.length - 1);
-  const lowerIndex = Math.floor(index);
-  const upperIndex = Math.ceil(index);
-  const t = index - lowerIndex;
-
-  const color1 = new THREE.Color(GRADIENT_COLORS[lowerIndex]);
-  const color2 = new THREE.Color(GRADIENT_COLORS[upperIndex]);
-
-  return color1.lerp(color2, t);
-};
-
-// 创建字体 Sprite (适配浅色背景)
 const createTextSprite = (text: string, color: string = '#333333') => {
   const canvas = document.createElement('canvas');
   const fontSize = 32;
@@ -136,7 +127,6 @@ const createTextSprite = (text: string, color: string = '#333333') => {
   context.textAlign = 'center';
   context.textBaseline = 'middle';
   
-  // 白底文字阴影改为白色描边，增强可读性
   context.shadowColor = 'rgba(255, 255, 255, 0.8)';
   context.shadowBlur = 4;
   context.shadowOffsetX = 0;
@@ -176,27 +166,60 @@ const loadMapData = async () => {
   }
 };
 
-const drawMap = (geojson: GeoJSON, scene: THREE.Scene, dataMap: Map<string, number>, maxCount: number) => {
+const drawMap = (geojson: GeoJSON, scene: THREE.Scene, dataMap: Map<string, DataItem>, maxCount: number) => {
   const mapGroup = new THREE.Group();
   mapGroup.name = 'MapGroup';
 
-  geojson.features.forEach((feature) => {
+  geojson.features.forEach((feature, index) => {
     const provinceName = feature.properties.name;
     const coordinates = feature.geometry.coordinates;
     const type = feature.geometry.type;
     
+    // 查找数据
     let count = 0;
-    for (const [key, value] of dataMap.entries()) {
-        if (provinceName.includes(key)) {
-            count = value;
-            break;
+    let rank = 0;
+    // 尝试直接匹配
+    let dataItem = dataMap.get(provinceName);
+    // 如果没找到，尝试模糊匹配 (dataMap key 可能只是 '上海', '北京' 等)
+    if (!dataItem) {
+        for (const [key, value] of dataMap.entries()) {
+            if (provinceName.includes(key) || key.includes(provinceName)) {
+                dataItem = value;
+                break;
+            }
         }
     }
+    if (dataItem) {
+        count = dataItem.count;
+        rank = dataItem.rank;
+    }
 
-    const ratio = maxCount > 0 ? Math.min(count / maxCount, 1) : 0;
-    const depth = 0.5 + (count > 0 ? ratio * 3.0 : 0);
-    // 无数据区域给浅灰色
-    const baseColor = count > 0 ? getGradientColor(ratio) : new THREE.Color(0xeeeeee);
+    const isChina = CHINA_PROVINCES.includes(provinceName);
+    const ratio = totalCount.value > 0 ? count / totalCount.value : 0;
+    
+    // 旧代码逻辑：
+    // depth = is_china ? Math.max(0.01, ratio * maxHeight) : 0.008
+    // maxHeight = 15
+    const maxHeight = 15;
+    const depth = isChina ? Math.max(0.01, ratio * maxHeight) : 0.008;
+
+    // 颜色逻辑：
+    // is_china ? randColor[rank - 1] : provinceColors[index % 5]
+    let baseColorHex: string | number;
+    if (isChina) {
+        // rank 是从 1 开始的
+        if (rank > 0 && rank <= GRADIENT_COLORS.length) {
+            baseColorHex = GRADIENT_COLORS[rank - 1];
+        } else {
+             // 默认颜色或者最后一个颜色
+             baseColorHex = GRADIENT_COLORS[GRADIENT_COLORS.length - 1]; 
+        }
+        // 如果没有数据，且是中国省份，给一个默认浅色，或者保持渐变逻辑的最末端
+        if (count === 0) baseColorHex = 0xeeeeee;
+    } else {
+        baseColorHex = PROVINCE_COLORS[index % PROVINCE_COLORS.length];
+    }
+    const baseColor = new THREE.Color(baseColorHex);
 
     const provinceGroup = new THREE.Group();
     provinceGroup.name = provinceName;
@@ -205,7 +228,8 @@ const drawMap = (geojson: GeoJSON, scene: THREE.Scene, dataMap: Map<string, numb
         name: provinceName,
         count: count,
         depth: depth,
-        baseColor: baseColor
+        baseColor: baseColor,
+        isChina: isChina
     };
 
     const drawPolygon = (polygon: number[][]) => {
@@ -218,27 +242,19 @@ const drawMap = (geojson: GeoJSON, scene: THREE.Scene, dataMap: Map<string, numb
 
       const extrudeSettings = {
         depth: depth, 
-        bevelEnabled: true,
-        bevelThickness: 0.02,
-        bevelSize: 0.02,
-        bevelSegments: 2
+        bevelEnabled: false // 旧代码 bevelEnabled: false
       };
 
       const geometry = new THREE.ExtrudeGeometry(shape, extrudeSettings);
       
-      // 使用 MeshStandardMaterial 配合高 roughness
-      const material = new THREE.MeshStandardMaterial({
+      // 旧代码使用 MeshLambertMaterial
+      const material = new THREE.MeshLambertMaterial({
         color: baseColor,
-        transparent: true,
-        opacity: 1.0, // 不透明
-        roughness: 0.8, // 增加粗糙度，减少反光
-        metalness: 0.0, // 无金属感
-        side: THREE.DoubleSide
+        side: THREE.DoubleSide,
       });
 
       const mesh = new THREE.Mesh(geometry, material);
       
-      // 手机端关闭光影投射和接收
       if (isMobile.value) {
         mesh.castShadow = false;
         mesh.receiveShadow = false;
@@ -247,13 +263,16 @@ const drawMap = (geojson: GeoJSON, scene: THREE.Scene, dataMap: Map<string, numb
         mesh.receiveShadow = true;
       }
       
-      // 边框线颜色加深
+      // 边框逻辑
+      const borderColor = isChina ? LOLITA_COLORS.borderChina : LOLITA_COLORS.borderOther;
+      const opacity = isChina ? 0.3 : 0.3; // 旧代码都是 0.3，虽然写了 borderColor = 0x000000 但 opacity 还是 0.3
+      
       const lineGeometry = new THREE.EdgesGeometry(geometry);
       const lineMaterial = new THREE.LineBasicMaterial({ 
-          color: LOLITA_COLORS.border, 
+          color: borderColor, 
           linewidth: 1,
           transparent: true,
-          opacity: 0.6
+          opacity: opacity
       });
       const line = new THREE.LineSegments(lineGeometry, lineMaterial);
       
@@ -276,6 +295,7 @@ const drawMap = (geojson: GeoJSON, scene: THREE.Scene, dataMap: Map<string, numb
     mapGroup.add(provinceGroup);
   });
 
+  // Center map
   const box = new THREE.Box3().setFromObject(mapGroup);
   const center = box.getCenter(new THREE.Vector3());
   mapGroup.position.x = -center.x;
@@ -303,7 +323,12 @@ const drawBars = (data: DistributedMapData[], geojson: GeoJSON, scene: THREE.Sce
       const count = item.COUNT;
       const ratio = maxCount > 0 ? count / maxCount : 0;
       const height = ratio * 15 + 1; 
-      const provinceDepth = 0.5 + ratio * 3.0;
+      
+      // 计算底座高度 (对应地图块的厚度)
+      // 需要重新计算该省份的 depth
+      const provRatio = totalCount.value > 0 ? count / totalCount.value : 0;
+      const provinceDepth = Math.max(0.01, provRatio * 15);
+      
       const zBase = provinceDepth;
 
       const geometry = new THREE.CylinderGeometry(0.3, 0.3, height, 16);
@@ -316,7 +341,6 @@ const drawBars = (data: DistributedMapData[], geojson: GeoJSON, scene: THREE.Sce
       });
       const mesh = new THREE.Mesh(geometry, material);
       
-      // 手机端关闭光影
       if (isMobile.value) {
         mesh.castShadow = false;
         mesh.receiveShadow = false;
@@ -326,9 +350,10 @@ const drawBars = (data: DistributedMapData[], geojson: GeoJSON, scene: THREE.Sce
       }
 
       mesh.rotation.x = Math.PI / 2;
+      // Cylinder 默认中心在原点，高 h。旋转后沿 y 轴变沿 z 轴。
+      // 需要向上平移 h/2 + zBase
       mesh.position.set(x, y, zBase + height / 2);
       
-      // 文字颜色改为深色
       const label = createTextSprite(`${item.ip_location}`, '#333333');
       const numLabel = createTextSprite(`${count}`, '#7130ae');
       
@@ -401,14 +426,12 @@ const initThree = async () => {
   threeCore.value = core;
   core.mount(container.value);
 
-  // 修复镜头畸变：调小 FOV
   if (core.camera instanceof THREE.PerspectiveCamera) {
-    core.camera.fov = 45; // 默认75，改小以减少畸变
+    core.camera.fov = 45; 
     core.camera.updateProjectionMatrix();
   }
 
   if (core.controls) {
-      // 禁用旋转，仅允许平移和缩放
       core.controls.enableRotate = false;
       core.controls.enablePan = true;
       core.controls.screenSpacePanning = true; 
@@ -421,36 +444,48 @@ const initThree = async () => {
       };
   }
 
-  // 关闭辉光
   core.toggleBloom(false);
 
-  // 添加光源 - 白底需要更亮的环境光
-  const ambientLight = new THREE.AmbientLight(0xffffff, 0.8);
+  // 灯光与阴影配置 (PC端开启高质量阴影)
+  const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
   core.scene.add(ambientLight);
 
-  const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
-  dirLight.position.set(20, -20, 50);
+  const dirLight = new THREE.DirectionalLight(0xffffff, 1.0);
+  dirLight.position.set(50, -50, 80);
   
-  // 手机端关闭阴影
   if (!isMobile.value) {
     dirLight.castShadow = true;
-    dirLight.shadow.mapSize.width = 2048;
-    dirLight.shadow.mapSize.height = 2048;
+    // 增加阴影贴图分辨率
+    dirLight.shadow.mapSize.width = 4096;
+    dirLight.shadow.mapSize.height = 4096;
+    dirLight.shadow.camera.near = 0.5;
+    dirLight.shadow.camera.far = 500;
+    dirLight.shadow.camera.left = -100;
+    dirLight.shadow.camera.right = 100;
+    dirLight.shadow.camera.top = 100;
+    dirLight.shadow.camera.bottom = -100;
+    
     // 软化阴影
-    dirLight.shadow.radius = 4;
-    dirLight.shadow.bias = -0.0005;
+    dirLight.shadow.radius = 2;
+    dirLight.shadow.bias = -0.0001;
+
+    // 开启 PCFSoftShadowMap
+    if (core.renderer) {
+        (core.renderer as THREE.WebGLRenderer).shadowMap.enabled = true;
+        (core.renderer as THREE.WebGLRenderer).shadowMap.type = THREE.PCFSoftShadowMap;
+    }
+  } else {
+     // 移动端关闭
+     if (core.renderer) {
+        (core.renderer as THREE.WebGLRenderer).shadowMap.enabled = false;
+     }
   }
+
   core.scene.add(dirLight);
   
-  // 柔和的暖光补光
-  const fillLight = new THREE.DirectionalLight(0xffecd2, 0.5);
+  const fillLight = new THREE.DirectionalLight(0xffecd2, 0.4);
   fillLight.position.set(-50, 50, 50);
   core.scene.add(fillLight);
-
-  // 如果是手机端，还可以考虑关闭 renderer 的 shadowMap
-  if (isMobile.value && core.renderer && 'shadowMap' in core.renderer) {
-    (core.renderer as THREE.WebGLRenderer).shadowMap.enabled = false;
-  }
 
   const [geojson, distData] = await Promise.all([
     loadMapData(),
@@ -458,13 +493,22 @@ const initThree = async () => {
   ]);
 
   if (geojson) {
-    const dataMap = new Map<string, number>();
-    const maxCount = distData ? Math.max(...distData.map(d => d.COUNT)) : 1;
+    const dataMap = new Map<string, DataItem>();
+    
     if (distData) {
         processData(distData);
-        distData.forEach(d => dataMap.set(d.ip_location, d.COUNT));
+        // 将 rank 信息也存入 Map
+        // rankList 已经计算好了 rank，可以直接用 ip_location 匹配
+        distData.forEach(d => {
+            const rankItem = rankList.value.find(r => r.name === d.ip_location);
+            dataMap.set(d.ip_location, { 
+                count: d.COUNT, 
+                rank: rankItem ? rankItem.rank : 999 
+            });
+        });
     }
 
+    const maxCount = distData ? Math.max(...distData.map(d => d.COUNT)) : 1;
     const mapGroup = drawMap(geojson, core.scene, dataMap, maxCount);
     
     if (distData) {
@@ -477,9 +521,8 @@ const initThree = async () => {
     const shanghaiWorldX = rawSx + groupOffset.x;
     const shanghaiWorldY = rawSy + groupOffset.y;
     
-    // 稍微拉远相机距离以适应 FOV 的减小
-    const cameraHeight = 50; // 从 35 增加到 50
-    const cameraOffsetZ = 45; // 从 30 增加到 45
+    const cameraHeight = 50; 
+    const cameraOffsetZ = 45; 
     
     if (core.controls) {
         core.controls.target.set(shanghaiWorldX, shanghaiWorldY, 0);
@@ -492,10 +535,9 @@ const initThree = async () => {
   core.startAnimationLoop();
 
   container.value.addEventListener('mousemove', onMouseMove);
-  container.value.addEventListener('dblclick', onDblClick); // 双击聚焦
+  container.value.addEventListener('dblclick', onDblClick); 
 };
 
-// 双击聚焦逻辑
 const onDblClick = (event: MouseEvent) => {
     if (!threeCore.value || !container.value) return;
     
@@ -516,7 +558,6 @@ const onDblClick = (event: MouseEvent) => {
             
             const offset = new THREE.Vector3().subVectors(currentCamPos, currentTarget);
             
-            // 拉近距离
             const targetHeight = 15; 
             const scale = targetHeight / currentCamPos.z; 
             const newOffset = offset.clone();
@@ -561,12 +602,8 @@ const onMouseMove = (event: MouseEvent) => {
                 const baseColor = object.parent.userData.baseColor || new THREE.Color(0xeeeeee);
                 const hoverColor = baseColor.clone().offsetHSL(0, 0, -0.1); 
 
-                (object as THREE.Mesh).material = new THREE.MeshStandardMaterial({
+                (object as THREE.Mesh).material = new THREE.MeshLambertMaterial({
                     color: hoverColor,
-                    transparent: true,
-                    opacity: 1.0,
-                    roughness: 0.8,
-                    metalness: 0.0,
                     side: THREE.DoubleSide
                 });
 
@@ -615,12 +652,8 @@ const restoreObjectMaterial = (obj: THREE.Object3D) => {
         });
     } else if (obj.parent?.userData.isProvince) {
         const baseColor = obj.parent.userData.baseColor || new THREE.Color(0xeeeeee);
-        (obj as THREE.Mesh).material = new THREE.MeshStandardMaterial({
+        (obj as THREE.Mesh).material = new THREE.MeshLambertMaterial({
             color: baseColor,
-            transparent: true,
-            opacity: 1.0,
-            roughness: 0.8,
-            metalness: 0.0,
             side: THREE.DoubleSide
         });
     }
