@@ -54,13 +54,21 @@ const MAP_SCALE = 3.0; // 缩放比例
 // Lolita 风格配色 - 浅色系
 const LOLITA_COLORS = {
   bg: 0xffffff, // 纯白背景
-  bar: 0x96D296, // 柱状图颜色 (保持原色，或者稍微加深一点适应白底)
+  bar: '#ffaa7f', // 柱状图颜色 (主色，参考 diary 颜色)
   text: 0x333333, // 深色文字
   rankText: 0x7130ae, // 排行榜排名颜色
   border: 0x999999, // 边框深灰色
   tooltipBg: 'rgba(255, 255, 255, 0.95)',
   tooltipText: '#333333'
 };
+
+// 指定的过渡色数组
+const GRADIENT_COLORS = [
+  "#FADADD", "#FFC3A0", "#FFD1DC", "#FFABAB", "#FFCCCC", "#FFB7C5", "#FF9AA2", "#FF85A1", "#FF6F61", "#FFB6C1",
+  "#FF69B4", "#FF1493", "#FFC0CB", "#FFA07A", "#FF7F50", "#FFD700", "#FFE4E1", "#FFE5B4", "#FFDEAD", "#FFE4C4",
+  "#FFF0F5", "#FAF0E6", "#F5DEB3", "#F4C2C2", "#F8C8DC", "#F0E68C", "#F5F5DC", "#F5F5F5", "#F0FFF0", "#E6E6FA",
+  "#E0FFFF", "#DDA0DD", "#D8BFD8", "#D2B48C"
+];
 
 // 交互相关
 const raycaster = new THREE.Raycaster();
@@ -70,6 +78,13 @@ const tooltip = ref({ visible: false, x: 0, y: 0, name: '', count: 0 });
 
 // --- 辅助函数 ---
 
+const isMobile = ref(false);
+const checkIsMobile = () => {
+  if (import.meta.client) {
+    isMobile.value = window.innerWidth < 768 || /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+  }
+};
+
 // 墨卡托投影简化版 (经纬度 -> XY坐标)
 const project = (lng: number, lat: number) => {
   const x = (lng - MAP_CENTER[0]) * MAP_SCALE;
@@ -77,15 +92,20 @@ const project = (lng: number, lat: number) => {
   return { x, y };
 };
 
-// 颜色插值函数：根据比例 (0-1) 获取颜色
+// 颜色采样函数：根据比例 (0-1) 获取颜色
 const getGradientColor = (ratio: number) => {
-  // 定义颜色节点
-  // 白底模式下：0% -> 浅紫灰/近白, 100% -> 深紫
-  const startColor = new THREE.Color(0xf3e5f5); // 极浅的紫色 (接近白)
-  const endColor = new THREE.Color(0x7130ae);   // 深紫 (100%)
+  if (ratio <= 0) return new THREE.Color(GRADIENT_COLORS[0]);
+  if (ratio >= 1) return new THREE.Color(GRADIENT_COLORS[GRADIENT_COLORS.length - 1]);
 
-  const color = startColor.clone().lerp(endColor, ratio);
-  return color;
+  const index = ratio * (GRADIENT_COLORS.length - 1);
+  const lowerIndex = Math.floor(index);
+  const upperIndex = Math.ceil(index);
+  const t = index - lowerIndex;
+
+  const color1 = new THREE.Color(GRADIENT_COLORS[lowerIndex]);
+  const color2 = new THREE.Color(GRADIENT_COLORS[upperIndex]);
+
+  return color1.lerp(color2, t);
 };
 
 // 创建字体 Sprite (适配浅色背景)
@@ -198,17 +218,26 @@ const drawMap = (geojson: GeoJSON, scene: THREE.Scene, dataMap: Map<string, numb
 
       const geometry = new THREE.ExtrudeGeometry(shape, extrudeSettings);
       
-      // 使用 MeshLambertMaterial 减少反光，或者 MeshStandardMaterial 配合高 roughness
+      // 使用 MeshStandardMaterial 配合高 roughness
       const material = new THREE.MeshStandardMaterial({
         color: baseColor,
         transparent: true,
-        opacity: 1.0, // 不透明，白底透明会很难看
+        opacity: 1.0, // 不透明
         roughness: 0.8, // 增加粗糙度，减少反光
         metalness: 0.0, // 无金属感
         side: THREE.DoubleSide
       });
 
       const mesh = new THREE.Mesh(geometry, material);
+      
+      // 手机端关闭光影投射和接收
+      if (isMobile.value) {
+        mesh.castShadow = false;
+        mesh.receiveShadow = false;
+      } else {
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+      }
       
       // 边框线颜色加深
       const lineGeometry = new THREE.EdgesGeometry(geometry);
@@ -278,6 +307,15 @@ const drawBars = (data: DistributedMapData[], geojson: GeoJSON, scene: THREE.Sce
           opacity: 0.9
       });
       const mesh = new THREE.Mesh(geometry, material);
+      
+      // 手机端关闭光影
+      if (isMobile.value) {
+        mesh.castShadow = false;
+        mesh.receiveShadow = false;
+      } else {
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+      }
 
       mesh.rotation.x = Math.PI / 2;
       mesh.position.set(x, y, zBase + height / 2);
@@ -355,12 +393,17 @@ const initThree = async () => {
   threeCore.value = core;
   core.mount(container.value);
 
+  // 修复镜头畸变：调小 FOV
+  if (core.camera instanceof THREE.PerspectiveCamera) {
+    core.camera.fov = 45; // 默认75，改小以减少畸变
+    core.camera.updateProjectionMatrix();
+  }
+
   if (core.controls) {
-      // 禁用旋转，仅允许平移和缩放
       core.controls.enableRotate = false;
       core.controls.enablePan = true;
-      core.controls.screenSpacePanning = true; // 关键：开启屏幕空间平移 (XY平面)
-      core.controls.panSpeed = 2.0; // 增加平移速度
+      core.controls.screenSpacePanning = true; 
+      core.controls.panSpeed = 2.0; 
       core.controls.zoomSpeed = 1.2;
       core.controls.mouseButtons = {
           LEFT: THREE.MOUSE.PAN,
@@ -378,18 +421,27 @@ const initThree = async () => {
 
   const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
   dirLight.position.set(20, -20, 50);
-  dirLight.castShadow = true;
-  dirLight.shadow.mapSize.width = 2048;
-  dirLight.shadow.mapSize.height = 2048;
-  // 软化阴影
-  dirLight.shadow.radius = 4;
-  dirLight.shadow.bias = -0.0005;
+  
+  // 手机端关闭阴影
+  if (!isMobile.value) {
+    dirLight.castShadow = true;
+    dirLight.shadow.mapSize.width = 2048;
+    dirLight.shadow.mapSize.height = 2048;
+    // 软化阴影
+    dirLight.shadow.radius = 4;
+    dirLight.shadow.bias = -0.0005;
+  }
   core.scene.add(dirLight);
   
-  // 移除紫色氛围光，改用柔和的暖光补光
+  // 柔和的暖光补光
   const fillLight = new THREE.DirectionalLight(0xffecd2, 0.5);
   fillLight.position.set(-50, 50, 50);
   core.scene.add(fillLight);
+
+  // 如果是手机端，还可以考虑关闭 renderer 的 shadowMap
+  if (isMobile.value && core.renderer && 'shadowMap' in core.renderer) {
+    (core.renderer as THREE.WebGLRenderer).shadowMap.enabled = false;
+  }
 
   const [geojson, distData] = await Promise.all([
     loadMapData(),
@@ -416,8 +468,9 @@ const initThree = async () => {
     const shanghaiWorldX = rawSx + groupOffset.x;
     const shanghaiWorldY = rawSy + groupOffset.y;
     
-    const cameraHeight = 35;
-    const cameraOffsetZ = 30; 
+    // 稍微拉远相机距离以适应 FOV 的减小
+    const cameraHeight = 50; // 从 35 增加到 50
+    const cameraOffsetZ = 45; // 从 30 增加到 45
     
     if (core.controls) {
         core.controls.target.set(shanghaiWorldX, shanghaiWorldY, 0);
@@ -437,7 +490,6 @@ const initThree = async () => {
 const onDblClick = (event: MouseEvent) => {
     if (!threeCore.value || !container.value) return;
     
-    // 复用 raycaster 检测点击位置
     const rect = container.value.getBoundingClientRect();
     mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
     mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
@@ -447,27 +499,17 @@ const onDblClick = (event: MouseEvent) => {
     
     const object = intersects.find(i => i.object.type === 'Mesh')?.object;
     if (object) {
-        // 获取点击点的世界坐标（或者物体中心）
-        // 这里使用点击点更精确
         const point = intersects.find(i => i.object === object)?.point;
         
         if (point && threeCore.value.controls) {
             const currentCamPos = threeCore.value.camera.position.clone();
             const currentTarget = threeCore.value.controls.target.clone();
             
-            // 计算当前视角的相对偏移向量
             const offset = new THREE.Vector3().subVectors(currentCamPos, currentTarget);
             
-            // 保持偏移向量方向不变，但在 Z 轴（高度）上缩短距离以实现拉近
-            // 或者直接平移过去，保持高度
-            
-            // 目标：拉近聚焦。
-            // 新的 target = 点击点
-            // 新的 cameraPos = 点击点 + 缩短后的偏移向量 (比如高度降低到 15)
-            
-            const targetHeight = 15; // 聚焦时的高度
-            const scale = targetHeight / currentCamPos.z; // 假设 Z 是高度
-            // 只有当当前高度大于目标高度时才拉近，否则只平移
+            // 拉近距离
+            const targetHeight = 15; 
+            const scale = targetHeight / currentCamPos.z; 
             const newOffset = offset.clone();
             if (currentCamPos.z > targetHeight) {
                  newOffset.multiplyScalar(scale);
@@ -475,8 +517,6 @@ const onDblClick = (event: MouseEvent) => {
             
             const newCamPos = new THREE.Vector3().addVectors(point, newOffset);
             
-            // 使用 ThreeCore 的 lookAtCameraState (如果它支持动画) 或者手动 TWEEN
-            // ThreeCore.lookAtCameraState 是现成的
             threeCore.value.lookAtCameraState({
                 position: newCamPos,
                 target: point
@@ -510,7 +550,7 @@ const onMouseMove = (event: MouseEvent) => {
                 hoveredObject = object;
                 
                 const baseColor = object.parent.userData.baseColor || new THREE.Color(0xeeeeee);
-                const hoverColor = baseColor.clone().offsetHSL(0, 0, -0.1); // 加深一点
+                const hoverColor = baseColor.clone().offsetHSL(0, 0, -0.1); 
 
                 (object as THREE.Mesh).material = new THREE.MeshStandardMaterial({
                     color: hoverColor,
@@ -579,6 +619,8 @@ const restoreObjectMaterial = (obj: THREE.Object3D) => {
 
 
 onMounted(() => {
+  checkIsMobile();
+  window.addEventListener('resize', checkIsMobile);
   initThree();
 });
 
@@ -590,6 +632,7 @@ onBeforeUnmount(() => {
     container.value.removeEventListener('mousemove', onMouseMove);
     container.value.removeEventListener('dblclick', onDblClick);
   }
+  window.removeEventListener('resize', checkIsMobile);
 });
 
 useHead({
