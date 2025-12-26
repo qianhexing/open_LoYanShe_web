@@ -77,6 +77,7 @@ const mouse = new THREE.Vector2()
 let isDragging = false
 let dragStartPoint = new THREE.Vector2()
 // let draggedPage: THREE.Group | null = null
+let clickRelativeY = 0 // -1 to 1 based on click height
 
 // Book Parts
 let bookGroup: THREE.Group
@@ -305,58 +306,47 @@ function updatePageBending() {
     // We bend along Z axis based on X position.
     
     const bendFactor = Math.sin(progress * Math.PI) * 2.0 // Max bend amount
+    const torsion = clickRelativeY * 0.5 // Torsion strength based on click Y
     
     // Deform Front Page
     const positionAttribute = flipperFront.geometry.attributes.position
     for ( let i = 0; i < positionAttribute.count; i ++ ) {
         const x = positionAttribute.getX( i )
+        const y = positionAttribute.getY( i )
         // Normalize x from 0 to PAGE_WIDTH
         const normX = x / PAGE_WIDTH
+        const normY = y / (PAGE_HEIGHT / 2) // -1 to 1
+
         // Bend Z upwards
-        // Formula: Z = bendFactor * sin(normX * PI)
-        const z = bendFactor * Math.sin(normX * Math.PI) * 0.5 
-        // Also slightly lift the edge?
+        // Formula: Z = bendFactor * sin(normX * PI) * (1 + torsion * normY)
+        // If torsion > 0 (click top), normY=1 gets boost.
+        // If torsion < 0 (click bottom), normY=-1 gets boost.
+        let zMod = 1 + torsion * normY
+        // Clamp zMod to avoid weird inversions if torsion is extreme (though 0.5 is safe)
+        
+        const z = bendFactor * Math.sin(normX * Math.PI) * 0.5 * zMod
         positionAttribute.setZ( i, z )
     }
     positionAttribute.needsUpdate = true
     flipperFront.geometry.computeVertexNormals()
     
-    // Deform Back Page (Same logic but inverted Z maybe? Or same Z because it's back-to-back?)
-    // Back Mesh is rotated Y=PI. So its local +Z points to global -Z (relative to flipper group).
-    // Flipper Front is local +Z. 
-    // We want them to stick together.
-    // If Front Z is +0.5, Back Z should be +0.5 (relative to its own local space? No).
-    // Let's visualize.
-    // Group space:
-    // Front Mesh at z=0.01. Vertices deformed to z' = z + delta.
-    // Back Mesh at z=-0.01. Rotated 180 Y. Local +Z is Group -Z.
-    // If we want Back Mesh surface to match Front Mesh surface, we need Back Mesh geometry to deform towards Group +Z.
-    // Since Back Mesh is rotated 180, Group +Z is Back Mesh Local -Z? 
-    // Wait, if Rot Y = 180:
-    // Local (0,0,1) -> Global (0,0,-1).
-    // So to move towards Global +Z, we need Local -Z.
-    
-    // However, we mirrored Scale X = -1 on Back Mesh.
-    // Rot Y=PI + Scale X=-1.
-    // Rot Y=PI -> x'=-x, z'=-z.
-    // Scale X=-1 -> x''=-x'.
-    // Result: x'' = -(-x) = x. z'' = -z.
-    // So Back Mesh effectively has Z inverted relative to Front Mesh?
-    // If Front Mesh bends to +Z, Back Mesh needs to bend to -Z (in its local space) to match?
-    // Let's try applying same bend formula to Z.
-    
     const backPosAttr = flipperBack.geometry.attributes.position
     for ( let i = 0; i < backPosAttr.count; i ++ ) {
         const x = backPosAttr.getX( i )
-        // Note: x ranges 0 to PAGE_WIDTH because we translated geometry.
-        // Due to Scale X=-1, visual X is correct.
+        const y = backPosAttr.getY( i )
         const normX = x / PAGE_WIDTH
+        const normY = y / (PAGE_HEIGHT / 2) // -1 to 1
         
-        // We want to match Front Page deformation.
-        // Front Page Z = +bend.
-        // Back Mesh Z axis is inverted relative to Group Z axis (due to RotY=PI * ScaleX=-1 => z'=-z).
-        // So we should set Z = -bend.
-        const z = - (bendFactor * Math.sin(normX * Math.PI) * 0.5)
+        // Back Mesh is RotY(180) + ScaleX(-1).
+        // Y axis is consistent with Group Y.
+        // We match Front deformation Z.
+        // Front Z = +val. Back Mesh Local -Z = +val -> Local Z = -val.
+        // Torsion logic: If Front top bends more, Back top should bend more.
+        // normY is consistent.
+        
+        let zMod = 1 + torsion * normY
+        
+        const z = - (bendFactor * Math.sin(normX * Math.PI) * 0.5 * zMod)
         backPosAttr.setZ( i, z )
     }
     backPosAttr.needsUpdate = true
@@ -376,6 +366,13 @@ function onMouseDown(event: MouseEvent) {
   
   if (intersects.length > 0) {
     const obj = intersects[0].object
+    const point = intersects[0].point
+    // Calculate relative Y based on hit point.
+    // Book center Y is approx 0.
+    // Y range is -PAGE_HEIGHT/2 to PAGE_HEIGHT/2.
+    // Clamp it to -1 to 1.
+    clickRelativeY = Math.max(-1, Math.min(1, point.y / (PAGE_HEIGHT / 2)))
+    
     if (obj === rightStack && currentPageIndex.value < totalPages - 1) {
       isDragging = true
       core.controls.enabled = false
@@ -556,12 +553,14 @@ async function updateTextures() {
 function nextPage() {
     if (isAnimating.value || currentPageIndex.value >= totalPages - 1) return
     isAnimating.value = true
+    clickRelativeY = 0 // Reset torsion for auto flip
     setupFlipperForDrag('next').then(() => finishPageFlip('next'))
 }
 
 function prevPage() {
     if (isAnimating.value || currentPageIndex.value <= 0) return
     isAnimating.value = true
+    clickRelativeY = 0 // Reset torsion for auto flip
     setupFlipperForDrag('prev').then(() => finishPageFlip('prev'))
 }
 
