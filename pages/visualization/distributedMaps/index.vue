@@ -427,17 +427,17 @@ const addBackgroundStars = () => {
   const posArray = new Float32Array(starsCount * 3);
   
   for(let i = 0; i < starsCount * 3; i++) {
-    posArray[i] = (Math.random() - 0.5) * 400; // 广阔背景
+    posArray[i] = (Math.random() - 0.5) * 1000 + 100; // 广阔背景
   }
   
   starsGeometry.setAttribute('position', new THREE.BufferAttribute(posArray, 3));
   const material = new THREE.PointsMaterial({
-    size: 0.8,
-    color: 0xE6E6FA, // 浅紫
+    size: 2.0,
+    color: 0x7130ae,
     transparent: true,
-    opacity: 0.4, 
+    opacity: 0.6, 
     map: createParticleTexture('star'),
-    blending: THREE.AdditiveBlending,
+    blending: THREE.NormalBlending,
     depthWrite: false
   });
   
