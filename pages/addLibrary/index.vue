@@ -1381,18 +1381,22 @@ const add = async () => {
       params.secondary_cloth = null
     }
     if (start_time) {
-      params.start_time = start_time[0]
-      params.end_time = start_time[1]
-    } else {
-      params.start_time = null
-      params.end_time = null
+      if (start_time[0] !== '' && start_time[1] !== '') {
+        params.start_time = start_time[0]
+        params.end_time = start_time[1]
+      } else {
+        params.start_time = null
+        params.end_time = null
+      }
     }
     if (arrears_start) {
-      params.arrears_start = arrears_start[0]
-      params.arrears_end = arrears_start[1]
-    } else {
-      params.arrears_start = null
-      params.arrears_end = null
+      if (arrears_start[0] !== '' && arrears_start[1] !== '') {
+        params.arrears_start = arrears_start[0]
+        params.arrears_end = arrears_start[1]
+      } else {
+        params.arrears_start = null
+        params.arrears_end = null
+      }
     }
     if (library_pattern && library_pattern.length > 0) {
       params.library_pattern = library_pattern.map((item) => item.wiki_name).join(',')
