@@ -76,7 +76,7 @@ const raycaster = new THREE.Raycaster()
 const mouse = new THREE.Vector2()
 let isDragging = false
 let dragStartPoint = new THREE.Vector2()
-let draggedPage: THREE.Group | null = null
+// let draggedPage: THREE.Group | null = null
 
 // Book Parts
 let bookGroup: THREE.Group
@@ -89,7 +89,7 @@ let spine: THREE.Mesh
 
 const PAGE_WIDTH = 5
 const PAGE_HEIGHT = 7.5
-// const PAGE_SEGMENTS = 10 
+const PAGE_SEGMENTS = 20 // Increase segments for bending
 
 // --- Lifecycle ---
 onMounted(async () => {
@@ -129,7 +129,7 @@ function initThree() {
     antialias: true,
     alpha: true,
     cameraPosition: { x: 0, y: 0, z: 18 },
-    enableOrbitControls: true, // Will disable when dragging
+    enableOrbitControls: true, 
     enableStats: true,
     editMode: true,
     clearColor: 0x000000
@@ -139,15 +139,13 @@ function initThree() {
   scene = core.scene
   scene.background = new THREE.Color(0xfdf2f5) 
   
-  // Custom Controls Settings
   if (core.controls) {
     core.controls.minDistance = 5
     core.controls.maxDistance = 50
-    core.controls.enablePan = false // Disable pan to focus on book
+    core.controls.enablePan = false 
   }
 
-  // --- Lighting & Environment (Magic Book Style) ---
-  // Add some point lights for magical glow
+  // --- Lighting & Environment ---
   const pointLight = new THREE.PointLight(0xffd700, 0.8, 20)
   pointLight.position.set(0, 5, 5)
   scene.add(pointLight)
@@ -157,7 +155,7 @@ function initThree() {
   
   // Helpers
   if (debugMode.value) {
-     // ... (Previous Helpers)
+     // ...
   }
 
   // Magic Float Animation
@@ -177,7 +175,7 @@ function initThree() {
   const posArray = new Float32Array(particlesCount * 3)
   for(let i = 0; i < particlesCount * 3; i++) {
     posArray[i] = (Math.random() - 0.5) * 20
-    posArray[i+1] = (Math.random() - 0.5) * 10 // Y
+    posArray[i+1] = (Math.random() - 0.5) * 10 
     posArray[i+2] = (Math.random() - 0.5) * 20
   }
   particlesGeo.setAttribute('position', new THREE.BufferAttribute(posArray, 3))
@@ -191,7 +189,6 @@ function initThree() {
   const particlesMesh = new THREE.Points(particlesGeo, particlesMat)
   scene.add(particlesMesh)
   
-  // Animate Particles
   core.addAnimationCallback(() => {
     particlesMesh.rotation.y += 0.001
     const positions = particlesMesh.geometry.attributes.position.array as Float32Array;
@@ -200,6 +197,9 @@ function initThree() {
         if (positions[i] > 5) positions[i] = -5;
     }
     particlesMesh.geometry.attributes.position.needsUpdate = true;
+    
+    // Add page bending update here
+    updatePageBending()
   })
 
   core.startAnimationLoop()
@@ -212,7 +212,7 @@ async function initBook() {
 
   // 1. Textures
   const coverTex = await core.loadTexture(`${BASE_IMG}static/library_app/cover_leather.jpg`).catch(() => null)
-  const paperTex = await core.loadTexture(`${BASE_IMG}static/library_app/paper_texture.jpg`).catch(() => null) // Optional texture for page roughness
+  const paperTex = await core.loadTexture(`${BASE_IMG}static/library_app/paper_texture.jpg`).catch(() => null)
   
   // Materials
   const pageMat = new THREE.MeshStandardMaterial({
@@ -224,77 +224,47 @@ async function initBook() {
   })
   
   const coverMat = new THREE.MeshStandardMaterial({
-    color: 0x5c3a21, // Leather brown
+    color: 0x5c3a21, 
     roughness: 0.8,
     metalness: 0.2
   })
 
   // Geometries
-  // Using BoxGeometry for stacks to look like thick book
   const stackHeight = 0.5
-  const pageGeo = new THREE.BoxGeometry(PAGE_WIDTH, PAGE_HEIGHT, 0.05) // Thin page
-  pageGeo.translate(PAGE_WIDTH / 2, 0, 0) // Pivot at spine
   
+  // Stack Geometries
   const stackGeo = new THREE.BoxGeometry(PAGE_WIDTH, PAGE_HEIGHT, stackHeight)
-  stackGeo.translate(PAGE_WIDTH / 2, 0, -stackHeight / 2) // Pivot at spine, sit on z=0
+  stackGeo.translate(PAGE_WIDTH / 2, 0, -stackHeight / 2) 
 
-  // Right Stack (Bottom)
   rightStack = new THREE.Mesh(stackGeo, pageMat.clone())
   rightStack.castShadow = true
   rightStack.receiveShadow = true
   
-  // Left Stack (Bottom)
   leftStack = new THREE.Mesh(stackGeo, pageMat.clone())
   leftStack.castShadow = true
   leftStack.receiveShadow = true
   leftStack.rotation.y = -Math.PI
   
-  // Flipper Group
+  // Flipper Group (Contains Front/Back meshes with high segments)
   flipper = new THREE.Group()
-  flipper.position.z = 0.05 // Slightly above stack
+  flipper.position.z = 0.05 
   
-  // Flipper Page (A single thin box or plane)
-  // Front Side
-  flipperFront = new THREE.Mesh(new THREE.PlaneGeometry(PAGE_WIDTH, PAGE_HEIGHT), pageMat.clone())
-  flipperFront.geometry.translate(PAGE_WIDTH / 2, 0, 0.01) // Slightly front
+  // Use PlaneGeometry with many segments for bending
+  const bendPageGeo = new THREE.PlaneGeometry(PAGE_WIDTH, PAGE_HEIGHT, PAGE_SEGMENTS, 1)
+  bendPageGeo.translate(PAGE_WIDTH / 2, 0, 0) // Pivot at spine
   
-  // Back Side
-  flipperBack = new THREE.Mesh(new THREE.PlaneGeometry(PAGE_WIDTH, PAGE_HEIGHT), pageMat.clone())
-  flipperBack.rotation.y = Math.PI
-  flipperBack.geometry.translate(-PAGE_WIDTH / 2, 0, -0.01) // Slightly back? No, rotate PI makes +x become -x.
-  // If we rotate mesh Y 180, local +X becomes global -X.
-  // But our geometry pivot is at 0 (left edge).
-  // Plane 0 to 5. Rotate 180 at 0,0,0 -> 0 to -5.
-  // We want it to be 0 to 5 relative to group, but facing backwards.
-  // So: Geometry 0 to 5. Mesh rotation Y 180?
-  // If Group rotates, Mesh follows.
-  // Let's stick to Group logic:
-  // Flipper Group at 0.
-  // Front Mesh: 0 to 5. Normal (0,0,1).
-  // Back Mesh: 0 to 5. Normal (0,0,-1).
-  // To achieve Back Mesh facing back:
-  // Rotation Y = PI.
-  // But if we rotate Y=PI, geometry (0 to 5) becomes (0 to -5).
-  // So for Back Mesh, we need geometry to be (-5 to 0)? Or translate it?
-  // Easier: PlaneGeometry(W, H). Translate(W/2, 0, 0).
-  // Mesh2.rotation.y = Math.PI.
-  // Result: Mesh2 extends from 0 to -5.
-  // We want it to extend 0 to 5 but face back.
-  // So Mesh2.position.x = PAGE_WIDTH? No.
-  // Let's just use DoubleSide? No, different textures.
+  // Flipper Front
+  flipperFront = new THREE.Mesh(bendPageGeo.clone(), pageMat.clone())
+  flipperFront.castShadow = true
+  flipperFront.position.z = 0.01 // Offset
   
-  // Fix for Back Mesh:
-  // Rotate Y PI. Then Translate X by PAGE_WIDTH? No.
-  // Just mirror the geometry for back mesh?
-  // Let's manually construct Back Mesh geometry to match Front spatial coords but normal flipped?
-  // Or just: 
-  flipperBack = new THREE.Mesh(new THREE.PlaneGeometry(PAGE_WIDTH, PAGE_HEIGHT), pageMat.clone())
-  flipperBack.geometry.translate(PAGE_WIDTH / 2, 0, 0)
-  flipperBack.scale.x = -1 // Mirror geometry along X?
-  // If scale x = -1, normal flips? Yes.
-  // And texture also flips. Perfect for back of page?
-  // If texture text is "Page 2", flipping X makes it mirrored.
-  // We might need to un-mirror texture. texture.repeat.x = -1.
+  // Flipper Back
+  flipperBack = new THREE.Mesh(bendPageGeo.clone(), pageMat.clone())
+  flipperBack.receiveShadow = true
+  flipperBack.position.z = -0.01
+  flipperBack.rotation.y = Math.PI // Face back
+  // Scale -1 X to correct normal/texture direction for back page
+  flipperBack.scale.x = -1 
   
   flipper.add(flipperFront)
   flipper.add(flipperBack)
@@ -303,21 +273,13 @@ async function initBook() {
   bookGroup.add(leftStack)
   bookGroup.add(flipper)
 
-  // Spine (Magic Book Style - thicker, rounded)
-  const spineCurve = new THREE.CatmullRomCurve3([
-    new THREE.Vector3(0, PAGE_HEIGHT/2, 0),
-    new THREE.Vector3(-0.5, PAGE_HEIGHT/2, -stackHeight),
-    new THREE.Vector3(0.5, PAGE_HEIGHT/2, -stackHeight),
-    // ...
-  ])
-  // Simplified Spine
+  // Spine
   const spineMesh = new THREE.Mesh(
     new THREE.CylinderGeometry(0.3, 0.3, PAGE_HEIGHT + 0.5, 32, 1, false, 0, Math.PI),
     coverMat
   )
   spineMesh.rotation.z = Math.PI / 2
   spineMesh.rotation.y = Math.PI / 2
-  // Align spine
   spineMesh.geometry.rotateX(Math.PI / 2)
   spineMesh.position.z = -0.1
   bookGroup.add(spineMesh)
@@ -327,35 +289,102 @@ async function initBook() {
   flipper.visible = false
 }
 
+// --- Bending Logic ---
+function updatePageBending() {
+    if (!flipper.visible) return
+    
+    // Calculate bend based on rotation angle
+    // Angle goes from 0 (Right) to -PI (Left)
+    const angle = flipper.rotation.y
+    // Normalized progress 0 to 1
+    const progress = Math.abs(angle) / Math.PI 
+    
+    // Peak bend happens at 50% (progress 0.5)
+    // Simple parabola: y = 4 * h * x * (1-x)
+    // But we are bending the geometry vertices.
+    // We bend along Z axis based on X position.
+    
+    const bendFactor = Math.sin(progress * Math.PI) * 2.0 // Max bend amount
+    
+    // Deform Front Page
+    const positionAttribute = flipperFront.geometry.attributes.position
+    for ( let i = 0; i < positionAttribute.count; i ++ ) {
+        const x = positionAttribute.getX( i )
+        // Normalize x from 0 to PAGE_WIDTH
+        const normX = x / PAGE_WIDTH
+        // Bend Z upwards
+        // Formula: Z = bendFactor * sin(normX * PI)
+        const z = bendFactor * Math.sin(normX * Math.PI) * 0.5 
+        // Also slightly lift the edge?
+        positionAttribute.setZ( i, z )
+    }
+    positionAttribute.needsUpdate = true
+    flipperFront.geometry.computeVertexNormals()
+    
+    // Deform Back Page (Same logic but inverted Z maybe? Or same Z because it's back-to-back?)
+    // Back Mesh is rotated Y=PI. So its local +Z points to global -Z (relative to flipper group).
+    // Flipper Front is local +Z. 
+    // We want them to stick together.
+    // If Front Z is +0.5, Back Z should be +0.5 (relative to its own local space? No).
+    // Let's visualize.
+    // Group space:
+    // Front Mesh at z=0.01. Vertices deformed to z' = z + delta.
+    // Back Mesh at z=-0.01. Rotated 180 Y. Local +Z is Group -Z.
+    // If we want Back Mesh surface to match Front Mesh surface, we need Back Mesh geometry to deform towards Group +Z.
+    // Since Back Mesh is rotated 180, Group +Z is Back Mesh Local -Z? 
+    // Wait, if Rot Y = 180:
+    // Local (0,0,1) -> Global (0,0,-1).
+    // So to move towards Global +Z, we need Local -Z.
+    
+    // However, we mirrored Scale X = -1 on Back Mesh.
+    // Rot Y=PI + Scale X=-1.
+    // Rot Y=PI -> x'=-x, z'=-z.
+    // Scale X=-1 -> x''=-x'.
+    // Result: x'' = -(-x) = x. z'' = -z.
+    // So Back Mesh effectively has Z inverted relative to Front Mesh?
+    // If Front Mesh bends to +Z, Back Mesh needs to bend to -Z (in its local space) to match?
+    // Let's try applying same bend formula to Z.
+    
+    const backPosAttr = flipperBack.geometry.attributes.position
+    for ( let i = 0; i < backPosAttr.count; i ++ ) {
+        const x = backPosAttr.getX( i )
+        // Note: x ranges 0 to PAGE_WIDTH because we translated geometry.
+        // Due to Scale X=-1, visual X is correct.
+        const normX = x / PAGE_WIDTH
+        
+        // We want to match Front Page deformation.
+        // Front Page Z = +bend.
+        // Back Mesh Z axis is inverted relative to Group Z axis (due to RotY=PI * ScaleX=-1 => z'=-z).
+        // So we should set Z = -bend.
+        const z = - (bendFactor * Math.sin(normX * Math.PI) * 0.5)
+        backPosAttr.setZ( i, z )
+    }
+    backPosAttr.needsUpdate = true
+    flipperBack.geometry.computeVertexNormals()
+}
+
 // --- Interaction (Drag to Flip) ---
 function onMouseDown(event: MouseEvent) {
   if (isAnimating.value || loading.value) return
   
-  // Calculate mouse pos
   mouse.x = (event.clientX / window.innerWidth) * 2 - 1
   mouse.y = -(event.clientY / window.innerHeight) * 2 + 1
   
   raycaster.setFromCamera(mouse, core.camera)
   
-  // Intersect with book parts
   const intersects = raycaster.intersectObjects([rightStack, leftStack], true)
   
   if (intersects.length > 0) {
     const obj = intersects[0].object
     if (obj === rightStack && currentPageIndex.value < totalPages - 1) {
-      // Start Drag Next
       isDragging = true
       core.controls.enabled = false
       dragStartPoint.set(event.clientX, event.clientY)
-      
-      // Init Flipper for Drag
       setupFlipperForDrag('next')
     } else if (obj === leftStack && currentPageIndex.value > 0) {
-      // Start Drag Prev
       isDragging = true
       core.controls.enabled = false
       dragStartPoint.set(event.clientX, event.clientY)
-      
       setupFlipperForDrag('prev')
     }
   }
@@ -365,21 +394,8 @@ function onMouseMove(event: MouseEvent) {
   if (!isDragging) return
   
   const deltaX = event.clientX - dragStartPoint.x
-  // Map deltaX to rotation
-  // Dragging Next: Right to Left (deltaX < 0)
-  // Dragging Prev: Left to Right (deltaX > 0)
-  
-  // Normalize drag distance (screen width / 2 approx)
   const sensitivity = 0.005
   let rotation = 0
-  
-  // Current logic assumes flipper.rotation.y goes from 0 to -PI
-  
-  // If dragging Next (Right Page):
-  // Start at 0. Moving Left (deltaX neg) -> rotation goes towards -PI.
-  
-  // If dragging Prev (Left Page):
-  // Start at -PI. Moving Right (deltaX pos) -> rotation goes towards 0.
   
   if (flipper.userData.direction === 'next') {
     rotation = Math.max(-Math.PI, Math.min(0, deltaX * sensitivity))
@@ -388,6 +404,7 @@ function onMouseMove(event: MouseEvent) {
   }
   
   flipper.rotation.y = rotation
+  // Bending is updated in animation loop
 }
 
 function onMouseUp() {
@@ -395,7 +412,6 @@ function onMouseUp() {
   isDragging = false
   core.controls.enabled = true
   
-  // Snap to nearest page
   const currentRot = flipper.rotation.y
   const threshold = -Math.PI / 2
   
@@ -421,31 +437,21 @@ async function setupFlipperForDrag(direction: 'next' | 'prev') {
   
   if (direction === 'next') {
     flipper.rotation.y = 0
-    // Setup Textures
     const frontTex = await getTexture(i)
     const backTex = await getTexture(i + 1)
     
     if (frontTex) (flipperFront.material as THREE.MeshStandardMaterial).map = frontTex
     if (backTex) {
         (flipperBack.material as THREE.MeshStandardMaterial).map = backTex
-        // Handle texture mirroring for back page
         backTex.wrapS = THREE.RepeatWrapping
         backTex.repeat.x = -1 
     }
     
-    // Reveal Next-Next on Right Stack?
-    const nextNextTex = await getTexture(i + 2) // Reveal what's under the flipping page
+    const nextNextTex = await getTexture(i + 2) 
     if (nextNextTex) (rightStack.material as THREE.MeshStandardMaterial).map = nextNextTex
     
   } else {
     flipper.rotation.y = -Math.PI
-    // Setup Textures
-    // Flipper Front (Hidden inside stack initially): i-1
-    // Flipper Back (Visible on Left): i-1
-    // Wait, if we pull from left stack (i-1), we are grabbing page i-1.
-    // So Flipper Back should be i-1.
-    // Flipper Front will be i-1 (which lands on right).
-    
     const prevTex = await getTexture(i - 1)
     if (prevTex) {
         (flipperBack.material as THREE.MeshStandardMaterial).map = prevTex
@@ -455,7 +461,6 @@ async function setupFlipperForDrag(direction: 'next' | 'prev') {
         (flipperFront.material as THREE.MeshStandardMaterial).map = prevTex
     }
     
-    // Reveal Prev-Prev on Left Stack
     const prevPrevTex = await getTexture(i - 2)
     if (prevPrevTex) {
         (leftStack.material as THREE.MeshStandardMaterial).map = prevPrevTex
@@ -472,8 +477,8 @@ function finishPageFlip(direction: 'next' | 'prev') {
   
   gsap.to(flipper.rotation, {
     y: targetRot,
-    duration: 0.5,
-    ease: "power2.out",
+    duration: 0.8,
+    ease: "power2.inOut", // Smooth finish
     onComplete: () => {
       if (direction === 'next') {
         currentPageIndex.value += 1
@@ -483,8 +488,6 @@ function finishPageFlip(direction: 'next' | 'prev') {
       updateTextures()
       flipper.visible = false
       isAnimating.value = false
-      
-      // Reset texture repeat (cleanup)
       resetTextureRepeat(flipperBack.material as THREE.MeshStandardMaterial)
     }
   })
@@ -501,7 +504,7 @@ function cancelPageFlip(direction: 'next' | 'prev') {
     onComplete: () => {
       flipper.visible = false
       isAnimating.value = false
-      updateTextures() // Restore original stack look
+      updateTextures()
     }
   })
 }
