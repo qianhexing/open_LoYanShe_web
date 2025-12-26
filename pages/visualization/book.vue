@@ -291,7 +291,7 @@ async function initBook() {
 
 // --- Bending Logic ---
 function updatePageBending() {
-    if (!flipper.visible) return
+    if (!flipper || !flipper.visible) return
     
     // Calculate bend based on rotation angle
     // Angle goes from 0 (Right) to -PI (Left)
