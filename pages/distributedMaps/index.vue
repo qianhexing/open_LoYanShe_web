@@ -60,7 +60,7 @@ const MAP_SCALE = 3.0;
 // 颜色定义 (参考旧代码)
 const LOLITA_COLORS = {
   bg: 0xffffff,
-  bar: '#7130ae', // 改为紫色
+  bar: '#FFC0CB', // 改为淡粉色 (Pink / LightPink)
   text: 0x333333,
   borderChina: 0x7130ae, // 国内边框
   borderOther: 0x000000, // 国外边框
@@ -69,13 +69,6 @@ const LOLITA_COLORS = {
   highlight: '#cdb1ef', // 淡紫色高亮
   highlightBar: '#cdb1ef' // 圆柱高亮淡紫
 };
-
-const PROVINCE_COLORS = [
-    "#FADADD", "#FFC3A0", "#FFD1DC", "#FFABAB", "#FFCCCC", "#FFB7C5", "#FF9AA2", "#FF85A1", "#FF6F61", "#FFB6C1",
-    "#FF69B4", "#FF1493", "#FFC0CB", "#FFA07A", "#FF7F50", "#FFD700", "#FFE4E1", "#FFE5B4", "#FFDEAD", "#FFE4C4",
-    "#FFF0F5", "#FAF0E6", "#F5DEB3", "#F4C2C2", "#F8C8DC", "#F0E68C", "#F5F5DC", "#F5F5F5", "#F0FFF0", "#E6E6FA",
-    "#E0FFFF", "#DDA0DD", "#D8BFD8", "#D2B48C"
-];
 
 const GRADIENT_COLORS = [
   "#7130ae", "#7740bb", "#7e51c6", "#865ccc", "#8e66d2", "#9670d7",
@@ -197,24 +190,22 @@ const drawMap = (geojson: GeoJSON, scene: THREE.Scene, dataMap: Map<string, Data
     }
 
     const isChina = CHINA_PROVINCES.includes(provinceName);
-    // 使用 maxCount 来归一化，使得高度差更明显
     const ratio = maxCount > 0 ? count / maxCount : 0;
     
-    // 最大高度调整为 10，减小高低错落感
-    const maxHeight = 10;
-    const depth = isChina ? Math.max(0.01, ratio * maxHeight) : 0.008;
+    // 最大高度调整为 6 (10 的 2/3 左右)，减小高低错落感
+    const maxHeight = 6;
+    const depth = Math.max(0.01, ratio * maxHeight);
 
     let baseColorHex: string | number;
-    if (isChina) {
-        if (rank > 0 && rank <= GRADIENT_COLORS.length) {
-            baseColorHex = GRADIENT_COLORS[rank - 1];
-        } else {
-             baseColorHex = GRADIENT_COLORS[GRADIENT_COLORS.length - 1]; 
-        }
-        if (count === 0) baseColorHex = 0xeeeeee;
+    // 全球统一使用渐变色逻辑
+    if (rank > 0 && rank <= GRADIENT_COLORS.length) {
+        baseColorHex = GRADIENT_COLORS[rank - 1];
     } else {
-        baseColorHex = PROVINCE_COLORS[index % PROVINCE_COLORS.length];
+            baseColorHex = GRADIENT_COLORS[GRADIENT_COLORS.length - 1]; 
     }
+    // 如果没有数据，给一个默认浅色
+    if (count === 0) baseColorHex = 0xeeeeee;
+
     const baseColor = new THREE.Color(baseColorHex);
 
     const provinceGroup = new THREE.Group();
@@ -242,9 +233,8 @@ const drawMap = (geojson: GeoJSON, scene: THREE.Scene, dataMap: Map<string, Data
       };
 
       const geometry = new THREE.ExtrudeGeometry(shape, extrudeSettings);
-      geometry.computeVertexNormals(); // 计算法线以支持更好的光照
+      geometry.computeVertexNormals(); 
 
-      // 更换为 MeshStandardMaterial 以增强质感和阴影
       const material = new THREE.MeshStandardMaterial({
         color: baseColor,
         side: THREE.DoubleSide,
@@ -321,16 +311,18 @@ const drawBars = (data: DistributedMapData[], geojson: GeoJSON, scene: THREE.Sce
       
       const count = item.COUNT;
       const ratio = maxCount > 0 ? count / maxCount : 0;
-      const height = ratio * 15 + 1; 
+      // 缩短高度比：系数从 15 改为 8
+      const height = ratio * 8 + 1; 
       
       // 重新计算底座高度，保持和 drawMap 里的逻辑一致
       const mapRatio = maxCount > 0 ? count / maxCount : 0;
-      const maxHeight = 10; 
+      const maxHeight = 6; 
       const provinceDepth = Math.max(0.01, mapRatio * maxHeight);
       
       const zBase = provinceDepth;
 
-      const geometry = new THREE.CylinderGeometry(0.3, 0.3, height, 16);
+      // 加粗圆柱：半径从 0.3 改为 0.6
+      const geometry = new THREE.CylinderGeometry(0.6, 0.6, height, 16);
       const material = new THREE.MeshStandardMaterial({ 
           color: LOLITA_COLORS.bar,
           roughness: 0.6,
@@ -375,7 +367,7 @@ const drawBars = (data: DistributedMapData[], geojson: GeoJSON, scene: THREE.Sce
       mesh.userData = { isBar: true, name: item.ip_location, count: count };
       barGroup.add(mesh);
       
-      const ringGeo = new THREE.RingGeometry(0.4, 0.6, 32);
+      const ringGeo = new THREE.RingGeometry(0.7, 0.9, 32); // 调整圆环大小以适应更粗的圆柱
       const ringMat = new THREE.MeshBasicMaterial({ 
           color: LOLITA_COLORS.bar, 
           side: THREE.DoubleSide,
