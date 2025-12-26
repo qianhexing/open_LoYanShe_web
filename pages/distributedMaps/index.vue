@@ -62,12 +62,14 @@ const LOLITA_COLORS = {
   tooltipText: '#333333'
 };
 
-// 指定的过渡色数组
+// 指定的过渡色数组：从深(多) -> 浅(少)
 const GRADIENT_COLORS = [
-  "#FADADD", "#FFC3A0", "#FFD1DC", "#FFABAB", "#FFCCCC", "#FFB7C5", "#FF9AA2", "#FF85A1", "#FF6F61", "#FFB6C1",
-  "#FF69B4", "#FF1493", "#FFC0CB", "#FFA07A", "#FF7F50", "#FFD700", "#FFE4E1", "#FFE5B4", "#FFDEAD", "#FFE4C4",
-  "#FFF0F5", "#FAF0E6", "#F5DEB3", "#F4C2C2", "#F8C8DC", "#F0E68C", "#F5F5DC", "#F5F5F5", "#F0FFF0", "#E6E6FA",
-  "#E0FFFF", "#DDA0DD", "#D8BFD8", "#D2B48C"
+  "#7130ae", "#7740bb", "#7e51c6", "#865ccc", "#8e66d2", "#9670d7",
+  "#9f7bdc", "#a784e0", "#b08fe4", "#ba99e8", "#c4a3eb", "#cdb1ef",
+  "#d5b9f1", "#debff4", "#e6c5f6", "#edcdf9", "#f4d4fb", "#fadcfb",
+  "#fce3fb", "#fdebfc", "#fef5fd", "#fefafd", "#fefcfe", "#fefeff",
+  "#ffffff", "#ffffff", "#ffffff", "#ffffff", "#ffffff", "#ffffff",
+  "#ffffff", "#ffffff", "#ffffff", "#ffffff"
 ];
 
 // 交互相关
@@ -94,10 +96,16 @@ const project = (lng: number, lat: number) => {
 
 // 颜色采样函数：根据比例 (0-1) 获取颜色
 const getGradientColor = (ratio: number) => {
-  if (ratio <= 0) return new THREE.Color(GRADIENT_COLORS[0]);
-  if (ratio >= 1) return new THREE.Color(GRADIENT_COLORS[GRADIENT_COLORS.length - 1]);
+  // ratio: 0 (Min) -> 1 (Max)
+  // GRADIENT_COLORS: 0 (Deep/Max) -> Last (Light/Min)
+  // 所以需要反向映射: ratio 1 -> Index 0, ratio 0 -> Index Last
+  
+  const invertRatio = 1 - ratio;
+  
+  if (invertRatio <= 0) return new THREE.Color(GRADIENT_COLORS[0]);
+  if (invertRatio >= 1) return new THREE.Color(GRADIENT_COLORS[GRADIENT_COLORS.length - 1]);
 
-  const index = ratio * (GRADIENT_COLORS.length - 1);
+  const index = invertRatio * (GRADIENT_COLORS.length - 1);
   const lowerIndex = Math.floor(index);
   const upperIndex = Math.ceil(index);
   const t = index - lowerIndex;
@@ -400,6 +408,7 @@ const initThree = async () => {
   }
 
   if (core.controls) {
+      // 禁用旋转，仅允许平移和缩放
       core.controls.enableRotate = false;
       core.controls.enablePan = true;
       core.controls.screenSpacePanning = true; 
