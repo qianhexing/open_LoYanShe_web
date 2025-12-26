@@ -6,6 +6,8 @@ import { getDistributedMaps, type DistributedMapData } from '@/api/statistics';
 import type { PhysicalShop } from '@/types/api';
 import { useHead } from '@unhead/vue';
 import { BASE_IMG } from '@/utils/ipConfig';
+import dayjs from 'dayjs';
+import TimeRuler from '@/components/TimeRuler.vue';
 
 // --- 类型定义 ---
 interface ProvinceFeature {
@@ -74,6 +76,24 @@ let cachedMaxCount = 1;
 let dirLightRef: THREE.DirectionalLight | null = null;
 // 跟踪是否已经添加了阴影更新回调
 let shadowUpdateCallbackAdded = false;
+
+// 时间选择器相关
+const currentDate = ref(new Date());
+const formattedDate = ref(dayjs().format('YYYY-MM-DD'));
+const showDateToast = ref(false);
+let dateToastTimer: NodeJS.Timeout | null = null;
+
+const handleDateChange = (date: Date) => {
+  const fDate = dayjs(date).format('YYYY-MM-DD');
+  formattedDate.value = fDate;
+  
+  // 显示日期提示
+  showDateToast.value = true;
+  if (dateToastTimer) clearTimeout(dateToastTimer);
+  dateToastTimer = setTimeout(() => {
+    showDateToast.value = false;
+  }, 2000);
+};
 
 // 更新方向光位置和阴影相机（模块级别，供切换阴影时使用）
 const updateDirLightForShadow = () => {
@@ -1927,6 +1947,23 @@ useHead({
         </div>
       </UCard>
     </UModal>
+
+    <!-- Time Ruler (Right Side) -->
+    <TimeRuler 
+      v-model="currentDate" 
+      @change="handleDateChange" 
+    />
+    
+    <!-- Date Toast -->
+    <div 
+      v-if="showDateToast"
+      class="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 z-50 pointer-events-none transition-opacity duration-300"
+      :class="showDateToast ? 'opacity-100' : 'opacity-0'"
+    >
+      <div class="px-6 py-3 bg-black/60 backdrop-blur-md rounded-xl text-white font-mono text-xl font-bold shadow-2xl border border-white/10">
+        {{ formattedDate }}
+      </div>
+    </div>
   </div>
 </template>
 
