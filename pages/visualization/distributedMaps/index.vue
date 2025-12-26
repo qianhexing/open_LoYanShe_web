@@ -432,12 +432,12 @@ const addBackgroundStars = () => {
   
   starsGeometry.setAttribute('position', new THREE.BufferAttribute(posArray, 3));
   const material = new THREE.PointsMaterial({
-    size: 0.8,
-    color: 0xE6E6FA, // 浅紫
+    size: 2.0,
+    color: 0x7130ae, // 深紫，适配白色背景
     transparent: true,
-    opacity: 0.4, 
+    opacity: 0.6, 
     map: createParticleTexture('star'),
-    blending: THREE.AdditiveBlending,
+    blending: THREE.NormalBlending,
     depthWrite: false
   });
   
