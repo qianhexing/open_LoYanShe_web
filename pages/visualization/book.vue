@@ -22,8 +22,13 @@
           <span class="text">Prev</span>
         </button>
         
-        <div class="page-indicator font-serif text-[#d48898] text-lg bg-white/80 px-4 py-1 rounded-full border border-[#ffccd5]">
-          {{ currentPageIndex + 1 }} / {{ totalPages }}
+        <div class="flex flex-col items-center gap-2">
+            <div class="page-indicator font-serif text-[#d48898] text-lg bg-white/80 px-4 py-1 rounded-full border border-[#ffccd5]">
+            {{ currentPageIndex + 1 }} / {{ totalPages }}
+            </div>
+            <button @click="focusOnBook" class="text-xs text-[#d48898] underline opacity-70 hover:opacity-100">
+                Reset View
+            </button>
         </div>
 
         <button 
@@ -62,6 +67,7 @@ const canvasContainer = ref<HTMLElement | null>(null)
 const loading = ref(true)
 const isAnimating = ref(false)
 const currentPageIndex = ref(0) // 0 means displaying page 0 (left) and page 1 (right)
+const debugMode = ref(true)
 
 // --- Three.js Variables ---
 let core: ThreeCore
@@ -107,7 +113,8 @@ function initThree() {
     alpha: true, // Allow CSS background to show through
     cameraPosition: { x: 0, y: 0, z: 18 }, // Adjusted camera position to see the book from front
     enableOrbitControls: true,
-    enableStats: false,
+    enableStats: true,
+    editMode: true,
     clearColor: 0x000000 // Transparent anyway
   })
 
@@ -118,12 +125,22 @@ function initThree() {
   // Custom Scene Setup
   // If ThreeCore sets a background, we might want to clear it or set it to match our CSS
   scene.background = new THREE.Color(0xfdf2f5) 
+  
+  // Helpers
+  if (debugMode.value) {
+    const axesHelper = new THREE.AxesHelper(10)
+    scene.add(axesHelper)
+
+    const gridHelper = new THREE.GridHelper(50, 50, 0x888888, 0xdddddd)
+    gridHelper.position.y = -5.01 // Slightly below floor
+    scene.add(gridHelper)
+  }
 
   // Adjust Controls
   if (core.controls) {
-    core.controls.minDistance = 10
-    core.controls.maxDistance = 30
-    core.controls.maxPolarAngle = Math.PI / 1.5
+    core.controls.minDistance = 5
+    core.controls.maxDistance = 50
+    core.controls.maxPolarAngle = Math.PI // Allow looking from below if needed for debug
     core.controls.target.set(0, 0, 0)
     core.controls.update()
   }
@@ -142,6 +159,16 @@ function initThree() {
   
   // Start Loop
   core.startAnimationLoop()
+}
+
+function focusOnBook() {
+  if (core) {
+     core.lookAtCameraState({
+      position: new THREE.Vector3(0, 0, 18),
+      target: new THREE.Vector3(0, 0, 0),
+      fov: 45
+    }, 1000)
+  }
 }
 
 // --- Book Logic ---
