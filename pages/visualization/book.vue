@@ -148,14 +148,59 @@ function initThree() {
 
   // --- Lighting & Environment (Magic Book Style) ---
   // Add some point lights for magical glow
-  const pointLight = new THREE.PointLight(0xffd700, 0.5, 20)
+  const pointLight = new THREE.PointLight(0xffd700, 0.8, 20)
   pointLight.position.set(0, 5, 5)
   scene.add(pointLight)
+
+  const ambientLight = new THREE.AmbientLight(0xffffff, 0.4)
+  scene.add(ambientLight)
   
   // Helpers
   if (debugMode.value) {
      // ... (Previous Helpers)
   }
+
+  // Magic Float Animation
+  if (bookGroup) {
+      gsap.to(bookGroup.position, {
+        y: 0.5,
+        duration: 2,
+        yoyo: true,
+        repeat: -1,
+        ease: "sine.inOut"
+      })
+  }
+  
+  // Add Particles
+  const particlesGeo = new THREE.BufferGeometry()
+  const particlesCount = 200
+  const posArray = new Float32Array(particlesCount * 3)
+  for(let i = 0; i < particlesCount * 3; i++) {
+    posArray[i] = (Math.random() - 0.5) * 20
+    posArray[i+1] = (Math.random() - 0.5) * 10 // Y
+    posArray[i+2] = (Math.random() - 0.5) * 20
+  }
+  particlesGeo.setAttribute('position', new THREE.BufferAttribute(posArray, 3))
+  const particlesMat = new THREE.PointsMaterial({
+    size: 0.05,
+    color: 0xffd700,
+    transparent: true,
+    opacity: 0.6,
+    blending: THREE.AdditiveBlending
+  })
+  const particlesMesh = new THREE.Points(particlesGeo, particlesMat)
+  scene.add(particlesMesh)
+  
+  // Animate Particles
+  core.addAnimationCallback(() => {
+    particlesMesh.rotation.y += 0.001
+    const positions = particlesMesh.geometry.attributes.position.array as Float32Array;
+    for(let i = 1; i < positions.length; i+=3) {
+        positions[i] += 0.01;
+        if (positions[i] > 5) positions[i] = -5;
+    }
+    particlesMesh.geometry.attributes.position.needsUpdate = true;
+  })
 
   core.startAnimationLoop()
 }
@@ -405,7 +450,7 @@ async function setupFlipperForDrag(direction: 'next' | 'prev') {
     if (prevTex) {
         (flipperBack.material as THREE.MeshStandardMaterial).map = prevTex
         prevTex.wrapS = THREE.RepeatWrapping
-        prevTex.repeat.x = -1
+        prevTex.repeat.x = -1;
         
         (flipperFront.material as THREE.MeshStandardMaterial).map = prevTex
     }
