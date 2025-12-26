@@ -200,8 +200,8 @@ const drawMap = (geojson: GeoJSON, scene: THREE.Scene, dataMap: Map<string, Data
     // 使用 maxCount 来归一化，使得高度差更明显
     const ratio = maxCount > 0 ? count / maxCount : 0;
     
-    // 最大高度调整为 20，增强高低错落感
-    const maxHeight = 20;
+    // 最大高度调整为 10，减小高低错落感
+    const maxHeight = 10;
     const depth = isChina ? Math.max(0.01, ratio * maxHeight) : 0.008;
 
     let baseColorHex: string | number;
@@ -242,10 +242,14 @@ const drawMap = (geojson: GeoJSON, scene: THREE.Scene, dataMap: Map<string, Data
       };
 
       const geometry = new THREE.ExtrudeGeometry(shape, extrudeSettings);
-      
-      const material = new THREE.MeshLambertMaterial({
+      geometry.computeVertexNormals(); // 计算法线以支持更好的光照
+
+      // 更换为 MeshStandardMaterial 以增强质感和阴影
+      const material = new THREE.MeshStandardMaterial({
         color: baseColor,
         side: THREE.DoubleSide,
+        roughness: 0.5,
+        metalness: 0.1,
       });
 
       const mesh = new THREE.Mesh(geometry, material);
@@ -321,7 +325,7 @@ const drawBars = (data: DistributedMapData[], geojson: GeoJSON, scene: THREE.Sce
       
       // 重新计算底座高度，保持和 drawMap 里的逻辑一致
       const mapRatio = maxCount > 0 ? count / maxCount : 0;
-      const maxHeight = 20; 
+      const maxHeight = 10; 
       const provinceDepth = Math.max(0.01, mapRatio * maxHeight);
       
       const zBase = provinceDepth;
@@ -599,9 +603,11 @@ const onMouseMove = (event: MouseEvent) => {
                 // 地图块高亮色
                 const highlightColor = new THREE.Color(LOLITA_COLORS.highlight);
 
-                (object as THREE.Mesh).material = new THREE.MeshLambertMaterial({
+                (object as THREE.Mesh).material = new THREE.MeshStandardMaterial({
                     color: highlightColor,
-                    side: THREE.DoubleSide
+                    side: THREE.DoubleSide,
+                    roughness: 0.5,
+                    metalness: 0.1
                 });
 
                 tooltip.value.visible = true;
@@ -650,9 +656,11 @@ const restoreObjectMaterial = (obj: THREE.Object3D) => {
         });
     } else if (obj.parent?.userData.isProvince) {
         const baseColor = obj.parent.userData.baseColor || new THREE.Color(0xeeeeee);
-        (obj as THREE.Mesh).material = new THREE.MeshLambertMaterial({
+        (obj as THREE.Mesh).material = new THREE.MeshStandardMaterial({
             color: baseColor,
-            side: THREE.DoubleSide
+            side: THREE.DoubleSide,
+            roughness: 0.5,
+            metalness: 0.1
         });
     }
 }
