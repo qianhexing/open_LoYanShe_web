@@ -214,11 +214,6 @@ const onStart = (e: MouseEvent | TouchEvent) => {
   currentTranslateY = 0;
 };
 
-  const dateObj = currentDate.toDate();
-  emit('update:modelValue', dateObj);
-  emit('change', dateObj);
-};
-
 const onMove = (e: MouseEvent | TouchEvent) => {
   if (!isDragging) return;
   e.preventDefault(); // Prevent page scroll
