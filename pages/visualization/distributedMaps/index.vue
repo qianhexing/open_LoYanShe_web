@@ -153,6 +153,10 @@ const updateDirLightForShadow = () => {
 const shopModalVisible = ref(false);
 const selectedShopCluster = ref<PhysicalShop[]>([]);
 
+// 茶会弹窗
+const teaPartyModalVisible = ref(false);
+const selectedTeaParty = ref<TeaParty | null>(null);
+
 // 模拟实体店数据
 const mockPhysicalShops: PhysicalShop[] = [
   {
@@ -621,7 +625,8 @@ const drawTeaParties = (scene: THREE.Scene, mapGroupOffset: THREE.Vector3) => {
             end_time: party.end_time,
             zBase: zBase,
             height: height,
-            name: party.tea_title
+            name: party.tea_title,
+            tea_cover: party.tea_cover
         };
         
         // 初始位置
@@ -952,6 +957,20 @@ const drawBars = (data: DistributedMapData[], geojson: GeoJSON, scene: THREE.Sce
   if (showBars.value) {
     scene.add(barGroup);
   }
+};
+
+// 切换茶会圆柱显示
+const toggleTeaParties = () => {
+    showTeaParties.value = !showTeaParties.value;
+    if (!threeCore.value || !teaPartyGroup) return;
+
+    const existsInScene = threeCore.value.scene.children.includes(teaPartyGroup);
+
+    if (showTeaParties.value && !existsInScene) {
+        threeCore.value.scene.add(teaPartyGroup);
+    } else if (!showTeaParties.value && existsInScene) {
+        threeCore.value.scene.remove(teaPartyGroup);
+    }
 };
 
 // 切换圆柱和数字的显示
@@ -1712,14 +1731,40 @@ const initThree = async () => {
       if (intersects.length > 0) {
         const object = intersects.find(i => i.object.type === 'Mesh' || i.object.type === 'Sprite')?.object;
         
-        if (object && (object.userData.isPhysicalShop || object.userData.isShopCluster)) {
-          // 点击了实体店或聚类
-          if (object.userData.cluster) {
-            selectedShopCluster.value = object.userData.cluster as PhysicalShop[];
-            shopModalVisible.value = true;
-          } else if (object.userData.shop) {
-            selectedShopCluster.value = [object.userData.shop as PhysicalShop];
-            shopModalVisible.value = true;
+        // Helper to find interactive object in hierarchy
+        const findInteractiveObject = (obj: THREE.Object3D): THREE.Object3D | null => {
+             if (obj.userData && (obj.userData.isPhysicalShop || obj.userData.isShopCluster || obj.userData.isTeaParty)) {
+                 return obj;
+             }
+             if (obj.parent) {
+                 return findInteractiveObject(obj.parent);
+             }
+             return null;
+        };
+        
+        const interactiveObject = object ? findInteractiveObject(object) : null;
+
+        if (interactiveObject) {
+          if (interactiveObject.userData.isPhysicalShop || interactiveObject.userData.isShopCluster) {
+            // 点击了实体店或聚类
+            if (interactiveObject.userData.cluster) {
+              selectedShopCluster.value = interactiveObject.userData.cluster as PhysicalShop[];
+              shopModalVisible.value = true;
+            } else if (interactiveObject.userData.shop) {
+              selectedShopCluster.value = [interactiveObject.userData.shop as PhysicalShop];
+              shopModalVisible.value = true;
+            }
+          } else if (interactiveObject.userData.isTeaParty) {
+              // 点击了茶会
+              selectedTeaParty.value = {
+                  tea_cover: interactiveObject.userData.tea_cover || '',
+                  tea_title: interactiveObject.userData.name,
+                  longitude: 0, 
+                  latitude: 0,
+                  start_time: interactiveObject.userData.start_time,
+                  end_time: interactiveObject.userData.end_time
+              };
+              teaPartyModalVisible.value = true;
           }
         }
       }
@@ -1778,16 +1823,41 @@ const onClick = (event: MouseEvent) => {
   const intersects = raycaster.intersectObjects(threeCore.value.scene.children, true);
   
   if (intersects.length > 0) {
-    const object = intersects.find(i => i.object.type === 'Mesh' || i.object.type === 'Sprite')?.object;
+    // 查找被点击的对象 (向上遍历直到找到有 userData 的父级或自身)
+    const findInteractiveObject = (obj: THREE.Object3D): THREE.Object3D | null => {
+        if (obj.userData && (obj.userData.isPhysicalShop || obj.userData.isShopCluster || obj.userData.isTeaParty)) {
+            return obj;
+        }
+        if (obj.parent) {
+            return findInteractiveObject(obj.parent);
+        }
+        return null;
+    };
+
+    const firstIntersect = intersects.find(i => i.object.type === 'Mesh' || i.object.type === 'Sprite');
+    const object = firstIntersect ? findInteractiveObject(firstIntersect.object) : null;
     
-    if (object && (object.userData.isPhysicalShop || object.userData.isShopCluster)) {
-      // 点击了实体店或聚类
-      if (object.userData.cluster) {
-        selectedShopCluster.value = object.userData.cluster as PhysicalShop[];
-        shopModalVisible.value = true;
-      } else if (object.userData.shop) {
-        selectedShopCluster.value = [object.userData.shop as PhysicalShop];
-        shopModalVisible.value = true;
+    if (object) {
+      if (object.userData.isPhysicalShop || object.userData.isShopCluster) {
+          // 点击了实体店或聚类
+          if (object.userData.cluster) {
+            selectedShopCluster.value = object.userData.cluster as PhysicalShop[];
+            shopModalVisible.value = true;
+          } else if (object.userData.shop) {
+            selectedShopCluster.value = [object.userData.shop as PhysicalShop];
+            shopModalVisible.value = true;
+          }
+      } else if (object.userData.isTeaParty) {
+          // 点击了茶会
+          selectedTeaParty.value = {
+              tea_cover: object.userData.tea_cover || '',
+              tea_title: object.userData.name,
+              longitude: 0, // 这里的坐标不重要，主要用于显示信息
+              latitude: 0,
+              start_time: object.userData.start_time,
+              end_time: object.userData.end_time
+          };
+          teaPartyModalVisible.value = true;
       }
     }
   }
@@ -1915,6 +1985,26 @@ const onMouseMove = (event: MouseEvent) => {
               tooltip.value.count = 0; // 实体店不显示数量
             }
         }
+        else if (object.userData.isTeaParty) {
+            found = true;
+            if (hoveredObject !== object) {
+                if (hoveredObject) restoreObjectMaterial(hoveredObject);
+                hoveredObject = object;
+                
+                // 茶会高亮色 (稍微亮一点的淡蓝色)
+                (object as THREE.Mesh).material = new THREE.MeshStandardMaterial({
+                    color: 0x87CEFA, // LightSkyBlue
+                    roughness: 0.3,
+                    metalness: 0.2,
+                    transparent: true,
+                    opacity: 1.0
+                });
+                
+                tooltip.value.visible = true;
+                tooltip.value.name = object.userData.name;
+                tooltip.value.count = 0; // 茶会暂时不显示数量，或者显示天数？
+            }
+        }
     }
   }
 
@@ -1933,6 +2023,14 @@ const restoreObjectMaterial = (obj: THREE.Object3D) => {
             metalness: 0.1,
             transparent: true,
             opacity: 0.9
+        });
+    } else if (obj.userData.isTeaParty) {
+        (obj as THREE.Mesh).material = new THREE.MeshStandardMaterial({
+            color: 0xADD8E6, // 淡蓝色
+            roughness: 0.3,
+            metalness: 0.2,
+            transparent: true,
+            opacity: 0.8
         });
     } else if (obj.parent?.userData.isProvince) {
         const baseColor = obj.parent.userData.baseColor || new THREE.Color(0xeeeeee);
@@ -2022,6 +2120,16 @@ useHead({
           <span>{{ showShops ? '隐藏' : '显示' }}实体店</span>
           <span>{{ showShops ? '🏪' : '📍' }}</span>
         </span>
+      </button>
+      
+      <!-- 茶会显示/隐藏按钮 -->
+      <button
+        @click.stop="toggleTeaParties"
+        class="px-4 py-2 bg-white/95 backdrop-blur-md rounded-lg shadow-lg border border-gray-200 text-sm font-medium transition-colors flex items-center gap-2 touch-manipulation"
+        :class="showTeaParties ? 'bg-blue-100 text-blue-700 border-blue-300' : 'text-gray-700 hover:bg-gray-50'"
+      >
+        <span>{{ showTeaParties ? '隐藏' : '显示' }}茶会</span>
+        <span>{{ showTeaParties ? '🍵' : '🫖' }}</span>
       </button>
       
       <!-- 光影显示/隐藏按钮 -->
@@ -2147,6 +2255,49 @@ useHead({
           <div v-if="selectedShopCluster.length === 0" class="text-center text-gray-400 py-8">
             暂无实体店数据
           </div>
+        </div>
+      </UCard>
+    </UModal>
+
+    <!-- 茶会详情弹窗 -->
+    <UModal v-model="teaPartyModalVisible" :ui="{ width: 'max-w-md' }">
+      <UCard v-if="selectedTeaParty">
+        <template #header>
+          <div class="flex justify-between items-center">
+            <h2 class="text-lg font-semibold text-blue-700">
+              茶会详情
+            </h2>
+            <UButton color="gray" variant="ghost" icon="i-heroicons-x-mark" @click="teaPartyModalVisible = false" />
+          </div>
+        </template>
+        
+        <div class="space-y-4">
+            <div class="w-full h-40 bg-blue-50 rounded-lg flex items-center justify-center overflow-hidden">
+                <img v-if="selectedTeaParty.tea_cover" :src="selectedTeaParty.tea_cover" class="w-full h-full object-cover" />
+                <span v-else class="text-4xl">🍵</span>
+            </div>
+            
+            <div>
+                <h3 class="font-bold text-xl text-gray-800 mb-2">{{ selectedTeaParty.tea_title }}</h3>
+                
+                <div class="flex flex-col gap-2 text-sm text-gray-600">
+                    <div class="flex items-center gap-2">
+                        <span class="i-heroicons-calendar w-4 h-4 text-blue-500"></span>
+                        <span class="font-medium">开始时间:</span>
+                        <span>{{ dayjs(selectedTeaParty.start_time).format('YYYY-MM-DD HH:mm') }}</span>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <span class="i-heroicons-clock w-4 h-4 text-blue-500"></span>
+                        <span class="font-medium">结束时间:</span>
+                        <span>{{ dayjs(selectedTeaParty.end_time).format('YYYY-MM-DD HH:mm') }}</span>
+                    </div>
+                    <div class="flex items-center gap-2">
+                         <span class="i-heroicons-clock w-4 h-4 text-green-500"></span>
+                         <span class="font-medium">持续时间:</span>
+                         <span>{{ ((selectedTeaParty.end_time - selectedTeaParty.start_time) / (1000 * 60 * 60 * 24)).toFixed(1) }} 天</span>
+                    </div>
+                </div>
+            </div>
         </div>
       </UCard>
     </UModal>
