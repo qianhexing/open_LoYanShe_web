@@ -46,6 +46,15 @@ interface DataItem {
     rank: number;
 }
 
+interface TeaParty {
+  tea_cover: string;
+  tea_title: string;
+  longitude: number;
+  latitude: number;
+  start_time: number; // timestamp
+  end_time: number;   // timestamp
+}
+
 // --- 状态 ---
 const container = ref<HTMLElement | null>(null);
 const threeCore = shallowRef<ThreeCore | null>(null);
@@ -58,6 +67,12 @@ const totalCount = ref(0);
 const maxCountVal = ref(1);
 // 控制圆柱和数字的显示
 const showBars = ref(true);
+// 控制茶会圆柱显示
+const showTeaParties = ref(true);
+const teaPartyList = ref<TeaParty[]>([]);
+const loadedYears = ref<Set<number>>(new Set());
+let teaPartyGroup: THREE.Group | null = null;
+const TIME_SCALE = 0.5; // 1天对应的刻度 (高度单位)
 // 控制实体店的显示
 const showShops = ref(false);
 // 控制光影（阴影）的显示，手机端默认不启用
@@ -86,6 +101,11 @@ let dateToastTimer: NodeJS.Timeout | null = null;
 const handleDateChange = (date: Date) => {
   const fDate = dayjs(date).format('YYYY-MM-DD');
   formattedDate.value = fDate;
+  
+  // 加载该年份的数据
+  loadTeaPartyData(date);
+  // 更新位置
+  updateTeaPartyPositions();
   
   // 显示日期提示
   showDateToast.value = true;
@@ -473,6 +493,186 @@ const getInterpolatedColor = (rank: number, maxRank: number) => {
     
     return color1.clone().lerp(color2, t);
 };
+
+// --- 茶会相关逻辑 ---
+
+// 生成模拟茶会数据
+const getMockTeaParties = (year: number): TeaParty[] => {
+  const list: TeaParty[] = [];
+  const count = 5 + Math.floor(Math.random() * 5); // 每年5-10个
+  
+  for (let i = 0; i < count; i++) {
+    const month = Math.floor(Math.random() * 12);
+    const day = 1 + Math.floor(Math.random() * 28);
+    const start = dayjs().year(year).month(month).date(day).startOf('day');
+    const durationDays = 1 + Math.floor(Math.random() * 3); // 1-3天
+    const end = start.add(durationDays, 'day');
+    
+    // 随机在中国范围内
+    const lng = 100 + Math.random() * 20;
+    const lat = 25 + Math.random() * 15;
+    
+    list.push({
+      tea_cover: '',
+      tea_title: `${year}年茶会-${i+1}`,
+      longitude: lng,
+      latitude: lat,
+      start_time: start.valueOf(),
+      end_time: end.valueOf()
+    });
+  }
+  return list;
+};
+
+const loadTeaPartyData = async (date: Date) => {
+  const year = date.getFullYear();
+  if (loadedYears.value.has(year)) return;
+  
+  // 模拟请求
+  console.log(`Loading tea party data for ${year}...`);
+  const data = getMockTeaParties(year);
+  
+  teaPartyList.value = [...teaPartyList.value, ...data];
+  loadedYears.value.add(year);
+  
+  // 更新绘制
+  if (threeCore.value && mapGroup) {
+      drawTeaParties(threeCore.value.scene, mapGroup.position);
+  }
+};
+
+const updateTeaPartyPositions = () => {
+    if (!teaPartyGroup) return;
+    
+    const currentTs = currentDate.value.getTime();
+    
+    teaPartyGroup.children.forEach(child => {
+        if (child.userData.isTeaParty) {
+            const startTs = child.userData.start_time;
+            const zBase = child.userData.zBase || 0;
+            const height = child.userData.height || 1;
+            
+            // 计算时间差（天）
+            const diffDays = (startTs - currentTs) / (1000 * 60 * 60 * 24);
+            
+            // 计算 Z 轴位移
+            // start_time = current -> diff = 0 -> z = zBase (在地图表面?)
+            // 用户说: start_time = current -> 坐标 0. 
+            // 假设坐标0是相对于地图表面的偏移? 或者绝对坐标?
+            // "圆柱上下移动... 坐标就是0"
+            // 我们将其解释为：相对于 baseHeight 的偏移。
+            
+            const zOffset = diffDays * TIME_SCALE;
+            
+            // 设置新位置
+            // child.position.z 是中心点。
+            // 底部位置 = zBase + zOffset.
+            // 中心位置 = zBase + zOffset + height / 2.
+            
+            child.position.z = zBase + zOffset + height / 2;
+        }
+    });
+};
+
+const drawTeaParties = (scene: THREE.Scene, mapGroupOffset: THREE.Vector3) => {
+    if (teaPartyGroup) {
+        scene.remove(teaPartyGroup);
+        teaPartyGroup = null;
+    }
+    
+    teaPartyGroup = new THREE.Group();
+    teaPartyGroup.name = 'TeaPartyGroup';
+    teaPartyGroup.position.copy(mapGroupOffset);
+    
+    teaPartyList.value.forEach(party => {
+        const { x, y } = project(party.longitude, party.latitude);
+        const mapHeight = getMapHeightAtLocation(
+            party.longitude, 
+            party.latitude, 
+            cachedGeoJson, 
+            cachedDataMap, 
+            cachedMaxCount
+        );
+        const zBase = mapHeight;
+        
+        // 计算高度
+        const durationMs = party.end_time - party.start_time;
+        const durationDays = Math.max(0.1, durationMs / (1000 * 60 * 60 * 24));
+        const height = durationDays * TIME_SCALE;
+        
+        const geometry = new THREE.CylinderGeometry(0.5, 0.5, height, 16);
+        const material = new THREE.MeshStandardMaterial({
+            color: 0xADD8E6, // 淡蓝色
+            roughness: 0.3,
+            metalness: 0.2,
+            transparent: true,
+            opacity: 0.8
+        });
+        
+        const mesh = new THREE.Mesh(geometry, material);
+        mesh.rotation.x = Math.PI / 2; // Cylinder 默认是 Y 轴朝上，我们地图是 Z 轴朝上吗？
+        // drawBars 里: mesh.rotation.x = Math.PI / 2; 并且 position.z = ...
+        // 这说明地图是在 XY 平面，Z 是高度。
+        // CylinderGeometry 默认沿 Y 轴。旋转 X 90度后，沿 Z 轴。
+        
+        mesh.userData = {
+            isTeaParty: true,
+            start_time: party.start_time,
+            end_time: party.end_time,
+            zBase: zBase,
+            height: height,
+            name: party.tea_title
+        };
+        
+        // 初始位置
+        // updateTeaPartyPositions 会负责设置具体的 Z
+        mesh.position.set(x, y, 0); 
+        
+        // 添加标尺刻度线 (每 1 天一个刻度)
+        // 1天对应的刻度特殊标注出来
+        if (durationDays >= 1) {
+             for (let d = 1; d <= Math.floor(durationDays); d++) {
+                 // d represents d days from start
+                 // Local Y position in cylinder geometry (which is centered at 0)
+                 // Bottom is -height/2
+                 const tickY = -height/2 + d * TIME_SCALE;
+                 
+                 // 刻度环
+                 const tickGeo = new THREE.RingGeometry(0.51, 0.6, 32);
+                 const tickMat = new THREE.MeshBasicMaterial({ 
+                     color: 0xFFFFFF, 
+                     side: THREE.DoubleSide,
+                     transparent: true,
+                     opacity: 0.8
+                 });
+                 const tick = new THREE.Mesh(tickGeo, tickMat);
+                 
+                 // CylinderGeometry axes: Y is up.
+                 // We rotate cylinder X 90 deg.
+                 // So local Y is global Z.
+                 // RingGeometry lies in XY plane.
+                 // We want ring to be perpendicular to cylinder axis (Y).
+                 // So ring should be in XZ plane relative to cylinder?
+                 // No, Cylinder is Y-up. Ring is XY. We need Ring to be XZ (perp to Y).
+                 // So rotate Ring X 90.
+                 tick.rotation.x = Math.PI / 2;
+                 tick.position.y = tickY;
+                 
+                 mesh.add(tick);
+             }
+        }
+        
+        teaPartyGroup.add(mesh);
+    });
+    
+    // 立即更新一次位置
+    updateTeaPartyPositions();
+    
+    if (showTeaParties.value) {
+        scene.add(teaPartyGroup);
+    }
+};
+
 
 const loadMapData = async () => {
   try {
@@ -1362,6 +1562,9 @@ const initThree = async () => {
     if (distData) {
       drawBars(distData, geojson, core.scene, mapGroup.position);
     }
+    
+    // 加载初始年份的茶会数据
+    await loadTeaPartyData(currentDate.value);
     
     // 如果实体店模式开启，绘制实体店
     if (showShops.value) {
