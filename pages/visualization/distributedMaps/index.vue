@@ -46,6 +46,15 @@ interface DataItem {
     rank: number;
 }
 
+interface TeaParty {
+  tea_cover: string;
+  tea_title: string;
+  longitude: number;
+  latitude: number;
+  start_time: number; // timestamp
+  end_time: number;   // timestamp
+}
+
 // --- 状态 ---
 const container = ref<HTMLElement | null>(null);
 const threeCore = shallowRef<ThreeCore | null>(null);
@@ -58,6 +67,12 @@ const totalCount = ref(0);
 const maxCountVal = ref(1);
 // 控制圆柱和数字的显示
 const showBars = ref(true);
+// 控制茶会圆柱显示
+const showTeaParties = ref(true);
+const teaPartyList = ref<TeaParty[]>([]);
+const loadedYears = ref<Set<number>>(new Set());
+let teaPartyGroup: THREE.Group | null = null;
+const TIME_SCALE = 0.5; // 1天对应的刻度 (高度单位)
 // 控制实体店的显示
 const showShops = ref(false);
 // 控制光影（阴影）的显示，手机端默认不启用
@@ -86,6 +101,15 @@ let dateToastTimer: NodeJS.Timeout | null = null;
 const handleDateChange = (date: Date) => {
   const fDate = dayjs(date).format('YYYY-MM-DD');
   formattedDate.value = fDate;
+  
+  // 检查是否跨年，如果是则加载新数据
+  const year = date.getFullYear();
+  if (!loadedYears.value.has(year)) {
+      loadTeaPartyData(date);
+  }
+  
+  // 实时更新位置
+  updateTeaPartyPositions();
   
   // 显示日期提示
   showDateToast.value = true;
@@ -132,6 +156,10 @@ const updateDirLightForShadow = () => {
 // 实体店弹窗
 const shopModalVisible = ref(false);
 const selectedShopCluster = ref<PhysicalShop[]>([]);
+
+// 茶会弹窗
+const teaPartyModalVisible = ref(false);
+const selectedTeaParty = ref<TeaParty | null>(null);
 
 // 模拟实体店数据
 const mockPhysicalShops: PhysicalShop[] = [
@@ -474,6 +502,188 @@ const getInterpolatedColor = (rank: number, maxRank: number) => {
     return color1.clone().lerp(color2, t);
 };
 
+// --- 茶会相关逻辑 ---
+
+// 生成模拟茶会数据
+const getMockTeaParties = (year: number): TeaParty[] => {
+  const list: TeaParty[] = [];
+  const count = 5 + Math.floor(Math.random() * 5); // 每年5-10个
+  
+  for (let i = 0; i < count; i++) {
+    const month = Math.floor(Math.random() * 12);
+    const day = 1 + Math.floor(Math.random() * 28);
+    const start = dayjs().year(year).month(month).date(day).startOf('day');
+    const durationDays = 1 + Math.floor(Math.random() * 3); // 1-3天
+    const end = start.add(durationDays, 'day');
+    
+    // 随机在中国范围内
+    const lng = 100 + Math.random() * 20;
+    const lat = 25 + Math.random() * 15;
+    
+    list.push({
+      tea_cover: '',
+      tea_title: `${year}年茶会-${i+1}`,
+      longitude: lng,
+      latitude: lat,
+      start_time: start.valueOf(),
+      end_time: end.valueOf()
+    });
+  }
+  return list;
+};
+
+const loadTeaPartyData = async (date: Date) => {
+  const year = date.getFullYear();
+  if (loadedYears.value.has(year)) return;
+  
+  // 模拟请求
+  console.log(`Loading tea party data for ${year}...`);
+  const data = getMockTeaParties(year);
+  
+  teaPartyList.value = [...teaPartyList.value, ...data];
+  loadedYears.value.add(year);
+  
+  // 更新绘制 (只添加新的)
+  // 为了简单起见，这里重绘所有茶会圆柱。在实际项目中可能需要优化。
+  if (threeCore.value && mapGroup) {
+      drawTeaParties(threeCore.value.scene, mapGroup.position);
+  }
+};
+
+const updateTeaPartyPositions = () => {
+    if (!teaPartyGroup) return;
+    
+    const currentTs = currentDate.value.getTime();
+    
+    teaPartyGroup.children.forEach(child => {
+        if (child.userData.isTeaParty) {
+            const startTs = child.userData.start_time;
+            const zBase = child.userData.zBase || 0;
+            const height = child.userData.height || 1;
+            
+            // 计算时间差（天）
+            const diffDays = (startTs - currentTs) / (1000 * 60 * 60 * 24);
+            
+            // 计算 Z 轴位移
+            // start_time = current -> diff = 0 -> z = zBase (在地图表面?)
+            // 用户说: start_time = current -> 坐标 0. 
+            // 假设坐标0是相对于地图表面的偏移? 或者绝对坐标?
+            // "圆柱上下移动... 坐标就是0"
+            // 我们将其解释为：相对于 baseHeight 的偏移。
+            
+            const zOffset = diffDays * TIME_SCALE;
+            
+            // 设置新位置
+            // child.position.z 是中心点。
+            // 底部位置 = zBase + zOffset.
+            // 中心位置 = zBase + zOffset + height / 2.
+            
+            child.position.z = zBase + zOffset + height / 2;
+        }
+    });
+};
+
+const drawTeaParties = (scene: THREE.Scene, mapGroupOffset: THREE.Vector3) => {
+    if (teaPartyGroup) {
+        scene.remove(teaPartyGroup);
+        teaPartyGroup = null;
+    }
+    
+    teaPartyGroup = new THREE.Group();
+    teaPartyGroup.name = 'TeaPartyGroup';
+    teaPartyGroup.position.copy(mapGroupOffset);
+    
+    teaPartyList.value.forEach(party => {
+        const { x, y } = project(party.longitude, party.latitude);
+        const mapHeight = getMapHeightAtLocation(
+            party.longitude, 
+            party.latitude, 
+            cachedGeoJson, 
+            cachedDataMap, 
+            cachedMaxCount
+        );
+        const zBase = mapHeight;
+        
+        // 计算高度
+        const durationMs = party.end_time - party.start_time;
+        const durationDays = Math.max(0.1, durationMs / (1000 * 60 * 60 * 24));
+        const height = durationDays * TIME_SCALE;
+        
+        const geometry = new THREE.CylinderGeometry(0.5, 0.5, height, 16);
+        const material = new THREE.MeshStandardMaterial({
+            color: 0xADD8E6, // 淡蓝色
+            roughness: 0.3,
+            metalness: 0.2,
+            transparent: true,
+            opacity: 0.8
+        });
+        
+        const mesh = new THREE.Mesh(geometry, material);
+        mesh.rotation.x = Math.PI / 2; // Cylinder 默认是 Y 轴朝上，我们地图是 Z 轴朝上吗？
+        // drawBars 里: mesh.rotation.x = Math.PI / 2; 并且 position.z = ...
+        // 这说明地图是在 XY 平面，Z 是高度。
+        // CylinderGeometry 默认沿 Y 轴。旋转 X 90度后，沿 Z 轴。
+        
+        mesh.userData = {
+            isTeaParty: true,
+            start_time: party.start_time,
+            end_time: party.end_time,
+            zBase: zBase,
+            height: height,
+            name: party.tea_title,
+            tea_cover: party.tea_cover
+        };
+        
+        // 初始位置
+        // updateTeaPartyPositions 会负责设置具体的 Z
+        mesh.position.set(x, y, 0); 
+        
+        // 添加标尺刻度线 (每 1 天一个刻度)
+        // 1天对应的刻度特殊标注出来
+        if (durationDays >= 1) {
+             for (let d = 1; d <= Math.floor(durationDays); d++) {
+                 // d represents d days from start
+                 // Local Y position in cylinder geometry (which is centered at 0)
+                 // Bottom is -height/2
+                 const tickY = -height/2 + d * TIME_SCALE;
+                 
+                 // 刻度环
+                 const tickGeo = new THREE.RingGeometry(0.51, 0.6, 32);
+                 const tickMat = new THREE.MeshBasicMaterial({ 
+                     color: 0xFFFFFF, 
+                     side: THREE.DoubleSide,
+                     transparent: true,
+                     opacity: 0.8
+                 });
+                 const tick = new THREE.Mesh(tickGeo, tickMat);
+                 
+                 // CylinderGeometry axes: Y is up.
+                 // We rotate cylinder X 90 deg.
+                 // So local Y is global Z.
+                 // RingGeometry lies in XY plane.
+                 // We want ring to be perpendicular to cylinder axis (Y).
+                 // So ring should be in XZ plane relative to cylinder?
+                 // No, Cylinder is Y-up. Ring is XY. We need Ring to be XZ (perp to Y).
+                 // So rotate Ring X 90.
+                 tick.rotation.x = Math.PI / 2;
+                 tick.position.y = tickY;
+                 
+                 mesh.add(tick);
+             }
+        }
+        
+        teaPartyGroup.add(mesh);
+    });
+    
+    // 立即更新一次位置
+    updateTeaPartyPositions();
+    
+    if (showTeaParties.value) {
+        scene.add(teaPartyGroup);
+    }
+};
+
+
 const loadMapData = async () => {
   try {
     const url = `${BASE_IMG}ssr/world.json`; 
@@ -752,6 +962,20 @@ const drawBars = (data: DistributedMapData[], geojson: GeoJSON, scene: THREE.Sce
   if (showBars.value) {
     scene.add(barGroup);
   }
+};
+
+// 切换茶会圆柱显示
+const toggleTeaParties = () => {
+    showTeaParties.value = !showTeaParties.value;
+    if (!threeCore.value || !teaPartyGroup) return;
+
+    const existsInScene = threeCore.value.scene.children.includes(teaPartyGroup);
+
+    if (showTeaParties.value && !existsInScene) {
+        threeCore.value.scene.add(teaPartyGroup);
+    } else if (!showTeaParties.value && existsInScene) {
+        threeCore.value.scene.remove(teaPartyGroup);
+    }
 };
 
 // 切换圆柱和数字的显示
@@ -1363,6 +1587,9 @@ const initThree = async () => {
       drawBars(distData, geojson, core.scene, mapGroup.position);
     }
     
+    // 加载初始年份的茶会数据
+    await loadTeaPartyData(currentDate.value);
+    
     // 如果实体店模式开启，绘制实体店
     if (showShops.value) {
       await drawPhysicalShops(mockPhysicalShops, core.scene, mapGroup.position, geojson, dataMap, maxCount, core.effectManager);
@@ -1509,14 +1736,40 @@ const initThree = async () => {
       if (intersects.length > 0) {
         const object = intersects.find(i => i.object.type === 'Mesh' || i.object.type === 'Sprite')?.object;
         
-        if (object && (object.userData.isPhysicalShop || object.userData.isShopCluster)) {
-          // 点击了实体店或聚类
-          if (object.userData.cluster) {
-            selectedShopCluster.value = object.userData.cluster as PhysicalShop[];
-            shopModalVisible.value = true;
-          } else if (object.userData.shop) {
-            selectedShopCluster.value = [object.userData.shop as PhysicalShop];
-            shopModalVisible.value = true;
+        // Helper to find interactive object in hierarchy
+        const findInteractiveObject = (obj: THREE.Object3D): THREE.Object3D | null => {
+             if (obj.userData && (obj.userData.isPhysicalShop || obj.userData.isShopCluster || obj.userData.isTeaParty)) {
+                 return obj;
+             }
+             if (obj.parent) {
+                 return findInteractiveObject(obj.parent);
+             }
+             return null;
+        };
+        
+        const interactiveObject = object ? findInteractiveObject(object) : null;
+
+        if (interactiveObject) {
+          if (interactiveObject.userData.isPhysicalShop || interactiveObject.userData.isShopCluster) {
+            // 点击了实体店或聚类
+            if (interactiveObject.userData.cluster) {
+              selectedShopCluster.value = interactiveObject.userData.cluster as PhysicalShop[];
+              shopModalVisible.value = true;
+            } else if (interactiveObject.userData.shop) {
+              selectedShopCluster.value = [interactiveObject.userData.shop as PhysicalShop];
+              shopModalVisible.value = true;
+            }
+          } else if (interactiveObject.userData.isTeaParty) {
+              // 点击了茶会
+              selectedTeaParty.value = {
+                  tea_cover: interactiveObject.userData.tea_cover || '',
+                  tea_title: interactiveObject.userData.name,
+                  longitude: 0, 
+                  latitude: 0,
+                  start_time: interactiveObject.userData.start_time,
+                  end_time: interactiveObject.userData.end_time
+              };
+              teaPartyModalVisible.value = true;
           }
         }
       }
@@ -1575,16 +1828,41 @@ const onClick = (event: MouseEvent) => {
   const intersects = raycaster.intersectObjects(threeCore.value.scene.children, true);
   
   if (intersects.length > 0) {
-    const object = intersects.find(i => i.object.type === 'Mesh' || i.object.type === 'Sprite')?.object;
+    // 查找被点击的对象 (向上遍历直到找到有 userData 的父级或自身)
+    const findInteractiveObject = (obj: THREE.Object3D): THREE.Object3D | null => {
+        if (obj.userData && (obj.userData.isPhysicalShop || obj.userData.isShopCluster || obj.userData.isTeaParty)) {
+            return obj;
+        }
+        if (obj.parent) {
+            return findInteractiveObject(obj.parent);
+        }
+        return null;
+    };
+
+    const firstIntersect = intersects.find(i => i.object.type === 'Mesh' || i.object.type === 'Sprite');
+    const object = firstIntersect ? findInteractiveObject(firstIntersect.object) : null;
     
-    if (object && (object.userData.isPhysicalShop || object.userData.isShopCluster)) {
-      // 点击了实体店或聚类
-      if (object.userData.cluster) {
-        selectedShopCluster.value = object.userData.cluster as PhysicalShop[];
-        shopModalVisible.value = true;
-      } else if (object.userData.shop) {
-        selectedShopCluster.value = [object.userData.shop as PhysicalShop];
-        shopModalVisible.value = true;
+    if (object) {
+      if (object.userData.isPhysicalShop || object.userData.isShopCluster) {
+          // 点击了实体店或聚类
+          if (object.userData.cluster) {
+            selectedShopCluster.value = object.userData.cluster as PhysicalShop[];
+            shopModalVisible.value = true;
+          } else if (object.userData.shop) {
+            selectedShopCluster.value = [object.userData.shop as PhysicalShop];
+            shopModalVisible.value = true;
+          }
+      } else if (object.userData.isTeaParty) {
+          // 点击了茶会
+          selectedTeaParty.value = {
+              tea_cover: object.userData.tea_cover || '',
+              tea_title: object.userData.name,
+              longitude: 0, // 这里的坐标不重要，主要用于显示信息
+              latitude: 0,
+              start_time: object.userData.start_time,
+              end_time: object.userData.end_time
+          };
+          teaPartyModalVisible.value = true;
       }
     }
   }
@@ -1712,6 +1990,26 @@ const onMouseMove = (event: MouseEvent) => {
               tooltip.value.count = 0; // 实体店不显示数量
             }
         }
+        else if (object.userData.isTeaParty) {
+            found = true;
+            if (hoveredObject !== object) {
+                if (hoveredObject) restoreObjectMaterial(hoveredObject);
+                hoveredObject = object;
+                
+                // 茶会高亮色 (稍微亮一点的淡蓝色)
+                (object as THREE.Mesh).material = new THREE.MeshStandardMaterial({
+                    color: 0x87CEFA, // LightSkyBlue
+                    roughness: 0.3,
+                    metalness: 0.2,
+                    transparent: true,
+                    opacity: 1.0
+                });
+                
+                tooltip.value.visible = true;
+                tooltip.value.name = object.userData.name;
+                tooltip.value.count = 0; // 茶会暂时不显示数量，或者显示天数？
+            }
+        }
     }
   }
 
@@ -1730,6 +2028,14 @@ const restoreObjectMaterial = (obj: THREE.Object3D) => {
             metalness: 0.1,
             transparent: true,
             opacity: 0.9
+        });
+    } else if (obj.userData.isTeaParty) {
+        (obj as THREE.Mesh).material = new THREE.MeshStandardMaterial({
+            color: 0xADD8E6, // 淡蓝色
+            roughness: 0.3,
+            metalness: 0.2,
+            transparent: true,
+            opacity: 0.8
         });
     } else if (obj.parent?.userData.isProvince) {
         const baseColor = obj.parent.userData.baseColor || new THREE.Color(0xeeeeee);
@@ -1819,6 +2125,16 @@ useHead({
           <span>{{ showShops ? '隐藏' : '显示' }}实体店</span>
           <span>{{ showShops ? '🏪' : '📍' }}</span>
         </span>
+      </button>
+      
+      <!-- 茶会显示/隐藏按钮 -->
+      <button
+        @click.stop="toggleTeaParties"
+        class="px-4 py-2 bg-white/95 backdrop-blur-md rounded-lg shadow-lg border border-gray-200 text-sm font-medium transition-colors flex items-center gap-2 touch-manipulation"
+        :class="showTeaParties ? 'bg-blue-100 text-blue-700 border-blue-300' : 'text-gray-700 hover:bg-gray-50'"
+      >
+        <span>{{ showTeaParties ? '隐藏' : '显示' }}茶会</span>
+        <span>{{ showTeaParties ? '🍵' : '🫖' }}</span>
       </button>
       
       <!-- 光影显示/隐藏按钮 -->
@@ -1948,10 +2264,53 @@ useHead({
       </UCard>
     </UModal>
 
+    <!-- 茶会详情弹窗 -->
+    <UModal v-model="teaPartyModalVisible" :ui="{ width: 'max-w-md' }">
+      <UCard v-if="selectedTeaParty">
+        <template #header>
+          <div class="flex justify-between items-center">
+            <h2 class="text-lg font-semibold text-blue-700">
+              茶会详情
+            </h2>
+            <UButton color="gray" variant="ghost" icon="i-heroicons-x-mark" @click="teaPartyModalVisible = false" />
+          </div>
+        </template>
+        
+        <div class="space-y-4">
+            <div class="w-full h-40 bg-blue-50 rounded-lg flex items-center justify-center overflow-hidden">
+                <img v-if="selectedTeaParty.tea_cover" :src="selectedTeaParty.tea_cover" class="w-full h-full object-cover" />
+                <span v-else class="text-4xl">🍵</span>
+            </div>
+            
+            <div>
+                <h3 class="font-bold text-xl text-gray-800 mb-2">{{ selectedTeaParty.tea_title }}</h3>
+                
+                <div class="flex flex-col gap-2 text-sm text-gray-600">
+                    <div class="flex items-center gap-2">
+                        <span class="i-heroicons-calendar w-4 h-4 text-blue-500"></span>
+                        <span class="font-medium">开始时间:</span>
+                        <span>{{ dayjs(selectedTeaParty.start_time).format('YYYY-MM-DD HH:mm') }}</span>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <span class="i-heroicons-clock w-4 h-4 text-blue-500"></span>
+                        <span class="font-medium">结束时间:</span>
+                        <span>{{ dayjs(selectedTeaParty.end_time).format('YYYY-MM-DD HH:mm') }}</span>
+                    </div>
+                    <div class="flex items-center gap-2">
+                         <span class="i-heroicons-clock w-4 h-4 text-green-500"></span>
+                         <span class="font-medium">持续时间:</span>
+                         <span>{{ ((selectedTeaParty.end_time - selectedTeaParty.start_time) / (1000 * 60 * 60 * 24)).toFixed(1) }} 天</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+      </UCard>
+    </UModal>
+
     <!-- Time Ruler (Right Side) -->
     <TimeRuler 
       v-model="currentDate" 
-      @change="handleDateChange" 
+      @update:modelValue="handleDateChange" 
     />
     
     <!-- Date Toast -->
