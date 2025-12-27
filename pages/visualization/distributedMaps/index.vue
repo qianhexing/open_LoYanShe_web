@@ -102,9 +102,13 @@ const handleDateChange = (date: Date) => {
   const fDate = dayjs(date).format('YYYY-MM-DD');
   formattedDate.value = fDate;
   
-  // 加载该年份的数据
-  loadTeaPartyData(date);
-  // 更新位置
+  // 检查是否跨年，如果是则加载新数据
+  const year = date.getFullYear();
+  if (!loadedYears.value.has(year)) {
+      loadTeaPartyData(date);
+  }
+  
+  // 实时更新位置
   updateTeaPartyPositions();
   
   // 显示日期提示
@@ -539,7 +543,8 @@ const loadTeaPartyData = async (date: Date) => {
   teaPartyList.value = [...teaPartyList.value, ...data];
   loadedYears.value.add(year);
   
-  // 更新绘制
+  // 更新绘制 (只添加新的)
+  // 为了简单起见，这里重绘所有茶会圆柱。在实际项目中可能需要优化。
   if (threeCore.value && mapGroup) {
       drawTeaParties(threeCore.value.scene, mapGroup.position);
   }
@@ -2305,7 +2310,7 @@ useHead({
     <!-- Time Ruler (Right Side) -->
     <TimeRuler 
       v-model="currentDate" 
-      @change="handleDateChange" 
+      @update:modelValue="handleDateChange" 
     />
     
     <!-- Date Toast -->

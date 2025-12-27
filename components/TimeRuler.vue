@@ -214,6 +214,11 @@ const onStart = (e: MouseEvent | TouchEvent) => {
   currentTranslateY = 0;
 };
 
+  const dateObj = currentDate.toDate();
+  emit('update:modelValue', dateObj);
+  emit('change', dateObj);
+};
+
 const onMove = (e: MouseEvent | TouchEvent) => {
   if (!isDragging) return;
   e.preventDefault(); // Prevent page scroll
@@ -224,6 +229,13 @@ const onMove = (e: MouseEvent | TouchEvent) => {
   
   // Accumulate
   currentTranslateY += deltaY;
+  
+  // Emit change event in real-time
+  const dayOffset = currentTranslateY / PIXELS_PER_DAY;
+  const tempDate = currentDate.add(dayOffset, 'day');
+  const dateObj = tempDate.toDate();
+  emit('update:modelValue', dateObj);
+  emit('change', dateObj);
   
   draw();
 };
@@ -238,7 +250,13 @@ const onEnd = () => {
   currentDate = currentDate.add(dayOffset, 'day');
   currentTranslateY = 0;
   
-  // Snap to nearest day
+  // Snap to nearest day?
+  // currentDate = currentDate.startOf('day'); 
+  // Let's keep it continuous for smoother feel or snap at end? 
+  // User asked for "real-time update", usually implies continuous values.
+  // But our tea party logic might depend on dates. 
+  // Let's keep snapping at the end but emit continuous during move.
+  
   currentDate = currentDate.startOf('day');
   
   draw();
