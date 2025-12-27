@@ -212,8 +212,8 @@ async function initBook() {
   scene.add(bookGroup)
 
   // 1. Textures
-  const coverTex = await core.loadTexture(`${BASE_IMG}static/library_app/cover_leather.jpg`).catch(() => null)
-  const paperTex = await core.loadTexture(`${BASE_IMG}static/library_app/paper_texture.jpg`).catch(() => null)
+  const coverTex = await core.loadTexture(`${BASE_IMG}static/library_app/2018_1766770808923142.jpg`).catch(() => null)
+  const paperTex = await core.loadTexture(`${BASE_IMG}static/library_app/2018_1766770808923142.jpg`).catch(() => null)
   
   // Materials
   const pageMat = new THREE.MeshStandardMaterial({
