@@ -284,6 +284,7 @@ const settingsState = reactive({
 	shadowQuality: 'high'
 })
 const shadowQualityOptions = [
+	{ label: '关闭', value: 'off' },
 	{ label: '低', value: 'low' },
 	{ label: '中', value: 'medium' },
 	{ label: '高', value: 'high' },
@@ -297,14 +298,24 @@ const openSettings = (e: MouseEvent) => {
 	}
 	
 	if (threeCore && threeCore.renderer) {
-		settingsState.shadowsEnabled = threeCore.renderer.shadowMap.enabled
+		if (threeCore.renderer.shadowMap.enabled) {
+			// 如果开启，保持当前的 shadowQuality 或者默认为 high
+			if (!settingsState.shadowQuality || settingsState.shadowQuality === 'off') {
+				settingsState.shadowQuality = 'high'
+			}
+		} else {
+			settingsState.shadowQuality = 'off'
+		}
 	}
 	showSettings.value = true
 }
 
-const toggleShadows = (val: boolean) => {
-	if (threeCore && threeCore.renderer) {
-		threeCore.renderer.shadowMap.enabled = val
+const changeShadowQuality = (val: string) => {
+	if (!threeCore || !threeCore.renderer) return
+	
+	if (val === 'off') {
+		threeCore.renderer.shadowMap.enabled = false
+		// 强制更新
 		threeCore.scene.traverse((child) => {
 			if ((child as any).isMesh && (child as any).material) {
 				const mesh = child as THREE.Mesh
@@ -316,12 +327,23 @@ const toggleShadows = (val: boolean) => {
 				}
 			}
 		})
-	}
-}
-
-const changeShadowQuality = (val: any) => {
-	if (threeCore) {
-		threeCore.setShadowQuality(val)
+	} else {
+		if (!threeCore.renderer.shadowMap.enabled) {
+			threeCore.renderer.shadowMap.enabled = true
+			// 开启时也需要强制更新材质
+			threeCore.scene.traverse((child) => {
+				if ((child as any).isMesh && (child as any).material) {
+					const mesh = child as THREE.Mesh
+					if (Array.isArray(mesh.material)) {
+						// biome-ignore lint/complexity/noForEach: <explanation>
+						mesh.material.forEach(m => { m.needsUpdate = true })
+					} else {
+						mesh.material.needsUpdate = true
+					}
+				}
+			})
+		}
+		threeCore.setShadowQuality(val as 'low' | 'medium' | 'high' | 'ultra')
 	}
 }
 
@@ -751,13 +773,13 @@ useHead({
 		v-show="edit_mode">场景</div> -->
 		<!-- 左侧功能列表 - 手机端 -->
 		<div 
-			v-if="edit_mode || add_mode"
 			class="fixed left-2 top-1/2 -translate-y-1/2 z-30 transition-all duration-300"
 			:class="showToolbar ? 'translate-x-0' : '-translate-x-[calc(100%-16px)]'"
 		>
 			<div class="bg-white/90 dark:bg-gray-800/90 backdrop-blur-md rounded-2xl shadow-xl border border-white/50 dark:border-gray-700 overflow-hidden">
 				<!-- 隐藏/显示按钮 -->
 				<button
+					v-if="edit_mode || add_mode"
 					@click="showToolbar = !showToolbar"
 					class="w-full flex items-center justify-center p-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors rounded-t-2xl"
 					:class="showToolbar ? '' : 'rounded-2xl'"
@@ -775,6 +797,7 @@ useHead({
 				>
 					<!-- 保存 -->
 					<button
+						v-if="edit_mode || add_mode"
 						@click="saveScene"
 						class="w-full flex flex-col items-center gap-1 p-1.5 rounded-xl hover:bg-pink-50 dark:hover:bg-pink-900/20 transition-colors group active:scale-95"
 						title="保存"
@@ -787,6 +810,7 @@ useHead({
 
 					<!-- 图片 -->
 					<button
+						v-if="edit_mode || add_mode"
 						@click="addImage"
 						class="w-full flex flex-col items-center gap-1 p-1.5 rounded-xl hover:bg-pink-50 dark:hover:bg-pink-900/20 transition-colors group active:scale-95"
 						title="图片"
@@ -799,6 +823,7 @@ useHead({
 
 					<!-- 日记点 -->
 					<button
+						v-if="edit_mode || add_mode"
 						@click="addDiaryClick"
 						class="w-full flex flex-col items-center gap-1 p-1.5 rounded-xl hover:bg-pink-50 dark:hover:bg-pink-900/20 transition-colors group active:scale-95"
 						title="日记点"
@@ -811,6 +836,7 @@ useHead({
 
 					<!-- 记录镜头 -->
 					<button
+						v-if="edit_mode || add_mode"
 						@click="recordCamera"
 						class="w-full flex flex-col items-center gap-1 p-1.5 rounded-xl hover:bg-pink-50 dark:hover:bg-pink-900/20 transition-colors group active:scale-95"
 						title="记录镜头"
@@ -823,6 +849,7 @@ useHead({
 
 					<!-- 背景 -->
 					<button
+						v-if="edit_mode || add_mode"
 						@click="addBackgroundClick"
 						class="w-full flex flex-col items-center gap-1 p-1.5 rounded-xl hover:bg-pink-50 dark:hover:bg-pink-900/20 transition-colors group active:scale-95"
 						title="背景"
@@ -835,6 +862,7 @@ useHead({
 
 					<!-- 文本 -->
 					<button
+						v-if="edit_mode || add_mode"
 						@click="addTextClick"
 						class="w-full flex flex-col items-center gap-1 p-1.5 rounded-xl hover:bg-pink-50 dark:hover:bg-pink-900/20 transition-colors group active:scale-95"
 						title="文本"
@@ -847,6 +875,7 @@ useHead({
 
 					<!-- 素材 -->
 					<button
+						v-if="edit_mode || add_mode"
 						@click="showMaterial()"
 						class="w-full flex flex-col items-center gap-1 p-1.5 rounded-xl hover:bg-purple-50 dark:hover:bg-purple-900/20 transition-colors group active:scale-95"
 						:class="rightPanelType === 'material' ? 'bg-purple-100 dark:bg-purple-900/40' : ''"
@@ -860,6 +889,7 @@ useHead({
 
 					<!-- 模版 -->
 					<button
+						v-if="edit_mode || add_mode"
 						@click="showTemplate()"
 						class="w-full flex flex-col items-center gap-1 p-1.5 rounded-xl hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors group active:scale-95"
 						:class="rightPanelType === 'template' ? 'bg-blue-100 dark:bg-blue-900/40' : ''"
@@ -873,6 +903,7 @@ useHead({
 
 					<!-- 特效 -->
 					<button
+						v-if="edit_mode || add_mode"
 						@click="showEffect()"
 						class="w-full flex flex-col items-center gap-1 p-1.5 rounded-xl hover:bg-orange-50 dark:hover:bg-orange-900/20 transition-colors group active:scale-95"
 						:class="rightPanelType === 'effect' ? 'bg-orange-100 dark:bg-orange-900/40' : ''"
@@ -1043,12 +1074,6 @@ useHead({
 		<QhxModal v-model="showSettings" :trigger-position="clickPosition">
 			<div class="p-6 w-[300px] bg-white dark:bg-gray-800 rounded-[10px] shadow-lg">
 				<h3 class="text-base font-bold mb-4 text-gray-800 dark:text-gray-200">场景设置</h3>
-				
-				<!-- 阴影开关 -->
-				<div class="flex items-center justify-between mb-4">
-					<span class="text-sm text-gray-700 dark:text-gray-300">开启阴影</span>
-					<UToggle v-model="settingsState.shadowsEnabled" @update:model-value="toggleShadows" color="primary" />
-				</div>
 				
 				<!-- 阴影质量 -->
 				<div class="mb-2">
