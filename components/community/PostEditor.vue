@@ -33,19 +33,14 @@
             </label>
             <div class="bg-white dark:bg-gray-700 rounded-2xl border border-gray-200 dark:border-gray-600 overflow-hidden">
               <!-- 工具栏 -->
-              <div :id="`toolbar-${editorId}`" class="bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-600 p-2">
-                <!-- <button type="button" class="ql-bold" title="粗体"></button>
-                <button type="button" class="ql-italic" title="斜体"></button>
-                <button type="button" class="ql-underline" title="下划线"></button>
-                <button type="button" class="ql-strike" title="删除线"></button>
-                <button type="button" class="ql-blockquote" title="引用"></button>
-                <button type="button" class="ql-code-block" title="代码块"></button>
-                <button type="button" class="ql-header" value="1" title="标题1"></button>
-                <button type="button" class="ql-header" value="2" title="标题2"></button>
-                <button type="button" class="ql-list" value="ordered" title="有序列表"></button>
-                <button type="button" class="ql-list" value="bullet" title="无序列表"></button>
-                <button type="button" class="ql-link" title="链接"></button>
-                <button type="button" class="ql-image" title="图片"></button> -->
+              <div :id="`toolbar-${editorId}`" class="bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-600 p-2 flex gap-2">
+                <button 
+                  type="button" 
+                  class="px-3 py-1.5 text-sm font-medium bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 rounded-lg border border-gray-200 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors flex items-center gap-1"
+                  @click="openTopicModal"
+                >
+                  <span class="text-pink-500 font-bold">#</span> 话题
+                </button>
               </div>
               <!-- 编辑器容器 -->
               <div :id="`editor-${editorId}`" class="min-h-[300px] max-h-[400px] overflow-y-auto"></div>
@@ -86,6 +81,33 @@
         </form>
       </div>
     </div>
+    <!-- 话题输入弹窗 -->
+    <UModal v-model="showTopicModal">
+      <div class="p-6 bg-white dark:bg-gray-800 rounded-lg">
+        <h3 class="text-lg font-bold mb-4 text-gray-800 dark:text-gray-100">插入话题</h3>
+        <input
+          v-model="topicInput"
+          type="text"
+          class="w-full px-4 py-2 mb-6 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-pink-500 dark:text-gray-200"
+          placeholder="请输入话题内容"
+          @keyup.enter="confirmInsertTopic"
+        />
+        <div class="flex justify-end gap-3">
+          <button 
+            @click="showTopicModal = false" 
+            class="px-4 py-2 text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 transition-colors"
+          >
+            取消
+          </button>
+          <button 
+            @click="confirmInsertTopic" 
+            class="px-4 py-2 text-sm bg-pink-500 hover:bg-pink-600 text-white rounded-full font-bold transition-colors shadow-lg shadow-pink-500/30"
+          >
+            确定
+          </button>
+        </div>
+      </div>
+    </UModal>
   </div>
 </template>
 
@@ -93,6 +115,27 @@
 import { ref, onMounted, onUnmounted, nextTick } from 'vue'
 import Quill from 'quill'
 import 'quill/dist/quill.snow.css'
+
+// 注册自定义话题 Blot
+const Embed = Quill.import('blots/embed') as any
+class TopicBlot extends Embed {
+  static create(value: string) {
+    const node = super.create()
+    node.setAttribute('data-topic', value)
+    node.innerText = `#${value}#`
+    node.setAttribute('contenteditable', 'false')
+    return node
+  }
+
+  static value(node: HTMLElement) {
+    return node.getAttribute('data-topic')
+  }
+}
+TopicBlot.blotName = 'topic'
+TopicBlot.tagName = 'span'
+TopicBlot.className = 'topic-tag'
+Quill.register(TopicBlot)
+
 import { insertCommunity, type CommunityInterface } from '@/api/community'
 import { useUserStore } from '@/stores/user'
 import type { Community } from '@/types/api'
@@ -120,11 +163,37 @@ const editorId = ref(`editor-${Date.now()}`)
 const quill = ref<Quill | null>(null)
 const submitting = ref(false)
 const imagePickerRef = ref<InstanceType<typeof QhxImagePicker> | null>(null)
+const showTopicModal = ref(false)
+const topicInput = ref('')
 
 const formData = ref({
   title: '',
   content: ''
 })
+
+// 打开话题弹窗
+const openTopicModal = () => {
+  topicInput.value = ''
+  showTopicModal.value = true
+}
+
+// 确认插入话题
+const confirmInsertTopic = () => {
+  if (!topicInput.value.trim()) return
+
+  if (quill.value) {
+    const range = quill.value.getSelection(true)
+    const index = range ? range.index : quill.value.getLength()
+    
+    // 插入话题 Blot
+    quill.value.insertEmbed(index, 'topic', topicInput.value)
+    // 插入后加一个空格，方便继续输入
+    quill.value.insertText(index + 1, ' ')
+    // 移动光标到最后
+    quill.value.setSelection(index + 2)
+  }
+  showTopicModal.value = false
+}
 
 // 初始化编辑器
 const initEditor = async () => {
@@ -375,6 +444,15 @@ onUnmounted(() => {
 :deep(.ql-editor.ql-blank::before) {
   color: #9ca3af;
   font-style: normal;
+}
+
+:deep(.topic-tag) {
+  color: #ec4899;
+  font-weight: bold;
+  margin: 0 4px;
+  cursor: pointer;
+  user-select: all;
+  display: inline-block;
 }
 </style>
 
