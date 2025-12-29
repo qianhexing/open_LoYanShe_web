@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref, watch } from 'vue'
+import { onMounted, onUnmounted, ref, watch } from 'vue'
 import * as THREE from 'three'
 import type QhxImagePicker from '@/components/Qhx/ImagePicker.vue'
 import { uploadImage } from '@/api';
@@ -36,6 +36,12 @@ let lastY = 0
 let lastDist = 0
 let lastAngle = 0
 
+// 渲染循环控制
+let rafId: number | null = null
+let isDirty = false
+let lastTextureUpdateTime = 0
+const TEXTURE_UPDATE_INTERVAL = 1000 / 30 // 限制纹理更新频率为 30fps
+
 const showModel = () => {
   show.value = true
 }
@@ -43,7 +49,29 @@ const closeModel = () => {
   show.value = false
   emit('close')
 }
-function draw() {
+
+// 标记需要重绘
+const markDirty = () => {
+  isDirty = true
+}
+
+function drawLoop() {
+  if (isDirty) {
+    drawCanvas()
+    // 限制纹理上传频率
+    const now = performance.now()
+    if (now - lastTextureUpdateTime > TEXTURE_UPDATE_INTERVAL) {
+      if (texture) {
+        texture.needsUpdate = true
+        lastTextureUpdateTime = now
+      }
+    }
+    isDirty = false
+  }
+  rafId = requestAnimationFrame(drawLoop)
+}
+
+function drawCanvas() {
   if (!ctx || !canvas.value) return
   ctx.clearRect(0, 0, canvas.value.width, canvas.value.height)
 
@@ -86,7 +114,6 @@ function draw() {
   }
 
   if (props.maskUrl) ctx.restore()
-  if (texture) texture.needsUpdate = true
 }
 
 
@@ -104,6 +131,7 @@ function setupTexture() {
   texture.colorSpace = THREE.SRGBColorSpace
   texture.wrapS = THREE.ClampToEdgeWrapping
   texture.wrapT = THREE.ClampToEdgeWrapping
+  // texture.minFilter = THREE.LinearFilter // 默认就是 LinearFilter，这对于频繁更新的 CanvasTexture 性能更好
   texture.needsUpdate = true
   texture.flipY = false
   
@@ -117,7 +145,74 @@ function setupTexture() {
     mat.needsUpdate = true
   }
 
-  draw()
+  markDirty()
+}
+
+// 事件处理函数
+const onMouseDown = (e: MouseEvent) => {
+  dragging = true
+  lastX = e.clientX
+  lastY = e.clientY
+}
+
+const onMouseMove = (e: MouseEvent) => {
+  if (!dragging) return
+  offsetX += e.clientX - lastX
+  offsetY += e.clientY - lastY
+  lastX = e.clientX
+  lastY = e.clientY
+  markDirty()
+}
+
+const onMouseUp = () => {
+  dragging = false
+  // 交互结束时强制更新一次纹理，确保最终状态一致
+  if (texture) texture.needsUpdate = true
+}
+
+const onTouchStart = (e: TouchEvent) => {
+  // e.preventDefault() // 移除这里的 preventDefault，让父级控制
+  if (e.touches.length === 2) {
+    const dx = e.touches[1].clientX - e.touches[0].clientX
+    const dy = e.touches[1].clientY - e.touches[0].clientY
+    lastDist = Math.hypot(dx, dy)
+    lastAngle = Math.atan2(dy, dx)
+  } else if (e.touches.length === 1) {
+    lastX = e.touches[0].clientX
+    lastY = e.touches[0].clientY
+  }
+}
+
+const onTouchMove = (e: TouchEvent) => {
+  // e.preventDefault() // 移除这里的 preventDefault
+  if (e.touches.length === 1) {
+    const dx = e.touches[0].clientX - lastX
+    const dy = e.touches[0].clientY - lastY
+    offsetX += dx
+    offsetY += dy
+    lastX = e.touches[0].clientX
+    lastY = e.touches[0].clientY
+  } else if (e.touches.length === 2) {
+    const dx = e.touches[1].clientX - e.touches[0].clientX
+    const dy = e.touches[1].clientY - e.touches[0].clientY
+    const dist = Math.hypot(dx, dy)
+    const angle = Math.atan2(dy, dx)
+
+    scale *= dist / lastDist
+    rotation += angle - lastAngle
+
+    lastDist = dist
+    lastAngle = angle
+  }
+  markDirty()
+}
+
+const onWheel = (e: WheelEvent) => {
+  e.preventDefault()
+  const zoomSpeed = 0.001
+  scale += e.deltaY * -zoomSpeed
+  scale = Math.max(0.1, Math.min(5, scale))
+  markDirty()
 }
 
 onMounted(async () => {
@@ -176,70 +271,44 @@ onMounted(async () => {
       image.src = props.imageUrl
     }
     image.crossOrigin = 'Anonymous'
-    image.onload = draw
+    image.onload = markDirty
   }
 
-  // 鼠标拖动
-  canvas.value.addEventListener('mousedown', e => {
-    dragging = true
-    lastX = e.clientX
-    lastY = e.clientY
-  })
-  window.addEventListener('mousemove', e => {
-    if (!dragging) return
-    offsetX += e.clientX - lastX
-    offsetY += e.clientY - lastY
-    lastX = e.clientX
-    lastY = e.clientY
-    draw()
-  })
-  window.addEventListener('mouseup', () => (dragging = false))
+  // 添加事件监听
+  canvas.value.addEventListener('mousedown', onMouseDown)
+  canvas.value.addEventListener('touchstart', onTouchStart, { passive: false })
+  canvas.value.addEventListener('touchmove', onTouchMove, { passive: false })
+  canvas.value.addEventListener('wheel', onWheel, { passive: false })
+  
+  window.addEventListener('mousemove', onMouseMove)
+  window.addEventListener('mouseup', onMouseUp)
 
-  // 触摸缩放 + 旋转
-  canvas.value.addEventListener('touchstart', e => {
-    e.preventDefault() // 防止页面滚动
-    if (e.touches.length === 2) {
-      const dx = e.touches[1].clientX - e.touches[0].clientX
-      const dy = e.touches[1].clientY - e.touches[0].clientY
-      lastDist = Math.hypot(dx, dy)
-      lastAngle = Math.atan2(dy, dx)
-    } else if (e.touches.length === 1) {
-      lastX = e.touches[0].clientX
-      lastY = e.touches[0].clientY
-    }
-  })
-
-  canvas.value.addEventListener('touchmove', e => {
-    e.preventDefault()
-    if (e.touches.length === 1) {
-      const dx = e.touches[0].clientX - lastX
-      const dy = e.touches[0].clientY - lastY
-      offsetX += dx
-      offsetY += dy
-      lastX = e.touches[0].clientX
-      lastY = e.touches[0].clientY
-    } else if (e.touches.length === 2) {
-      const dx = e.touches[1].clientX - e.touches[0].clientX
-      const dy = e.touches[1].clientY - e.touches[0].clientY
-      const dist = Math.hypot(dx, dy)
-      const angle = Math.atan2(dy, dx)
-
-      scale *= dist / lastDist
-      rotation += angle - lastAngle
-
-      lastDist = dist
-      lastAngle = angle
-    }
-    draw()
-  })
-  canvas.value.addEventListener('wheel', e => {
-    e.preventDefault()
-    const zoomSpeed = 0.001 // 越大缩放越快
-    scale += e.deltaY * -zoomSpeed
-    scale = Math.max(0.1, Math.min(5, scale)) // 限制缩放范围 0.1~5
-    draw()
-  })
+  // 启动渲染循环
+  drawLoop()
 })
+
+onUnmounted(() => {
+  // 清理事件监听
+  if (canvas.value) {
+    canvas.value.removeEventListener('mousedown', onMouseDown)
+    canvas.value.removeEventListener('touchstart', onTouchStart)
+    canvas.value.removeEventListener('touchmove', onTouchMove)
+    canvas.value.removeEventListener('wheel', onWheel)
+  }
+  window.removeEventListener('mousemove', onMouseMove)
+  window.removeEventListener('mouseup', onMouseUp)
+
+  // 停止渲染循环
+  if (rafId !== null) {
+    cancelAnimationFrame(rafId)
+  }
+  
+  // 释放资源
+  if (texture) {
+    texture.dispose()
+  }
+})
+
 const addImage = () => {
   imageType.value = 0
   if (imagePicker.value) {
@@ -284,7 +353,7 @@ const onUpdateFiles = (file: File[]) => {
         offsetY = 0
         scale = 1
         rotation = 0
-        draw()
+        markDirty()
       }
       if (imagePicker.value) {
         imagePicker.value.clear()
