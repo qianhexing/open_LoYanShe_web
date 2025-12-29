@@ -1,15 +1,15 @@
 <template>
   <div class="min-h-screen bg-gray-50 dark:bg-gray-900 py-8 px-4">
-    <div class="max-w-3xl mx-auto">
-      <!-- 头部导航 -->
-      <div class="flex items-center gap-4 mb-6">
-        <div>
-          <h1 class="text-2xl font-bold text-gray-800 dark:text-gray-100">发帖</h1>
-        </div>
+    <div class="max-w-2xl mx-auto">
+      <!-- 标题 -->
+      <div class="text-center mb-8">
+        <div class="text-5xl mb-4">📝</div>
+        <h1 class="text-3xl font-bold text-gray-800 dark:text-gray-100 mb-2">发帖分享</h1>
+        <p class="text-sm text-gray-500 dark:text-gray-400">分享您的想法到社区</p>
       </div>
 
       <!-- 表单 -->
-      <div class="bg-white dark:bg-gray-800 rounded-2xl p-6 md:p-8 shadow-lg border border-gray-200 dark:border-gray-700">
+      <div class="bg-white dark:bg-gray-800 rounded-2xl p-8 shadow-lg border border-gray-200 dark:border-gray-700">
         <form @submit.prevent="handleSubmit" class="space-y-6">
           <!-- 标题输入 -->
           <div>
@@ -33,17 +33,22 @@
             </label>
             <div class="bg-white dark:bg-gray-700 rounded-2xl border border-gray-200 dark:border-gray-600 overflow-hidden">
               <!-- 工具栏 -->
-              <div :id="`toolbar-${editorId}`" class="bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-600 p-2 flex items-center gap-2">
-                <button 
-                  type="button" 
-                  class="ql-topic-link px-3 py-1 text-sm bg-pink-100 dark:bg-pink-900 text-pink-700 dark:text-pink-300 rounded hover:bg-pink-200 dark:hover:bg-pink-800 transition-colors"
-                  title="插入话题链接"
-                >
-                  #话题
-                </button>
+              <div :id="`toolbar-${editorId}`" class="bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-600 p-2">
+                <!-- <button type="button" class="ql-bold" title="粗体"></button>
+                <button type="button" class="ql-italic" title="斜体"></button>
+                <button type="button" class="ql-underline" title="下划线"></button>
+                <button type="button" class="ql-strike" title="删除线"></button>
+                <button type="button" class="ql-blockquote" title="引用"></button>
+                <button type="button" class="ql-code-block" title="代码块"></button>
+                <button type="button" class="ql-header" value="1" title="标题1"></button>
+                <button type="button" class="ql-header" value="2" title="标题2"></button>
+                <button type="button" class="ql-list" value="ordered" title="有序列表"></button>
+                <button type="button" class="ql-list" value="bullet" title="无序列表"></button>
+                <button type="button" class="ql-link" title="链接"></button>
+                <button type="button" class="ql-image" title="图片"></button> -->
               </div>
               <!-- 编辑器容器 -->
-              <div :id="`editor-${editorId}`" class="min-h-[300px] max-h-[500px] overflow-y-auto"></div>
+              <div :id="`editor-${editorId}`" class="min-h-[300px] max-h-[400px] overflow-y-auto"></div>
             </div>
           </div>
 
@@ -64,7 +69,7 @@
           <div class="flex gap-4 pt-4">
             <button
               type="button"
-              @click="handleBack"
+              @click="handleCancel"
               class="flex-1 px-6 py-3 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200 rounded-full font-bold transition-colors"
             >
               取消
@@ -86,32 +91,17 @@
 
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, nextTick } from 'vue'
+import Quill from 'quill'
+import 'quill/dist/quill.snow.css'
 import { insertCommunity, type CommunityInterface } from '@/api/community'
 import { useUserStore } from '@/stores/user'
 import type { Community } from '@/types/api'
 import type QhxImagePicker from '@/components/Qhx/ImagePicker.vue'
 import { uploadImageOSS } from '@/utils/ossUpload'
 
-// Quill 类型定义
-interface QuillInstance {
-  getSelection: (focus?: boolean) => { index: number; length: number } | null
-  setSelection: (index: number, length?: number) => void
-  getLength: () => number
-  insertText: (index: number, text: string, source?: string | 'user' | 'api' | 'silent') => unknown
-  formatText: (index: number, length: number, format: string, value: string) => unknown
-  insertEmbed: (index: number, embedType: string, value: unknown) => unknown
-  clipboard: {
-    dangerouslyPasteHTML: (index: number, html: string) => void
-  }
-  root: {
-    innerHTML: string
-  }
-  on: (event: string, handler: () => void) => void
-}
-
 interface Props {
   userId?: number
-  skipSummaryLink?: boolean
+  skipSummaryLink?: boolean // 是否跳过添加年终总结链接
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -123,12 +113,11 @@ const emit = defineEmits<{
   'success': [value: Community]
 }>()
 
-const router = useRouter()
 const toast = useToast()
+const router = useRouter()
 const userStore = useUserStore()
 const editorId = ref(`editor-${Date.now()}`)
-// Quill 实例类型
-const quill = ref<QuillInstance | null>(null)
+const quill = ref<Quill | null>(null)
 const submitting = ref(false)
 const imagePickerRef = ref<InstanceType<typeof QhxImagePicker> | null>(null)
 
@@ -137,69 +126,13 @@ const formData = ref({
   content: ''
 })
 
-// 插入话题链接
-const insertTopicLink = () => {
-  if (!quill.value) return
-
-  const topicText = '#【周话题第二十七期】本周就是圣诞节了，大家来分享一下圣诞穿搭吧～🎄 '
-  const topicUrl = '/community/detail/5092'
-
-  try {
-    // 获取当前光标位置或文档末尾
-    // const selection = quill.value.getSelection()
-    // const length = quill.value.getLength()
-    // const index = selection ? selection.index : Math.max(0, length - 1)
-
-    // 使用 BlockEmbed 插入话题链接
-    console.log(quill.value, 'quill.value')
-    quill.value.insertEmbed(0, 'editorTopic', {
-      title: topicText.replace('#', '').trim(),
-      url: topicUrl
-    })
-
-    // 把光标移动到插入内容后
-    quill.value.setSelection(0 + 1, 0)
-  } catch (err) {
-    console.error('插入话题失败:', err)
-  }
-}
-
-
 // 初始化编辑器
 const initEditor = async () => {
-  // 确保只在客户端执行
-  if (process.server) return
-  const { default: Quill } = await import('quill')
-  await import('quill/dist/quill.snow.css')
   await nextTick()
   const editorContainer = document.getElementById(`editor-${editorId.value}`)
   const toolbarContainer = document.getElementById(`toolbar-${editorId.value}`)
   
   if (!editorContainer || !toolbarContainer) return
-
-  // 注册话题链接 BlockEmbed
-  // @ts-ignore - Quill 类型定义不完善
-  const BlockEmbed = Quill.import('blots/embed')
-  // @ts-ignore - Quill 类型定义不完善
-  class editorTopic extends BlockEmbed {
-    static create(e: { title: string; url: string }) {
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-call
-      const node = super.create()
-      const section = document.createElement('span')
-      section.setAttribute('style', 'color: #ffaa7f;')
-      section.innerHTML = `<a href="${e.url}">#${e.title}</a>`
-      node.appendChild(section)
-      return node
-    }
-    // 返回节点自身的value值 用于撤销操作
-    static value(node: HTMLElement) {
-      return node.innerHTML
-    }
-    static blotName = 'editorTopic'
-    static tagName = 'span'
-  }
-  // @ts-ignore - Quill 类型定义不完善
-  Quill.register(editorTopic)
 
   quill.value = new Quill(editorContainer, {
     modules: {
@@ -207,16 +140,7 @@ const initEditor = async () => {
     },
     placeholder: '请输入内容...',
     theme: 'snow'
-  }) as unknown as QuillInstance
-
-  // 添加话题链接按钮点击事件
-  const topicLinkButton = toolbarContainer.querySelector('.ql-topic-link')
-  if (topicLinkButton) {
-    topicLinkButton.addEventListener('click', (e) => {
-      e.preventDefault()
-      insertTopicLink()
-    })
-  }
+  })
 
   // 监听内容变化
   quill.value.on('text-change', () => {
@@ -267,8 +191,8 @@ const onUpdateFiles = (files: File[]) => {
   }
 }
 
-// 返回上一页
-const handleBack = () => {
+// 取消操作
+const handleCancel = () => {
   router.back()
 }
 
@@ -385,13 +309,9 @@ const handleSubmit = async () => {
     })
 
     emit('success', community)
-
-    // 跳转到帖子详情页或社区列表
-    if (community?.community_id) {
-      router.push(`/community/detail/${community.community_id}`)
-    } else {
-      router.push('/community')
-    }
+    
+    // 发布成功后跳转到社区页面
+    router.push('/community')
   } catch (error: unknown) {
     console.error('发布失败:', error)
     // 安全地提取错误信息，避免访问可能为 null 的对象
@@ -416,14 +336,13 @@ const handleSubmit = async () => {
       color: 'red'
     })
   } finally {
+    // 确保 submitting 状态被重置，但不访问可能已销毁的 Quill 实例
     submitting.value = false
   }
 }
 
 onMounted(() => {
-  setTimeout(() => {
-    initEditor()
-  })
+  initEditor()
 })
 
 onUnmounted(() => {
@@ -440,7 +359,7 @@ onUnmounted(() => {
 
 :deep(.ql-editor) {
   min-height: 300px;
-  max-height: 500px;
+  max-height: 400px;
 }
 
 :deep(.ql-toolbar) {
@@ -456,22 +375,6 @@ onUnmounted(() => {
 :deep(.ql-editor.ql-blank::before) {
   color: #9ca3af;
   font-style: normal;
-}
-
-/* 话题链接样式 */
-:deep(.ql-topic-link-embed) {
-  color: #ec4899;
-  text-decoration: none;
-  font-weight: 500;
-  padding: 2px 4px;
-  border-radius: 4px;
-  background-color: rgba(236, 72, 153, 0.1);
-  transition: all 0.2s;
-}
-
-:deep(.ql-topic-link-embed:hover) {
-  background-color: rgba(236, 72, 153, 0.2);
-  text-decoration: underline;
 }
 </style>
 
