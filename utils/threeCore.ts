@@ -2090,6 +2090,11 @@ class ThreeCore {
 				jsonObj.title = obj.userData.title
 				jsonObj.url = obj.userData.url
 				jsonObj.options = obj.userData.options
+				const mat = obj.material as THREE.Material
+				if ((mat as any).color) {
+					if (!jsonObj.options) jsonObj.options = {}
+					jsonObj.options.color = '#' + (mat as any).color.getHexString()
+				}
 			}
 			if (typeGuess === 'library') {
 				jsonObj.title = obj.userData.title
