@@ -145,20 +145,51 @@ const insertTopicLink = () => {
   const topicUrl = '/community/detail/5092'
 
   try {
-    // 获取当前光标位置或文档末尾
-    // const selection = quill.value.getSelection()
-    // const length = quill.value.getLength()
-    // const index = selection ? selection.index : Math.max(0, length - 1)
+    // 1. 尝试聚焦，但不强制滚动
+    try {
+      quill.value.root.focus({ preventScroll: true })
+    } catch (e) { /* ignore */ }
+    
+    // 2. 获取插入位置，使用 false 参数避免强制刷新 DOM 导致报错
+    let index = 0
+    try {
+      const selection = quill.value.getSelection(false)
+      const length = quill.value.getLength()
+      
+      if (selection) {
+        index = selection.index
+      } else {
+        // 如果没有选区，默认插入到文档末尾
+        index = Math.max(0, length - 1)
+      }
+      
+      // 额外的边界检查
+      if (index < 0) index = 0
+      if (index > length) index = length
+    } catch (e) {
+      console.warn('获取选区失败，将插入到末尾', e)
+      index = Math.max(0, quill.value.getLength() - 1)
+    }
 
-    // 使用 BlockEmbed 插入话题链接
-    console.log(quill.value, 'quill.value')
-    quill.value.insertEmbed(0, 'editorTopic', {
+    // 3. 插入内容
+    // 使用 'user' source 标记为用户操作
+    quill.value.insertEmbed(index, 'editorTopic', {
       title: topicText.replace('#', '').trim(),
       url: topicUrl
-    })
+    }, 'user')
 
-    // 把光标移动到插入内容后
-    quill.value.setSelection(0 + 1, 0)
+    // 在话题后插入一个空格，方便用户继续输入
+    quill.value.insertText(index + 1, ' ', 'user')
+
+    // 4. 移动光标
+    // 使用 setTimeout 确保 DOM 更新后再移动光标
+    setTimeout(() => {
+      if (quill.value) {
+        // 移动到空格之后
+        quill.value.setSelection(index + 2, 0)
+        quill.value.root.focus()
+      }
+    }, 10)
   } catch (err) {
     console.error('插入话题失败:', err)
   }
@@ -177,26 +208,37 @@ const initEditor = async () => {
   
   if (!editorContainer || !toolbarContainer) return
 
-  // 注册话题链接 BlockEmbed
+  // 注册话题链接 Embed
   // @ts-ignore - Quill 类型定义不完善
-  const BlockEmbed = Quill.import('blots/embed')
+  const Embed = Quill.import('blots/embed')
   // @ts-ignore - Quill 类型定义不完善
-  class editorTopic extends BlockEmbed {
-    static create(e: { title: string; url: string }) {
+  class editorTopic extends Embed {
+    static create(value: { title: string; url: string } | string) {
       // eslint-disable-next-line @typescript-eslint/no-unsafe-call
       const node = super.create()
-      const section = document.createElement('span')
-      section.setAttribute('style', 'color: #ffaa7f;')
-      section.innerHTML = `<a href="${e.url}">#${e.title}</a>`
-      node.appendChild(section)
+      
+      const data = typeof value === 'string' ? { title: value, url: '' } : value
+      
+      // 存储数据到 dataset
+      node.setAttribute('data-title', data.title || '')
+      node.setAttribute('data-url', data.url || '')
+      node.setAttribute('contenteditable', 'false')
+
+      // 直接设置内容，避免深层嵌套
+      node.innerHTML = `#${data.title}`
+      
       return node
     }
     // 返回节点自身的value值 用于撤销操作
     static value(node: HTMLElement) {
-      return node.innerHTML
+      return {
+        title: node.getAttribute('data-title') || '',
+        url: node.getAttribute('data-url') || ''
+      }
     }
     static blotName = 'editorTopic'
     static tagName = 'span'
+    static className = 'ql-topic-link-embed'
   }
   // @ts-ignore - Quill 类型定义不完善
   Quill.register(editorTopic)
@@ -305,6 +347,24 @@ const handleSubmit = async () => {
       return
     }
     content = quill.value.root.innerHTML
+    
+    // 处理话题链接：将编辑器中的 span 转换为标准的 a 标签
+    const tempDiv = document.createElement('div')
+    tempDiv.innerHTML = content
+    const topics = tempDiv.querySelectorAll('.ql-topic-link-embed')
+    topics.forEach(topic => {
+      const url = topic.getAttribute('data-url') || ''
+      const title = topic.getAttribute('data-title') || topic.textContent?.replace('#', '') || ''
+      
+      const link = document.createElement('a')
+      link.href = url
+      link.textContent = `#${title}`
+      link.style.color = '#ec4899'
+      link.style.textDecoration = 'none'
+      
+      topic.replaceWith(link)
+    })
+    content = tempDiv.innerHTML
   } catch (error) {
     console.error('获取编辑器内容失败:', error)
     toast.add({
