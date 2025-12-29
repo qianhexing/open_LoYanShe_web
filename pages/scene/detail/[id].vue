@@ -347,6 +347,61 @@ const changeShadowQuality = (val: string) => {
 	}
 }
 
+const showObjectSettings = ref(false)
+const objectSettingsState = reactive({
+	color: '#ffffff',
+	depth: 0.3,
+	size: 1
+})
+
+const openObjectSettings = () => {
+	if (clickObject.value && clickObject.value.length > 0) {
+		const obj = clickObject.value[0]
+		if (obj.userData.type === '3Dtext') {
+			// 初始化设置
+			if (obj.material && (obj.material as THREE.MeshStandardMaterial).color) {
+				objectSettingsState.color = '#' + (obj.material as THREE.MeshStandardMaterial).color.getHexString()
+			}
+			if (obj.userData.options) {
+				objectSettingsState.depth = obj.userData.options.depth ?? 0.3
+				objectSettingsState.size = obj.userData.options.size ?? 1
+			}
+			
+			// 设置弹窗位置（基于操作菜单位置）
+			clickPosition.value = {
+				x: operaPosition.value.x + 100,
+				y: operaPosition.value.y
+			}
+			showObjectSettings.value = true
+		}
+	}
+}
+
+const updateTextObject = () => {
+	if (clickObject.value && clickObject.value.length > 0 && threeCore) {
+		const obj = clickObject.value[0] as THREE.Mesh
+		if (obj.userData.type === '3Dtext') {
+			// 更新颜色
+			if (obj.material) {
+				(obj.material as THREE.MeshStandardMaterial).color.set(objectSettingsState.color)
+			}
+			
+			// 更新几何体（如果深度或大小改变）
+			const options = {
+				...obj.userData.options,
+				depth: Number(objectSettingsState.depth),
+				size: Number(objectSettingsState.size)
+			}
+			
+			// 更新 userData
+			obj.userData.options = options
+			
+			// 重新生成几何体
+			threeCore.updateTextMesh(obj, obj.userData.title, options)
+		}
+	}
+}
+
 const closeRightPanel = () => {
 	showRightPanel.value = false
 	rightPanelType.value = null
@@ -974,6 +1029,7 @@ useHead({
 				<div class=" cursor-pointer px-3" @click="setMode('translate')" v-show="transformType !== 'translate'">移动</div>
 				<div class=" cursor-pointer px-3" @click="setMode('rotate')" v-show="transformType !== 'rotate'">旋转</div>
 				<div class=" cursor-pointer px-3" @click="setMode('scale')" v-show="transformType !== 'scale'">缩放</div>
+				<div class=" cursor-pointer px-3" @click.stop="openObjectSettings" v-if="clickObject && clickObject[0].userData.type === '3Dtext'">设置</div>
 				<div class=" cursor-pointer px-3" @click.stop="copyModel()" v-if="clickObject && clickObject[0].userData.type === 'model'">复制</div>
 				<div class=" cursor-pointer px-3" @click.stop="showTexture()" v-if="canTexture">贴图</div>
 				<div class=" cursor-pointer px-3" @click.stop="deleteModel()">删除</div>
@@ -1084,6 +1140,55 @@ useHead({
 						option-attribute="label"
 						@update:model-value="changeShadowQuality"
 						color="white"
+					/>
+				</div>
+			</div>
+		</QhxModal>
+		<QhxModal v-model="showObjectSettings" :trigger-position="clickPosition">
+			<div class="p-6 w-[300px] bg-white dark:bg-gray-800 rounded-[10px] shadow-lg">
+				<h3 class="text-base font-bold mb-4 text-gray-800 dark:text-gray-200">物体设置</h3>
+				
+				<!-- 文本颜色 -->
+				<div class="mb-4">
+					<div class="text-sm text-gray-700 dark:text-gray-300 mb-2">颜色</div>
+					<div class="flex items-center gap-2">
+						<input 
+							type="color" 
+							v-model="objectSettingsState.color"
+							@input="updateTextObject"
+							class="w-8 h-8 rounded cursor-pointer border-0 p-0"
+						/>
+						<span class="text-xs text-gray-500">{{ objectSettingsState.color }}</span>
+					</div>
+				</div>
+				
+				<!-- 文本厚度 -->
+				<div class="mb-4">
+					<div class="flex justify-between mb-2">
+						<span class="text-sm text-gray-700 dark:text-gray-300">厚度</span>
+						<span class="text-xs text-gray-500">{{ objectSettingsState.depth }}</span>
+					</div>
+					<URange 
+						v-model="objectSettingsState.depth" 
+						:min="0.01" 
+						:max="2" 
+						:step="0.01"
+						@update:model-value="updateTextObject"
+					/>
+				</div>
+
+				<!-- 文本大小 -->
+				<div class="mb-2">
+					<div class="flex justify-between mb-2">
+						<span class="text-sm text-gray-700 dark:text-gray-300">大小</span>
+						<span class="text-xs text-gray-500">{{ objectSettingsState.size }}</span>
+					</div>
+					<URange 
+						v-model="objectSettingsState.size" 
+						:min="0.1" 
+						:max="5" 
+						:step="0.1"
+						@update:model-value="updateTextObject"
 					/>
 				</div>
 			</div>
