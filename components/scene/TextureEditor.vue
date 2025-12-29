@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref, watch } from 'vue'
+import { onMounted, onUnmounted, ref, watch, nextTick } from 'vue'
 import * as THREE from 'three'
 import type QhxImagePicker from '@/components/Qhx/ImagePicker.vue'
 import { uploadImage } from '@/api';
@@ -18,6 +18,10 @@ let texture: THREE.CanvasTexture | null = null
 const imageType = ref(0) // 0是添加图片 1是添加背景
 const emit = defineEmits(['close'])
 
+// 离屏 Canvas 用于缓存 Mask
+const maskCanvas = document.createElement('canvas')
+const maskCtx = maskCanvas.getContext('2d')
+let hasMask = false
 
 // 图片 & mask
 const image = new Image()
@@ -36,40 +40,128 @@ let lastY = 0
 let lastDist = 0
 let lastAngle = 0
 
+// 渲染循环控制
+let isDirty = false
+let animationFrameId = 0
+
 const showModel = () => {
   show.value = true
+  // 确保显示时重新生成 Mask 并绘制
+  if (props.target) {
+    nextTick(() => {
+      setupTexture()
+    })
+  }
 }
 const closeModel = () => {
   show.value = false
   emit('close')
 }
+
+// 生成基于 UV 的 Mask
+const generateMaskFromUV = (mesh: THREE.Mesh) => {
+  if (!maskCtx || !canvas.value) return false
+  
+  const width = canvas.value.width
+  const height = canvas.value.height
+  
+  // 设置 maskCanvas 大小
+  if (maskCanvas.width !== width || maskCanvas.height !== height) {
+    maskCanvas.width = width
+    maskCanvas.height = height
+  }
+
+  // 清空并填充黑色背景
+  maskCtx.fillStyle = 'black'
+  maskCtx.fillRect(0, 0, width, height)
+  
+  const geometry = mesh.geometry
+  if (!geometry || !geometry.attributes.uv) return false
+
+  const uvAttribute = geometry.attributes.uv
+  const indexAttribute = geometry.index
+
+  maskCtx.beginPath()
+  maskCtx.fillStyle = 'white'
+
+  // 辅助函数：绘制三角形
+  const drawTriangle = (a: number, b: number, c: number) => {
+    const u1 = uvAttribute.getX(a) * width
+    const v1 = (1 - uvAttribute.getY(a)) * height
+    
+    const u2 = uvAttribute.getX(b) * width
+    const v2 = (1 - uvAttribute.getY(b)) * height
+    
+    const u3 = uvAttribute.getX(c) * width
+    const v3 = (1 - uvAttribute.getY(c)) * height
+
+    maskCtx.moveTo(u1, v1)
+    maskCtx.lineTo(u2, v2)
+    maskCtx.lineTo(u3, v3)
+  }
+
+  if (indexAttribute) {
+    for (let i = 0; i < indexAttribute.count; i += 3) {
+      drawTriangle(
+        indexAttribute.getX(i),
+        indexAttribute.getX(i + 1),
+        indexAttribute.getX(i + 2)
+      )
+    }
+  } else {
+    for (let i = 0; i < uvAttribute.count; i += 3) {
+      drawTriangle(i, i + 1, i + 2)
+    }
+  }
+  
+  maskCtx.fill()
+  return true
+}
+
 function draw() {
   if (!ctx || !canvas.value) return
+  
+  // 清空画布
   ctx.clearRect(0, 0, canvas.value.width, canvas.value.height)
 
-  if (props.maskUrl && mask.complete) {
+  // 1. 绘制 Mask
+  let maskDrawn = false
+  
+  // 优先使用外部传入的 Mask 图片 (如果加载完成)
+  if (props.maskUrl && mask.complete && mask.src) {
     ctx.save()
     ctx.drawImage(mask, 0, 0, canvas.value.width, canvas.value.height)
     ctx.globalCompositeOperation = 'source-in'
+    maskDrawn = true
+  } 
+  // 否则使用 UV 生成的 Mask (如果有)
+  else if (hasMask) {
+    ctx.save()
+    ctx.drawImage(maskCanvas, 0, 0)
+    ctx.globalCompositeOperation = 'source-in'
+    maskDrawn = true
   }
 
-  if (image.complete) {
-    ctx.save()
+  // 2. 绘制用户图片
+  if (image.complete && image.src) {
+    // 如果没有 Mask，直接绘制；如果有 Mask，已经在上面设置了 source-in
+    if (!maskDrawn) {
+       ctx.save() // 为了保持 restore 的一致性
+    }
+
     ctx.translate(canvas.value.width / 2 + offsetX, canvas.value.height / 2 + offsetY)
     ctx.rotate(rotation)
     ctx.scale(scale, scale)
 
-    // === 新增：保持原图比例 ===
+    // 保持原图比例
     const imgAspect = image.width / image.height
     const canvasAspect = canvas.value.width / canvas.value.height
     let drawW: number
     let drawH: number
     if (imgAspect > canvasAspect) {
-      // 图片更宽 → 宽占满
       drawW = canvas.value.width
       drawH = drawW / imgAspect
     } else {
-      // 图片更高 → 高占满
       drawH = canvas.value.height
       drawW = drawH * imgAspect
     }
@@ -83,55 +175,94 @@ function draw() {
     )
 
     ctx.restore()
+  } else {
+    // 如果没有图片但有 Mask，记得 restore
+    if (maskDrawn) ctx.restore()
   }
 
-  if (props.maskUrl) ctx.restore()
+  // 3. 更新 Texture
   if (texture) texture.needsUpdate = true
 }
 
+function loop() {
+  if (isDirty) {
+    draw()
+    isDirty = false
+  }
+  animationFrameId = requestAnimationFrame(loop)
+}
 
 function setupTexture() {
   if (!props.target || !canvas.value) return
   ctx = canvas.value.getContext('2d')
-  texture = new THREE.CanvasTexture(canvas.value)
-  texture.wrapS = THREE.ClampToEdgeWrapping
-  texture.wrapT = THREE.ClampToEdgeWrapping
-  texture.needsUpdate = true
-  texture.flipY = false
-  const mat = (props.target as THREE.Mesh).material as THREE.MeshStandardMaterial
-  mat.map = texture
-  mat.transparent = true
-  mat.needsUpdate = true
+  if (!ctx) return
 
+  // 设置 Canvas 尺寸
+  canvas.value.width = 512
+  canvas.value.height = 512
+
+  // 生成 UV Mask
+  hasMask = generateMaskFromUV(props.target as THREE.Mesh)
+  
+  // 初始化 Texture
+  if (!texture) {
+    texture = new THREE.CanvasTexture(canvas.value)
+    texture.wrapS = THREE.ClampToEdgeWrapping
+    texture.wrapT = THREE.ClampToEdgeWrapping
+    texture.flipY = false
+  } else {
+    // 如果 texture 已经存在（比如重新打开），确保它使用当前的 canvas
+    // 通常不需要重新 new，除非 canvas 元素变了
+    // 这里保持引用一致
+  }
+  
+  texture.needsUpdate = true
+  
+  const mat = (props.target as THREE.Mesh).material as THREE.MeshStandardMaterial
+  // 只有当 map 不存在或者不是当前 texture 时才赋值，避免不必要的副作用
+  if (mat.map !== texture) {
+    mat.map = texture
+    mat.transparent = true
+    mat.needsUpdate = true
+  }
+
+  // 触发一次绘制
+  isDirty = true
   draw()
 }
 
 onMounted(() => {
+  // 启动渲染循环
+  loop()
+
   if (!canvas.value) return
-  canvas.value.width = 512
-  canvas.value.height = 512
+  
   if (props.target) {
     const parent = findTopmostParent(props.target)
-    console.log(parent)
-    // biome-ignore lint/complexity/useOptionalChain: <explanation>
+    // 恢复之前的编辑状态
     if (parent.userData.material && parent.userData.material[props.target.name]) {
       const options = parent.userData.material[props.target.name]
       offsetX = options.offsetX
       offsetY = options.offsetY
       scale = options.scale
       rotation= options.rotation
-      image.src = BASE_IMG + options.url
-      image.onload = draw
+      if (options.url) {
+        image.src = BASE_IMG + options.url
+      } else {
+        // Fallback
+        image.src = props.imageUrl
+      }
+      image.onload = () => { isDirty = true }
       
     } else {
       image.src = props.imageUrl
-      image.onload = draw
+      image.onload = () => { isDirty = true }
     }
   }
   
   if (props.maskUrl) {
     mask.src = props.maskUrl
-    mask.onload = draw
+    mask.onload = () => { isDirty = true }
   }
 
   // 鼠标拖动
@@ -146,12 +277,13 @@ onMounted(() => {
     offsetY += e.clientY - lastY
     lastX = e.clientX
     lastY = e.clientY
-    draw()
+    isDirty = true // 标记为脏，下一帧绘制
   })
   window.addEventListener('mouseup', () => (dragging = false))
 
   // 触摸缩放 + 旋转
   canvas.value.addEventListener('touchstart', e => {
+    e.preventDefault() // 防止滚动
     if (e.touches.length === 2) {
       const dx = e.touches[1].clientX - e.touches[0].clientX
       const dy = e.touches[1].clientY - e.touches[0].clientY
@@ -161,9 +293,10 @@ onMounted(() => {
       lastX = e.touches[0].clientX
       lastY = e.touches[0].clientY
     }
-  })
+  }, { passive: false })
 
   canvas.value.addEventListener('touchmove', e => {
+    e.preventDefault() // 防止滚动
     if (e.touches.length === 1) {
       const dx = e.touches[0].clientX - lastX
       const dy = e.touches[0].clientY - lastY
@@ -183,16 +316,22 @@ onMounted(() => {
       lastDist = dist
       lastAngle = angle
     }
-    draw()
-  })
+    isDirty = true
+  }, { passive: false })
+  
   canvas.value.addEventListener('wheel', e => {
     e.preventDefault()
     const zoomSpeed = 0.001 // 越大缩放越快
     scale += e.deltaY * -zoomSpeed
     scale = Math.max(0.1, Math.min(5, scale)) // 限制缩放范围 0.1~5
-    draw()
+    isDirty = true
   })
 })
+
+onUnmounted(() => {
+  cancelAnimationFrame(animationFrameId)
+})
+
 const addImage = () => {
   imageType.value = 0
   if (imagePicker.value) {
@@ -222,6 +361,7 @@ const saveData = () => {
   }
   parent.userData.material[props.target.name] = params
   console.log(params, '参数', parent)
+  // 提示保存成功 (可选)
 }
 const onUpdateFiles = (file: File[]) => {
   console.log('选择的文件', file)
@@ -230,8 +370,9 @@ const onUpdateFiles = (file: File[]) => {
       console.log('上传返回', res)
       image.src = BASE_IMG + res.file_url
       image.onload = () => {
-        setupTexture()
-        draw()
+        // 重置位置? 或者保持位置? 这里保持位置
+        isDirty = true
+        setupTexture() // 重新确保 texture 设置
       }
       if (imagePicker.value) {
         imagePicker.value.clear()
@@ -277,8 +418,12 @@ defineExpose({
         </div>
       </QhxJellyButton>
     </div>
-    <div class="w-full flex justify-center">
-      <canvas ref="canvas" class="border rounded-lg touch-none"></canvas>
+    <div class="w-full flex justify-center p-4">
+      <!-- 增加透明背景格子样式，方便查看透明区域 -->
+      <canvas ref="canvas" class="border rounded-lg touch-none shadow-md" style="background-image: linear-gradient(45deg, #ccc 25%, transparent 25%), linear-gradient(-45deg, #ccc 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #ccc 75%), linear-gradient(-45deg, transparent 75%, #ccc 75%); background-size: 20px 20px; background-position: 0 0, 0 10px, 10px -10px, -10px 0px; background-color: white;"></canvas>
+    </div>
+    <div class="p-4 text-center text-sm text-gray-500">
+       双指旋转缩放，单指拖拽
     </div>
   </div>
 </template>
@@ -287,6 +432,6 @@ defineExpose({
 canvas {
   max-width: 100%;
   height: auto;
-  background: #eee;
+  /* 背景样式已移至 inline style 以支持 checkerboard */
 }
 </style>

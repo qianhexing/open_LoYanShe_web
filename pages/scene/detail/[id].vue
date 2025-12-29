@@ -814,7 +814,6 @@ useHead({
 			v-if="target"
 			:target="target"
 			:image-url="BASE_IMG + threeCore.background"
-			:mask-url="BASE_IMG + 'sence/8_mask.png'"
 			@close="target = null"
 		/>
 		<!-- 光影调试GUI -->
