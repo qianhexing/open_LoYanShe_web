@@ -305,7 +305,7 @@ const TopicMention = Mention.extend({
         class: 'topic-mention',
       },
       renderLabel({ options, node }) {
-        return `#${node.attrs.id || node.attrs.label ?? ''}`
+        return `#${(node.attrs.id || node.attrs.label) ?? ''}`
       },
     }
   },
