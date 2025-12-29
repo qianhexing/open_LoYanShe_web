@@ -26,14 +26,45 @@
             />
           </div>
 
-          <!-- 富文本编辑器 -->
+          <!-- Tiptap 编辑器 -->
           <div>
             <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
               内容 <span class="text-red-500">*</span>
             </label>
-            <div class="bg-white dark:bg-gray-700 rounded-2xl border border-gray-200 dark:border-gray-600 overflow-hidden">
+            <div class="bg-white dark:bg-gray-700 rounded-2xl border border-gray-200 dark:border-gray-600 overflow-visible relative">
               <!-- 工具栏 -->
-              <div :id="`toolbar-${editorId}`" class="bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-600 p-2 flex gap-2">
+              <div v-if="editor" class="bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-600 p-2 flex gap-2 flex-wrap items-center">
+                <button 
+                  type="button" 
+                  @click="editor.chain().focus().toggleBold().run()"
+                  :class="{ 'bg-gray-200 dark:bg-gray-600': editor.isActive('bold') }"
+                  class="p-1.5 rounded hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+                  title="粗体"
+                >
+                  <span class="font-bold text-gray-700 dark:text-gray-200">B</span>
+                </button>
+                <button 
+                  type="button" 
+                  @click="editor.chain().focus().toggleItalic().run()"
+                  :class="{ 'bg-gray-200 dark:bg-gray-600': editor.isActive('italic') }"
+                  class="p-1.5 rounded hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+                  title="斜体"
+                >
+                  <span class="italic text-gray-700 dark:text-gray-200">I</span>
+                </button>
+                <button 
+                  type="button" 
+                  @click="editor.chain().focus().toggleStrike().run()"
+                  :class="{ 'bg-gray-200 dark:bg-gray-600': editor.isActive('strike') }"
+                  class="p-1.5 rounded hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+                  title="删除线"
+                >
+                  <span class="line-through text-gray-700 dark:text-gray-200">S</span>
+                </button>
+
+                <div class="w-px h-6 bg-gray-300 dark:bg-gray-600 mx-1"></div>
+
+                <!-- 话题按钮 -->
                 <button 
                   type="button" 
                   class="px-3 py-1.5 text-sm font-medium bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 rounded-lg border border-gray-200 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors flex items-center gap-1"
@@ -41,9 +72,51 @@
                 >
                   <span class="text-pink-500 font-bold">#</span> 话题
                 </button>
+
+                <!-- Emoji 按钮 -->
+                <div class="relative">
+                  <button 
+                    type="button" 
+                    class="px-3 py-1.5 text-sm font-medium bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 rounded-lg border border-gray-200 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors flex items-center gap-1"
+                    @click="showEmojiPicker = !showEmojiPicker"
+                  >
+                    <span>😊</span> 表情
+                  </button>
+                  
+                  <!-- Emoji 选择器 -->
+                  <div v-if="showEmojiPicker" class="absolute top-full left-0 mt-2 z-50 bg-white dark:bg-gray-800 rounded-lg shadow-xl border border-gray-200 dark:border-gray-700 w-80 max-h-80 overflow-y-auto p-4">
+                    <div v-for="(category, index) in emojiConfig" :key="index" class="mb-4">
+                      <h4 class="text-xs text-gray-500 mb-2">{{ category.name }}</h4>
+                      <div class="grid grid-cols-6 gap-2">
+                        <button 
+                          v-for="emoji in category.list" 
+                          :key="emoji.value"
+                          type="button"
+                          class="hover:bg-gray-100 dark:hover:bg-gray-700 p-1 rounded"
+                          @click="insertEmoji(emoji)"
+                        >
+                          <img :src="BASE_IMG + emoji.url" :alt="emoji.label" class="w-6 h-6 object-contain" />
+                        </button>
+                      </div>
+                    </div>
+                    <!-- 关闭遮罩 -->
+                    <div class="fixed inset-0 -z-10" @click="showEmojiPicker = false"></div>
+                  </div>
+                </div>
+
+                <!-- 用户按钮 -->
+                <button 
+                  type="button" 
+                  class="px-3 py-1.5 text-sm font-medium bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 rounded-lg border border-gray-200 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors flex items-center gap-1"
+                  @click="insertUserMentionTrigger"
+                >
+                  <span class="text-blue-500 font-bold">@</span> 用户
+                </button>
+
               </div>
-              <!-- 编辑器容器 -->
-              <div :id="`editor-${editorId}`" class="min-h-[300px] max-h-[400px] overflow-y-auto"></div>
+              
+              <!-- 编辑器内容 -->
+              <editor-content :editor="editor" class="min-h-[300px] max-h-[400px] overflow-y-auto p-4 prose dark:prose-invert max-w-none focus:outline-none" />
             </div>
           </div>
 
@@ -81,6 +154,7 @@
         </form>
       </div>
     </div>
+
     <!-- 话题输入弹窗 -->
     <UModal v-model="showTopicModal">
       <div class="p-6 bg-white dark:bg-gray-800 rounded-lg">
@@ -112,39 +186,27 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, nextTick } from 'vue'
-import Quill from 'quill'
-import 'quill/dist/quill.snow.css'
-
-// 注册自定义话题 Blot
-const Embed = Quill.import('blots/embed') as any
-class TopicBlot extends Embed {
-  static create(value: string) {
-    const node = super.create()
-    node.setAttribute('data-topic', value)
-    node.innerText = `#${value}#`
-    node.setAttribute('contenteditable', 'false')
-    return node
-  }
-
-  static value(node: HTMLElement) {
-    return node.getAttribute('data-topic')
-  }
-}
-TopicBlot.blotName = 'topic'
-TopicBlot.tagName = 'span'
-TopicBlot.className = 'topic-tag'
-Quill.register(TopicBlot)
+import { ref, onMounted, onUnmounted, computed } from 'vue'
+import { useEditor, EditorContent, VueRenderer } from '@tiptap/vue-3'
+import StarterKit from '@tiptap/starter-kit'
+import Placeholder from '@tiptap/extension-placeholder'
+import Image from '@tiptap/extension-image'
+import Mention from '@tiptap/extension-mention'
+import tippy from 'tippy.js'
+import 'tippy.js/dist/tippy.css'
 
 import { insertCommunity, type CommunityInterface } from '@/api/community'
 import { useUserStore } from '@/stores/user'
+import { useConfigStore } from '@/stores/config'
 import type { Community } from '@/types/api'
 import type QhxImagePicker from '@/components/Qhx/ImagePicker.vue'
 import { uploadImageOSS } from '@/utils/ossUpload'
+import { BASE_IMG } from '@/utils/ipConfig'
+import MentionList from './MentionList.vue'
 
 interface Props {
   userId?: number
-  skipSummaryLink?: boolean // 是否跳过添加年终总结链接
+  skipSummaryLink?: boolean
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -159,130 +221,196 @@ const emit = defineEmits<{
 const toast = useToast()
 const router = useRouter()
 const userStore = useUserStore()
-const editorId = ref(`editor-${Date.now()}`)
-const quill = ref<Quill | null>(null)
+const configStore = useConfigStore()
+
 const submitting = ref(false)
 const imagePickerRef = ref<InstanceType<typeof QhxImagePicker> | null>(null)
 const showTopicModal = ref(false)
 const topicInput = ref('')
+const showEmojiPicker = ref(false)
 
 const formData = ref({
   title: '',
   content: ''
 })
 
-// 打开话题弹窗
+// Emoji Config
+const emojiConfig = computed(() => configStore.config?.emoji_config || [])
+
+// Mention Suggestion Logic
+const suggestion = {
+  items: ({ query }: { query: string }) => {
+    // Mock user list - in real app fetch from API
+    const users = ['Lo研社', '管理员', '测试用户', userStore.user?.user_name].filter(Boolean) as string[]
+    return users.filter(item => item.toLowerCase().startsWith(query.toLowerCase())).slice(0, 5)
+  },
+  render: () => {
+    let component: any
+    let popup: any
+
+    return {
+      onStart: (props: any) => {
+        component = new VueRenderer(MentionList, {
+          props,
+          editor: props.editor,
+        })
+
+        if (!props.clientRect) {
+          return
+        }
+
+        popup = tippy('body', {
+          getReferenceClientRect: props.clientRect,
+          appendTo: () => document.body,
+          content: component.element,
+          showOnCreate: true,
+          interactive: true,
+          trigger: 'manual',
+          placement: 'bottom-start',
+        })
+      },
+      onUpdate(props: any) {
+        component.updateProps(props)
+
+        if (!props.clientRect) {
+          return
+        }
+
+        popup[0].setProps({
+          getReferenceClientRect: props.clientRect,
+        })
+      },
+      onKeyDown(props: any) {
+        if (props.event.key === 'Escape') {
+          popup[0].hide()
+          return true
+        }
+        return component.ref?.onKeyDown(props)
+      },
+      onExit() {
+        popup[0].destroy()
+        component.destroy()
+      },
+    }
+  },
+}
+
+// Custom Topic Mention Extension
+const TopicMention = Mention.extend({
+  name: 'topic',
+  addOptions() {
+    return {
+      ...this.parent?.(),
+      HTMLAttributes: {
+        class: 'topic-mention',
+      },
+      renderLabel({ options, node }) {
+        return `#${node.attrs.id || node.attrs.label ?? ''}`
+      },
+    }
+  },
+})
+
+// Initialize Editor
+const editor = useEditor({
+  content: '',
+  extensions: [
+    StarterKit,
+    Placeholder.configure({
+      placeholder: '请输入内容...',
+    }),
+    Image.configure({
+      inline: true,
+      allowBase64: true,
+    }),
+    // User Mention (@)
+    Mention.configure({
+      HTMLAttributes: {
+        class: 'mention',
+      },
+      suggestion,
+    }),
+    // Topic Mention (#)
+    TopicMention.configure({
+      suggestion: {
+        char: '#',
+        // Mock topic suggestions or empty to allow creating new ones via typing
+        items: ({ query }: { query: string }) => {
+            return ['日常', '提问', '晒图'].filter(item => item.toLowerCase().startsWith(query.toLowerCase())).slice(0, 5)
+        },
+        render: suggestion.render // Reuse same renderer
+      }
+    }),
+  ],
+  onUpdate: ({ editor }) => {
+    formData.value.content = editor.getHTML()
+  },
+})
+
+// Topic Modal Logic
 const openTopicModal = () => {
   topicInput.value = ''
   showTopicModal.value = true
 }
 
-// 确认插入话题
 const confirmInsertTopic = () => {
   const value = topicInput.value.trim()
-  if (!value || !quill.value) return
+  if (!value || !editor.value) return
 
-  try {
-    // 永远插入到文档末尾（最安全）
-    const length = quill.value.getLength()
-    const index = Math.max(0, length - 1)
-
-    // 插入 topic Blot
-    quill.value.insertEmbed(index, 'topic', value, 'user')
-
-    // 插入空格，方便继续输入
-    quill.value.insertText(index + 1, ' ', 'user')
-
-    // ⚠️ setSelection 也要安全
-    quill.value.setSelection(index + 2, 0, 'silent')
-  } catch (err) {
-    console.error('插入 topic 失败，尝试降级 HTML:', err)
-
-    // 最终兜底（绝不会炸）
-    try {
-      const html = `<span class="topic">#${value}</span>&nbsp;`
-      const length = quill.value.getLength()
-      quill.value.clipboard.dangerouslyPasteHTML(length - 1, html)
-    } catch (e) {
-      console.error('HTML 插入也失败:', e)
+  editor.value.chain().focus().insertContent({
+    type: 'topic',
+    attrs: {
+      id: value,
+      label: value
     }
-  }
+  }).insertContent(' ').run()
 
   showTopicModal.value = false
 }
 
-
-// 初始化编辑器
-const initEditor = async () => {
-  await nextTick()
-  const editorContainer = document.getElementById(`editor-${editorId.value}`)
-  const toolbarContainer = document.getElementById(`toolbar-${editorId.value}`)
-  
-  if (!editorContainer || !toolbarContainer) return
-
-  quill.value = new Quill(editorContainer, {
-    modules: {
-      toolbar: toolbarContainer
-    },
-    placeholder: '请输入内容...',
-    theme: 'snow'
-  })
-
-  // 监听内容变化
-  quill.value.on('text-change', () => {
-    if (quill.value) {
-      formData.value.content = quill.value.root.innerHTML
-    }
-  })
-}
-
-// 清理编辑器
-const destroyEditor = () => {
-  if (quill.value) {
-    const editorContainer = document.getElementById(`editor-${editorId.value}`)
-    const toolbarContainer = document.getElementById(`toolbar-${editorId.value}`)
-    if (editorContainer) {
-      editorContainer.innerHTML = ''
-    }
-    if (toolbarContainer) {
-      toolbarContainer.innerHTML = ''
-    }
-    quill.value = null
+// Emoji Logic
+const insertEmoji = (emoji: { url: string, label: string }) => {
+  if (editor.value) {
+    editor.value.chain().focus().setImage({ 
+      src: BASE_IMG + emoji.url, 
+      alt: emoji.label,
+      title: emoji.label // Use title to store extra info if needed, or stick to alt
+    }).run()
+    showEmojiPicker.value = false
   }
 }
 
-// 图片上传处理函数
+// User Mention Trigger
+const insertUserMentionTrigger = () => {
+  editor.value?.chain().focus().insertContent('@').run()
+}
+
+// Upload & Submit Logic (Similar to before)
 const fetchUpload = async (file: { file?: File; url: string }): Promise<string> => {
   try {
     const res = await uploadImageOSS(file)
-    const url = res
-    return url
+    return res
   } catch (error) {
     console.error('图片上传失败:', error)
     throw error
   }
 }
 
-// 处理图片文件更新
 const onUpdateFiles = (files: File[]) => {
-  // 检查是否超过最大数量限制
   if (imagePickerRef.value && imagePickerRef.value.previewImages.length > 9) {
     toast.add({
       title: '最多只能上传9张图片',
       icon: 'i-heroicons-exclamation-circle',
       color: 'orange'
     })
-    // 移除超出限制的图片
     imagePickerRef.value.previewImages = imagePickerRef.value.previewImages.slice(0, 9)
   }
 }
 
-// 取消操作
 const handleCancel = () => {
   router.back()
 }
 
-// 提交表单
 const handleSubmit = async () => {
   if (!formData.value.title.trim()) {
     toast.add({
@@ -293,54 +421,18 @@ const handleSubmit = async () => {
     return
   }
 
-  if (!quill.value) {
-    toast.add({
-      title: '编辑器未初始化',
-      icon: 'i-heroicons-exclamation-circle',
-      color: 'red'
-    })
-    return
-  }
-
-  // 安全地获取编辑器内容
-  let content = ''
-  try {
-    const editorContainer = document.getElementById(`editor-${editorId.value}`)
-    if (!editorContainer || !quill.value.root) {
-      toast.add({
-        title: '编辑器DOM元素不存在',
-        icon: 'i-heroicons-exclamation-circle',
-        color: 'red'
-      })
-      return
-    }
-    content = quill.value.root.innerHTML
-  } catch (error) {
-    console.error('获取编辑器内容失败:', error)
-    toast.add({
-      title: '获取编辑器内容失败',
-      description: '请刷新页面后重试',
-      icon: 'i-heroicons-exclamation-circle',
-      color: 'red'
-    })
-    submitting.value = false
-    return
-  }
-
-  if (!content || content.trim() === '<p><br></p>') {
+  if (!editor.value || editor.value.isEmpty) {
     toast.add({
       title: '请输入内容',
       icon: 'i-heroicons-exclamation-circle',
       color: 'orange'
     })
-    submitting.value = false
     return
   }
 
   submitting.value = true
 
   try {
-    // 获取当前用户ID
     const currentUserId = props.userId || userStore.user?.user_id
     if (!currentUserId) {
       toast.add({
@@ -352,21 +444,18 @@ const handleSubmit = async () => {
       return
     }
 
-    // 在内容头部拼接链接（如果不需要跳过）
-    let finalContent = content
+    let finalContent = editor.value.getHTML()
     if (!props.skipSummaryLink) {
       const summaryLink = `<a href="lolitalibrary.com/yearlySummary?user_id=${currentUserId}">#2025年终总结</a>`
-      finalContent = `${summaryLink}<br><br>${content}`
+      finalContent = `${summaryLink}<br><br>${finalContent}`
     }
 
-    // 处理图片上传
     let imgList: string[] = []
     if (imagePickerRef.value && imagePickerRef.value.previewImages.length > 0) {
       try {
         const uploadPromises = imagePickerRef.value.previewImages.map(img => fetchUpload(img))
         imgList = await Promise.all(uploadPromises)
       } catch (error) {
-        console.error('图片上传失败:', error)
         toast.add({
           title: '图片上传失败',
           description: '请检查图片后重试',
@@ -378,11 +467,10 @@ const handleSubmit = async () => {
       }
     }
 
-    // 调用API发帖
     const params: CommunityInterface = {
       title: formData.value.title,
       content: finalContent,
-      type: '日常交流', // 根据实际需求设置类型
+      type: '日常交流',
       img_list: imgList.length > 0 ? imgList.join() : null
     }
 
@@ -395,81 +483,67 @@ const handleSubmit = async () => {
     })
 
     emit('success', community)
-    
-    // 发布成功后跳转到社区页面
     router.push('/community')
-  } catch (error: unknown) {
+  } catch (error: any) {
     console.error('发布失败:', error)
-    // 安全地提取错误信息，避免访问可能为 null 的对象
-    let errorMessage = '请稍后重试'
-    try {
-      if (error instanceof Error) {
-        errorMessage = error.message || '请稍后重试'
-      } else if (typeof error === 'object' && error !== null) {
-        const err = error as Record<string, unknown>
-        if (err.message && typeof err.message === 'string') {
-          errorMessage = err.message
-        }
-      }
-    } catch (e) {
-      // 如果提取错误信息时出错，使用默认消息
-      console.error('提取错误信息失败:', e)
-    }
     toast.add({
       title: '发布失败',
-      description: errorMessage,
+      description: error.message || '请稍后重试',
       icon: 'i-heroicons-x-circle',
       color: 'red'
     })
   } finally {
-    // 确保 submitting 状态被重置，但不访问可能已销毁的 Quill 实例
     submitting.value = false
   }
 }
 
 onMounted(() => {
-  initEditor()
+  configStore.getConfig() // Ensure config is loaded for emojis
 })
 
 onUnmounted(() => {
-  destroyEditor()
+  editor.value?.destroy()
 })
 </script>
 
 <style scoped>
-/* Quill 编辑器样式调整 */
-:deep(.ql-container) {
-  font-size: 14px;
-  font-family: inherit;
-}
-
-:deep(.ql-editor) {
+/* Editor Styles */
+:deep(.ProseMirror) {
   min-height: 300px;
-  max-height: 400px;
+  outline: none;
 }
 
-:deep(.ql-toolbar) {
-  border-top-left-radius: 1rem;
-  border-top-right-radius: 1rem;
-}
-
-:deep(.ql-container) {
-  border-bottom-left-radius: 1rem;
-  border-bottom-right-radius: 1rem;
-}
-
-:deep(.ql-editor.ql-blank::before) {
+:deep(.ProseMirror p.is-editor-empty:first-child::before) {
+  content: attr(data-placeholder);
+  float: left;
   color: #9ca3af;
-  font-style: normal;
+  pointer-events: none;
+  height: 0;
 }
 
-:deep(.topic-tag) {
-  color: #ec4899;
-  font-weight: bold;
-  margin: 0 4px;
-  cursor: pointer;
-  user-select: all;
+:deep(.mention) {
+  color: #3b82f6; /* blue-500 */
+  background-color: rgba(59, 130, 246, 0.1);
+  border-radius: 0.25rem;
+  padding: 0.125rem 0.25rem;
+  font-weight: 500;
+}
+
+:deep(.topic-mention) {
+  color: #ec4899; /* pink-500 */
+  background-color: rgba(236, 72, 153, 0.1);
+  border-radius: 0.25rem;
+  padding: 0.125rem 0.25rem;
+  font-weight: 700;
+}
+
+:deep(img.ProseMirror-selectednode) {
+  outline: 2px solid #ec4899;
+}
+
+:deep(img) {
   display: inline-block;
+  vertical-align: bottom; /* Adjust alignment for emojis */
+  margin: 0 2px;
 }
 </style>
-
