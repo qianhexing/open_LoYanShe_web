@@ -278,6 +278,53 @@ const showEffect = () => {
 	}
 }
 
+const showSettings = ref(false)
+const settingsState = reactive({
+	shadowsEnabled: true,
+	shadowQuality: 'high'
+})
+const shadowQualityOptions = [
+	{ label: '低', value: 'low' },
+	{ label: '中', value: 'medium' },
+	{ label: '高', value: 'high' },
+	{ label: '超高', value: 'ultra' }
+]
+
+const openSettings = (e: MouseEvent) => {
+	clickPosition.value = {
+		x: e.clientX + 50, 
+		y: e.clientY
+	}
+	
+	if (threeCore && threeCore.renderer) {
+		settingsState.shadowsEnabled = threeCore.renderer.shadowMap.enabled
+	}
+	showSettings.value = true
+}
+
+const toggleShadows = (val: boolean) => {
+	if (threeCore && threeCore.renderer) {
+		threeCore.renderer.shadowMap.enabled = val
+		threeCore.scene.traverse((child) => {
+			if ((child as any).isMesh && (child as any).material) {
+				const mesh = child as THREE.Mesh
+				if (Array.isArray(mesh.material)) {
+					// biome-ignore lint/complexity/noForEach: <explanation>
+					mesh.material.forEach(m => { m.needsUpdate = true })
+				} else {
+					mesh.material.needsUpdate = true
+				}
+			}
+		})
+	}
+}
+
+const changeShadowQuality = (val: any) => {
+	if (threeCore) {
+		threeCore.setShadowQuality(val)
+	}
+}
+
 const closeRightPanel = () => {
 	showRightPanel.value = false
 	rightPanelType.value = null
@@ -836,6 +883,18 @@ useHead({
 						</div>
 						<span class="text-[9px] text-gray-700 dark:text-gray-200 font-medium leading-tight">特效</span>
 					</button>
+
+					<!-- 设置 -->
+					<button
+						@click="openSettings"
+						class="w-full flex flex-col items-center gap-1 p-1.5 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors group active:scale-95"
+						title="设置"
+					>
+						<div class="w-7 h-7 bg-gray-500 dark:bg-gray-600 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform">
+							<UIcon name="material-symbols:settings-outline" class="text-sm text-white" />
+						</div>
+						<span class="text-[9px] text-gray-700 dark:text-gray-200 font-medium leading-tight">设置</span>
+					</button>
 				</div>
 			</div>
 		</div>
@@ -979,6 +1038,29 @@ useHead({
 					@click="editDiary()">
 					保存修改
 				</UButton>
+			</div>
+		</QhxModal>
+		<QhxModal v-model="showSettings" :trigger-position="clickPosition">
+			<div class="p-6 w-[300px] bg-white dark:bg-gray-800 rounded-[10px] shadow-lg">
+				<h3 class="text-base font-bold mb-4 text-gray-800 dark:text-gray-200">场景设置</h3>
+				
+				<!-- 阴影开关 -->
+				<div class="flex items-center justify-between mb-4">
+					<span class="text-sm text-gray-700 dark:text-gray-300">开启阴影</span>
+					<UToggle v-model="settingsState.shadowsEnabled" @update:model-value="toggleShadows" color="primary" />
+				</div>
+				
+				<!-- 阴影质量 -->
+				<div class="mb-2">
+					<div class="text-sm text-gray-700 dark:text-gray-300 mb-2">阴影质量</div>
+					<USelect 
+						v-model="settingsState.shadowQuality" 
+						:options="shadowQualityOptions"
+						option-attribute="label"
+						@update:model-value="changeShadowQuality"
+						color="white"
+					/>
+				</div>
 			</div>
 		</QhxModal>
 	</div>
