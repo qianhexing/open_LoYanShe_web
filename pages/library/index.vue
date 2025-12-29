@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { Library, PaginationResponse, FilterList, Wiki } from '@/types/api';
+import type { Library, PaginationResponse, FilterList, Wiki, Shop } from '@/types/api';
 import useScrollBottom from '@/composables/useScrollBottom'
 import { getLibraryList } from '@/api/library';
 import { getWikiOptionsByKeywords } from '@/api/wiki';
@@ -180,19 +180,33 @@ const initOptions = async () => {
 }
 
 // 店铺搜索
-const searchShop = async (query: string) => {
-  if (!query) {
-    options.shop_name = []
-    return
-  }
+const fetchShopOptiosns = async (keywords: string) => {
+  console.log(keywords, 'keywords')
   try {
-    const res = await getShopOptiosns({ shop_name: query })
-    options.shop_name = res.map(item => ({
-      label: item.shop_name,
-      value: item.shop_name
-    }))
+    const response = await getShopOptiosns({ shop_name: keywords || '' })
+    let data: Shop[] = []
+    if (response.length > 20) {
+      data = response.slice(0, 19)
+    } else {
+      data = response
+    }
+    return data
   } catch (error) {
     console.error('搜索店铺失败:', error)
+    return []
+  }
+}
+
+// 处理店铺选择
+const handleShopSelect = (selected: Shop | null) => {
+  if (selected?.shop_name) {
+    const exists = filterForm.shop_name.find(item => item.value === selected.shop_name)
+    if (!exists) {
+      filterForm.shop_name.push({
+        label: selected.shop_name,
+        value: selected.shop_name
+      })
+    }
   }
 }
 
@@ -885,13 +899,14 @@ onMounted(async () => {
         <span class="text-sm font-medium min-w-[80px] pt-2">店名检索：</span>
         <div class="flex-1">
           <USelectMenu
-            :options="options.shop_name"
             placeholder="搜索店铺..."
-            searchable
-            :searchable-placeholder="'搜索店铺...'"
-            @search="searchShop"
-            option-attribute="label"
-            value-attribute="value"
+            :searchable="fetchShopOptiosns"
+            option-attribute="shop_name"
+            :multiple="false"
+            trailing
+            by="shop_id"
+            name="shop_name"
+            @update:model-value="handleShopSelect"
             class="mb-2"
             :ui="{
               base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',

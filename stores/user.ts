@@ -29,13 +29,14 @@ export const useUserStore = defineStore('auth', {
           this.setUserInfo({
             user_id: response.data.userId,
             user_name: response.data.userName,
-            user_face: response.data.userFace
+            user_face: response.data.userFace,
+            permission_list: response.data.permission_list
           })
         } else {
           this.user = null
         }
         this.permission = response.permission
-        window.location.reload()
+        // window.location.reload()
         return Promise.resolve(response)
       } catch (error) {
         // this.clearToken()
@@ -150,6 +151,12 @@ export const useUserStore = defineStore('auth', {
       if (this.token) {
         // this.fetchUser()
       }
+    },
+    
+    // 检查权限
+    hasPermi(permission: string): boolean {
+      if (!this.user || !this.user.permission_list || this.user.permission_list.length === 0) return false
+      return this.user?.permission_list.some(p => p === permission)
     }
   }
 })

@@ -182,33 +182,34 @@ export interface Library {
   library_pattern?: string;
   sale_time?: string;
   color?: string;
-  pattern_elements?: string;
-  design_elements?: string;
-  fabric_composition?: string; // Comma-separated string
-  cloth_elements?: string;
-  secondary_cloth?: string;
-  notes?: string;
+  pattern_elements?: string | null;
+  design_elements?: string | null;
+  fabric_composition?: string | null; // Comma-separated string
+  cloth_elements?: string | null;
+  secondary_cloth?: string | null;
+  notes?: string | null;
   size_image?: string; // Comma-separated image paths
-  size?: string;
+  size?: string | null;
   good_count?: number
   collect_count?: number
   wardrobe_count?: number
   is_good?: number
   library_price?: number
   shop_country?: number
-  quality_test?: string;
+  quality_test?: string | null  | null;
   parent?: Library;
   style_list?: Wiki[];
-  start_time?: string;
-  end_time?: string;
+  start_time?: string | null;
+  end_time?: string | null;
   arrears_start?: string;
-  arrears_end?: string;
-  season?: string
-  link?: string;
+  arrears_end?: string | null;
+  season?: string | null;
+  link?: string | null;
   parent_id?: number;
-  detail_image?: string;
+  detail_image?: string | null;
   is_collect?: number;
   is_wardrobe?: number;
+  examin?: number;
 }
 /** 衣柜 */
 export interface Wardrobe {
@@ -380,6 +381,7 @@ export interface User {
   user_face?: string
   user_name?: string
   avatar?: Avatar
+  permission_list?: string[]
 }
 export interface Avatar {
   frame_id: number,

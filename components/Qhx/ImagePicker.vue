@@ -1,7 +1,7 @@
 <template>
   <div class="space-y-4">
     <!-- 上传按钮 -->
-    <UButton size="xs" class="bg-qhx-primary text-qhx-inverted hover:bg-qhx-primaryHover mt-2" icon="i-heroicons-photo" @click="triggerInput" color="primary">
+    <UButton v-if="!props.disabled" size="xs" class="bg-qhx-primary text-qhx-inverted hover:bg-qhx-primaryHover mt-2" icon="i-heroicons-photo" @click="triggerInput" color="primary">
       选择图片
     </UButton>
 
@@ -16,6 +16,7 @@
 
     <!-- 拖拽上传区 -->
     <div
+      v-if="!props.disabled"
       class="w-full border-2 border-dashed border-gray-300 p-4 text-center rounded-lg"
       @dragover.prevent
       @drop.prevent="handleDrop"
@@ -43,13 +44,14 @@
           @click="removeImage(index)"
         />
       </div> -->
-      <Draggable :disabled="!props.multiple" v-model="previewImages" item-key="id" animation="250" ghost-class="drag-ghost"
+      <Draggable :disabled="!props.multiple || props.disabled" v-model="previewImages" item-key="id" animation="250" ghost-class="drag-ghost"
           chosen-class="drag-chosen" drag-class="dragging"
           class="grid grid-cols-3 gap-4">
           <template #item="{ element, index }">
             <div class="relative group">
               <img :src="element.url" alt="预览图" class="w-full aspect-square object-cover rounded" />
               <UButton
+                v-if="!props.disabled"
                 icon="i-heroicons-x-mark"
                 color="red"
                 size="2xs"
@@ -71,6 +73,7 @@ const emit = defineEmits<(e: 'update:files', value: File[]) => void>()
 const props = defineProps<{
   multiple?: boolean
   max?: number  // 最大图片数量
+  disabled?: boolean  // 是否禁用
 }>()
 
 const fileInput = ref<HTMLInputElement | null>(null)
@@ -81,7 +84,9 @@ let idCounter = 0
 const generateId = () => `img_${Date.now()}_${++idCounter}`
 
 const triggerInput = () => {
-  fileInput.value?.click()
+  if (!props.disabled) {
+    fileInput.value?.click()
+  }
 }
 
 function handleFiles(event: Event) {
@@ -93,12 +98,13 @@ function handleFiles(event: Event) {
 }
 
 function handleDrop(event: DragEvent) {
-  if (event.dataTransfer?.files) {
+  if (!props.disabled && event.dataTransfer?.files) {
     addFiles(Array.from(event.dataTransfer.files))
   }
 }
 
 const addFiles = (newFiles: File[]) => {
+  if (props.disabled) return
   const imageFiles = newFiles.filter((f) => f.type.startsWith('image/'))
   const newPreviews = imageFiles.map((file) => ({
     id: generateId(),
@@ -127,6 +133,7 @@ const addFiles = (newFiles: File[]) => {
 }
 
 const removeImage = (index: number) => {
+  if (props.disabled) return
   URL.revokeObjectURL(previewImages.value[index].url)
   previewImages.value.splice(index, 1)
   files.value.splice(index, 1)
