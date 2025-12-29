@@ -145,21 +145,36 @@ const insertTopicLink = () => {
   const topicUrl = '/community/detail/5092'
 
   try {
-    // 获取当前光标位置或文档末尾
-    const selection = quill.value.getSelection()
-    const length = quill.value.getLength()
-    // 如果没有选区，默认插入到文档末尾（减1是因为最后有一个换行符）
-    const index = selection ? selection.index : Math.max(0, length - 1)
+    // 先聚焦编辑器
+    quill.value.root.focus()
+    
+    // 尝试获取选区，如果获取失败（null），则默认插入到文档末尾
+    let index = 0
+    try {
+      // 强制获取选区
+      const selection = quill.value.getSelection(true)
+      const length = quill.value.getLength()
+      index = selection ? selection.index : Math.max(0, length - 1)
+    } catch (e) {
+      console.warn('获取选区失败，将插入到末尾', e)
+      index = Math.max(0, quill.value.getLength() - 1)
+    }
 
-    // 使用 BlockEmbed 插入话题链接
+    // 使用 Embed 插入话题链接
     quill.value.insertEmbed(index, 'editorTopic', {
       title: topicText.replace('#', '').trim(),
       url: topicUrl
     })
 
+    // 在话题后插入一个空格，方便用户继续输入
+    quill.value.insertText(index + 1, ' ')
+
     // 把光标移动到插入内容后
-    // 话题是一个 Embed 元素，长度为 1
-    quill.value.setSelection(index + 1, 0)
+    nextTick(() => {
+      if (quill.value) {
+        quill.value.setSelection(index + 2, 0)
+      }
+    })
   } catch (err) {
     console.error('插入话题失败:', err)
   }
@@ -178,11 +193,11 @@ const initEditor = async () => {
   
   if (!editorContainer || !toolbarContainer) return
 
-  // 注册话题链接 BlockEmbed
+  // 注册话题链接 Embed
   // @ts-ignore - Quill 类型定义不完善
-  const BlockEmbed = Quill.import('blots/embed')
+  const Embed = Quill.import('blots/embed')
   // @ts-ignore - Quill 类型定义不完善
-  class editorTopic extends BlockEmbed {
+  class editorTopic extends Embed {
     static create(value: { title: string; url: string } | string) {
       // eslint-disable-next-line @typescript-eslint/no-unsafe-call
       const node = super.create()
@@ -192,12 +207,11 @@ const initEditor = async () => {
       // 存储数据到 dataset
       node.setAttribute('data-title', data.title || '')
       node.setAttribute('data-url', data.url || '')
+      node.setAttribute('contenteditable', 'false')
 
-      const section = document.createElement('span')
-      section.setAttribute('style', 'color: #ffaa7f;')
-      // 添加 pointer-events: none 防止在编辑器内点击跳转
-      section.innerHTML = `<a href="${data.url}" style="pointer-events: none; text-decoration: none; color: inherit;">#${data.title}</a>`
-      node.appendChild(section)
+      // 直接设置内容，避免深层嵌套
+      node.innerHTML = `#${data.title}`
+      
       return node
     }
     // 返回节点自身的value值 用于撤销操作
@@ -318,8 +332,24 @@ const handleSubmit = async () => {
       return
     }
     content = quill.value.root.innerHTML
-    // 清理 pointer-events: none，防止影响展示页
-    content = content.replace(/pointer-events:\s*none;?/gi, '')
+    
+    // 处理话题链接：将编辑器中的 span 转换为标准的 a 标签
+    const tempDiv = document.createElement('div')
+    tempDiv.innerHTML = content
+    const topics = tempDiv.querySelectorAll('.ql-topic-link-embed')
+    topics.forEach(topic => {
+      const url = topic.getAttribute('data-url') || ''
+      const title = topic.getAttribute('data-title') || topic.textContent?.replace('#', '') || ''
+      
+      const link = document.createElement('a')
+      link.href = url
+      link.textContent = `#${title}`
+      link.style.color = '#ec4899'
+      link.style.textDecoration = 'none'
+      
+      topic.replaceWith(link)
+    })
+    content = tempDiv.innerHTML
   } catch (error) {
     console.error('获取编辑器内容失败:', error)
     toast.add({
