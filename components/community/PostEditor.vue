@@ -179,21 +179,38 @@ const openTopicModal = () => {
 
 // 确认插入话题
 const confirmInsertTopic = () => {
-  if (!topicInput.value.trim()) return
+  const value = topicInput.value.trim()
+  if (!value || !quill.value) return
 
-  if (quill.value) {
-    const range = quill.value.getSelection(true)
-    const index = range ? range.index : quill.value.getLength()
-    
-    // 插入话题 Blot
-    quill.value.insertEmbed(index, 'topic', topicInput.value)
-    // 插入后加一个空格，方便继续输入
-    quill.value.insertText(index + 1, ' ')
-    // 移动光标到最后
-    quill.value.setSelection(index + 2)
+  try {
+    // 永远插入到文档末尾（最安全）
+    const length = quill.value.getLength()
+    const index = Math.max(0, length - 1)
+
+    // 插入 topic Blot
+    quill.value.insertEmbed(index, 'topic', value, 'user')
+
+    // 插入空格，方便继续输入
+    quill.value.insertText(index + 1, ' ', 'user')
+
+    // ⚠️ setSelection 也要安全
+    quill.value.setSelection(index + 2, 0, 'silent')
+  } catch (err) {
+    console.error('插入 topic 失败，尝试降级 HTML:', err)
+
+    // 最终兜底（绝不会炸）
+    try {
+      const html = `<span class="topic">#${value}</span>&nbsp;`
+      const length = quill.value.getLength()
+      quill.value.clipboard.dangerouslyPasteHTML(length - 1, html)
+    } catch (e) {
+      console.error('HTML 插入也失败:', e)
+    }
   }
+
   showTopicModal.value = false
 }
+
 
 // 初始化编辑器
 const initEditor = async () => {
