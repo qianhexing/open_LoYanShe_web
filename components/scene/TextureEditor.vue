@@ -93,23 +93,74 @@ function draw() {
 function setupTexture() {
   if (!props.target || !canvas.value) return
   ctx = canvas.value.getContext('2d')
+  if (!ctx) return
+  
+  // 如果纹理已存在，先释放
+  if (texture) {
+    texture.dispose()
+  }
+  
   texture = new THREE.CanvasTexture(canvas.value)
+  texture.colorSpace = THREE.SRGBColorSpace
   texture.wrapS = THREE.ClampToEdgeWrapping
   texture.wrapT = THREE.ClampToEdgeWrapping
   texture.needsUpdate = true
   texture.flipY = false
-  const mat = (props.target as THREE.Mesh).material as THREE.MeshStandardMaterial
-  mat.map = texture
-  mat.transparent = true
-  mat.needsUpdate = true
+  
+  const targetMesh = props.target as THREE.Mesh
+  // 确保材质是单一材质且支持 map
+  if (targetMesh.material) {
+    const mat = targetMesh.material as THREE.MeshStandardMaterial
+    mat.map = texture
+    mat.transparent = true
+    // mat.alphaTest = 0.5 // 可选：如果需要硬裁剪
+    mat.needsUpdate = true
+  }
 
   draw()
 }
 
-onMounted(() => {
+onMounted(async () => {
   if (!canvas.value) return
-  canvas.value.width = 512
-  canvas.value.height = 512
+  
+  // 1. 优先加载 Mask 并适配 Canvas 尺寸
+  if (props.maskUrl) {
+    await new Promise((resolve) => {
+      mask.src = props.maskUrl
+      mask.crossOrigin = 'Anonymous'
+      mask.onload = () => {
+        if (canvas.value) {
+          // 适配 Mask 比例，最大边长 1024
+          const maxDim = 1024
+          const aspect = mask.width / mask.height
+          if (aspect >= 1) {
+            canvas.value.width = maxDim
+            canvas.value.height = maxDim / aspect
+          } else {
+            canvas.value.height = maxDim
+            canvas.value.width = maxDim * aspect
+          }
+        }
+        resolve(true)
+      }
+      mask.onerror = () => {
+        console.error('Mask load failed')
+        if (canvas.value) {
+          canvas.value.width = 512
+          canvas.value.height = 512
+        }
+        resolve(false)
+      }
+    })
+  } else {
+    canvas.value.width = 512
+    canvas.value.height = 512
+  }
+
+  // 2. 初始化 Texture
+  setupTexture()
+
+  // 3. 加载图片数据
   if (props.target) {
     const parent = findTopmostParent(props.target)
     console.log(parent)
@@ -121,17 +172,11 @@ onMounted(() => {
       scale = options.scale
       rotation= options.rotation
       image.src = BASE_IMG + options.url
-      image.onload = draw
-      
     } else {
       image.src = props.imageUrl
-      image.onload = draw
     }
-  }
-  
-  if (props.maskUrl) {
-    mask.src = props.maskUrl
-    mask.onload = draw
+    image.crossOrigin = 'Anonymous'
+    image.onload = draw
   }
 
   // 鼠标拖动
@@ -152,6 +197,7 @@ onMounted(() => {
 
   // 触摸缩放 + 旋转
   canvas.value.addEventListener('touchstart', e => {
+    e.preventDefault() // 防止页面滚动
     if (e.touches.length === 2) {
       const dx = e.touches[1].clientX - e.touches[0].clientX
       const dy = e.touches[1].clientY - e.touches[0].clientY
@@ -164,6 +210,7 @@ onMounted(() => {
   })
 
   canvas.value.addEventListener('touchmove', e => {
+    e.preventDefault()
     if (e.touches.length === 1) {
       const dx = e.touches[0].clientX - lastX
       const dy = e.touches[0].clientY - lastY
@@ -222,6 +269,8 @@ const saveData = () => {
   }
   parent.userData.material[props.target.name] = params
   console.log(params, '参数', parent)
+  // 保存后关闭
+  closeModel()
 }
 const onUpdateFiles = (file: File[]) => {
   console.log('选择的文件', file)
@@ -230,7 +279,11 @@ const onUpdateFiles = (file: File[]) => {
       console.log('上传返回', res)
       image.src = BASE_IMG + res.file_url
       image.onload = () => {
-        setupTexture()
+        // 重置变换参数，让新图片居中显示
+        offsetX = 0
+        offsetY = 0
+        scale = 1
+        rotation = 0
         draw()
       }
       if (imagePicker.value) {
@@ -245,48 +298,106 @@ defineExpose({
 
 <template>
   <QhxImagePicker :multiple="true" @update:files="onUpdateFiles" class="hidden" ref="imagePicker" />
-  <div class="w-full fixed transition-all duration-300 bottom-0 left-0 z-30 h-[500px] md:h-full md:w-[500px]  bg-qhx-bg"
-    :class="show ? '' : 'bottom-[-500px] md:bottom-[0px] md:left-[-500px]'">
-    <div class="fun-head h-[60px] border-b flex">
-      <div class="flex flex-1">
-        <QhxJellyButton>
-          <div class="h-[60px] text-center px-1  cursor-pointer">
-            <div
-              class=" m-[5px] text-white rounded-[50%] h-[30px] w-[30px] bg-qhx-primary flex items-center justify-center"
-              @click="saveData()">
-              <UIcon name="ant-design:file-filled" class="text-[22px] text-[#ffffff]" />
-            </div>
-            <div  class=" text-sm">保存</div>
-          </div>
-        </QhxJellyButton>
-        <QhxJellyButton>
-          <div class="h-[60px] text-center px-1  cursor-pointer">
-            <div
-              class=" m-[5px] text-white rounded-[50%] h-[30px] w-[30px] bg-qhx-primary flex items-center justify-center"
-              @click="addImage()">
-              <UIcon name="ant-design:picture-filled" class="text-[22px] text-[#ffffff]" />
-            </div>
-            <div  class=" text-sm">选择图片</div>
-          </div>
-        </QhxJellyButton>
-      </div>
-      <QhxJellyButton>
-        <div class=" m-[5px] text-white rounded-[50%] h-[30px] w-[30px] bg-qhx-primary flex items-center justify-center cursor-pointer"
-          @click="closeModel()">
-          <UIcon name="ant-design:close-outlined" class="text-[22px] text-[#ffffff]" />
-        </div>
-      </QhxJellyButton>
+  
+  <!-- 遮罩层 -->
+  <transition name="fade">
+    <div v-if="show" class="fixed inset-0 bg-black/50 z-20" @click="closeModel"></div>
+  </transition>
+
+  <!-- 编辑面板 -->
+  <div 
+    class="w-full fixed transition-all duration-300 bottom-0 left-0 z-30 bg-white dark:bg-gray-800 rounded-t-2xl shadow-xl flex flex-col max-h-[90vh]"
+    :class="show ? 'translate-y-0' : 'translate-y-full'"
+  >
+    <!-- 头部：标题和关闭 -->
+    <div class="h-12 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between px-4 shrink-0">
+      <h3 class="font-bold text-gray-700 dark:text-gray-200">编辑贴图</h3>
+      <button 
+        class="w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500"
+        @click="closeModel"
+      >
+        <UIcon name="ant-design:close-outlined" class="text-lg" />
+      </button>
     </div>
-    <div class="w-full flex justify-center">
-      <canvas ref="canvas" class="border rounded-lg touch-none"></canvas>
+
+    <!-- 画布区域 -->
+    <div class="flex-1 overflow-hidden relative bg-gray-100 dark:bg-gray-900 flex items-center justify-center p-4">
+      <div class="relative shadow-lg canvas-wrapper">
+        <canvas ref="canvas" class="block touch-none checkerboard-bg rounded"></canvas>
+      </div>
+    </div>
+
+    <!-- 底部工具栏 -->
+    <div class="h-16 border-t border-gray-200 dark:border-gray-700 flex items-center justify-center gap-4 shrink-0 bg-white/95 dark:bg-gray-800/95 backdrop-blur safe-area-bottom">
+      <button
+        class="flex flex-col items-center gap-1 p-2 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors min-w-[64px]"
+        @click="addImage()"
+      >
+        <div class="w-8 h-8 rounded-full bg-blue-100 dark:bg-blue-900/50 flex items-center justify-center text-blue-600 dark:text-blue-400">
+          <UIcon name="ant-design:picture-filled" class="text-lg" />
+        </div>
+        <span class="text-xs text-gray-600 dark:text-gray-300">换图</span>
+      </button>
+
+      <button
+        class="flex flex-col items-center gap-1 p-2 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors min-w-[64px]"
+        @click="saveData()"
+      >
+        <div class="w-8 h-8 rounded-full bg-primary-100 dark:bg-primary-900/50 flex items-center justify-center text-primary-600 dark:text-primary-400">
+          <UIcon name="ant-design:save-filled" class="text-lg" />
+        </div>
+        <span class="text-xs text-gray-600 dark:text-gray-300">保存</span>
+      </button>
     </div>
   </div>
 </template>
 
 <style scoped>
+.checkerboard-bg {
+  background-image: 
+    linear-gradient(45deg, #e5e7eb 25%, transparent 25%), 
+    linear-gradient(-45deg, #e5e7eb 25%, transparent 25%), 
+    linear-gradient(45deg, transparent 75%, #e5e7eb 75%), 
+    linear-gradient(-45deg, transparent 75%, #e5e7eb 75%);
+  background-size: 20px 20px;
+  background-position: 0 0, 0 10px, 10px -10px, -10px 0px;
+  background-color: white;
+}
+
+/* 深色模式下的棋盘格 */
+:global(.dark) .checkerboard-bg {
+  background-image: 
+    linear-gradient(45deg, #374151 25%, transparent 25%), 
+    linear-gradient(-45deg, #374151 25%, transparent 25%), 
+    linear-gradient(45deg, transparent 75%, #374151 75%), 
+    linear-gradient(-45deg, transparent 75%, #374151 75%);
+  background-color: #1f2937;
+}
+
+.canvas-wrapper {
+  max-width: 100%;
+  max-height: 100%;
+  overflow: hidden;
+}
+
 canvas {
   max-width: 100%;
+  max-height: 60vh; /* 限制画布最大显示高度 */
   height: auto;
-  background: #eee;
+  object-fit: contain;
+}
+
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.3s ease;
+}
+
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+}
+
+.safe-area-bottom {
+  padding-bottom: env(safe-area-inset-bottom);
 }
 </style>
