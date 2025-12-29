@@ -145,36 +145,51 @@ const insertTopicLink = () => {
   const topicUrl = '/community/detail/5092'
 
   try {
-    // 先聚焦编辑器
-    quill.value.root.focus()
+    // 1. 尝试聚焦，但不强制滚动
+    try {
+      quill.value.root.focus({ preventScroll: true })
+    } catch (e) { /* ignore */ }
     
-    // 尝试获取选区，如果获取失败（null），则默认插入到文档末尾
+    // 2. 获取插入位置，使用 false 参数避免强制刷新 DOM 导致报错
     let index = 0
     try {
-      // 强制获取选区
-      const selection = quill.value.getSelection(true)
+      const selection = quill.value.getSelection(false)
       const length = quill.value.getLength()
-      index = selection ? selection.index : Math.max(0, length - 1)
+      
+      if (selection) {
+        index = selection.index
+      } else {
+        // 如果没有选区，默认插入到文档末尾
+        index = Math.max(0, length - 1)
+      }
+      
+      // 额外的边界检查
+      if (index < 0) index = 0
+      if (index > length) index = length
     } catch (e) {
       console.warn('获取选区失败，将插入到末尾', e)
       index = Math.max(0, quill.value.getLength() - 1)
     }
 
-    // 使用 Embed 插入话题链接
+    // 3. 插入内容
+    // 使用 'user' source 标记为用户操作
     quill.value.insertEmbed(index, 'editorTopic', {
       title: topicText.replace('#', '').trim(),
       url: topicUrl
-    })
+    }, 'user')
 
     // 在话题后插入一个空格，方便用户继续输入
-    quill.value.insertText(index + 1, ' ')
+    quill.value.insertText(index + 1, ' ', 'user')
 
-    // 把光标移动到插入内容后
-    nextTick(() => {
+    // 4. 移动光标
+    // 使用 setTimeout 确保 DOM 更新后再移动光标
+    setTimeout(() => {
       if (quill.value) {
+        // 移动到空格之后
         quill.value.setSelection(index + 2, 0)
+        quill.value.root.focus()
       }
-    })
+    }, 10)
   } catch (err) {
     console.error('插入话题失败:', err)
   }
