@@ -456,6 +456,35 @@ class ThreeCore {
 	}
 
 	/**
+	 * 设置主光源位置
+	 * @param azimuth 水平角度 (0-360)
+	 * @param elevation 垂直角度 (0-90)
+	 * @param radius 距离 (默认100)
+	 */
+	setMainLightPosition(azimuth: number, elevation: number, radius = 100) {
+		if (this.lights?.directional) {
+			const theta = (azimuth * Math.PI) / 180
+			const phi = (elevation * Math.PI) / 180
+
+			// 转换为笛卡尔坐标
+			const x = radius * Math.cos(phi) * Math.sin(theta)
+			const y = radius * Math.sin(phi)
+			const z = radius * Math.cos(phi) * Math.cos(theta)
+
+			this.lights.directional.position.set(x, y, z)
+			
+			// 确保光源看向原点
+			this.lights.directional.lookAt(0, 0, 0)
+			
+			// 如果有阴影，可能需要更新 shadow map
+			if (this.lights.directional.shadow.map) {
+				this.lights.directional.shadow.map.dispose()
+				this.lights.directional.shadow.map = null!
+			}
+		}
+	}
+
+	/**
 	 * 切换阴影质量
 	 * @param quality 'low' | 'medium' | 'high' | 'ultra'
 	 */

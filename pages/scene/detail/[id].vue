@@ -305,7 +305,9 @@ const showSettings = ref(false)
 const settingsState = reactive({
 	shadowsEnabled: true,
 	shadowQuality: 'high',
-	fov: 45 // 镜头角度（视野角度）
+	fov: 45, // 镜头角度（视野角度）
+	lightAzimuth: 45, // 光源水平角度
+	lightElevation: 45, // 光源垂直角度
 })
 const shadowQualityOptions = [
 	{ label: '关闭', value: 'off' },
@@ -338,6 +340,15 @@ const openSettings = (e: MouseEvent) => {
 	}
 	
 	showSettings.value = true
+}
+
+const updateLightPosition = () => {
+	if (threeCore) {
+		threeCore.setMainLightPosition(
+			settingsState.lightAzimuth,
+			settingsState.lightElevation
+		)
+	}
 }
 
 const changeShadowQuality = (val: string) => {
@@ -1203,6 +1214,36 @@ useHead({
 						:max="120" 
 						:step="1"
 						@update:model-value="changeFov"
+					/>
+				</div>
+
+				<!-- 光源水平角度 -->
+				<div class="mb-2">
+					<div class="flex justify-between mb-2">
+						<span class="text-sm text-gray-700 dark:text-gray-300">光照方向(水平)</span>
+						<span class="text-xs text-gray-500">{{ Math.round(settingsState.lightAzimuth) }}°</span>
+					</div>
+					<URange 
+						v-model="settingsState.lightAzimuth" 
+						:min="0" 
+						:max="360" 
+						:step="1"
+						@update:model-value="updateLightPosition"
+					/>
+				</div>
+
+				<!-- 光源垂直角度 -->
+				<div class="mb-2">
+					<div class="flex justify-between mb-2">
+						<span class="text-sm text-gray-700 dark:text-gray-300">光照高度(垂直)</span>
+						<span class="text-xs text-gray-500">{{ Math.round(settingsState.lightElevation) }}°</span>
+					</div>
+					<URange 
+						v-model="settingsState.lightElevation" 
+						:min="0" 
+						:max="90" 
+						:step="1"
+						@update:model-value="updateLightPosition"
 					/>
 				</div>
 			</div>
