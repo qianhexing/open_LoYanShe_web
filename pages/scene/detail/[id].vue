@@ -89,8 +89,19 @@ const editDiary = () => {
 	}
 }
 const showTexture = async () => {
-	if (SceneTextureEditorRef.value) {
-		SceneTextureEditorRef.value.showModel()
+	if (!target.value && clickObject.value && clickObject.value.length > 0) {
+		clickObject.value[0].traverse((child) => {
+			if (child.name.includes('replace')) {
+				target.value = child
+			}
+		})
+	}
+	
+	if (target.value) {
+		await nextTick()
+		if (SceneTextureEditorRef.value) {
+			SceneTextureEditorRef.value.showModel()
+		}
 	}
 }
 const copyModel = async () => {
