@@ -1350,7 +1350,7 @@ class ThreeCore {
 	initLights() {
 		// ================ 环境光设置 ================
 		// 基础环境光 - 为了避免完全黑暗的区域
-		const ambientLight = new THREE.AmbientLight(0xffffff, 0.6)
+		const ambientLight = new THREE.AmbientLight(0xffffff, 1.6)
 		this.scene.add(ambientLight)
 
 		// 半球光 - 模拟天空散射和地面反射
@@ -2198,8 +2198,10 @@ class ThreeCore {
 					}
 				}
 			} else if (child instanceof THREE.Mesh) {
-				child.material.map.colorSpace = THREE.SRGBColorSpace
-				console.log('其他模型', child.material.map)
+				if (child.material.map) {
+					child.material.map.colorSpace = THREE.SRGBColorSpace
+					console.log('其他模型', child.material.map)
+				}
 			}
 		})
 		mesh.userData.material = material
