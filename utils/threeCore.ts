@@ -460,33 +460,97 @@ class ThreeCore {
 	 * @param quality 'low' | 'medium' | 'high' | 'ultra'
 	 */
 	setShadowQuality(quality: 'low' | 'medium' | 'high' | 'ultra') {
+		// 定义不同质量等级的配置
 		const qualitySettings = {
-			low: { mapSize: 512, bias: -0.002, normalBias: 0.1 },
-			medium: { mapSize: 1024, bias: -0.001, normalBias: 0.05 },
-			high: { mapSize: 2048, bias: -0.0005, normalBias: 0.02 },
-			ultra: { mapSize: 4096, bias: -0.0001, normalBias: 0.01 }
+			low: { 
+				mapSize: 512, 
+				bias: -0.004, 
+				normalBias: 0.05, 
+				radius: 2, 
+				blurSamples: 4,
+				castShadow: { directional: true, lens: false, spot: false }
+			},
+			medium: { 
+				mapSize: 1024, 
+				bias: -0.002, 
+				normalBias: 0.03, 
+				radius: 3, 
+				blurSamples: 8,
+				castShadow: { directional: true, lens: false, spot: true }
+			},
+			high: { 
+				mapSize: 2048, 
+				bias: -0.0005, 
+				normalBias: 0.02, 
+				radius: 4, 
+				blurSamples: 16,
+				castShadow: { directional: true, lens: true, spot: true }
+			},
+			ultra: { 
+				mapSize: 4096, 
+				bias: -0.0001, 
+				normalBias: 0.01, 
+				radius: 5, 
+				blurSamples: 20,
+				castShadow: { directional: true, lens: true, spot: true }
+			}
 		}
 
 		const settings = qualitySettings[quality]
 		
-		// 更新所有投射阴影的光源
+		// 1. 更新主光源 (DirectionalLight)
 		if (this.lights?.directional) {
-			this.lights.directional.shadow.mapSize.width = settings.mapSize
-			this.lights.directional.shadow.mapSize.height = settings.mapSize
-			this.lights.directional.shadow.bias = settings.bias
-			this.lights.directional.shadow.normalBias = settings.normalBias
+			const light = this.lights.directional
+			light.castShadow = settings.castShadow.directional
+			
+			if (light.castShadow) {
+				light.shadow.mapSize.set(settings.mapSize, settings.mapSize)
+				light.shadow.bias = settings.bias
+				light.shadow.normalBias = settings.normalBias
+				light.shadow.radius = settings.radius
+				light.shadow.blurSamples = settings.blurSamples
+				// 强制更新 shadow map
+				if (light.shadow.map) {
+					light.shadow.map.dispose()
+					light.shadow.map = null!
+				}
+			}
 		}
 
+		// 2. 更新镜头光 (LensLight)
 		if (this.lensLight) {
-			this.lensLight.shadow.mapSize.width = Math.min(settings.mapSize, 2048)
-			this.lensLight.shadow.mapSize.height = Math.min(settings.mapSize, 2048)
-			this.lensLight.shadow.bias = settings.bias
+			const light = this.lensLight
+			light.castShadow = settings.castShadow.lens
+			
+			if (light.castShadow) {
+				const size = Math.min(settings.mapSize, 2048)
+				light.shadow.mapSize.set(size, size)
+				light.shadow.bias = settings.bias
+				light.shadow.radius = settings.radius
+				light.shadow.blurSamples = settings.blurSamples
+				if (light.shadow.map) {
+					light.shadow.map.dispose()
+					light.shadow.map = null!
+				}
+			}
 		}
 
+		// 3. 更新聚光灯 (SpotLight)
 		if (this.lights?.spot) {
-			this.lights.spot.shadow.mapSize.width = Math.min(settings.mapSize, 2048)
-			this.lights.spot.shadow.mapSize.height = Math.min(settings.mapSize, 2048)
-			this.lights.spot.shadow.bias = settings.bias
+			const light = this.lights.spot
+			light.castShadow = settings.castShadow.spot
+			
+			if (light.castShadow) {
+				const size = Math.min(settings.mapSize, 2048)
+				light.shadow.mapSize.set(size, size)
+				light.shadow.bias = settings.bias
+				light.shadow.radius = settings.radius
+				light.shadow.blurSamples = settings.blurSamples
+				if (light.shadow.map) {
+					light.shadow.map.dispose()
+					light.shadow.map = null!
+				}
+			}
 		}
 	}
 
@@ -1257,25 +1321,25 @@ class ThreeCore {
 	initLights() {
 		// ================ 环境光设置 ================
 		// 基础环境光 - 为了避免完全黑暗的区域
-		const ambientLight = new THREE.AmbientLight(0xffffff, 0.4)
+		const ambientLight = new THREE.AmbientLight(0xffffff, 0.6)
 		this.scene.add(ambientLight)
 
 		// 半球光 - 模拟天空散射和地面反射
 		const hemiLight = new THREE.HemisphereLight(
-			0x87CEEB, // 天空颜色 - 淡蓝色
-			0x2F4F4F, // 地面颜色 - 暗灰色
-			0.3
+			0x87ceeb, // 天空颜色 - 淡蓝色
+			0x2f4f4f, // 地面颜色 - 暗灰色
+			0.4
 		)
 		hemiLight.position.set(0, 50, 0)
 		this.scene.add(hemiLight)
 
 		// ================ 主要方向光（太阳光） ================
-		const dirLight = new THREE.DirectionalLight(0xFFEECC, 2.0)
+		const dirLight = new THREE.DirectionalLight(0xffeecc, 1.8)
 		dirLight.position.set(50, 50, 30)
 		dirLight.castShadow = true
-		
+
 		// 高质量阴影配置 - 解决阴影条纹问题
-		dirLight.shadow.mapSize.width = 2048  // 提高阴影贴图分辨率
+		dirLight.shadow.mapSize.width = 2048
 		dirLight.shadow.mapSize.height = 2048
 		dirLight.shadow.camera.near = 0.1
 		dirLight.shadow.camera.far = 200
@@ -1283,138 +1347,54 @@ class ThreeCore {
 		dirLight.shadow.camera.right = 80
 		dirLight.shadow.camera.top = 80
 		dirLight.shadow.camera.bottom = -80
-		console.log(dirLight, 'dirLight.shadow')
-		// 关键：减少阴影条纹的bias设置
-		dirLight.shadow.bias = -0.001
-		dirLight.shadow.normalBias = 0.02
-		dirLight.shadow.radius = 10  // 软阴影
-		dirLight.shadow.blurSamples = 20
 		
+		// 关键：减少阴影条纹的bias设置
+		dirLight.shadow.bias = -0.0005
+		dirLight.shadow.normalBias = 0.02
+		dirLight.shadow.radius = 4
+		dirLight.shadow.blurSamples = 8
+
 		this.scene.add(dirLight)
 
-
-		// const dirLight = new THREE.DirectionalLight( 0xffffff, 2.6 );
-		// dirLight.position.set( 3, 12, 17 );
-		// dirLight.castShadow = true;
-		// dirLight.shadow.camera.near = 0.1;
-		// dirLight.shadow.camera.far = 200;
-		// dirLight.shadow.camera.right = 10;	
-		// dirLight.shadow.camera.left = - 10;
-		// dirLight.shadow.camera.top	= 10;
-		// dirLight.shadow.camera.bottom = - 10;
-		// dirLight.shadow.mapSize.width = 1024;
-		// dirLight.shadow.mapSize.height = 1024;
-		// dirLight.shadow.radius = 20;
-		// dirLight.shadow.bias = - 0.001;
-		// dirLight.shadow.normalBias = 0.02;
-		// dirLight.shadow.blurSamples = 25
-		// this.scene.add(dirLight)
-		// console.log(dirLight, 'dirLight.shadow')
-
-		// ================ 补光设置 ================
-		// 柔和补光 - 填补阴影区域
+		// ================ 补光设置 (简化) ================
 		const fillLight = new THREE.DirectionalLight(0xffffff, 0.4)
 		fillLight.position.set(-30, 20, -30)
 		fillLight.castShadow = false
 		this.scene.add(fillLight)
 
-		// 背景补光 - 从背景补充光线
-		const backLight = new THREE.DirectionalLight(0xe0e0ff, 0.3)
-		backLight.position.set(0, 10, -50)
-		backLight.castShadow = false
-		this.scene.add(backLight)
-
 		// ================ 镜头光（跟随相机） ================
-		const lensLight = new THREE.PointLight(0xffffff, 0.8, 100)
+		const lensLight = new THREE.PointLight(0xffffff, 0.5, 100)
 		lensLight.position.copy(this.camera.position)
-		lensLight.castShadow = true
+		lensLight.castShadow = false 
 		
-		// 镜头光阴影配置
 		lensLight.shadow.mapSize.width = 1024
 		lensLight.shadow.mapSize.height = 1024
 		lensLight.shadow.camera.near = 0.1
 		lensLight.shadow.camera.far = 100
-		lensLight.shadow.bias = -0.0005
-		lensLight.shadow.radius = 20
-		lensLight.shadow.blurSamples = 20
+		lensLight.shadow.bias = -0.0001
+		lensLight.shadow.radius = 4
+		lensLight.shadow.blurSamples = 8
 		
 		this.scene.add(lensLight)
-		
-		// 将镜头光存储为实例变量，以便在相机移动时更新
 		this.lensLight = lensLight
 
-		// ================ 聚光灯（焦点照明） ================
-		// const spotLight = new THREE.SpotLight(
-		// 	0xffffff,
-		// 	1.0,
-		// 	200,
-		// 	Math.PI / 6,
-		// 	0.25,
-		// 	2
-		// )
-		// spotLight.position.set(-40, 60, 20)
-		// spotLight.target.position.set(0, 0, 0)
-		// spotLight.castShadow = true
-		
-		// // 聚光灯高质量阴影
-		// spotLight.shadow.mapSize.width = 2048
-		// spotLight.shadow.mapSize.height = 2048
-		// spotLight.shadow.camera.near = 10
-		// spotLight.shadow.camera.far = 200
-		// spotLight.shadow.bias = -0.0005
-		// spotLight.shadow.radius = 10
-		// spotLight.shadow.blurSamples = 10
-		const spotLight = new THREE.SpotLight( 0xffffff, 2000 );
-		spotLight.angle = Math.PI / 5;
-		spotLight.penumbra = 0.3;
-		spotLight.position.set( -20, 30, 30 );
-		spotLight.castShadow = true;
-		spotLight.shadow.camera.near = 10;
-		spotLight.shadow.camera.far = 200;
-		spotLight.shadow.mapSize.width = 1024;
-		spotLight.shadow.mapSize.height = 1024;
-		spotLight.shadow.bias = - 0.002;
-		spotLight.shadow.radius = 5;
-	
-		console.log(spotLight, 'spotLight.shadow')
-		this.scene.add(spotLight)
-		this.scene.add(spotLight.target)
-
-		// ================ 边缘光（轮廓照明） ================
-		const rimLight = new THREE.DirectionalLight(0xffffff, 0.6)
-		rimLight.position.set(-20, 5, 20)
-		rimLight.castShadow = false
-		this.scene.add(rimLight)
-
-		// ================ 调试helpers（开发时可启用） ================
+		// ================ 调试helpers ================
 		if (this.editMode) {
-			// 方向光阴影相机helper
 			const dirLightHelper = new THREE.CameraHelper(dirLight.shadow.camera)
-			dirLightHelper.visible = false // 默认隐藏
+			dirLightHelper.visible = false
 			this.scene.add(dirLightHelper)
-			
-			// 方向光helper
-			const dirLightVisHelper = new THREE.DirectionalLightHelper(dirLight, 5)
-			dirLightVisHelper.visible = false // 默认隐藏  
-			this.scene.add(dirLightVisHelper)
-			
-			// 聚光灯helper
-			const spotLightHelper = new THREE.SpotLightHelper(spotLight)
-			spotLightHelper.visible = true // 默认隐藏
-			this.scene.add(spotLightHelper)
 		}
 
-		// 存储光源引用以便后续控制
+		// 存储光源引用
 		this.lights = {
 			ambient: ambientLight,
 			hemisphere: hemiLight,
 			directional: dirLight,
 			fill: fillLight,
-			back: backLight,
 			lens: lensLight,
-			spot: spotLight,
-			rim: rimLight
-		}
+			// back, spot, rim removed/simplified
+		} as any
+
 	}
 
 	addAnimationCallback(callback: () => void) {
