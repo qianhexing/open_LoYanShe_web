@@ -114,25 +114,20 @@ const restoreOriginalState = () => {
   }
 
   if (originalState.url) {
+    // 检查是否需要重新加载图片
+    // 注意：image.src 永远是绝对路径 (包含 base_img)
+    // originalState.url 在 setupTexture 里也被存为了绝对路径
+    
     if (image.src !== originalState.url) {
-       // 如果 URL 变了，需要重新加载旧图片
-       // 注意：originalState.url 可能是相对路径，需要加 BASE_IMG
-       // 但我们在保存到 originalState 时已经处理过了吗？
-       // 看 setupTexture 里的逻辑：
-       // image.src = BASE_IMG + options.url
-       // originalState.url 应该存完整的 src 或者 options.url
-       
-       // 这里我们在 setupTexture 里存的是 full src (image.src)
        image.src = originalState.url
        image.onload = restoreDraw
-       image.onerror = restoreDraw // 失败也要关闭
+       image.onerror = restoreDraw 
     } else {
       restoreDraw()
     }
   } else {
     // 初始没有图片
-    image.removeAttribute('src') // 或者设为空
-    // image.src = '' // 可能会触发 request
+    image.removeAttribute('src') 
     restoreDraw()
   }
 }
@@ -265,7 +260,7 @@ function draw() {
   }
 
   // 2. 绘制用户图片
-  // 检查 image.src 是否有效 (非空字符串且非当前页面URL)
+  // 检查 image.src 是否有效
   if (image.complete && image.src && image.src !== window.location.href) {
     // 如果没有 Mask，直接绘制；如果有 Mask，已经在上面设置了 source-in
     if (!maskDrawn) {
@@ -355,6 +350,9 @@ async function setupTexture() {
 
   // 读取并备份初始状态
   const parent = findTopmostParent(props.target)
+  let targetUrl = ''
+  
+  // 优先从 userData 中读取之前的配置
   if (parent.userData.material && parent.userData.material[props.target.name]) {
       const options = parent.userData.material[props.target.name]
       offsetX = options.offsetX
@@ -362,31 +360,35 @@ async function setupTexture() {
       scale = options.scale
       rotation= options.rotation
       
-      // 备份状态
-      originalState = { ...options, url: options.url ? BASE_IMG + options.url : '' }
-
       if (options.url) {
-        image.src = BASE_IMG + options.url
-      } else {
-        image.src = props.imageUrl
-        originalState.url = props.imageUrl // 如果没有自定义配置，备份默认图片
+        targetUrl = BASE_IMG + options.url
       }
-      
   } else {
       // 第一次编辑，使用默认值
       offsetX = 0
       offsetY = 0
       scale = 1
       rotation = 0
-      
-      image.src = props.imageUrl
-      
-      // 备份默认状态
-      originalState = { offsetX, offsetY, scale, rotation, url: props.imageUrl }
+      // 只有在没有 userData 配置时，才尝试使用 props.imageUrl (背景图)
+      // 但也要注意，如果用户没有配置过，可能不希望显示背景图，而是显示空白等待上传?
+      // 之前的逻辑是会显示 props.imageUrl
+      targetUrl = props.imageUrl || ''
   }
 
-  image.onload = () => { isDirty = true }
+  // 备份初始状态 (存绝对路径)
+  originalState = { 
+    offsetX, offsetY, scale, rotation, 
+    url: targetUrl 
+  }
   
+  if (targetUrl) {
+    image.src = targetUrl
+    image.onload = () => { isDirty = true }
+  } else {
+    // 确保清空
+    image.removeAttribute('src')
+  }
+
   // 触发一次绘制
   isDirty = true
   draw()
@@ -537,10 +539,19 @@ const onUpdateFiles = (file: File[]) => {
   uploadImage(file[0])
     .then(async (res) => {
       console.log('上传返回', res)
-      image.src = BASE_IMG + res.file_url
+      
+      // 关键修复：更换图片时，重置 scale/rotation/offset 还是保持?
+      // 通常更换图片希望保持位置，或者重置到默认?
+      // 这里我们选择保留当前编辑状态，只换图
+      
+      // 更新 image src
+      const newSrc = BASE_IMG + res.file_url
+      
+      // 确保 image 对象感知到变化
+      image.src = newSrc
+      
       image.onload = () => {
-        isDirty = true
-        setupTexture()
+        isDirty = true // 标记重绘
         isLoading.value = false
       }
       image.onerror = () => {
