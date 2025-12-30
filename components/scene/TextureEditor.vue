@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref, nextTick } from 'vue'
+import { onMounted, onUnmounted, ref, nextTick, watch } from 'vue'
 import * as THREE from 'three'
 import type QhxImagePicker from '@/components/Qhx/ImagePicker.vue'
 import { uploadImage } from '@/api';
@@ -60,6 +60,13 @@ let animationFrameId = 0
 const showModel = () => {
   show.value = true
   isSaved = false // 重置保存状态
+  isDirty = true
+  
+  // 开启渲染循环
+  if (!animationFrameId) {
+    loop()
+  }
+
   // 确保显示时重新生成 Mask 并绘制
   if (props.target) {
     nextTick(() => {
@@ -79,6 +86,15 @@ const closeModel = () => {
 
 const finishClose = () => {
   show.value = false
+  cancelAnimationFrame(animationFrameId)
+  animationFrameId = 0
+  
+  // 显式释放资源
+  if (texture) {
+    texture.dispose()
+    texture = null
+  }
+  
   emit('close')
 }
 
@@ -121,8 +137,8 @@ const restoreOriginalState = () => {
   }
 }
 
-// 生成基于 UV 的 Mask
-const generateMaskFromUV = (mesh: THREE.Mesh) => {
+// 生成基于 UV 的 Mask (异步分片处理)
+const generateMaskFromUV = async (mesh: THREE.Mesh) => {
   if (!maskCtx || !canvas.value) return false
   
   const width = canvas.value.width
@@ -144,6 +160,16 @@ const generateMaskFromUV = (mesh: THREE.Mesh) => {
   const uvAttribute = geometry.attributes.uv
   const indexAttribute = geometry.index
 
+  // 如果面数过多，显示 Loading
+  const count = indexAttribute ? indexAttribute.count : uvAttribute.count
+  const isLargeModel = count > 3000 // 3000 顶点/索引以上视为大模型
+  
+  if (isLargeModel) {
+    isLoading.value = true
+    // 让 UI 有机会渲染 Loading
+    await new Promise(resolve => requestAnimationFrame(resolve))
+  }
+
   maskCtx.beginPath()
   maskCtx.fillStyle = 'white'
 
@@ -163,6 +189,19 @@ const generateMaskFromUV = (mesh: THREE.Mesh) => {
     maskCtx.lineTo(u3, v3)
   }
 
+  // 分批处理大小
+  const BATCH_SIZE = 3000 
+  let processed = 0
+  
+  const processBatch = async () => {
+    return new Promise<void>(resolve => {
+       // 使用 setTimeout 给 UI 线程喘息机会，避免卡死
+       setTimeout(() => {
+         resolve()
+       }, 0)
+    })
+  }
+
   if (indexAttribute) {
     for (let i = 0; i < indexAttribute.count; i += 3) {
       drawTriangle(
@@ -170,14 +209,34 @@ const generateMaskFromUV = (mesh: THREE.Mesh) => {
         indexAttribute.getX(i + 1),
         indexAttribute.getX(i + 2)
       )
+      
+      processed += 3
+      if (isLargeModel && processed % BATCH_SIZE === 0) {
+         // 每批次填充一次，防止 path 过大
+         maskCtx.fill()
+         maskCtx.beginPath()
+         await processBatch()
+      }
     }
   } else {
     for (let i = 0; i < uvAttribute.count; i += 3) {
       drawTriangle(i, i + 1, i + 2)
+      
+      processed += 3
+      if (isLargeModel && processed % BATCH_SIZE === 0) {
+         maskCtx.fill()
+         maskCtx.beginPath()
+         await processBatch()
+      }
     }
   }
   
   maskCtx.fill()
+  
+  if (isLargeModel) {
+    isLoading.value = false
+  }
+  
   return true
 }
 
@@ -245,10 +304,19 @@ function draw() {
   }
 
   // 3. 更新 Texture
-  if (texture) texture.needsUpdate = true
+  // 只有在显示状态下才更新 Texture，避免后台更新
+  if (show.value && texture) {
+    texture.needsUpdate = true
+  }
 }
 
 function loop() {
+  // 如果面板关闭了，就停止循环
+  if (!show.value) {
+    animationFrameId = 0
+    return
+  }
+  
   if (isDirty) {
     draw()
     isDirty = false
@@ -256,7 +324,7 @@ function loop() {
   animationFrameId = requestAnimationFrame(loop)
 }
 
-function setupTexture() {
+async function setupTexture() {
   if (!props.target || !canvas.value) return
   ctx = canvas.value.getContext('2d')
   if (!ctx) return
@@ -265,8 +333,8 @@ function setupTexture() {
   canvas.value.width = 512
   canvas.value.height = 512
 
-  // 生成 UV Mask
-  hasMask = generateMaskFromUV(props.target as THREE.Mesh)
+  // 生成 UV Mask (await 异步生成)
+  hasMask = await generateMaskFromUV(props.target as THREE.Mesh)
   
   // 初始化 Texture
   if (!texture) {
@@ -325,8 +393,7 @@ function setupTexture() {
 }
 
 onMounted(() => {
-  // 启动渲染循环
-  loop()
+  // 注意：不再默认启动 loop，而是在 showModel 时启动
 
   if (props.maskUrl) {
     mask.src = props.maskUrl
@@ -343,8 +410,14 @@ onMounted(() => {
   })
   window.addEventListener('mousemove', e => {
     if (!dragging) return
-    offsetX += e.clientX - lastX
-    offsetY += e.clientY - lastY
+    const dx = e.clientX - lastX
+    const dy = e.clientY - lastY
+    
+    // 简单的阈值检测，避免微小抖动导致的重绘
+    if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) return
+    
+    offsetX += dx
+    offsetY += dy
     lastX = e.clientX
     lastY = e.clientY
     isDirty = true // 标记为脏，下一帧绘制
@@ -367,26 +440,39 @@ onMounted(() => {
 
   canvas.value.addEventListener('touchmove', e => {
     e.preventDefault() // 防止滚动
+    let changed = false
+    
     if (e.touches.length === 1) {
       const dx = e.touches[0].clientX - lastX
       const dy = e.touches[0].clientY - lastY
-      offsetX += dx
-      offsetY += dy
-      lastX = e.touches[0].clientX
-      lastY = e.touches[0].clientY
+      
+      if (Math.abs(dx) > 0.5 || Math.abs(dy) > 0.5) {
+         offsetX += dx
+         offsetY += dy
+         lastX = e.touches[0].clientX
+         lastY = e.touches[0].clientY
+         changed = true
+      }
     } else if (e.touches.length === 2) {
       const dx = e.touches[1].clientX - e.touches[0].clientX
       const dy = e.touches[1].clientY - e.touches[0].clientY
       const dist = Math.hypot(dx, dy)
       const angle = Math.atan2(dy, dx)
+      
+      // 旋转缩放通常都需要响应，因为变化比较敏感
+      if (Math.abs(dist - lastDist) > 1 || Math.abs(angle - lastAngle) > 0.01) {
+          scale *= dist / lastDist
+          rotation += angle - lastAngle
 
-      scale *= dist / lastDist
-      rotation += angle - lastAngle
-
-      lastDist = dist
-      lastAngle = angle
+          lastDist = dist
+          lastAngle = angle
+          changed = true
+      }
     }
-    isDirty = true
+    
+    if (changed) {
+        isDirty = true
+    }
   }, { passive: false })
   
   canvas.value.addEventListener('wheel', e => {
@@ -400,6 +486,10 @@ onMounted(() => {
 
 onUnmounted(() => {
   cancelAnimationFrame(animationFrameId)
+  if (texture) {
+    texture.dispose()
+    texture = null
+  }
 })
 
 const addImage = () => {
