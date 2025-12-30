@@ -1029,20 +1029,24 @@ useHead({
 		</div>
 
 		<div style="height: 100vh; width: 100vw; overflow: hidden; " id="scene"></div>
-		<div class="opera fixed p-3  z-20 flex items-center whitespace-nowrap" 
+		<div class="opera fixed z-20 md:flex items-center whitespace-nowrap" 
 		v-show="clickObject && edit_mode"
-		:style="{ left: operaPosition.x + 40 + 'px', top: operaPosition.y - 100 + 'px' }">
+		:class="[
+			'md:absolute md:top-auto md:bottom-auto md:left-auto md:right-auto',
+			'fixed bottom-4 left-1/2 -translate-x-1/2 w-[calc(100%-32px)] md:w-auto md:translate-x-0 md:static'
+		]"
+		:style="!$device.isMobile ? { left: operaPosition.x + 40 + 'px', top: operaPosition.y - 100 + 'px' } : {}">
 			<!-- <QhxJellyButton>
 				
 			</QhxJellyButton> -->
-			<div class="opera fixed p-3  bg-qhx-bg-card rounded-[30px] z-20 h-[60px] flex items-center whitespace-nowrap overflow-hidden">
-				<div class=" cursor-pointer px-3" @click="setMode('translate')" v-show="transformType !== 'translate'">移动</div>
-				<div class=" cursor-pointer px-3" @click="setMode('rotate')" v-show="transformType !== 'rotate'">旋转</div>
-				<div class=" cursor-pointer px-3" @click="setMode('scale')" v-show="transformType !== 'scale'">缩放</div>
-				<div class=" cursor-pointer px-3" @click.stop="openObjectSettings" v-if="clickObject && clickObject[0].userData.type === '3Dtext'">设置</div>
-				<div class=" cursor-pointer px-3" @click.stop="copyModel()" v-if="clickObject && clickObject[0].userData.type === 'model'">复制</div>
-				<div class=" cursor-pointer px-3" @click.stop="showTexture()" v-if="canTexture">贴图</div>
-				<div class=" cursor-pointer px-3" @click.stop="deleteModel()">删除</div>
+			<div class="opera p-3 bg-qhx-bg-card rounded-[30px] z-20 h-[60px] flex items-center whitespace-nowrap overflow-x-auto scrollbar-hide w-full md:w-auto shadow-lg border border-gray-100 dark:border-gray-700">
+				<div class=" cursor-pointer px-3 flex-shrink-0" @click="setMode('translate')" v-show="transformType !== 'translate'">移动</div>
+				<div class=" cursor-pointer px-3 flex-shrink-0" @click="setMode('rotate')" v-show="transformType !== 'rotate'">旋转</div>
+				<div class=" cursor-pointer px-3 flex-shrink-0" @click="setMode('scale')" v-show="transformType !== 'scale'">缩放</div>
+				<div class=" cursor-pointer px-3 flex-shrink-0" @click.stop="openObjectSettings" v-if="clickObject && clickObject[0].userData.type === '3Dtext'">设置</div>
+				<div class=" cursor-pointer px-3 flex-shrink-0" @click.stop="copyModel()" v-if="clickObject && clickObject[0].userData.type === 'model'">复制</div>
+				<div class=" cursor-pointer px-3 flex-shrink-0" @click.stop="showTexture()" v-if="canTexture">贴图</div>
+				<div class=" cursor-pointer px-3 flex-shrink-0 text-red-500" @click.stop="deleteModel()">删除</div>
 			</div>
 		</div>
 		<div class="camera-list fixed right-[10px] bottom-0 w-[40px] h-auto max-h-full" v-if="threeCore">
