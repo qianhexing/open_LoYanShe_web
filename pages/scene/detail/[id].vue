@@ -1030,7 +1030,7 @@ useHead({
 
 		<div style="height: 100vh; width: 100vw; overflow: hidden; " id="scene"></div>
 		<div class="opera fixed z-20 md:flex items-center whitespace-nowrap" 
-		v-show="clickObject && edit_mode"
+		v-show="clickObject && edit_mode && !target"
 		:class="[
 			'md:absolute md:top-auto md:bottom-auto md:left-auto md:right-auto',
 			'fixed bottom-4 left-1/2 -translate-x-1/2 w-[calc(100%-32px)] md:w-auto md:translate-x-0 md:static'
