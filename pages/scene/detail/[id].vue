@@ -63,7 +63,7 @@ const toast = useToast()
 const userStore = useUserStore()
 const clickPosition = ref({ x: 0, y: 0 })
 const doubleClickTimer = ref<ReturnType<typeof setTimeout> | null>(null)
-const target = ref(null)
+const target: Ref<THREE.Object3D | null> = ref(null)
 const transformType  = ref('translate')
 const showToolbar = ref(true) // 控制工具栏显示/隐藏
 const showRightPanel = ref(false) // 控制右侧面板显示/隐藏
@@ -244,19 +244,31 @@ const initThreejs = async () => {
 	threeCore.startAnimationLoop();
 	threeCore.addAnimationFunc = () => { addAnimationFunc() }
 }
-const _onPointerDown = () => {
+const pointerDownPosition = ref({ x: 0, y: 0 })
+const MOVE_THRESHOLD = 5 // 移动阈值，单位：像素
+
+const _onPointerDown = (event: PointerEvent) => {
 	isClick.value = true
+	pointerDownPosition.value = { x: event.clientX, y: event.clientY }
 }
-const _onPointerMove = () => {
+const _onPointerMove = (event: PointerEvent) => {
+	console.log('指针移动')
 	if (isClick.value) {
-		isClick.value = false
-	} 
+		const deltaX = Math.abs(event.clientX - pointerDownPosition.value.x)
+		const deltaY = Math.abs(event.clientY - pointerDownPosition.value.y)
+		const distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY)
+		
+		if (distance > MOVE_THRESHOLD) {
+			isClick.value = false
+		}
+	}
 }
 const _onPointerUp = (event: PointerEvent) => {
+	console.log('指针抬起', isClick.value)
 	if (isClick.value) {
 		gpuPick(event)
 	}
-	
+	isClick.value = false
 }
 
 const showMaterial = () => {
@@ -700,6 +712,7 @@ const setMode = (type: 'translate' | 'scale' | 'rotate') => {
 }
 const gpuPick = (ev: MouseEvent | TouchEvent) => {
 	const obj = threeCore.gpuPick(ev)
+	console.log('点击', obj)
 	if (obj) {
 		if (doubleClickTimer.value) {
 			clearTimeout(doubleClickTimer.value)
@@ -728,7 +741,7 @@ const gpuPick = (ev: MouseEvent | TouchEvent) => {
 
 		obj.traverse((child) => {
 			if (child.name.includes('replace')) {
-				target.value = child
+				// target.value = child
 			}
 		})
 	} else if (threeCore.gizmo?.dragging) {
@@ -798,11 +811,15 @@ onMounted(async() => {
 	uni = await import('@dcloudio/uni-webview-js').catch((err) => {
     console.error('Failed to load uni-webview-js:', err);
   });
+	// 初始化移动端检测
+	configStore.initMobileDetection()
 	setTimeout(() => {
 		initThreejs()
 		// window.addEventListener('mousemove', throttledMouseMove, false);
 	});
 })
+
+const isMobile = computed(() => configStore.isMobile);
 useHead({
 	title: '3D手账',
 	meta: [
@@ -1035,7 +1052,7 @@ useHead({
 			'md:absolute md:top-auto md:bottom-auto md:left-auto md:right-auto',
 			'fixed bottom-4 left-1/2 -translate-x-1/2 w-[calc(100%-32px)] md:w-auto md:translate-x-0 md:static'
 		]"
-		:style="!$device.isMobile ? { left: operaPosition.x + 40 + 'px', top: operaPosition.y - 100 + 'px' } : {}">
+		:style="!isMobile ? { left: operaPosition.x + 40 + 'px', top: operaPosition.y - 100 + 'px' } : {}">
 			<!-- <QhxJellyButton>
 				
 			</QhxJellyButton> -->

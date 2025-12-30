@@ -30,6 +30,7 @@
 
 <script setup lang="ts">
 import { ref, watch, computed, onMounted, onBeforeUnmount, nextTick } from 'vue';
+import { useConfigStore } from '@/stores/config';
 
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
@@ -47,18 +48,9 @@ const drawerRef = ref<HTMLElement | null>(null);
 const originalBodyOverflow = ref('');
 const originalBodyPaddingRight = ref('');
 
-// 检测是否为移动端
-const windowWidth = ref(typeof window !== 'undefined' ? window.innerWidth : 1024);
-const isMobile = computed(() => {
-  return windowWidth.value < 768; // md breakpoint
-});
-
-// 监听窗口大小变化
-const handleResize = () => {
-  if (typeof window !== 'undefined') {
-    windowWidth.value = window.innerWidth;
-  }
-};
+// 使用 configStore 的移动端检测
+const configStore = useConfigStore();
+const isMobile = computed(() => configStore.isMobile);
 
 // 计算抽屉样式
 const drawerStyles = computed(() => {
@@ -162,8 +154,10 @@ watch(() => props.modelValue, (newVal) => {
 onMounted(() => {
   if (typeof window !== 'undefined') {
     window.addEventListener('keydown', handleKeydown);
-    window.addEventListener('resize', handleResize);
-    windowWidth.value = window.innerWidth;
+    // 初始化移动端检测（如果还没有初始化）
+    if (configStore.windowWidth === 1024 && typeof window !== 'undefined') {
+      configStore.initMobileDetection();
+    }
   }
 });
 
@@ -171,7 +165,6 @@ onBeforeUnmount(() => {
   unlockBodyScroll();
   if (typeof window !== 'undefined') {
     window.removeEventListener('keydown', handleKeydown);
-    window.removeEventListener('resize', handleResize);
   }
 });
 </script>
