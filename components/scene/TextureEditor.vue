@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref, watch, nextTick } from 'vue'
+import { onMounted, onUnmounted, ref, nextTick } from 'vue'
 import * as THREE from 'three'
 import type QhxImagePicker from '@/components/Qhx/ImagePicker.vue'
 import { uploadImage } from '@/api';
+
 const imagePicker = ref<InstanceType<typeof QhxImagePicker> | null>(null)
 
 interface Props {
@@ -17,6 +18,8 @@ let ctx: CanvasRenderingContext2D | null = null
 let texture: THREE.CanvasTexture | null = null
 const imageType = ref(0) // 0是添加图片 1是添加背景
 const emit = defineEmits(['close'])
+
+const isLoading = ref(false)
 
 // 离屏 Canvas 用于缓存 Mask
 const maskCanvas = document.createElement('canvas')
@@ -33,6 +36,16 @@ let offsetY = 0
 let scale = 1
 let rotation = 0
 
+// 初始状态备份（用于取消还原）
+let originalState = {
+  offsetX: 0,
+  offsetY: 0,
+  scale: 1,
+  rotation: 0,
+  url: ''
+}
+let isSaved = false
+
 // 交互状态
 let dragging = false
 let lastX = 0
@@ -46,6 +59,7 @@ let animationFrameId = 0
 
 const showModel = () => {
   show.value = true
+  isSaved = false // 重置保存状态
   // 确保显示时重新生成 Mask 并绘制
   if (props.target) {
     nextTick(() => {
@@ -53,9 +67,58 @@ const showModel = () => {
     })
   }
 }
+
 const closeModel = () => {
+  if (!isSaved) {
+    // 还原逻辑
+    restoreOriginalState()
+  } else {
+    finishClose()
+  }
+}
+
+const finishClose = () => {
   show.value = false
   emit('close')
+}
+
+// 还原到初始状态
+const restoreOriginalState = () => {
+  isLoading.value = true
+  offsetX = originalState.offsetX
+  offsetY = originalState.offsetY
+  scale = originalState.scale
+  rotation = originalState.rotation
+  
+  const restoreDraw = () => {
+    isDirty = true
+    draw() // 强制重绘
+    isLoading.value = false
+    finishClose()
+  }
+
+  if (originalState.url) {
+    if (image.src !== originalState.url) {
+       // 如果 URL 变了，需要重新加载旧图片
+       // 注意：originalState.url 可能是相对路径，需要加 BASE_IMG
+       // 但我们在保存到 originalState 时已经处理过了吗？
+       // 看 setupTexture 里的逻辑：
+       // image.src = BASE_IMG + options.url
+       // originalState.url 应该存完整的 src 或者 options.url
+       
+       // 这里我们在 setupTexture 里存的是 full src (image.src)
+       image.src = originalState.url
+       image.onload = restoreDraw
+       image.onerror = restoreDraw // 失败也要关闭
+    } else {
+      restoreDraw()
+    }
+  } else {
+    // 初始没有图片
+    image.removeAttribute('src') // 或者设为空
+    // image.src = '' // 可能会触发 request
+    restoreDraw()
+  }
 }
 
 // 生成基于 UV 的 Mask
@@ -143,7 +206,8 @@ function draw() {
   }
 
   // 2. 绘制用户图片
-  if (image.complete && image.src) {
+  // 检查 image.src 是否有效 (非空字符串且非当前页面URL)
+  if (image.complete && image.src && image.src !== window.location.href) {
     // 如果没有 Mask，直接绘制；如果有 Mask，已经在上面设置了 source-in
     if (!maskDrawn) {
        ctx.save() // 为了保持 restore 的一致性
@@ -210,22 +274,51 @@ function setupTexture() {
     texture.wrapS = THREE.ClampToEdgeWrapping
     texture.wrapT = THREE.ClampToEdgeWrapping
     texture.flipY = false
-  } else {
-    // 如果 texture 已经存在（比如重新打开），确保它使用当前的 canvas
-    // 通常不需要重新 new，除非 canvas 元素变了
-    // 这里保持引用一致
-  }
+  } 
   
   texture.needsUpdate = true
   
   const mat = (props.target as THREE.Mesh).material as THREE.MeshStandardMaterial
-  // 只有当 map 不存在或者不是当前 texture 时才赋值，避免不必要的副作用
   if (mat.map !== texture) {
     mat.map = texture
     mat.transparent = true
     mat.needsUpdate = true
   }
 
+  // 读取并备份初始状态
+  const parent = findTopmostParent(props.target)
+  if (parent.userData.material && parent.userData.material[props.target.name]) {
+      const options = parent.userData.material[props.target.name]
+      offsetX = options.offsetX
+      offsetY = options.offsetY
+      scale = options.scale
+      rotation= options.rotation
+      
+      // 备份状态
+      originalState = { ...options, url: options.url ? BASE_IMG + options.url : '' }
+
+      if (options.url) {
+        image.src = BASE_IMG + options.url
+      } else {
+        image.src = props.imageUrl
+        originalState.url = props.imageUrl // 如果没有自定义配置，备份默认图片
+      }
+      
+  } else {
+      // 第一次编辑，使用默认值
+      offsetX = 0
+      offsetY = 0
+      scale = 1
+      rotation = 0
+      
+      image.src = props.imageUrl
+      
+      // 备份默认状态
+      originalState = { offsetX, offsetY, scale, rotation, url: props.imageUrl }
+  }
+
+  image.onload = () => { isDirty = true }
+  
   // 触发一次绘制
   isDirty = true
   draw()
@@ -235,35 +328,12 @@ onMounted(() => {
   // 启动渲染循环
   loop()
 
-  if (!canvas.value) return
-  
-  if (props.target) {
-    const parent = findTopmostParent(props.target)
-    // 恢复之前的编辑状态
-    if (parent.userData.material && parent.userData.material[props.target.name]) {
-      const options = parent.userData.material[props.target.name]
-      offsetX = options.offsetX
-      offsetY = options.offsetY
-      scale = options.scale
-      rotation= options.rotation
-      if (options.url) {
-        image.src = BASE_IMG + options.url
-      } else {
-        // Fallback
-        image.src = props.imageUrl
-      }
-      image.onload = () => { isDirty = true }
-      
-    } else {
-      image.src = props.imageUrl
-      image.onload = () => { isDirty = true }
-    }
-  }
-  
   if (props.maskUrl) {
     mask.src = props.maskUrl
     mask.onload = () => { isDirty = true }
   }
+
+  if (!canvas.value) return
 
   // 鼠标拖动
   canvas.value.addEventListener('mousedown', e => {
@@ -360,23 +430,38 @@ const saveData = () => {
     parent.userData.material = {}
   }
   parent.userData.material[props.target.name] = params
+  
+  // 更新 originalState 为当前保存的状态，防止关闭时还原
+  originalState = { ...params, url: image.src }
+  isSaved = true
+  
   console.log(params, '参数', parent)
-  // 提示保存成功 (可选)
+  // 可以添加 toast 提示
+  closeModel() // 保存后自动关闭? 或者不关闭让用户继续调？根据需求，这里手动关闭比较好，或者让用户点关闭。
+  // 按照目前逻辑，点击保存只保存数据，不关闭。
 }
+
 const onUpdateFiles = (file: File[]) => {
   console.log('选择的文件', file)
+  isLoading.value = true
   uploadImage(file[0])
     .then(async (res) => {
       console.log('上传返回', res)
       image.src = BASE_IMG + res.file_url
       image.onload = () => {
-        // 重置位置? 或者保持位置? 这里保持位置
         isDirty = true
-        setupTexture() // 重新确保 texture 设置
+        setupTexture()
+        isLoading.value = false
+      }
+      image.onerror = () => {
+        isLoading.value = false
       }
       if (imagePicker.value) {
         imagePicker.value.clear()
       }
+    })
+    .catch(() => {
+      isLoading.value = false
     })
 }
 defineExpose({
@@ -386,52 +471,73 @@ defineExpose({
 
 <template>
   <QhxImagePicker :multiple="true" @update:files="onUpdateFiles" class="hidden" ref="imagePicker" />
-  <div class="w-full fixed transition-all duration-300 bottom-0 left-0 z-30 h-[500px] md:h-full md:w-[500px]  bg-qhx-bg"
-    :class="show ? '' : 'bottom-[-500px] md:bottom-[0px] md:left-[-500px]'">
-    <div class="fun-head h-[60px] border-b flex">
-      <div class="flex flex-1">
-        <QhxJellyButton>
-          <div class="h-[60px] text-center px-1  cursor-pointer">
-            <div
-              class=" m-[5px] text-white rounded-[50%] h-[30px] w-[30px] bg-qhx-primary flex items-center justify-center"
-              @click="saveData()">
-              <UIcon name="ant-design:file-filled" class="text-[22px] text-[#ffffff]" />
-            </div>
-            <div  class=" text-sm">保存</div>
-          </div>
-        </QhxJellyButton>
-        <QhxJellyButton>
-          <div class="h-[60px] text-center px-1  cursor-pointer">
-            <div
-              class=" m-[5px] text-white rounded-[50%] h-[30px] w-[30px] bg-qhx-primary flex items-center justify-center"
-              @click="addImage()">
-              <UIcon name="ant-design:picture-filled" class="text-[22px] text-[#ffffff]" />
-            </div>
-            <div  class=" text-sm">选择图片</div>
-          </div>
-        </QhxJellyButton>
+  
+  <!-- 遮罩层，控制整体显示隐藏 -->
+  <div class="fixed inset-0 z-[100] flex items-end md:items-center md:justify-center pointer-events-none"
+    :class="show ? '' : 'opacity-0 pointer-events-none'">
+    
+    <!-- 背景遮罩 (可选，增加点击背景关闭) -->
+    <div class="absolute inset-0 bg-black/20 backdrop-blur-sm transition-opacity duration-300 pointer-events-auto" 
+      :class="show ? 'opacity-100' : 'opacity-0'"
+      @click="closeModel"></div>
+
+    <!-- 主面板 -->
+    <div class="relative w-full md:w-[480px] bg-white dark:bg-gray-800 shadow-2xl rounded-t-2xl md:rounded-2xl overflow-hidden transform transition-all duration-300 pointer-events-auto"
+       :class="show ? 'translate-y-0 opacity-100 scale-100' : 'translate-y-full md:translate-y-10 opacity-0 scale-95'">
+      
+      <!-- 头部 -->
+      <div class="flex items-center justify-between px-4 py-3 border-b border-gray-100 dark:border-gray-700">
+        <h3 class="text-base font-semibold text-gray-800 dark:text-gray-100">贴图编辑器</h3>
+        <button @click="closeModel" 
+          class="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors text-gray-500 hover:text-gray-700">
+          <UIcon name="ant-design:close-outlined" class="text-lg" />
+        </button>
       </div>
-      <QhxJellyButton>
-        <div class=" m-[5px] text-white rounded-[50%] h-[30px] w-[30px] bg-qhx-primary flex items-center justify-center cursor-pointer"
-          @click="closeModel()">
-          <UIcon name="ant-design:close-outlined" class="text-[22px] text-[#ffffff]" />
+
+      <!-- 内容区 -->
+      <div class="p-4 flex flex-col items-center gap-4">
+        <!-- Canvas 容器 -->
+        <div class="relative w-full aspect-square bg-gray-50 dark:bg-gray-900 rounded-xl overflow-hidden border border-gray-200 dark:border-gray-700 shadow-inner group">
+          <!-- 透明背景格子 -->
+           <div class="absolute inset-0 z-0 opacity-30" 
+                style="background-image: linear-gradient(45deg, #888 25%, transparent 25%), linear-gradient(-45deg, #888 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #888 75%), linear-gradient(-45deg, transparent 75%, #888 75%); background-size: 20px 20px; background-position: 0 0, 0 10px, 10px -10px, -10px 0px;">
+           </div>
+           
+           <canvas ref="canvas" class="relative z-10 w-full h-full object-contain cursor-move touch-none"></canvas>
+           
+           <!-- Loading Overlay -->
+           <div v-if="isLoading" class="absolute inset-0 z-20 flex flex-col items-center justify-center bg-white/50 dark:bg-black/50 backdrop-blur-sm">
+             <UIcon name="svg-spinners:180-ring-with-bg" class="text-4xl text-qhx-primary" />
+             <span class="mt-2 text-xs font-medium text-gray-600 dark:text-gray-300">处理中...</span>
+           </div>
+
+           <!-- 提示文字 -->
+           <div class="absolute bottom-2 left-0 right-0 text-center pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+             <span class="px-3 py-1 bg-black/50 text-white text-[10px] rounded-full backdrop-blur-md">
+               双指旋转缩放 / 单指拖拽
+             </span>
+           </div>
         </div>
-      </QhxJellyButton>
-    </div>
-    <div class="w-full flex justify-center p-4">
-      <!-- 增加透明背景格子样式，方便查看透明区域 -->
-      <canvas ref="canvas" class="border rounded-lg touch-none shadow-md" style="background-image: linear-gradient(45deg, #ccc 25%, transparent 25%), linear-gradient(-45deg, #ccc 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #ccc 75%), linear-gradient(-45deg, transparent 75%, #ccc 75%); background-size: 20px 20px; background-position: 0 0, 0 10px, 10px -10px, -10px 0px; background-color: white;"></canvas>
-    </div>
-    <div class="p-4 text-center text-sm text-gray-500">
-       双指旋转缩放，单指拖拽
+
+        <!-- 操作按钮栏 -->
+        <div class="grid grid-cols-2 gap-3 w-full">
+          <button @click="addImage()" 
+            class="flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600 transition-all active:scale-95 font-medium text-sm">
+            <UIcon name="ant-design:picture-filled" class="text-lg text-blue-500" />
+            更换图片
+          </button>
+          
+          <button @click="saveData()" 
+            class="flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-qhx-primary text-white hover:bg-qhx-primaryHover transition-all active:scale-95 shadow-lg shadow-pink-500/30 font-medium text-sm">
+            <UIcon name="ant-design:save-filled" class="text-lg" />
+            保存应用
+          </button>
+        </div>
+      </div>
     </div>
   </div>
 </template>
 
 <style scoped>
-canvas {
-  max-width: 100%;
-  height: auto;
-  /* 背景样式已移至 inline style 以支持 checkerboard */
-}
+/* 移除 scoped canvas 样式，改用 Tailwind */
 </style>
