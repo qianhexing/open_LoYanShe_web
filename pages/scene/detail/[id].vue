@@ -19,7 +19,7 @@ let threeCore: qhxCore
 const theme = useThemeStore()
 const isClick = ref(false)
 const Scene1Group = ref<THREE.Group | null>(null)
-const operaPosition = ref<Object<{ x: number, y: number}>>({ x: 0, y: 0})
+const operaPosition = ref<{ x: number, y: number}>({ x: 0, y: 0})
 const clickObject = ref<THREE.Object3D[] | null>(null)
 const diaryList = ref<DiaryInterface[]>([])
 const libraryList = ref<LibraryInterface[]>([])
@@ -1080,7 +1080,7 @@ useHead({
 			'md:absolute md:top-auto md:bottom-auto md:left-auto md:right-auto',
 			'fixed bottom-4 left-1/2 -translate-x-1/2 w-[calc(100%-32px)] md:w-auto md:translate-x-0 md:static'
 		]"
-		:style="!isMobile ? { left: operaPosition.x + 40 + 'px', top: operaPosition.y - 100 + 'px' } : {}">
+		:style="!isMobile && operaPosition ? { left: operaPosition.x + 40 + 'px', top: operaPosition.y - 100 + 'px' } : {}">
 			<!-- <QhxJellyButton>
 				
 			</QhxJellyButton> -->
@@ -1130,10 +1130,10 @@ useHead({
 		</div>
 		<div @click.stop="(e) => {
 			handleClickDiary(e, diary)
-		}" class="fixed p-3 cursor-pointer bg-qhx-bg-card rounded-[30px] shadow-lg z-10 h-[60px] flex items-center whitespace-nowrap overflow-hidden" v-for="diary in diaryList" :style="{ left: diary.position.x + 'px', top: diary.position.y  - 30 + 'px' }">
+		}" class="fixed p-3 cursor-pointer bg-qhx-bg-card rounded-[30px] shadow-lg z-10 h-[60px] flex items-center whitespace-nowrap overflow-hidden" v-for="diary in diaryList" :style="{ left: diary.position?.x + 'px', top: diary.position?.y  - 30 + 'px' }">
 			{{ diary.title }}
 		</div>
-		<div @click.stop="handleClickLibrary(library)" class="fixed cursor-pointer bg-qhx-bg-card rounded-[30px] shadow-lg z-10 h-[60px] flex items-center whitespace-nowrap overflow-hidden" v-for="library in libraryList" :style="{ left: library.position.x + 'px', top: library.position.y  - 30 + 'px' }">
+		<div @click.stop="handleClickLibrary(library)" class="fixed cursor-pointer bg-qhx-bg-card rounded-[30px] shadow-lg z-10 h-[60px] flex items-center whitespace-nowrap overflow-hidden" v-for="library in libraryList" :style="{ left: library.position?.x + 'px', top: library.position?.y  - 30 + 'px' }">
 			<div class=" flex items-center">
 				<div>
 					<img :src="`${BASE_IMG}${library.cover}`"
