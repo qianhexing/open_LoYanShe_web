@@ -304,7 +304,8 @@ const showEffect = () => {
 const showSettings = ref(false)
 const settingsState = reactive({
 	shadowsEnabled: true,
-	shadowQuality: 'high'
+	shadowQuality: 'high',
+	fov: 45 // 镜头角度（视野角度）
 })
 const shadowQualityOptions = [
 	{ label: '关闭', value: 'off' },
@@ -330,6 +331,12 @@ const openSettings = (e: MouseEvent) => {
 			settingsState.shadowQuality = 'off'
 		}
 	}
+	
+	// 初始化镜头角度
+	if (threeCore && threeCore.camera && (threeCore.camera as THREE.PerspectiveCamera).isPerspectiveCamera) {
+		settingsState.fov = (threeCore.camera as THREE.PerspectiveCamera).fov
+	}
+	
 	showSettings.value = true
 }
 
@@ -367,6 +374,16 @@ const changeShadowQuality = (val: string) => {
 			})
 		}
 		threeCore.setShadowQuality(val as 'low' | 'medium' | 'high' | 'ultra')
+	}
+}
+
+const changeFov = (val: number) => {
+	if (!threeCore || !threeCore.camera) return
+	
+	if ((threeCore.camera as THREE.PerspectiveCamera).isPerspectiveCamera) {
+		const cam = threeCore.camera as THREE.PerspectiveCamera
+		cam.fov = val
+		cam.updateProjectionMatrix()
 	}
 }
 
@@ -1163,7 +1180,7 @@ useHead({
 				<h3 class="text-base font-bold mb-4 text-gray-800 dark:text-gray-200">场景设置</h3>
 				
 				<!-- 阴影质量 -->
-				<div class="mb-2">
+				<div class="mb-4">
 					<div class="text-sm text-gray-700 dark:text-gray-300 mb-2">阴影质量</div>
 					<USelect 
 						v-model="settingsState.shadowQuality" 
@@ -1171,6 +1188,21 @@ useHead({
 						option-attribute="label"
 						@update:model-value="changeShadowQuality"
 						color="white"
+					/>
+				</div>
+				
+				<!-- 镜头角度 -->
+				<div class="mb-2">
+					<div class="flex justify-between mb-2">
+						<span class="text-sm text-gray-700 dark:text-gray-300">镜头角度</span>
+						<span class="text-xs text-gray-500">{{ Math.round(settingsState.fov) }}°</span>
+					</div>
+					<URange 
+						v-model="settingsState.fov" 
+						:min="10" 
+						:max="120" 
+						:step="1"
+						@update:model-value="changeFov"
 					/>
 				</div>
 			</div>

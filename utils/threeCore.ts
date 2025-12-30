@@ -461,10 +461,10 @@ class ThreeCore {
 	 */
 	setShadowQuality(quality: 'low' | 'medium' | 'high' | 'ultra') {
 		const qualitySettings = {
-			low: { mapSize: 1024, bias: -0.002, normalBias: 0.1 },
-			medium: { mapSize: 2048, bias: -0.001, normalBias: 0.05 },
-			high: { mapSize: 4096, bias: -0.0005, normalBias: 0.02 },
-			ultra: { mapSize: 8192, bias: -0.0001, normalBias: 0.01 }
+			low: { mapSize: 512, bias: -0.002, normalBias: 0.1 },
+			medium: { mapSize: 1024, bias: -0.001, normalBias: 0.05 },
+			high: { mapSize: 2048, bias: -0.0005, normalBias: 0.02 },
+			ultra: { mapSize: 4096, bias: -0.0001, normalBias: 0.01 }
 		}
 
 		const settings = qualitySettings[quality]
@@ -1519,11 +1519,11 @@ class ThreeCore {
 				(frustumSize * aspect) / 2,
 				frustumSize / 2,
 				-frustumSize / 2,
-				0.1,
+				0.01,
 				1000
 			)
 		} else {
-			this.camera = new THREE.PerspectiveCamera(75, aspect, 0.1, 1000)
+			this.camera = new THREE.PerspectiveCamera(45, aspect, 0.1, 1000)
 		}
 
 		if (cameraPosition) {
@@ -2182,11 +2182,15 @@ class ThreeCore {
 							rotation: options.rotation ?? 0
 						})
 						tex.flipY = false
+						tex.colorSpace = THREE.SRGBColorSpace
 						child.material.map = tex
 						child.material.transparent = true
 						child.material.needsUpdate = true
 					}
 				}
+			} else if (child instanceof THREE.Mesh) {
+				child.material.map.colorSpace = THREE.SRGBColorSpace
+				console.log('其他模型', child.material.map)
 			}
 		})
 		mesh.userData.material = material
