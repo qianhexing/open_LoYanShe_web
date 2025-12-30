@@ -864,11 +864,11 @@ useHead({
 					<button
 						v-if="edit_mode || add_mode"
 						@click="saveScene"
-						class="w-full flex flex-col items-center gap-1 p-1.5 rounded-xl hover:bg-pink-50 dark:hover:bg-pink-900/20 transition-colors group active:scale-95"
+						class="w-full flex flex-col items-center gap-1 p-1.5 rounded-xl hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors group active:scale-95"
 						title="保存"
 					>
-						<div class="w-7 h-7 bg-pink-500 dark:bg-pink-600 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform">
-							<UIcon name="ant-design:file-filled" class="text-sm text-white" />
+						<div class="w-7 h-7 bg-blue-500 dark:bg-blue-600 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform">
+							<UIcon name="material-symbols:save-rounded" class="text-sm text-white" />
 						</div>
 						<span class="text-[9px] text-gray-700 dark:text-gray-200 font-medium leading-tight">保存</span>
 					</button>
@@ -877,11 +877,11 @@ useHead({
 					<button
 						v-if="edit_mode || add_mode"
 						@click="addImage"
-						class="w-full flex flex-col items-center gap-1 p-1.5 rounded-xl hover:bg-pink-50 dark:hover:bg-pink-900/20 transition-colors group active:scale-95"
+						class="w-full flex flex-col items-center gap-1 p-1.5 rounded-xl hover:bg-green-50 dark:hover:bg-green-900/20 transition-colors group active:scale-95"
 						title="图片"
 					>
-						<div class="w-7 h-7 bg-pink-500 dark:bg-pink-600 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform">
-							<UIcon name="ant-design:picture-filled" class="text-sm text-white" />
+						<div class="w-7 h-7 bg-green-500 dark:bg-green-600 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform">
+							<UIcon name="material-symbols:add-photo-alternate-rounded" class="text-sm text-white" />
 						</div>
 						<span class="text-[9px] text-gray-700 dark:text-gray-200 font-medium leading-tight">图片</span>
 					</button>
@@ -890,11 +890,11 @@ useHead({
 					<button
 						v-if="edit_mode || add_mode"
 						@click="addDiaryClick"
-						class="w-full flex flex-col items-center gap-1 p-1.5 rounded-xl hover:bg-pink-50 dark:hover:bg-pink-900/20 transition-colors group active:scale-95"
+						class="w-full flex flex-col items-center gap-1 p-1.5 rounded-xl hover:bg-amber-50 dark:hover:bg-amber-900/20 transition-colors group active:scale-95"
 						title="日记点"
 					>
-						<div class="w-7 h-7 bg-pink-500 dark:bg-pink-600 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform">
-							<UIcon name="material-symbols:note-edit-outline" class="text-sm text-white" />
+						<div class="w-7 h-7 bg-amber-500 dark:bg-amber-600 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform">
+							<UIcon name="material-symbols:edit-note-rounded" class="text-sm text-white" />
 						</div>
 						<span class="text-[9px] text-gray-700 dark:text-gray-200 font-medium leading-tight">日记点</span>
 					</button>
@@ -903,11 +903,11 @@ useHead({
 					<button
 						v-if="edit_mode || add_mode"
 						@click="recordCamera"
-						class="w-full flex flex-col items-center gap-1 p-1.5 rounded-xl hover:bg-pink-50 dark:hover:bg-pink-900/20 transition-colors group active:scale-95"
+						class="w-full flex flex-col items-center gap-1 p-1.5 rounded-xl hover:bg-rose-50 dark:hover:bg-rose-900/20 transition-colors group active:scale-95"
 						title="记录镜头"
 					>
-						<div class="w-7 h-7 bg-pink-500 dark:bg-pink-600 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform">
-							<UIcon name="material-symbols:video-camera-back" class="text-sm text-white" />
+						<div class="w-7 h-7 bg-rose-500 dark:bg-rose-600 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform">
+							<UIcon name="material-symbols:videocam-rounded" class="text-sm text-white" />
 						</div>
 						<span class="text-[9px] text-gray-700 dark:text-gray-200 font-medium leading-tight">镜头</span>
 					</button>
@@ -916,11 +916,11 @@ useHead({
 					<button
 						v-if="edit_mode || add_mode"
 						@click="addBackgroundClick"
-						class="w-full flex flex-col items-center gap-1 p-1.5 rounded-xl hover:bg-pink-50 dark:hover:bg-pink-900/20 transition-colors group active:scale-95"
+						class="w-full flex flex-col items-center gap-1 p-1.5 rounded-xl hover:bg-cyan-50 dark:hover:bg-cyan-900/20 transition-colors group active:scale-95"
 						title="背景"
 					>
-						<div class="w-7 h-7 bg-pink-500 dark:bg-pink-600 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform">
-							<UIcon name="material-symbols:image-outline" class="text-sm text-white" />
+						<div class="w-7 h-7 bg-cyan-500 dark:bg-cyan-600 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform">
+							<UIcon name="material-symbols:wallpaper-rounded" class="text-sm text-white" />
 						</div>
 						<span class="text-[9px] text-gray-700 dark:text-gray-200 font-medium leading-tight">背景</span>
 					</button>
@@ -929,11 +929,11 @@ useHead({
 					<button
 						v-if="edit_mode || add_mode"
 						@click="addTextClick"
-						class="w-full flex flex-col items-center gap-1 p-1.5 rounded-xl hover:bg-pink-50 dark:hover:bg-pink-900/20 transition-colors group active:scale-95"
+						class="w-full flex flex-col items-center gap-1 p-1.5 rounded-xl hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-colors group active:scale-95"
 						title="文本"
 					>
-						<div class="w-7 h-7 bg-pink-500 dark:bg-pink-600 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform">
-							<UIcon name="material-symbols:text-fields" class="text-sm text-white" />
+						<div class="w-7 h-7 bg-indigo-500 dark:bg-indigo-600 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform">
+							<UIcon name="material-symbols:title-rounded" class="text-sm text-white" />
 						</div>
 						<span class="text-[9px] text-gray-700 dark:text-gray-200 font-medium leading-tight">文本</span>
 					</button>
@@ -947,7 +947,7 @@ useHead({
 						title="素材"
 					>
 						<div class="w-7 h-7 bg-purple-500 dark:bg-purple-600 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform">
-							<UIcon name="material-symbols:widgets-outline" class="text-sm text-white" />
+							<UIcon name="material-symbols:deployed-code-rounded" class="text-sm text-white" />
 						</div>
 						<span class="text-[9px] text-gray-700 dark:text-gray-200 font-medium leading-tight">素材</span>
 					</button>
@@ -961,7 +961,7 @@ useHead({
 						title="模版"
 					>
 						<div class="w-7 h-7 bg-blue-500 dark:bg-blue-600 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform">
-							<UIcon name="material-symbols:view-module-outline" class="text-sm text-white" />
+							<UIcon name="material-symbols:dashboard-rounded" class="text-sm text-white" />
 						</div>
 						<span class="text-[9px] text-gray-700 dark:text-gray-200 font-medium leading-tight">模版</span>
 					</button>
@@ -975,7 +975,7 @@ useHead({
 						title="特效"
 					>
 						<div class="w-7 h-7 bg-orange-500 dark:bg-orange-600 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform">
-							<UIcon name="material-symbols:auto-awesome-outline" class="text-sm text-white" />
+							<UIcon name="material-symbols:auto-fix-high-rounded" class="text-sm text-white" />
 						</div>
 						<span class="text-[9px] text-gray-700 dark:text-gray-200 font-medium leading-tight">特效</span>
 					</button>
@@ -987,7 +987,7 @@ useHead({
 						title="设置"
 					>
 						<div class="w-7 h-7 bg-gray-500 dark:bg-gray-600 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform">
-							<UIcon name="material-symbols:settings-outline" class="text-sm text-white" />
+							<UIcon name="material-symbols:settings-rounded" class="text-sm text-white" />
 						</div>
 						<span class="text-[9px] text-gray-700 dark:text-gray-200 font-medium leading-tight">设置</span>
 					</button>
