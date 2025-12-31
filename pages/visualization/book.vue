@@ -122,6 +122,9 @@ const COVER_OVERHANG = 0.2
 const COVER_THICKNESS = 0.05
 const OPEN_ANGLE = 0.2 // Approx 11.5 degrees lift
 
+// Texture Cache
+const textureCache = new Map<string, THREE.Texture>()
+
 // --- Lifecycle ---
 onMounted(async () => {
   if (props.ratio) {
@@ -136,6 +139,8 @@ onMounted(async () => {
     initThree()
     await initBook()
     loading.value = false
+    // Preload textures
+    preloadTextures()
   }, 1000)
   
   window.addEventListener('mousedown', onMouseDown)
@@ -238,7 +243,7 @@ async function initBook() {
   bookGroup = new THREE.Group()
   scene.add(bookGroup)
 
-  const paperTex = await core.loadTexture(`${BASE_IMG}static/library_app/2018_1766770808923142.jpg`).catch(() => null)
+  const paperTex = await loadTex(`${BASE_IMG}static/library_app/2018_1766770808923142.jpg`)
   
   // Materials
   const pageMat = new THREE.MeshStandardMaterial({
@@ -268,15 +273,6 @@ async function initBook() {
 
   // --- 1. Covers (Hard Covers) ---
   
-  // Back Cover (Fixed Right side in Spread View?)
-  // Wait, Spread View: Book is open.
-  // Left side: Front Cover (inner). Right side: Back Cover (inner).
-  // If Closed (Spread 0): Right Side is Front Cover (outer).
-  
-  // Logic: 
-  // Right Stack/Cover is at positive X.
-  // Left Stack/Cover is at negative X.
-  
   // Back Cover (Right Side Base)
   const backCoverGeo = new THREE.BoxGeometry(coverWidth, coverHeight, COVER_THICKNESS)
   backCoverGeo.translate(coverWidth/2, 0, 0)
@@ -294,32 +290,7 @@ async function initBook() {
   
   frontCover = new THREE.Mesh(frontCoverGeo, coverMat)
   frontCover.position.z = -stackHeight / 2 - COVER_THICKNESS / 2
-  frontCover.rotation.y = -Math.PI - OPEN_ANGLE // Lift Left Side (rotate past -180)
-  // Wait, -PI is flat left. -PI - Angle pushes it down?
-  // -PI + Angle pushes it up (towards 0).
-  // 0 is Right. -PI/2 is Back. -PI is Left.
-  // We want Left side to lift up (towards +Z).
-  // Rotation Y: Positive -> CCW from top.
-  // 0 -> X axis. 
-  // PI -> -X axis.
-  // If we rotate -PI (or PI), it's along -X.
-  // If we want to lift the end (which is at -X), we need to rotate?
-  // Box geometry 0 to +Width.
-  // Rotated PI: goes 0 to -Width.
-  // If we want the -Width end to have +Z?
-  // Rotate around Y?
-  // RotY(PI) -> (-x, -z).
-  // If we rotate PI - alpha. End at (cos(PI-a)*w, -sin(PI-a)*w).
-  // = (-cos(a)*w, -sin(a)*w). Z goes negative?
-  // We want Z positive.
-  // So we need rotation PI + alpha? 
-  // Or -PI + alpha?
-  // Let's test: RotY(-PI + 0.2). Angle is -2.94.
-  // cos(-2.94) ~ -0.98. sin(-2.94) ~ -0.2.
-  // X = -0.98*W. Z = -(-0.2)*W = +0.2*W.
-  // So Z is positive.
-  // Correct: -Math.PI + OPEN_ANGLE lifts the left page up.
-  frontCover.rotation.y = -Math.PI + OPEN_ANGLE
+  frontCover.rotation.y = -Math.PI + OPEN_ANGLE // Lift Left Side
   
   frontCover.castShadow = true
   frontCover.receiveShadow = true
@@ -403,18 +374,6 @@ function updatePageBending() {
     // Range size: Math.PI - 2*OPEN_ANGLE
     const angle = flipper.rotation.y
     
-    // Normalize progress 0 (Right) to 1 (Left)
-    // Right Start: OPEN_ANGLE. Left End: -Math.PI + OPEN_ANGLE.
-    // Max Angle Diff = -Math.PI.
-    // Current Angle Diff = angle - OPEN_ANGLE.
-    // Progress = (angle - OPEN_ANGLE) / (-Math.PI) ? 
-    // No, range is from +0.2 to -2.94.
-    // Progress 0 at +0.2. Progress 1 at -2.94.
-    // angle = 0.2 - progress * PI? No, range is slightly smaller if we constrain?
-    // Actually flipper goes full range? No, we constrain it.
-    
-    // Let's treat progress as 0 to 1 over the full PI arc for bending calc
-    // But we are only showing a subset.
     const progress = Math.abs(angle - OPEN_ANGLE) / Math.PI 
     
     // Check if we are flipping the cover
@@ -546,6 +505,7 @@ async function setupFlipperForDrag(direction: 'next' | 'prev') {
   flipper.visible = true
   flipper.userData.direction = direction
   const i = currentSpreadIndex.value
+  
   if (direction === 'next') {
     flipper.rotation.y = OPEN_ANGLE
     const currentRightTex = await getTextureForSpread(i, 'right')
@@ -627,16 +587,17 @@ function finishPageFlip(direction: 'next' | 'prev') {
     y: targetRot,
     duration: 0.8,
     ease: "power2.inOut", 
-    onComplete: () => {
+    onComplete: async () => {
       if (direction === 'next') {
         currentSpreadIndex.value += 1
       } else {
         currentSpreadIndex.value -= 1
       }
-      updateTextures()
+      await updateTextures()
       flipper.visible = false
       isAnimating.value = false
       if (flipperBack.material.map) flipperBack.material.map.repeat.x = 1
+      preloadTextures() // Preload after flip
     }
   })
 }
@@ -649,10 +610,10 @@ function cancelPageFlip(direction: 'next' | 'prev') {
     y: targetRot,
     duration: 0.5,
     ease: "power2.out",
-    onComplete: () => {
+    onComplete: async () => {
       flipper.visible = false
       isAnimating.value = false
-      updateTextures()
+      await updateTextures()
     }
   })
 }
@@ -660,14 +621,12 @@ function cancelPageFlip(direction: 'next' | 'prev') {
 async function getTextureForSpread(spreadIndex: number, side: 'left' | 'right'): Promise<THREE.Texture | null> {
     if (spreadIndex < 0) return null
     
+    let url = ''
     if (spreadIndex === 0) {
         if (side === 'right') {
-            return props.coverImage ? await loadTex(props.coverImage) : null
-        } else {
-            return null 
+            url = props.coverImage || ''
         }
     } else {
-        // Content Pages
         const k = spreadIndex
         let contentIdx = -1
         if (side === 'left') {
@@ -677,19 +636,43 @@ async function getTextureForSpread(spreadIndex: number, side: 'left' | 'right'):
         }
         
         if (contentIdx >= 0 && contentIdx < contentImages.length) {
-            return await loadTex(contentImages[contentIdx])
+            url = contentImages[contentIdx]
         }
+    }
+    
+    if (url) {
+        return await loadTex(url)
+    }
+    return null
+}
+
+async function loadTex(url: string): Promise<THREE.Texture | null> {
+    if (!url) return null
+    
+    if (textureCache.has(url)) {
+        return textureCache.get(url)!
+    }
+    
+    try {
+        const tex = await core.loadTexture(url)
+        tex.colorSpace = THREE.SRGBColorSpace
+        textureCache.set(url, tex)
+        return tex
+    } catch {
         return null
     }
 }
 
-async function loadTex(url: string): Promise<THREE.Texture | null> {
-    try {
-        const tex = await core.loadTexture(url)
-        tex.colorSpace = THREE.SRGBColorSpace
-        return tex
-    } catch {
-        return null
+// Preload textures for current, prev, next spreads
+function preloadTextures() {
+    const range = 2 // Load +/- 2 spreads
+    const start = Math.max(0, currentSpreadIndex.value - range)
+    const end = Math.min(totalSpreads.value, currentSpreadIndex.value + range)
+    
+    for (let i = start; i <= end; i++) {
+        // Preload left and right
+        getTextureForSpread(i, 'left')
+        getTextureForSpread(i, 'right')
     }
 }
 
@@ -706,7 +689,7 @@ async function updateTextures() {
     frontCover.visible = true
     
     leftStack.scale.set(1, 1, 1)
-    leftStack.position.x = 0 // Always 0 (Pivot at Spine)
+    leftStack.position.x = 0 
 
   } else {
     leftStack.visible = false
@@ -719,14 +702,10 @@ async function updateTextures() {
     const mats = rightStack.material as THREE.MeshStandardMaterial[]
     updateMaterialMap(mats[4], tex)
     
-    // Resize Right Stack based on cover?
-    // If i=0, Right Stack IS the Front Cover. Must be Big.
     if (i === 0) {
         const scale = (PAGE_WIDTH + COVER_OVERHANG) / PAGE_WIDTH
         const hScale = (PAGE_HEIGHT + COVER_OVERHANG * 2) / PAGE_HEIGHT
         rightStack.scale.set(scale, hScale, 1)
-        // No Position X shift! Pivot is at 0.
-        // Box stretches from 0 to 5.2. Correct.
     } else {
         rightStack.scale.set(1, 1, 1)
     }
