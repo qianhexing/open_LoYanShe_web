@@ -341,8 +341,9 @@ async function initBook() {
   flipperFront = new THREE.Mesh(bendPageGeo.clone(), pageMat.clone())
   flipperFront.castShadow = true
   flipperFront.position.z = 0.01 
+  const pageMatClone = pageMat.clone()
+  flipperBack = new THREE.Mesh(bendPageGeo.clone(), pageMatClone)
   
-  flipperBack = new THREE.Mesh(bendPageGeo.clone(), pageMat.clone())
   flipperBack.receiveShadow = true
   flipperBack.position.z = -0.01
   flipperBack.rotation.y = Math.PI 
@@ -660,7 +661,7 @@ async function loadTex(url: string, flipX: boolean = false): Promise<THREE.Textu
         if (flipX) {
             const flippedTex = tex.clone()
             flippedTex.wrapS = THREE.RepeatWrapping
-            flippedTex.repeat.x = -1
+            // flippedTex.repeat.x = -1
             flippedTex.needsUpdate = true
             textureCache.set(key, flippedTex)
             return flippedTex
