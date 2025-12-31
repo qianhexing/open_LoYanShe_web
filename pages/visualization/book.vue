@@ -522,10 +522,6 @@ async function setupFlipperForDrag(direction: 'next' | 'prev') {
 
     // Flipper Back
     updateMaterialMap(flipperBack.material as THREE.MeshStandardMaterial, nextLeftTex)
-    if (flipperBack.material.map) {
-        flipperBack.material.map.wrapS = THREE.RepeatWrapping
-        flipperBack.material.map.repeat.x = -1
-    }
     
     // Right Stack Underneath (Next Spread Right Page)
     const nextRightTex = await getTextureForSpread(i + 1, 'right') 
@@ -542,10 +538,6 @@ async function setupFlipperForDrag(direction: 'next' | 'prev') {
     
     // Flipper Back (Visible)
     updateMaterialMap(flipperBack.material as THREE.MeshStandardMaterial, currentLeftTex)
-    if (flipperBack.material.map) {
-        flipperBack.material.map.wrapS = THREE.RepeatWrapping
-        flipperBack.material.map.repeat.x = -1
-    }
     
     // Flipper Front
     const prevRightTex = await getTextureForSpread(i - 1, 'right')
@@ -602,7 +594,6 @@ function finishPageFlip(direction: 'next' | 'prev') {
       await updateTextures()
       flipper.visible = false
       isAnimating.value = false
-      if (flipperBack.material.map) flipperBack.material.map.repeat.x = 1
       preloadTextures() // Preload after flip
     }
   })
@@ -647,23 +638,36 @@ async function getTextureForSpread(spreadIndex: number, side: 'left' | 'right'):
     }
     
     if (url) {
-        return await loadTex(url)
+        // Request flipped texture for Left Side
+        return await loadTex(url, side === 'left')
     }
     return null
 }
 
-async function loadTex(url: string): Promise<THREE.Texture | null> {
+async function loadTex(url: string, flipX: boolean = false): Promise<THREE.Texture | null> {
     if (!url) return null
     
-    if (textureCache.has(url)) {
-        return textureCache.get(url)!
+    const key = url + (flipX ? '_flipped' : '')
+    
+    if (textureCache.has(key)) {
+        return textureCache.get(key)!
     }
     
     try {
         const tex = await core.loadTexture(url)
         tex.colorSpace = THREE.SRGBColorSpace
-        textureCache.set(url, tex)
-        return tex
+        
+        if (flipX) {
+            const flippedTex = tex.clone()
+            flippedTex.wrapS = THREE.RepeatWrapping
+            flippedTex.repeat.x = -1
+            flippedTex.needsUpdate = true
+            textureCache.set(key, flippedTex)
+            return flippedTex
+        } else {
+            textureCache.set(key, tex)
+            return tex
+        }
     } catch {
         return null
     }
