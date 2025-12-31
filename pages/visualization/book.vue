@@ -63,7 +63,7 @@ const props = withDefaults(defineProps<{
 }>(), {
   ratio: '9:16',
   coverImage: '',
-  thickness: 0.15 
+  thickness: 0.2 // Slightly thicker default for box effect
 })
 
 // --- Mock Data & Page Management ---
@@ -98,17 +98,24 @@ let clickRelativeY = 0
 
 // Book Parts
 let bookGroup: THREE.Group
+let pageBlockGroup: THREE.Group
 let leftStack: THREE.Mesh
 let rightStack: THREE.Mesh
 let flipper: THREE.Group 
 let flipperFront: THREE.Mesh
 let flipperBack: THREE.Mesh
 let spine: THREE.Mesh
+let frontCover: THREE.Mesh
+let backCover: THREE.Mesh
 
 // Calculate Dimensions based on ratio
 let PAGE_WIDTH = 5
 let PAGE_HEIGHT = 7.5
 const PAGE_SEGMENTS = 20 
+
+// Cover settings
+const COVER_OVERHANG = 0.2
+const COVER_THICKNESS = 0.05
 
 // --- Lifecycle ---
 onMounted(async () => {
@@ -228,6 +235,7 @@ async function initBook() {
 
   const paperTex = await core.loadTexture(`${BASE_IMG}static/library_app/2018_1766770808923142.jpg`).catch(() => null)
   
+  // Materials
   const pageMat = new THREE.MeshStandardMaterial({
     color: 0xffffff,
     roughness: 0.6,
@@ -237,76 +245,213 @@ async function initBook() {
   })
   
   const coverMat = new THREE.MeshStandardMaterial({
-    color: 0xffffff,
+    color: 0xffffff, // White default
     roughness: 0.8,
-    metalness: 0.2
+    metalness: 0.1,
   })
 
   const whiteMat = new THREE.MeshStandardMaterial({
     color: 0xffffff,
-    roughness: 0.8,
-    metalness: 0.1
+    roughness: 0.9,
+    metalness: 0.0
   })
 
+  // Dimensions
   const stackHeight = props.thickness 
+  const coverWidth = PAGE_WIDTH + COVER_OVERHANG
+  const coverHeight = PAGE_HEIGHT + COVER_OVERHANG * 2
+
+  // --- 1. Covers (Hard Covers) ---
   
+  // Back Cover (Fixed)
+  // BoxGeometry centered at 0. Moved to correct position.
+  const backCoverGeo = new THREE.BoxGeometry(coverWidth, coverHeight, COVER_THICKNESS)
+  // Shift pivot to spine edge for symmetry if needed, but back cover is static relative to spine
+  // Center X = coverWidth/2. Center Y=0. Center Z = -stackHeight/2 - COVER_THICKNESS/2
+  backCoverGeo.translate(coverWidth/2, 0, 0)
+  
+  backCover = new THREE.Mesh(backCoverGeo, coverMat)
+  backCover.position.z = -stackHeight / 2 - COVER_THICKNESS / 2
+  backCover.castShadow = true
+  backCover.receiveShadow = true
+  bookGroup.add(backCover)
+  
+  // Front Cover (Animated - Part of Flipper or separate?)
+  // For simplicity, if we are in "open book" mode, the front cover is just the left side of the spread (Spread 0 left is empty/hidden, but visually we need a cover mesh there?)
+  // Actually, spread 0 is "Closed Book" state effectively? No, Spread 0: Right = Cover Front. Left = Empty.
+  // Wait, if Spread 0 is Cover, then Right Page shows Cover Image.
+  // We need a specific mesh for the Front Cover that can flip?
+  // Our existing 'flipper' and 'stacks' logic handles pages.
+  // The 'cover' is just Page 0.
+  // But we want the cover to be *larger* and *thicker*.
+  // So we should probably treat Spread 0 specially: The 'Right Stack' top face for Spread 0 is the Cover.
+  
+  // HOWEVER, to support thickness and size diff, we might need to separate the cover meshes from the page stack meshes.
+  // Let's keep the 'stacks' as the "Page Block" (inner white pages).
+  // And added 'Cover' meshes.
+  
+  // Front Cover Mesh (Static left side for when book is open past cover)
+  const frontCoverGeo = new THREE.BoxGeometry(coverWidth, coverHeight, COVER_THICKNESS)
+  frontCoverGeo.translate(coverWidth/2, 0, 0)
+  
+  frontCover = new THREE.Mesh(frontCoverGeo, coverMat)
+  frontCover.position.z = -stackHeight / 2 - COVER_THICKNESS / 2
+  // Rotate to be on the left
+  frontCover.rotation.y = Math.PI
+  // Initially hidden if we start at Cover (Spread 0). 
+  // At Spread 0, the cover is on the Right (Flipper Front or Right Stack Top).
+  // But wait, Spread 0 means we see the Front Cover on the Right side? 
+  // Standard "Western" book: Closed book, Front Cover is on Top (Right side relative to spine if we look from top?).
+  // If we open it, Front Cover goes to Left.
+  // So at Spread 0, we see Front Cover on Right.
+  
+  // Let's update the stacks to be the "Page Block".
+  // Page Block is slightly smaller than cover.
+  
+  // --- 2. Page Block (Stacks) ---
+  pageBlockGroup = new THREE.Group()
+  // Lift page block so it sits on back cover (if back cover is at bottom Z)
+  // Actually, let's center everything around Z=0.
+  
+  // Re-adjust Z positions:
+  // Spine Center Z = 0. Radius = stackHeight/2 + COVER_THICKNESS.
+  // Back Cover Z = -stackHeight/2 - COVER_THICKNESS/2.
+  // Front Cover (when closed) Z = +stackHeight/2 + COVER_THICKNESS/2.
+  // Page Block Z range: -stackHeight/2 to +stackHeight/2.
+  
+  // Update Back Cover Z
+  backCover.position.z = -stackHeight/2 - COVER_THICKNESS/2
+  
+  // Front Cover (Left side fixed mesh)
+  frontCover.position.z = -stackHeight/2 - COVER_THICKNESS/2 // Same plane as back cover when open flat
+  frontCover.castShadow = true
+  frontCover.receiveShadow = true
+  bookGroup.add(frontCover)
+  
+  // --- Stacks (Page Block) ---
   const stackGeo = new THREE.BoxGeometry(PAGE_WIDTH, PAGE_HEIGHT, stackHeight)
   stackGeo.translate(PAGE_WIDTH / 2, 0, -stackHeight / 2) 
 
   const rightStackMats = [
     whiteMat, whiteMat, whiteMat, whiteMat,
-    pageMat.clone(), 
+    pageMat.clone(), // Top
     whiteMat
   ]
-
   rightStack = new THREE.Mesh(stackGeo, rightStackMats)
   rightStack.castShadow = true
   rightStack.receiveShadow = true
+  // rightStack sits on top of back cover? No, it's half thickness.
+  // Its Z goes from 0 to -stackHeight.
+  // We want it from 0 to +stackHeight/2 ?
+  // Let's stick to: PageBlock center Z=0.
+  // StackGeo translates -stackHeight/2. So mesh at 0 spans 0 to -stackHeight.
+  // We want it to span +stackHeight/2 to -stackHeight/2 ?
+  // Right Stack represents the pile of pages on the right.
+  // If we are at Spread 0, all pages are on Right. Stack is full height.
+  // If we are at last Spread, all pages are on Left. Right Stack empty.
+  // This dynamic height is complex. Simplification: Fixed height stacks, changing texture.
+  
+  // Adjust Right Stack Z to align with spine center
+  rightStack.position.z = stackHeight / 2
+  pageBlockGroup.add(rightStack)
   
   const leftStackMats = [
     whiteMat, whiteMat, whiteMat, whiteMat,
     whiteMat,
     pageMat.clone() 
   ]
-
   leftStack = new THREE.Mesh(stackGeo, leftStackMats)
   leftStack.castShadow = true
   leftStack.receiveShadow = true
   leftStack.rotation.y = -Math.PI
+  leftStack.position.z = stackHeight / 2 // Same start Z, but rotated so it goes down?
+  // Rotated Y=PI. +Z becomes -Z.
+  // Geo: 0 to -stackHeight.
+  // Rotated: 0 to +stackHeight.
+  // If PosZ = stackHeight/2. Range: stackHeight/2 to 3*stackHeight/2. Too high.
+  // We want Left Stack to mirror Right Stack.
+  // Right Stack (0): 0 to -stackHeight (local). + stackHeight/2 (pos) -> stackHeight/2 to -stackHeight/2. Correct.
+  // Left Stack (0): 0 to -stackHeight (local). RotY -> 0 to +stackHeight.
+  // We want result to be -stackHeight/2 to stackHeight/2.
+  // So Left Stack PosZ should be -stackHeight/2.
+  // 0 + (-stackHeight/2) = -0.5. Top = -0.5 + 1 = 0.5. Correct.
+  leftStack.position.z = -stackHeight / 2
+  pageBlockGroup.add(leftStack)
   
+  bookGroup.add(pageBlockGroup)
+
+  // --- 3. Flipper ---
   flipper = new THREE.Group()
-  flipper.position.z = 0.02 
+  // Flipper Z needs to be slightly above stacks to avoid Z-fight
+  flipper.position.z = 0 
+  
+  // Flipper needs separate Cover Mesh and Page Mesh to handle size diff?
+  // Complex. Easier: Flipper is always "Page Size". 
+  // BUT if we flip the Cover, it must look like the cover.
+  // Implementation: Scale the flipper mesh if it is the cover page.
   
   const bendPageGeo = new THREE.PlaneGeometry(PAGE_WIDTH, PAGE_HEIGHT, PAGE_SEGMENTS, 1)
   bendPageGeo.translate(PAGE_WIDTH / 2, 0, 0) 
   
   flipperFront = new THREE.Mesh(bendPageGeo.clone(), pageMat.clone())
   flipperFront.castShadow = true
-  flipperFront.position.z = 0.005 
+  flipperFront.position.z = 0.01 
   
   flipperBack = new THREE.Mesh(bendPageGeo.clone(), pageMat.clone())
   flipperBack.receiveShadow = true
-  flipperBack.position.z = -0.005
+  flipperBack.position.z = -0.01
   flipperBack.rotation.y = Math.PI 
   flipperBack.scale.x = -1 
   
   flipper.add(flipperFront)
   flipper.add(flipperBack)
-  
-  bookGroup.add(rightStack)
-  bookGroup.add(leftStack)
   bookGroup.add(flipper)
 
-  const spineRadius = stackHeight * 0.6 
-  const spineMesh = new THREE.Mesh(
-    new THREE.CylinderGeometry(spineRadius, spineRadius, PAGE_HEIGHT + 0.2, 32, 1, false, 0, Math.PI),
-    coverMat
+  // --- 4. Spine ---
+  const spineWidth = stackHeight + COVER_THICKNESS // Full thickness
+  // Spine geometry: Curved Box or Cylinder segment
+  // Cylinder is easiest.
+  const spineGeo = new THREE.CylinderGeometry(spineWidth/2, spineWidth/2, coverHeight, 32, 1, true, Math.PI, Math.PI)
+  // Rotate to align
+  spineGeo.rotateZ(Math.PI / 2) // Cylinder along X
+  // The cylinder is created around Y axis. Rotate Z 90 -> along X.
+  // But we want it along Y (vertical book spine).
+  // Cylinder default is Y axis.
+  // We want half cylinder facing out (-X direction?).
+  // Spine is at X=0.
+  // Let's use Box for now for "Square" spine look as requested ("方块").
+  const spineBoxGeo = new THREE.BoxGeometry(spineWidth, coverHeight, spineWidth) 
+  // Just a block.
+  spine = new THREE.Mesh(spineBoxGeo, coverMat)
+  // Spine position: X=0 (Center), Y=0, Z=0.
+  // Shift it slightly back to cover the gap?
+  spine.position.x = -spineWidth/2 // Move left to act as hinge area?
+  // Actually spine connects Back and Front.
+  // Let's place it centered at X=0.
+  // It should block the view between stacks.
+  spine.scale.set(0.2, 1, 1) // Thin in X, full in Y/Z
+  // Actually "Spine" usually implies the back of the book.
+  // Rotate 90 deg?
+  spine = new THREE.Mesh(
+      new THREE.BoxGeometry(stackHeight + COVER_THICKNESS, coverHeight, 0.1),
+      coverMat
   )
-  spineMesh.rotation.z = Math.PI / 2
-  spineMesh.rotation.y = Math.PI / 2
-  spineMesh.geometry.rotateX(Math.PI / 2)
-  spineMesh.position.z = -stackHeight / 2
-  bookGroup.add(spineMesh)
+  spine.position.x = 0
+  spine.rotation.y = Math.PI / 2 // Face -X
+  spine.position.x = -0.1 // Slight offset
+  
+  // Better Spine:
+  // A vertical strip at x=0.
+  const realSpineGeo = new THREE.BoxGeometry(stackHeight + COVER_THICKNESS * 2, coverHeight, COVER_THICKNESS)
+  spine = new THREE.Mesh(realSpineGeo, coverMat)
+  spine.rotation.y = Math.PI / 2
+  spine.position.x = 0
+  spine.position.z = 0 // Center Z
+  // Shift X to be flush with left edge of covers?
+  // Covers start at X=0 and go +Width.
+  // Spine should be at X=0.
+  
+  bookGroup.add(spine)
 
   await updateTextures()
   flipper.visible = false
@@ -319,7 +464,26 @@ function updatePageBending() {
     const angle = flipper.rotation.y
     const progress = Math.abs(angle) / Math.PI 
     
-    const bendFactor = Math.sin(progress * Math.PI) * 2.0 
+    // Check if we are flipping the cover
+    const isCoverFlip = (currentSpreadIndex.value === 0 && flipper.userData.direction === 'next') || 
+                        (currentSpreadIndex.value === 1 && flipper.userData.direction === 'prev')
+    
+    // Adjust Flipper Size for Cover
+    if (isCoverFlip) {
+        const scale = (PAGE_WIDTH + COVER_OVERHANG) / PAGE_WIDTH
+        const hScale = (PAGE_HEIGHT + COVER_OVERHANG * 2) / PAGE_HEIGHT
+        flipper.scale.set(scale, hScale, 1)
+        
+        // Increase Z offset to avoid clipping stacks
+        flipperFront.position.z = COVER_THICKNESS / 2 + 0.01
+        flipperBack.position.z = -COVER_THICKNESS / 2 - 0.01
+    } else {
+        flipper.scale.set(1, 1, 1)
+        flipperFront.position.z = 0.01
+        flipperBack.position.z = -0.01
+    }
+
+    const bendFactor = Math.sin(progress * Math.PI) * (isCoverFlip ? 0.5 : 2.0) // Stiffer cover
     const torsion = clickRelativeY * 0.5 
     
     const positionAttribute = flipperFront.geometry.attributes.position
@@ -331,7 +495,7 @@ function updatePageBending() {
 
         let zMod = 1 + torsion * normY
         const z = bendFactor * Math.sin(normX * Math.PI) * 0.5 * zMod
-        positionAttribute.setZ( i, z )
+        positionAttribute.setZ( i, z + (isCoverFlip ? 0 : 0) ) // Base Z handled by mesh pos
     }
     positionAttribute.needsUpdate = true
     flipperFront.geometry.computeVertexNormals()
@@ -360,19 +524,32 @@ function onMouseDown(event: MouseEvent) {
   
   raycaster.setFromCamera(mouse, core.camera)
   
-  const intersects = raycaster.intersectObjects([rightStack, leftStack], true)
+  // Raycast against Stacks AND Covers
+  // If Spread 0, Right Stack is covered by Front Cover (if we had one).
+  // Actually, spread 0 Right side IS the Cover. 
+  // Since we use RightStack for rendering cover texture at Spread 0, we can click RightStack.
+  // BUT we need to distinguish Cover click vs Page click?
+  // The logic is same: Click Right -> Next.
+  
+  const intersects = raycaster.intersectObjects([rightStack, leftStack, frontCover, backCover], true)
   
   if (intersects.length > 0) {
     const obj = intersects[0].object
     const point = intersects[0].point
     clickRelativeY = Math.max(-1, Math.min(1, point.y / (PAGE_HEIGHT / 2)))
     
-    if (obj === rightStack && currentSpreadIndex.value < totalSpreads.value) {
+    // Check if clicked Right side
+    if ((obj === rightStack || obj === backCover) && currentSpreadIndex.value < totalSpreads.value) {
+      // Allow clicking back cover to close if open? No, back cover is on left usually?
+      // Back Cover is Left (Index 0 is Back Cover at bottom).
+      // If we are at Spread 0. Right Stack is visible (Front Cover). Click it -> Next.
+      if (currentSpreadIndex.value === 0 && obj !== rightStack) return // Only click stack/cover
+      
       isDragging = true
       core.controls.enabled = false
       dragStartPoint.set(event.clientX, event.clientY)
       setupFlipperForDrag('next')
-    } else if (obj === leftStack && currentSpreadIndex.value > 0) {
+    } else if ((obj === leftStack || obj === frontCover) && currentSpreadIndex.value > 0) {
       isDragging = true
       core.controls.enabled = false
       dragStartPoint.set(event.clientX, event.clientY)
@@ -425,104 +602,62 @@ async function setupFlipperForDrag(direction: 'next' | 'prev') {
   flipper.userData.direction = direction
   const i = currentSpreadIndex.value
   
-  // Logic:
-  // Spread i: Left Page showing Content (2*i - 3), Right Page showing Content (2*i - 2)
-  // Spread 0 (Cover): Left - (Hidden), Right - Cover
-  // Spread 1: Left - Content 0 (Back of Cover), Right - Content 1
-  // Spread 2: Left - Content 2, Right - Content 3
-  
-  // When Flipping NEXT from Spread i to Spread i+1:
-  // Flipper Front (Visible initially): Right Page of Spread i (Content 2*i - 2)
-  // Flipper Back (Revealed): Left Page of Spread i+1 (Content 2*(i+1) - 3) = Content 2*i - 1
-  // Right Stack (Revealed): Right Page of Spread i+1 (Content 2*(i+1) - 2) = Content 2*i
-  
   if (direction === 'next') {
     flipper.rotation.y = 0
     const currentRightTex = await getTextureForSpread(i, 'right')
     const nextLeftTex = await getTextureForSpread(i + 1, 'left')
     
-    // Flipper Front: Current Right Page
-    if (currentRightTex) {
-        (flipperFront.material as THREE.MeshStandardMaterial).map = currentRightTex;
-        (flipperFront.material as THREE.MeshStandardMaterial).needsUpdate = true;
-    } else {
-        (flipperFront.material as THREE.MeshStandardMaterial).map = null;
-        (flipperFront.material as THREE.MeshStandardMaterial).color.set(0xffffff);
-        (flipperFront.material as THREE.MeshStandardMaterial).needsUpdate = true;
-    }
+    // Flipper Front
+    updateMaterialMap(flipperFront.material as THREE.MeshStandardMaterial, currentRightTex)
 
-    // Flipper Back: Next Left Page
-    if (nextLeftTex) {
-        (flipperBack.material as THREE.MeshStandardMaterial).map = nextLeftTex
-        nextLeftTex.wrapS = THREE.RepeatWrapping
-        nextLeftTex.repeat.x = -1;
-        (flipperBack.material as THREE.MeshStandardMaterial).needsUpdate = true;
-    } else {
-        (flipperBack.material as THREE.MeshStandardMaterial).map = null;
-        (flipperBack.material as THREE.MeshStandardMaterial).color.set(0xffffff);
-        (flipperBack.material as THREE.MeshStandardMaterial).needsUpdate = true;
+    // Flipper Back
+    updateMaterialMap(flipperBack.material as THREE.MeshStandardMaterial, nextLeftTex)
+    if (flipperBack.material.map) {
+        flipperBack.material.map.wrapS = THREE.RepeatWrapping
+        flipperBack.material.map.repeat.x = -1
     }
     
-    // Right Stack Underneath: Next Right Page
+    // Right Stack Underneath
     const nextRightTex = await getTextureForSpread(i + 1, 'right') 
     const mats = rightStack.material as THREE.MeshStandardMaterial[]
-    if (nextRightTex) {
-        mats[4].map = nextRightTex
-        mats[4].needsUpdate = true
-    } else {
-        mats[4].map = null
-        mats[4].color.set(0xffffff)
-        mats[4].needsUpdate = true
-    }
+    updateMaterialMap(mats[4], nextRightTex)
     
   } else {
-    // Flipping PREV from Spread i to Spread i-1
-    // Flipper Front (Hidden initially, Back face visible): Right Page of Spread i-1 (Content 2*(i-1) - 2)
-    // Flipper Back (Visible initially): Left Page of Spread i (Content 2*i - 3)
-    // Left Stack Underneath: Left Page of Spread i-1 (Content 2*(i-1) - 3)
-    
     flipper.rotation.y = -Math.PI
     
     const currentLeftTex = await getTextureForSpread(i, 'left')
     
-    // Flipper Back (Visible): Current Left Page
-    if (currentLeftTex) {
-        (flipperBack.material as THREE.MeshStandardMaterial).map = currentLeftTex
-        currentLeftTex.wrapS = THREE.RepeatWrapping
-        currentLeftTex.repeat.x = -1;
-        (flipperBack.material as THREE.MeshStandardMaterial).needsUpdate = true;
-        
-        // Front needs to match prev right for edge-on consistency, or separate logic
-    } else {
-        (flipperBack.material as THREE.MeshStandardMaterial).map = null;
-        (flipperBack.material as THREE.MeshStandardMaterial).color.set(0xffffff);
-        (flipperBack.material as THREE.MeshStandardMaterial).needsUpdate = true;
+    // Flipper Back (Visible)
+    updateMaterialMap(flipperBack.material as THREE.MeshStandardMaterial, currentLeftTex)
+    if (flipperBack.material.map) {
+        flipperBack.material.map.wrapS = THREE.RepeatWrapping
+        flipperBack.material.map.repeat.x = -1
     }
     
-    // Flipper Front: Prev Right Page
+    // Flipper Front
     const prevRightTex = await getTextureForSpread(i - 1, 'right')
-    if (prevRightTex) {
-        (flipperFront.material as THREE.MeshStandardMaterial).map = prevRightTex;
-        (flipperFront.material as THREE.MeshStandardMaterial).needsUpdate = true;
-    } else {
-        (flipperFront.material as THREE.MeshStandardMaterial).map = null;
-        (flipperFront.material as THREE.MeshStandardMaterial).color.set(0xffffff);
-        (flipperFront.material as THREE.MeshStandardMaterial).needsUpdate = true;
-    }
+    updateMaterialMap(flipperFront.material as THREE.MeshStandardMaterial, prevRightTex)
     
-    // Left Stack Underneath: Prev Left Page
+    // Left Stack Underneath
     const prevLeftTex = await getTextureForSpread(i - 1, 'left')
     const mats = leftStack.material as THREE.MeshStandardMaterial[]
-    if (prevLeftTex) {
-        mats[5].map = prevLeftTex
-        mats[5].needsUpdate = true
-        leftStack.visible = true
-    } else {
-        // If Prev Spread is 0, Left Page is null (inside of cover? or just empty).
-        // Spread 0: Left=null, Right=Cover.
-        leftStack.visible = false
-    }
+    updateMaterialMap(mats[5], prevLeftTex)
+    
+    leftStack.visible = (i - 1) > 0 // Only visible if there is a spread before previous
+    if (i===1) leftStack.visible = false // Spread 1 prev is Spread 0. Spread 0 Left is empty.
   }
+}
+
+function updateMaterialMap(mat: THREE.MeshStandardMaterial, tex: THREE.Texture | null) {
+    if (tex) {
+        mat.map = tex
+        mat.needsUpdate = true
+        mat.color.set(0xffffff)
+    } else {
+        mat.map = null
+        mat.color.set(0xffffff)
+        mat.needsUpdate = true
+    }
 }
 
 function finishPageFlip(direction: 'next' | 'prev') {
@@ -542,7 +677,7 @@ function finishPageFlip(direction: 'next' | 'prev') {
       updateTextures()
       flipper.visible = false
       isAnimating.value = false
-      resetTextureRepeat(flipperBack.material as THREE.MeshStandardMaterial)
+      if (flipperBack.material.map) flipperBack.material.map.repeat.x = 1
     }
   })
 }
@@ -563,27 +698,14 @@ function cancelPageFlip(direction: 'next' | 'prev') {
   })
 }
 
-function resetTextureRepeat(mat: THREE.MeshStandardMaterial) {
-    if (mat.map) {
-        mat.map.repeat.x = 1
-    }
-}
-
-// Map Spread Index to Content
-// Spread 0: Left=None, Right=Cover
-// Spread 1: Left=Content[0], Right=Content[1]
-// Spread 2: Left=Content[2], Right=Content[3]
-// ...
-// Spread k: Left=Content[2k-2], Right=Content[2k-1]
 async function getTextureForSpread(spreadIndex: number, side: 'left' | 'right'): Promise<THREE.Texture | null> {
     if (spreadIndex < 0) return null
     
-    let url = ''
     if (spreadIndex === 0) {
         if (side === 'right') {
             return props.coverImage ? await loadTex(props.coverImage) : null
         } else {
-            return null // No left page on cover spread
+            return null 
         }
     } else {
         // Content Pages
@@ -615,44 +737,58 @@ async function loadTex(url: string): Promise<THREE.Texture | null> {
 async function updateTextures() {
   const i = currentSpreadIndex.value
   
-  // Left Stack (Top) - Shows Left Page of current spread
+  // Left Stack (Top)
   if (i > 0) {
     const tex = await getTextureForSpread(i, 'left')
     const mats = leftStack.material as THREE.MeshStandardMaterial[]
-    if (tex) {
-      mats[5].map = tex
-      mats[5].needsUpdate = true
-      leftStack.visible = true
-    } else {
-      mats[5].map = null
-      mats[5].color.set(0xffffff) 
-      mats[5].needsUpdate = true
-      // Only hide if it's strictly empty and not just a blank white page?
-      // For spread 0, left is null, so hidden.
-      // For spread 1, left is content[0].
-      leftStack.visible = true
-    }
-    // Special case for spread 0 (Cover) - Left stack shouldn't be visible
-    if (i === 0) leftStack.visible = false
+    updateMaterialMap(mats[5], tex)
+    
+    // Visibility logic:
+    // If i=1 (Spread 1), Left is Page 1.
+    // Left Stack should show Left Cover? 
+    // Left Stack represents the pile on the left.
+    // If we are at Spread 1, Left Pile Top is Page 1.
+    // Underneath Page 1 is Front Cover Inner?
+    // Our Left Stack is a block. 
+    // If Spread > 0, we show Left Stack.
+    leftStack.visible = true
+    
+    // Front Cover Visibility:
+    // If i > 0, Front Cover (mesh) is on the left bottom.
+    // It should be visible underneath the stack.
+    frontCover.visible = true
   } else {
+    // Spread 0: Left is empty.
     leftStack.visible = false
+    frontCover.visible = false // Hidden, effectively "on the right" (Right Stack handles it)
   }
 
-  // Right Stack (Underneath) - Shows Right Page of current spread
+  // Right Stack (Top)
   if (i < totalSpreads.value) {
     const tex = await getTextureForSpread(i, 'right')
     const mats = rightStack.material as THREE.MeshStandardMaterial[]
-    if (tex) {
-        mats[4].map = tex
-        mats[4].needsUpdate = true
+    updateMaterialMap(mats[4], tex)
+    
+    // Resize Right Stack based on cover?
+    // If i=0, Right Stack is the Front Cover.
+    // But we defined Right Stack as "Page Size".
+    // If we want Front Cover to be larger, we should scale Right Stack?
+    // OR hide Right Stack and show a "Front Cover Mesh" on top?
+    // Easier: Scale Right Stack mesh if i=0.
+    if (i === 0) {
+        const scale = (PAGE_WIDTH + COVER_OVERHANG) / PAGE_WIDTH
+        const hScale = (PAGE_HEIGHT + COVER_OVERHANG * 2) / PAGE_HEIGHT
+        rightStack.scale.set(scale, hScale, 1)
+        rightStack.position.x = (PAGE_WIDTH + COVER_OVERHANG) / 2
+        // Texture might stretch. Ideally use mapped UVs or distinct mesh.
     } else {
-        mats[4].map = null
-        mats[4].color.set(0xffffff) 
-        mats[4].needsUpdate = true
+        rightStack.scale.set(1, 1, 1)
+        rightStack.position.x = PAGE_WIDTH / 2
     }
-     rightStack.visible = true
+    
+    rightStack.visible = true
   } else {
-     rightStack.visible = false
+    rightStack.visible = false
   }
 }
 
