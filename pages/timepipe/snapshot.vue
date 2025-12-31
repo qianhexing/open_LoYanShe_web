@@ -1,15 +1,17 @@
 <template>
   <div class="container mx-auto min-h-screen p-4">
     <!-- 顶部控制栏 -->
-    <div class="flex flex-wrap items-center gap-4 mb-6 sticky top-0 bg-white/90 backdrop-blur z-50 p-4 shadow-sm rounded-lg">
-      <div class="flex items-center gap-2">
-        <span class="text-sm font-bold text-gray-700">选择日期:</span>
-        <QhxDatePicker v-model="picked" @change="onChange" />
+    <div class="flex flex-wrap items-center gap-4 mb-6 sticky top-0 bg-white/90 backdrop-blur z-50 p-4 shadow-sm rounded-lg overflow-x-auto">
+      <div class="flex items-center gap-2 flex-shrink-0">
+        <span class="text-sm font-bold text-gray-700 whitespace-nowrap">选择日期:</span>
+        <div class="w-[280px]"> <!-- 限制日期选择器容器宽度 -->
+            <QhxDatePicker v-model="picked" @change="onChange" />
+        </div>
       </div>
       
-      <div class="flex items-center gap-4">
-        <div class="text-sm text-gray-600">
-          <span class="font-bold">{{ formattedDate }}</span> 上新总数: <span class="text-primary-600 font-bold">{{ list.length }}</span>
+      <div class="flex items-center gap-4 flex-wrap">
+        <div class="text-sm text-gray-600 whitespace-nowrap">
+          <span class="font-bold">{{ formattedDate }}</span> 上新: <span class="text-primary-600 font-bold">{{ list.length }}</span>
           (共 {{ chunks.length }} 组)
         </div>
         
@@ -18,6 +20,7 @@
           color="primary" 
           icon="i-heroicons-arrow-down-tray"
           @click="handleDownloadAll"
+          class="whitespace-nowrap"
         >
           批量下载所有截图
         </UButton>
