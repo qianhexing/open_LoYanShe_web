@@ -333,7 +333,7 @@ async function initBook() {
 
   // --- 3. Flipper ---
   flipper = new THREE.Group()
-  flipper.position.z = 0 
+  flipper.position.z = props.thickness / 2 + 0.01 // Safe initial Z
   
   const bendPageGeo = new THREE.PlaneGeometry(PAGE_WIDTH, PAGE_HEIGHT, PAGE_SEGMENTS, 1)
   bendPageGeo.translate(PAGE_WIDTH / 2, 0, 0) 
@@ -389,10 +389,16 @@ function updatePageBending() {
         // Increase Z offset to avoid clipping stacks
         flipperFront.position.z = COVER_THICKNESS / 2 + 0.01
         flipperBack.position.z = -COVER_THICKNESS / 2 - 0.01
+        
+        // Lift entire group to clear stacks significantly for cover
+        flipper.position.z = props.thickness / 2 + COVER_THICKNESS / 2 + 0.02
     } else {
         flipper.scale.set(1, 1, 1)
         flipperFront.position.z = 0.01
         flipperBack.position.z = -0.01
+        
+        // Lift group for pages
+        flipper.position.z = props.thickness / 2 + 0.015
     }
 
     const bendFactor = Math.sin(progress * Math.PI) * (isCoverFlip ? 0.5 : 2.0) // Stiffer cover
