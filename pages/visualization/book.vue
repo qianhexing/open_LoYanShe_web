@@ -55,6 +55,13 @@ import gsap from 'gsap'
 import ThreeCore from '@/utils/threeCore'
 import { BASE_IMG } from '@/utils/ipConfig'
 
+// --- Props ---
+const props = withDefaults(defineProps<{
+  ratio?: string
+}>(), {
+  ratio: '9:16'
+})
+
 // --- Mock Data ---
 const totalPages = 20
 const imageUrls = Array.from({ length: totalPages }).map((_, i) => {
@@ -88,12 +95,23 @@ let flipperFront: THREE.Mesh
 let flipperBack: THREE.Mesh
 let spine: THREE.Mesh
 
-const PAGE_WIDTH = 5
-const PAGE_HEIGHT = 7.5
+// Calculate Dimensions based on ratio
+let PAGE_WIDTH = 5
+let PAGE_HEIGHT = 7.5
 const PAGE_SEGMENTS = 20 // Increase segments for bending
 
 // --- Lifecycle ---
 onMounted(async () => {
+  // Parse Ratio
+  if (props.ratio) {
+    const parts = props.ratio.split(/[:/]/).map(Number)
+    if (parts.length === 2 && !isNaN(parts[0]) && !isNaN(parts[1])) {
+       // Keep Height constant, calculate Width? Or keep Area?
+       // Let's keep Height = 7.5
+       PAGE_WIDTH = PAGE_HEIGHT * (parts[0] / parts[1])
+    }
+  }
+
   await nextTick()
   setTimeout(async () => {
     initThree()
@@ -224,10 +242,18 @@ async function initBook() {
     map: paperTex || null
   })
   
+  // Cover Material (Spine) - Now White
   const coverMat = new THREE.MeshStandardMaterial({
-    color: 0x5c3a21, 
+    color: 0xffffff, // White
     roughness: 0.8,
     metalness: 0.2
+  })
+
+  // White Base Material (For sides of stack)
+  const whiteMat = new THREE.MeshStandardMaterial({
+    color: 0xffffff,
+    roughness: 0.8,
+    metalness: 0.1
   })
 
   // Geometries
@@ -237,11 +263,36 @@ async function initBook() {
   const stackGeo = new THREE.BoxGeometry(PAGE_WIDTH, PAGE_HEIGHT, stackHeight)
   stackGeo.translate(PAGE_WIDTH / 2, 0, -stackHeight / 2) 
 
-  rightStack = new THREE.Mesh(stackGeo, pageMat.clone())
+  // Right Stack Materials: Sides White, Top (+Z) Image
+  // Faces: +x, -x, +y, -y, +z, -z
+  // +Z is Front/Top in this translation context? 
+  // Wait, BoxGeometry is created centered at origin.
+  // Z axis is thickness.
+  // +Z face is the "Front" face.
+  // We translate it -stackHeight/2 in Z, so top face is at Z=0.
+  // So index 4 (+Z) is the top face.
+  const rightStackMats = [
+    whiteMat, whiteMat, whiteMat, whiteMat,
+    pageMat.clone(), // +Z (Top)
+    whiteMat
+  ]
+
+  rightStack = new THREE.Mesh(stackGeo, rightStackMats)
   rightStack.castShadow = true
   rightStack.receiveShadow = true
   
-  leftStack = new THREE.Mesh(stackGeo, pageMat.clone())
+  // Left Stack Materials
+  // It is rotated Y = -PI.
+  // Local +Z (Top) becomes World -Z (Bottom).
+  // Local -Z (Back) becomes World +Z (Top).
+  // So visible face is -Z (Index 5).
+  const leftStackMats = [
+    whiteMat, whiteMat, whiteMat, whiteMat,
+    whiteMat,
+    pageMat.clone() // -Z (Back -> Top when rotated)
+  ]
+
+  leftStack = new THREE.Mesh(stackGeo, leftStackMats)
   leftStack.castShadow = true
   leftStack.receiveShadow = true
   leftStack.rotation.y = -Math.PI
@@ -445,7 +496,11 @@ async function setupFlipperForDrag(direction: 'next' | 'prev') {
     }
     
     const nextNextTex = await getTexture(i + 2) 
-    if (nextNextTex) (rightStack.material as THREE.MeshStandardMaterial).map = nextNextTex
+    if (nextNextTex) {
+        // Right Stack is array material, index 4 is top
+        const mats = rightStack.material as THREE.MeshStandardMaterial[]
+        mats[4].map = nextNextTex
+    }
     
   } else {
     flipper.rotation.y = -Math.PI
@@ -460,7 +515,9 @@ async function setupFlipperForDrag(direction: 'next' | 'prev') {
     
     const prevPrevTex = await getTexture(i - 2)
     if (prevPrevTex) {
-        (leftStack.material as THREE.MeshStandardMaterial).map = prevPrevTex
+        // Left Stack is array material, index 5 is top (Back face)
+        const mats = leftStack.material as THREE.MeshStandardMaterial[]
+        mats[5].map = prevPrevTex
         leftStack.visible = true
     } else {
         leftStack.visible = false
@@ -531,8 +588,10 @@ async function updateTextures() {
   if (i > 0) {
     const tex = await getTexture(i - 1)
     if (tex) {
-      (leftStack.material as THREE.MeshStandardMaterial).map = tex
-      ;(leftStack.material as THREE.MeshStandardMaterial).needsUpdate = true
+      // Index 5 for left stack
+      const mats = leftStack.material as THREE.MeshStandardMaterial[]
+      mats[5].map = tex
+      mats[5].needsUpdate = true
       leftStack.visible = true
     }
   } else {
@@ -542,8 +601,10 @@ async function updateTextures() {
   // Right Stack (Underneath) - Shows i
   const tex = await getTexture(i)
   if (tex) {
-    (rightStack.material as THREE.MeshStandardMaterial).map = tex
-    ;(rightStack.material as THREE.MeshStandardMaterial).needsUpdate = true
+    // Index 4 for right stack
+    const mats = rightStack.material as THREE.MeshStandardMaterial[]
+    mats[4].map = tex
+    mats[4].needsUpdate = true
      rightStack.visible = true
   } else {
      rightStack.visible = false
