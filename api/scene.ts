@@ -29,10 +29,25 @@ export async function updateScene(
 export async function insertScene(
   params: {
     json_data: SceneJSON
+    sence_cover?: string
   }
 ): Promise<Scene> {
   const response = await use$Post<BaseResponse<Scene>>(
     '/sence/insert',
+    params
+  );
+  return response.data;
+}
+
+interface GetSceneListParams extends PaginationParams {
+  visitor_id: number
+}
+
+export async function getSenceList(
+  params: GetSceneListParams
+): Promise<PaginationResponse<Scene>> {
+  const response = await use$Post<BaseResponse<PaginationResponse<Scene>>>(
+    '/sence/list',
     params
   );
   return response.data;

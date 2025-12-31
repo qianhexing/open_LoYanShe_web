@@ -10,6 +10,7 @@ import type SceneMaterial from '@/components/scene/Material.vue'
 import type SceneTextureEditor from '@/components/scene/TextureEditor.vue'
 import { useSceneStore } from '@/stores/sence'
 import { uploadImage, createFont } from '~/api';
+import { uploadFileToOSS } from '@/utils/ossUpload';
 const sceneStore = useSceneStore()
 const configStore = useConfigStore()
 const config = computed(() => configStore.config)
@@ -690,49 +691,95 @@ const jumpToCommunity = (item: Community) => {
 		}
 	}
 }
-const saveScene = () => {
+// 生成场景截图
+const captureSceneImage = async (): Promise<string | null> => {
+	if (!threeCore || !threeCore.renderer) {
+		console.error('场景未初始化')
+		return null
+	}
+	
+	try {
+		// 确保场景已渲染
+		threeCore.renderer.render(threeCore.scene, threeCore.camera)
+		
+		// 从渲染器的 canvas 获取数据
+		const canvas = threeCore.renderer.domElement
+		const dataURL = canvas.toDataURL('image/png', 1.0)
+		
+		// 将 base64 转换为 Blob，再转换为 File
+		const response = await fetch(dataURL)
+		const blob = await response.blob()
+		const file = new File([blob], 'scene_cover.png', { type: 'image/png' })
+		
+		// 上传到 OSS，使用 sence_cover 作为路径前缀
+		const uploadResult = await uploadFileToOSS(file, 'sence_cover')
+		
+		return uploadResult.file_url
+	} catch (error) {
+		console.error('生成场景截图失败:', error)
+		return null
+	}
+}
+
+const saveScene = async () => {
 	const json_data = threeCore.saveSceneToJSON()
-	const params = {
+	const params: {
+		json_data: typeof json_data
+		sence_cover?: string
+	} = {
 		json_data
 	}
 	console.log('保存的数据', json_data)
+	
 	if (add_mode.value) {
 		if (loading.value) {
-					toast.add({
-					title: '请求中……',
-					icon: 'i-heroicons-check-circle',
-					color: 'green'
-				})
+			toast.add({
+				title: '请求中……',
+				icon: 'i-heroicons-check-circle',
+				color: 'green'
+			})
 			return
 		}
 		loading.value = true
-		insertScene(params)
-			.then(async (res) => {
-				const communityParams = {
-					title: '3D帖子',
-					content: `<p><iframe style="width:100%; height:60vh" frameborder="0" allowfullscreen
-					mozallowfullscreen="true" webkitallowfullscreen="true" allow="autoplay; fullscreen; xr-spatial-tracking"
-					xr-spatial-tracking execution-while-out-of-viewport execution-while-not-rendered web-share
-					src="https://lolitalibrary.com/scene/detail/${res.sence_id}"> </iframe></p>`,
-					type: '3D',
-					sence_id: res.sence_id
-				}
-				try {
-					const community = await insertCommunity(communityParams)
-					jumpToCommunity(community)
-						toast.add({
-						title: '新增成功',
-						icon: 'i-heroicons-check-circle',
-						color: 'green'
-					})
-				} catch (error) {
-					
-				}
-				
+		
+		try {
+			// 先生成并上传场景图
+			const sence_cover = await captureSceneImage()
+			if (sence_cover) {
+				params.sence_cover = sence_cover
+			}
+			
+			const res = await insertScene(params)
+			const communityParams = {
+				title: '3D帖子',
+				content: `<p><iframe style="width:100%; height:60vh" frameborder="0" allowfullscreen
+				mozallowfullscreen="true" webkitallowfullscreen="true" allow="autoplay; fullscreen; xr-spatial-tracking"
+				xr-spatial-tracking execution-while-out-of-viewport execution-while-not-rendered web-share
+				src="https://lolitalibrary.com/scene/detail/${res.sence_id}"> </iframe></p>`,
+				type: '3D',
+				sence_id: res.sence_id
+			}
+			try {
+				const community = await insertCommunity(communityParams)
+				jumpToCommunity(community)
+				toast.add({
+					title: '新增成功',
+					icon: 'i-heroicons-check-circle',
+					color: 'green'
+				})
+			} catch (error) {
+				console.error('创建社区帖子失败:', error)
+			}
+		} catch (error) {
+			console.error('保存场景失败:', error)
+			toast.add({
+				title: '保存失败',
+				icon: 'i-heroicons-x-circle',
+				color: 'red'
 			})
-			.finally(() => {
-				loading.value = false
-			})
+		} finally {
+			loading.value = false
+		}
 	} else {
 		updateScene({
 			...params,
