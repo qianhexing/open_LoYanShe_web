@@ -442,7 +442,8 @@ async function initBook() {
   
   // Better Spine:
   // A vertical strip at x=0.
-  const realSpineGeo = new THREE.BoxGeometry(stackHeight + COVER_THICKNESS * 2, coverHeight, COVER_THICKNESS)
+  // Reduce dimensions to be minimal as requested
+  const realSpineGeo = new THREE.BoxGeometry(stackHeight, coverHeight, 0.02)
   spine = new THREE.Mesh(realSpineGeo, coverMat)
   spine.rotation.y = Math.PI / 2
   spine.position.x = 0
