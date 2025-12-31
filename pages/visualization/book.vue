@@ -519,7 +519,7 @@ async function setupFlipperForDrag(direction: 'next' | 'prev') {
     // If next spread is 0? Impossible for 'next'.
     // So Revealed Right Stack is always Small (Page).
     rightStack.scale.set(1, 1, 1)
-    rightStack.position.x = PAGE_WIDTH / 2
+    rightStack.position.x = 0
     
   } else {
     flipper.rotation.y = -Math.PI
@@ -553,7 +553,7 @@ async function setupFlipperForDrag(direction: 'next' | 'prev') {
         // It is big (Cover Inner).
         const scale = (PAGE_WIDTH + COVER_OVERHANG) / PAGE_WIDTH
         const hScale = (PAGE_HEIGHT + COVER_OVERHANG * 2) / PAGE_HEIGHT
-        leftStack.scale.set(scale, hScale, 1)
+        // leftStack.scaleleftStack.scale.set(scale, hScale, 1)
         leftStack.position.x = (PAGE_WIDTH + COVER_OVERHANG) / 2
         // Position X needs to be adjusted because LeftStack is rotated.
         // LeftStack is rotated Y=PI.
@@ -591,6 +591,7 @@ async function setupFlipperForDrag(direction: 'next' | 'prev') {
     } else {
         leftStack.scale.set(1, 1, 1)
         leftStack.position.x = 0
+        console.log('leftStack.scale', leftStack.scale)
     }
     
     // And remove my previous erroneous shift for RightStack in setupFlipperForDrag
