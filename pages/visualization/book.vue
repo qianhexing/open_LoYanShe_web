@@ -116,6 +116,7 @@ const PAGE_SEGMENTS = 20
 // Cover settings
 const COVER_OVERHANG = 0.2
 const COVER_THICKNESS = 0.05
+const OPEN_ANGLE = 0.2 // Approx 11.5 degrees lift
 
 // --- Lifecycle ---
 onMounted(async () => {
@@ -263,29 +264,59 @@ async function initBook() {
 
   // --- 1. Covers (Hard Covers) ---
   
-  // Back Cover (Fixed)
+  // Back Cover (Fixed Right side in Spread View?)
+  // Wait, Spread View: Book is open.
+  // Left side: Front Cover (inner). Right side: Back Cover (inner).
+  // If Closed (Spread 0): Right Side is Front Cover (outer).
+  
+  // Logic: 
+  // Right Stack/Cover is at positive X.
+  // Left Stack/Cover is at negative X.
+  
+  // Back Cover (Right Side Base)
   const backCoverGeo = new THREE.BoxGeometry(coverWidth, coverHeight, COVER_THICKNESS)
   backCoverGeo.translate(coverWidth/2, 0, 0)
   
   backCover = new THREE.Mesh(backCoverGeo, coverMat)
   backCover.position.z = -stackHeight / 2 - COVER_THICKNESS / 2
+  backCover.rotation.y = OPEN_ANGLE // Lift Right Side
   backCover.castShadow = true
   backCover.receiveShadow = true
   bookGroup.add(backCover)
   
-  // Front Cover (Static left side for when book is open past cover)
+  // Front Cover (Left Side Base)
   const frontCoverGeo = new THREE.BoxGeometry(coverWidth, coverHeight, COVER_THICKNESS)
   frontCoverGeo.translate(coverWidth/2, 0, 0)
   
   frontCover = new THREE.Mesh(frontCoverGeo, coverMat)
   frontCover.position.z = -stackHeight / 2 - COVER_THICKNESS / 2
-  frontCover.rotation.y = Math.PI
+  frontCover.rotation.y = -Math.PI - OPEN_ANGLE // Lift Left Side (rotate past -180)
+  // Wait, -PI is flat left. -PI - Angle pushes it down?
+  // -PI + Angle pushes it up (towards 0).
+  // 0 is Right. -PI/2 is Back. -PI is Left.
+  // We want Left side to lift up (towards +Z).
+  // Rotation Y: Positive -> CCW from top.
+  // 0 -> X axis. 
+  // PI -> -X axis.
+  // If we rotate -PI (or PI), it's along -X.
+  // If we want to lift the end (which is at -X), we need to rotate?
+  // Box geometry 0 to +Width.
+  // Rotated PI: goes 0 to -Width.
+  // If we want the -Width end to have +Z?
+  // Rotate around Y?
+  // RotY(PI) -> (-x, -z).
+  // If we rotate PI - alpha. End at (cos(PI-a)*w, -sin(PI-a)*w).
+  // = (-cos(a)*w, -sin(a)*w). Z goes negative?
+  // We want Z positive.
+  // So we need rotation PI + alpha? 
+  // Or -PI + alpha?
+  // Let's test: RotY(-PI + 0.2). Angle is -2.94.
+  // cos(-2.94) ~ -0.98. sin(-2.94) ~ -0.2.
+  // X = -0.98*W. Z = -(-0.2)*W = +0.2*W.
+  // So Z is positive.
+  // Correct: -Math.PI + OPEN_ANGLE lifts the left page up.
+  frontCover.rotation.y = -Math.PI + OPEN_ANGLE
   
-  // Update Back Cover Z
-  backCover.position.z = -stackHeight/2 - COVER_THICKNESS/2
-  
-  // Front Cover (Left side fixed mesh)
-  frontCover.position.z = -stackHeight/2 - COVER_THICKNESS/2 
   frontCover.castShadow = true
   frontCover.receiveShadow = true
   bookGroup.add(frontCover)
@@ -306,8 +337,9 @@ async function initBook() {
   rightStack.castShadow = true
   rightStack.receiveShadow = true
   
-  // Adjust Right Stack Z to align with spine center
+  // Adjust Right Stack
   rightStack.position.z = stackHeight / 2
+  rightStack.rotation.y = OPEN_ANGLE // Match Cover
   pageBlockGroup.add(rightStack)
   
   const leftStackMats = [
@@ -318,7 +350,7 @@ async function initBook() {
   leftStack = new THREE.Mesh(stackGeo, leftStackMats)
   leftStack.castShadow = true
   leftStack.receiveShadow = true
-  leftStack.rotation.y = -Math.PI
+  leftStack.rotation.y = -Math.PI + OPEN_ANGLE // Match Cover
   leftStack.position.z = -stackHeight / 2
   pageBlockGroup.add(leftStack)
   
@@ -363,8 +395,23 @@ async function initBook() {
 function updatePageBending() {
     if (!flipper || !flipper.visible) return
     
+    // Angle range: OPEN_ANGLE to (-Math.PI + OPEN_ANGLE)
+    // Range size: Math.PI - 2*OPEN_ANGLE
     const angle = flipper.rotation.y
-    const progress = Math.abs(angle) / Math.PI 
+    
+    // Normalize progress 0 (Right) to 1 (Left)
+    // Right Start: OPEN_ANGLE. Left End: -Math.PI + OPEN_ANGLE.
+    // Max Angle Diff = -Math.PI.
+    // Current Angle Diff = angle - OPEN_ANGLE.
+    // Progress = (angle - OPEN_ANGLE) / (-Math.PI) ? 
+    // No, range is from +0.2 to -2.94.
+    // Progress 0 at +0.2. Progress 1 at -2.94.
+    // angle = 0.2 - progress * PI? No, range is slightly smaller if we constrain?
+    // Actually flipper goes full range? No, we constrain it.
+    
+    // Let's treat progress as 0 to 1 over the full PI arc for bending calc
+    // But we are only showing a subset.
+    const progress = Math.abs(angle - OPEN_ANGLE) / Math.PI 
     
     // Check if we are flipping the cover
     const isCoverFlip = (currentSpreadIndex.value === 0 && flipper.userData.direction === 'next') || 
@@ -458,9 +505,11 @@ function onMouseMove(event: MouseEvent) {
   let rotation = 0
   
   if (flipper.userData.direction === 'next') {
-    rotation = Math.max(-Math.PI, Math.min(0, deltaX * sensitivity))
+    // Range: OPEN_ANGLE to (-Math.PI + OPEN_ANGLE)
+    rotation = Math.max(-Math.PI + OPEN_ANGLE, Math.min(OPEN_ANGLE, OPEN_ANGLE + deltaX * sensitivity))
   } else {
-    rotation = Math.max(-Math.PI, Math.min(0, -Math.PI + deltaX * sensitivity))
+    // Range: (-Math.PI + OPEN_ANGLE) to OPEN_ANGLE
+    rotation = Math.max(-Math.PI + OPEN_ANGLE, Math.min(OPEN_ANGLE, -Math.PI + OPEN_ANGLE + deltaX * sensitivity))
   }
   
   flipper.rotation.y = rotation
@@ -495,7 +544,7 @@ async function setupFlipperForDrag(direction: 'next' | 'prev') {
   const i = currentSpreadIndex.value
   
   if (direction === 'next') {
-    flipper.rotation.y = 0
+    flipper.rotation.y = OPEN_ANGLE
     const currentRightTex = await getTextureForSpread(i, 'right')
     const nextLeftTex = await getTextureForSpread(i + 1, 'left')
     
@@ -514,15 +563,11 @@ async function setupFlipperForDrag(direction: 'next' | 'prev') {
     const mats = rightStack.material as THREE.MeshStandardMaterial[]
     updateMaterialMap(mats[4], nextRightTex)
     
-    // Correct Scale for Revealed Right Stack
-    // If next spread is > 0, it's NOT a cover, so small.
-    // If next spread is 0? Impossible for 'next'.
-    // So Revealed Right Stack is always Small (Page).
     rightStack.scale.set(1, 1, 1)
     rightStack.position.x = 0
     
   } else {
-    flipper.rotation.y = -Math.PI
+    flipper.rotation.y = -Math.PI + OPEN_ANGLE
     
     const currentLeftTex = await getTextureForSpread(i, 'left')
     
@@ -543,49 +588,11 @@ async function setupFlipperForDrag(direction: 'next' | 'prev') {
     updateMaterialMap(mats[5], prevLeftTex)
     
     leftStack.visible = (i - 1) > 0 
-    // Special case: If we are flipping back to Spread 1 (i=2 -> i=1).
-    // Prev Spread is 1. Left Stack is Spread 1 Left Page (Endpaper).
-    // It should be visible and Big? 
-    // Wait, Spread 1 Left is Big (Endpaper).
-    // So if (i - 1) === 1, we should scale Left Stack to Big.
     if ((i - 1) === 1) {
-        // Actually, Endpaper logic: Spread 1 Left is Endpaper.
-        // It is big (Cover Inner).
         const scale = (PAGE_WIDTH + COVER_OVERHANG) / PAGE_WIDTH
         const hScale = (PAGE_HEIGHT + COVER_OVERHANG * 2) / PAGE_HEIGHT
         // leftStack.scaleleftStack.scale.set(scale, hScale, 1)
         leftStack.position.x = (PAGE_WIDTH + COVER_OVERHANG) / 2
-        // Position X needs to be adjusted because LeftStack is rotated.
-        // LeftStack is rotated Y=PI.
-        // Local X goes from 0 to Width.
-        // Rotated: Local +X is World -X.
-        // We want it to extend to the Left (World -X).
-        // Default Pos X = PAGE_WIDTH / 2 (2.5). 
-        // Pivot at 2.5? No. StackGeo translate PAGE_WIDTH/2. Pivot at 0.
-        // If Pivot at 0. Rotated Y=PI. Mesh goes 0 to -Width.
-        // If we want it at Left: It should be at X=0?
-        // Wait. StackGeo translates 2.5. So Pivot (0,0,0) -> Geometry Center (2.5, 0, -h/2).
-        // Mesh at 0,0,0. -> Mesh occupies 0 to 5 in X.
-        // LeftStack Rot Y=PI. -> Mesh occupies 0 to -5 in X.
-        // This is correct for Left Page.
-        // If we Scale X by 1.04. Mesh occupies 0 to -5.2.
-        // So LeftStack Position X should stay 0?
-        // Wait, rightStack.position.x = PAGE_WIDTH / 2 ??
-        // In init: stackGeo translate PAGE_WIDTH/2. -> Pivot at Left Edge.
-        // rightStack Mesh at 0,0,0 -> Box from 0 to 5.
-        // Why did I set rightStack.position.x = PAGE_WIDTH/2 in updateTextures?
-        // Ah! If I set position.x = 2.5, then Pivot moves to 2.5. Box goes from 2.5 to 7.5!
-        // That's WRONG.
-        // In init, I didn't set position.x for stacks. Default 0.
-        // So Box goes 0 to 5.
-        // My updateTextures logic `rightStack.position.x = PAGE_WIDTH / 2` was wrong! It shifted pages to right!
-        // That explains "separation"!
-        
-        // CORRECTION: Reset Position X to 0 (or adjust for Overhang centering).
-        // If Overhang: Width 5.2.
-        // Pivot at 0. Box goes 0 to 5.2.
-        // This is correct (extends away from spine).
-        // So Position X should always be 0!
         
         leftStack.position.x = 0
     } else {
@@ -594,7 +601,6 @@ async function setupFlipperForDrag(direction: 'next' | 'prev') {
         console.log('leftStack.scale', leftStack.scale)
     }
     
-    // And remove my previous erroneous shift for RightStack in setupFlipperForDrag
     rightStack.position.x = 0
   }
 }
@@ -613,7 +619,7 @@ function updateMaterialMap(mat: THREE.MeshStandardMaterial, tex: THREE.Texture |
 
 function finishPageFlip(direction: 'next' | 'prev') {
   isAnimating.value = true
-  const targetRot = direction === 'next' ? -Math.PI : 0
+  const targetRot = direction === 'next' ? -Math.PI + OPEN_ANGLE : OPEN_ANGLE
   
   gsap.to(flipper.rotation, {
     y: targetRot,
@@ -635,7 +641,7 @@ function finishPageFlip(direction: 'next' | 'prev') {
 
 function cancelPageFlip(direction: 'next' | 'prev') {
   isAnimating.value = true
-  const targetRot = direction === 'next' ? 0 : -Math.PI
+  const targetRot = direction === 'next' ? OPEN_ANGLE : -Math.PI + OPEN_ANGLE
   
   gsap.to(flipper.rotation, {
     y: targetRot,
@@ -697,23 +703,6 @@ async function updateTextures() {
     leftStack.visible = true
     frontCover.visible = true
     
-    // Scale Logic for Left Stack
-    // If i=1 (Spread 1), Left is Endpaper.
-    // It should match Cover Size?
-    // Let's assume Endpaper is Big.
-    /* 
-    if (i === 1) {
-        const scale = (PAGE_WIDTH + COVER_OVERHANG) / PAGE_WIDTH
-        const hScale = (PAGE_HEIGHT + COVER_OVERHANG * 2) / PAGE_HEIGHT
-        leftStack.scale.set(scale, hScale, 1)
-    } else {
-        leftStack.scale.set(1, 1, 1)
-    }
-    */
-    // For now, keep Left Stack always Small (Page Block), except maybe Position.
-    // Actually if LeftStack is Small, and FrontCover (Big) is underneath.
-    // It looks like pages on top of cover. Correct.
-    // So NO Scale needed for Left Stack (unless we want full-bleed endpaper).
     leftStack.scale.set(1, 1, 1)
     leftStack.position.x = 0 // Always 0 (Pivot at Spine)
 
