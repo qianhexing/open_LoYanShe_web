@@ -65,10 +65,14 @@ const props = withDefaults(defineProps<{
   coverImage: '',
   thickness: 0.2 // Slightly thicker default for box effect
 })
-
+const imageList = [
+  `${BASE_IMG}static/library_app/2018_1766770808923142.jpg`,
+  `${BASE_IMG}static/library_app/5647_176715950709269.png`,
+  `${BASE_IMG}static/library_app/2018_176715870247880.jpg`,
+]
 // --- Mock Data & Page Management ---
 const contentImages = Array.from({ length: 20 }).map((_, i) => {
-  return `${BASE_IMG}static/library_app/2018_1766770808923142.jpg`
+  return imageList[i % imageList.length]
 })
 
 // Spread Logic:
@@ -542,7 +546,6 @@ async function setupFlipperForDrag(direction: 'next' | 'prev') {
   flipper.visible = true
   flipper.userData.direction = direction
   const i = currentSpreadIndex.value
-  
   if (direction === 'next') {
     flipper.rotation.y = OPEN_ANGLE
     const currentRightTex = await getTextureForSpread(i, 'right')
@@ -598,7 +601,6 @@ async function setupFlipperForDrag(direction: 'next' | 'prev') {
     } else {
         leftStack.scale.set(1, 1, 1)
         leftStack.position.x = 0
-        console.log('leftStack.scale', leftStack.scale)
     }
     
     rightStack.position.x = 0
