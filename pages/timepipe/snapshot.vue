@@ -30,12 +30,12 @@
     </div>
 
     <!-- 内容展示区 -->
-    <div v-else class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-8 pb-20">
+    <div v-else class="grid grid-cols-1 lg:grid-cols-2 gap-8 pb-20 max-w-[1920px] mx-auto">
       <div 
         v-for="(chunk, chunkIndex) in chunks" 
         :key="chunkIndex"
         :ref="(el) => setChunkRef(el, chunkIndex)"
-        class="bg-white shadow-xl rounded-lg overflow-hidden relative group"
+        class="bg-white shadow-xl overflow-hidden relative group"
       >
         <!-- 下载当前组按钮 (hover显示) -->
         <div class="absolute top-2 right-2 z-20 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -44,37 +44,37 @@
 
         <!-- 9.6:16 容器 -->
         <!-- aspect ratio: 9.6 / 16 = 0.6 (3:5) -->
-        <div class="w-full aspect-[3/5] bg-gray-50">
+        <div class="w-full aspect-[3/5] bg-white">
           <div class="w-full h-full grid grid-cols-3 grid-rows-3">
             <div 
               v-for="(item, itemIndex) in chunk" 
               :key="item.id || itemIndex" 
-              class="relative w-full h-full overflow-hidden border-[0.5px] border-white/20"
+              class="relative w-full h-full overflow-hidden"
             >
               <!-- 封面图 (铺满) -->
               <img 
                 :src="getImageUrl(item.item?.cover)" 
-                class="w-full h-full object-cover"
+                class="w-full h-full object-cover block"
                 loading="lazy"
                 crossorigin="anonymous" 
               />
               
               <!-- 底部信息浮层 -->
-              <div class="absolute bottom-2 left-0 w-full flex flex-col items-center justify-end pointer-events-none px-1">
-                <div class="bg-white/40 backdrop-blur-[2px] px-1 py-1 rounded flex flex-col items-center justify-center max-w-full">
+              <div class="absolute bottom-4 left-0 w-full flex flex-col items-center justify-end pointer-events-none px-2">
+                <div class="bg-white/60 backdrop-blur-[2px] px-3 py-1.5 rounded-md flex flex-col items-center justify-center max-w-full shadow-sm">
                    <!-- 图鉴名称 -->
-                   <div class="text-[10px] font-bold text-black leading-tight text-center line-clamp-1 break-all mb-[2px]">
+                   <div class="text-xs font-bold text-black leading-tight text-center line-clamp-1 break-all mb-1">
                     {{ item.item?.name }}
                   </div>
                   <!-- 店铺信息 -->
-                  <div class="flex items-center gap-1 justify-center">
+                  <div class="flex items-center gap-1.5 justify-center">
                     <img 
                       v-if="item.item?.shop?.shop_logo"
                       :src="getImageUrl(item.item?.shop?.shop_logo)" 
-                      class="w-[30px] h-[30px] rounded-full object-cover bg-white shadow-sm flex-shrink-0"
+                      class="w-5 h-5 rounded-full object-cover bg-white shadow-sm flex-shrink-0"
                       crossorigin="anonymous"
                     />
-                    <span class="text-[10px] font-medium text-black truncate max-w-[60px]">
+                    <span class="text-[10px] font-medium text-gray-800 truncate max-w-[80px]">
                       {{ item.item?.shop?.shop_name }}
                     </span>
                   </div>
@@ -86,9 +86,9 @@
             <div 
               v-for="n in (9 - chunk.length)" 
               :key="`empty-${n}`" 
-              class="bg-gray-100/50 flex items-center justify-center"
+              class="bg-gray-50 flex items-center justify-center"
             >
-              <UIcon name="i-heroicons-photo" class="text-gray-200 text-2xl" />
+              <UIcon name="i-heroicons-photo" class="text-gray-200 text-4xl" />
             </div>
           </div>
         </div>
