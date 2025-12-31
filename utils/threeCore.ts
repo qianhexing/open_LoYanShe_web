@@ -512,7 +512,7 @@ class ThreeCore {
 				bias: -0.0005, 
 				normalBias: 0.02, 
 				radius: 4, 
-				blurSamples: 16,
+				blurSamples: 26,
 				castShadow: { directional: true, lens: true, spot: true }
 			},
 			ultra: { 
@@ -1381,7 +1381,7 @@ class ThreeCore {
 		dirLight.shadow.bias = -0.0005
 		dirLight.shadow.normalBias = 0.02
 		dirLight.shadow.radius = 4
-		dirLight.shadow.blurSamples = 8
+		dirLight.shadow.blurSamples = 26
 
 		this.scene.add(dirLight)
 
@@ -2298,7 +2298,7 @@ class ThreeCore {
 			})
 		}
 	}
-	public async loadSceneFromJSON(json: SceneJSON, renturGroup = false) {
+	public async loadSceneFromJSON(json: SceneJSON, renturGroup = false, onProgress?: (current: number, total: number) => void) {
 		let group = null
 		if (renturGroup) {
 			group = new THREE.Group()
@@ -2311,6 +2311,9 @@ class ThreeCore {
 				this.background = json.background
 			}
 		}
+
+		const total = json.objects.length
+		let current = 0
 
 		for (const obj of json.objects) {
 			const position = obj.position || [0, 0, 0]
@@ -2395,7 +2398,8 @@ class ThreeCore {
 						if (template.json_data) {
 							const group = await this.loadSceneFromJSON(
 								template.json_data,
-								true
+								true,
+								undefined // 模版加载时不显示进度
 							)
 							if (group) {
 								group.userData.type = 'template'
@@ -2408,7 +2412,7 @@ class ThreeCore {
 							use$Get(`/sence/json/${template.json_url}.json?2`, undefined, {
 								baseURL: BASE_IMG
 							}).then(async res => {
-								const group = await this.loadSceneFromJSON(res, true)
+								const group = await this.loadSceneFromJSON(res, true, undefined) // 模版加载时不显示进度
 								if (group) {
 									group.userData.type = 'template'
 									group.userData.template_id = template.template_id
@@ -2451,6 +2455,12 @@ class ThreeCore {
 				// box.scale.set(...scale)
 				// box.renderOrder = 100000
 				// console.log(box, '包围盒')
+			}
+			
+			// 更新进度
+			current++
+			if (onProgress && !renturGroup) {
+				onProgress(current, total)
 			}
 		}
 		if (renturGroup) {

@@ -32,6 +32,9 @@ const onLightingSettingsChanged = (settings) => {
 }
 const activeDiary = ref<DiaryInterface | null>(null)
 const loading = ref(false)
+const sceneLoading = ref(false) // 场景加载状态
+const sceneLoadProgress = ref({ current: 0, total: 0 }) // 场景加载进度
+const sceneLoadError = ref<string | null>(null) // 场景加载错误信息
 let uni: any;
 // 判断是否可替换贴图
 const canTexture = computed(() => {
@@ -210,39 +213,74 @@ const detail = ref<Scene | null>(null)
 detail.value = data.value ?? null
 
 const initThreejs = async () => {
-	threeCore = new qhxCore({
-		enableCSS3DRenderer: true,
-		alpha: true,
-		editMode: edit_mode.value
-	})
-	// 挂载到DOM
-	threeCore.mount(document.getElementById('scene'));
-	// loadLibrary()
-  if (detail.value?.json_data) {
-		await threeCore.loadSceneFromJSON(detail.value.json_data)
-	} else {
-		try {
-			const res = await use$Get(`/sence/json/${id}.json`, undefined, { baseURL: BASE_IMG})
-    	await threeCore.loadSceneFromJSON(res)
-		} catch (error) {
-			
+	sceneLoading.value = true
+	sceneLoadError.value = null
+	
+	try {
+		threeCore = new qhxCore({
+			enableCSS3DRenderer: true,
+			alpha: true,
+			editMode: edit_mode.value
+		})
+		// 挂载到DOM
+		const sceneElement = document.getElementById('scene')
+		if (!sceneElement) {
+			throw new Error('找不到场景容器元素')
+		}
+		threeCore.mount(sceneElement)
+		
+		const onProgress = (current: number, total: number) => {
+			sceneLoadProgress.value = { current, total }
+		}
+		
+		if (detail.value?.json_data) {
+			// 设置总数
+			const total = detail.value.json_data?.objects?.length || 0
+			sceneLoadProgress.value = { current: 0, total }
+			await threeCore.loadSceneFromJSON(detail.value.json_data, false, onProgress)
+		} else {
+			try {
+				const res = await use$Get(`/sence/json/${id}.json`, undefined, { baseURL: BASE_IMG})
+				// 设置总数
+				const total = res?.objects?.length || 0
+				sceneLoadProgress.value = { current: 0, total }
+				await threeCore.loadSceneFromJSON(res, false, onProgress)
+			} catch (error) {
+				console.error('加载场景JSON失败:', error)
+				throw new Error(error instanceof Error ? error.message : '加载场景数据失败，请稍后重试')
+			}
+		}
+		
+		// 初始化控制器和相机
+		threeCore.controls.enabled = true
+		if (threeCore.cameraList && threeCore.cameraList.length > 0) {
+			lookAtCameraState(threeCore.cameraList[0])
+		}
+		
+		// 添加事件监听
+		sceneElement.addEventListener('pointerdown', _onPointerDown)
+		sceneElement.addEventListener('pointermove', _onPointerMove)
+		sceneElement.addEventListener('pointerup', _onPointerUp)
+		
+		// 开始渲染循环
+		threeCore.startAnimationLoop()
+		threeCore.addAnimationFunc = () => { addAnimationFunc() }
+		
+		sceneLoading.value = false
+		sceneLoadError.value = null
+	} catch (error) {
+		console.error('初始化场景失败:', error)
+		sceneLoadError.value = error instanceof Error ? error.message : '初始化场景失败，请稍后重试'
+		sceneLoading.value = false
+		// 清理已创建的资源
+		if (threeCore) {
+			try {
+				threeCore.dispose?.()
+			} catch (e) {
+				console.error('清理资源失败:', e)
+			}
 		}
 	}
-	threeCore.controls.enabled = true
-	if (threeCore.cameraList && threeCore.cameraList.length > 0) {
-		lookAtCameraState(threeCore.cameraList[0])
-	}
-	// threeCore.scene.background = new THREE.Color('#ffddf2')
-	// window.addEventListener('mousemove', gpuPick, false)
-	// window.addEventListener('touchmove', gpuPick, false)
-	// window.addEventListener('click', gpuPick, false)
-	document.getElementById('scene')?.addEventListener('pointerdown', _onPointerDown);
-	document.getElementById('scene')?.addEventListener('pointermove', _onPointerMove);
-	document.getElementById('scene')?.addEventListener('pointerup', _onPointerUp);
-	// threeCore.controls.autoRotate = true
-	// 开始渲染循环
-	threeCore.startAnimationLoop();
-	threeCore.addAnimationFunc = () => { addAnimationFunc() }
 }
 const pointerDownPosition = ref({ x: 0, y: 0 })
 const MOVE_THRESHOLD = 5 // 移动阈值，单位：像素
@@ -252,7 +290,6 @@ const _onPointerDown = (event: PointerEvent) => {
 	pointerDownPosition.value = { x: event.clientX, y: event.clientY }
 }
 const _onPointerMove = (event: PointerEvent) => {
-	console.log('指针移动')
 	if (isClick.value) {
 		const deltaX = Math.abs(event.clientX - pointerDownPosition.value.x)
 		const deltaY = Math.abs(event.clientY - pointerDownPosition.value.y)
@@ -311,10 +348,10 @@ const settingsState = reactive({
 })
 const shadowQualityOptions = [
 	{ label: '关闭', value: 'off' },
-	{ label: '低', value: 'low' },
-	{ label: '中', value: 'medium' },
+	// { label: '低', value: 'low' },
+	// { label: '中', value: 'medium' },
 	{ label: '高', value: 'high' },
-	{ label: '超高', value: 'ultra' }
+	// { label: '超高', value: 'ultra' }
 ]
 
 const openSettings = (e: MouseEvent) => {
@@ -323,7 +360,7 @@ const openSettings = (e: MouseEvent) => {
 		y: e.clientY
 	}
 	
-	if (threeCore && threeCore.renderer) {
+	if (threeCore?.renderer) {
 		if (threeCore.renderer.shadowMap.enabled) {
 			// 如果开启，保持当前的 shadowQuality 或者默认为 high
 			if (!settingsState.shadowQuality || settingsState.shadowQuality === 'off') {
@@ -335,7 +372,7 @@ const openSettings = (e: MouseEvent) => {
 	}
 	
 	// 初始化镜头角度
-	if (threeCore && threeCore.camera && (threeCore.camera as THREE.PerspectiveCamera).isPerspectiveCamera) {
+	if (threeCore?.camera && (threeCore.camera as THREE.PerspectiveCamera).isPerspectiveCamera) {
 		settingsState.fov = (threeCore.camera as THREE.PerspectiveCamera).fov
 	}
 	
@@ -865,6 +902,43 @@ useHead({
 </script>
 <template>
 	<div class="select-none touch-callout-none" :style="{ background: threeCore &&threeCore.background ? `url(${BASE_IMG}${threeCore.background})` : '', backgroundSize: 'cover' }">
+		<!-- 场景加载状态 -->
+		<div 
+			v-if="sceneLoading || sceneLoadError" 
+			class="absolute inset-0 flex flex-col items-center justify-center bg-white/90 backdrop-blur-sm z-50"
+		>
+			<!-- 加载中 -->
+			<template v-if="sceneLoading && !sceneLoadError">
+				<div class="w-16 h-16 border-4 border-purple-400 rounded-full border-t-transparent animate-spin"></div>
+				<p class="mt-4 text-purple-600 tracking-widest font-bold">
+					<span v-if="sceneLoadProgress.total > 0">
+						正在加载场景... {{ sceneLoadProgress.current }} / {{ sceneLoadProgress.total }}
+					</span>
+					<span v-else>
+						正在初始化...
+					</span>
+				</p>
+			</template>
+			
+			<!-- 加载失败 -->
+			<template v-else-if="sceneLoadError">
+				<div class="flex flex-col items-center gap-4">
+					<div class="w-16 h-16 flex items-center justify-center">
+						<UIcon name="material-symbols:error-outline" class="text-6xl text-red-500" />
+					</div>
+					<p class="text-red-600 font-bold text-lg">加载失败</p>
+					<p class="text-gray-600 text-sm max-w-md text-center px-4">{{ sceneLoadError }}</p>
+					<UButton 
+						color="purple" 
+						@click="initThreejs"
+						class="mt-2"
+					>
+						重试
+					</UButton>
+				</div>
+			</template>
+		</div>
+		
 		<SceneTextureEditor
 			ref="SceneTextureEditorRef"
 			v-if="target"
