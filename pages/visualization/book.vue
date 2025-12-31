@@ -24,7 +24,7 @@
         
         <div class="flex flex-col items-center gap-2">
             <div class="page-indicator font-serif text-[#d48898] text-lg bg-white/80 px-4 py-1 rounded-full border border-[#ffccd5]">
-            {{ currentPageIndex }} / {{ totalPages - 1 }}
+            {{ currentSpreadIndex }} / {{ totalSpreads }}
             </div>
             <button @click="focusOnBook" class="text-xs text-[#d48898] underline opacity-70 hover:opacity-100">
                 Reset View
@@ -63,7 +63,7 @@ const props = withDefaults(defineProps<{
 }>(), {
   ratio: '9:16',
   coverImage: '',
-  thickness: 0.15 // Default thin book
+  thickness: 0.15 
 })
 
 // --- Mock Data & Page Management ---
@@ -71,17 +71,19 @@ const contentImages = Array.from({ length: 20 }).map((_, i) => {
   return `${BASE_IMG}static/library_app/2018_1766770808923142.jpg`
 })
 
-// Combined pages list: [Cover, Content1, Content2, ...]
-// Index 0 is the Cover. Index 1+ are contents.
-// This allows the cover to be "Page 0" and handled by the same logic.
-const totalPages = contentImages.length + 1
-// We use a computed or function to get URL based on index
+// Spread Logic:
+// Spread 0: Cover (Right: Cover Image)
+// Spread 1: Page 1 (Left: Content 1, Right: Content 2)
+// Spread 2: Page 2 (Left: Content 3, Right: Content 4)
+// ...
+// Total Spreads = 1 (Cover) + ceil(contentImages.length / 2)
+const totalSpreads = computed(() => 1 + Math.ceil(contentImages.length / 2))
 
 // --- State ---
 const canvasContainer = ref<HTMLElement | null>(null)
 const loading = ref(true)
 const isAnimating = ref(false)
-const currentPageIndex = ref(0) // Start at 0 (Cover)
+const currentSpreadIndex = ref(0) // Start at 0 (Cover)
 const debugMode = ref(true)
 
 // --- Three.js Variables ---
@@ -92,8 +94,7 @@ const raycaster = new THREE.Raycaster()
 const mouse = new THREE.Vector2()
 let isDragging = false
 let dragStartPoint = new THREE.Vector2()
-// let draggedPage: THREE.Group | null = null
-let clickRelativeY = 0 // -1 to 1 based on click height
+let clickRelativeY = 0 
 
 // Book Parts
 let bookGroup: THREE.Group
@@ -111,11 +112,9 @@ const PAGE_SEGMENTS = 20
 
 // --- Lifecycle ---
 onMounted(async () => {
-  // Parse Ratio
   if (props.ratio) {
     const parts = props.ratio.split(/[:/]/).map(Number)
     if (parts.length === 2 && !isNaN(parts[0]) && !isNaN(parts[1])) {
-       // Keep Height constant, calculate Width
        PAGE_WIDTH = PAGE_HEIGHT * (parts[0] / parts[1])
     }
   }
@@ -127,7 +126,6 @@ onMounted(async () => {
     loading.value = false
   }, 1000)
   
-  // Events
   window.addEventListener('mousedown', onMouseDown)
   window.addEventListener('mousemove', onMouseMove)
   window.addEventListener('mouseup', onMouseUp)
@@ -172,7 +170,6 @@ function initThree() {
     core.controls.enablePan = false 
   }
 
-  // --- Lighting & Environment ---
   const pointLight = new THREE.PointLight(0xffd700, 0.8, 20)
   pointLight.position.set(0, 5, 5)
   scene.add(pointLight)
@@ -180,7 +177,6 @@ function initThree() {
   const ambientLight = new THREE.AmbientLight(0xffffff, 0.4)
   scene.add(ambientLight)
   
-  // Magic Float Animation
   if (bookGroup) {
       gsap.to(bookGroup.position, {
         y: 0.5,
@@ -191,7 +187,6 @@ function initThree() {
       })
   }
   
-  // Add Particles
   const particlesGeo = new THREE.BufferGeometry()
   const particlesCount = 200
   const posArray = new Float32Array(particlesCount * 3)
@@ -231,7 +226,6 @@ async function initBook() {
   bookGroup = new THREE.Group()
   scene.add(bookGroup)
 
-  // 1. Base Textures & Materials
   const paperTex = await core.loadTexture(`${BASE_IMG}static/library_app/2018_1766770808923142.jpg`).catch(() => null)
   
   const pageMat = new THREE.MeshStandardMaterial({
@@ -254,18 +248,14 @@ async function initBook() {
     metalness: 0.1
   })
 
-  // Geometries
-  const stackHeight = props.thickness // Use prop thickness
+  const stackHeight = props.thickness 
   
-  // Stack Geometries
   const stackGeo = new THREE.BoxGeometry(PAGE_WIDTH, PAGE_HEIGHT, stackHeight)
   stackGeo.translate(PAGE_WIDTH / 2, 0, -stackHeight / 2) 
 
-  // Right Stack Materials
-  // +Z (Index 4) is the Top Face.
   const rightStackMats = [
     whiteMat, whiteMat, whiteMat, whiteMat,
-    pageMat.clone(), // +Z (Top) - Will be updated by updateTextures
+    pageMat.clone(), 
     whiteMat
   ]
 
@@ -273,12 +263,10 @@ async function initBook() {
   rightStack.castShadow = true
   rightStack.receiveShadow = true
   
-  // Left Stack Materials
-  // -Z (Index 5) is the Top Face when rotated Y=PI.
   const leftStackMats = [
     whiteMat, whiteMat, whiteMat, whiteMat,
     whiteMat,
-    pageMat.clone() // -Z (Top) - Will be updated by updateTextures
+    pageMat.clone() 
   ]
 
   leftStack = new THREE.Mesh(stackGeo, leftStackMats)
@@ -286,9 +274,8 @@ async function initBook() {
   leftStack.receiveShadow = true
   leftStack.rotation.y = -Math.PI
   
-  // Flipper Group
   flipper = new THREE.Group()
-  flipper.position.z = 0.02 // Slightly above stack
+  flipper.position.z = 0.02 
   
   const bendPageGeo = new THREE.PlaneGeometry(PAGE_WIDTH, PAGE_HEIGHT, PAGE_SEGMENTS, 1)
   bendPageGeo.translate(PAGE_WIDTH / 2, 0, 0) 
@@ -310,9 +297,7 @@ async function initBook() {
   bookGroup.add(leftStack)
   bookGroup.add(flipper)
 
-  // Spine
-  // Diameter should match stackHeight somewhat, maybe slightly larger
-  const spineRadius = stackHeight * 0.6 // Adjust radius
+  const spineRadius = stackHeight * 0.6 
   const spineMesh = new THREE.Mesh(
     new THREE.CylinderGeometry(spineRadius, spineRadius, PAGE_HEIGHT + 0.2, 32, 1, false, 0, Math.PI),
     coverMat
@@ -320,11 +305,9 @@ async function initBook() {
   spineMesh.rotation.z = Math.PI / 2
   spineMesh.rotation.y = Math.PI / 2
   spineMesh.geometry.rotateX(Math.PI / 2)
-  // Align spine center Z with stack center Z
   spineMesh.position.z = -stackHeight / 2
   bookGroup.add(spineMesh)
 
-  // Initial Update
   await updateTextures()
   flipper.visible = false
 }
@@ -384,12 +367,12 @@ function onMouseDown(event: MouseEvent) {
     const point = intersects[0].point
     clickRelativeY = Math.max(-1, Math.min(1, point.y / (PAGE_HEIGHT / 2)))
     
-    if (obj === rightStack && currentPageIndex.value < totalPages - 1) {
+    if (obj === rightStack && currentSpreadIndex.value < totalSpreads.value) {
       isDragging = true
       core.controls.enabled = false
       dragStartPoint.set(event.clientX, event.clientY)
       setupFlipperForDrag('next')
-    } else if (obj === leftStack && currentPageIndex.value > 0) {
+    } else if (obj === leftStack && currentSpreadIndex.value > 0) {
       isDragging = true
       core.controls.enabled = false
       dragStartPoint.set(event.clientX, event.clientY)
@@ -440,27 +423,39 @@ function onMouseUp() {
 async function setupFlipperForDrag(direction: 'next' | 'prev') {
   flipper.visible = true
   flipper.userData.direction = direction
-  const i = currentPageIndex.value
+  const i = currentSpreadIndex.value
+  
+  // Logic:
+  // Spread i: Left Page showing Content (2*i - 3), Right Page showing Content (2*i - 2)
+  // Spread 0 (Cover): Left - (Hidden), Right - Cover
+  // Spread 1: Left - Content 0 (Back of Cover), Right - Content 1
+  // Spread 2: Left - Content 2, Right - Content 3
+  
+  // When Flipping NEXT from Spread i to Spread i+1:
+  // Flipper Front (Visible initially): Right Page of Spread i (Content 2*i - 2)
+  // Flipper Back (Revealed): Left Page of Spread i+1 (Content 2*(i+1) - 3) = Content 2*i - 1
+  // Right Stack (Revealed): Right Page of Spread i+1 (Content 2*(i+1) - 2) = Content 2*i
   
   if (direction === 'next') {
     flipper.rotation.y = 0
-    const frontTex = await getTexture(i) // Current Page
-    const backTex = await getTexture(i + 1) // Next Page Back
+    const currentRightTex = await getTextureForSpread(i, 'right')
+    const nextLeftTex = await getTextureForSpread(i + 1, 'left')
     
-    if (frontTex) {
-        (flipperFront.material as THREE.MeshStandardMaterial).map = frontTex;
+    // Flipper Front: Current Right Page
+    if (currentRightTex) {
+        (flipperFront.material as THREE.MeshStandardMaterial).map = currentRightTex;
         (flipperFront.material as THREE.MeshStandardMaterial).needsUpdate = true;
     } else {
-        // Fallback for cover
         (flipperFront.material as THREE.MeshStandardMaterial).map = null;
         (flipperFront.material as THREE.MeshStandardMaterial).color.set(0xffffff);
         (flipperFront.material as THREE.MeshStandardMaterial).needsUpdate = true;
     }
 
-    if (backTex) {
-        (flipperBack.material as THREE.MeshStandardMaterial).map = backTex
-        backTex.wrapS = THREE.RepeatWrapping
-        backTex.repeat.x = -1;
+    // Flipper Back: Next Left Page
+    if (nextLeftTex) {
+        (flipperBack.material as THREE.MeshStandardMaterial).map = nextLeftTex
+        nextLeftTex.wrapS = THREE.RepeatWrapping
+        nextLeftTex.repeat.x = -1;
         (flipperBack.material as THREE.MeshStandardMaterial).needsUpdate = true;
     } else {
         (flipperBack.material as THREE.MeshStandardMaterial).map = null;
@@ -468,11 +463,11 @@ async function setupFlipperForDrag(direction: 'next' | 'prev') {
         (flipperBack.material as THREE.MeshStandardMaterial).needsUpdate = true;
     }
     
-    // Reveal next next
-    const nextNextTex = await getTexture(i + 2) 
+    // Right Stack Underneath: Next Right Page
+    const nextRightTex = await getTextureForSpread(i + 1, 'right') 
     const mats = rightStack.material as THREE.MeshStandardMaterial[]
-    if (nextNextTex) {
-        mats[4].map = nextNextTex
+    if (nextRightTex) {
+        mats[4].map = nextRightTex
         mats[4].needsUpdate = true
     } else {
         mats[4].map = null
@@ -481,42 +476,50 @@ async function setupFlipperForDrag(direction: 'next' | 'prev') {
     }
     
   } else {
-    flipper.rotation.y = -Math.PI
-    const prevTex = await getTexture(i - 1)
+    // Flipping PREV from Spread i to Spread i-1
+    // Flipper Front (Hidden initially, Back face visible): Right Page of Spread i-1 (Content 2*(i-1) - 2)
+    // Flipper Back (Visible initially): Left Page of Spread i (Content 2*i - 3)
+    // Left Stack Underneath: Left Page of Spread i-1 (Content 2*(i-1) - 3)
     
-    if (prevTex) {
-        (flipperBack.material as THREE.MeshStandardMaterial).map = prevTex
-        prevTex.wrapS = THREE.RepeatWrapping
-        prevTex.repeat.x = -1;
+    flipper.rotation.y = -Math.PI
+    
+    const currentLeftTex = await getTextureForSpread(i, 'left')
+    
+    // Flipper Back (Visible): Current Left Page
+    if (currentLeftTex) {
+        (flipperBack.material as THREE.MeshStandardMaterial).map = currentLeftTex
+        currentLeftTex.wrapS = THREE.RepeatWrapping
+        currentLeftTex.repeat.x = -1;
         (flipperBack.material as THREE.MeshStandardMaterial).needsUpdate = true;
         
-        // Also set front for visual consistency if flipper is viewed edge on
-        (flipperFront.material as THREE.MeshStandardMaterial).map = prevTex;
-        (flipperFront.material as THREE.MeshStandardMaterial).needsUpdate = true;
+        // Front needs to match prev right for edge-on consistency, or separate logic
     } else {
         (flipperBack.material as THREE.MeshStandardMaterial).map = null;
         (flipperBack.material as THREE.MeshStandardMaterial).color.set(0xffffff);
         (flipperBack.material as THREE.MeshStandardMaterial).needsUpdate = true;
-
+    }
+    
+    // Flipper Front: Prev Right Page
+    const prevRightTex = await getTextureForSpread(i - 1, 'right')
+    if (prevRightTex) {
+        (flipperFront.material as THREE.MeshStandardMaterial).map = prevRightTex;
+        (flipperFront.material as THREE.MeshStandardMaterial).needsUpdate = true;
+    } else {
         (flipperFront.material as THREE.MeshStandardMaterial).map = null;
         (flipperFront.material as THREE.MeshStandardMaterial).color.set(0xffffff);
         (flipperFront.material as THREE.MeshStandardMaterial).needsUpdate = true;
     }
     
-    const prevPrevTex = await getTexture(i - 2)
+    // Left Stack Underneath: Prev Left Page
+    const prevLeftTex = await getTextureForSpread(i - 1, 'left')
     const mats = leftStack.material as THREE.MeshStandardMaterial[]
-    if (prevPrevTex) {
-        mats[5].map = prevPrevTex
+    if (prevLeftTex) {
+        mats[5].map = prevLeftTex
         mats[5].needsUpdate = true
         leftStack.visible = true
-    } else if (i - 2 === -1) { 
-        // Showing "nothing" or default cover white?
-        // Actually i=1, prev=0(Cover), prevPrev=-1.
-        // Left Stack should show nothing underneath if at beginning?
-        // Or show cover if we are flipping back TO cover?
-        // If i=1, we flip page 0 back. Left stack shows page -1 (nothing).
-        leftStack.visible = false
     } else {
+        // If Prev Spread is 0, Left Page is null (inside of cover? or just empty).
+        // Spread 0: Left=null, Right=Cover.
         leftStack.visible = false
     }
   }
@@ -532,9 +535,9 @@ function finishPageFlip(direction: 'next' | 'prev') {
     ease: "power2.inOut", 
     onComplete: () => {
       if (direction === 'next') {
-        currentPageIndex.value += 1
+        currentSpreadIndex.value += 1
       } else {
-        currentPageIndex.value -= 1
+        currentSpreadIndex.value -= 1
       }
       updateTextures()
       flipper.visible = false
@@ -566,69 +569,85 @@ function resetTextureRepeat(mat: THREE.MeshStandardMaterial) {
     }
 }
 
-// Get Texture Logic:
-// Index 0: Cover (props.coverImage or white)
-// Index 1+: contentImages[index-1]
-async function getTexture(index: number): Promise<THREE.Texture | null> {
-  if (index < 0) return null
-  
-  let url = ''
-  if (index === 0) {
-      if (props.coverImage) {
-          url = props.coverImage
-      } else {
-          // No cover image -> return null for white material
-          return null
-      }
-  } else {
-      const contentIndex = index - 1
-      if (contentIndex < contentImages.length) {
-          url = contentImages[contentIndex]
-      } else {
-          return null
-      }
-  }
+// Map Spread Index to Content
+// Spread 0: Left=None, Right=Cover
+// Spread 1: Left=Content[0], Right=Content[1]
+// Spread 2: Left=Content[2], Right=Content[3]
+// ...
+// Spread k: Left=Content[2k-2], Right=Content[2k-1]
+async function getTextureForSpread(spreadIndex: number, side: 'left' | 'right'): Promise<THREE.Texture | null> {
+    if (spreadIndex < 0) return null
+    
+    let url = ''
+    if (spreadIndex === 0) {
+        if (side === 'right') {
+            return props.coverImage ? await loadTex(props.coverImage) : null
+        } else {
+            return null // No left page on cover spread
+        }
+    } else {
+        // Content Pages
+        const k = spreadIndex
+        let contentIdx = -1
+        if (side === 'left') {
+            contentIdx = 2 * k - 2
+        } else {
+            contentIdx = 2 * k - 1
+        }
+        
+        if (contentIdx >= 0 && contentIdx < contentImages.length) {
+            return await loadTex(contentImages[contentIdx])
+        }
+        return null
+    }
+}
 
-  try {
-    const tex = await core.loadTexture(url)
-    tex.colorSpace = THREE.SRGBColorSpace
-    return tex
-  } catch (e) {
-    return null
-  }
+async function loadTex(url: string): Promise<THREE.Texture | null> {
+    try {
+        const tex = await core.loadTexture(url)
+        tex.colorSpace = THREE.SRGBColorSpace
+        return tex
+    } catch {
+        return null
+    }
 }
 
 async function updateTextures() {
-  const i = currentPageIndex.value
+  const i = currentSpreadIndex.value
   
-  // Left Stack (Top) - Shows i-1
+  // Left Stack (Top) - Shows Left Page of current spread
   if (i > 0) {
-    const tex = await getTexture(i - 1)
+    const tex = await getTextureForSpread(i, 'left')
     const mats = leftStack.material as THREE.MeshStandardMaterial[]
     if (tex) {
       mats[5].map = tex
       mats[5].needsUpdate = true
+      leftStack.visible = true
     } else {
       mats[5].map = null
-      mats[5].color.set(0xffffff) // White fallback
+      mats[5].color.set(0xffffff) 
       mats[5].needsUpdate = true
+      // Only hide if it's strictly empty and not just a blank white page?
+      // For spread 0, left is null, so hidden.
+      // For spread 1, left is content[0].
+      leftStack.visible = true
     }
-    leftStack.visible = true
+    // Special case for spread 0 (Cover) - Left stack shouldn't be visible
+    if (i === 0) leftStack.visible = false
   } else {
     leftStack.visible = false
   }
 
-  // Right Stack (Underneath) - Shows i
-  // If i is last page index (totalPages), then right stack is empty/invisible?
-  if (i < totalPages) {
-    const tex = await getTexture(i)
+  // Right Stack (Underneath) - Shows Right Page of current spread
+  if (i < totalSpreads.value) {
+    const tex = await getTextureForSpread(i, 'right')
     const mats = rightStack.material as THREE.MeshStandardMaterial[]
     if (tex) {
         mats[4].map = tex
         mats[4].needsUpdate = true
     } else {
         mats[4].map = null
-        mats[4].color.set(0xffffff) // White fallback
+        mats[4].color.set(0xffffff) 
         mats[4].needsUpdate = true
     }
      rightStack.visible = true
@@ -638,14 +657,14 @@ async function updateTextures() {
 }
 
 function nextPage() {
-    if (isAnimating.value || currentPageIndex.value >= totalPages - 1) return
+    if (isAnimating.value || currentSpreadIndex.value >= totalSpreads.value) return
     isAnimating.value = true
     clickRelativeY = 0 // Reset torsion for auto flip
     setupFlipperForDrag('next').then(() => finishPageFlip('next'))
 }
 
 function prevPage() {
-    if (isAnimating.value || currentPageIndex.value <= 0) return
+    if (isAnimating.value || currentSpreadIndex.value <= 0) return
     isAnimating.value = true
     clickRelativeY = 0 // Reset torsion for auto flip
     setupFlipperForDrag('prev').then(() => finishPageFlip('prev'))
