@@ -38,6 +38,7 @@ export interface CameraState {
 }
 import { WebGPURenderer } from 'three/webgpu'
 import { ARButton } from 'three/examples/jsm/webxr/ARButton.js'
+import { DeviceOrientationControls } from './DeviceOrientationControls'
 import { createGrid, updateGrid } from './Grid'
 const grid = createGrid();
 export interface SceneEffectJSON {
@@ -130,6 +131,7 @@ class ThreeCore {
 	public rendererGPU: WebGPURenderer
 	public css3DRenderer?: CSS3DRenderer // CSS3D渲染器
 	public controls: OrbitControls
+	public deviceOrientationControls?: DeviceOrientationControls // 陀螺仪控制器
 	public allObjects: THREE.Object3D[] // 场景里的所有模型
 	
 	// AR相关
@@ -137,6 +139,7 @@ class ThreeCore {
 	public arHitTestSource?: any
 	public arHitTestSourceRequested = false
 	public arContentGroup?: THREE.Group // AR模式下包裹所有内容的组
+	public isWebcamAR = false // 是否处于Webcam降级AR模式
 	
 	// 光源系统
 	public lights?: {
@@ -239,9 +242,7 @@ class ThreeCore {
 		this.initScene()
 		this.initCamera()
 		this.initRenderer()
-		if (this.options.enableAR) {
-			this.initAR()
-		}
+		// initAR logic will be called explicitly or inside initAR based on support
 		this.initPicker()
 		// const cloud = this.createCloud()
 		// this.scene.add(cloud)
@@ -1236,10 +1237,10 @@ class ThreeCore {
 		this.renderer.shadowMap.autoUpdate = true
 		
 		// 背景设置
-		this.renderer.setClearColor(0x000000, 0) // 背景透明
-
 		if (this.options.enableAR) {
 			this.renderer.xr.enabled = true
+		} else {
+			this.renderer.setClearColor(0x000000, 0) // 背景透明
 		}
 
 		this.rendererGPU.setSize(width, height)
@@ -1683,16 +1684,32 @@ class ThreeCore {
 
 	// 	animate()
 	// }
-	initAR() {
+	async initAR() {
+		// 检测 WebXR 支持
+		let isWebXRSupported = false;
+		if ('xr' in navigator) {
+			isWebXRSupported = await navigator.xr?.isSessionSupported('immersive-ar') ?? false;
+		}
+
+		if (isWebXRSupported) {
+			this.initWebXRAR();
+		} else {
+			console.warn('WebXR not supported, falling back to Webcam AR');
+			this.initWebcamAR();
+		}
+	}
+
+	initWebXRAR() {
 		// 1. 添加 AR 按钮
 		const arButton = ARButton.createButton(this.renderer, { requiredFeatures: ['hit-test'] });
-		// 样式调整，使其不遮挡
 		arButton.style.zIndex = '9999';
 		document.body.appendChild(arButton);
 
+		this.renderer.xr.enabled = true;
+
 		// 2. 创建 Reticle (光标)
 		const geometry = new THREE.RingGeometry(0.15, 0.2, 32).rotateX(-Math.PI / 2);
-		const material = new THREE.MeshBasicMaterial({ color: 0xffffff }); // 稍微透明
+		const material = new THREE.MeshBasicMaterial({ color: 0xffffff });
 		this.arReticle = new THREE.Mesh(geometry, material);
 		this.arReticle.matrixAutoUpdate = false;
 		this.arReticle.visible = false;
@@ -1705,9 +1722,6 @@ class ThreeCore {
 		// 4. 监听 AR 会话交互
 		const onSelect = () => {
 			if (this.arReticle && this.arReticle.visible && this.arContentGroup) {
-				// 将内容放置在光标位置
-				// 这里我们使用 decompose 获取位置和旋转，应用到 contentGroup
-				// 也可以直接 copy matrix，但那样 scale 也会被重置，通常我们希望保持 scale
 				const position = new THREE.Vector3();
 				const quaternion = new THREE.Quaternion();
 				const scale = new THREE.Vector3();
@@ -1716,8 +1730,6 @@ class ThreeCore {
 				
 				this.arContentGroup.position.copy(position);
 				this.arContentGroup.quaternion.copy(quaternion);
-				
-				// 可选：放置后显示内容（如果开始是隐藏的）
 				this.arContentGroup.visible = true;
 			}
 		};
@@ -1725,6 +1737,102 @@ class ThreeCore {
 		const controller = this.renderer.xr.getController(0);
 		controller.addEventListener('select', onSelect);
 		this.scene.add(controller);
+	}
+
+	async initWebcamAR() {
+		this.isWebcamAR = true;
+		this.renderer.xr.enabled = false; // 禁用 XR
+
+		// 1. 获取摄像头流并作为背景
+		try {
+			const stream = await navigator.mediaDevices.getUserMedia({
+				video: {
+					facingMode: 'environment'
+				}
+			});
+			
+			const video = document.createElement('video');
+			video.srcObject = stream;
+			video.play();
+			
+			// 将 video 放在 canvas 后面
+			video.style.position = 'absolute';
+			video.style.top = '0';
+			video.style.left = '0';
+			video.style.width = '100%';
+			video.style.height = '100%';
+			video.style.objectFit = 'cover';
+			video.style.zIndex = '-1'; // 在 canvas 之下
+			
+			if (this.container) {
+				this.container.appendChild(video);
+			} else {
+				document.body.appendChild(video);
+			}
+			
+			// 确保 canvas 透明
+			this.renderer.setClearColor(0x000000, 0);
+			this.renderer.domElement.style.background = 'transparent';
+
+		} catch (err) {
+			console.error('Error accessing webcam:', err);
+			alert('无法访问摄像头，请检查权限设置');
+		}
+
+		// 2. 初始化陀螺仪控制
+		// 注意：iOS 需要用户交互触发权限请求，这部分逻辑应在外部 UI 调用
+		this.deviceOrientationControls = new DeviceOrientationControls(this.camera, this.renderer.domElement);
+		this.controls.enabled = false; // 禁用 OrbitControls
+
+		// 3. 创建 AR 内容组并默认放置在前方
+		this.arContentGroup = new THREE.Group();
+		this.scene.add(this.arContentGroup);
+		// 默认不可见或者放置在一定距离
+		this.arContentGroup.position.set(0, 0, -5); // 相机前方 5 米
+	}
+
+	// 专门为 Webcam AR 提供的放置方法
+	placeSceneInFrontOfCamera() {
+		if (!this.arContentGroup || !this.camera) return;
+
+		// 获取相机前方一定距离的位置
+		const distance = 5; // 5米
+		const direction = new THREE.Vector3();
+		this.camera.getWorldDirection(direction);
+		
+		const position = new THREE.Vector3();
+		position.copy(this.camera.position).add(direction.multiplyScalar(distance));
+		
+		this.arContentGroup.position.copy(position);
+		// 可选：让物体朝向相机
+		this.arContentGroup.lookAt(this.camera.position);
+		// 修正旋转，保持水平
+		this.arContentGroup.rotation.x = 0;
+		this.arContentGroup.rotation.z = 0;
+	}
+
+	// 请求陀螺仪权限 (iOS)
+	async requestDeviceOrientationPermission() {
+		if (this.deviceOrientationControls && typeof (this.deviceOrientationControls as any).connect === 'function') {
+             // DeviceOrientationControls 内部有权限请求逻辑，但需要重新触发连接
+             // 或者我们可以手动调用 DeviceOrientationEvent.requestPermission
+             if (typeof (DeviceOrientationEvent as any).requestPermission === 'function') {
+                 try {
+                     const response = await (DeviceOrientationEvent as any).requestPermission();
+                     if (response === 'granted') {
+                         this.deviceOrientationControls.connect();
+                         return true;
+                     } else {
+                         alert('陀螺仪权限被拒绝');
+                         return false;
+                     }
+                 } catch (error) {
+                     console.error(error);
+                     return false;
+                 }
+             }
+        }
+        return true; // Android 或非 iOS 设备默认通常允许
 	}
 
 	handleARHitTest(frame: any) {
@@ -1782,8 +1890,12 @@ class ThreeCore {
 			}
 
 			// 更新 OrbitControls
-			if (this.controls) {
+			if (this.controls && this.controls.enabled) {
 				this.controls.update()
+			}
+			// 更新 DeviceOrientationControls
+			if (this.deviceOrientationControls && this.deviceOrientationControls.enabled) {
+				this.deviceOrientationControls.update()
 			}
 			
 			// 更新镜头光位置跟随相机
@@ -2703,8 +2815,8 @@ class ThreeCore {
 			this.resizeObserver.disconnect()
 		}
 
-		if (this.controls) {
-			this.controls.dispose()
+		if (this.deviceOrientationControls) {
+			this.deviceOrientationControls.dispose();
 		}
 
 		if (this.stats) {

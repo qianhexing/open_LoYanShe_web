@@ -18,7 +18,10 @@ const {
   diaryList,
   libraryList,
   initScene,
-  disposeScene
+  disposeScene,
+  isWebcamAR,
+  requestPermission,
+  placeScene
 } = useSceneCore();
 
 let uni: any;
@@ -171,6 +174,37 @@ useHead({
         <div class="text-sm text-gray-600">{{ activeDiary?.content }}</div>
       </div>
     </QhxModal>
+
+    <!-- Webcam AR 专属 UI -->
+    <div v-if="isWebcamAR" class="absolute bottom-10 left-0 w-full flex flex-col items-center justify-center gap-4 z-50 pointer-events-none">
+        <!-- 准星 -->
+        <div class="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-8 h-8 border-2 border-white rounded-full pointer-events-none z-40 opacity-70">
+            <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-1 h-1 bg-white rounded-full"></div>
+        </div>
+
+        <div class="pointer-events-auto flex flex-col gap-2">
+            <UButton 
+                color="white" 
+                variant="solid" 
+                @click="requestPermission"
+                class="shadow-lg backdrop-blur-md bg-white/20"
+            >
+                授权陀螺仪 (iOS)
+            </UButton>
+            <UButton 
+                color="primary" 
+                size="xl"
+                variant="solid" 
+                @click="placeScene"
+                class="shadow-xl"
+            >
+                放置场景
+            </UButton>
+        </div>
+        <div class="text-white text-xs bg-black/50 px-2 py-1 rounded">
+            将准星对准位置点击放置，转动手机观察
+        </div>
+    </div>
   </div>
 </template>
 

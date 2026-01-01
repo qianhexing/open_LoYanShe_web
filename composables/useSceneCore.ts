@@ -148,6 +148,11 @@ export const useSceneCore = () => {
             threeCore.value = core
             
             core.mount(container)
+            
+            if (options.enableAR) {
+                await core.initAR()
+                isWebcamAR.value = core.isWebcamAR
+            }
 
             const onProgress = (current: number, total: number) => {
                 sceneLoadProgress.value = { current, total }
@@ -223,6 +228,22 @@ export const useSceneCore = () => {
         }
     }
 
+    const isWebcamAR = ref(false)
+
+    // ... existing code ...
+
+    const requestPermission = async () => {
+        if (threeCore.value) {
+            await threeCore.value.requestDeviceOrientationPermission()
+        }
+    }
+
+    const placeScene = () => {
+        if (threeCore.value) {
+            threeCore.value.placeSceneInFrontOfCamera()
+        }
+    }
+
     return {
         threeCore,
         sceneLoading,
@@ -234,7 +255,9 @@ export const useSceneCore = () => {
         operaPosition,
         initScene,
         disposeScene,
-        // 暴露出去以便外部可能需要手动调用
-        updateDiaryAndLibraryLists 
+        updateDiaryAndLibraryLists,
+        isWebcamAR,
+        requestPermission,
+        placeScene
     }
 }
