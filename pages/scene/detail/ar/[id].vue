@@ -21,7 +21,8 @@ const {
   disposeScene,
   isWebcamAR,
   requestPermission,
-  placeScene
+  placeScene,
+  toggleQRScan
 } = useSceneCore();
 
 let uni: any;
@@ -202,7 +203,7 @@ useHead({
             </UButton>
         </div>
         <div class="text-white text-xs bg-black/50 px-2 py-1 rounded">
-            将准星对准位置点击放置，转动手机观察
+            将准星对准位置点击放置，或者扫描二维码自动定位
         </div>
     </div>
   </div>

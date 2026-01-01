@@ -232,6 +232,8 @@ export const useSceneCore = () => {
 
     // ... existing code ...
 
+    const toggleQRScan = ref(true)
+
     const requestPermission = async () => {
         if (threeCore.value) {
             await threeCore.value.requestDeviceOrientationPermission()
@@ -258,6 +260,7 @@ export const useSceneCore = () => {
         updateDiaryAndLibraryLists,
         isWebcamAR,
         requestPermission,
-        placeScene
+        placeScene,
+        toggleQRScan
     }
 }

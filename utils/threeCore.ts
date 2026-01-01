@@ -39,6 +39,7 @@ export interface CameraState {
 import { WebGPURenderer } from 'three/webgpu'
 import { ARButton } from 'three/examples/jsm/webxr/ARButton.js'
 import { DeviceOrientationControls } from './DeviceOrientationControls'
+import jsQR from 'jsqr'
 import { createGrid, updateGrid } from './Grid'
 const grid = createGrid();
 export interface SceneEffectJSON {
@@ -140,6 +141,10 @@ class ThreeCore {
 	public arHitTestSourceRequested = false
 	public arContentGroup?: THREE.Group // AR模式下包裹所有内容的组
 	public isWebcamAR = false // 是否处于Webcam降级AR模式
+	public videoElement?: HTMLVideoElement // Webcam AR video
+	public qrScanCanvas?: HTMLCanvasElement
+	public qrScanContext?: CanvasRenderingContext2D | null
+	public lastQRScanTime = 0
 	
 	// 光源系统
 	public lights?: {
@@ -1769,6 +1774,8 @@ class ThreeCore {
 			video.style.objectFit = 'cover';
 			video.style.zIndex = '0'; // 在 canvas 之下
 			
+			this.videoElement = video; // 保存 video 引用
+
 			if (this.container) {
 				this.container.appendChild(video);
 			} else {
@@ -1778,6 +1785,10 @@ class ThreeCore {
 			// 确保 canvas 透明
 			this.renderer.setClearColor(0x000000, 0);
 			this.renderer.domElement.style.background = 'transparent';
+
+			// 初始化二维码扫描 Canvas
+			this.qrScanCanvas = document.createElement('canvas');
+			this.qrScanContext = this.qrScanCanvas.getContext('2d');
 
 		} catch (err) {
 			console.error('Error accessing webcam:', err);
@@ -1813,6 +1824,91 @@ class ThreeCore {
 		this.arContentGroup.lookAt(this.camera.position);
 		// 修正旋转，保持水平
 		this.arContentGroup.rotation.x = 0;
+		this.arContentGroup.rotation.z = 0;
+	}
+
+	// 扫描二维码并定位场景
+	scanAndPositionFromQR() {
+		if (!this.videoElement || !this.qrScanCanvas || !this.qrScanContext || !this.camera || !this.arContentGroup) {
+			return false;
+		}
+
+		// 限制扫描频率 (例如每 200ms 扫描一次)
+		const now = performance.now();
+		if (now - this.lastQRScanTime < 200) {
+			return false;
+		}
+		this.lastQRScanTime = now;
+
+		const video = this.videoElement;
+		if (video.readyState === video.HAVE_ENOUGH_DATA) {
+			this.qrScanCanvas.width = video.videoWidth;
+			this.qrScanCanvas.height = video.videoHeight;
+			this.qrScanContext.drawImage(video, 0, 0, this.qrScanCanvas.width, this.qrScanCanvas.height);
+			
+			const imageData = this.qrScanContext.getImageData(0, 0, this.qrScanCanvas.width, this.qrScanCanvas.height);
+			const code = jsQR(imageData.data, imageData.width, imageData.height, {
+				inversionAttempts: "dontInvert",
+			});
+
+			if (code) {
+				console.log("Found QR code", code.data);
+				// 根据二维码位置定位
+				this.positionSceneByQR(code.location);
+				return true;
+			}
+		}
+		return false;
+	}
+
+	positionSceneByQR(location: any) {
+		if (!this.camera || !this.arContentGroup) return;
+
+		// 1. 计算二维码中心点
+		const centerX = (location.topLeftCorner.x + location.topRightCorner.x + location.bottomRightCorner.x + location.bottomLeftCorner.x) / 4;
+		const centerY = (location.topLeftCorner.y + location.topRightCorner.y + location.bottomRightCorner.y + location.bottomLeftCorner.y) / 4;
+
+		// 2. 归一化设备坐标 (NDC) -1 to 1
+		// 注意 video 可能被 object-fit: cover 裁剪，这里简化假设 video 填满屏幕且比例一致，或者做简单映射
+		// 为了更精确，需要考虑 videoElement 的显示尺寸和 videoWidth 的比例
+		// 这里简化处理：假设 video 是全屏显示的背景
+		
+		const ndcX = (centerX / this.videoElement!.videoWidth) * 2 - 1;
+		const ndcY = -(centerY / this.videoElement!.videoHeight) * 2 + 1;
+
+		// 3. 估算距离
+		// 假设二维码物理宽度为 10cm (0.1m)
+		// 简单的相似三角形原理： distance = (physicalWidth * focalLength) / pixelWidth
+		const qrPhysicalWidth = 0.15; // 米
+		const pixelWidth = Math.sqrt(
+			Math.pow(location.topRightCorner.x - location.topLeftCorner.x, 2) +
+			Math.pow(location.topRightCorner.y - location.topLeftCorner.y, 2)
+		);
+		
+		// 估算焦距 (pixels)
+		// fov = 2 * atan( (height / 2) / focalLength )
+		// focalLength = (height / 2) / tan(fov / 2)
+		// 这里用 videoHeight 估算
+		const fovRad = (this.camera as THREE.PerspectiveCamera).fov * (Math.PI / 180);
+		const focalLength = (this.videoElement!.videoHeight / 2) / Math.tan(fovRad / 2);
+		
+		const distance = (qrPhysicalWidth * focalLength) / pixelWidth;
+
+		// 4. 计算 3D 位置
+		// 从相机发射射线到该深度的平面
+		const vector = new THREE.Vector3(ndcX, ndcY, 0.5);
+		vector.unproject(this.camera);
+		const dir = vector.sub(this.camera.position).normalize();
+		const targetPos = this.camera.position.clone().add(dir.multiplyScalar(distance));
+
+		// 5. 应用位置
+		// 平滑过渡
+		// this.arContentGroup.position.lerp(targetPos, 0.1); 
+		this.arContentGroup.position.copy(targetPos);
+		
+		// 6. 朝向相机 (简化版，始终正面朝向用户，保持 upright)
+		this.arContentGroup.lookAt(this.camera.position);
+		this.arContentGroup.rotation.x = 0; // 保持水平
 		this.arContentGroup.rotation.z = 0;
 	}
 
@@ -1892,6 +1988,11 @@ class ThreeCore {
 			// AR Hit Test
 			if (this.options.enableAR && frame) {
 				this.handleARHitTest(frame);
+			}
+
+			// Webcam AR: 自动扫描二维码
+			if (this.isWebcamAR) {
+				this.scanAndPositionFromQR();
 			}
 
 			// 更新 OrbitControls
