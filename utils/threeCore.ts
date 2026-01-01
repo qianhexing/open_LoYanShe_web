@@ -37,6 +37,7 @@ export interface CameraState {
 	fov?: number // 只有 PerspectiveCamera 会用到
 }
 import { WebGPURenderer } from 'three/webgpu'
+import { ARButton } from 'three/examples/jsm/webxr/ARButton.js'
 import { createGrid, updateGrid } from './Grid'
 const grid = createGrid();
 export interface SceneEffectJSON {
@@ -119,6 +120,7 @@ interface ThreeCoreOptions {
 	pixelRatio?: number
 	enableCSS3DRenderer?: boolean // 新增选项：是否启用CSS3D渲染器
 	editMode?: boolean
+	enableAR?: boolean
 }
 
 class ThreeCore {
@@ -129,6 +131,12 @@ class ThreeCore {
 	public css3DRenderer?: CSS3DRenderer // CSS3D渲染器
 	public controls: OrbitControls
 	public allObjects: THREE.Object3D[] // 场景里的所有模型
+	
+	// AR相关
+	public arReticle?: THREE.Mesh
+	public arHitTestSource?: any
+	public arHitTestSourceRequested = false
+	public arContentGroup?: THREE.Group // AR模式下包裹所有内容的组
 	
 	// 光源系统
 	public lights?: {
@@ -231,6 +239,9 @@ class ThreeCore {
 		this.initScene()
 		this.initCamera()
 		this.initRenderer()
+		if (this.options.enableAR) {
+			this.initAR()
+		}
 		this.initPicker()
 		// const cloud = this.createCloud()
 		// this.scene.add(cloud)
@@ -1227,6 +1238,10 @@ class ThreeCore {
 		// 背景设置
 		this.renderer.setClearColor(0x000000, 0) // 背景透明
 
+		if (this.options.enableAR) {
+			this.renderer.xr.enabled = true
+		}
+
 		this.rendererGPU.setSize(width, height)
 		console.log(this.renderer, '渲染器=======')
 		// this.container.appendChild(this.rendererGPU.domElement);
@@ -1668,11 +1683,103 @@ class ThreeCore {
 
 	// 	animate()
 	// }
+	initAR() {
+		// 1. 添加 AR 按钮
+		const arButton = ARButton.createButton(this.renderer, { requiredFeatures: ['hit-test'] });
+		// 样式调整，使其不遮挡
+		arButton.style.zIndex = '9999';
+		document.body.appendChild(arButton);
+
+		// 2. 创建 Reticle (光标)
+		const geometry = new THREE.RingGeometry(0.15, 0.2, 32).rotateX(-Math.PI / 2);
+		const material = new THREE.MeshBasicMaterial({ color: 0xffffff }); // 稍微透明
+		this.arReticle = new THREE.Mesh(geometry, material);
+		this.arReticle.matrixAutoUpdate = false;
+		this.arReticle.visible = false;
+		this.scene.add(this.arReticle);
+
+		// 3. 创建 AR 内容组
+		this.arContentGroup = new THREE.Group();
+		this.scene.add(this.arContentGroup);
+
+		// 4. 监听 AR 会话交互
+		const onSelect = () => {
+			if (this.arReticle && this.arReticle.visible && this.arContentGroup) {
+				// 将内容放置在光标位置
+				// 这里我们使用 decompose 获取位置和旋转，应用到 contentGroup
+				// 也可以直接 copy matrix，但那样 scale 也会被重置，通常我们希望保持 scale
+				const position = new THREE.Vector3();
+				const quaternion = new THREE.Quaternion();
+				const scale = new THREE.Vector3();
+				
+				this.arReticle.matrix.decompose(position, quaternion, scale);
+				
+				this.arContentGroup.position.copy(position);
+				this.arContentGroup.quaternion.copy(quaternion);
+				
+				// 可选：放置后显示内容（如果开始是隐藏的）
+				this.arContentGroup.visible = true;
+			}
+		};
+
+		const controller = this.renderer.xr.getController(0);
+		controller.addEventListener('select', onSelect);
+		this.scene.add(controller);
+	}
+
+	handleARHitTest(frame: any) {
+		if (!this.arHitTestSourceRequested) {
+			const session = this.renderer.xr.getSession();
+			if (session) {
+				session.requestReferenceSpace('viewer').then((referenceSpace: any) => {
+					session.requestHitTestSource({ space: referenceSpace }).then((source: any) => {
+						this.arHitTestSource = source;
+					});
+				});
+				session.addEventListener('end', () => {
+					this.arHitTestSourceRequested = false;
+					this.arHitTestSource = null;
+				});
+				this.arHitTestSourceRequested = true;
+			}
+		}
+
+		if (this.arHitTestSource && this.arReticle) {
+			const referenceSpace = this.renderer.xr.getReferenceSpace();
+			const hitTestResults = frame.getHitTestResults(this.arHitTestSource);
+
+			if (hitTestResults.length > 0) {
+				const hit = hitTestResults[0];
+				// 获取姿态
+				const pose = hit.getPose(referenceSpace);
+				if (pose) {
+					this.arReticle.visible = true;
+					this.arReticle.matrix.fromArray(pose.transform.matrix);
+				}
+			} else {
+				this.arReticle.visible = false;
+			}
+		}
+	}
+
 	startAnimationLoop() {
-		const animate = (time?: number) => {
-			requestAnimationFrame(animate)
+		const animate = (time?: number, frame?: any) => {
+			// 如果不是 XR 模式，需要手动 requestAnimationFrame
+			// 如果是 XR 模式，renderer.setAnimationLoop 会处理循环，不需要 requestAnimationFrame
+			// 但这里为了兼容两套逻辑，我们要做个判断
+			
+			// 注意：renderer.setAnimationLoop(callback) 会在每次 XR 帧时调用 callback
+			// 且 callback 会带上 time 和 frame
+			
+			// 如果没有启用 XR，或者 XR session 没开始，我们需要手动调用 loop（在 else 分支处理）
+			
 			const delta = this.clock.getDelta()
 			this.effectManager.update(delta)
+
+			// AR Hit Test
+			if (this.options.enableAR && frame) {
+				this.handleARHitTest(frame);
+			}
 
 			// 更新 OrbitControls
 			if (this.controls) {
@@ -1685,11 +1792,6 @@ class ThreeCore {
 				const offset = new THREE.Vector3(2, 1, 2)
 				this.lensLight.position.copy(this.camera.position).add(offset)
 			}
-			// if (this.transformControls) {
-			// 	this.transformControls.updateMatrixWorld(); // 自定义控制器更新
-			// }
-			// this.renderer.setClearColor(0x000000, 0)
-			// this.renderer.render(this.scene, this.camera)
 
 			// 调用额外的动画回调
 			// biome-ignore lint/complexity/noForEach: <explanation>
@@ -1722,8 +1824,17 @@ class ThreeCore {
 					delete this.materials[mesh.uuid]
 				}
 			})
-			// 2. 合成最终场景
-			this.finalComposer.render()
+			
+			// AR 模式下通常不需要复杂的 PostProcessing (Composer)，因为要透视背景
+			// 但如果有 Bloom 需求，可以用 finalComposer。
+			// 不过 WebXR 中使用 Composer 可能会有兼容性问题（RenderTarget 大小等）。
+			// 简单起见，AR 模式下直接 render scene
+			if (this.renderer.xr.enabled && this.renderer.xr.isPresenting) {
+				this.renderer.render(this.scene, this.camera);
+			} else {
+				// 2. 合成最终场景
+				this.finalComposer.render()
+			}
 
 			// 渲染 CSS3D 场景（叠加在 WebGL 上）
 			if (this.css3DRenderer) {
@@ -1745,7 +1856,15 @@ class ThreeCore {
 			TWEEN.update(time || performance.now())
 		}
 
-		animate()
+		if (this.renderer.xr.enabled) {
+			this.renderer.setAnimationLoop(animate);
+		} else {
+			const loop = (time: number) => {
+				requestAnimationFrame(loop);
+				animate(time);
+			}
+			loop(0);
+		}
 	}
 
 	// 修改mount方法以支持CSS3D渲染器
@@ -2369,13 +2488,14 @@ class ThreeCore {
 			}
 
 			if (obj.type === 'effect' && obj.effect_name) {
+				const target = (this.options.enableAR && this.arContentGroup) ? this.arContentGroup : this.scene
 				this.addEffect(
 					{
 						effect_name: obj.effect_name,
 						effect_id: 0,
 						options: obj.options ? obj.options : {}
 					},
-					this.scene
+					target
 				)
 			}
 			if (obj.type === 'image' && obj.url) {
@@ -2404,10 +2524,14 @@ class ThreeCore {
 							if (group) {
 								group.userData.type = 'template'
 								group.userData.template_id = template.template_id
-								group.userData.ignorePick = true
-								this.scene.add(group)
-								this.loadTemplate.push(group)
-							}
+									group.userData.ignorePick = true
+									if (this.options.enableAR && this.arContentGroup) {
+										this.arContentGroup.add(group)
+									} else {
+										this.scene.add(group)
+									}
+									this.loadTemplate.push(group)
+								}
 						} else if (template.json_url) {
 							use$Get(`/sence/json/${template.json_url}.json?2`, undefined, {
 								baseURL: BASE_IMG
@@ -2417,7 +2541,11 @@ class ThreeCore {
 									group.userData.type = 'template'
 									group.userData.template_id = template.template_id
 									group.userData.ignorePick = true
-									this.scene.add(group)
+									if (this.options.enableAR && this.arContentGroup) {
+										this.arContentGroup.add(group)
+									} else {
+										this.scene.add(group)
+									}
 									this.loadTemplate.push(group)
 								}
 							})
@@ -2445,7 +2573,11 @@ class ThreeCore {
 					group?.add(mesh)
 				} else {
 					this.allObjects.push(mesh)
-					this.scene.add(mesh)
+					if (this.options.enableAR && this.arContentGroup) {
+						this.arContentGroup.add(mesh)
+					} else {
+						this.scene.add(mesh)
+					}
 				}
 
 				// const box = this.createBoundingBoxMesh(mesh)

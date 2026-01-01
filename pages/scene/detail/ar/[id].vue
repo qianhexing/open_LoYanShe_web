@@ -32,7 +32,8 @@ onMounted(async () => {
   if (sceneElement) {
     await initScene(sceneElement, id, {
       editMode: false,
-      baseUrl: BASE_IMG
+      baseUrl: BASE_IMG,
+      enableAR: true
     });
   }
 });

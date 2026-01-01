@@ -130,7 +130,8 @@ export const useSceneCore = () => {
     const initScene = async (container: HTMLElement, id: string, options: { 
         editMode: boolean, 
         baseUrl: string,
-        sceneData?: Scene | null 
+        sceneData?: Scene | null,
+        enableAR?: boolean
     }) => {
         sceneLoading.value = true
         sceneLoadError.value = null
@@ -141,7 +142,8 @@ export const useSceneCore = () => {
             const core = new qhxCore({
                 enableCSS3DRenderer: true,
                 alpha: true,
-                editMode: options.editMode
+                editMode: options.editMode,
+                enableAR: options.enableAR
             })
             threeCore.value = core
             
