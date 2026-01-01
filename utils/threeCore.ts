@@ -1752,11 +1752,16 @@ class ThreeCore {
 			});
 			
 			const video = document.createElement('video');
-			video.srcObject = stream;
-			video.play();
-			
-			// 将 video 放在 canvas 后面
+			// iOS 关键属性：允许内联播放，静音自动播放
+			video.setAttribute('autoplay', '');
+			video.setAttribute('muted', '');
+			video.setAttribute('playsinline', '');
+			video.setAttribute('webkit-playsinline', '');
 			video.style.position = 'absolute';
+			video.srcObject = stream;
+			video.play().catch(e => {
+				console.error('Video play failed:', e);
+			});
 			video.style.top = '0';
 			video.style.left = '0';
 			video.style.width = '100%';
