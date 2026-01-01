@@ -68,6 +68,9 @@ importers:
       html2canvas:
         specifier: ^1.4.1
         version: 1.4.1
+      jsqr:
+        specifier: ^1.4.0
+        version: 1.4.0
       nuxt:
         specifier: ^3.15.2
         version: 3.15.2(@biomejs/biome@1.9.4)(@parcel/watcher@2.5.0)(@types/node@22.10.9)(db0@0.2.1)(eslint@9.32.0(jiti@2.4.2))(ioredis@5.4.2)(magicast@0.3.5)(optionator@0.9.4)(rollup@4.31.0)(terser@5.37.0)(typescript@5.7.3)(vite@6.0.11(@types/node@22.10.9)(jiti@2.4.2)(terser@5.37.0)(yaml@2.7.0))(xml2js@0.6.2)(yaml@2.7.0)
@@ -3620,6 +3623,9 @@ packages:
 
   jsonfile@6.1.0:
     resolution: {integrity: sha512-5dgndWOriYSm5cnYaJNhalLNDKOqFwyDB/rr1E9ZsGciGvKPs8R2xYGCacuf3z6K1YKDz182fd+fY3cn3pMqXQ==}
+
+  jsqr@1.4.0:
+    resolution: {integrity: sha512-dxLob7q65Xg2DvstYkRpkYtmKm2sPJ9oFhrhmudT1dZvNFFTlroai3AWSpLey/w5vMcLBXRgOJsbXpdN9HzU/A==}
 
   jstoxml@2.2.9:
     resolution: {integrity: sha512-OYWlK0j+roh+eyaMROlNbS5cd5R25Y+IUpdl7cNdB8HNrkgwQzIS7L9MegxOiWNBj9dQhA/yAxiMwCC5mwNoBw==}
@@ -9771,6 +9777,8 @@ snapshots:
       universalify: 2.0.1
     optionalDependencies:
       graceful-fs: 4.2.11
+
+  jsqr@1.4.0: {}
 
   jstoxml@2.2.9: {}
 
