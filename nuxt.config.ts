@@ -3,7 +3,7 @@
 export default defineNuxtConfig({
 	pages: true,
 	build: {
-    transpile: ['three']
+    transpile: ['three', 'mind-ar']
   },
 	nitro: {
 		routeRules: {
