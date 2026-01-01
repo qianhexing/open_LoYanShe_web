@@ -1580,8 +1580,8 @@ class ThreeCore {
 		})
 		this.renderer.domElement.style.position = 'absolute'
 		this.renderer.domElement.style.position = 'absolute'
-		this.renderer.domElement.style.zIndex = '0'
-		this.css3DRenderer.domElement.style.zIndex = '1'
+		this.renderer.domElement.style.zIndex = '1'
+		this.css3DRenderer.domElement.style.zIndex = '2'
 	}
 
 	// 修改onContainerResize方法以支持CSS3D渲染器
@@ -1767,7 +1767,7 @@ class ThreeCore {
 			video.style.width = '100%';
 			video.style.height = '100%';
 			video.style.objectFit = 'cover';
-			video.style.zIndex = '-1'; // 在 canvas 之下
+			video.style.zIndex = '0'; // 在 canvas 之下
 			
 			if (this.container) {
 				this.container.appendChild(video);
