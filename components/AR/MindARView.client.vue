@@ -412,25 +412,13 @@ const processLoop = () => {
   if (!mindController || !isScanning.value || !videoRef.value) return;
 
   // 关键：处理一帧视频
-  let result;
-  try {
-    result = mindController.processVideo(videoRef.value);
-  } catch(e) {
-    console.warn("MindAR processVideo error", e);
-  }
-
+  const result = mindController.processVideo(videoRef.value);
   if (!result) {
     if (videoRef.value) {
       const { readyState, videoWidth, videoHeight, paused } = videoRef.value;
-      // 只有当 video readyState 不够时才认为是在等待流
-      if (readyState < 2) {
-          loadingText.value = `等待视频流... (State: ${readyState})`;
-      } else {
-        // 如果 video 已经准备好，但 processVideo 返回 null，可能是 MindAR 还没准备好或者不需要更新
-        // 这种情况下通常不应该阻塞，而是继续尝试
-        // 但为了调试，我们暂时显示状态
-         // loadingText.value = `AR引擎处理中... (State: ${readyState})`;
-      }
+      loadingText.value = `等待视频流... (State: ${readyState}, Size: ${videoWidth}x${videoHeight}, Paused: ${paused})`;
+    } else {
+      loadingText.value = '等待视频流... (VideoRef null)';
     }
     requestAnimationFrameId = requestAnimationFrame(processLoop);
     return;
