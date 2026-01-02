@@ -414,6 +414,7 @@ const processLoop = () => {
   // 关键：处理一帧视频
   const result = mindController.processVideo(videoRef.value);
   if (!result) {
+    loadingText.value = '等待视频流...';
     requestAnimationFrameId = requestAnimationFrame(processLoop);
     return;
   }
@@ -425,31 +426,27 @@ const processLoop = () => {
       // === 核心：识别成功 ===
       if (!isTracking.value) {
         isTracking.value = true;
-        if (arAnchorGroup) arAnchorGroup.visible = true;
+        if (arAnchorGroup) {
+          arAnchorGroup.visible = true;
+        }
         console.log('Target found!');
+        loadingText.value = '目标已锁定!';
       }
 
       // === 核心：同步位姿 ===
-      // MindAR 返回的是 Column-major 数组
-      // data[targetIndex].worldMatrix 是一个 16 元素的数组
-
       if (arAnchorGroup) {
         // 直接设置矩阵
         arAnchorGroup.matrix.fromArray(data[targetIndex].worldMatrix);
-
-        // 如果需要处理坐标系差异，可能需要再乘一个修正矩阵
-        // MindAR 的坐标系通常是：Z 垂直于图像向外，X 向右，Y 向上 (右手系)
-        // Three.js 也是右手系。通常不需要额外转换。
       }
     } else {
       // 丢失追踪
       if (isTracking.value) {
-        // 选择 1: 立即隐藏
-        // if(arAnchorGroup) arAnchorGroup.visible = false;
-        // isTracking.value = false;
-
-        // 选择 2: 保持在最后位置 (通常体验更好)
-        // 只有连续丢失很久才隐藏
+         // 选择 2: 保持在最后位置 (通常体验更好)
+         // 只有连续丢失很久才隐藏
+         loadingText.value = '目标丢失，保持最后位置';
+         // isTracking.value = false;
+      } else {
+         loadingText.value = '正在扫描...';
       }
     }
   }
