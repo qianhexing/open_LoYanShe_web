@@ -10,10 +10,10 @@ export const AR_SCENE_MAP: Record<number, ARSceneConfig> = {
     id: 1,
     name: '示例场景',
     // 使用 MindAR 官方示例的 card.mind
-    mindUrl: 'https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/examples/image-tracking/assets/card-example/card.mind',
+    mindUrl: 'https://lolitalibrary.com/pc/mind/1.mind',
     targetIndex: 0
   },
   // 可以添加更多
 };
 
-export const getARConfig = (sceneId: number) => AR_SCENE_MAP[sceneId] || AR_SCENE_MAP[1];
+export const getARConfig = (sceneId: number) => AR_SCENE_MAP[1];
