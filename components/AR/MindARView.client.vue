@@ -413,7 +413,12 @@ const processLoop = () => {
   if (!mindController || !isScanning.value || !videoRef.value) return;
 
   // 关键：处理一帧视频
-  const { type, data } = mindController.processVideo(videoRef.value);
+  const result = mindController.processVideo(videoRef.value);
+  if (!result) {
+    requestAnimationFrameId = requestAnimationFrame(processLoop);
+    return;
+  }
+  const { type, data } = result;
 
   if (type === 'updateMatrix') {
     const targetIndex = 0;
