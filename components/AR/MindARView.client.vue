@@ -365,6 +365,11 @@ const initMindAR = async (mindUrl: string, video: HTMLVideoElement) => {
       inputHeight: video.videoHeight,
       filterMinCF: 0.001,
       filterBeta: 1000,
+      onUpdate: (data: any) => {
+        if (data.type === 'updateMatrix') {
+          updateARState(data.data);
+        }
+      }
     })
 
     console.log('[步骤2完成] MindAR Controller created')
@@ -408,66 +413,42 @@ const initMindAR = async (mindUrl: string, video: HTMLVideoElement) => {
     throw error
   }
 }
+const updateARState = (data: any[]) => {
+  const targetIndex = 0;
+  if (data && data.length > targetIndex && data[targetIndex].worldMatrix) {
+    // === 核心：识别成功 ===
+    if (!isTracking.value) {
+      isTracking.value = true;
+      if (arAnchorGroup) {
+        arAnchorGroup.visible = true;
+      }
+      console.log('Target found!');
+      loadingText.value = '目标已锁定!';
+    }
+
+    // === 核心：同步位姿 ===
+    if (arAnchorGroup) {
+      // 直接设置矩阵
+      arAnchorGroup.matrix.fromArray(data[targetIndex].worldMatrix);
+    }
+  } else {
+    // 丢失追踪
+    if (isTracking.value) {
+        loadingText.value = '目标丢失，保持最后位置';
+    } else {
+        loadingText.value = '正在扫描...';
+    }
+  }
+}
+
 const processLoop = () => {
   if (!mindController || !isScanning.value || !videoRef.value) return;
 
   // 关键：处理一帧视频
-  let result;
   try {
-    result = mindController.processVideo(videoRef.value);
+    mindController.processVideo(videoRef.value);
   } catch(e) {
-    console.warn("MindAR processVideo error", e);
-  }
-
-  if (!result) {
-    if (videoRef.value) {
-      const { readyState, videoWidth, videoHeight, paused } = videoRef.value;
-      // 只有当 video readyState 不够时才认为是在等待流
-      if (readyState < 2) {
-          loadingText.value = `等待视频流... (State: ${readyState})`;
-      } else {
-        // 如果 video 已经准备好，但 processVideo 返回 null，可能是 MindAR 还没准备好或者不需要更新
-        // 这种情况下通常不应该阻塞，而是继续尝试
-        // 但为了调试，我们暂时显示状态
-         // loadingText.value = `AR引擎处理中... (State: ${readyState})`;
-      }
-    }
-    requestAnimationFrameId = requestAnimationFrame(processLoop);
-    return;
-  }
-  const { type, data } = result;
-
-  if (type === 'updateMatrix') {
-    const targetIndex = 0;
-    if (data && data.length > targetIndex && data[targetIndex].worldMatrix) {
-      // === 核心：识别成功 ===
-      if (!isTracking.value) {
-        isTracking.value = true;
-        if (arAnchorGroup) {
-          arAnchorGroup.visible = true;
-        }
-        console.log('Target found!');
-        loadingText.value = '目标已锁定!';
-      }
-
-      // === 核心：同步位姿 ===
-      if (arAnchorGroup) {
-        // 直接设置矩阵
-        arAnchorGroup.matrix.fromArray(data[targetIndex].worldMatrix);
-      }
-    } else {
-      // 丢失追踪
-      if (isTracking.value) {
-         // 选择 2: 保持在最后位置 (通常体验更好)
-         // 只有连续丢失很久才隐藏
-         loadingText.value = '目标丢失，保持最后位置';
-         // isTracking.value = false;
-      } else {
-         loadingText.value = '正在扫描...';
-      }
-    }
-  } else {
-    loadingText.value = '正在扫描...' + type;
+    console.error("MindAR processVideo error", e);
   }
 
   requestAnimationFrameId = requestAnimationFrame(processLoop);
