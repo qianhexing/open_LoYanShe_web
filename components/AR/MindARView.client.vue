@@ -356,7 +356,6 @@ const initMindAR = async (mindUrl: string, video: HTMLVideoElement) => {
       video.videoHeight
     )
     loadingText.value = `步骤 1/5: 视频准备就绪 ${video.videoWidth}x${video.videoHeight}`
-    await new Promise(resolve => setTimeout(resolve, 5000)) // 等待5秒
     // 步骤2: 创建 MindAR Controller
     console.log('[步骤2/5] 创建 MindAR Controller...')
     loadingText.value = `步骤 2/5: 创建 MindAR Controller (${video.videoWidth}x${video.videoHeight})...`
