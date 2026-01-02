@@ -414,7 +414,12 @@ const processLoop = () => {
   // 关键：处理一帧视频
   const result = mindController.processVideo(videoRef.value);
   if (!result) {
-    loadingText.value = '等待视频流...';
+    if (videoRef.value) {
+      const { readyState, videoWidth, videoHeight, paused } = videoRef.value;
+      loadingText.value = `等待视频流... (State: ${readyState}, Size: ${videoWidth}x${videoHeight}, Paused: ${paused})`;
+    } else {
+      loadingText.value = '等待视频流... (VideoRef null)';
+    }
     requestAnimationFrameId = requestAnimationFrame(processLoop);
     return;
   }
