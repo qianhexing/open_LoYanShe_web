@@ -454,6 +454,8 @@ const processLoop = () => {
          loadingText.value = '正在扫描...';
       }
     }
+  } else {
+    loadingText.value = '正在扫描...' + type;
   }
 
   requestAnimationFrameId = requestAnimationFrame(processLoop);
