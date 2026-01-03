@@ -7,7 +7,8 @@
          MindAR 的 Controller 模式允许我们只获取位姿，不强制接管渲染。
     -->
     <video ref="videoRef" autoplay muted playsinline webkit-playsinline
-      class="hidden-video absolute top-0 left-0 w-full h-full object-cover z-0" style="opacity: 0;"></video>
+      class="hidden-video absolute top-0 left-0 w-full h-full object-cover z-0"></video>
+      
     <!-- 为了看到摄像头画面，我们需要让 video 显示出来，或者由 MindAR 绘制到 canvas 上。
          通常 MindAR (ImageTracking) 示例是将 video 作为背景。
          这里我们将 video 设为 absolute top-0 left-0，z-index 0。
@@ -92,8 +93,8 @@ let MindARController: any = null;
 onMounted(async () => {
   // 动态导入 MindAR，确保只在客户端运行
   try {
-    const mindArModule = await import('mind-ar/dist/mindar-image.prod.js');
-    MindARController = mindArModule.Controller;
+    const mod = await import('mind-ar/src/image-target/controller')
+  MindARController = mod.Controller
   } catch (e) {
     console.warn('本地 mind-ar 依赖未找到，尝试 CDN 或检查 npm install');
     // 如果本地没有，这里可以 fallback 到 window.MINDAR (如果 index.html 引入了 script)
@@ -182,7 +183,7 @@ const startScan = async () => {
       videoRef.value!.onloadedmetadata = () => {
         videoRef.value!.play();
         // 让 video 元素实际显示视频流 (opacity 1)
-        videoRef.value!.style.opacity = '1';
+        // videoRef.value!.style.opacity = '1';
         resolve(true);
       };
     });
@@ -363,8 +364,10 @@ const initMindAR = async (mindUrl: string, video: HTMLVideoElement) => {
     mindController = new MindARController({
       inputWidth: video.videoWidth,
       inputHeight: video.videoHeight,
-      filterMinCF: 0.001,
-      filterBeta: 1000,
+      // filterMinCF: 0.001,
+      // filterBeta: 1000,
+      debugMode: false,
+      maxTrack: 1,
     })
 
     console.log('[步骤2完成] MindAR Controller created')
@@ -375,10 +378,11 @@ const initMindAR = async (mindUrl: string, video: HTMLVideoElement) => {
 
     try {
       const buffer = await checkMindBinary(mindUrl, loadingText)
-      console.log('[步骤3完成] 识别图加载完毕')
-      loadingText.value = '步骤 3/5: 正在添加识别图到 AR 引擎...'
-      const blobURL = arrayBufferToBlobURL(buffer)
-      await mindController.addImageTargets(blobURL)
+      // console.log('[步骤3完成] 识别图加载完毕')
+      // loadingText.value = '步骤 3/5: 正在添加识别图到 AR 引擎...'
+      // const blobURL = arrayBufferToBlobURL(buffer)
+      loadingText.value = '步骤 3/5: 正在添加识别图到 AR 引擎...buffer:' + buffer.byteLength
+      await mindController.addImageTargetsFromBuffer(buffer)
       console.log('[步骤3完成] 识别图已添加到 AR 引擎')
     } catch (error: any) {
       console.error('[加载识别图失败]', error)
@@ -396,8 +400,28 @@ const initMindAR = async (mindUrl: string, video: HTMLVideoElement) => {
     // 步骤5: 启动处理循环
     console.log('[步骤5/5] 启动处理循环...')
     loadingText.value = '步骤 5/5: 启动 AR 处理循环...'
-
-    processLoop()
+    let time = 0;
+    mindController.onUpdate = (event) => {
+      time++;
+      if (event.type === 'updateMatrix' && event.worldMatrix) {
+        // ✅ 这里才是真正的“识别成功”
+        // 你要的：Three.js 绑定 / 固定物体 / 记录坐标
+        loadingText.value = '识别成功...' + JSON.stringify(event.worldMatrix) + '时间:' + time;
+      } else {
+        loadingText.value = '识别失败...' + JSON.stringify(event) + '时间:' + time;
+      }
+      if (arAnchorGroup) {
+        // arAnchorGroup.visible = true;
+        // arAnchorGroup.matrix.fromArray(event.worldMatrix);
+      }
+      mindController.processVideo(videoRef.value);
+    };
+    setTimeout(() => {
+      // processLoop()
+      mindController.processVideo(videoRef.value);
+      loadingText.value = '启动处理循环...';
+      
+    }, 1000)
     
     console.log('[全部完成] MindAR 初始化成功')
     loadingText.value = 'MindAR 初始化成功，已就绪'
@@ -416,7 +440,7 @@ const processLoop = () => {
   if (!result) {
     if (videoRef.value) {
       const { readyState, videoWidth, videoHeight, paused } = videoRef.value;
-      loadingText.value = `等待视频流... (State: ${readyState}, Size: ${videoWidth}x${videoHeight}, Paused: ${paused})`;
+      loadingText.value = `等待视频流... (State: ${JSON.stringify(result)}`;
     } else {
       loadingText.value = '等待视频流... (VideoRef null)';
     }
@@ -551,7 +575,7 @@ const resetScan = () => {
   loading.value = false;
   errorMsg.value = '';
   if (videoRef.value) {
-    videoRef.value.style.opacity = '0';
+    // videoRef.value.style.opacity = '0';
   }
 }
 

@@ -10,7 +10,7 @@ export const AR_SCENE_MAP: Record<number, ARSceneConfig> = {
     id: 1,
     name: '示例场景',
     // 使用 MindAR 官方示例的 card.mind
-    mindUrl: 'https://lolitalibrary.com/pc/mind/1.mind',
+    mindUrl: 'https://lolitalibrary.com/pc/mind/1.mind?time=' + Date.now(),
     targetIndex: 0
   },
   // 可以添加更多
