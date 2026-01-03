@@ -400,27 +400,11 @@ const initMindAR = async (mindUrl: string, video: HTMLVideoElement) => {
     // 步骤5: 启动处理循环
     console.log('[步骤5/5] 启动处理循环...')
     loadingText.value = '步骤 5/5: 启动 AR 处理循环...'
-    let time = 0;
-    mindController.onUpdate = (event) => {
-      time++;
-      if (event.type === 'updateMatrix' && event.worldMatrix) {
-        // ✅ 这里才是真正的“识别成功”
-        // 你要的：Three.js 绑定 / 固定物体 / 记录坐标
-        loadingText.value = '识别成功...' + JSON.stringify(event.worldMatrix) + '时间:' + time;
-      } else {
-        loadingText.value = '识别失败...' + JSON.stringify(event) + '时间:' + time;
-      }
-      if (arAnchorGroup) {
-        // arAnchorGroup.visible = true;
-        // arAnchorGroup.matrix.fromArray(event.worldMatrix);
-      }
-      mindController.processVideo(videoRef.value);
-    };
+    
+    // 启动处理循环，使用 requestAnimationFrame
     setTimeout(() => {
-      // processLoop()
-      mindController.processVideo(videoRef.value);
+      processLoop()
       loadingText.value = '启动处理循环...';
-      
     }, 1000)
     
     console.log('[全部完成] MindAR 初始化成功')
