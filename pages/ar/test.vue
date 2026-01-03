@@ -38,6 +38,8 @@
 
 <script setup>
 import { onMounted } from 'vue';
+import { getSceneId } from '@/api/scene';
+import { BASE_IMG } from '@/utils/ipConfig.js';
 
 definePageMeta({
   layout: false
@@ -78,7 +80,7 @@ onMounted(() => {
   setTimeout(() => clearInterval(checkAFrame), 10000);
 });
 
-function loadMyScene(sceneEl) {
+async function loadMyScene(sceneEl) {
   // 获取 A-Frame 的 THREE 实例（全局）
   // 注意：MindAR 和 A-Frame 会在 window 上挂载 THREE
   const THREE = window.THREE; 
@@ -90,42 +92,127 @@ function loadMyScene(sceneEl) {
   const container = document.querySelector('#my-three-scene');
   if (!container) return;
   
-  console.log('Loading custom Three.js scene...');
+  console.log('Fetching scene data for ID: 1 ...');
   
-  // === 集成自定义 Three.js 场景 ===
-  // 示例：创建一个自定义的 Group 并添加物体
-  const group = new THREE.Group();
-  
-  // 示例 1: 动态创建一个旋转的环形结
-  const geometry = new THREE.TorusKnotGeometry(0.1, 0.03, 100, 16);
-  // 使用 Standard 材质以响应场景光照
-  const material = new THREE.MeshStandardMaterial({ 
-    color: 0x00aaff, 
-    roughness: 0.2, 
-    metalness: 0.8 
-  });
-  const mesh = new THREE.Mesh(geometry, material);
-  mesh.position.set(0, 0.2, 0.2); // 调整位置
-  group.add(mesh);
-  
-  // 示例 2: 如果您有现成的 Three.js 代码或类，可以在这里实例化
-  // 例如：const myObject = new MyCustomObject(THREE);
-  // group.add(myObject);
-
-  // 简单的动画逻辑
-  function animate() {
-    if (mesh) {
-      mesh.rotation.x += 0.01;
-      mesh.rotation.y += 0.02;
+  try {
+    // 1. 获取 Scene ID = 1 的数据
+    const res = await getSceneId({ sence_id: 1 });
+    if (!res || !res.json_data) {
+      console.warn('No json_data found for scene_id 1');
+      return;
     }
-    requestAnimationFrame(animate);
-  }
-  animate();
+    
+    const sceneJSON = res.json_data;
+    console.log('Scene Data Loaded:', sceneJSON);
+    
+    // 2. 创建自定义 Group 并解析 JSON
+    const group = new THREE.Group();
+    // 遍历 JSON 中的 objects
+    if (sceneJSON.objects && Array.isArray(sceneJSON.objects)) {
+      for (const obj of sceneJSON.objects) {
+        await parseObject(obj, group, THREE);
+      }
+    }
+    
+    // 3. 挂载到 A-Frame 实体
+    // 为了防止物体过大挡住视线，可以根据需要调整 scale
+    // 假设编辑器单位是米，MindAR 的图宽是 1 unit。如果物体很大，需要缩小。
+    // 这里先给个保险的缩放值，或者您可以根据实际情况调整。
+    // group.scale.set(0.1, 0.1, 0.1); 
 
-  // 将 group 设置为 entity 的 object3D
-  // setObject3D(type, obj) - type 通常是 'mesh' 或 'group'
-  container.setObject3D('mesh', group);
-  console.log('Custom Three.js scene integrated.');
+    container.setObject3D('mesh', group);
+    console.log('Custom Three.js scene integrated.');
+
+  } catch (error) {
+    console.error('Error loading scene:', error);
+  }
+}
+
+// 简易解析器：使用 window.THREE 解析 SceneJSON Object
+async function parseObject(obj, parentGroup, THREE) {
+  const position = obj.position || [0, 0, 0];
+  const rotation = obj.rotation || [0, 0, 0];
+  const scale = obj.scale || [1, 1, 1];
+  let mesh = null;
+
+  try {
+    if (obj.type === 'box') {
+      const size = obj.size || [1, 1, 1];
+      const geometry = new THREE.BoxGeometry(...size);
+      const material = new THREE.MeshStandardMaterial({ color: obj.color || '#ffffff' });
+      mesh = new THREE.Mesh(geometry, material);
+    } 
+    else if (obj.type === 'sphere') {
+      const radius = obj.radius || 1;
+      const geometry = new THREE.SphereGeometry(radius, 32, 32);
+      const material = new THREE.MeshStandardMaterial({ color: obj.color || '#ffffff' });
+      mesh = new THREE.Mesh(geometry, material);
+    }
+    else if (obj.type === 'model' && obj.url) {
+      // 检查 GLTFLoader
+      if (!THREE.GLTFLoader) {
+        console.warn('THREE.GLTFLoader is missing. Models cannot be loaded.');
+        return;
+      }
+      
+      const loader = new THREE.GLTFLoader();
+      
+      // 如果需要 Draco 解压
+      if (obj.useDracoLoader && THREE.DRACOLoader) {
+         const dracoLoader = new THREE.DRACOLoader();
+         // 使用公共 CDN 或者本地 public 目录
+         dracoLoader.setDecoderPath('https://www.gstatic.com/draco/versioned/decoders/1.5.6/');
+         loader.setDRACOLoader(dracoLoader);
+      }
+
+      const fullUrl = BASE_IMG + obj.url;
+      const gltf = await new Promise((resolve, reject) => {
+        loader.load(fullUrl, resolve, undefined, reject);
+      });
+      
+      mesh = gltf.scene;
+      
+      // 处理材质颜色覆盖
+      if (obj.options && obj.options.material && obj.options.material.color) {
+         mesh.traverse(child => {
+           if (child.isMesh) {
+             child.material.color.set(obj.options.material.color);
+           }
+         });
+      }
+    }
+    else if (obj.type === 'image' && obj.url) {
+      const textureLoader = new THREE.TextureLoader();
+      const fullUrl = BASE_IMG + obj.url;
+      const texture = await new Promise((resolve, reject) => {
+        textureLoader.load(fullUrl, resolve, undefined, reject);
+      });
+      texture.colorSpace = THREE.SRGBColorSpace;
+      
+      // 根据图片比例创建 Plane
+      const img = texture.image;
+      const baseWidth = obj.baseWidth || 1;
+      const aspect = img.height / img.width;
+      const geometry = new THREE.PlaneGeometry(baseWidth, baseWidth * aspect);
+      const material = new THREE.MeshBasicMaterial({ 
+        map: texture, 
+        transparent: true, 
+        side: THREE.DoubleSide 
+      });
+      mesh = new THREE.Mesh(geometry, material);
+    }
+    
+    // 如果成功创建 mesh
+    if (mesh) {
+      mesh.position.set(...position);
+      mesh.rotation.set(...rotation);
+      mesh.scale.set(...scale);
+      parentGroup.add(mesh);
+    }
+
+  } catch (e) {
+    console.warn(`Failed to parse object type ${obj.type}:`, e);
+  }
 }
 </script>
 
