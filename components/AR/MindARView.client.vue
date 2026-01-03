@@ -369,7 +369,14 @@ const initMindAR = async (mindUrl: string, video: HTMLVideoElement) => {
       debugMode: false,
       maxTrack: 1,
       onUpdate: (event: any) => {
-        if (event.type === 'updateMatrix' && event.worldMatrix) {
+        // console.log('MindAR event:', event.type); // 调试日志
+
+        if (event.type === 'processDone') {
+           // 每一帧处理完都会触发，可以用来更新“正在扫描”的状态或检测帧率
+           if (!isTracking.value) {
+             loadingText.value = '正在扫描...';
+           }
+        } else if (event.type === 'updateMatrix' && event.worldMatrix) {
           // === 核心：识别成功 ===
           if (!isTracking.value) {
             isTracking.value = true;
