@@ -415,8 +415,10 @@ const initMindAR = async (mindUrl: string, video: HTMLVideoElement) => {
       // console.log('[步骤3完成] 识别图加载完毕')
       // loadingText.value = '步骤 3/5: 正在添加识别图到 AR 引擎...'
       // const blobURL = arrayBufferToBlobURL(buffer)
-      loadingText.value = '步骤 3/5: 正在添加识别图到 AR 引擎...buffer:' + buffer.byteLength
-      await mindController.addImageTargetsFromBuffer(buffer)
+      // loadingText.value = '步骤 3/5: 正在添加识别图到 AR 引擎...buffer:' + buffer.byteLength
+      // await mindController.addImageTargetsFromBuffer(buffer)
+      await mindController.addImageTargets(mindUrl)
+
       console.log('[步骤3完成] 识别图已添加到 AR 引擎')
     } catch (error: any) {
       console.error('[加载识别图失败]', error)
@@ -434,7 +436,8 @@ const initMindAR = async (mindUrl: string, video: HTMLVideoElement) => {
     // 步骤5: 启动处理循环
     console.log('[步骤5/5] 启动处理循环...')
     loadingText.value = '步骤 5/5: 启动 AR 处理循环...'
-    
+    loadingText.value = '步骤 3/5:' + JSON.stringify(Object.keys(mindController.tracker))
+    await new Promise(resolve => setTimeout(resolve, 5000))
     // 启动处理循环，mindController.processVideo 内部会开启 loop
     mindController.processVideo(videoRef.value);
     
@@ -559,6 +562,7 @@ const stopAR = () => {
   }
 
   mindController = null;
+}
 };
 </script>
 
