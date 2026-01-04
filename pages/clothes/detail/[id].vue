@@ -408,7 +408,7 @@ useHead({
         <!-- 基本信息标签页 -->
         <QhxTabPanel :index="0">
           <template #default="{ isActive }">
-            <div v-if="isActive" class="p-4 max-md:p-2">
+            <div v-show="isActive" class="p-4 max-md:p-2">
               <!-- 图片区域 -->
               <div class="flex max-md:block gap-4 mb-4">
                 <!-- 主图 -->

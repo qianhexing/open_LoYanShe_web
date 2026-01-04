@@ -39,7 +39,7 @@
 <script setup>
 import { onMounted } from 'vue';
 import { getSceneId } from '@/api/scene';
-import { BASE_IMG } from '@/utils/ipConfig.js';
+import { BASE_IMG } from '@/utils/ipConfig.ts';
 
 definePageMeta({
   layout: false
