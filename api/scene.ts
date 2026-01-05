@@ -16,7 +16,8 @@ export async function getSceneId(
 export async function updateScene(
   params: {
     sence_id: number,
-    json_data: SceneJSON
+    json_data?: SceneJSON
+    sence_cover?: string
   }
 ): Promise<Scene> {
   const response = await use$Post<BaseResponse<Scene>>(

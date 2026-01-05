@@ -18,7 +18,7 @@ export async function getCompContribution(
 
 // 批量新增合集数据
 export async function insertCompDetailArray(
-  data: Partial<Compilations>[]
+  data: { comp_id: number; library_id: number[] }
 ): Promise<BaseResponse<null>> {
   return await use$Post<BaseResponse<null>>('/comp/detail/insert/array', data)
 }
@@ -48,15 +48,15 @@ export async function getCompById(
 
 // 删除合集数据
 export async function deleteCompList(
-  data: { comp_id: number }
+  data: { comp_id: number; library_id: number }
 ): Promise<BaseResponse<null>> {
   return await use$Post<BaseResponse<null>>('/comp/detail/delete', data)
 }
 
 // 获取合集详情列表（如子项列表等）
 export async function getCompDetailList(
-  data: PaginationParams & { comp_id: number }
-): Promise<PaginationResponse<Compilations[]>> {
-  const response = await use$Post<BaseResponse<PaginationResponse<Compilations[]>>>('/comp/detail/list', data)
+  data: PaginationParams & { comp_id: number; keywords?: string }
+): Promise<PaginationResponse<any[]>> {
+  const response = await use$Post<BaseResponse<PaginationResponse<any[]>>>('/comp/detail/list', data)
   return response.data
 }

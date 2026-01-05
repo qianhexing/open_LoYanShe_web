@@ -101,6 +101,15 @@ export async function updateWardrobe(
   return response.data;
 }
 
+export async function deleteWardrobe(
+  params: {
+    wardrobe_id: number
+  }
+): Promise<boolean> {
+  const response = await use$Post<BaseResponse<boolean>>('/wardrobe/delete', params);
+  return response.data;
+}
+
 export async function getClothesDetail(
   params: {
     clothes_id: number

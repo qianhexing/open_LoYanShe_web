@@ -2777,11 +2777,20 @@ class ThreeCore {
 				mesh.position.set(...position)
 				mesh.rotation.set(...rotation)
 				mesh.scale.set(...scale)
-				if (obj.type === 'diary' && !this.editMode) {
-					mesh.scale.set(0.001, 0.001, 0.001)
+				if (obj.type === 'diary') {
+					if (!this.editMode) {
+						mesh.scale.set(0.001, 0.001, 0.001)
+					} else {
+						mesh.scale.set(1, 1, 1)
+					}
+					console.log('创建日记点', this.editMode)
 				}
-				if (obj.type === 'library' && !this.editMode) {
-					mesh.scale.set(0.001, 0.001, 0.001)
+				if (obj.type === 'library') {
+					if (!this.editMode) {
+						mesh.scale.set(0.001, 0.001, 0.001)
+					} else {
+						mesh.scale.set(1, 1, 1)
+					}
 				}
 				if (renturGroup) {
 					mesh.userData.ignorePick = true

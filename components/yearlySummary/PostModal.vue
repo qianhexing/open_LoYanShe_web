@@ -23,7 +23,7 @@
           <div class="text-center mb-6">
             <div class="text-5xl mb-4">📝</div>
             <h2 class="text-2xl font-bold text-gray-800 dark:text-gray-100 mb-2">发帖分享</h2>
-            <p class="text-sm text-gray-500 dark:text-gray-400">分享您的年度总结到社区</p>
+            <p class="text-sm text-gray-500 dark:text-gray-400">{{ senceId ? '分享您的3D手账到社区' : '分享您的年度总结到社区' }}</p>
           </div>
 
           <!-- 表单 -->
@@ -121,11 +121,13 @@ interface Props {
   modelValue: boolean
   userId?: number
   skipSummaryLink?: boolean // 是否跳过添加年终总结链接
+  senceId?: number // 场景ID，如果提供则发场景帖子
 }
 
 const props = withDefaults(defineProps<Props>(), {
   userId: undefined,
-  skipSummaryLink: false
+  skipSummaryLink: false,
+  senceId: undefined
 })
 
 const emit = defineEmits<{
@@ -308,9 +310,15 @@ const handleSubmit = async () => {
       return
     }
 
-    // 在内容头部拼接链接（如果不需要跳过）
+    // 在内容头部拼接链接或场景iframe
     let finalContent = content
-    if (!props.skipSummaryLink) {
+    if (props.senceId) {
+      // 场景发帖：添加场景iframe
+      const sceneUrl = `https://lolitalibrary.com/scene/detail/${props.senceId}`
+      const sceneIframe = `<p><iframe style="width:100%; height:60vh" frameborder="0" allowfullscreen mozallowfullscreen="true" webkitallowfullscreen="true" allow="autoplay; fullscreen; xr-spatial-tracking" xr-spatial-tracking execution-while-out-of-viewport execution-while-not-rendered web-share src="${sceneUrl}"> </iframe></p>`
+      finalContent = `${sceneIframe}<br><br>${content}`
+    } else if (!props.skipSummaryLink) {
+      // 年度总结发帖：添加年度总结链接
       const summaryLink = `<a href="lolitalibrary.com/yearlySummary?user_id=${currentUserId}">#2025年终总结</a>`
       finalContent = `${summaryLink}<br><br>${content}`
     }
@@ -335,14 +343,15 @@ const handleSubmit = async () => {
     }
 
     // 调用API发帖
-    const params: CommunityInterface = {
+    const params: CommunityInterface & { sence_id?: number } = {
       title: formData.value.title,
       content: finalContent,
-      type: '日常交流', // 根据实际需求设置类型
-      img_list: imgList.length > 0 ? imgList.join() : null
+      type: props.senceId ? '3D' : '日常交流', // 场景帖子类型为3D，年度总结为日常交流
+      img_list: imgList.length > 0 ? imgList.join() : null,
+      ...(props.senceId ? { sence_id: props.senceId } : {})
     }
 
-    const community = await insertCommunity(params)
+    const community = await insertCommunity(params as CommunityInterface)
 
     toast.add({
       title: '发布成功',

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { Wardrobe, PaginationResponse, WardrobeClothes } from '@/types/api';
-import { getWardrobeList, getClothesList, sortClothee, checkWadrobePassword, sortWardrobe, updateWardrobe } from '@/api/wardrobe'
+import { getWardrobeList, getClothesList, sortClothee, checkWadrobePassword, sortWardrobe, updateWardrobe, deleteWardrobe } from '@/api/wardrobe'
 import type { ClothesParams } from '@/api/wardrobe'
 import Draggable from "vuedraggable"
 import { useCopyCurrentUrl } from '~/composables/useCopyCurrentUrl';
@@ -27,6 +27,7 @@ const router = useRouter()
 const showPassword = ref(false)
 const clickPosition = ref({ x: 0, y: 0 })
 const password = ref<string>('')
+const showDeleteModal = ref(false)
 let uni: any;
 const configStore = useConfigStore()
 const port = computed(() => configStore.getPort())
@@ -362,6 +363,49 @@ const onSortTypeChange = (option: { label: string; value: number }) => {
 const isWardrobeOwner = computed(() => {
   return user.user?.user_id === Number.parseInt(id) && currentWardrobe.value?.user_id === user.user?.user_id
 })
+// 删除衣柜
+const confirmDeleteWardrobe = async () => {
+  if (!currentWardrobe.value?.wardrobe_id) return
+  try {
+    await deleteWardrobe({
+      wardrobe_id: currentWardrobe.value.wardrobe_id
+    })
+    toast.add({
+      title: '删除成功',
+      icon: 'i-heroicons-check-circle',
+      color: 'green'
+    })
+    // 从列表中移除已删除的衣柜
+    const index = wardrobeList.value.findIndex(item => item.wardrobe_id === currentWardrobe.value?.wardrobe_id)
+    if (index !== -1) {
+      wardrobeList.value.splice(index, 1)
+    }
+    // 切换到其他衣柜或清空
+    if (wardrobeList.value.length > 0) {
+      changeWardrobe(wardrobeList.value[0])
+    } else {
+      currentWardrobe.value = null
+      info.value = null
+      list.value = []
+      router.replace({
+        query: {
+          ...route.query,
+          wardrobe_id: undefined
+        },
+        force: true
+      })
+    }
+  } catch (error) {
+    console.error('删除失败:', error)
+    toast.add({
+      title: '删除失败',
+      icon: 'i-heroicons-exclamation-circle',
+      color: 'red'
+    })
+  } finally {
+    showDeleteModal.value = false
+  }
+}
 // 衣柜列表拖拽排序
 let oldWardrobeList: { wardrobe_id: number; sort: number }[] = [];
 const isWardrobeSorting = ref(false)
@@ -554,6 +598,15 @@ const enableDrag = () => {
         </UButton>
       </div>
     </QhxModal>
+    <UModal v-model="showDeleteModal" title="操作确认">
+      <div class="p-6">
+        <p class="text-gray-700 dark:text-gray-300 mb-4">确定要删除这个衣柜吗？删除后将无法恢复。</p>
+        <div class="flex justify-end gap-2">
+          <UButton color="gray" @click="showDeleteModal = false">取消</UButton>
+          <UButton color="red" @click="confirmDeleteWardrobe">确定删除</UButton>
+        </div>
+      </div>
+    </UModal>
 
     <div class="bg-qhx-bg-card rounded-2xl flex">
       <div
@@ -639,6 +692,16 @@ const enableDrag = () => {
                       <UIcon name="i-heroicons-pencil-square" class="text-[22px] text-[#ffffff]" />
                     </div>
                     <div class=" text-sm">编辑</div>
+                  </div>
+                </QhxJellyButton>
+                <QhxJellyButton v-if="isWardrobeOwner">
+                  <div class="h-[60px] text-center px-1  cursor-pointer">
+                    <div
+                      @click="showDeleteModal = true"
+                      class=" m-[5px] text-white rounded-[50%] h-[30px] w-[30px] bg-red-500 flex items-center justify-center">
+                      <UIcon name="i-heroicons-trash" class="text-[22px] text-[#ffffff]" />
+                    </div>
+                    <div class=" text-sm">删除</div>
                   </div>
                 </QhxJellyButton>
               </div>

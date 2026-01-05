@@ -11,6 +11,7 @@ import { useSceneStore } from '@/stores/sence'
 import { createFont } from '~/api';
 import { uploadFileToOSS } from '@/utils/ossUpload';
 import { useSceneCore } from '@/composables/useSceneCore';
+import YearlySummaryPostModal from '@/components/yearlySummary/PostModal.vue';
 
 const sceneStore = useSceneStore()
 const configStore = useConfigStore()
@@ -47,7 +48,7 @@ const canTexture = computed(() => {
         })
     }
     return flag
-}); 
+});
 
 const MaterialRef = ref<InstanceType<typeof SceneMaterial> | null>(null)
 const SceneTextureEditorRef = ref<InstanceType<typeof SceneTextureEditor> | null>(null)
@@ -61,7 +62,7 @@ const toast = useToast()
 const userStore = useUserStore()
 const clickPosition = ref({ x: 0, y: 0 })
 const target: Ref<THREE.Object3D | null> = ref(null)
-const transformType  = ref('translate')
+const transformType = ref('translate')
 const showToolbar = ref(true) // 控制工具栏显示/隐藏
 const showRightPanel = ref(false) // 控制右侧面板显示/隐藏
 const rightPanelType = ref<'material' | 'template' | 'effect' | null>(null) // 右侧面板类型
@@ -80,7 +81,7 @@ if (route.query?.token) {
 const id = route.params.id as string
 
 const { data } = await useAsyncData('studyDeatil', () => {
-  return getSceneId({ sence_id: Number.parseInt(id) })
+    return getSceneId({ sence_id: Number.parseInt(id) })
 }, {})
 const detail = ref<Scene | null>(null)
 detail.value = data.value ?? null
@@ -100,7 +101,7 @@ const showTexture = async () => {
             }
         })
     }
-    
+
     if (target.value) {
         await nextTick()
         if (SceneTextureEditorRef.value) {
@@ -110,7 +111,7 @@ const showTexture = async () => {
 }
 const copyModel = async () => {
     if (!threeCore.value) return
-    if (clickObject.value  && clickObject.value.length > 0) {
+    if (clickObject.value && clickObject.value.length > 0) {
         if (clickObject.value[0].userData.url) {
             if (clickObject.value[0].userData.type === 'model') {
                 const mesh = await threeCore.value.loadModel(clickObject.value[0].userData.url)
@@ -140,10 +141,10 @@ const deleteModel = () => {
     }
 }
 const handleClickDiary = (e: MouseEvent, item: DiaryInterface) => {
-  showDiary.value = true
-  clickPosition.value = {
-    x: e.clientX, y: e.clientY
-  }
+    showDiary.value = true
+    clickPosition.value = {
+        x: e.clientX, y: e.clientY
+    }
     activeDiary.value = item
 }
 const handleClickLibrary = (item: LibraryInterface) => {
@@ -169,13 +170,40 @@ const handleClickLibrary = (item: LibraryInterface) => {
                     id: item.library_id
                 }
             }));
-        } else {    
+        } else {
             // 普通网页环境
             window.open(`/library/detail/${item.library_id}`, '_blank')
         }
     }
 }
-
+const handleShare = async () => {
+    try {
+        const { copyCurrentUrl } = useCopyCurrentUrl()
+        const result = await copyCurrentUrl()
+        if (result?.success) {
+            toast.add({
+                title: '链接已复制',
+                description: '分享链接已复制到剪贴板',
+                icon: 'i-heroicons-check-circle',
+                color: 'green'
+            })
+        } else {
+            toast.add({
+                title: '复制失败',
+                description: result?.message || '请手动复制链接',
+                icon: 'i-heroicons-exclamation-circle',
+                color: 'orange'
+            })
+        }
+    } catch (error) {
+        console.error('复制链接失败:', error)
+        toast.add({
+            title: '复制失败',
+            icon: 'i-heroicons-x-circle',
+            color: 'red'
+        })
+    }
+}
 const deleteCamera = (index: number) => {
     if (!threeCore.value) return
     threeCore.value.cameraList.splice(index, 1)
@@ -233,10 +261,10 @@ const shadowQualityOptions = [
 
 const openSettings = (e: MouseEvent) => {
     clickPosition.value = {
-        x: e.clientX + 50, 
+        x: e.clientX + 50,
         y: e.clientY
     }
-    
+
     if (threeCore.value?.renderer) {
         if (threeCore.value.renderer.shadowMap.enabled) {
             // 如果开启，保持当前的 shadowQuality 或者默认为 high
@@ -247,12 +275,12 @@ const openSettings = (e: MouseEvent) => {
             settingsState.shadowQuality = 'off'
         }
     }
-    
+
     // 初始化镜头角度
     if (threeCore.value?.camera && (threeCore.value.camera as THREE.PerspectiveCamera).isPerspectiveCamera) {
         settingsState.fov = (threeCore.value.camera as THREE.PerspectiveCamera).fov
     }
-    
+
     showSettings.value = true
 }
 
@@ -267,7 +295,7 @@ const updateLightPosition = () => {
 
 const changeShadowQuality = (val: string) => {
     if (!threeCore.value || !threeCore.value.renderer) return
-    
+
     if (val === 'off') {
         threeCore.value.renderer.shadowMap.enabled = false
         // 强制更新
@@ -304,7 +332,7 @@ const changeShadowQuality = (val: string) => {
 
 const changeFov = (val: number) => {
     if (!threeCore.value || !threeCore.value.camera) return
-    
+
     if ((threeCore.value.camera as THREE.PerspectiveCamera).isPerspectiveCamera) {
         const cam = threeCore.value.camera as THREE.PerspectiveCamera
         cam.fov = val
@@ -319,6 +347,14 @@ const objectSettingsState = reactive({
     size: 1
 })
 
+const showTextMenu = ref(false)
+const textMenuPosition = ref({ x: 0, y: 0 })
+
+const showPointMenu = ref(false)
+const pointMenuPosition = ref({ x: 0, y: 0 })
+
+const showPostModal = ref(false)
+
 const openObjectSettings = () => {
     if (clickObject.value && clickObject.value.length > 0) {
         const obj = clickObject.value[0]
@@ -331,7 +367,7 @@ const openObjectSettings = () => {
                 objectSettingsState.depth = obj.userData.options.depth ?? 0.3
                 objectSettingsState.size = obj.userData.options.size ?? 1
             }
-            
+
             // 设置弹窗位置（基于操作菜单位置）
             clickPosition.value = {
                 x: operaPosition.value.x + 100,
@@ -350,17 +386,17 @@ const updateTextObject = () => {
             if (obj.material) {
                 (obj.material as THREE.MeshStandardMaterial).color.set(objectSettingsState.color)
             }
-            
+
             // 更新几何体（如果深度或大小改变）
             const options = {
                 ...obj.userData.options,
                 depth: Number(objectSettingsState.depth),
                 size: Number(objectSettingsState.size)
             }
-            
+
             // 更新 userData
             obj.userData.options = options
-            
+
             // 重新生成几何体
             threeCore.value.updateTextMesh(obj, obj.userData.title, options)
         }
@@ -386,6 +422,38 @@ const addDiaryClick = (e: MouseEvent) => {
     }
 }
 
+// 打开点位菜单
+const openPointMenu = (e: MouseEvent) => {
+    pointMenuPosition.value = {
+        x: e.clientX + 50,
+        y: e.clientY
+    }
+    showPointMenu.value = true
+}
+
+// 选择日记点
+const selectDiaryPoint = () => {
+    showPointMenu.value = false
+    // 创建一个模拟事件对象，因为 addDiaryClick 需要事件参数
+    // 实际使用时，MaterialRef.value.addDiary 会处理点击事件
+    if (MaterialRef.value) {
+        const mockEvent = { clientX: pointMenuPosition.value.x, clientY: pointMenuPosition.value.y } as MouseEvent
+        MaterialRef.value.addDiary(mockEvent)
+    }
+}
+
+// 选择图鉴
+const selectLibraryPoint = () => {
+    // TODO: 实现图鉴功能
+    showPointMenu.value = false
+}
+
+// 选择店铺
+const selectShopPoint = () => {
+    // TODO: 实现店铺功能
+    showPointMenu.value = false
+}
+
 // 添加背景
 const addBackgroundClick = () => {
     if (MaterialRef.value) {
@@ -399,6 +467,27 @@ const addTextClick = () => {
         MaterialRef.value.addText()
     }
 }
+
+// 打开文本菜单
+const openTextMenu = (e: MouseEvent) => {
+    textMenuPosition.value = {
+        x: e.clientX + 50,
+        y: e.clientY
+    }
+    showTextMenu.value = true
+}
+
+// 选择长文本
+const selectLongText = () => {
+    // TODO: 实现长文本功能
+    showTextMenu.value = false
+}
+
+// 选择3D文本
+const select3DText = () => {
+    showTextMenu.value = false
+    addTextClick()
+}
 const addDiary = async (form) => {
     if (!threeCore.value) return
     const mesh = await threeCore.value.createDiary({
@@ -406,7 +495,7 @@ const addDiary = async (form) => {
         content: form.content,
         type: 'diary'
     })
-    mesh.position.set(0,0,0)
+    mesh.position.set(0, 0, 0)
     threeCore.value.scene.add(mesh)
 }
 const clearTemplate = () => {
@@ -433,7 +522,7 @@ const chooseEffect = async (item: Effect) => {
         }
     })
     if (effectName) {
-        threeCore.value.removeEffect( { effect_name: effectName, effect_id: 0}, threeCore.value.scene)
+        threeCore.value.removeEffect({ effect_name: effectName, effect_id: 0 }, threeCore.value.scene)
     }
     threeCore.value.addEffect(item)
 }
@@ -449,7 +538,7 @@ const chooseMaterial = async (item: Material) => {
     if (item.pk_type === 1) {
         sceneStore.setLoading(true)
         const mesh = await threeCore.value.loadModel(BASE_IMG + item.materia_url, { useDracoLoader: item.options?.useDracoLoader ? item.options.useDracoLoader : true, dracoDecoderPath: '/draco/gltf/' })
-        
+
         console.log(mesh, '对象')
         const screenCenter = getScreenCenter()
         mesh.position.set(screenCenter.x, screenCenter.y, screenCenter.z)
@@ -475,25 +564,25 @@ const chooseTemplate = async (item: TemplateInterface) => {
     }
     if (item.json_data) {
         const group = await threeCore.value.loadSceneFromJSON(item.json_data, true)
-            if (group) {
-                group.userData.type = 'template'
-                group.userData.template_id =  item.template_id
-                group.userData.ignorePick = true
-                threeCore.value.scene.add(group)
-                threeCore.value.loadTemplate.push(group)
-            }
+        if (group) {
+            group.userData.type = 'template'
+            group.userData.template_id = item.template_id
+            group.userData.ignorePick = true
+            threeCore.value.scene.add(group)
+            threeCore.value.loadTemplate.push(group)
+        }
     } else if (item.json_url) {
-        use$Get(`/sence/json/${item.json_url}.json?2`, undefined, { baseURL: BASE_IMG})
-    .then(async (res) => {
-      const group = await threeCore.value!.loadSceneFromJSON(res, true)
-            if (group) {
-                group.userData.type = 'template'
-                group.userData.template_id =  item.template_id
-                group.userData.ignorePick = true
-                threeCore.value!.scene.add(group)
-                threeCore.value!.loadTemplate.push(group)
-            }
-    })
+        use$Get(`/sence/json/${item.json_url}.json?2`, undefined, { baseURL: BASE_IMG })
+            .then(async (res) => {
+                const group = await threeCore.value!.loadSceneFromJSON(res, true)
+                if (group) {
+                    group.userData.type = 'template'
+                    group.userData.template_id = item.template_id
+                    group.userData.ignorePick = true
+                    threeCore.value!.scene.add(group)
+                    threeCore.value!.loadTemplate.push(group)
+                }
+            })
     }
 }
 const jumpToCommunity = (item: Community) => {
@@ -523,29 +612,68 @@ const jumpToCommunity = (item: Community) => {
         }
     }
 }
+
+// 发帖成功回调
+const handlePostSuccess = (community: Community) => {
+    jumpToCommunity(community)
+}
 // 生成场景截图
-const captureSceneImage = async (): Promise<string | null> => {
+const captureSceneImage = async (sence_id: number): Promise<string | null> => {
     if (!threeCore.value || !threeCore.value.renderer) {
         console.error('场景未初始化')
         return null
     }
-    
+
     try {
         // 确保场景已渲染
         threeCore.value.renderer.render(threeCore.value.scene, threeCore.value.camera)
-        
+
         // 从渲染器的 canvas 获取数据
         const canvas = threeCore.value.renderer.domElement
-        const dataURL = canvas.toDataURL('image/png', 1.0)
-        
+        let width = canvas.width
+        let height = canvas.height
+
+        // 计算是否需要压缩
+        let scale = 1
+        if (width > 2048 || height > 2048) {
+            scale = Math.min(2048 / width, 2048 / height)
+            width = Math.floor(width * scale)
+            height = Math.floor(height * scale)
+        }
+
+        // 创建新的 canvas，用于添加白色背景和可能的压缩
+        const finalCanvas = document.createElement('canvas')
+        finalCanvas.width = width
+        finalCanvas.height = height
+        const ctx = finalCanvas.getContext('2d')
+
+        if (!ctx) {
+            console.error('无法创建 canvas context')
+            return null
+        }
+
+        // 填充白色背景
+        ctx.fillStyle = '#ffffff'
+        ctx.fillRect(0, 0, width, height)
+
+        // 使用高质量缩放
+        ctx.imageSmoothingEnabled = true
+        ctx.imageSmoothingQuality = 'high'
+
+        // 将原 canvas 绘制到新 canvas（如果需要压缩，会自动缩放）
+        ctx.drawImage(canvas, 0, 0, width, height)
+
+        // 使用 JPEG 格式，质量设置为 0.9
+        const dataURL = finalCanvas.toDataURL('image/jpeg', 0.9)
+
         // 将 base64 转换为 Blob，再转换为 File
         const response = await fetch(dataURL)
         const blob = await response.blob()
-        const file = new File([blob], 'scene_cover.png', { type: 'image/png' })
-        
+        const file = new File([blob], 'scene_cover.jpg', { type: 'image/jpeg' })
+
         // 上传到 OSS，使用 sence_cover 作为路径前缀
-        const uploadResult = await uploadFileToOSS(file, 'sence_cover')
-        
+        const uploadResult = await uploadFileToOSS(file, 'sence_cover', `cover_${sence_id}`)
+
         return uploadResult.file_url
     } catch (error) {
         console.error('生成场景截图失败:', error)
@@ -563,7 +691,7 @@ const saveScene = async () => {
         json_data
     }
     console.log('保存的数据', json_data)
-    
+
     if (add_mode.value) {
         if (loading.value) {
             toast.add({
@@ -574,35 +702,73 @@ const saveScene = async () => {
             return
         }
         loading.value = true
-        
+
         try {
             // 先生成并上传场景图
-            const sence_cover = await captureSceneImage()
-            if (sence_cover) {
-                params.sence_cover = sence_cover
-            }
-            
             const res = await insertScene(params)
-            const communityParams = {
-                title: '3D帖子',
-                content: `<p><iframe style="width:100%; height:60vh" frameborder="0" allowfullscreen
-                mozallowfullscreen="true" webkitallowfullscreen="true" allow="autoplay; fullscreen; xr-spatial-tracking"
-                xr-spatial-tracking execution-while-out-of-viewport execution-while-not-rendered web-share
-                src="https://lolitalibrary.com/scene/detail/${res.sence_id}"> </iframe></p>`,
-                type: '3D',
-                sence_id: res.sence_id
-            }
-            try {
-                const community = await insertCommunity(communityParams)
-                jumpToCommunity(community)
-                toast.add({
-                    title: '新增成功',
-                    icon: 'i-heroicons-check-circle',
-                    color: 'green'
+            const sence_cover = await captureSceneImage(res.sence_id)
+            if (sence_cover) {
+                updateScene({
+                    sence_id: res.sence_id,
+                    sence_cover: `${sence_cover}?${Date.now()}`
                 })
-            } catch (error) {
-                console.error('创建社区帖子失败:', error)
             }
+
+            // 保存成功后跳转到对应id的场景
+            toast.add({
+                title: '保存成功',
+                icon: 'i-heroicons-check-circle',
+                color: 'green'
+            })
+            window.location.replace(`/scene/detail/${res.sence_id}`)
+            // 跳转逻辑
+            // const isInUniApp =
+            //     typeof window !== 'undefined' &&
+            //     navigator.userAgent.includes('Html5Plus');
+
+            // if (isInUniApp && typeof uni !== 'undefined' && uni.navigateTo) {
+            //     // UniApp WebView 环境
+            //     uni.navigateTo({
+            //         url: `/pages/scene/detail/detail?id=${res.sence_id}`,
+            //         fail: () => {
+            //             console.log('跳转错误')
+            //         }
+            //     });
+            // } else {
+            //     if (port.value) {
+            //         // 鸿蒙系统
+            //         port.value.postMessage(JSON.stringify({
+            //             type: 'jump',
+            //             path: 'SceneDetail',
+            //             params: {
+            //                 id: res.sence_id
+            //             }
+            //         }));
+            //     } else {
+            //         // 普通网页环境
+            //         navigateTo(`/scene/detail/${res.sence_id}`)
+            //     }
+            // }
+            // const communityParams = {
+            //     title: '3D帖子',
+            //     content: `<p><iframe style="width:100%; height:60vh" frameborder="0" allowfullscreen
+            //     mozallowfullscreen="true" webkitallowfullscreen="true" allow="autoplay; fullscreen; xr-spatial-tracking"
+            //     xr-spatial-tracking execution-while-out-of-viewport execution-while-not-rendered web-share
+            //     src="https://lolitalibrary.com/scene/detail/${res.sence_id}"> </iframe></p>`,
+            //     type: '3D',
+            //     sence_id: res.sence_id
+            // }
+            // try {
+            //     const community = await insertCommunity(communityParams)
+            //     jumpToCommunity(community)
+            //     toast.add({
+            //         title: '新增成功',
+            //         icon: 'i-heroicons-check-circle',
+            //         color: 'green'
+            //     })
+            // } catch (error) {
+            //     console.error('创建社区帖子失败:', error)
+            // }
         } catch (error) {
             console.error('保存场景失败:', error)
             toast.add({
@@ -614,6 +780,10 @@ const saveScene = async () => {
             loading.value = false
         }
     } else {
+        const sence_cover = await captureSceneImage(Number.parseInt(id))
+        if (sence_cover) {
+            params.sence_cover = `${sence_cover}?${Date.now()}`
+        }
         updateScene({
             ...params,
             sence_id: Number.parseInt(id)
@@ -630,8 +800,8 @@ const saveScene = async () => {
 const onUpdateFiles = async (resault) => {
     if (!threeCore.value) return
     const mesh = await threeCore.value.loadImageMesh(BASE_IMG + resault.file_url)
-        console.log('当前面片', mesh)
-        threeCore.value.scene.add(mesh)
+    console.log('当前面片', mesh)
+    threeCore.value.scene.add(mesh)
 }
 const addBackgroun = async (resault) => {
     if (!threeCore.value) return
@@ -639,9 +809,9 @@ const addBackgroun = async (resault) => {
 }
 const addText = async (resault: string) => {
     if (!threeCore.value) return
-    const charset =  resault
+    const charset = resault
     const font = await createFont({ charset })
-    const mesh = await threeCore.value.addTextToScene(BASE_IMG +font.file_url, charset)
+    const mesh = await threeCore.value.addTextToScene(BASE_IMG + font.file_url, charset)
     console.log('文本返回', mesh)
     mesh.userData.url = font.file_url
     threeCore.value.scene.add(mesh)
@@ -673,10 +843,10 @@ const initThreejs = async () => {
     }
 }
 
-onMounted(async() => {
+onMounted(async () => {
     uni = await import('@dcloudio/uni-webview-js').catch((err) => {
-    console.error('Failed to load uni-webview-js:', err);
-  });
+        console.error('Failed to load uni-webview-js:', err);
+    });
     // 初始化移动端检测
     configStore.initMobileDetection()
     setTimeout(() => {
@@ -700,12 +870,23 @@ useHead({
 })
 </script>
 <template>
-    <div class="select-none touch-callout-none" :style="{ background: threeCore && threeCore.background ? `url(${BASE_IMG}${threeCore.background})` : '', backgroundSize: 'cover' }">
+    <div class="select-none touch-callout-none"
+        :style="{ background: threeCore && threeCore.background ? `url(${BASE_IMG}${threeCore.background})` : '', backgroundSize: 'cover' }">
+        <div v-if="detail && userStore.user?.user_id === detail?.user_id"
+            class="fixed top-[60px] right-4 z-50 flex items-center gap-3">
+            <button @click="showPostModal = true"
+                class="bg-white/90 dark:bg-gray-800/90 backdrop-blur-md rounded-full px-4 py-2 shadow-lg border border-white/50 dark:border-gray-700 flex items-center gap-2 hover:bg-pink-50 dark:hover:bg-gray-700 transition-colors">
+                <span class="text-sm font-medium text-gray-700 dark:text-gray-200">发帖分享</span>
+            </button>
+            <button @click="handleShare"
+                class="bg-white/90 dark:bg-gray-800/90 backdrop-blur-md rounded-full px-4 py-2 shadow-lg border border-white/50 dark:border-gray-700 flex items-center gap-2 hover:bg-pink-50 dark:hover:bg-gray-700 transition-colors">
+                <span class="text-xl">🔗</span>
+                <span class="text-sm font-medium text-gray-700 dark:text-gray-200">分享</span>
+            </button>
+        </div>
         <!-- 场景加载状态 -->
-        <div 
-            v-if="sceneLoading || sceneLoadError" 
-            class="absolute inset-0 flex flex-col items-center justify-center bg-white/90 backdrop-blur-sm z-50"
-        >
+        <div v-if="sceneLoading || sceneLoadError && id !== '0'"
+            class="absolute inset-0 flex flex-col items-center justify-center bg-white/90 backdrop-blur-sm z-50">
             <!-- 加载中 -->
             <template v-if="sceneLoading && !sceneLoadError">
                 <div class="w-16 h-16 border-4 border-purple-400 rounded-full border-t-transparent animate-spin"></div>
@@ -718,7 +899,7 @@ useHead({
                     </span>
                 </p>
             </template>
-            
+
             <template v-else-if="sceneLoadError">
                 <div class="flex flex-col items-center gap-4">
                     <div class="w-16 h-16 flex items-center justify-center">
@@ -726,176 +907,137 @@ useHead({
                     </div>
                     <p class="text-red-600 font-bold text-lg">加载失败</p>
                     <p class="text-gray-600 text-sm max-w-md text-center px-4">{{ sceneLoadError }}</p>
-                    <UButton 
-                        color="purple" 
-                        @click="initThreejs"
-                        class="mt-2"
-                    >
+                    <UButton color="purple" @click="initThreejs" class="mt-2">
                         重试
                     </UButton>
                 </div>
             </template>
         </div>
-        
-        <SceneTextureEditor
-            ref="SceneTextureEditorRef"
-            v-if="target"
-            :target="target"
-            :image-url="BASE_IMG + threeCore?.background"
-            @close="target = null"
-        />
+
+        <SceneTextureEditor ref="SceneTextureEditorRef" v-if="target" :target="target"
+            :image-url="BASE_IMG + threeCore?.background" @close="target = null" />
 
         <!-- 左侧功能列表 - 手机端 -->
-        <div 
-            class="fixed left-2 top-1/2 -translate-y-1/2 z-30 transition-all duration-300"
-            :class="showToolbar ? 'translate-x-0' : '-translate-x-[calc(100%-16px)]'"
-        >
-            <div class="bg-white/90 dark:bg-gray-800/90 backdrop-blur-md rounded-2xl shadow-xl border border-white/50 dark:border-gray-700 overflow-hidden">
+        <div class="fixed left-2 top-1/2 -translate-y-1/2 z-30 transition-all duration-300"
+            :class="showToolbar ? 'translate-x-0' : '-translate-x-[calc(100%-16px)]'">
+            <div
+                class="bg-white/90 dark:bg-gray-800/90 backdrop-blur-md rounded-2xl shadow-xl border border-white/50 dark:border-gray-700 overflow-hidden">
                 <!-- 隐藏/显示按钮 -->
-                <button
-                    v-if="edit_mode || add_mode"
-                    @click="showToolbar = !showToolbar"
+                <button v-if="edit_mode || add_mode" @click="showToolbar = !showToolbar"
                     class="w-full flex items-center justify-center p-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors rounded-t-2xl"
-                    :class="showToolbar ? '' : 'rounded-2xl'"
-                >
-                    <UIcon 
-                        :name="showToolbar ? 'material-symbols:chevron-left' : 'material-symbols:chevron-right'" 
-                        class="text-base text-gray-600 dark:text-gray-300"
-                    />
+                    :class="showToolbar ? '' : 'rounded-2xl'">
+                    <UIcon :name="showToolbar ? 'material-symbols:chevron-left' : 'material-symbols:chevron-right'"
+                        class="text-base text-gray-600 dark:text-gray-300" />
                 </button>
-                
+
                 <!-- 功能按钮列表 -->
-                <div 
-                    v-show="showToolbar"
-                    class="w-[48px] max-h-[75vh] overflow-y-auto scrollbar-hide space-y-1.5 p-1.5"
-                >
+                <div v-show="showToolbar"
+                    class="w-[48px] max-h-[75vh] overflow-y-auto scrollbar-hide space-y-1.5 p-1.5">
                     <!-- 保存 -->
-                    <button
-                        v-if="edit_mode || add_mode"
-                        @click="saveScene"
+                    <button v-if="edit_mode || add_mode" @click="saveScene"
                         class="w-full flex flex-col items-center gap-1 p-1.5 rounded-xl hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors group active:scale-95"
-                        title="保存"
-                    >
-                        <div class="w-7 h-7 bg-blue-500 dark:bg-blue-600 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform">
+                        title="保存">
+                        <div
+                            class="w-7 h-7 bg-blue-500 dark:bg-blue-600 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform">
                             <UIcon name="material-symbols:save-rounded" class="text-sm text-white" />
                         </div>
                         <span class="text-[9px] text-gray-700 dark:text-gray-200 font-medium leading-tight">保存</span>
                     </button>
 
                     <!-- 图片 -->
-                    <button
-                        v-if="edit_mode || add_mode"
-                        @click="addImage"
+                    <button v-if="edit_mode || add_mode" @click="addImage"
                         class="w-full flex flex-col items-center gap-1 p-1.5 rounded-xl hover:bg-green-50 dark:hover:bg-green-900/20 transition-colors group active:scale-95"
-                        title="图片"
-                    >
-                        <div class="w-7 h-7 bg-green-500 dark:bg-green-600 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform">
+                        title="图片">
+                        <div
+                            class="w-7 h-7 bg-green-500 dark:bg-green-600 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform">
                             <UIcon name="material-symbols:add-photo-alternate-rounded" class="text-sm text-white" />
                         </div>
                         <span class="text-[9px] text-gray-700 dark:text-gray-200 font-medium leading-tight">图片</span>
                     </button>
 
-                    <!-- 日记点 -->
-                    <button
-                        v-if="edit_mode || add_mode"
-                        @click="addDiaryClick"
+                    <!-- 点位 -->
+                    <button v-if="edit_mode || add_mode" @click="openPointMenu"
                         class="w-full flex flex-col items-center gap-1 p-1.5 rounded-xl hover:bg-amber-50 dark:hover:bg-amber-900/20 transition-colors group active:scale-95"
-                        title="日记点"
-                    >
-                        <div class="w-7 h-7 bg-amber-500 dark:bg-amber-600 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform">
-                            <UIcon name="material-symbols:edit-note-rounded" class="text-sm text-white" />
+                        title="点位">
+                        <div
+                            class="w-7 h-7 bg-amber-500 dark:bg-amber-600 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform">
+                            <UIcon name="material-symbols:location-on-rounded" class="text-sm text-white" />
                         </div>
-                        <span class="text-[9px] text-gray-700 dark:text-gray-200 font-medium leading-tight">日记点</span>
+                        <span class="text-[9px] text-gray-700 dark:text-gray-200 font-medium leading-tight">点位</span>
                     </button>
 
                     <!-- 记录镜头 -->
-                    <button
-                        v-if="edit_mode || add_mode"
-                        @click="recordCamera"
+                    <button v-if="edit_mode || add_mode" @click="recordCamera"
                         class="w-full flex flex-col items-center gap-1 p-1.5 rounded-xl hover:bg-rose-50 dark:hover:bg-rose-900/20 transition-colors group active:scale-95"
-                        title="记录镜头"
-                    >
-                        <div class="w-7 h-7 bg-rose-500 dark:bg-rose-600 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform">
+                        title="记录镜头">
+                        <div
+                            class="w-7 h-7 bg-rose-500 dark:bg-rose-600 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform">
                             <UIcon name="material-symbols:videocam-rounded" class="text-sm text-white" />
                         </div>
-                        <span class="text-[9px] text-gray-700 dark:text-gray-200 font-medium leading-tight">镜头</span>
+                        <span class="text-[9px] text-gray-700 dark:text-gray-200 font-medium leading-tight">记录镜头</span>
                     </button>
 
                     <!-- 背景 -->
-                    <button
-                        v-if="edit_mode || add_mode"
-                        @click="addBackgroundClick"
+                    <button v-if="edit_mode || add_mode" @click="addBackgroundClick"
                         class="w-full flex flex-col items-center gap-1 p-1.5 rounded-xl hover:bg-cyan-50 dark:hover:bg-cyan-900/20 transition-colors group active:scale-95"
-                        title="背景"
-                    >
-                        <div class="w-7 h-7 bg-cyan-500 dark:bg-cyan-600 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform">
+                        title="背景">
+                        <div
+                            class="w-7 h-7 bg-cyan-500 dark:bg-cyan-600 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform">
                             <UIcon name="material-symbols:wallpaper-rounded" class="text-sm text-white" />
                         </div>
                         <span class="text-[9px] text-gray-700 dark:text-gray-200 font-medium leading-tight">背景</span>
                     </button>
 
                     <!-- 文本 -->
-                    <button
-                        v-if="edit_mode || add_mode"
-                        @click="addTextClick"
+                    <button v-if="edit_mode || add_mode" @click="openTextMenu"
                         class="w-full flex flex-col items-center gap-1 p-1.5 rounded-xl hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-colors group active:scale-95"
-                        title="文本"
-                    >
-                        <div class="w-7 h-7 bg-indigo-500 dark:bg-indigo-600 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform">
+                        title="文本">
+                        <div
+                            class="w-7 h-7 bg-indigo-500 dark:bg-indigo-600 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform">
                             <UIcon name="material-symbols:title-rounded" class="text-sm text-white" />
                         </div>
                         <span class="text-[9px] text-gray-700 dark:text-gray-200 font-medium leading-tight">文本</span>
                     </button>
 
                     <!-- 素材 -->
-                    <button
-                        v-if="edit_mode || add_mode"
-                        @click="showMaterial()"
+                    <button v-if="edit_mode || add_mode" @click="showMaterial()"
                         class="w-full flex flex-col items-center gap-1 p-1.5 rounded-xl hover:bg-purple-50 dark:hover:bg-purple-900/20 transition-colors group active:scale-95"
-                        :class="rightPanelType === 'material' ? 'bg-purple-100 dark:bg-purple-900/40' : ''"
-                        title="素材"
-                    >
-                        <div class="w-7 h-7 bg-purple-500 dark:bg-purple-600 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform">
+                        :class="rightPanelType === 'material' ? 'bg-purple-100 dark:bg-purple-900/40' : ''" title="素材">
+                        <div
+                            class="w-7 h-7 bg-purple-500 dark:bg-purple-600 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform">
                             <UIcon name="material-symbols:deployed-code-rounded" class="text-sm text-white" />
                         </div>
                         <span class="text-[9px] text-gray-700 dark:text-gray-200 font-medium leading-tight">素材</span>
                     </button>
 
                     <!-- 模版 -->
-                    <button
-                        v-if="edit_mode || add_mode"
-                        @click="showTemplate()"
+                    <button v-if="edit_mode || add_mode" @click="showTemplate()"
                         class="w-full flex flex-col items-center gap-1 p-1.5 rounded-xl hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors group active:scale-95"
-                        :class="rightPanelType === 'template' ? 'bg-blue-100 dark:bg-blue-900/40' : ''"
-                        title="模版"
-                    >
-                        <div class="w-7 h-7 bg-blue-500 dark:bg-blue-600 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform">
+                        :class="rightPanelType === 'template' ? 'bg-blue-100 dark:bg-blue-900/40' : ''" title="模版">
+                        <div
+                            class="w-7 h-7 bg-blue-500 dark:bg-blue-600 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform">
                             <UIcon name="material-symbols:dashboard-rounded" class="text-sm text-white" />
                         </div>
                         <span class="text-[9px] text-gray-700 dark:text-gray-200 font-medium leading-tight">模版</span>
                     </button>
 
                     <!-- 特效 -->
-                    <button
-                        v-if="edit_mode || add_mode"
-                        @click="showEffect()"
+                    <button v-if="edit_mode || add_mode" @click="showEffect()"
                         class="w-full flex flex-col items-center gap-1 p-1.5 rounded-xl hover:bg-orange-50 dark:hover:bg-orange-900/20 transition-colors group active:scale-95"
-                        :class="rightPanelType === 'effect' ? 'bg-orange-100 dark:bg-orange-900/40' : ''"
-                        title="特效"
-                    >
-                        <div class="w-7 h-7 bg-orange-500 dark:bg-orange-600 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform">
+                        :class="rightPanelType === 'effect' ? 'bg-orange-100 dark:bg-orange-900/40' : ''" title="特效">
+                        <div
+                            class="w-7 h-7 bg-orange-500 dark:bg-orange-600 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform">
                             <UIcon name="material-symbols:auto-fix-high-rounded" class="text-sm text-white" />
                         </div>
                         <span class="text-[9px] text-gray-700 dark:text-gray-200 font-medium leading-tight">特效</span>
                     </button>
 
                     <!-- 设置 -->
-                    <button
-                        @click="openSettings"
+                    <button @click="openSettings"
                         class="w-full flex flex-col items-center gap-1 p-1.5 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors group active:scale-95"
-                        title="设置"
-                    >
-                        <div class="w-7 h-7 bg-gray-500 dark:bg-gray-600 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform">
+                        title="设置">
+                        <div
+                            class="w-7 h-7 bg-gray-500 dark:bg-gray-600 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform">
                             <UIcon name="material-symbols:settings-rounded" class="text-sm text-white" />
                         </div>
                         <span class="text-[9px] text-gray-700 dark:text-gray-200 font-medium leading-tight">设置</span>
@@ -905,55 +1047,56 @@ useHead({
         </div>
 
         <!-- 右侧素材/模版/特效面板 -->
-        <div 
-            v-if="showRightPanel && rightPanelType"
-            class="fixed right-2 top-0 z-30 transition-all duration-300 w-[100px] h-screen"
-        >
-            <div class="bg-white dark:bg-gray-800 backdrop-blur-md rounded-l-2xl shadow-xl border-l border-t border-b border-gray-200 dark:border-gray-700 overflow-hidden flex flex-col h-full">
+        <div v-if="showRightPanel && rightPanelType"
+            class="fixed right-2 top-0 z-[60] transition-all duration-300 w-[100px] h-[90vh] mt-[5vh]">
+            <div
+                class="bg-white dark:bg-gray-800 backdrop-blur-md rounded-l-2xl shadow-xl border-l border-t border-b border-gray-200 dark:border-gray-700 overflow-hidden flex flex-col h-full">
                 <!-- 头部标题和关闭按钮 -->
-                <div class="flex items-center justify-between p-1.5 border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
+                <div
+                    class="flex items-center justify-between p-1.5 border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
                     <h3 class="text-[10px] font-semibold text-gray-700 dark:text-gray-200">
                         {{ rightPanelType === 'material' ? '素材' : rightPanelType === 'template' ? '模版' : '特效' }}
                     </h3>
-                    <button
-                        @click="closeRightPanel"
-                        class="w-4 h-4 flex items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
-                    >
+                    <button @click="closeRightPanel"
+                        class="w-4 h-4 flex items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors">
                         <UIcon name="ant-design:close-outlined" class="text-[10px] text-gray-600 dark:text-gray-300" />
                     </button>
                 </div>
-                
+
                 <!-- 内容区域 -->
                 <div class="flex-1 overflow-y-auto scrollbar-hide min-h-0">
-                    <SceneMaterial 
-                        :panel-type="rightPanelType"
+                    <SceneMaterial :panel-type="rightPanelType"
                         :load-template="threeCore && threeCore.loadTemplate.length > 0 ? true : false"
-                        @choose-material="chooseMaterial"
-                        @choose-template="chooseTemplate"
-                        @choose-effect="chooseEffect"
-                        @clear-template="clearTemplate"
-                    />
+                        @choose-material="chooseMaterial" @choose-template="chooseTemplate"
+                        @choose-effect="chooseEffect" @clear-template="clearTemplate" />
                 </div>
             </div>
         </div>
 
         <div style="height: 100vh; width: 100vw; overflow: hidden; " id="scene"></div>
-        <div class="opera fixed z-20 md:flex items-center whitespace-nowrap" 
-        v-show="clickObject && edit_mode && !target"
-        :class="[
-            'md:absolute md:top-auto md:bottom-auto md:left-auto md:right-auto',
-            'fixed bottom-4 left-1/2 -translate-x-1/2 w-[calc(100%-32px)] md:w-auto md:translate-x-0 md:static'
-        ]"
-        :style="!isMobile && operaPosition ? { left: operaPosition.x + 40 + 'px', top: operaPosition.y - 100 + 'px' } : {}">
+        <div class="opera fixed z-20 md:flex items-center whitespace-nowrap"
+            v-show="clickObject && edit_mode && !target" :class="[
+                'md:absolute md:top-auto md:bottom-auto md:left-auto md:right-auto',
+                'fixed bottom-4 left-1/2 -translate-x-1/2 w-[calc(100%-32px)] md:w-auto md:translate-x-0 md:static'
+            ]"
+            :style="!isMobile && operaPosition ? { left: operaPosition.x + 40 + 'px', top: operaPosition.y - 100 + 'px' } : {}">
             <!-- <QhxJellyButton>
                 
             </QhxJellyButton> -->
-            <div class="opera p-3 bg-qhx-bg-card rounded-[30px] z-20 h-[60px] flex items-center whitespace-nowrap overflow-x-auto scrollbar-hide w-full md:w-auto shadow-lg border border-gray-100 dark:border-gray-700">
-                <div class=" cursor-pointer px-3 flex-shrink-0" @click="setMode('translate')" v-show="transformType !== 'translate'">移动</div>
-                <div class=" cursor-pointer px-3 flex-shrink-0" @click="setMode('rotate')" v-show="transformType !== 'rotate'">旋转</div>
-                <div class=" cursor-pointer px-3 flex-shrink-0" @click="setMode('scale')" v-show="transformType !== 'scale'">缩放</div>
-                <div class=" cursor-pointer px-3 flex-shrink-0" @click.stop="openObjectSettings" v-if="clickObject && clickObject[0].userData.type === '3Dtext'">设置</div>
-                <div class=" cursor-pointer px-3 flex-shrink-0" @click.stop="copyModel()" v-if="clickObject && clickObject[0].userData.type === 'model'">复制</div>
+            <div
+                class="opera p-3 bg-qhx-bg-card rounded-[30px] z-20 h-[60px] flex items-center whitespace-nowrap overflow-x-auto scrollbar-hide w-full md:w-auto shadow-lg border border-gray-100 dark:border-gray-700">
+                <div class=" cursor-pointer px-3 flex-shrink-0" @click="setMode('translate')"
+                    v-show="transformType !== 'translate'">移动</div>
+                <div class=" cursor-pointer px-3 flex-shrink-0" @click="setMode('rotate')"
+                    v-show="transformType !== 'rotate'">
+                    旋转</div>
+                <div class=" cursor-pointer px-3 flex-shrink-0" @click="setMode('scale')"
+                    v-show="transformType !== 'scale'">缩放
+                </div>
+                <div class=" cursor-pointer px-3 flex-shrink-0" @click.stop="openObjectSettings"
+                    v-if="clickObject && clickObject[0].userData.type === '3Dtext'">设置</div>
+                <div class=" cursor-pointer px-3 flex-shrink-0" @click.stop="copyModel()"
+                    v-if="clickObject && clickObject[0].userData.type === 'model'">复制</div>
                 <div class=" cursor-pointer px-3 flex-shrink-0" @click.stop="showTexture()" v-if="canTexture">贴图</div>
                 <div class=" cursor-pointer px-3 flex-shrink-0 text-red-500" @click.stop="deleteModel()">删除</div>
             </div>
@@ -962,10 +1105,11 @@ useHead({
             <div class=" relative flex justify-center" v-for="(camera_list, index) in threeCore.cameraList">
                 <QhxJellyButton>
                     <div class="text-center cursor-pointer" @click="lookAtCameraState(camera_list)">
-                        <div
-                            class=" relative m-[5px] mx-auto text-white rounded-[50%] h-[30px] w-[30px] bg-qhx-primary flex items-center justify-center"
+                        <div class=" relative m-[5px] mx-auto text-white rounded-[50%] h-[30px] w-[30px] bg-qhx-primary flex items-center justify-center"
                             style="font-size: 22px">
-                            <div class="text-[#000] absolute left-0 top-0 h-[30px] w-[30px] flex items-center justify-center z-[1] text-[10px]">{{ index + 1 }}</div>
+                            <div
+                                class="text-[#000] absolute left-0 top-0 h-[30px] w-[30px] flex items-center justify-center z-[1] text-[10px]">
+                                {{ index + 1 }}</div>
                             <UIcon name="material-symbols:video-camera-back" class="text-[22px] text-[#ffffff]"></UIcon>
                         </div>
                     </div>
@@ -973,8 +1117,7 @@ useHead({
                 <div v-if="edit_mode" class=" absolute right-[50px] top-0 flex">
                     <QhxJellyButton>
                         <div class="text-center cursor-pointer mr-2" @click="deleteCamera(index)">
-                            <div
-                                class=" m-[5px] mx-auto text-white rounded-[50%] h-[30px] w-[30px] bg-qhx-primary flex items-center justify-center"
+                            <div class=" m-[5px] mx-auto text-white rounded-[50%] h-[30px] w-[30px] bg-qhx-primary flex items-center justify-center"
                                 style="font-size: 22px">
                                 <UIcon name="ant-design:close-outlined" class="text-[22px] text-[#ffffff]" />
                             </div>
@@ -982,8 +1125,7 @@ useHead({
                     </QhxJellyButton>
                     <QhxJellyButton>
                         <div class="text-center cursor-pointer" @click="resetCamera(index)">
-                            <div
-                                class=" m-[5px] mx-auto text-white rounded-[50%] h-[30px] w-[30px] bg-qhx-primary flex items-center justify-center"
+                            <div class=" m-[5px] mx-auto text-white rounded-[50%] h-[30px] w-[30px] bg-qhx-primary flex items-center justify-center"
                                 style="font-size: 22px">
                                 <UIcon name="ri:reset-right-line" class="text-[22px] text-[#ffffff]" />
                             </div>
@@ -994,36 +1136,36 @@ useHead({
         </div>
         <div @click.stop="(e) => {
             handleClickDiary(e, diary)
-        }" class="fixed p-3 cursor-pointer bg-qhx-bg-card rounded-[30px] shadow-lg z-10 h-[60px] flex items-center whitespace-nowrap overflow-hidden" v-for="diary in diaryList" :style="{ left: diary.position?.x + 'px', top: diary.position?.y  - 30 + 'px' }">
+        }" class="fixed p-3 cursor-pointer bg-qhx-bg-card rounded-[30px] shadow-lg z-10 h-[60px] flex items-center whitespace-nowrap overflow-hidden"
+            v-for="diary in diaryList" :style="{ left: diary.position?.x + 'px', top: diary.position?.y - 30 + 'px' }">
             {{ diary.title }}
         </div>
-        <div @click.stop="handleClickLibrary(library)" class="fixed cursor-pointer bg-qhx-bg-card rounded-[30px] shadow-lg z-10 h-[60px] flex items-center whitespace-nowrap overflow-hidden" v-for="library in libraryList" :style="{ left: library.position?.x + 'px', top: library.position?.y  - 30 + 'px' }">
+        <div @click.stop="handleClickLibrary(library)"
+            class="fixed cursor-pointer bg-qhx-bg-card rounded-[30px] shadow-lg z-10 h-[60px] flex items-center whitespace-nowrap overflow-hidden"
+            v-for="library in libraryList"
+            :style="{ left: library.position?.x + 'px', top: library.position?.y - 30 + 'px' }">
             <div class=" flex items-center">
                 <div>
                     <img :src="`${BASE_IMG}${library.cover}`"
-          class="w-16 h-16 object-cover rounded-[60px] border border-gray-200 my-2 cursor-pointer" loading="lazy" />
+                        class="w-16 h-16 object-cover rounded-[60px] border border-gray-200 my-2 cursor-pointer"
+                        loading="lazy" />
                 </div>
                 <div class="p-2">{{ library.title }}</div>
             </div>
         </div>
-        <SceneMaterial 
-        v-if="edit_mode"
-        @recordCamera="recordCamera" 
-        @chooseTemplate="chooseTemplate" 
-        @choose-material="chooseMaterial"
-        @clearTemplate="clearTemplate" @addDiary="addDiary" @saveScene="saveScene" 
-        @addImage="onUpdateFiles"
-        @addBackgroun="addBackgroun"
-        @choose-effect="chooseEffect"
-        @addText="addText"
-         ref="MaterialRef" 
-        :loadTemplate="threeCore && threeCore.loadTemplate.length > 0 ? true : false"></SceneMaterial>
+        <SceneMaterial v-if="edit_mode" @recordCamera="recordCamera" @chooseTemplate="chooseTemplate"
+            @choose-material="chooseMaterial" @clearTemplate="clearTemplate" @addDiary="addDiary" @saveScene="saveScene"
+            @addImage="onUpdateFiles" @addBackgroun="addBackgroun" @choose-effect="chooseEffect" @addText="addText"
+            ref="MaterialRef" :loadTemplate="threeCore && threeCore.loadTemplate.length > 0 ? true : false">
+        </SceneMaterial>
         <QhxModal v-model="showDiary" :trigger-position="clickPosition">
-            <div class="p-6 w-[400px] bg-white rounded-[10px] max-h-[50vh] overflow-y-auto" v-if="activeDiary && !edit_mode">
+            <div class="p-6 w-[400px] bg-white rounded-[10px] max-h-[50vh] overflow-y-auto"
+                v-if="activeDiary && !edit_mode">
                 <div>{{ activeDiary.title }}</div>
                 <div>{{ activeDiary.content }}</div>
             </div>
-            <div class="p-6 w-[400px] bg-white rounded-[10px] max-h-[50vh] overflow-y-auto" v-if="activeDiary && edit_mode">
+            <div class="p-6 w-[400px] bg-white rounded-[10px] max-h-[50vh] overflow-y-auto"
+                v-if="activeDiary && edit_mode">
                 <UInput v-model="activeDiary.title" :placeholder="'标题'" class="flex-1 focus:ring-0" :ui="{
                     base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
                     rounded: 'rounded-[10px]',
@@ -1034,16 +1176,17 @@ useHead({
                         }
                     }
                 }" />
-                <UTextarea v-model="activeDiary.content" :placeholder="'内容'" type="texare" class="flex-1 focus:ring-0 pt-3" :ui="{
-                    base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
-                    rounded: 'rounded-[10px]',
-                    padding: { xs: 'px-4 py-2' },
-                    color: {
-                        white: {
-                            outline: 'bg-gray-50 dark:bg-gray-800 ring-1 ring-gray-300 dark:ring-gray-600 focus:ring-2 focus:ring-qhx-primary'
+                <UTextarea v-model="activeDiary.content" :placeholder="'内容'" type="texare"
+                    class="flex-1 focus:ring-0 pt-3" :ui="{
+                        base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
+                        rounded: 'rounded-[10px]',
+                        padding: { xs: 'px-4 py-2' },
+                        color: {
+                            white: {
+                                outline: 'bg-gray-50 dark:bg-gray-800 ring-1 ring-gray-300 dark:ring-gray-600 focus:ring-2 focus:ring-qhx-primary'
+                            }
                         }
-                    }
-                }" />
+                    }" />
                 <UButton type="submit" block class="bg-qhx-primary text-qhx-inverted hover:bg-qhx-primaryHover mt-6"
                     @click="editDiary()">
                     保存修改
@@ -1053,32 +1196,22 @@ useHead({
         <QhxModal v-model="showSettings" :trigger-position="clickPosition">
             <div class="p-6 w-[300px] bg-white dark:bg-gray-800 rounded-[10px] shadow-lg">
                 <h3 class="text-base font-bold mb-4 text-gray-800 dark:text-gray-200">场景设置</h3>
-                
+
                 <!-- 阴影质量 -->
                 <div class="mb-4">
                     <div class="text-sm text-gray-700 dark:text-gray-300 mb-2">阴影质量</div>
-                    <USelect 
-                        v-model="settingsState.shadowQuality" 
-                        :options="shadowQualityOptions"
-                        option-attribute="label"
-                        @update:model-value="changeShadowQuality"
-                        color="white"
-                    />
+                    <USelect v-model="settingsState.shadowQuality" :options="shadowQualityOptions"
+                        option-attribute="label" @update:model-value="changeShadowQuality" color="white" />
                 </div>
-                
+
                 <!-- 镜头角度 -->
                 <div class="mb-2">
                     <div class="flex justify-between mb-2">
                         <span class="text-sm text-gray-700 dark:text-gray-300">镜头角度</span>
                         <span class="text-xs text-gray-500">{{ Math.round(settingsState.fov) }}°</span>
                     </div>
-                    <URange 
-                        v-model="settingsState.fov" 
-                        :min="10" 
-                        :max="120" 
-                        :step="1"
-                        @update:model-value="changeFov"
-                    />
+                    <URange v-model="settingsState.fov" :min="10" :max="120" :step="1"
+                        @update:model-value="changeFov" />
                 </div>
 
                 <!-- 光源水平角度 -->
@@ -1087,13 +1220,8 @@ useHead({
                         <span class="text-sm text-gray-700 dark:text-gray-300">光照方向(水平)</span>
                         <span class="text-xs text-gray-500">{{ Math.round(settingsState.lightAzimuth) }}°</span>
                     </div>
-                    <URange 
-                        v-model="settingsState.lightAzimuth" 
-                        :min="0" 
-                        :max="360" 
-                        :step="1"
-                        @update:model-value="updateLightPosition"
-                    />
+                    <URange v-model="settingsState.lightAzimuth" :min="0" :max="360" :step="1"
+                        @update:model-value="updateLightPosition" />
                 </div>
 
                 <!-- 光源垂直角度 -->
@@ -1102,47 +1230,33 @@ useHead({
                         <span class="text-sm text-gray-700 dark:text-gray-300">光照高度(垂直)</span>
                         <span class="text-xs text-gray-500">{{ Math.round(settingsState.lightElevation) }}°</span>
                     </div>
-                    <URange 
-                        v-model="settingsState.lightElevation" 
-                        :min="0" 
-                        :max="90" 
-                        :step="1"
-                        @update:model-value="updateLightPosition"
-                    />
+                    <URange v-model="settingsState.lightElevation" :min="0" :max="90" :step="1"
+                        @update:model-value="updateLightPosition" />
                 </div>
             </div>
         </QhxModal>
         <QhxModal v-model="showObjectSettings" :trigger-position="clickPosition">
             <div class="p-6 w-[300px] bg-white dark:bg-gray-800 rounded-[10px] shadow-lg">
                 <h3 class="text-base font-bold mb-4 text-gray-800 dark:text-gray-200">物体设置</h3>
-                
+
                 <!-- 文本颜色 -->
                 <div class="mb-4">
                     <div class="text-sm text-gray-700 dark:text-gray-300 mb-2">颜色</div>
                     <div class="flex items-center gap-2">
-                        <input 
-                            type="color" 
-                            v-model="objectSettingsState.color"
-                            @input="updateTextObject"
-                            class="w-8 h-8 rounded cursor-pointer border-0 p-0"
-                        />
+                        <input type="color" v-model="objectSettingsState.color" @input="updateTextObject"
+                            class="w-8 h-8 rounded cursor-pointer border-0 p-0" />
                         <span class="text-xs text-gray-500">{{ objectSettingsState.color }}</span>
                     </div>
                 </div>
-                
+
                 <!-- 文本厚度 -->
                 <div class="mb-4">
                     <div class="flex justify-between mb-2">
                         <span class="text-sm text-gray-700 dark:text-gray-300">厚度</span>
                         <span class="text-xs text-gray-500">{{ objectSettingsState.depth }}</span>
                     </div>
-                    <URange 
-                        v-model="objectSettingsState.depth" 
-                        :min="0.01" 
-                        :max="2" 
-                        :step="0.01"
-                        @update:model-value="updateTextObject"
-                    />
+                    <URange v-model="objectSettingsState.depth" :min="0.01" :max="2" :step="0.01"
+                        @update:model-value="updateTextObject" />
                 </div>
 
                 <!-- 文本大小 -->
@@ -1151,25 +1265,104 @@ useHead({
                         <span class="text-sm text-gray-700 dark:text-gray-300">大小</span>
                         <span class="text-xs text-gray-500">{{ objectSettingsState.size }}</span>
                     </div>
-                    <URange 
-                        v-model="objectSettingsState.size" 
-                        :min="0.1" 
-                        :max="5" 
-                        :step="0.1"
-                        @update:model-value="updateTextObject"
-                    />
+                    <URange v-model="objectSettingsState.size" :min="0.1" :max="5" :step="0.1"
+                        @update:model-value="updateTextObject" />
                 </div>
             </div>
         </QhxModal>
+        <QhxModal v-model="showTextMenu" :trigger-position="textMenuPosition">
+            <div class="p-4 w-[200px] bg-white dark:bg-gray-800 rounded-[10px] shadow-lg">
+                <h3 class="text-sm font-bold mb-3 text-gray-800 dark:text-gray-200">选择文本类型</h3>
+
+                <!-- 长文本选项 -->
+                <button @click="selectLongText"
+                    class="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors text-left group">
+                    <div
+                        class="w-8 h-8 bg-blue-500 dark:bg-blue-600 rounded-lg flex items-center justify-center group-hover:scale-110 transition-transform">
+                        <UIcon name="material-symbols:text-fields-rounded" class="text-base text-white" />
+                    </div>
+                    <div class="flex-1">
+                        <div class="text-sm font-medium text-gray-800 dark:text-gray-200">长文本</div>
+                        <div class="text-xs text-gray-500 dark:text-gray-400">添加多行文本</div>
+                    </div>
+                </button>
+
+                <!-- 3D文本选项 -->
+                <button @click="select3DText"
+                    class="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors text-left group mt-2">
+                    <div
+                        class="w-8 h-8 bg-indigo-500 dark:bg-indigo-600 rounded-lg flex items-center justify-center group-hover:scale-110 transition-transform">
+                        <UIcon name="material-symbols:title-rounded" class="text-base text-white" />
+                    </div>
+                    <div class="flex-1">
+                        <div class="text-sm font-medium text-gray-800 dark:text-gray-200">3D文本</div>
+                        <div class="text-xs text-gray-500 dark:text-gray-400">添加3D立体文本</div>
+                    </div>
+                </button>
+            </div>
+        </QhxModal>
+        <QhxModal v-model="showPointMenu" :trigger-position="pointMenuPosition">
+            <div class="p-4 w-[200px] bg-white dark:bg-gray-800 rounded-[10px] shadow-lg">
+                <h3 class="text-sm font-bold mb-3 text-gray-800 dark:text-gray-200">选择点位类型</h3>
+
+                <!-- 日记点选项 -->
+                <button @click="selectDiaryPoint"
+                    class="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors text-left group">
+                    <div
+                        class="w-8 h-8 bg-amber-500 dark:bg-amber-600 rounded-lg flex items-center justify-center group-hover:scale-110 transition-transform">
+                        <UIcon name="material-symbols:edit-note-rounded" class="text-base text-white" />
+                    </div>
+                    <div class="flex-1">
+                        <div class="text-sm font-medium text-gray-800 dark:text-gray-200">日记点</div>
+                        <div class="text-xs text-gray-500 dark:text-gray-400">添加日记标记点</div>
+                    </div>
+                </button>
+
+                <!-- 图鉴选项 -->
+                <!-- <button
+                    @click="selectLibraryPoint"
+                    class="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors text-left group mt-2"
+                >
+                    <div class="w-8 h-8 bg-purple-500 dark:bg-purple-600 rounded-lg flex items-center justify-center group-hover:scale-110 transition-transform">
+                        <UIcon name="material-symbols:book-rounded" class="text-base text-white" />
+                    </div>
+                    <div class="flex-1">
+                        <div class="text-sm font-medium text-gray-800 dark:text-gray-200">图鉴</div>
+                        <div class="text-xs text-gray-500 dark:text-gray-400">添加图鉴标记点</div>
+                    </div>
+                </button> -->
+
+                <!-- 店铺选项 -->
+                <!-- <button
+                    @click="selectShopPoint"
+                    class="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors text-left group mt-2"
+                >
+                    <div class="w-8 h-8 bg-green-500 dark:bg-green-600 rounded-lg flex items-center justify-center group-hover:scale-110 transition-transform">
+                        <UIcon name="material-symbols:store-rounded" class="text-base text-white" />
+                    </div>
+                    <div class="flex-1">
+                        <div class="text-sm font-medium text-gray-800 dark:text-gray-200">店铺</div>
+                        <div class="text-xs text-gray-500 dark:text-gray-400">添加店铺标记点</div>
+                    </div>
+                </button> -->
+            </div>
+        </QhxModal>
+
+        <!-- 发帖弹窗 -->
+        <ClientOnly>
+            <YearlySummaryPostModal v-model="showPostModal" :sence-id="Number.parseInt(id)" :skip-summary-link="true"
+                @success="handlePostSuccess" />
+        </ClientOnly>
     </div>
 </template>
 <style>
-.left-box{
+.left-box {
     height: 100vh;
     width: 20vw;
     /* background: #000; */
 }
-.right-box{
+
+.right-box {
     height: 100vh;
     width: 30vw;
     /* background: #000; */
@@ -1177,12 +1370,15 @@ useHead({
 
 /* 隐藏滚动条但保持滚动功能 */
 .scrollbar-hide {
-    -ms-overflow-style: none;  /* IE and Edge */
-    scrollbar-width: none;  /* Firefox */
+    -ms-overflow-style: none;
+    /* IE and Edge */
+    scrollbar-width: none;
+    /* Firefox */
 }
 
 .scrollbar-hide::-webkit-scrollbar {
-    display: none;  /* Chrome, Safari and Opera */
+    display: none;
+    /* Chrome, Safari and Opera */
 }
 
 /* 手机端优化 */

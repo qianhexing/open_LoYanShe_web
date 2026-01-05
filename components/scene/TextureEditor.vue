@@ -1,10 +1,14 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref, nextTick, watch } from 'vue'
+import { onMounted, onUnmounted, ref, nextTick, watch, computed } from 'vue'
 import * as THREE from 'three'
 import type QhxImagePicker from '@/components/Qhx/ImagePicker.vue'
 import { uploadImage } from '@/api';
+import { uploadImageOSS } from '@/utils/ossUpload'
+import { useConfigStore } from '@/stores/config';
 
 const imagePicker = ref<InstanceType<typeof QhxImagePicker> | null>(null)
+const configStore = useConfigStore()
+const isMobile = computed(() => configStore.isMobile)
 
 interface Props {
   target: THREE.Mesh | null
@@ -57,6 +61,141 @@ let lastAngle = 0
 let isDirty = false
 let animationFrameId = 0
 
+// 事件处理函数引用（用于移除监听器）
+let mouseMoveHandler: ((e: MouseEvent) => void) | null = null
+let mouseUpHandler: (() => void) | null = null
+let mouseDownHandler: ((e: MouseEvent) => void) | null = null
+let touchStartHandler: ((e: TouchEvent) => void) | null = null
+let touchMoveHandler: ((e: TouchEvent) => void) | null = null
+let wheelHandler: ((e: WheelEvent) => void) | null = null
+
+// 添加事件监听器
+const setupEventListeners = () => {
+  if (!canvas.value) return
+  
+  // 鼠标拖动
+  mouseDownHandler = (e: MouseEvent) => {
+    dragging = true
+    lastX = e.clientX
+    lastY = e.clientY
+  }
+  
+  mouseMoveHandler = (e: MouseEvent) => {
+    if (!dragging) return
+    const dx = e.clientX - lastX
+    const dy = e.clientY - lastY
+    // 简单的阈值检测，避免微小抖动导致的重绘
+    if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) return
+    
+    offsetX += dx
+    offsetY += dy
+    lastX = e.clientX
+    lastY = e.clientY
+    isDirty = true // 标记为脏，下一帧绘制
+  }
+  
+  mouseUpHandler = () => {
+    dragging = false
+  }
+  
+  // 触摸缩放 + 旋转
+  touchStartHandler = (e: TouchEvent) => {
+    e.preventDefault() // 防止滚动
+    if (e.touches.length === 2) {
+      const dx = e.touches[1].clientX - e.touches[0].clientX
+      const dy = e.touches[1].clientY - e.touches[0].clientY
+      lastDist = Math.hypot(dx, dy)
+      lastAngle = Math.atan2(dy, dx)
+    } else if (e.touches.length === 1) {
+      lastX = e.touches[0].clientX
+      lastY = e.touches[0].clientY
+    }
+  }
+  
+  touchMoveHandler = (e: TouchEvent) => {
+    e.preventDefault() // 防止滚动
+    let changed = false
+    
+    if (e.touches.length === 1) {
+      const dx = e.touches[0].clientX - lastX
+      const dy = e.touches[0].clientY - lastY
+      
+      if (Math.abs(dx) > 0.5 || Math.abs(dy) > 0.5) {
+         offsetX += dx
+         offsetY += dy
+         lastX = e.touches[0].clientX
+         lastY = e.touches[0].clientY
+         changed = true
+      }
+    } else if (e.touches.length === 2) {
+      const dx = e.touches[1].clientX - e.touches[0].clientX
+      const dy = e.touches[1].clientY - e.touches[0].clientY
+      const dist = Math.hypot(dx, dy)
+      const angle = Math.atan2(dy, dx)
+      
+      // 旋转缩放通常都需要响应，因为变化比较敏感
+      if (Math.abs(dist - lastDist) > 1 || Math.abs(angle - lastAngle) > 0.01) {
+          scale *= dist / lastDist
+          rotation += angle - lastAngle
+
+          lastDist = dist
+          lastAngle = angle
+          changed = true
+      }
+    }
+    
+    if (changed) {
+        isDirty = true
+    }
+  }
+  
+  wheelHandler = (e: WheelEvent) => {
+    e.preventDefault()
+    const zoomSpeed = 0.001 // 越大缩放越快
+    scale += e.deltaY * -zoomSpeed
+    scale = Math.max(0.1, Math.min(5, scale)) // 限制缩放范围 0.1~5
+    isDirty = true
+  }
+  
+  // 绑定事件
+  canvas.value.addEventListener('mousedown', mouseDownHandler)
+  window.addEventListener('mousemove', mouseMoveHandler)
+  window.addEventListener('mouseup', mouseUpHandler)
+  canvas.value.addEventListener('touchstart', touchStartHandler, { passive: false })
+  canvas.value.addEventListener('touchmove', touchMoveHandler, { passive: false })
+  canvas.value.addEventListener('wheel', wheelHandler)
+}
+
+// 移除事件监听器
+const removeEventListeners = () => {
+  if (!canvas.value) return
+  
+  if (mouseDownHandler) {
+    canvas.value.removeEventListener('mousedown', mouseDownHandler)
+    mouseDownHandler = null
+  }
+  if (mouseMoveHandler) {
+    window.removeEventListener('mousemove', mouseMoveHandler)
+    mouseMoveHandler = null
+  }
+  if (mouseUpHandler) {
+    window.removeEventListener('mouseup', mouseUpHandler)
+    mouseUpHandler = null
+  }
+  if (touchStartHandler) {
+    canvas.value.removeEventListener('touchstart', touchStartHandler)
+    touchStartHandler = null
+  }
+  if (touchMoveHandler) {
+    canvas.value.removeEventListener('touchmove', touchMoveHandler)
+    touchMoveHandler = null
+  }
+  if (wheelHandler) {
+    canvas.value.removeEventListener('wheel', wheelHandler)
+    wheelHandler = null
+  }
+}
+
 const showModel = () => {
   show.value = true
   isSaved = false // 重置保存状态
@@ -67,10 +206,14 @@ const showModel = () => {
     loop()
   }
 
-  // 确保显示时重新生成 Mask 并绘制
+  // 确保显示时重新生成 Mask 并绘制，然后添加事件监听器
   if (props.target) {
     nextTick(() => {
       setupTexture()
+      // 在 canvas 渲染后添加事件监听器
+      nextTick(() => {
+        setupEventListeners()
+      })
     })
   }
 }
@@ -88,6 +231,9 @@ const finishClose = () => {
   show.value = false
   cancelAnimationFrame(animationFrameId)
   animationFrameId = 0
+  
+  // 移除事件监听器
+  removeEventListeners()
   
   // 显式释放资源
   if (texture) {
@@ -107,10 +253,15 @@ const restoreOriginalState = () => {
   rotation = originalState.rotation
   
   const restoreDraw = () => {
-    isDirty = true
-    draw() // 强制重绘
-    isLoading.value = false
-    finishClose()
+    try {
+      isDirty = true
+      draw() // 强制重绘
+    } catch (error) {
+      console.warn('还原状态时绘制失败:', error)
+    } finally {
+      isLoading.value = false
+      finishClose()
+    }
   }
 
   if (originalState.url) {
@@ -118,11 +269,31 @@ const restoreOriginalState = () => {
     // 注意：image.src 永远是绝对路径 (包含 base_img)
     // originalState.url 在 setupTexture 里也被存为了绝对路径
     
-    if (image.src !== originalState.url) {
-       image.src = originalState.url
-       image.onload = restoreDraw
-       image.onerror = restoreDraw 
+    // 检查当前图片是否有效
+    const currentImageValid = image.src === originalState.url && 
+                              image.complete && 
+                              image.naturalWidth > 0 && 
+                              image.naturalHeight > 0
+    
+    if (!currentImageValid) {
+      // 需要重新加载图片
+      image.onload = () => {
+        // 确保图片加载成功后再绘制
+        if (image.naturalWidth > 0 && image.naturalHeight > 0) {
+          restoreDraw()
+        } else {
+          // 图片加载失败，直接关闭
+          restoreDraw()
+        }
+      }
+      image.onerror = () => {
+        // 图片加载失败，清空图片并关闭
+        image.removeAttribute('src')
+        restoreDraw()
+      }
+      image.src = originalState.url
     } else {
+      // 当前图片有效，直接还原
       restoreDraw()
     }
   } else {
@@ -260,39 +431,52 @@ function draw() {
   }
 
   // 2. 绘制用户图片
-  // 检查 image.src 是否有效
-  if (image.complete && image.src && image.src !== window.location.href) {
-    // 如果没有 Mask，直接绘制；如果有 Mask，已经在上面设置了 source-in
-    if (!maskDrawn) {
-       ctx.save() // 为了保持 restore 的一致性
+  // 检查 image.src 是否有效，并且图片不是 broken 状态
+  // naturalWidth 和 naturalHeight 为 0 表示图片加载失败
+  const isImageValid = image.complete && 
+                       image.src && 
+                       image.src !== window.location.href &&
+                       image.naturalWidth > 0 && 
+                       image.naturalHeight > 0
+  
+  if (isImageValid) {
+    try {
+      // 如果没有 Mask，直接绘制；如果有 Mask，已经在上面设置了 source-in
+      if (!maskDrawn) {
+         ctx.save() // 为了保持 restore 的一致性
+      }
+
+      ctx.translate(canvas.value.width / 2 + offsetX, canvas.value.height / 2 + offsetY)
+      ctx.rotate(rotation)
+      ctx.scale(scale, scale)
+
+      // 保持原图比例
+      const imgAspect = image.naturalWidth / image.naturalHeight
+      const canvasAspect = canvas.value.width / canvas.value.height
+      let drawW: number
+      let drawH: number
+      if (imgAspect > canvasAspect) {
+        drawW = canvas.value.width
+        drawH = drawW / imgAspect
+      } else {
+        drawH = canvas.value.height
+        drawW = drawH * imgAspect
+      }
+
+      ctx.drawImage(
+        image,
+        -drawW / 2,
+        -drawH / 2,
+        drawW,
+        drawH
+      )
+
+      ctx.restore()
+    } catch (error) {
+      // 如果绘制失败，确保 restore
+      console.warn('绘制图片失败:', error)
+      if (maskDrawn) ctx.restore()
     }
-
-    ctx.translate(canvas.value.width / 2 + offsetX, canvas.value.height / 2 + offsetY)
-    ctx.rotate(rotation)
-    ctx.scale(scale, scale)
-
-    // 保持原图比例
-    const imgAspect = image.width / image.height
-    const canvasAspect = canvas.value.width / canvas.value.height
-    let drawW: number
-    let drawH: number
-    if (imgAspect > canvasAspect) {
-      drawW = canvas.value.width
-      drawH = drawW / imgAspect
-    } else {
-      drawH = canvas.value.height
-      drawW = drawH * imgAspect
-    }
-
-    ctx.drawImage(
-      image,
-      -drawW / 2,
-      -drawH / 2,
-      drawW,
-      drawH
-    )
-
-    ctx.restore()
   } else {
     // 如果没有图片但有 Mask，记得 restore
     if (maskDrawn) ctx.restore()
@@ -337,6 +521,7 @@ async function setupTexture() {
     texture.wrapS = THREE.ClampToEdgeWrapping
     texture.wrapT = THREE.ClampToEdgeWrapping
     texture.flipY = false
+    texture.colorSpace = THREE.SRGBColorSpace
   } 
   
   texture.needsUpdate = true
@@ -395,99 +580,24 @@ async function setupTexture() {
 }
 
 onMounted(() => {
+  // 初始化移动端检测（如果还没有初始化）
+  if (typeof window !== 'undefined' && configStore.windowWidth === 1024) {
+    configStore.initMobileDetection()
+  }
+
   // 注意：不再默认启动 loop，而是在 showModel 时启动
+  // 事件监听器会在 showModel 时添加
 
   if (props.maskUrl) {
     mask.src = props.maskUrl
     mask.onload = () => { isDirty = true }
   }
-
-  if (!canvas.value) return
-
-  // 鼠标拖动
-  canvas.value.addEventListener('mousedown', e => {
-    dragging = true
-    lastX = e.clientX
-    lastY = e.clientY
-  })
-  window.addEventListener('mousemove', e => {
-    if (!dragging) return
-    const dx = e.clientX - lastX
-    const dy = e.clientY - lastY
-    
-    // 简单的阈值检测，避免微小抖动导致的重绘
-    if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) return
-    
-    offsetX += dx
-    offsetY += dy
-    lastX = e.clientX
-    lastY = e.clientY
-    isDirty = true // 标记为脏，下一帧绘制
-  })
-  window.addEventListener('mouseup', () => (dragging = false))
-
-  // 触摸缩放 + 旋转
-  canvas.value.addEventListener('touchstart', e => {
-    e.preventDefault() // 防止滚动
-    if (e.touches.length === 2) {
-      const dx = e.touches[1].clientX - e.touches[0].clientX
-      const dy = e.touches[1].clientY - e.touches[0].clientY
-      lastDist = Math.hypot(dx, dy)
-      lastAngle = Math.atan2(dy, dx)
-    } else if (e.touches.length === 1) {
-      lastX = e.touches[0].clientX
-      lastY = e.touches[0].clientY
-    }
-  }, { passive: false })
-
-  canvas.value.addEventListener('touchmove', e => {
-    e.preventDefault() // 防止滚动
-    let changed = false
-    
-    if (e.touches.length === 1) {
-      const dx = e.touches[0].clientX - lastX
-      const dy = e.touches[0].clientY - lastY
-      
-      if (Math.abs(dx) > 0.5 || Math.abs(dy) > 0.5) {
-         offsetX += dx
-         offsetY += dy
-         lastX = e.touches[0].clientX
-         lastY = e.touches[0].clientY
-         changed = true
-      }
-    } else if (e.touches.length === 2) {
-      const dx = e.touches[1].clientX - e.touches[0].clientX
-      const dy = e.touches[1].clientY - e.touches[0].clientY
-      const dist = Math.hypot(dx, dy)
-      const angle = Math.atan2(dy, dx)
-      
-      // 旋转缩放通常都需要响应，因为变化比较敏感
-      if (Math.abs(dist - lastDist) > 1 || Math.abs(angle - lastAngle) > 0.01) {
-          scale *= dist / lastDist
-          rotation += angle - lastAngle
-
-          lastDist = dist
-          lastAngle = angle
-          changed = true
-      }
-    }
-    
-    if (changed) {
-        isDirty = true
-    }
-  }, { passive: false })
-  
-  canvas.value.addEventListener('wheel', e => {
-    e.preventDefault()
-    const zoomSpeed = 0.001 // 越大缩放越快
-    scale += e.deltaY * -zoomSpeed
-    scale = Math.max(0.1, Math.min(5, scale)) // 限制缩放范围 0.1~5
-    isDirty = true
-  })
 })
 
 onUnmounted(() => {
   cancelAnimationFrame(animationFrameId)
+  // 移除事件监听器
+  removeEventListeners()
   if (texture) {
     texture.dispose()
     texture = null
@@ -536,16 +646,14 @@ const saveData = () => {
 const onUpdateFiles = (file: File[]) => {
   console.log('选择的文件', file)
   isLoading.value = true
-  uploadImage(file[0])
-    .then(async (res) => {
-      console.log('上传返回', res)
-      
+  uploadImageOSS({ file: file[0] })
+    .then(async (res) => {      
       // 关键修复：更换图片时，重置 scale/rotation/offset 还是保持?
       // 通常更换图片希望保持位置，或者重置到默认?
       // 这里我们选择保留当前编辑状态，只换图
       
       // 更新 image src
-      const newSrc = BASE_IMG + res.file_url
+      const newSrc = BASE_IMG + res
       
       // 确保 image 对象感知到变化
       image.src = newSrc
@@ -573,21 +681,19 @@ defineExpose({
 <template>
   <QhxImagePicker :multiple="true" @update:files="onUpdateFiles" class="hidden" ref="imagePicker" />
   
-  <!-- 遮罩层，控制整体显示隐藏 -->
-  <div class="fixed inset-0 z-[100] flex items-end md:items-center md:justify-center pointer-events-none"
-    :class="show ? '' : 'opacity-0 pointer-events-none'">
-    
-    <!-- 背景遮罩 (可选，增加点击背景关闭) -->
-    <div class="absolute inset-0 bg-black/20 backdrop-blur-sm transition-opacity duration-300 pointer-events-auto" 
-      :class="show ? 'opacity-100' : 'opacity-0'"
-      @click="closeModel"></div>
-
-    <!-- 主面板 -->
-    <div class="relative w-full md:w-[480px] bg-white dark:bg-gray-800 shadow-2xl rounded-t-2xl md:rounded-2xl overflow-hidden transform transition-all duration-300 pointer-events-auto"
-       :class="show ? 'translate-y-0 opacity-100 scale-100' : 'translate-y-full md:translate-y-10 opacity-0 scale-95'">
-      
+  <!-- 抽屉容器 - PC端右侧，手机端下方 -->
+  <Transition :name="isMobile ? 'slide-bottom' : 'slide-right'">
+    <div 
+      v-if="show"
+      class="fixed z-[100] bg-white dark:bg-gray-800 shadow-2xl overflow-hidden pointer-events-auto"
+      :class="[
+        isMobile 
+          ? 'bottom-0 left-0 right-0 w-full max-h-[80vh] rounded-t-2xl' 
+          : 'top-0 right-0 w-[480px] h-full'
+      ]"
+    >
       <!-- 头部 -->
-      <div class="flex items-center justify-between px-4 py-3 border-b border-gray-100 dark:border-gray-700">
+      <div class="flex items-center justify-between px-4 py-3 border-b border-gray-100 dark:border-gray-700 flex-shrink-0">
         <h3 class="text-base font-semibold text-gray-800 dark:text-gray-100">贴图编辑器</h3>
         <button @click="closeModel" 
           class="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors text-gray-500 hover:text-gray-700">
@@ -596,9 +702,9 @@ defineExpose({
       </div>
 
       <!-- 内容区 -->
-      <div class="p-4 flex flex-col items-center gap-4">
+      <div class="p-4 flex flex-col items-center gap-4 overflow-y-auto" :class="isMobile ? 'max-h-[calc(80vh-60px)]' : 'h-[calc(100vh-60px)]'">
         <!-- Canvas 容器 -->
-        <div class="relative w-full aspect-square bg-gray-50 dark:bg-gray-900 rounded-xl overflow-hidden border border-gray-200 dark:border-gray-700 shadow-inner group">
+        <div class="relative w-full aspect-square bg-gray-50 dark:bg-gray-900 rounded-xl overflow-hidden border border-gray-200 dark:border-gray-700 shadow-inner group flex-shrink-0">
           <!-- 透明背景格子 -->
            <div class="absolute inset-0 z-0 opacity-30" 
                 style="background-image: linear-gradient(45deg, #888 25%, transparent 25%), linear-gradient(-45deg, #888 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #888 75%), linear-gradient(-45deg, transparent 75%, #888 75%); background-size: 20px 20px; background-position: 0 0, 0 10px, 10px -10px, -10px 0px;">
@@ -621,7 +727,7 @@ defineExpose({
         </div>
 
         <!-- 操作按钮栏 -->
-        <div class="grid grid-cols-2 gap-3 w-full">
+        <div class="grid grid-cols-2 gap-3 w-full flex-shrink-0">
           <button @click="addImage()" 
             class="flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600 transition-all active:scale-95 font-medium text-sm">
             <UIcon name="ant-design:picture-filled" class="text-lg text-blue-500" />
@@ -636,9 +742,29 @@ defineExpose({
         </div>
       </div>
     </div>
-  </div>
+  </Transition>
 </template>
 
 <style scoped>
-/* 移除 scoped canvas 样式，改用 Tailwind */
+/* 抽屉滑动动画 - 右侧（PC端） */
+.slide-right-enter-active,
+.slide-right-leave-active {
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s;
+}
+.slide-right-enter-from,
+.slide-right-leave-to {
+  transform: translateX(100%);
+  opacity: 0;
+}
+
+/* 抽屉滑动动画 - 下方（手机端） */
+.slide-bottom-enter-active,
+.slide-bottom-leave-active {
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s;
+}
+.slide-bottom-enter-from,
+.slide-bottom-leave-to {
+  transform: translateY(100%);
+  opacity: 0;
+}
 </style>

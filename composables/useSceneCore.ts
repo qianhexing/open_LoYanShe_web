@@ -133,6 +133,7 @@ export const useSceneCore = () => {
         sceneData?: Scene | null,
         enableAR?: boolean
     }) => {
+        console.log('initScene', options.editMode)
         sceneLoading.value = true
         sceneLoadError.value = null
         config.editMode = options.editMode
