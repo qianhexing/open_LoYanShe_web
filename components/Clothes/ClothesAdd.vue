@@ -1,10 +1,12 @@
 <script setup lang="ts">
-import { ref } from 'vue'
-import type { Library, Shop, Wardrobe } from '~/types/api'
+import { ref, nextTick } from 'vue'
+import type { Library, Shop, Wardrobe, Scene } from '~/types/api'
 import { getShopOptiosns } from '@/api/shop'
 import { insertClothes, updateClothes } from '@/api/wardrobe'
 import type LibraryChoose from '@/components/library/LibraryChoose.vue'
 const LibraryChooseRef = ref<InstanceType<typeof LibraryChoose> | null>(null)
+import type SceneChoose from '@/components/scene/SceneChoose.vue'
+const SceneChooseRef = ref<InstanceType<typeof SceneChoose> | null>(null)
 import type QhxImagePicker from '@/components/Qhx/ImagePicker.vue'
 const wardrobeCoverRef = ref<InstanceType<typeof QhxImagePicker> | null>(null)
 import type QhxColorPicker from '@/components/Qhx/ColorPicker.vue'
@@ -21,6 +23,7 @@ interface ExtendedClothesItem extends Partial<WardrobeClothes> {
   wardrobe_name?: string
   wardrobe?: Wardrobe
   library?: Library
+  scene?: Scene
   origin_shop?: Shop
   main_style_list?: { label: string; value: number }[]
   detail_image_list?: string[]
@@ -58,6 +61,9 @@ const season_options = [{ value: '春', label: '春' }, { value: '夏', label: '
 const show = ref(false)
 const loading = ref(false)
 const type = ref(0) // 0 添加 1 编辑
+const clickPosition = ref({ x: 0, y: 0 })
+const showSceneChooseModal = ref(false)
+const sceneChooseClickPosition = ref({ x: 0, y: 0 })
 
 const form = ref<{
   wardrobe_id: number | null
@@ -120,7 +126,63 @@ const showChooseLibrary = () => {
     LibraryChooseRef.value.showModel()
   }
 }
-const showModel = (item: ExtendedClothesItem | null, isCopy = false) => {
+
+const showChooseScene = (event?: MouseEvent) => {
+  // 记录触发位置
+  if (event) {
+    sceneChooseClickPosition.value = {
+      x: event.clientX,
+      y: event.clientY
+    }
+  } else {
+    sceneChooseClickPosition.value = {
+      x: window.innerWidth / 2,
+      y: window.innerHeight / 2
+    }
+  }
+  // 显示选择对话框
+  showSceneChooseModal.value = true
+}
+
+const handleSceneChooseClose = () => {
+  showSceneChooseModal.value = false
+}
+
+const chooseTemplate = () => {
+  // 套用模版 - 先空实现
+  showSceneChooseModal.value = false
+  // TODO: 实现套用模版功能
+}
+
+const chooseExistingScene = () => {
+  // 选择现有场景
+  showSceneChooseModal.value = false
+  // 使用 nextTick 确保模态框关闭后再打开场景选择器
+  nextTick(() => {
+    if (SceneChooseRef.value) {
+      // 创建一个模拟的 MouseEvent，使用之前记录的点击位置
+      const mockEvent = {
+        clientX: sceneChooseClickPosition.value.x,
+        clientY: sceneChooseClickPosition.value.y
+      } as MouseEvent
+      SceneChooseRef.value.showModel(mockEvent)
+    }
+  })
+}
+const showModel = (item: ExtendedClothesItem | null, isCopy = false, event?: MouseEvent) => {
+  // 记录触发位置（如果有事件对象）
+  if (event) {
+    clickPosition.value = {
+      x: event.clientX,
+      y: event.clientY
+    }
+  } else {
+    // 默认位置：屏幕中心
+    clickPosition.value = {
+      x: window.innerWidth / 2,
+      y: window.innerHeight / 2
+    }
+  }
   // 初始化配置选项
   const config = configStore.config
   if (wardrobeStore.config) {
@@ -170,12 +232,14 @@ const showModel = (item: ExtendedClothesItem | null, isCopy = false) => {
     setTimeout(() => {
       if (item.detail_image_list && Array.isArray(item.detail_image_list) && item.detail_image_list.length > 0 && detailImageRef.value) {
         detailImageRef.value.previewImages = item.detail_image_list.map((img: string) => ({
+          id: `img_${Date.now()}_${Math.random()}`,
           file: undefined as unknown as File,
           url: BASE_IMG + img
         }))
       }
       if (item.clothes_img && wardrobeCoverRef.value) {
         wardrobeCoverRef.value.previewImages = [{
+          id: `img_${Date.now()}_${Math.random()}`,
           file: undefined as unknown as File,
           url: BASE_IMG + item.clothes_img
         }]
@@ -283,6 +347,13 @@ const showModel = (item: ExtendedClothesItem | null, isCopy = false) => {
       library.value = null
     }
 
+    // 处理场景关联
+    if (item.scene) {
+      scene.value = item.scene
+    } else {
+      scene.value = null
+    }
+
     // 处理来源店铺
     if (item.origin_shop) {
       origin_shop.value = item.origin_shop
@@ -299,7 +370,11 @@ const showModel = (item: ExtendedClothesItem | null, isCopy = false) => {
     // 处理主图
     if (wardrobeCoverRef.value) {
       if (item.clothes_img) {
-        wardrobeCoverRef.value.previewImages = [{ file: undefined as unknown as File, url: BASE_IMG + item.clothes_img }]
+        wardrobeCoverRef.value.previewImages = [{ 
+          id: `img_${Date.now()}_${Math.random()}`,
+          file: undefined as unknown as File, 
+          url: BASE_IMG + item.clothes_img 
+        }]
       } else {
         wardrobeCoverRef.value.previewImages = []
       }
@@ -309,12 +384,14 @@ const showModel = (item: ExtendedClothesItem | null, isCopy = false) => {
     if (detailImageRef.value) {
       if (item.detail_image_list && Array.isArray(item.detail_image_list) && item.detail_image_list.length > 0) {
         detailImageRef.value.previewImages = item.detail_image_list.map((img: string) => ({
+          id: `img_${Date.now()}_${Math.random()}`,
           file: undefined as unknown as File,
           url: BASE_IMG + img
         }))
       } else if (item.detail_image && typeof item.detail_image === 'string') {
         const detailImages = item.detail_image.split(',').filter((img: string) => img.trim() !== '')
         detailImageRef.value.previewImages = detailImages.map((img: string) => ({
+          id: `img_${Date.now()}_${Math.random()}`,
           file: undefined as unknown as File,
           url: BASE_IMG + img
         }))
@@ -337,6 +414,7 @@ const showColorPicker = () => {
 }
 const wardrobeName = ref('')
 const library = ref<Library | null>(null)
+const scene = ref<Scene | null>(null)
 
 const showControl = ref({
   color_choose: false,
@@ -349,7 +427,37 @@ const showControl = ref({
 })
 const chooseLibrary = (list: Library[]) => {
   if (list.length > 0) {
-    library.value = list[0]
+    const selectedLibrary = list[0]
+    library.value = selectedLibrary
+    
+    // 如果 clothes_note 没有填写，则设置为 library.name
+    if (!form.value.clothes_note || form.value.clothes_note.trim() === '') {
+      form.value.clothes_note = selectedLibrary.name || ''
+    }
+    
+    // 如果没有选择图片，则设置为 library.cover
+    if (wardrobeCoverRef.value && wardrobeCoverRef.value.previewImages.length === 0) {
+      if (selectedLibrary.cover) {
+        wardrobeCoverRef.value.previewImages = [{
+          id: `img_${Date.now()}_${Math.random()}`,
+          file: undefined as unknown as File,
+          url: BASE_IMG + selectedLibrary.cover
+        }]
+      }
+    }
+    
+    // 如果 price 没填（为0或null），则设置为 library.library_price
+    if (!form.value.price || form.value.price === 0) {
+      form.value.price = selectedLibrary.library_price || 0
+    }
+  }
+}
+
+const chooseScene = (list: Scene[]) => {
+  if (list.length > 0) {
+    const selectedScene = list[0]
+    scene.value = selectedScene
+    form.value.plan_id = selectedScene.sence_id
   }
 }
 const chooseColor = (color: string) => {
@@ -362,6 +470,10 @@ const chooseColor = (color: string) => {
 const closeModel = () => {
   show.value = false
   initData()
+}
+
+const handleClose = () => {
+  closeModel()
 }
 const initData = () => {
 			form.value = {
@@ -387,6 +499,7 @@ const initData = () => {
 			}
 			// this.plan = null
 			library.value = null
+			scene.value = null
 			wardrobe.value = null
 			wardrobeName.value = ''
 			origin_shop.value = undefined
@@ -481,6 +594,12 @@ const insert = async () => {
     params.library_id = library.value.library_id
   } else {
     params.library_id = null
+  }
+
+  if (scene.value) {
+    params.plan_id = scene.value.sence_id
+  } else {
+    params.plan_id = form.value.plan_id
   }
 
   if (color && color.length > 0) {
@@ -609,86 +728,122 @@ defineExpose({
 
 <template>
   <!-- Popup -->
-  <UModal v-model="show" :ui="{ width: 'max-w-3xl'  }" prevent-close>
-    <UCard>
-      <template #header>
-        <div class="flex justify-between items-center">
-          <h2 class="text-lg font-semibold">
-            {{ type === 0 ? '新增服饰' : '编辑服饰' }}
-          </h2>
-          <UButton
-            color="gray"
-            variant="ghost"
-            icon="i-heroicons-x-mark"
-            @click="show = false"
-          />
-        </div>
-      </template>
+  <QhxModal v-model="show" :trigger-position="clickPosition" @close="handleClose">
+    <div class="w-[95vw] max-w-3xl max-h-[90vh] bg-white dark:bg-gray-800 rounded-2xl shadow-2xl overflow-hidden flex flex-col backdrop-blur-xl border border-gray-200/50 dark:border-gray-700/50">
+      <!-- 头部 -->
+      <div class="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-700 bg-gradient-to-r from-pink-50 to-purple-50 dark:from-gray-800 dark:to-gray-800 flex-shrink-0">
+        <h2 class="text-xl font-bold ">
+          {{ type === 0 ? '新增服饰' : '编辑服饰' }}
+        </h2>
+        <button
+          @click="closeModel"
+          class="w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors group"
+        >
+          <UIcon name="i-heroicons-x-mark" class="text-gray-500 dark:text-gray-400 group-hover:text-gray-700 dark:group-hover:text-gray-200 transition-colors" />
+        </button>
+      </div>
 
       <!-- 内容区域 -->
-      <div class="space-y-6 max-h-[60vh] overflow-y-auto p-2">
+      <div class="flex-1 overflow-y-auto p-6 space-y-6 scrollbar-thin scrollbar-thumb-gray-300 dark:scrollbar-thumb-gray-600 scrollbar-track-transparent">
 
         <!-- 衣柜名称 -->
-        <div class="grid grid-cols-12 gap-4 items-center">
-          <div class="col-span-3 font-medium">衣柜名称</div>
-          <div class="col-span-9">{{ wardrobeName }}</div>
+        <div class="grid grid-cols-12 gap-4 items-center p-4 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-gray-700/50 dark:to-gray-700/30 rounded-xl border border-blue-100 dark:border-gray-600">
+          <div class="col-span-3 font-semibold text-gray-700 dark:text-gray-300">衣柜名称</div>
+          <div class="col-span-9 text-gray-900 dark:text-gray-100 font-medium">{{ wardrobeName }}</div>
         </div>
 
-        <!-- 关联图鉴 -->
-        <UFormGroup label="关联图鉴">
-          <div class="col-span-9 space-y-2">
-            <QhxTag
-              v-if="library"
-              :active="true"
-            >
-              <div class="flex">
-                <QhxJellyButton class="cursor-pointer flex items-center mr-[5px] text-white rounded-[50%] bg-qhx-primary" @click="library = null">
-                  <UIcon name="ant-design:close-outlined" class="text-[14px] text-[#ffffff]" />
-                </QhxJellyButton>
-                <div>{{ library.name }}</div>
-              </div>
-            </QhxTag>
-            <p v-else class="text-xs text-gray-500">
+        <!-- 主要信息板块 -->
+        <div class="space-y-6">
+          <!-- 关联图鉴 -->
+          <UFormGroup label="关联图鉴" class="space-y-3">
+            <div v-if="library" class="inline-block">
+              <QhxTag
+                :active="true"
+                class="transition-all duration-200 hover:scale-105"
+              >
+                <div class="flex items-center gap-2">
+                  <QhxJellyButton class="cursor-pointer flex items-center justify-center w-5 h-5 text-white rounded-full bg-gradient-to-r from-pink-500 to-purple-500 hover:from-pink-600 hover:to-purple-600 transition-all" @click.stop="library = null">
+                    <UIcon name="ant-design:close-outlined" class="text-xs text-white" />
+                  </QhxJellyButton>
+                  <span class="font-medium">{{ library.name }}</span>
+                </div>
+              </QhxTag>
+            </div>
+            <div v-else class="space-y-2">
               <UButton 
                 type="submit" 
-                size="xs"
-                class="bg-qhx-primary text-qhx-inverted hover:bg-qhx-primaryHover mt-2"
+                size="sm"
+                class="bg-gradient-to-r from-pink-500 to-purple-500 hover:from-pink-600 hover:to-purple-600 text-white shadow-md shadow-pink-500/30 transition-all duration-200"
                 :loading="loading"
                 @click="showChooseLibrary()"
-                v-show="!library"
               >
+                <UIcon name="material-symbols:book-rounded" class="mr-1" />
                 选择图鉴
               </UButton>
-              <div class="mt-2">
-                关联图鉴自动填入信息
-              </div>
-            </p>
-          </div>
-        </UFormGroup>
+              <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                💡 关联图鉴可自动填入名称、图片和价格信息
+              </p>
+            </div>
+          </UFormGroup>
 
-        <!-- 服饰图片 -->
-        <UFormGroup label="服饰图片">
-          <QhxImagePicker :multiple="false" @update:files="onUpdateFiles" ref="wardrobeCoverRef" />
-        </UFormGroup>
+          <!-- 关联场景 -->
+          <UFormGroup label="关联场景" class="space-y-3">
+            <div v-if="scene" class="inline-block">
+              <QhxTag
+                :active="true"
+                class="transition-all duration-200 hover:scale-105"
+              >
+                <div class="flex items-center gap-2">
+                  <QhxJellyButton class="cursor-pointer flex items-center justify-center w-5 h-5 rounded-full" @click.stop="scene = null; form.plan_id = null">
+                    <UIcon name="ant-design:close-outlined" class="text-xs" />
+                  </QhxJellyButton>
+                  <span class="font-medium">{{ scene.sence_desc || '未命名场景' }}</span>
+                </div>
+              </QhxTag>
+            </div>
+            <div v-else class="space-y-2">
+              <UButton
+                type="submit" 
+                size="sm"
+                class="bg-qhx-primary text-qhx-inverted shadow-lg shadow-blue-500/30 transition-all duration-200"
+                :loading="loading"
+                @click="(e: MouseEvent) => showChooseScene(e)"
+              >
+                <UIcon name="material-symbols:scatter-plot-rounded" class="mr-1" />
+                选择场景
+              </UButton>
+            </div>
+          </UFormGroup>
 
-        <!-- 名称 -->
-        <UFormGroup label="名称">
-          <UInput
-              v-model="form.clothes_note"
-              placeholder="名称(原笔记)"
-              class="flex-1 focus:ring-0"
-              :ui="{
-                base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
-                rounded: 'rounded-full',
-                padding: { xs: 'px-4 py-2' },
-                color: {
-                  white: {
-                    outline: 'bg-gray-50 dark:bg-gray-800 ring-1 ring-gray-300 dark:ring-gray-600 focus:ring-2 focus:ring-qhx-primary'
+          <!-- 服饰图片（封面） -->
+          <UFormGroup label="服饰封面" class="space-y-2">
+            <div class=" bg-gray-50 dark:bg-gray-700/30 rounded-xl">
+              <QhxImagePicker :multiple="false" @update:files="onUpdateFiles" ref="wardrobeCoverRef" />
+            </div>
+          </UFormGroup>
+
+          <!-- 名称 -->
+          <UFormGroup label="名称">
+            <UInput
+                v-model="form.clothes_note"
+                placeholder="名称(原笔记)"
+                class="flex-1 focus:ring-0"
+                :ui="{
+                  base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
+                  rounded: 'rounded-full',
+                  padding: { xs: 'px-4 py-2' },
+                  color: {
+                    white: {
+                      outline: 'bg-gray-50 dark:bg-gray-800 ring-1 ring-gray-300 dark:ring-gray-600 focus:ring-2 focus:ring-qhx-primary'
+                    }
                   }
-                }
-              }"
-            />
-        </UFormGroup>
+                }"
+              />
+          </UFormGroup>
+        </div>
+
+        <!-- 基础信息板块 -->
+        <div class="space-y-4">
         <UFormGroup label="来源">
           <div class="flex items-center">
             <USelectMenu
@@ -779,57 +934,10 @@ defineExpose({
             { value: 0, label: '否' }
           ]" />
         </UFormGroup>
+        </div>
 
-        <!-- 笔记 -->
-        <UFormGroup label="笔记">
-          <UTextarea 
-            v-model="form.note" placeholder="笔记" :rows="3" 
-            :ui="{
-              base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
-              rounded: 'rounded-[10px]',
-              padding: { xs: 'px-4 py-2' },
-              color: {
-                white: {
-                  outline: 'bg-gray-50 dark:bg-gray-800 ring-1 ring-gray-300 dark:ring-gray-600 focus:ring-2 focus:ring-qhx-primary'
-                }
-              }
-            }"
-          />
-        </UFormGroup>
-        <UFormGroup label="穿着次数">
-          <UInput
-            v-model="form.times"
-            type="number"
-            placeholder="穿着次数"
-            class="flex-1 focus:ring-0"
-            :ui="{
-              base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
-              rounded: 'rounded-full',
-              padding: { xs: 'px-4 py-2' },
-              color: {
-                white: {
-                  outline: 'bg-gray-50 dark:bg-gray-800 ring-1 ring-gray-300 dark:ring-gray-600 focus:ring-2 focus:ring-qhx-primary'
-                }
-              }
-            }"
-          />
-        </UFormGroup>
-        <!-- 收纳位置 -->
-        <UFormGroup label="收纳位置">
-          <UInput v-model="form.position"
-            class="flex-1 focus:ring-0"
-            :ui="{
-              base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
-              rounded: 'rounded-full',
-              padding: { xs: 'px-4 py-2' },
-              color: {
-                white: {
-                  outline: 'bg-gray-50 dark:bg-gray-800 ring-1 ring-gray-300 dark:ring-gray-600 focus:ring-2 focus:ring-qhx-primary'
-                }
-              }
-            }"
-           placeholder="收纳位置" />
-        </UFormGroup>
+        <!-- 分类信息板块 -->
+        <div class="space-y-4">
         <!-- 颜色选择 -->
         <UFormGroup label="颜色">
           <div class="gap-2">
@@ -1018,6 +1126,65 @@ defineExpose({
             }"
           />
         </UFormGroup>
+        </div>
+
+        <!-- 其他信息板块 -->
+        <div class="space-y-4">
+          <div class="flex items-center gap-2 mb-2">
+            <UIcon name="material-symbols:more-horiz-rounded" class="text-lg text-gray-500 dark:text-gray-400" />
+            <h3 class="text-base font-semibold text-gray-700 dark:text-gray-300">其他信息</h3>
+          </div>
+
+        <!-- 笔记 -->
+        <UFormGroup label="笔记">
+          <UTextarea 
+            v-model="form.note" placeholder="笔记" :rows="3" 
+            :ui="{
+              base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
+              rounded: 'rounded-[10px]',
+              padding: { xs: 'px-4 py-2' },
+              color: {
+                white: {
+                  outline: 'bg-gray-50 dark:bg-gray-800 ring-1 ring-gray-300 dark:ring-gray-600 focus:ring-2 focus:ring-qhx-primary'
+                }
+              }
+            }"
+          />
+        </UFormGroup>
+        <UFormGroup label="穿着次数">
+          <UInput
+            v-model="form.times"
+            type="number"
+            placeholder="穿着次数"
+            class="flex-1 focus:ring-0"
+            :ui="{
+              base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
+              rounded: 'rounded-full',
+              padding: { xs: 'px-4 py-2' },
+              color: {
+                white: {
+                  outline: 'bg-gray-50 dark:bg-gray-800 ring-1 ring-gray-300 dark:ring-gray-600 focus:ring-2 focus:ring-qhx-primary'
+                }
+              }
+            }"
+          />
+        </UFormGroup>
+        <!-- 收纳位置 -->
+        <UFormGroup label="收纳位置">
+          <UInput v-model="form.position"
+            class="flex-1 focus:ring-0"
+            :ui="{
+              base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
+              rounded: 'rounded-full',
+              padding: { xs: 'px-4 py-2' },
+              color: {
+                white: {
+                  outline: 'bg-gray-50 dark:bg-gray-800 ring-1 ring-gray-300 dark:ring-gray-600 focus:ring-2 focus:ring-qhx-primary'
+                }
+              }
+            }"
+           placeholder="收纳位置" />
+        </UFormGroup>
         <UFormGroup label="购入时间">
           <UInput
             v-model="addTimeInput"
@@ -1036,25 +1203,91 @@ defineExpose({
             }"
           />
         </UFormGroup>
-        <UFormGroup label="详情图">
-          <QhxImagePicker :multiple="true" @update:files="onUpdateFiles" ref="detailImageRef" />
+        <UFormGroup label="详情图" class="space-y-2">
+          <div class=" bg-gray-50 dark:bg-gray-700/30 rounded-xl border border-gray-200 dark:border-gray-600">
+            <QhxImagePicker :multiple="true" @update:files="onUpdateFiles" ref="detailImageRef" />
+          </div>
         </UFormGroup>
+        </div>
       </div>
 
-      <template #footer>
-        <div class="flex justify-end gap-2">
-          <UButton color="gray" @click="show = false">取消</UButton>
-          <UButton
-            :loading="loading"
-            size="xs"
-            class="bg-qhx-primary text-qhx-inverted hover:bg-qhx-primaryHover"
-            @click="insert"
+      <!-- 底部操作栏 -->
+      <div class="flex justify-end gap-3 px-6 py-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-900/50 flex-shrink-0">
+        <UButton 
+          color="gray" 
+          variant="ghost"
+          @click="closeModel"
+          class="px-6"
+        >
+          取消
+        </UButton>
+        <UButton
+          :loading="loading"
+          class="bg-gradient-to-r from-pink-500 to-purple-500 hover:from-pink-600 hover:to-purple-600 text-white px-6 shadow-lg shadow-pink-500/30 transition-all duration-200"
+          @click="insert"
+        >
+          {{ type === 1 ? '确认修改' : '确认添加' }}
+        </UButton>
+      </div>
+    </div>
+    <LibraryChoose ref="LibraryChooseRef" :keywordMode="true" @choose="chooseLibrary"></LibraryChoose>
+    <SceneChoose ref="SceneChooseRef" @choose="chooseScene"></SceneChoose>
+    
+    <!-- 场景选择对话框 -->
+    <QhxModal v-model="showSceneChooseModal" :trigger-position="sceneChooseClickPosition" @close="handleSceneChooseClose">
+      <div class="w-[90vw] max-w-md bg-white dark:bg-gray-800 rounded-2xl shadow-2xl overflow-hidden flex flex-col backdrop-blur-xl border border-gray-200/50 dark:border-gray-700/50">
+        <!-- 头部 -->
+        <div class="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-700 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-gray-800 dark:to-gray-800 flex-shrink-0">
+          <h3 class="text-lg font-semibold text-gray-900 dark:text-gray-100">选择场景方式</h3>
+          <button
+            @click="handleSceneChooseClose"
+            class="w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors group"
           >
-            {{ type === 1 ? '确认修改' : '确认添加' }}
-          </UButton>
+            <UIcon name="i-heroicons-x-mark" class="text-gray-500 dark:text-gray-400 group-hover:text-gray-700 dark:group-hover:text-gray-200 transition-colors" />
+          </button>
         </div>
-      </template>
-    </UCard>
-    <LibraryChoose ref="LibraryChooseRef" @choose="chooseLibrary"></LibraryChoose>
-  </UModal>
+
+        <!-- 内容区域 -->
+        <div class="p-6 space-y-4">
+          <!-- 套用模版 -->
+          <div
+            @click="chooseTemplate"
+            class="flex items-center gap-4 p-4 rounded-xl border-2 border-gray-200 dark:border-gray-600 cursor-pointer transition-all duration-200 hover:border-blue-400 dark:hover:border-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 hover:shadow-md group"
+          >
+            <div class="flex-shrink-0 w-12 h-12 rounded-full bg-gradient-to-r from-purple-500 to-pink-500 flex items-center justify-center group-hover:scale-110 transition-transform">
+              <UIcon name="material-symbols:auto-awesome-rounded" class="text-2xl text-white" />
+            </div>
+            <div class="flex-1 min-w-0">
+              <h4 class="text-base font-semibold text-gray-900 dark:text-gray-100 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
+                套用模版
+              </h4>
+              <p class="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                从预设模版中选择场景
+              </p>
+            </div>
+            <UIcon name="i-heroicons-chevron-right" class="text-gray-400 group-hover:text-blue-500 transition-colors" />
+          </div>
+
+          <!-- 现有场景 -->
+          <div
+            @click="chooseExistingScene"
+            class="flex items-center gap-4 p-4 rounded-xl border-2 border-gray-200 dark:border-gray-600 cursor-pointer transition-all duration-200 hover:border-blue-400 dark:hover:border-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 hover:shadow-md group"
+          >
+            <div class="flex-shrink-0 w-12 h-12 rounded-full bg-gradient-to-r from-blue-500 to-indigo-500 flex items-center justify-center group-hover:scale-110 transition-transform">
+              <UIcon name="material-symbols:scatter-plot-rounded" class="text-2xl text-white" />
+            </div>
+            <div class="flex-1 min-w-0">
+              <h4 class="text-base font-semibold text-gray-900 dark:text-gray-100 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
+                现有场景
+              </h4>
+              <p class="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                从已创建的场景中选择
+              </p>
+            </div>
+            <UIcon name="i-heroicons-chevron-right" class="text-gray-400 group-hover:text-blue-500 transition-colors" />
+          </div>
+        </div>
+      </div>
+    </QhxModal>
+  </QhxModal>
 </template>

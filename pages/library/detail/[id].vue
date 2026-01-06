@@ -186,6 +186,12 @@ onMounted(() => {
     checkWardrobeStatus()
   }
 })
+const jumpToLibraryHistory = () => {
+  window.open(`/library/history?library_id=${library.value?.library_id}`, '_blank')
+}
+const handleEditLibrary = () => {
+  window.open(`/addLibrary?library_id=${library.value?.library_id}`, '_blank')
+}
 </script>
 <template>
   <div class="container mx-auto p-4 max-md:p-2">
@@ -230,6 +236,17 @@ onMounted(() => {
         <div class="m-2 flex-1">
           <div class="library-info">
             <h1 class="mb-3 text-lg font-semibold">{{ library.name }}</h1>
+          </div>
+          <div>
+            <QhxTag class="cursor-pointer" v-if="library.examin === 0" @click="handleEditLibrary" :active="true" color="blue">
+              申请纠错
+            </QhxTag>
+            <QhxTag class="cursor-pointer" v-else :active="true" color="blue">
+              已被锁定
+            </QhxTag>
+            <QhxTag class="cursor-pointer" @click="jumpToLibraryHistory" :active="true" color="blue">
+              修改历史
+            </QhxTag>
           </div>
           <div class="text-qhx-primary m-2 font-semibold" v-if="library.library_price">
             <div>

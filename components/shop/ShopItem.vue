@@ -27,9 +27,9 @@ const handleJump = (id: number) => {
       @click="handleJump(item.shop_id)">
       <div class="shop-logo">
         <img :src="`${BASE_IMG}${item.shop_logo}`" :alt="item.shop_name"
-          class="w-8 h-8 object-cover rounded-[40px] border border-gray-200 my-2" loading="lazy" />
+          class="w-4 h-4 object-cover rounded-[40px] border border-gray-200 my-2" loading="lazy" />
       </div>
-      <div class="mx-2">
+      <div class="flex-1 mx-2 text-sm text-gray-600 text-nowrap overflow-hidden text-ellipsis whitespace-nowrap">
         {{ item.shop_name }}
       </div>
     </div>

@@ -174,7 +174,7 @@ const handleJump = (id: number) => {
 </script>
 <template>
   <div
-    :class="props.className ? props.className : 'bg-qhx-bg-card polaroid-card cursor-pointer shadow-lg p-2 m-2 rounded'">
+    :class="props.className ? props.className : 'bg-qhx-bg-card polaroid-card cursor-pointer shadow-lg p-1 m-1 rounded'">
     <div v-if="size === 'big'" :to="`/library/detail/${item.library_id}`" @click="handleJump(item.library_id)">
       <div class="">
         <img @load="imageLoad" :src="`${BASE_IMG}${item.cover}?x-oss-process=image/quality,q_100/resize,w_300`"

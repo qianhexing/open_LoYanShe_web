@@ -87,19 +87,19 @@
                 <div class="custom-item mr-[1px] mb-1" :key="item.pipe_id">
                   <div class="polaroid-card">
                     <div class="flex justify-between items-center px-2">
-                      <QhxTag :active="true"> {{ formateState(item.state) }} </QhxTag>
-                      <div class="p-2 flex items-center">
+                      <QhxTag :active="true"> <div class="text-xs">{{ formateState(item.state) }}</div> </QhxTag>
+                      <div class="p-0 flex items-center">
                         <!-- <h3 class="p-2">起止时间</h3> -->
                         <QhxTag :active="true" v-show="layout !== '0'">{{ dayjs(item.start_time).format('YY-MM-DD') }}</QhxTag> -
                         <QhxTag :active="true" v-show="layout !== '0'">{{ dayjs(item.end_time).format('YY-MM-DD') }}</QhxTag>
-                        <h3 class="p-1 text-sm text-gray-600">截团: {{ dayjs(item.end_time).diff(dayjs(), 'day') }}天</h3>
+                        <h3 class="p-0 text-xs text-gray-600">截止: {{ dayjs(item.end_time).diff(dayjs(), 'day') }}天</h3>
                       </div>
                     </div>
                     <div class="px-2 text-sm text-gray-600" v-if="item.note">
                       备注: {{ item.note }}
                     </div>
                     <div v-if="item.item">
-                      <LibraryItem :className="'p-1'" :size="layout === '0' ? 'big' : 'mini-list'" :item="item.item"
+                      <LibraryItem :style="layout === '0' ? { marginTop: '-10px' } : { }" :className="'p-1'" :size="layout === '0' ? 'big' : 'mini-list'" :item="item.item"
                         @image-load="debouncedApplyLayout">
                         <template #tagInfo v-if="layout !== '0'">
                           <div v-if="item.library_list && item.library_list.length > 0">
@@ -113,15 +113,15 @@
                         </template>
                       </LibraryItem>
                       <div class="flex justify-center">
-                        <div class=" flex-1 text-center">
+                        <div class=" flex-1 text-center" :style="{ transform: 'scale(0.7)' }">
                           <UserGoodBtn :pk_type="2" :pk_id="item.item.library_id" :is_good="item.is_good === 1 ? true : false" :good_count="item.item.good_count" :need_judge="false">
                           </UserGoodBtn>
                         </div>
-                        <div class=" flex-1 text-center">
+                        <div class=" flex-1 text-center" :style="{ transform: 'scale(0.7)' }">
                           <UserCollectBtn :collect_count="item.item.collect_count" :pk_type="2" :pk_id="item.item.library_id" :is_collect="item.is_collect === 1 ? true : false"
                             :need_judge="false"></UserCollectBtn>
                         </div>
-                        <div class=" flex-1 text-center flex justify-center">
+                        <div class=" flex-1 text-center flex justify-center" :style="{ transform: 'scale(0.7)' }">
                           <div @click="handleAddToWardrobe(item.item)" class="cursor-pointer inline-block">
                             <UIcon name="i-heroicons-archive-box-20-solid" class="text-[26px]" 
                             :class="item.is_wardrobe === 1 ? 'text-[#409EFF]' : 'text-gray-500'" />

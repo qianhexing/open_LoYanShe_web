@@ -4,8 +4,8 @@
     <div class="head-seat"></div>
     <div class="add-library">
       <UForm ref="libraryForm" :state="library" :rules="rules" class="space-y-6">
-        <UFormGroup label="图鉴名字" name="name" required>
-          <UInput v-model="library.name" :ui="{
+        <UFormGroup label="图鉴名字" name="name" required v-if="shouldShowField('name')" :class="getHighlightClass('name')">
+          <UInput v-model="library.name" :disabled="isReviewMode" :ui="{
             base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
             rounded: 'rounded-full',
             padding: { xs: 'px-4 py-2' },
@@ -15,10 +15,13 @@
               }
             }
           }" placeholder="请输入图鉴名" />
+          <div v-if="isReviewMode && isFieldChanged('name')" class="mt-2 text-sm text-gray-600 dark:text-gray-400">
+            <span class="font-semibold">原值：</span>{{ getOriginalValueText('name') || '（空）' }}
+          </div>
         </UFormGroup>
 
-        <UFormGroup label="图鉴类型" name="library_type" required>
-          <USelectMenu v-model="library.library_type" :options="library_type_options" placeholder="请选择图鉴类型" searchable
+        <UFormGroup label="图鉴类型" name="library_type" required v-if="shouldShowField('library_type')" :class="getHighlightClass('library_type')">
+          <USelectMenu v-model="library.library_type" :disabled="isReviewMode" :options="library_type_options" placeholder="请选择图鉴类型" searchable
             :loading="loading" value-attribute="label" @search="getLibraryType" option-attribute="label" :ui="{
               base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
               rounded: 'rounded-full',
@@ -29,21 +32,27 @@
                 }
               }
             }" />
-        </UFormGroup>
-
-        <UFormGroup label="上级图鉴" name="parent_id" v-if="library.library_type !== '系列'">
-          <div class="flex items-center gap-2">
-            <QhxTag v-if="library.parent_id">
-              {{ library.parent_id.name }}
-              <UIcon name="i-heroicons-x-mark" class="ml-1 text-sm cursor-pointer"
-                @click="library.parent_id = undefined" />
-            </QhxTag>
-            <UButton color="primary" size="sm" @click="showSelectLibrary()">选择图鉴</UButton>
+          <div v-if="isReviewMode && isFieldChanged('library_type')" class="mt-2 text-sm text-gray-600 dark:text-gray-400">
+            <span class="font-semibold">原值：</span>{{ getOriginalValueText('library_type') || '（空）' }}
           </div>
         </UFormGroup>
 
-        <UFormGroup label="售卖状态" name="state" required>
-          <USelectMenu v-model="library.state" :options="config?.library_state" placeholder="请选择售卖状态" searchable
+        <UFormGroup label="上级图鉴" name="parent_id" v-if="library.library_type !== '系列' && shouldShowField('parent_id')" :class="getHighlightClass('parent_id')">
+          <div class="flex items-center gap-2">
+            <QhxTag v-if="library.parent_id">
+              {{ library.parent_id.name }}
+              <UIcon v-if="!isReviewMode" name="i-heroicons-x-mark" class="ml-1 text-sm cursor-pointer"
+                @click="library.parent_id = undefined" />
+            </QhxTag>
+            <UButton v-if="!isReviewMode" color="primary" size="sm" @click="showSelectLibrary()">选择图鉴</UButton>
+          </div>
+          <div v-if="isReviewMode && isFieldChanged('parent_id')" class="mt-2 text-sm text-gray-600 dark:text-gray-400">
+            <span class="font-semibold">原值：</span>{{ getOriginalValueText('parent_id') || '（空）' }}
+          </div>
+        </UFormGroup>
+
+        <UFormGroup label="售卖状态" name="state" required v-if="shouldShowField('state')" :class="getHighlightClass('state')">
+          <USelectMenu v-model="library.state" :disabled="isReviewMode" :options="config?.library_state" placeholder="请选择售卖状态" searchable
             class="w-1/2 min-w-[200px]" value-attribute="label" option-attribute="label" :ui="{
               base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
               rounded: 'rounded-full',
@@ -54,26 +63,48 @@
                 }
               }
             }" />
+          <div v-if="isReviewMode && isFieldChanged('state')" class="mt-2 text-sm text-gray-600 dark:text-gray-400">
+            <span class="font-semibold">原值：</span>{{ getOriginalValueText('state') || '（空）' }}
+          </div>
         </UFormGroup>
-        <UFormGroup label="预约时间" name="start_time" v-if="library.state === '预约中'" required>
+        <UFormGroup label="预约时间" name="start_time" v-if="library.state === '预约中' && shouldShowField('start_time')" required :class="getHighlightClass('start_time')">
           <!-- <UInput
             v-model="library.start_time"
             type="text"
             placeholder="开始日期"
           /> -->
-          <VueDatePicker v-model="library.start_time" :enable-time-picker="true" :range="true" format="MM/dd/yyyy" />
+          <VueDatePicker v-model="library.start_time" :disabled="isReviewMode" :enable-time-picker="true" :range="true" format="MM/dd/yyyy" />
+          <div v-if="isReviewMode && isFieldChanged('start_time')" class="mt-2 text-sm text-gray-600 dark:text-gray-400">
+            <span class="font-semibold">原值：</span>{{ getOriginalValueText('start_time') || '（空）' }} {{ originalLibrary?.end_time ? ' - ' + dayjs(originalLibrary.end_time).format('YYYY-MM-DD HH:mm') : '' }}
+          </div>
         </UFormGroup>
 
-        <UFormGroup label="尾款时间" name="arrears_start" v-if="library.state === '尾款中'" required>
-          <VueDatePicker v-model="library.arrears_start" :enable-time-picker="true" :range="true" format="MM/dd/yyyy" />
+        <UFormGroup label="尾款时间" name="arrears_start" v-if="library.state === '尾款中' && shouldShowField('arrears_start')" required :class="getHighlightClass('arrears_start')">
+          <VueDatePicker v-model="library.arrears_start" :disabled="isReviewMode" :enable-time-picker="true" :range="true" format="MM/dd/yyyy" />
+          <div v-if="isReviewMode && isFieldChanged('arrears_start')" class="mt-2 text-sm text-gray-600 dark:text-gray-400">
+            <span class="font-semibold">原值：</span>{{ getOriginalValueText('arrears_start') || '（空）' }} {{ originalLibrary?.arrears_end ? ' - ' + dayjs(originalLibrary.arrears_end).format('YYYY-MM-DD HH:mm') : '' }}
+          </div>
         </UFormGroup>
-        <UFormGroup label="图鉴封面">
-          <QhxImagePicker :multiple="false" ref="coverRef" />
+        <UFormGroup label="图鉴封面" v-if="shouldShowField('cover')" :class="getHighlightClass('cover')">
+          <QhxImagePicker :multiple="false" ref="coverRef" :disabled="isReviewMode" />
+          <div v-if="isReviewMode && isFieldChanged('cover')" class="mt-2">
+            <div class="text-sm text-gray-600 dark:text-gray-400 mb-2">
+              <span class="font-semibold">原值：</span>
+            </div>
+            <div class="flex gap-2 flex-wrap">
+              <div v-for="(img, index) in getOriginalImages('cover')" :key="index" class="relative">
+                <img :src="BASE_IMG + img" alt="原封面图" class="w-20 h-20 object-cover rounded border border-gray-300 dark:border-gray-600" />
+              </div>
+              <div v-if="getOriginalImages('cover').length === 0" class="text-sm text-gray-500 dark:text-gray-400">
+                （空）
+              </div>
+            </div>
+          </div>
         </UFormGroup>
 
-        <UFormGroup label="所属店铺" name="shop_id" required>
+        <UFormGroup label="所属店铺" name="shop_id" required v-if="shouldShowField('shop_id') && layoutReady" :class="getHighlightClass('shop_id')">
           <div class="flex items-center">
-            <USelectMenu v-model="library.shop_id" :loading="loading" :searchable="fetchShopOptiosns"
+            <USelectMenu v-model="library.shop_id" :disabled="isReviewMode" :loading="loading" :searchable="fetchShopOptiosns"
               placeholder="搜索店铺..." option-attribute="shop_name" :multiple="false" trailing by="shop_id"
               name="shop_name" class="flex-1" :ui="{
                 base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
@@ -85,7 +116,7 @@
                   }
                 }
               }" />
-            <QhxJellyButton>
+            <QhxJellyButton v-if="!isReviewMode">
               <div
                 class=" m-[5px] text-white rounded-[50%] h-[30px] w-[30px] bg-qhx-primary flex items-center justify-center cursor-pointer"
                 @click="library.shop_id = undefined">
@@ -93,17 +124,20 @@
               </div>
             </QhxJellyButton>
           </div>
+          <div v-if="isReviewMode && isFieldChanged('shop_id')" class="mt-2 text-sm text-gray-600 dark:text-gray-400">
+            <span class="font-semibold">原值：</span>{{ getOriginalValueText('shop_id') || '（空）' }}
+          </div>
         </UFormGroup>
 
-        <UFormGroup label="主要风格" name="main_style" required>
+        <UFormGroup label="主要风格" name="main_style" required v-if="shouldShowField('main_style')" :class="getHighlightClass('main_style')">
           <div class="flex items-center m-1" v-if="library.main_style && library.main_style.length > 0">
             <QhxTag v-for="(item, index) in library.main_style" :key="item">
               {{main_style_options.find((child) => { return child.value === item })?.label}}
-              <UIcon name="i-heroicons-x-mark" class="ml-1 text-sm cursor-pointer"
+              <UIcon v-if="!isReviewMode" name="i-heroicons-x-mark" class="ml-1 text-sm cursor-pointer"
                 @click="library.main_style.splice(index, 1)" />
             </QhxTag>
           </div>
-          <USelectMenu v-model="library.main_style" :options="main_style_options" placeholder="请选择主要风格" multiple
+          <USelectMenu v-model="library.main_style" :disabled="isReviewMode" :options="main_style_options" placeholder="请选择主要风格" multiple
             class="w-1/2 min-w-[200px]" value-attribute="value" option-attribute="label" :ui="{
               base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
               rounded: 'rounded-full',
@@ -114,10 +148,13 @@
                 }
               }
             }" />
+          <div v-if="isReviewMode && isFieldChanged('main_style')" class="mt-2 text-sm text-gray-600 dark:text-gray-400">
+            <span class="font-semibold">原值：</span>{{ getOriginalValueText('main_style') || '（空）' }}
+          </div>
         </UFormGroup>
 
-        <UFormGroup label="价格">
-          <UInput v-model="library.library_price" type="number" placeholder="请输入价格" class="w-36" :ui="{
+        <UFormGroup label="价格" v-if="shouldShowField('library_price')" :class="getHighlightClass('library_price')">
+          <UInput v-model="library.library_price" :disabled="isReviewMode" type="number" placeholder="请输入价格" class="w-36" :ui="{
             base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
             rounded: 'rounded-full',
             padding: { xs: 'px-4 py-2' },
@@ -127,102 +164,142 @@
               }
             }
           }" />
+          <div v-if="isReviewMode && isFieldChanged('library_price')" class="mt-2 text-sm text-gray-600 dark:text-gray-400">
+            <span class="font-semibold">原值：</span>{{ getOriginalValueText('library_price') || '（空）' }}
+          </div>
         </UFormGroup>
 
-        <UFormGroup label="主题">
+        <UFormGroup label="主题" v-if="shouldShowField('theme')" :class="getHighlightClass('theme')">
           <div class="flex items-center m-1" v-if="library.theme && library.theme.length > 0">
             <QhxTag v-for="(item, index) in library.theme" :key="item.wiki_id">
               {{ item.wiki_name }}
-              <UIcon name="i-heroicons-x-mark" class="ml-1 text-sm cursor-pointer"
+              <UIcon v-if="!isReviewMode" name="i-heroicons-x-mark" class="ml-1 text-sm cursor-pointer"
                 @click="library.theme.splice(index, 1)" />
             </QhxTag>
           </div>
-          <UButton color="primary" size="sm" @click="showChooseWiki('theme')">选择主题</UButton>
+          <UButton v-if="!isReviewMode" color="primary" size="sm" @click="showChooseWiki('theme')">选择主题</UButton>
+          <div v-if="isReviewMode && isFieldChanged('theme')" class="mt-2 text-sm text-gray-600 dark:text-gray-400">
+            <span class="font-semibold">原值：</span>{{ getOriginalValueText('theme') || '（空）' }}
+          </div>
         </UFormGroup>
         <WikiOptionsChoose ref="wikiOptionsChooseRef" @choose="chooseWiki" />
-        <UFormGroup label="版型/部位">
+        <UFormGroup label="版型/部位" v-if="shouldShowField('library_pattern')" :class="getHighlightClass('library_pattern')">
           <div class="flex items-center m-1" v-if="library.library_pattern && library.library_pattern.length > 0">
             <QhxTag v-for="(item, index) in library.library_pattern" :key="item.wiki_id">
               {{ item.wiki_name }}
-              <UIcon name="i-heroicons-x-mark" class="ml-1 text-sm cursor-pointer"
+              <UIcon v-if="!isReviewMode" name="i-heroicons-x-mark" class="ml-1 text-sm cursor-pointer"
                 @click="library.library_pattern.splice(index, 1)" />
             </QhxTag>
           </div>
-          <UButton color="primary" size="sm" @click="showChooseWiki('library_pattern')">选择版型/部位</UButton>
+          <UButton v-if="!isReviewMode" color="primary" size="sm" @click="showChooseWiki('library_pattern')">选择版型/部位</UButton>
+          <div v-if="isReviewMode && isFieldChanged('library_pattern')" class="mt-2 text-sm text-gray-600 dark:text-gray-400">
+            <span class="font-semibold">原值：</span>{{ getOriginalValueText('library_pattern') || '（空）' }}
+          </div>
         </UFormGroup>
 
-        <UFormGroup label="颜色">
+        <UFormGroup label="颜色" v-if="shouldShowField('color')" :class="getHighlightClass('color')">
           <div class="flex items-center m-1" v-if="library.color && library.color.length > 0">
             <QhxTag v-for="(item, index) in library.color" :key="item.wiki_id">
               {{ item.wiki_name }}
-              <UIcon name="i-heroicons-x-mark" class="ml-1 text-sm cursor-pointer"
+              <UIcon v-if="!isReviewMode" name="i-heroicons-x-mark" class="ml-1 text-sm cursor-pointer"
                 @click="library.color.splice(index, 1)" />
             </QhxTag>
           </div>
-          <UButton color="primary" size="sm" @click="showChooseWiki('color')">选择颜色</UButton>
+          <UButton v-if="!isReviewMode" color="primary" size="sm" @click="showChooseWiki('color')">选择颜色</UButton>
+          <div v-if="isReviewMode && isFieldChanged('color')" class="mt-2 text-sm text-gray-600 dark:text-gray-400">
+            <span class="font-semibold">原值：</span>{{ getOriginalValueText('color') || '（空）' }}
+          </div>
         </UFormGroup>
 
-        <UFormGroup label="尺码表">
-          <QhxImagePicker :multiple="true" ref="sizeImageRef" />
+        <UFormGroup label="尺码表" v-if="shouldShowField('size_image')" :class="getHighlightClass('size_image')">
+          <QhxImagePicker :multiple="true" ref="sizeImageRef" :disabled="isReviewMode" />
+          <div v-if="isReviewMode && isFieldChanged('size_image')" class="mt-2">
+            <div class="text-sm text-gray-600 dark:text-gray-400 mb-2">
+              <span class="font-semibold">原值：</span>
+            </div>
+            <div class="flex gap-2 flex-wrap">
+              <div v-for="(img, index) in getOriginalImages('size_image')" :key="index" class="relative">
+                <img :src="BASE_IMG + img" alt="原尺码图" class="w-20 h-20 object-cover rounded border border-gray-300 dark:border-gray-600" />
+              </div>
+              <div v-if="getOriginalImages('size_image').length === 0" class="text-sm text-gray-500 dark:text-gray-400">
+                （空）
+              </div>
+            </div>
+          </div>
         </UFormGroup>
 
-        <UFormGroup label="柄图元素">
+        <UFormGroup label="柄图元素" v-if="shouldShowField('pattern_elements')" :class="getHighlightClass('pattern_elements')">
           <div class="flex items-center m-1" v-if="library.pattern_elements && library.pattern_elements.length > 0">
             <QhxTag v-for="(item, index) in library.pattern_elements" :key="item.wiki_id">
               {{ item.wiki_name }}
-              <UIcon name="i-heroicons-x-mark" class="ml-1 text-sm cursor-pointer"
+              <UIcon v-if="!isReviewMode" name="i-heroicons-x-mark" class="ml-1 text-sm cursor-pointer"
                 @click="library.pattern_elements.splice(index, 1)" />
             </QhxTag>
           </div>
-          <UButton color="primary" size="sm" @click="showChooseWiki('pattern_elements')">选择柄图元素</UButton>
+          <UButton v-if="!isReviewMode" color="primary" size="sm" @click="showChooseWiki('pattern_elements')">选择柄图元素</UButton>
+          <div v-if="isReviewMode && isFieldChanged('pattern_elements')" class="mt-2 text-sm text-gray-600 dark:text-gray-400">
+            <span class="font-semibold">原值：</span>{{ getOriginalValueText('pattern_elements') || '（空）' }}
+          </div>
         </UFormGroup>
 
-        <UFormGroup label="设计元素">
+        <UFormGroup label="设计元素" v-if="shouldShowField('design_elements')" :class="getHighlightClass('design_elements')">
           <div class="flex items-center m-1" v-if="library.design_elements && library.design_elements.length > 0">
             <QhxTag v-for="(item, index) in library.design_elements" :key="item.wiki_id">
               {{ item.wiki_name }}
-              <UIcon name="i-heroicons-x-mark" class="ml-1 text-sm cursor-pointer"
+              <UIcon v-if="!isReviewMode" name="i-heroicons-x-mark" class="ml-1 text-sm cursor-pointer"
                 @click="library.design_elements.splice(index, 1)" />
             </QhxTag>
           </div>
-          <UButton color="primary" size="sm" @click="showChooseWiki('design_elements')">选择设计元素</UButton>
+          <UButton v-if="!isReviewMode" color="primary" size="sm" @click="showChooseWiki('design_elements')">选择设计元素</UButton>
+          <div v-if="isReviewMode && isFieldChanged('design_elements')" class="mt-2 text-sm text-gray-600 dark:text-gray-400">
+            <span class="font-semibold">原值：</span>{{ getOriginalValueText('design_elements') || '（空）' }}
+          </div>
         </UFormGroup>
 
-        <UFormGroup label="面料成分">
+        <UFormGroup label="面料成分" v-if="shouldShowField('fabric_composition')" :class="getHighlightClass('fabric_composition')">
           <div class="flex flex-wrap gap-2 mb-2">
             <QhxTag v-for="(item, index) in library.fabric_composition" :key="index">
               {{ item.value + '%' + item.name.label }}
-              <UIcon name="i-heroicons-x-mark" class="ml-1 text-sm cursor-pointer"
+              <UIcon v-if="!isReviewMode" name="i-heroicons-x-mark" class="ml-1 text-sm cursor-pointer"
                 @click="library.fabric_composition.splice(index, 1)" />
             </QhxTag>
           </div>
-          <UButton color="primary" size="sm" @click="showComposition = true">选择成分</UButton>
+          <UButton v-if="!isReviewMode" color="primary" size="sm" @click="showComposition = true">选择成分</UButton>
+          <div v-if="isReviewMode && isFieldChanged('fabric_composition')" class="mt-2 text-sm text-gray-600 dark:text-gray-400">
+            <span class="font-semibold">原值：</span>{{ getOriginalValueText('fabric_composition') || '（空）' }}
+          </div>
         </UFormGroup>
 
-        <UFormGroup label="布料/材质">
+        <UFormGroup label="布料/材质" v-if="shouldShowField('cloth_elements')" :class="getHighlightClass('cloth_elements')">
           <div class="flex items-center m-1" v-if="library.cloth_elements && library.cloth_elements.length > 0">
             <QhxTag v-for="(item, index) in library.cloth_elements" :key="item.wiki_id">
               {{ item.wiki_name }}
-              <UIcon name="i-heroicons-x-mark" class="ml-1 text-sm cursor-pointer"
+              <UIcon v-if="!isReviewMode" name="i-heroicons-x-mark" class="ml-1 text-sm cursor-pointer"
                 @click="library.cloth_elements.splice(index, 1)" />
             </QhxTag>
           </div>
-          <UButton color="primary" size="sm" @click="showChooseWiki('cloth_elements')">选择布料/材质</UButton>
+          <UButton v-if="!isReviewMode" color="primary" size="sm" @click="showChooseWiki('cloth_elements')">选择布料/材质</UButton>
+          <div v-if="isReviewMode && isFieldChanged('cloth_elements')" class="mt-2 text-sm text-gray-600 dark:text-gray-400">
+            <span class="font-semibold">原值：</span>{{ getOriginalValueText('cloth_elements') || '（空）' }}
+          </div>
         </UFormGroup>
 
-        <UFormGroup label="辅料">
+        <UFormGroup label="辅料" v-if="shouldShowField('secondary_cloth')" :class="getHighlightClass('secondary_cloth')">
           <div class="flex items-center m-1" v-if="library.secondary_cloth && library.secondary_cloth.length > 0">
             <QhxTag v-for="(item, index) in library.secondary_cloth" :key="item.wiki_id">
               {{ item.wiki_name }}
-              <UIcon name="i-heroicons-x-mark" class="ml-1 text-sm cursor-pointer"
+              <UIcon v-if="!isReviewMode" name="i-heroicons-x-mark" class="ml-1 text-sm cursor-pointer"
                 @click="library.secondary_cloth.splice(index, 1)" />
             </QhxTag>
           </div>
-          <UButton color="primary" size="sm" @click="showChooseWiki('secondary_cloth')">选择辅料</UButton>
+          <UButton v-if="!isReviewMode" color="primary" size="sm" @click="showChooseWiki('secondary_cloth')">选择辅料</UButton>
+          <div v-if="isReviewMode && isFieldChanged('secondary_cloth')" class="mt-2 text-sm text-gray-600 dark:text-gray-400">
+            <span class="font-semibold">原值：</span>{{ getOriginalValueText('secondary_cloth') || '（空）' }}
+          </div>
         </UFormGroup>
 
-        <UFormGroup label="笔记">
-          <UTextarea v-model="library.notes" placeholder="笔记就是设计灵感,小故事什么的,想写什么写什么" :rows="3" :ui="{
+        <UFormGroup label="笔记" v-if="shouldShowField('notes')" :class="getHighlightClass('notes')">
+          <UTextarea v-model="library.notes" :disabled="isReviewMode" placeholder="笔记就是设计灵感,小故事什么的,想写什么写什么" :rows="3" :ui="{
             base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
             rounded: 'rounded-[10px]',
             padding: { xs: 'px-4 py-2' },
@@ -232,17 +309,23 @@
               }
             }
           }" />
-        </UFormGroup>
-
-        <UFormGroup label="贩售年份">
-          <div class="w-1/2 min-w-[200px]">
-            <VueDatePicker v-model="library.sale_time" :enable-time-picker="false" :range="false" format="MM/yyyy"
-              MenuView="month" month-picker type="month" mode="month" :locale="zhCN" />
+          <div v-if="isReviewMode && isFieldChanged('notes')" class="mt-2 text-sm text-gray-600 dark:text-gray-400">
+            <span class="font-semibold">原值：</span>{{ getOriginalValueText('notes') || '（空）' }}
           </div>
         </UFormGroup>
 
-        <UFormGroup label="适宜季节">
-          <USelectMenu v-model="library.season" :options="season_options" placeholder="请选择季节" multiple
+        <UFormGroup label="贩售年份" v-if="shouldShowField('sale_time')" :class="getHighlightClass('sale_time')">
+          <div class="w-1/2 min-w-[200px]">
+            <VueDatePicker v-model="library.sale_time" :disabled="isReviewMode" :enable-time-picker="false" :range="false" format="MM/yyyy"
+              MenuView="month" month-picker type="month" mode="month" :locale="zhCN" />
+          </div>
+          <div v-if="isReviewMode && isFieldChanged('sale_time')" class="mt-2 text-sm text-gray-600 dark:text-gray-400">
+            <span class="font-semibold">原值：</span>{{ getOriginalValueText('sale_time') || '（空）' }}
+          </div>
+        </UFormGroup>
+
+        <UFormGroup label="适宜季节" v-if="shouldShowField('season')" :class="getHighlightClass('season')">
+          <USelectMenu v-model="library.season" :disabled="isReviewMode" :options="season_options" placeholder="请选择季节" multiple
             class="w-1/2 min-w-[200px]" value-attribute="value" option-attribute="label" :ui="{
               base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
               rounded: 'rounded-full',
@@ -253,10 +336,13 @@
                 }
               }
             }" />
+          <div v-if="isReviewMode && isFieldChanged('season')" class="mt-2 text-sm text-gray-600 dark:text-gray-400">
+            <span class="font-semibold">原值：</span>{{ getOriginalValueText('season') || '（空）' }}
+          </div>
         </UFormGroup>
 
-        <UFormGroup label="淘宝连接">
-          <UInput v-model="library.link" placeholder="直连淘宝电脑版的连接" :ui="{
+        <UFormGroup label="淘宝连接" v-if="shouldShowField('link')" :class="getHighlightClass('link')">
+          <UInput v-model="library.link" :disabled="isReviewMode" placeholder="直连淘宝电脑版的连接" :ui="{
             base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
             rounded: 'rounded-full',
             padding: { xs: 'px-4 py-2' },
@@ -266,10 +352,26 @@
               }
             }
           }" />
+          <div v-if="isReviewMode && isFieldChanged('link')" class="mt-2 text-sm text-gray-600 dark:text-gray-400">
+            <span class="font-semibold">原值：</span>{{ getOriginalValueText('link') || '（空）' }}
+          </div>
         </UFormGroup>
 
-        <UFormGroup label="详情图片">
-          <QhxImagePicker :multiple="true" ref="detailImageRef" />
+        <UFormGroup label="详情图片" v-if="shouldShowField('detail_image')" :class="getHighlightClass('detail_image')">
+          <QhxImagePicker :multiple="true" ref="detailImageRef" :disabled="isReviewMode" />
+          <div v-if="isReviewMode && isFieldChanged('detail_image')" class="mt-2">
+            <div class="text-sm text-gray-600 dark:text-gray-400 mb-2">
+              <span class="font-semibold">原值：</span>
+            </div>
+            <div class="flex gap-2 flex-wrap">
+              <div v-for="(img, index) in getOriginalImages('detail_image')" :key="index" class="relative">
+                <img :src="BASE_IMG + img" alt="原详情图" class="w-20 h-20 object-cover rounded border border-gray-300 dark:border-gray-600" />
+              </div>
+              <div v-if="getOriginalImages('detail_image').length === 0" class="text-sm text-gray-500 dark:text-gray-400">
+                （空）
+              </div>
+            </div>
+          </div>
         </UFormGroup>
 
         <UFormGroup label="质检报告" v-if="library.library_type === '系列'">
@@ -319,10 +421,18 @@
         </UModal>
 
         <div class="flex justify-center pt-6">
-          <UButton v-if="!loading" color="primary" size="lg" @click="add()">
-            {{ library_id ? '修改图鉴' : '上传图鉴' }}
-          </UButton>
-          <UButton v-else color="red" size="lg" disabled>请求中</UButton>
+          <template v-if="isReviewMode">
+            <UButton v-if="!loading" color="primary" size="lg" @click="showReviewModal = true">
+              审核
+            </UButton>
+            <UButton v-else color="red" size="lg" disabled>请求中</UButton>
+          </template>
+          <template v-else>
+            <UButton v-if="!loading" color="primary" size="lg" @click="add()">
+              {{ library_id ? '修改图鉴' : '上传图鉴' }}
+            </UButton>
+            <UButton v-else color="red" size="lg" disabled>请求中</UButton>
+          </template>
         </div>
       </UForm>
     </div>
@@ -338,6 +448,67 @@
         </div>
       </UCard>
     </UModal>
+
+    <!-- 审核弹窗 -->
+    <UModal v-model="showReviewModal" :ui="{ width: 'max-w-2xl' }">
+      <UCard>
+        <template #header>
+          <h3 class="text-lg font-semibold">审核图鉴</h3>
+        </template>
+
+        <UForm :state="reviewForm" class="space-y-4">
+          <UFormGroup label="审核结果" required>
+            <div class="flex gap-4">
+              <UButton
+                :color="reviewForm.status === 'approved' ? 'green' : 'gray'"
+                :variant="reviewForm.status === 'approved' ? 'solid' : 'outline'"
+                @click="reviewForm.status = 'approved'"
+              >
+                审核通过
+              </UButton>
+              <UButton
+                :color="reviewForm.status === 'rejected' ? 'red' : 'gray'"
+                :variant="reviewForm.status === 'rejected' ? 'solid' : 'outline'"
+                @click="reviewForm.status = 'rejected'"
+              >
+                驳回
+              </UButton>
+            </div>
+          </UFormGroup>
+
+          <UFormGroup label="审核建议">
+            <UTextarea
+              v-model="reviewForm.suggestion"
+              placeholder="请输入审核建议（可选）"
+              :rows="4"
+              :ui="{
+                base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
+                rounded: 'rounded-[10px]',
+                padding: { xs: 'px-4 py-2' },
+                color: {
+                  white: {
+                    outline: 'bg-gray-50 dark:bg-gray-800 ring-1 ring-gray-300 dark:ring-gray-600 focus:ring-2 focus:ring-qhx-primary'
+                  }
+                }
+              }"
+            />
+          </UFormGroup>
+        </UForm>
+
+        <template #footer>
+          <div class="flex justify-end gap-2">
+            <UButton @click="showReviewModal = false">取消</UButton>
+            <UButton
+              color="primary"
+              :disabled="!reviewForm.status || reviewLoading"
+              @click="submitReview()"
+            >
+              {{ reviewLoading ? '提交中...' : '确认' }}
+            </UButton>
+          </div>
+        </template>
+      </UCard>
+    </UModal>
   </div>
 </template>
 
@@ -346,7 +517,7 @@ import type { Library, Shop, Wiki } from '~/types/api'
 // 导入API函数（需要您自己实现）
 // import { getShopOptionsByKeywords } from '@/api/shop'
 import { getWikiOptions, getWikiOptionsByKeywords } from '@/api/wiki'
-import { insertLibrary, type InsertParams, getLibraryById, updateLibrary } from '@/api/library'
+import { insertLibrary, type InsertParams, getLibraryById, type LibraryHistoryNew, updateLibrary, getLibraryReviewData, type ReviewData, submitLibraryReview } from '@/api/library'
 // updateLibrary, 
 // import compressImage from '@/utils/compressImage'
 // import uploadImage from '@/utils/uploadImage'
@@ -354,10 +525,11 @@ import { insertLibrary, type InsertParams, getLibraryById, updateLibrary } from 
 import VueDatePicker from '@vuepic/vue-datepicker'
 import '@vuepic/vue-datepicker/dist/main.css'
 import type QhxImagePicker from '@/components/Qhx/ImagePicker.vue'
-import { getShopOptiosns } from '@/api/shop'
+import { getShopOptiosns, getShopDetail } from '@/api/shop'
 import { zhCN } from "date-fns/locale"
 import { uploadImageUrl } from '@/api'
 import { uploadFileToOSS, uploadImageOSS } from '@/utils/ossUpload'
+import { BASE_IMG } from '@/utils/ipConfig'
 import dayjs from 'dayjs'
 const showConfirmLibrary = ref(false)
 // 定义组件
@@ -394,6 +566,12 @@ interface OptionItem { value: number; label: string }
 const showComposition = ref(false) // 显示选择布料
 const library_id = ref<number | null>(null) // 初始化的图鉴ID用于修改
 const loading = ref(false)
+const showReviewModal = ref(false) // 显示审核弹窗
+const reviewLoading = ref(false) // 审核提交中
+const reviewForm = ref({
+  status: '' as 'approved' | 'rejected' | '',
+  suggestion: ''
+})
 const shop_options = ref<Shop[]>([])
 const library_type_options = ref<Wiki[]>([])
 const fabric_composition_options = ref<Wiki[]>([])
@@ -414,6 +592,111 @@ const configStore = useConfigStore()
 const config = computed(() => configStore.config)
 const wikiOptionsChooseRef = ref()
 const wiki_type = ref<string | null>(null)
+const layoutReady = ref(false)
+provide('layoutReady', layoutReady)
+
+// 审核模式相关
+const isReviewMode = ref(false) // 是否为审核模式
+const reviewData = ref<Library   | null>(null) // 修改后的数据
+const originalLibrary = ref<Library | null>(null) // 原始图鉴数据
+const changedFields = ref<Set<string>>(new Set()) // 被修改的字段集合
+
+// 检查字段是否应该显示（审核模式下只显示被修改的字段）
+const shouldShowField = (fieldName: string) => {
+  if (!isReviewMode.value) return true
+  return changedFields.value.has(fieldName)
+}
+
+// 检查字段是否被修改（用于高亮显示）
+const isFieldChanged = (fieldName: string) => {
+  return isReviewMode.value && changedFields.value.has(fieldName)
+}
+
+// 获取高亮样式类
+const getHighlightClass = (fieldName: string) => {
+  if (isFieldChanged(fieldName)) {
+    return 'bg-yellow-100 dark:bg-yellow-900/30 p-4 rounded-lg border-2 border-yellow-400 dark:border-yellow-600'
+  }
+  return ''
+}
+
+// 获取字段的原始值显示文本（用于标注）
+const getOriginalValueText = (fieldName: string): string => {
+  if (!isReviewMode.value || !originalLibrary.value) return ''
+  
+  const original = originalLibrary.value
+  
+  switch (fieldName) {
+    case 'name':
+      return original.name || ''
+    case 'library_type':
+      return original.library_type || ''
+    case 'state':
+      return original.state || ''
+    case 'shop_id':
+      return original.shop?.shop_name || ''
+    case 'library_price':
+      return original.library_price ? `¥${original.library_price}` : ''
+    case 'size':
+      return original.size || ''
+    case 'link':
+      return original.link || ''
+    case 'notes':
+      return original.notes || ''
+    case 'sale_time':
+      return original.sale_time ? dayjs(original.sale_time).format('YYYY-MM') : ''
+    case 'season':
+      return original.season || ''
+    case 'start_time':
+      return original.start_time ? dayjs(original.start_time).format('YYYY-MM-DD HH:mm') : ''
+    case 'end_time':
+      return original.end_time ? dayjs(original.end_time).format('YYYY-MM-DD HH:mm') : ''
+    case 'arrears_start':
+      return original.arrears_start ? dayjs(original.arrears_start).format('YYYY-MM-DD HH:mm') : ''
+    case 'arrears_end':
+      return original.arrears_end ? dayjs(original.arrears_end).format('YYYY-MM-DD HH:mm') : ''
+    case 'parent_id':
+      return original.parent?.name || ''
+    case 'theme':
+      return original.theme || ''
+    case 'color':
+      return original.color || ''
+    case 'pattern_elements':
+      return original.pattern_elements || ''
+    case 'design_elements':
+      return original.design_elements || ''
+    case 'cloth_elements':
+      return original.cloth_elements || ''
+    case 'secondary_cloth':
+      return original.secondary_cloth || ''
+    case 'library_pattern':
+      return original.library_pattern || ''
+    case 'fabric_composition':
+      return original.fabric_composition || ''
+    case 'main_style':
+      return original.style_list ? original.style_list.map((item: Wiki) => item.wiki_name).join(', ') : ''
+    default:
+      return ''
+  }
+}
+
+// 获取图片字段的原始图片列表
+const getOriginalImages = (fieldName: string): string[] => {
+  if (!isReviewMode.value || !originalLibrary.value) return []
+  
+  const original = originalLibrary.value
+  
+  switch (fieldName) {
+    case 'cover':
+      return original.cover ? [original.cover] : []
+    case 'size_image':
+      return original.size_image ? original.size_image.split(',') : []
+    case 'detail_image':
+      return original.detail_image ? original.detail_image.split(',') : []
+    default:
+      return []
+  }
+}
 
 const library = ref({
   name: '',
@@ -474,8 +757,14 @@ const route = useRoute()
 const toast = useToast()
 
 // 生命周期
-onMounted(() => {
-  if (route.query?.library_id) {
+onMounted(async () => {
+  // 检测审核模式
+  if (route.query?.library_id && route.query?.review) {
+    isReviewMode.value = true
+    library_id.value = Number.parseInt(route.query.library_id as string)
+    await fetchLibraryById()
+    await fetchReviewData()
+  } else if (route.query?.library_id) {
     library_id.value = Number.parseInt(route.query.library_id as string)
     fetchLibraryById()
   }
@@ -622,6 +911,10 @@ const fetchLibraryById = async () => {
   try {
     const res = await getLibraryById(params)
     console.log(res, '图鉴数据')
+    // 保存原始数据用于审核模式对比
+    if (isReviewMode.value) {
+      originalLibrary.value = { ...res }
+    }
     const { theme, style_list, name, library_type, state, shop, parent, library_price, library_pattern, detail_image, color, size, pattern_elements, design_elements, cloth_elements, secondary_cloth, notes, sale_time, season, link, cover, end_time, start_time, size_image, fabric_composition, quality_test } = res
     library.value.name = name
 
@@ -759,6 +1052,227 @@ const fetchLibraryById = async () => {
     loading.value = false
   }
 }
+
+// 获取修改参数（审核模式）
+const fetchReviewData = async () => {
+  if (!library_id.value || !route.query?.review) {
+    return false
+  }
+  loading.value = true
+  const params = {
+    library_id: library_id.value,
+    review: Number.parseInt(route.query.review as string)
+  }
+  try {
+    // {"link": null, "name": "永远盛开的杏花", "size": null, "color": "绿松石色", "cover": "static/library_app/22936_1766941095808101.JPG", "notes": null, "state": "上新图透", "theme": null, "season": null, "shop_id": 1372, "complete": true, "end_time": null, "edit_user": 1, "parent_id": 0, "sale_time": null, "main_style": "18", "size_image": "editor/33851432b6f9b9fc55e20577036cc4e8.jpg", "start_time": null, "arrears_end": null, "detail_image": "static/image/22936_176694109721826.JPG,static/image/22936_1766941098305108.JPG,static/image/22936_1766941099346104.JPG,static/image/22936_17669411003369.JPG", "library_type": "JSK", "square_cover": "static/library_app/22936_1766941095808101.JPG", "arrears_start": null, "library_price": 388, "cloth_elements": null, "design_elements": null, "library_pattern": null, "secondary_cloth": null, "pattern_elements": "杏花", "fabric_composition": null}
+    const res =  await getLibraryReviewData(params)
+    reviewData.value = res.params
+    await compareData()
+  } catch (error) {
+    console.log(error)
+    toast.add({
+      title: '错误',
+      description: '获取修改参数失败',
+      color: 'red'
+    })
+  } finally {
+    loading.value = false
+  }
+}
+
+// 对比原信息和修改后的信息差异
+const compareData = async () => {
+  if (!originalLibrary.value || !reviewData.value) {
+    return
+  }
+  changedFields.value.clear()
+  const original = originalLibrary.value
+  const review = reviewData.value
+
+  // 对比各个字段
+  if (original.name !== review.name) changedFields.value.add('name')
+  if (original.library_type !== review.library_type) changedFields.value.add('library_type')
+  if (original.state !== review.state) changedFields.value.add('state')
+  if (original.shop_id !== review.shop_id) changedFields.value.add('shop_id')
+  if (original.library_price !== review.library_price) changedFields.value.add('library_price')
+  if (original.size !== review.size) changedFields.value.add('size')
+  if (original.link !== review.link) changedFields.value.add('link')
+  if (original.notes !== review.notes) changedFields.value.add('notes')
+  if (original.sale_time !== review.sale_time) changedFields.value.add('sale_time')
+  if (original.season !== review.season) changedFields.value.add('season')
+  if (original.start_time !== review.start_time) changedFields.value.add('start_time')
+  if (original.end_time !== review.end_time) changedFields.value.add('end_time')
+  if (original.arrears_start !== review.arrears_start) changedFields.value.add('arrears_start')
+  if (original.arrears_end !== review.arrears_end) changedFields.value.add('arrears_end')
+  if (original.parent_id !== review.parent_id) changedFields.value.add('parent_id')
+  if (original.cover !== review.cover) changedFields.value.add('cover')
+  if (original.square_cover !== review.square_cover) changedFields.value.add('square_cover')
+  if (original.size_image !== review.size_image) changedFields.value.add('size_image')
+  if (original.detail_image !== review.detail_image) changedFields.value.add('detail_image')
+  
+  // 对比字符串数组字段（需要转换为数组后对比）
+  const compareStringArray = (original: string | undefined, review: string | null) => {
+    const orig = original ? original.split(',').sort().join(',') : ''
+    const rev = review ? review.split(',').sort().join(',') : ''
+    return orig !== rev
+  }
+  
+  if (compareStringArray(original.theme, review.theme)) changedFields.value.add('theme')
+  if (compareStringArray(original.color, review.color)) changedFields.value.add('color')
+  if (compareStringArray(original.pattern_elements, review.pattern_elements)) changedFields.value.add('pattern_elements')
+  if (compareStringArray(original.design_elements, review.design_elements)) changedFields.value.add('design_elements')
+  if (compareStringArray(original.cloth_elements, review.cloth_elements)) changedFields.value.add('cloth_elements')
+  if (compareStringArray(original.secondary_cloth, review.secondary_cloth)) changedFields.value.add('secondary_cloth')
+  if (compareStringArray(original.library_pattern, review.library_pattern)) changedFields.value.add('library_pattern')
+  if (compareStringArray(original.fabric_composition, review.fabric_composition)) changedFields.value.add('fabric_composition')
+  
+  // 对比main_style（需要从style_list中提取）
+  const originalMainStyle = original.style_list ? original.style_list.map((item: Wiki) => String(item.wiki_id)).sort().join(',') : ''
+  const reviewMainStyle = review.main_style ? review.main_style.split(',').sort().join(',') : ''
+  if (originalMainStyle !== reviewMainStyle) changedFields.value.add('main_style')
+
+  // 应用修改后的数据到library
+  if (reviewData.value) {
+    await applyReviewData()
+  }
+}
+
+// 应用修改后的数据
+const applyReviewData = async () => {
+  if (!reviewData.value) return
+  
+  const review = reviewData.value
+  
+  // 只应用被修改的字段
+  if (changedFields.value.has('name')) {
+    library.value.name = review.name
+  }
+  if (changedFields.value.has('library_type')) {
+    library.value.library_type = review.library_type || undefined
+  }
+  if (changedFields.value.has('state')) {
+    library.value.state = review.state || undefined
+  }
+  if (changedFields.value.has('shop_id') && review.shop_id) {
+    // 根据shop_id查找shop对象
+    try {
+      const shop = await getShopDetail({ shop_id: review.shop_id })
+      library.value.shop_id = shop
+    } catch (error) {
+      console.error('获取店铺信息失败:', error)
+      library.value.shop_id = undefined
+    }
+  }
+  if (changedFields.value.has('library_price')) {
+    library.value.library_price = review.library_price || undefined
+  }
+  if (changedFields.value.has('size')) {
+    library.value.size = review.size || ''
+  }
+  if (changedFields.value.has('link')) {
+    library.value.link = review.link || undefined
+  }
+  if (changedFields.value.has('notes')) {
+    library.value.notes = review.notes || ''
+  }
+  if (changedFields.value.has('sale_time') && review.sale_time) {
+    library.value.sale_time = {
+      year: dayjs(review.sale_time).year(),
+      month: dayjs(review.sale_time).month()
+    }
+  }
+  if (changedFields.value.has('season') && review.season) {
+    library.value.season = review.season.split(',')
+  }
+  if (changedFields.value.has('start_time') || changedFields.value.has('end_time')) {
+    library.value.start_time = [review.start_time || '', review.end_time || '']
+  }
+  if (changedFields.value.has('arrears_start') || changedFields.value.has('arrears_end')) {
+    library.value.arrears_start = review.arrears_start ? [review.arrears_start, review.arrears_end || ''] as string[] : undefined
+  }
+  if (changedFields.value.has('theme') && review.theme) {
+    library.value.theme = review.theme.split(',').map((item: string) => ({
+      wiki_name: item,
+      wiki_id: item
+    }))
+  }
+  if (changedFields.value.has('color') && review.color) {
+    library.value.color = review.color.split(',').map((item: string) => ({
+      wiki_name: item,
+      wiki_id: item
+    }))
+  }
+  if (changedFields.value.has('pattern_elements') && review.pattern_elements) {
+    library.value.pattern_elements = review.pattern_elements.split(',').map((item: string) => ({
+      wiki_name: item,
+      wiki_id: item
+    }))
+  }
+  if (changedFields.value.has('design_elements') && review.design_elements) {
+    library.value.design_elements = review.design_elements.split(',').map((item: string) => ({
+      wiki_name: item,
+      wiki_id: item
+    }))
+  }
+  if (changedFields.value.has('cloth_elements') && review.cloth_elements) {
+    library.value.cloth_elements = review.cloth_elements.split(',').map((item: string) => ({
+      wiki_name: item,
+      wiki_id: item
+    }))
+  }
+  if (changedFields.value.has('secondary_cloth') && review.secondary_cloth) {
+    library.value.secondary_cloth = review.secondary_cloth.split(',').map((item: string) => ({
+      wiki_name: item,
+      wiki_id: item
+    }))
+  }
+  if (changedFields.value.has('library_pattern') && review.library_pattern) {
+    library.value.library_pattern = review.library_pattern.split(',').map((item: string) => ({
+      wiki_name: item,
+      wiki_id: item
+    }))
+  }
+  if (changedFields.value.has('fabric_composition') && review.fabric_composition) {
+    library.value.fabric_composition = review.fabric_composition.split(',').map((item: string): FabricComposition => {
+      const child = item.split('%')
+      if (child.length > 1) {
+        return {
+          name: {
+            label: child[1],
+            value: Number(child[0])
+          },
+          value: Number(child[0])
+        }
+      }
+      return {
+        name: {
+          label: '',
+          value: 0
+        },
+        value: 0
+      }
+    })
+  }
+  if (changedFields.value.has('main_style') && review.main_style) {
+    library.value.main_style = review.main_style.split(',').map((item: string) => Number(item))
+  }
+  if (changedFields.value.has('cover') && review.cover && coverRef.value) {
+    coverRef.value.previewImages = [{ file: undefined, url: BASE_IMG + review.cover }]
+  }
+  if (changedFields.value.has('size_image') && review.size_image && sizeImageRef.value) {
+    sizeImageRef.value.previewImages = review.size_image.split(',').map((item: string) => ({
+      file: undefined,
+      url: BASE_IMG + item
+    }))
+  }
+  if (changedFields.value.has('detail_image') && review.detail_image && detailImageRef.value) {
+    detailImageRef.value.previewImages = review.detail_image.split(',').map((item: string) => ({
+      file: undefined,
+      url: BASE_IMG + item
+    }))
+  }
+}
+
 const chooseLibrary = (item: Library[]) => {
   console.log('选择的图鉴', item)
   library.value.parent_id = item[0]
@@ -1381,18 +1895,22 @@ const add = async () => {
       params.secondary_cloth = null
     }
     if (start_time) {
-      params.start_time = start_time[0]
-      params.end_time = start_time[1]
-    } else {
-      params.start_time = null
-      params.end_time = null
+      if (start_time[0] !== '' && start_time[1] !== '') {
+        params.start_time = start_time[0]
+        params.end_time = start_time[1]
+      } else {
+        params.start_time = null
+        params.end_time = null
+      }
     }
     if (arrears_start) {
-      params.arrears_start = arrears_start[0]
-      params.arrears_end = arrears_start[1]
-    } else {
-      params.arrears_start = null
-      params.arrears_end = null
+      if (arrears_start[0] !== '' && arrears_start[1] !== '') {
+        params.arrears_start = arrears_start[0]
+        params.arrears_end = arrears_start[1]
+      } else {
+        params.arrears_start = null
+        params.arrears_end = null
+      }
     }
     if (library_pattern && library_pattern.length > 0) {
       params.library_pattern = library_pattern.map((item) => item.wiki_name).join(',')
@@ -1429,6 +1947,65 @@ const add = async () => {
     // })
   } finally {
     loading.value = false
+  }
+}
+
+// 提交审核
+const submitReview = async () => {
+  if (!reviewForm.value.status) {
+    toast.add({
+      title: '警告',
+      description: '请选择审核结果',
+      color: 'orange'
+    })
+    return
+  }
+
+  if (!library_id.value || !route.query?.review) {
+    toast.add({
+      title: '错误',
+      description: '缺少必要参数',
+      color: 'red'
+    })
+    return
+  }
+
+  reviewLoading.value = true
+  try {
+    // 调用审核接口
+    const params = {
+      library_id: library_id.value,
+      history_id: route.query.review as string,
+      is_apply: reviewForm.value.status === 'approved' ? 1 : 2,
+      reason: reviewForm.value.suggestion || null
+    }
+    
+    await submitLibraryReview(params)
+    
+    toast.add({
+      title: '成功',
+      description: reviewForm.value.status === 'approved' ? '审核通过' : '已驳回',
+      color: 'green'
+    })
+    
+    showReviewModal.value = false
+    // 重置表单
+    reviewForm.value = {
+      status: '' as 'approved' | 'rejected' | '',
+      suggestion: ''
+    }
+    
+    // 审核完成后可以跳转或刷新
+    window.location.href = `/library/detail/${library_id.value}`
+  } catch (error) {
+    console.error('审核提交失败:', error)
+    toast.add({
+      title: '错误',
+      description: '审核提交失败，请重试',
+      color: 'red'
+    })
+  } finally {
+    reviewLoading.value = false
   }
 }
 </script>

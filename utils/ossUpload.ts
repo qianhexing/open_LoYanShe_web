@@ -53,13 +53,13 @@ function getFileExtension(filename: string): string {
   const lastDot = filename.lastIndexOf('.')
   return lastDot !== -1 ? filename.substring(lastDot) : ''
 }
-export async function uploadImageOSS(file: { file?: File; url: string; }): Promise<string> {
+export async function uploadImageOSS(file: { file?: File; url?: string; }): Promise<string> {
   let url: string
   if (file.file) {
     const res = await uploadFileToOSS(file.file)
     url = res.file_url
   } else {
-    url = file.url.replace(BASE_IMG, '')
+    url = file.url?.replace(BASE_IMG, '') || ''
   }
   return url
 }
@@ -67,11 +67,13 @@ export async function uploadImageOSS(file: { file?: File; url: string; }): Promi
  * 上传文件到 OSS（前端直传）
  * @param file 要上传的文件
  * @param path 可选的自定义路径，默认为 'editor'
+ * @param customName 可选的自定义文件名，默认为 undefined
  * @returns 返回文件信息，包含 file_url
  */
 export async function uploadFileToOSS(
   file: File,
-  path = 'editor'
+  path = 'editor',
+  customName: string | undefined = undefined
 ): Promise<FileInterface> {
   try {
     // 1. 计算文件 MD5
@@ -101,7 +103,7 @@ export async function uploadFileToOSS(
     
     const ossInfo = checkResult.oss
     const fileExtension = getFileExtension(file.name)
-    const objectName = `${ossInfo.path}/${fileMD5}${fileExtension}`
+    const objectName = `${ossInfo.path}/${customName || fileMD5}${fileExtension}`
     
     // 5. 初始化 OSS 客户端
     const client = new OSS({
@@ -133,14 +135,25 @@ export async function uploadFileToOSS(
     // }
     
     // 8. 调用 insertFile 接口保存文件记录
-    const fileRecord = await insertFile({
-      file_url: fileUrl,
-      file_md5: fileMD5,
-      file_type: 0, // 默认类型，可根据需要调整
-      file_size: file.size // 文件大小（字节）
-    })
+    if (customName) {
+      return {
+        file_id: 0,
+        file_url: objectName,
+        file_md5: fileMD5,
+        file_type: 0, // 默认类型，可根据需要调整
+        create_time: new Date(),
+      }
+    } else {
+      const fileRecord = await insertFile({
+        file_url: fileUrl,
+        file_md5: fileMD5,
+        file_type: 0, // 默认类型，可根据需要调整
+        file_size: file.size // 文件大小（字节）
+      })
+      return fileRecord
+    }
     
-    return fileRecord
+    
   } catch (error) {
     console.error('上传文件到 OSS 失败:', error)
     throw error

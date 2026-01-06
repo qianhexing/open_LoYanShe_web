@@ -37,6 +37,9 @@ export interface CameraState {
 	fov?: number // 只有 PerspectiveCamera 会用到
 }
 import { WebGPURenderer } from 'three/webgpu'
+import { ARButton } from 'three/examples/jsm/webxr/ARButton.js'
+import { DeviceOrientationControls } from './DeviceOrientationControls'
+import jsQR from 'jsqr'
 import { createGrid, updateGrid } from './Grid'
 const grid = createGrid();
 export interface SceneEffectJSON {
@@ -119,6 +122,7 @@ interface ThreeCoreOptions {
 	pixelRatio?: number
 	enableCSS3DRenderer?: boolean // 新增选项：是否启用CSS3D渲染器
 	editMode?: boolean
+	enableAR?: boolean
 }
 
 class ThreeCore {
@@ -128,7 +132,19 @@ class ThreeCore {
 	public rendererGPU: WebGPURenderer
 	public css3DRenderer?: CSS3DRenderer // CSS3D渲染器
 	public controls: OrbitControls
+	public deviceOrientationControls?: DeviceOrientationControls // 陀螺仪控制器
 	public allObjects: THREE.Object3D[] // 场景里的所有模型
+	
+	// AR相关
+	public arReticle?: THREE.Mesh
+	public arHitTestSource?: any
+	public arHitTestSourceRequested = false
+	public arContentGroup?: THREE.Group // AR模式下包裹所有内容的组
+	public isWebcamAR = false // 是否处于Webcam降级AR模式
+	public videoElement?: HTMLVideoElement // Webcam AR video
+	public qrScanCanvas?: HTMLCanvasElement
+	public qrScanContext?: CanvasRenderingContext2D | null
+	public lastQRScanTime = 0
 	
 	// 光源系统
 	public lights?: {
@@ -231,6 +247,7 @@ class ThreeCore {
 		this.initScene()
 		this.initCamera()
 		this.initRenderer()
+		// initAR logic will be called explicitly or inside initAR based on support
 		this.initPicker()
 		// const cloud = this.createCloud()
 		// this.scene.add(cloud)
@@ -456,37 +473,130 @@ class ThreeCore {
 	}
 
 	/**
+	 * 设置主光源位置
+	 * @param azimuth 水平角度 (0-360)
+	 * @param elevation 垂直角度 (0-90)
+	 * @param radius 距离 (默认100)
+	 */
+	setMainLightPosition(azimuth: number, elevation: number, radius = 100) {
+		if (this.lights?.directional) {
+			const theta = (azimuth * Math.PI) / 180
+			const phi = (elevation * Math.PI) / 180
+
+			// 转换为笛卡尔坐标
+			const x = radius * Math.cos(phi) * Math.sin(theta)
+			const y = radius * Math.sin(phi)
+			const z = radius * Math.cos(phi) * Math.cos(theta)
+
+			this.lights.directional.position.set(x, y, z)
+			
+			// 确保光源看向原点
+			this.lights.directional.lookAt(0, 0, 0)
+			
+			// 如果有阴影，可能需要更新 shadow map
+			if (this.lights.directional.shadow.map) {
+				this.lights.directional.shadow.map.dispose()
+				this.lights.directional.shadow.map = null!
+			}
+		}
+	}
+
+	/**
 	 * 切换阴影质量
 	 * @param quality 'low' | 'medium' | 'high' | 'ultra'
 	 */
 	setShadowQuality(quality: 'low' | 'medium' | 'high' | 'ultra') {
+		// 定义不同质量等级的配置
 		const qualitySettings = {
-			low: { mapSize: 1024, bias: -0.002, normalBias: 0.1 },
-			medium: { mapSize: 2048, bias: -0.001, normalBias: 0.05 },
-			high: { mapSize: 4096, bias: -0.0005, normalBias: 0.02 },
-			ultra: { mapSize: 8192, bias: -0.0001, normalBias: 0.01 }
+			low: { 
+				mapSize: 512, 
+				bias: -0.004, 
+				normalBias: 0.05, 
+				radius: 2, 
+				blurSamples: 4,
+				castShadow: { directional: true, lens: false, spot: false }
+			},
+			medium: { 
+				mapSize: 1024, 
+				bias: -0.002, 
+				normalBias: 0.03, 
+				radius: 3, 
+				blurSamples: 8,
+				castShadow: { directional: true, lens: false, spot: true }
+			},
+			high: { 
+				mapSize: 2048, 
+				bias: -0.0005, 
+				normalBias: 0.02, 
+				radius: 4, 
+				blurSamples: 26,
+				castShadow: { directional: true, lens: true, spot: true }
+			},
+			ultra: { 
+				mapSize: 4096, 
+				bias: -0.0001, 
+				normalBias: 0.01, 
+				radius: 5, 
+				blurSamples: 20,
+				castShadow: { directional: true, lens: true, spot: true }
+			}
 		}
 
 		const settings = qualitySettings[quality]
 		
-		// 更新所有投射阴影的光源
+		// 1. 更新主光源 (DirectionalLight)
 		if (this.lights?.directional) {
-			this.lights.directional.shadow.mapSize.width = settings.mapSize
-			this.lights.directional.shadow.mapSize.height = settings.mapSize
-			this.lights.directional.shadow.bias = settings.bias
-			this.lights.directional.shadow.normalBias = settings.normalBias
+			const light = this.lights.directional
+			light.castShadow = settings.castShadow.directional
+			
+			if (light.castShadow) {
+				light.shadow.mapSize.set(settings.mapSize, settings.mapSize)
+				light.shadow.bias = settings.bias
+				light.shadow.normalBias = settings.normalBias
+				light.shadow.radius = settings.radius
+				light.shadow.blurSamples = settings.blurSamples
+				// 强制更新 shadow map
+				if (light.shadow.map) {
+					light.shadow.map.dispose()
+					light.shadow.map = null!
+				}
+			}
 		}
 
+		// 2. 更新镜头光 (LensLight)
 		if (this.lensLight) {
-			this.lensLight.shadow.mapSize.width = Math.min(settings.mapSize, 2048)
-			this.lensLight.shadow.mapSize.height = Math.min(settings.mapSize, 2048)
-			this.lensLight.shadow.bias = settings.bias
+			const light = this.lensLight
+			light.castShadow = settings.castShadow.lens
+			
+			if (light.castShadow) {
+				const size = Math.min(settings.mapSize, 2048)
+				light.shadow.mapSize.set(size, size)
+				light.shadow.bias = settings.bias
+				light.shadow.radius = settings.radius
+				light.shadow.blurSamples = settings.blurSamples
+				if (light.shadow.map) {
+					light.shadow.map.dispose()
+					light.shadow.map = null!
+				}
+			}
 		}
 
+		// 3. 更新聚光灯 (SpotLight)
 		if (this.lights?.spot) {
-			this.lights.spot.shadow.mapSize.width = Math.min(settings.mapSize, 2048)
-			this.lights.spot.shadow.mapSize.height = Math.min(settings.mapSize, 2048)
-			this.lights.spot.shadow.bias = settings.bias
+			const light = this.lights.spot
+			light.castShadow = settings.castShadow.spot
+			
+			if (light.castShadow) {
+				const size = Math.min(settings.mapSize, 2048)
+				light.shadow.mapSize.set(size, size)
+				light.shadow.bias = settings.bias
+				light.shadow.radius = settings.radius
+				light.shadow.blurSamples = settings.blurSamples
+				if (light.shadow.map) {
+					light.shadow.map.dispose()
+					light.shadow.map = null!
+				}
+			}
 		}
 	}
 
@@ -711,9 +821,9 @@ class ThreeCore {
 
 		this.bloomPass = new UnrealBloomPass(
 			new THREE.Vector2(window.innerWidth, window.innerHeight),
-			0.5,
+			0.3,
 			0.04,
-			0.85
+			1.0
 		)
 
 		this.bloomComposer = new EffectComposer(
@@ -1122,7 +1232,7 @@ class ThreeCore {
 		
 		// 色彩空间设置
 		this.renderer.outputColorSpace = THREE.SRGBColorSpace
-		this.renderer.toneMapping = THREE.ACESFilmicToneMapping
+		this.renderer.toneMapping = THREE.LinearToneMapping
 		this.renderer.toneMappingExposure = 1.0
 		
 		// 高质量阴影设置 - 关键配置来避免阴影条纹
@@ -1132,7 +1242,11 @@ class ThreeCore {
 		this.renderer.shadowMap.autoUpdate = true
 		
 		// 背景设置
-		this.renderer.setClearColor(0x000000, 0) // 背景透明
+		if (this.options.enableAR) {
+			this.renderer.xr.enabled = true
+		} else {
+			this.renderer.setClearColor(0x000000, 0) // 背景透明
+		}
 
 		this.rendererGPU.setSize(width, height)
 		console.log(this.renderer, '渲染器=======')
@@ -1257,25 +1371,25 @@ class ThreeCore {
 	initLights() {
 		// ================ 环境光设置 ================
 		// 基础环境光 - 为了避免完全黑暗的区域
-		const ambientLight = new THREE.AmbientLight(0xffffff, 0.8)
+		const ambientLight = new THREE.AmbientLight(0xffffff, 1.6)
 		this.scene.add(ambientLight)
 
 		// 半球光 - 模拟天空散射和地面反射
 		const hemiLight = new THREE.HemisphereLight(
-			0x87CEEB, // 天空颜色 - 淡蓝色
-			0x2F4F4F, // 地面颜色 - 暗灰色
-			0.6
+			0x87ceeb, // 天空颜色 - 淡蓝色
+			0x2f4f4f, // 地面颜色 - 暗灰色
+			0.4
 		)
 		hemiLight.position.set(0, 50, 0)
 		this.scene.add(hemiLight)
 
 		// ================ 主要方向光（太阳光） ================
-		const dirLight = new THREE.DirectionalLight(0xFFEECC, 1.8)
+		const dirLight = new THREE.DirectionalLight(0xffeecc, 1.8)
 		dirLight.position.set(50, 50, 30)
 		dirLight.castShadow = true
-		
+
 		// 高质量阴影配置 - 解决阴影条纹问题
-		dirLight.shadow.mapSize.width = 2048  // 提高阴影贴图分辨率
+		dirLight.shadow.mapSize.width = 2048
 		dirLight.shadow.mapSize.height = 2048
 		dirLight.shadow.camera.near = 0.1
 		dirLight.shadow.camera.far = 200
@@ -1283,138 +1397,54 @@ class ThreeCore {
 		dirLight.shadow.camera.right = 80
 		dirLight.shadow.camera.top = 80
 		dirLight.shadow.camera.bottom = -80
-		console.log(dirLight, 'dirLight.shadow')
-		// 关键：减少阴影条纹的bias设置
-		dirLight.shadow.bias = -0.001
-		dirLight.shadow.normalBias = 0.02
-		dirLight.shadow.radius = 10  // 软阴影
-		dirLight.shadow.blurSamples = 20
 		
+		// 关键：减少阴影条纹的bias设置
+		dirLight.shadow.bias = -0.0005
+		dirLight.shadow.normalBias = 0.02
+		dirLight.shadow.radius = 4
+		dirLight.shadow.blurSamples = 26
+
 		this.scene.add(dirLight)
 
-
-		// const dirLight = new THREE.DirectionalLight( 0xffffff, 2.6 );
-		// dirLight.position.set( 3, 12, 17 );
-		// dirLight.castShadow = true;
-		// dirLight.shadow.camera.near = 0.1;
-		// dirLight.shadow.camera.far = 200;
-		// dirLight.shadow.camera.right = 10;	
-		// dirLight.shadow.camera.left = - 10;
-		// dirLight.shadow.camera.top	= 10;
-		// dirLight.shadow.camera.bottom = - 10;
-		// dirLight.shadow.mapSize.width = 1024;
-		// dirLight.shadow.mapSize.height = 1024;
-		// dirLight.shadow.radius = 20;
-		// dirLight.shadow.bias = - 0.001;
-		// dirLight.shadow.normalBias = 0.02;
-		// dirLight.shadow.blurSamples = 25
-		// this.scene.add(dirLight)
-		// console.log(dirLight, 'dirLight.shadow')
-
-		// ================ 补光设置 ================
-		// 柔和补光 - 填补阴影区域
+		// ================ 补光设置 (简化) ================
 		const fillLight = new THREE.DirectionalLight(0xffffff, 0.4)
 		fillLight.position.set(-30, 20, -30)
 		fillLight.castShadow = false
 		this.scene.add(fillLight)
 
-		// 背景补光 - 从背景补充光线
-		const backLight = new THREE.DirectionalLight(0xe0e0ff, 0.3)
-		backLight.position.set(0, 10, -50)
-		backLight.castShadow = false
-		this.scene.add(backLight)
-
 		// ================ 镜头光（跟随相机） ================
-		const lensLight = new THREE.PointLight(0xffffff, 0.8, 100)
+		const lensLight = new THREE.PointLight(0xffffff, 0.5, 100)
 		lensLight.position.copy(this.camera.position)
-		lensLight.castShadow = true
+		lensLight.castShadow = false 
 		
-		// 镜头光阴影配置
 		lensLight.shadow.mapSize.width = 1024
 		lensLight.shadow.mapSize.height = 1024
 		lensLight.shadow.camera.near = 0.1
 		lensLight.shadow.camera.far = 100
-		lensLight.shadow.bias = -0.0005
-		lensLight.shadow.radius = 20
-		lensLight.shadow.blurSamples = 20
+		lensLight.shadow.bias = -0.0001
+		lensLight.shadow.radius = 4
+		lensLight.shadow.blurSamples = 8
 		
 		this.scene.add(lensLight)
-		
-		// 将镜头光存储为实例变量，以便在相机移动时更新
 		this.lensLight = lensLight
 
-		// ================ 聚光灯（焦点照明） ================
-		// const spotLight = new THREE.SpotLight(
-		// 	0xffffff,
-		// 	1.0,
-		// 	200,
-		// 	Math.PI / 6,
-		// 	0.25,
-		// 	2
-		// )
-		// spotLight.position.set(-40, 60, 20)
-		// spotLight.target.position.set(0, 0, 0)
-		// spotLight.castShadow = true
-		
-		// // 聚光灯高质量阴影
-		// spotLight.shadow.mapSize.width = 2048
-		// spotLight.shadow.mapSize.height = 2048
-		// spotLight.shadow.camera.near = 10
-		// spotLight.shadow.camera.far = 200
-		// spotLight.shadow.bias = -0.0005
-		// spotLight.shadow.radius = 10
-		// spotLight.shadow.blurSamples = 10
-		const spotLight = new THREE.SpotLight( 0xffffff, 2000 );
-		spotLight.angle = Math.PI / 5;
-		spotLight.penumbra = 0.3;
-		spotLight.position.set( -20, 30, 30 );
-		spotLight.castShadow = true;
-		spotLight.shadow.camera.near = 10;
-		spotLight.shadow.camera.far = 200;
-		spotLight.shadow.mapSize.width = 1024;
-		spotLight.shadow.mapSize.height = 1024;
-		spotLight.shadow.bias = - 0.002;
-		spotLight.shadow.radius = 5;
-	
-		console.log(spotLight, 'spotLight.shadow')
-		this.scene.add(spotLight)
-		this.scene.add(spotLight.target)
-
-		// ================ 边缘光（轮廓照明） ================
-		const rimLight = new THREE.DirectionalLight(0xffffff, 0.6)
-		rimLight.position.set(-20, 5, 20)
-		rimLight.castShadow = false
-		this.scene.add(rimLight)
-
-		// ================ 调试helpers（开发时可启用） ================
+		// ================ 调试helpers ================
 		if (this.editMode) {
-			// 方向光阴影相机helper
 			const dirLightHelper = new THREE.CameraHelper(dirLight.shadow.camera)
-			dirLightHelper.visible = false // 默认隐藏
+			dirLightHelper.visible = false
 			this.scene.add(dirLightHelper)
-			
-			// 方向光helper
-			const dirLightVisHelper = new THREE.DirectionalLightHelper(dirLight, 5)
-			dirLightVisHelper.visible = false // 默认隐藏  
-			this.scene.add(dirLightVisHelper)
-			
-			// 聚光灯helper
-			const spotLightHelper = new THREE.SpotLightHelper(spotLight)
-			spotLightHelper.visible = true // 默认隐藏
-			this.scene.add(spotLightHelper)
 		}
 
-		// 存储光源引用以便后续控制
+		// 存储光源引用
 		this.lights = {
 			ambient: ambientLight,
 			hemisphere: hemiLight,
 			directional: dirLight,
 			fill: fillLight,
-			back: backLight,
 			lens: lensLight,
-			spot: spotLight,
-			rim: rimLight
-		}
+			// back, spot, rim removed/simplified
+		} as any
+
 	}
 
 	addAnimationCallback(callback: () => void) {
@@ -1519,11 +1549,11 @@ class ThreeCore {
 				(frustumSize * aspect) / 2,
 				frustumSize / 2,
 				-frustumSize / 2,
-				0.1,
+				0.01,
 				1000
 			)
 		} else {
-			this.camera = new THREE.PerspectiveCamera(75, aspect, 0.1, 1000)
+			this.camera = new THREE.PerspectiveCamera(45, aspect, 0.1, 1000)
 		}
 
 		if (cameraPosition) {
@@ -1555,8 +1585,8 @@ class ThreeCore {
 		})
 		this.renderer.domElement.style.position = 'absolute'
 		this.renderer.domElement.style.position = 'absolute'
-		this.renderer.domElement.style.zIndex = '0'
-		this.css3DRenderer.domElement.style.zIndex = '1'
+		this.renderer.domElement.style.zIndex = '1'
+		this.css3DRenderer.domElement.style.zIndex = '2'
 	}
 
 	// 修改onContainerResize方法以支持CSS3D渲染器
@@ -1659,15 +1689,319 @@ class ThreeCore {
 
 	// 	animate()
 	// }
+	async initAR() {
+		// 检测 WebXR 支持
+		let isWebXRSupported = false;
+		if ('xr' in navigator) {
+			isWebXRSupported = await navigator.xr?.isSessionSupported('immersive-ar') ?? false;
+		}
+
+		if (isWebXRSupported) {
+			this.initWebXRAR();
+		} else {
+			console.warn('WebXR not supported, falling back to Webcam AR');
+			this.initWebcamAR();
+		}
+	}
+
+	initWebXRAR() {
+		// 1. 添加 AR 按钮
+		const arButton = ARButton.createButton(this.renderer, { requiredFeatures: ['hit-test'] });
+		arButton.style.zIndex = '9999';
+		document.body.appendChild(arButton);
+
+		this.renderer.xr.enabled = true;
+
+		// 2. 创建 Reticle (光标)
+		const geometry = new THREE.RingGeometry(0.15, 0.2, 32).rotateX(-Math.PI / 2);
+		const material = new THREE.MeshBasicMaterial({ color: 0xffffff });
+		this.arReticle = new THREE.Mesh(geometry, material);
+		this.arReticle.matrixAutoUpdate = false;
+		this.arReticle.visible = false;
+		this.scene.add(this.arReticle);
+
+		// 3. 创建 AR 内容组
+		this.arContentGroup = new THREE.Group();
+		this.scene.add(this.arContentGroup);
+
+		// 4. 监听 AR 会话交互
+		const onSelect = () => {
+			if (this.arReticle && this.arReticle.visible && this.arContentGroup) {
+				const position = new THREE.Vector3();
+				const quaternion = new THREE.Quaternion();
+				const scale = new THREE.Vector3();
+				
+				this.arReticle.matrix.decompose(position, quaternion, scale);
+				
+				this.arContentGroup.position.copy(position);
+				this.arContentGroup.quaternion.copy(quaternion);
+				this.arContentGroup.visible = true;
+			}
+		};
+
+		const controller = this.renderer.xr.getController(0);
+		controller.addEventListener('select', onSelect);
+		this.scene.add(controller);
+	}
+
+	async initWebcamAR() {
+		this.isWebcamAR = true;
+		this.renderer.xr.enabled = false; // 禁用 XR
+
+		// 1. 获取摄像头流并作为背景
+		try {
+			const stream = await navigator.mediaDevices.getUserMedia({
+				video: {
+					facingMode: 'environment'
+				}
+			});
+			
+			const video = document.createElement('video');
+			// iOS 关键属性：允许内联播放，静音自动播放
+			video.setAttribute('autoplay', '');
+			video.setAttribute('muted', '');
+			video.setAttribute('playsinline', '');
+			video.setAttribute('webkit-playsinline', '');
+			video.style.position = 'absolute';
+			video.srcObject = stream;
+			video.play().catch(e => {
+				console.error('Video play failed:', e);
+			});
+			video.style.top = '0';
+			video.style.left = '0';
+			video.style.width = '100%';
+			video.style.height = '100%';
+			video.style.objectFit = 'cover';
+			video.style.zIndex = '0'; // 在 canvas 之下
+			
+			this.videoElement = video; // 保存 video 引用
+
+			if (this.container) {
+				this.container.appendChild(video);
+			} else {
+				document.body.appendChild(video);
+			}
+			
+			// 确保 canvas 透明
+			this.renderer.setClearColor(0x000000, 0);
+			this.renderer.domElement.style.background = 'transparent';
+
+			// 初始化二维码扫描 Canvas
+			this.qrScanCanvas = document.createElement('canvas');
+			this.qrScanContext = this.qrScanCanvas.getContext('2d');
+
+		} catch (err) {
+			console.error('Error accessing webcam:', err);
+			alert('无法访问摄像头，请检查权限设置');
+		}
+
+		// 2. 初始化陀螺仪控制
+		// 注意：iOS 需要用户交互触发权限请求，这部分逻辑应在外部 UI 调用
+		this.deviceOrientationControls = new DeviceOrientationControls(this.camera, this.renderer.domElement);
+		this.controls.enabled = false; // 禁用 OrbitControls
+
+		// 3. 创建 AR 内容组并默认放置在前方
+		this.arContentGroup = new THREE.Group();
+		this.scene.add(this.arContentGroup);
+		// 默认不可见或者放置在一定距离
+		this.arContentGroup.position.set(0, 0, -5); // 相机前方 5 米
+	}
+
+	// 专门为 Webcam AR 提供的放置方法
+	placeSceneInFrontOfCamera() {
+		if (!this.arContentGroup || !this.camera) return;
+
+		// 获取相机前方一定距离的位置
+		const distance = 5; // 5米
+		const direction = new THREE.Vector3();
+		this.camera.getWorldDirection(direction);
+		
+		const position = new THREE.Vector3();
+		position.copy(this.camera.position).add(direction.multiplyScalar(distance));
+		
+		this.arContentGroup.position.copy(position);
+		// 可选：让物体朝向相机
+		this.arContentGroup.lookAt(this.camera.position);
+		// 修正旋转，保持水平
+		this.arContentGroup.rotation.x = 0;
+		this.arContentGroup.rotation.z = 0;
+	}
+
+	// 扫描二维码并定位场景
+	scanAndPositionFromQR() {
+		if (!this.videoElement || !this.qrScanCanvas || !this.qrScanContext || !this.camera || !this.arContentGroup) {
+			return false;
+		}
+
+		// 限制扫描频率 (例如每 200ms 扫描一次)
+		const now = performance.now();
+		if (now - this.lastQRScanTime < 200) {
+			return false;
+		}
+		this.lastQRScanTime = now;
+
+		const video = this.videoElement;
+		if (video.readyState === video.HAVE_ENOUGH_DATA) {
+			this.qrScanCanvas.width = video.videoWidth;
+			this.qrScanCanvas.height = video.videoHeight;
+			this.qrScanContext.drawImage(video, 0, 0, this.qrScanCanvas.width, this.qrScanCanvas.height);
+			
+			const imageData = this.qrScanContext.getImageData(0, 0, this.qrScanCanvas.width, this.qrScanCanvas.height);
+			const code = jsQR(imageData.data, imageData.width, imageData.height, {
+				inversionAttempts: "dontInvert",
+			});
+
+			if (code) {
+				console.log("Found QR code", code.data);
+				// 根据二维码位置定位
+				this.positionSceneByQR(code.location);
+				return true;
+			}
+		}
+		return false;
+	}
+
+	positionSceneByQR(location: any) {
+		if (!this.camera || !this.arContentGroup) return;
+
+		// 1. 计算二维码中心点
+		const centerX = (location.topLeftCorner.x + location.topRightCorner.x + location.bottomRightCorner.x + location.bottomLeftCorner.x) / 4;
+		const centerY = (location.topLeftCorner.y + location.topRightCorner.y + location.bottomRightCorner.y + location.bottomLeftCorner.y) / 4;
+
+		// 2. 归一化设备坐标 (NDC) -1 to 1
+		// 注意 video 可能被 object-fit: cover 裁剪，这里简化假设 video 填满屏幕且比例一致，或者做简单映射
+		// 为了更精确，需要考虑 videoElement 的显示尺寸和 videoWidth 的比例
+		// 这里简化处理：假设 video 是全屏显示的背景
+		
+		const ndcX = (centerX / this.videoElement!.videoWidth) * 2 - 1;
+		const ndcY = -(centerY / this.videoElement!.videoHeight) * 2 + 1;
+
+		// 3. 估算距离
+		// 假设二维码物理宽度为 10cm (0.1m)
+		// 简单的相似三角形原理： distance = (physicalWidth * focalLength) / pixelWidth
+		const qrPhysicalWidth = 0.15; // 米
+		const pixelWidth = Math.sqrt(
+			Math.pow(location.topRightCorner.x - location.topLeftCorner.x, 2) +
+			Math.pow(location.topRightCorner.y - location.topLeftCorner.y, 2)
+		);
+		
+		// 估算焦距 (pixels)
+		// fov = 2 * atan( (height / 2) / focalLength )
+		// focalLength = (height / 2) / tan(fov / 2)
+		// 这里用 videoHeight 估算
+		const fovRad = (this.camera as THREE.PerspectiveCamera).fov * (Math.PI / 180);
+		const focalLength = (this.videoElement!.videoHeight / 2) / Math.tan(fovRad / 2);
+		
+		const distance = (qrPhysicalWidth * focalLength) / pixelWidth;
+
+		// 4. 计算 3D 位置
+		// 从相机发射射线到该深度的平面
+		const vector = new THREE.Vector3(ndcX, ndcY, 0.5);
+		vector.unproject(this.camera);
+		const dir = vector.sub(this.camera.position).normalize();
+		const targetPos = this.camera.position.clone().add(dir.multiplyScalar(distance));
+
+		// 5. 应用位置
+		// 平滑过渡
+		// this.arContentGroup.position.lerp(targetPos, 0.1); 
+		this.arContentGroup.position.copy(targetPos);
+		
+		// 6. 朝向相机 (简化版，始终正面朝向用户，保持 upright)
+		this.arContentGroup.lookAt(this.camera.position);
+		this.arContentGroup.rotation.x = 0; // 保持水平
+		this.arContentGroup.rotation.z = 0;
+	}
+
+	// 请求陀螺仪权限 (iOS)
+	async requestDeviceOrientationPermission() {
+		if (this.deviceOrientationControls && typeof (this.deviceOrientationControls as any).connect === 'function') {
+             // DeviceOrientationControls 内部有权限请求逻辑，但需要重新触发连接
+             // 或者我们可以手动调用 DeviceOrientationEvent.requestPermission
+             if (typeof (DeviceOrientationEvent as any).requestPermission === 'function') {
+                 try {
+                     const response = await (DeviceOrientationEvent as any).requestPermission();
+                     if (response === 'granted') {
+                         this.deviceOrientationControls.connect();
+                         return true;
+                     } else {
+                         alert('陀螺仪权限被拒绝');
+                         return false;
+                     }
+                 } catch (error) {
+                     console.error(error);
+                     return false;
+                 }
+             }
+        }
+        return true; // Android 或非 iOS 设备默认通常允许
+	}
+
+	handleARHitTest(frame: any) {
+		if (!this.arHitTestSourceRequested) {
+			const session = this.renderer.xr.getSession();
+			if (session) {
+				session.requestReferenceSpace('viewer').then((referenceSpace: any) => {
+					session.requestHitTestSource({ space: referenceSpace }).then((source: any) => {
+						this.arHitTestSource = source;
+					});
+				});
+				session.addEventListener('end', () => {
+					this.arHitTestSourceRequested = false;
+					this.arHitTestSource = null;
+				});
+				this.arHitTestSourceRequested = true;
+			}
+		}
+
+		if (this.arHitTestSource && this.arReticle) {
+			const referenceSpace = this.renderer.xr.getReferenceSpace();
+			const hitTestResults = frame.getHitTestResults(this.arHitTestSource);
+
+			if (hitTestResults.length > 0) {
+				const hit = hitTestResults[0];
+				// 获取姿态
+				const pose = hit.getPose(referenceSpace);
+				if (pose) {
+					this.arReticle.visible = true;
+					this.arReticle.matrix.fromArray(pose.transform.matrix);
+				}
+			} else {
+				this.arReticle.visible = false;
+			}
+		}
+	}
+
 	startAnimationLoop() {
-		const animate = (time?: number) => {
-			requestAnimationFrame(animate)
+		const animate = (time?: number, frame?: any) => {
+			// 如果不是 XR 模式，需要手动 requestAnimationFrame
+			// 如果是 XR 模式，renderer.setAnimationLoop 会处理循环，不需要 requestAnimationFrame
+			// 但这里为了兼容两套逻辑，我们要做个判断
+			
+			// 注意：renderer.setAnimationLoop(callback) 会在每次 XR 帧时调用 callback
+			// 且 callback 会带上 time 和 frame
+			
+			// 如果没有启用 XR，或者 XR session 没开始，我们需要手动调用 loop（在 else 分支处理）
+			
 			const delta = this.clock.getDelta()
 			this.effectManager.update(delta)
 
+			// AR Hit Test
+			if (this.options.enableAR && frame) {
+				this.handleARHitTest(frame);
+			}
+
+			// Webcam AR: 自动扫描二维码
+			if (this.isWebcamAR) {
+				this.scanAndPositionFromQR();
+			}
+
 			// 更新 OrbitControls
-			if (this.controls) {
+			if (this.controls && this.controls.enabled) {
 				this.controls.update()
+			}
+			// 更新 DeviceOrientationControls
+			if (this.deviceOrientationControls && this.deviceOrientationControls.enabled) {
+				this.deviceOrientationControls.update()
 			}
 			
 			// 更新镜头光位置跟随相机
@@ -1676,11 +2010,6 @@ class ThreeCore {
 				const offset = new THREE.Vector3(2, 1, 2)
 				this.lensLight.position.copy(this.camera.position).add(offset)
 			}
-			// if (this.transformControls) {
-			// 	this.transformControls.updateMatrixWorld(); // 自定义控制器更新
-			// }
-			// this.renderer.setClearColor(0x000000, 0)
-			// this.renderer.render(this.scene, this.camera)
 
 			// 调用额外的动画回调
 			// biome-ignore lint/complexity/noForEach: <explanation>
@@ -1713,8 +2042,17 @@ class ThreeCore {
 					delete this.materials[mesh.uuid]
 				}
 			})
-			// 2. 合成最终场景
-			this.finalComposer.render()
+			
+			// AR 模式下通常不需要复杂的 PostProcessing (Composer)，因为要透视背景
+			// 但如果有 Bloom 需求，可以用 finalComposer。
+			// 不过 WebXR 中使用 Composer 可能会有兼容性问题（RenderTarget 大小等）。
+			// 简单起见，AR 模式下直接 render scene
+			if (this.renderer.xr.enabled && this.renderer.xr.isPresenting) {
+				this.renderer.render(this.scene, this.camera);
+			} else {
+				// 2. 合成最终场景
+				this.finalComposer.render()
+			}
 
 			// 渲染 CSS3D 场景（叠加在 WebGL 上）
 			if (this.css3DRenderer) {
@@ -1736,7 +2074,15 @@ class ThreeCore {
 			TWEEN.update(time || performance.now())
 		}
 
-		animate()
+		if (this.renderer.xr.enabled) {
+			this.renderer.setAnimationLoop(animate);
+		} else {
+			const loop = (time: number) => {
+				requestAnimationFrame(loop);
+				animate(time);
+			}
+			loop(0);
+		}
 	}
 
 	// 修改mount方法以支持CSS3D渲染器
@@ -2090,6 +2436,11 @@ class ThreeCore {
 				jsonObj.title = obj.userData.title
 				jsonObj.url = obj.userData.url
 				jsonObj.options = obj.userData.options
+				const mat = obj.material as THREE.Material
+				if ((mat as any).color) {
+					if (!jsonObj.options) jsonObj.options = {}
+					jsonObj.options.color = '#' + (mat as any).color.getHexString()
+				}
 			}
 			if (typeGuess === 'library') {
 				jsonObj.title = obj.userData.title
@@ -2177,10 +2528,16 @@ class ThreeCore {
 							rotation: options.rotation ?? 0
 						})
 						tex.flipY = false
+						tex.colorSpace = THREE.SRGBColorSpace
 						child.material.map = tex
 						child.material.transparent = true
 						child.material.needsUpdate = true
 					}
+				}
+			} else if (child instanceof THREE.Mesh) {
+				if (child.material.map) {
+					child.material.map.colorSpace = THREE.SRGBColorSpace
+					console.log('其他模型', child.material.map)
 				}
 			}
 		})
@@ -2278,7 +2635,7 @@ class ThreeCore {
 			})
 		}
 	}
-	public async loadSceneFromJSON(json: SceneJSON, renturGroup = false) {
+	public async loadSceneFromJSON(json: SceneJSON, renturGroup = false, onProgress?: (current: number, total: number) => void) {
 		let group = null
 		if (renturGroup) {
 			group = new THREE.Group()
@@ -2291,6 +2648,9 @@ class ThreeCore {
 				this.background = json.background
 			}
 		}
+
+		const total = json.objects.length
+		let current = 0
 
 		for (const obj of json.objects) {
 			const position = obj.position || [0, 0, 0]
@@ -2346,13 +2706,14 @@ class ThreeCore {
 			}
 
 			if (obj.type === 'effect' && obj.effect_name) {
+				const target = (this.options.enableAR && this.arContentGroup) ? this.arContentGroup : this.scene
 				this.addEffect(
 					{
 						effect_name: obj.effect_name,
 						effect_id: 0,
 						options: obj.options ? obj.options : {}
 					},
-					this.scene
+					target
 				)
 			}
 			if (obj.type === 'image' && obj.url) {
@@ -2375,25 +2736,34 @@ class ThreeCore {
 						if (template.json_data) {
 							const group = await this.loadSceneFromJSON(
 								template.json_data,
-								true
+								true,
+								undefined // 模版加载时不显示进度
 							)
 							if (group) {
 								group.userData.type = 'template'
 								group.userData.template_id = template.template_id
-								group.userData.ignorePick = true
-								this.scene.add(group)
-								this.loadTemplate.push(group)
-							}
+									group.userData.ignorePick = true
+									if (this.options.enableAR && this.arContentGroup) {
+										this.arContentGroup.add(group)
+									} else {
+										this.scene.add(group)
+									}
+									this.loadTemplate.push(group)
+								}
 						} else if (template.json_url) {
 							use$Get(`/sence/json/${template.json_url}.json?2`, undefined, {
 								baseURL: BASE_IMG
 							}).then(async res => {
-								const group = await this.loadSceneFromJSON(res, true)
+								const group = await this.loadSceneFromJSON(res, true, undefined) // 模版加载时不显示进度
 								if (group) {
 									group.userData.type = 'template'
 									group.userData.template_id = template.template_id
 									group.userData.ignorePick = true
-									this.scene.add(group)
+									if (this.options.enableAR && this.arContentGroup) {
+										this.arContentGroup.add(group)
+									} else {
+										this.scene.add(group)
+									}
 									this.loadTemplate.push(group)
 								}
 							})
@@ -2407,11 +2777,20 @@ class ThreeCore {
 				mesh.position.set(...position)
 				mesh.rotation.set(...rotation)
 				mesh.scale.set(...scale)
-				if (obj.type === 'diary' && !this.editMode) {
-					mesh.scale.set(0.001, 0.001, 0.001)
+				if (obj.type === 'diary') {
+					if (!this.editMode) {
+						mesh.scale.set(0.001, 0.001, 0.001)
+					} else {
+						mesh.scale.set(1, 1, 1)
+					}
+					console.log('创建日记点', this.editMode)
 				}
-				if (obj.type === 'library' && !this.editMode) {
-					mesh.scale.set(0.001, 0.001, 0.001)
+				if (obj.type === 'library') {
+					if (!this.editMode) {
+						mesh.scale.set(0.001, 0.001, 0.001)
+					} else {
+						mesh.scale.set(1, 1, 1)
+					}
 				}
 				if (renturGroup) {
 					mesh.userData.ignorePick = true
@@ -2421,7 +2800,11 @@ class ThreeCore {
 					group?.add(mesh)
 				} else {
 					this.allObjects.push(mesh)
-					this.scene.add(mesh)
+					if (this.options.enableAR && this.arContentGroup) {
+						this.arContentGroup.add(mesh)
+					} else {
+						this.scene.add(mesh)
+					}
 				}
 
 				// const box = this.createBoundingBoxMesh(mesh)
@@ -2431,6 +2814,12 @@ class ThreeCore {
 				// box.scale.set(...scale)
 				// box.renderOrder = 100000
 				// console.log(box, '包围盒')
+			}
+			
+			// 更新进度
+			current++
+			if (onProgress && !renturGroup) {
+				onProgress(current, total)
 			}
 		}
 		if (renturGroup) {
@@ -2541,8 +2930,8 @@ class ThreeCore {
 			this.resizeObserver.disconnect()
 		}
 
-		if (this.controls) {
-			this.controls.dispose()
+		if (this.deviceOrientationControls) {
+			this.deviceOrientationControls.dispose();
 		}
 
 		if (this.stats) {

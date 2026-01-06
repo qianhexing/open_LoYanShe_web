@@ -1,5 +1,5 @@
 import type { BaseResponse, PaginationParams, PaginationResponse, Library, FilterList, Shop, LibraryVideo, LibraryPipe } from '@/types/api';
-import type { Wiki } from '@/types/api'
+import type { Wiki, User } from '@/types/api'
 interface SearchParams extends PaginationParams {
   keyword?: string | null  // 可选字段
   filter_list?: FilterList[]
@@ -19,6 +19,7 @@ export async function getLibraryList(
 
 interface DetailParams{
   library_id?: number | null  // 可选字段
+  attributes?: string[]
 }
 interface DetailResponse extends PaginationParams {
   library: Library
@@ -95,6 +96,71 @@ export async function updateLibrary(params: InsertParams): Promise<Library> {
   return response.data
 }
 
+// 审核模式：获取修改参数
+export interface ReviewParams {
+  library_id: number
+  review: number
+}
+export interface ReviewData {
+  link: string | null
+  name: string
+  size: string | null
+  color: string | null
+  cover: string | null
+  notes: string | null
+  state: string | null
+  theme: string | null
+  season: string | null
+  shop_id: number | null
+  complete: boolean
+  end_time: string | null
+  edit_user: number
+  parent_id: number
+  sale_time: string | null
+  main_style: string | null
+  size_image: string | null
+  start_time: string | null
+  arrears_end: string | null
+  detail_image: string | null
+  library_type: string | null
+  square_cover: string | null
+  arrears_start: string | null
+  library_price: number | null
+  cloth_elements: string | null
+  design_elements: string | null
+  library_pattern: string | null
+  secondary_cloth: string | null
+  pattern_elements: string | null
+  fabric_composition: string | null
+}
+export interface LibraryHistoryNew {
+  history_id?: number
+  params: Library
+  user_id?: number
+  create_time?: string
+  type?: string
+  library_id?: number
+  is_apply?: number
+  user?: User
+  reason?: string | null
+}
+export async function getLibraryReviewData(params: ReviewParams): Promise<LibraryHistoryNew> {
+  const response = await use$Post<BaseResponse<LibraryHistoryNew>>('/library/history/review', params)
+  return response.data
+}
+
+// 提交审核
+export interface ReviewSubmitParams {
+  library_id: number
+  history_id: number
+  is_apply: number
+  reason?: string | null
+}
+export async function submitLibraryReview(params: ReviewSubmitParams): Promise<void> {
+  const response = await use$Post<BaseResponse<void>>('/library/review/submit', params)
+  return response.data
+}
+
 interface PipeParams extends PaginationParams {
   time?: string
   state?: number
@@ -129,5 +195,13 @@ export interface PipeInsertParams {
 }
 export async function insertLibraryPipe(params: PipeInsertParams): Promise<LibraryPipe> {
   const response = await use$Post<BaseResponse<LibraryPipe>>('/library/pipe/insert', params)
+  return response.data
+}
+
+export interface LibraryHistoryParams {
+  library_id: number
+}
+export async function getLibraryHistory(params: LibraryHistoryParams): Promise<LibraryHistoryNew[]> {
+  const response = await use$Post<BaseResponse<LibraryHistoryNew[]>>('/library/histroy/all', params)
   return response.data
 }

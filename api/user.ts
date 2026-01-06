@@ -5,6 +5,7 @@ export interface LoginUser {
   userId: number
   userName: string
   userPhone: string
+  permission_list?: string[]
 }
 interface LoginParams {
   user_password: string

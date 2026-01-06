@@ -2,8 +2,13 @@
 // https://nuxt.com/docs/api/configuration/nuxt-config
 export default defineNuxtConfig({
 	pages: true,
+	vue: {
+		compilerOptions: {
+			isCustomElement: (tag) => tag.startsWith('a-')
+		}
+	},
 	build: {
-    transpile: ['three']
+    transpile: ['three', 'mind-ar']
   },
 	nitro: {
 		routeRules: {
