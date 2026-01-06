@@ -28,6 +28,8 @@ const showPassword = ref(false)
 const clickPosition = ref({ x: 0, y: 0 })
 const password = ref<string>('')
 const showDeleteModal = ref(false)
+const showMoreMenu = ref(false)
+const moreMenuPosition = ref({ x: 0, y: 0 })
 let uni: any;
 const configStore = useConfigStore()
 const port = computed(() => configStore.getPort())
@@ -47,6 +49,7 @@ let oldList: { clothes_id: number; sort: number }[] = [];
 const record = ref<Wardrobe | null>(null)
 import type ClothesAdd from '@/components/Clothes/ClothesAdd.vue'
 import type WardrobeAddEdit from '@/components/Wardrobe/WardrobeAddEdit.vue'
+import dayjs from 'dayjs';
 const addEditClothesRef = ref<InstanceType<typeof ClothesAdd> | null>(null)
 const toast = useToast()
 const filter_list =  ref({
@@ -363,6 +366,66 @@ const onSortTypeChange = (option: { label: string; value: number }) => {
 const isWardrobeOwner = computed(() => {
   return user.user?.user_id === Number.parseInt(id) && currentWardrobe.value?.user_id === user.user?.user_id
 })
+
+// 自定义主题样式
+const customStyle = computed(() => {
+  if (!info.value?.custom_style) return null
+  const style = info.value.custom_style
+  return {
+    btnColor: style.btnColor || '#ffffff',
+    backColor: style.backColor || '#000000',
+    back_mode: style.back_mode ?? false,
+    fontColor: style.fontColor || '#ffffff',
+    back_opacity: style.back_opacity ?? 1,
+    btnFontColor: style.btnFontColor || '#000000'
+  }
+})
+
+// 是否有自定义主题
+const hasCustomStyle = computed(() => {
+  return customStyle.value !== null
+})
+
+// 背景样式
+const backgroundStyle = computed(() => {
+  if (!hasCustomStyle.value || !customStyle.value) return {}
+  const style = customStyle.value
+  const opacity = style.back_opacity ?? 1
+  // 解析十六进制颜色值
+  const hexColor = style.backColor.replace('#', '')
+  const r = parseInt(hexColor.slice(0, 2), 16)
+  const g = parseInt(hexColor.slice(2, 4), 16)
+  const b = parseInt(hexColor.slice(4, 6), 16)
+  
+  if (style.back_mode) {
+    // 背景模式：直接使用背景颜色作为背景
+    return {
+      backgroundColor: `rgba(${r}, ${g}, ${b}, ${opacity})`
+    }
+  } else {
+    // 非背景模式：使用背景颜色作为遮罩层（覆盖在背景图片上）
+    return {
+      backgroundColor: `rgba(${r}, ${g}, ${b}, ${opacity})`
+    }
+  }
+})
+
+// 文本样式
+const textStyle = computed(() => {
+  if (!hasCustomStyle.value || !customStyle.value) return {}
+  return {
+    color: customStyle.value.fontColor
+  }
+})
+
+// 按钮样式
+const buttonStyle = computed(() => {
+  if (!hasCustomStyle.value || !customStyle.value) return {}
+  return {
+    backgroundColor: customStyle.value.btnColor,
+    color: customStyle.value.btnFontColor
+  }
+})
 // 删除衣柜
 const confirmDeleteWardrobe = async () => {
   if (!currentWardrobe.value?.wardrobe_id) return
@@ -508,6 +571,50 @@ const jumpToClothes = (item: WardrobeClothes) => {
     }
 	}
 }
+
+// 打开更多菜单
+const openMoreMenu = (e: MouseEvent) => {
+  moreMenuPosition.value = {
+    x: e.clientX + 50,
+    y: e.clientY
+  }
+  showMoreMenu.value = true
+}
+
+// 跳转到星系可视化页面
+const jumpToVisualization = () => {
+  showMoreMenu.value = false
+  const userId = user.user?.user_id || Number.parseInt(id)
+  const visualizationUrl = `/visualization/wardrobe?user_id=${userId}`
+  
+  const isInUniApp =
+    typeof window !== 'undefined' &&
+    navigator.userAgent.includes('Html5Plus');
+  
+  if (isInUniApp && typeof uni !== 'undefined' && uni.navigateTo) {
+    // UniApp WebView 环境
+    uni.navigateTo({
+      url: `/pages/common/outerLink?url=https://lolitalibrary.com${visualizationUrl}`,
+      fail: () => {
+        console.log('跳转错误')
+      }
+    });
+  } else {
+    if (port.value) {
+      // 鸿蒙系统
+      port.value.postMessage(JSON.stringify({
+        type: 'jump',
+        path: 'Outlink',
+        params: {
+          url: `https://lolitalibrary.com${visualizationUrl}`
+        }
+      }));
+    } else {
+      // 普通网页环境
+      navigateTo(visualizationUrl)
+    }
+  }
+}
 onMounted(async () => {
   uni = await import('@dcloudio/uni-webview-js').catch((err) => {
     console.error('Failed to load uni-webview-js:', err);
@@ -607,6 +714,24 @@ const enableDrag = () => {
         </div>
       </div>
     </UModal>
+    <QhxModal v-model="showMoreMenu" :trigger-position="moreMenuPosition">
+      <div class="p-4 w-[200px] bg-white dark:bg-gray-800 rounded-[10px] shadow-lg">
+        <h3 class="text-sm font-bold mb-3 text-gray-800 dark:text-gray-200">更多选项</h3>
+
+        <!-- 星系选项 -->
+        <button @click="jumpToVisualization"
+          class="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors text-left group">
+          <div
+            class="w-8 h-8 bg-gradient-to-br from-purple-500 to-pink-500 rounded-lg flex items-center justify-center group-hover:scale-110 transition-transform">
+            <UIcon name="material-symbols:auto-awesome" class="text-base text-white" />
+          </div>
+          <div class="flex-1">
+            <div class="text-sm font-medium text-gray-800 dark:text-gray-200">星系</div>
+            <div class="text-xs text-gray-500 dark:text-gray-400">查看衣柜可视化</div>
+          </div>
+        </button>
+      </div>
+    </QhxModal>
 
     <div class="bg-qhx-bg-card rounded-2xl flex">
       <div
@@ -614,13 +739,21 @@ const enableDrag = () => {
         m-[10px] rounded-[10px] w-[180px] max-md:w-[20vw]
         bg-qhx-bg-card
         overflow-y-auto">
-        <div v-if="user.user?.user_id === Number.parseInt(id)" class="text-center py-2">
+        <div v-if="user.user?.user_id === Number.parseInt(id)" class="text-center py-2 space-y-2">
           <QhxJellyButton>
             <div class="h-[60px] text-center px-1  cursor-pointer" @click="showAddWardrobe()">
               <div class="my-[5px] mx-auto text-white rounded-[50%] h-[30px] w-[30px] bg-qhx-primary flex items-center justify-center">
                 <UIcon name="material-symbols:add-2" class="text-[22px] text-[#ffffff]" />
               </div>
               <div class=" text-sm text-qhx-text">新建衣柜</div>
+            </div>
+          </QhxJellyButton>
+          <QhxJellyButton>
+            <div class="h-[60px] text-center px-1 cursor-pointer" @click="openMoreMenu($event)">
+              <div class="my-[5px] mx-auto text-white rounded-[50%] h-[30px] w-[30px] bg-gray-500 flex items-center justify-center">
+                <UIcon name="material-symbols:more-horiz" class="text-[22px] text-[#ffffff]" />
+              </div>
+              <div class="text-sm text-qhx-text">更多</div>
             </div>
           </QhxJellyButton>
         </div>
@@ -632,17 +765,17 @@ const enableDrag = () => {
                 <div @click="changeWardrobe(element)"
                   class="group py-4 flex flex-col items-center transition-transform duration-300 ease-out hover:scale-105 text-gray-600 rounded-[10px]"
                   :class="currentWardrobe?.wardrobe_id === element.wardrobe_id ? 'bg-qhx-primary text-qhx-inverted' : ''">
-                  <img :src="`https://lolitalibrary.com/ali/${element.wardrobe_cover || 'static/plan_cover/default.jpg'}`"
+                  <!-- <img :src="`https://lolitalibrary.com/ali/${element.wardrobe_cover || 'static/plan_cover/default.jpg'}`"
                     :alt="element.wardrobe_name"
                     draggable="false"
                     class="object-cover w-[120px] h-[120px] max-md:w-[50px] max-md:h-[50px] rounded-xl border border-gray-200 shadow-md bg-white cursor-grab active:cursor-grabbing"
-                    loading="lazy" />
-                  <div class="mt-2 text-sm font-medium text-center w-[120px] max-md:w-[auto] text-qhx-text line-clamp-2">
+                    loading="lazy" /> -->
+                  <div class=" text-sm font-medium text-center w-[120px] max-md:w-[auto] text-qhx-text line-clamp-2">
                     {{ element.wardrobe_name }}
                   </div>
                 </div>
                 <!-- 编辑按钮（仅对当前用户显示） -->
-                <div v-if="user.user?.user_id === Number.parseInt(id)" 
+                <!-- <div v-if="user.user?.user_id === Number.parseInt(id)" 
                   class="absolute top-2 right-2 opacity-0 group-item:hover:opacity-100 transition-opacity">
                   <UButton 
                     icon="i-heroicons-pencil-square" 
@@ -652,7 +785,7 @@ const enableDrag = () => {
                     @click.stop="showEditWardrobe(element)"
                     class="bg-white/90 hover:bg-white shadow-md"
                   />
-                </div>
+                </div> -->
               </div>
             </transition-group>
           </template>
@@ -666,7 +799,7 @@ const enableDrag = () => {
           <div class="relative z-10 p-6 text-left space-y-4 text-qhx-text max-md:p-2 mt-2">
             <div class="flex items-center space-x-3">
               <div>
-                <p class="text-xs">创建于 {{ info.create_date }}</p>
+                <p class="text-xs">创建于 {{ dayjs(info.create_date).format('YYYY-MM-DD') }}</p>
               </div>
             </div>
 

@@ -16,7 +16,7 @@
 
     <!-- 拖拽上传区 -->
     <div
-      v-if="!props.disabled"
+      v-if="!props.disabled && !isMobile"
       class="w-full border-2 border-dashed border-gray-300 p-4 text-center rounded-lg"
       @dragover.prevent
       @drop.prevent="handleDrop"
@@ -75,6 +75,10 @@ const props = defineProps<{
   max?: number  // 最大图片数量
   disabled?: boolean  // 是否禁用
 }>()
+
+// 移动端检测
+const configStore = useConfigStore()
+const isMobile = computed(() => configStore.isMobile)
 
 const fileInput = ref<HTMLInputElement | null>(null)
 const files = ref<File[]>([])

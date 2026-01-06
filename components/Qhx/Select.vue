@@ -189,7 +189,7 @@ onMounted(() => {
 
 <template>
   <QhxModal v-model="show" :trigger-position="clickPosition">
-    <div class=" bg-white rounded-[10px] overflow-hidden py-4 flex flex-col items-center">
+    <div class=" w-[95vw] max-w-2xl bg-white rounded-[10px] overflow-hidden py-4 flex flex-col items-center">
       <div class="text-xm mb-4">请选择</div>
       <div 
         ref="pickerRef" 

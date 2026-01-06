@@ -849,8 +849,12 @@ onMounted(async () => {
     });
     // 初始化移动端检测
     configStore.initMobileDetection()
-    setTimeout(() => {
-        initThreejs()
+    setTimeout(async () => {
+        await initThreejs()
+        // 如果是手机端，默认关闭阴影
+        if (configStore.isMobile && threeCore.value?.renderer) {
+            changeShadowQuality('off')
+        }
     });
 })
 
