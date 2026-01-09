@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import type { WardrobeClothes, Library, Shop, Wardrobe } from '@/types/api'
+import { nextTick } from 'vue'
+import type { WardrobeClothes, Library, Shop, Wardrobe, Scene } from '@/types/api'
 
 // 扩展 WardrobeClothes 类型以包含关联数据
 interface ExtendedWardrobeClothes extends WardrobeClothes {
@@ -16,6 +17,7 @@ interface ExtendedWardrobeClothes extends WardrobeClothes {
 import { getClothesDetail, updateClothes, deteleClothes } from '@/api/wardrobe'
 import type ClothesAdd from '@/components/Clothes/ClothesAdd.vue'
 import type QhxSelect from '@/components/Qhx/Select.vue'
+import type SceneChoose from '@/components/scene/SceneChoose.vue'
 import { BASE_IMG } from '@/utils/ipConfig'
 let uni: any;
 const configStore = useConfigStore()
@@ -42,6 +44,9 @@ const showAddClothesModal = ref(false)
 const showAddMemoryModal = ref(false)
 const showChooseCommunityModal = ref(false)
 const showDeleteCommunityModal = ref(false)
+const showSceneChooseModal = ref(false)
+const showRemoveSceneModal = ref(false)
+const sceneChooseClickPosition = ref({ x: 0, y: 0 })
 const selectedClothes = ref<WardrobeClothes | null>(null)
 const selectedCommunity = ref<{ community_id: number;[key: string]: unknown } | null>(null)
 const memoryCount = ref(0)
@@ -51,6 +56,7 @@ const matchingCount = ref(0)
 const addEditClothesRef = ref<InstanceType<typeof ClothesAdd> | null>(null)
 const numSelectRef = ref<InstanceType<typeof QhxSelect> | null>(null)
 const timesSelectRef = ref<InstanceType<typeof QhxSelect> | null>(null)
+const SceneChooseRef = ref<InstanceType<typeof SceneChoose> | null>(null)
 
 // 数字选择器选项
 const numOptions = Array.from({ length: 100 }, (_, i) => ({
@@ -400,11 +406,11 @@ useHead({
 const jumpToScene = (sence_id: number) => {
   const sceneUrl = `/scene/detail/${sence_id}?edit=1`
   const fullUrl = `https://lolitalibrary.com${sceneUrl}`
-  
+
   const isInUniApp =
     typeof window !== 'undefined' &&
     navigator.userAgent.includes('Html5Plus');
-  
+
   if (isInUniApp && typeof uni !== 'undefined' && uni.navigateTo) {
     // UniApp WebView 环境 - 使用 outerlink
     uni.navigateTo({
@@ -425,6 +431,94 @@ const jumpToScene = (sence_id: number) => {
   } else {
     // 普通浏览器环境
     window.open(sceneUrl, '_blank')
+  }
+}
+
+// 移除场景
+const removeScene = async () => {
+  await updateClothes({
+    clothes_id: detail.value?.clothes_id,
+    sence_id: null
+  })
+  await fetchClothesDetail()
+  showRemoveSceneModal.value = false
+}
+
+// 显示场景选择对话框
+const showChooseScene = (event?: MouseEvent) => {
+  // 记录触发位置
+  if (event) {
+    sceneChooseClickPosition.value = {
+      x: event.clientX,
+      y: event.clientY
+    }
+  } else {
+    sceneChooseClickPosition.value = {
+      x: window.innerWidth / 2,
+      y: window.innerHeight / 2
+    }
+  }
+  // 显示选择对话框
+  showSceneChooseModal.value = true
+}
+
+// 关闭场景选择对话框
+const handleSceneChooseClose = () => {
+  showSceneChooseModal.value = false
+}
+
+// 套用模版
+const chooseTemplate = () => {
+  // 套用模版 - 先空实现
+  showSceneChooseModal.value = false
+  // TODO: 实现套用模版功能
+}
+
+// 选择现有场景
+const chooseExistingScene = () => {
+  // 选择现有场景
+  showSceneChooseModal.value = false
+  // 使用 nextTick 确保模态框关闭后再打开场景选择器
+  nextTick(() => {
+    if (SceneChooseRef.value) {
+      // 创建一个模拟的 MouseEvent，使用之前记录的点击位置
+      const mockEvent = {
+        clientX: sceneChooseClickPosition.value.x,
+        clientY: sceneChooseClickPosition.value.y
+      } as MouseEvent
+      SceneChooseRef.value.showModel(mockEvent)
+    }
+  })
+}
+
+// 选择场景后的回调
+const chooseScene = async (list: Scene[]) => {
+  if (list.length > 0 && detail.value) {
+    const selectedScene = list[0]
+    try {
+      await updateClothes({
+        clothes_id: detail.value.clothes_id,
+        sence_id: selectedScene.sence_id
+      })
+      // 更新本地数据
+      if (detail.value) {
+        detail.value.plan_id = selectedScene.sence_id
+        detail.value.sence_id = selectedScene.sence_id
+      }
+      toast.add({
+        title: '关联场景成功',
+        icon: 'i-heroicons-check-circle',
+        color: 'green'
+      })
+      // 刷新详情数据
+      await fetchClothesDetail()
+    } catch (error) {
+      toast.add({
+        title: '关联场景失败',
+        icon: 'i-heroicons-exclamation-circle',
+        color: 'red'
+      })
+    }
   }
 }
 </script>
@@ -451,17 +545,27 @@ const jumpToScene = (sence_id: number) => {
               <template #default="{ isActive }">
                 <div v-show="isActive" class="py-2">
                   <!-- 标题和操作按钮 -->
-                  <div class="flex items-center justify-between mb-4">
+                  <div class="items-center justify-between mb-4">
                     <h2 class="text-xl font-bold flex-1">
                       {{ detail.clothes_note || '暂无名称' }}
                     </h2>
-                    <div v-if="isOwner" class="flex gap-2 ml-2">
+                    <div v-if="isOwner" class="flex justify-end gap-2 ml-2">
                       <QhxJellyButton>
 
+                      <div class="h-[60px] text-center px-[1px]  cursor-pointer">
+                        <div
+                          class="bg-qhx-primary my-[5px] mx-auto text-white rounded-[50%] h-[30px] w-[30px] bg-qhx-primary flex items-center justify-center cursor-pointer"
+                          @click="showRemoveSceneModal = true">
+                          <UIcon name="i-heroicons-trash" class="text-[22px] text-[#ffffff]" />
+                        </div>
+                        <div class=" text-[12px]">移除场景</div>
+                      </div>
+                      </QhxJellyButton>
+                      <QhxJellyButton>
                         <div class="h-[60px] text-center px-[1px]  cursor-pointer">
                           <div
                             class="bg-qhx-primary my-[5px] mx-auto text-white rounded-[50%] h-[30px] w-[30px] bg-qhx-primary flex items-center justify-center cursor-pointer"
-                             @click="jumpToScene(detail.sence_id)">
+                            @click="jumpToScene(detail.sence_id)">
                             <UIcon name="i-heroicons-pencil-square" class="text-[22px] text-[#ffffff]" />
                           </div>
                           <div class=" text-[12px]">编辑场景</div>
@@ -486,7 +590,7 @@ const jumpToScene = (sence_id: number) => {
                           </div>
                           <div class=" text-[12px]">修改</div>
                         </div>
-                        
+
                       </QhxJellyButton>
                       <QhxJellyButton>
                         <div class="h-[60px] text-center px-[1px  cursor-pointer">
@@ -792,40 +896,59 @@ const jumpToScene = (sence_id: number) => {
                   <!-- 信息区域 -->
                   <div class="flex-1 space-y-3">
                     <!-- 标题和操作按钮 -->
-                    <div class="flex items-start justify-between">
+                    <div class="items-start justify-between">
                       <h2 class="text-xl font-bold flex-1">
                         {{ detail.clothes_note || '暂无名称' }}
                       </h2>
-                      <div v-if="isOwner" class="flex gap-2 ml-2">
-                        <QhxJellyButton>
-                          <!-- 排序 -->
+                      <div v-if="isOwner" class="flex justify-end gap-2 ml-2">
+                        <!-- <QhxJellyButton>
                           <div
                             class="my-[5px] mx-auto text-white rounded-[50%] h-[30px] w-[30px] bg-qhx-primary flex items-center justify-center cursor-pointer"
                             :class="sortMode ? 'bg-red-500' : 'bg-qhx-primary'" @click="sortMode = !sortMode">
                             <UIcon name="i-heroicons-bars-3-bottom-left" class="text-[22px] text-[#ffffff]" />
                           </div>
-                        </QhxJellyButton>
-
+                        </QhxJellyButton> -->
                         <QhxJellyButton>
-                          <div
-                            class="my-[5px] mx-auto text-white rounded-[50%] h-[30px] w-[30px] bg-qhx-primary flex items-center justify-center cursor-pointer"
-                            :class="sortMode ? 'bg-red-500' : 'bg-qhx-primary'" @click="copyClothes">
-                            <UIcon name="i-heroicons-document-duplicate" class="text-[22px] text-[#ffffff]" />
+                          <div class="h-[60px] text-center px-[1px  cursor-pointer">
+                            <div
+                              class="my-[5px] mx-auto text-white rounded-[50%] h-[30px] w-[30px] bg-qhx-primary flex items-center justify-center cursor-pointer"
+                              :class="sortMode ? 'bg-red-500' : 'bg-qhx-primary'" @click="(e: MouseEvent) => showChooseScene(e)">
+                              <UIcon name="material-symbols:view-3d-rounded" class="text-[22px] text-[#ffffff]" />
+                            </div>
+                            <div class=" text-[12px]">关联3D场景</div>
                           </div>
                         </QhxJellyButton>
                         <QhxJellyButton>
-                          <div
-                            class="my-[5px] mx-auto text-white rounded-[50%] h-[30px] w-[30px] bg-qhx-primary flex items-center justify-center cursor-pointer"
-                            :class="sortMode ? 'bg-red-500' : 'bg-qhx-primary'" @click="editClothes">
-                            <UIcon name="i-heroicons-pencil-square" class="text-[22px] text-[#ffffff]" />
+                          <div class="h-[60px] text-center px-[1px  cursor-pointer">
+                            <div
+                              class="my-[5px] mx-auto text-white rounded-[50%] h-[30px] w-[30px] bg-qhx-primary flex items-center justify-center cursor-pointer"
+                              :class="sortMode ? 'bg-red-500' : 'bg-qhx-primary'" @click="copyClothes">
+                              <UIcon name="i-heroicons-document-duplicate" class="text-[22px] text-[#ffffff]" />
+                            </div>
+                            <div class=" text-[12px]">复制</div>
                           </div>
                         </QhxJellyButton>
                         <QhxJellyButton>
-                          <div
-                            class="my-[5px] mx-auto text-white rounded-[50%] h-[30px] w-[30px] bg-qhx-primary flex items-center justify-center cursor-pointer"
-                            :class="sortMode ? 'bg-red-500' : 'bg-qhx-primary'" @click="showDeleteModal = true">
-                            <UIcon name="i-heroicons-trash" class="text-[22px] text-[#ffffff]" />
+                          <div class="h-[60px] text-center px-[1px  cursor-pointer">
+                            <div
+                              class="my-[5px] mx-auto text-white rounded-[50%] h-[30px] w-[30px] bg-qhx-primary flex items-center justify-center cursor-pointer"
+                              :class="sortMode ? 'bg-red-500' : 'bg-qhx-primary'" @click="editClothes">
+                              <UIcon name="i-heroicons-pencil-square" class="text-[22px] text-[#ffffff]" />
+                            </div>
+                            <div class=" text-[12px]">编辑</div>
                           </div>
+                        </QhxJellyButton>
+                        
+                        <QhxJellyButton>
+                          <div class="h-[60px] text-center px-[1px  cursor-pointer">
+                            <div
+                              class="my-[5px] mx-auto text-white rounded-[50%] h-[30px] w-[30px] bg-qhx-primary flex items-center justify-center cursor-pointer"
+                              :class="sortMode ? 'bg-red-500' : 'bg-qhx-primary'" @click="showDeleteModal = true">
+                              <UIcon name="i-heroicons-trash" class="text-[22px] text-[#ffffff]" />
+                            </div>
+                            <div class=" text-[12px]">删除</div>
+                          </div>
+                          
                         </QhxJellyButton>
                       </div>
                     </div>
@@ -1075,14 +1198,84 @@ const jumpToScene = (sence_id: number) => {
         </QhxTabPanel> -->
         </QhxTabs>
       </div>
+      <!-- 场景选择组件 -->
+      <SceneChoose ref="SceneChooseRef" @choose="chooseScene"></SceneChoose>
+      
+      <!-- 场景选择对话框 -->
+      <QhxModal v-model="showSceneChooseModal" :trigger-position="sceneChooseClickPosition" @close="handleSceneChooseClose">
+        <div class="w-[90vw] max-w-md bg-white dark:bg-gray-800 rounded-2xl shadow-2xl overflow-hidden flex flex-col backdrop-blur-xl border border-gray-200/50 dark:border-gray-700/50">
+          <!-- 头部 -->
+          <div class="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-700 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-gray-800 dark:to-gray-800 flex-shrink-0">
+            <h3 class="text-lg font-semibold text-gray-900 dark:text-gray-100">选择场景方式</h3>
+            <button
+              @click="handleSceneChooseClose"
+              class="w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors group"
+            >
+              <UIcon name="i-heroicons-x-mark" class="text-gray-500 dark:text-gray-400 group-hover:text-gray-700 dark:group-hover:text-gray-200 transition-colors" />
+            </button>
+          </div>
 
-      <!-- 删除确认弹窗 -->
-      <UModal v-model="showDeleteModal" title="操作确认">
+          <!-- 内容区域 -->
+          <div class="p-6 space-y-4">
+            <!-- 套用模版 -->
+            <!-- <div
+              @click="chooseTemplate"
+              class="flex items-center gap-4 p-4 rounded-xl border-2 border-gray-200 dark:border-gray-600 cursor-pointer transition-all duration-200 hover:border-blue-400 dark:hover:border-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 hover:shadow-md group"
+            >
+              <div class="flex-shrink-0 w-12 h-12 rounded-full bg-gradient-to-r from-purple-500 to-pink-500 flex items-center justify-center group-hover:scale-110 transition-transform">
+                <UIcon name="material-symbols:auto-awesome-rounded" class="text-2xl text-white" />
+              </div>
+              <div class="flex-1 min-w-0">
+                <h4 class="text-base font-semibold text-gray-900 dark:text-gray-100 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
+                  套用模版
+                </h4>
+                <p class="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                  从预设模版中选择场景
+                </p>
+              </div>
+              <UIcon name="i-heroicons-chevron-right" class="text-gray-400 group-hover:text-blue-500 transition-colors" />
+            </div> -->
+
+            <!-- 现有场景 -->
+            <div
+              @click="chooseExistingScene"
+              class="flex items-center gap-4 p-4 rounded-xl border-2 border-gray-200 dark:border-gray-600 cursor-pointer transition-all duration-200 hover:border-blue-400 dark:hover:border-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 hover:shadow-md group"
+            >
+              <div class="flex-shrink-0 w-12 h-12 rounded-full bg-gradient-to-r from-blue-500 to-indigo-500 flex items-center justify-center group-hover:scale-110 transition-transform">
+                <UIcon name="material-symbols:scatter-plot-rounded" class="text-2xl text-white" />
+              </div>
+              <div class="flex-1 min-w-0">
+                <h4 class="text-base font-semibold text-gray-900 dark:text-gray-100 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
+                  现有场景
+                </h4>
+                <p class="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                  从已创建的场景中选择
+                </p>
+              </div>
+              <UIcon name="i-heroicons-chevron-right" class="text-gray-400 group-hover:text-blue-500 transition-colors" />
+            </div>
+          </div>
+        </div>
+      </QhxModal>
+    </div>
+    <!-- 删除确认弹窗 -->
+    <UModal v-model="showDeleteModal" title="操作确认">
         <div class="p-4">
           <p class="mb-4">确定要删除吗？</p>
           <div class="flex justify-end gap-2">
             <UButton color="gray" @click="showDeleteModal = false">取消</UButton>
             <UButton color="red" @click="confirmDelete">确定</UButton>
+          </div>
+        </div>
+      </UModal>
+
+      <!-- 移除场景确认弹窗 -->
+      <UModal v-model="showRemoveSceneModal" title="操作确认">
+        <div class="p-4">
+          <p class="mb-4">确定要移除当前关联的场景吗？</p>
+          <div class="flex justify-end gap-2">
+            <UButton color="gray" @click="showRemoveSceneModal = false">取消</UButton>
+            <UButton color="red" @click="removeScene">确定</UButton>
           </div>
         </div>
       </UModal>
@@ -1097,6 +1290,5 @@ const jumpToScene = (sence_id: number) => {
           </div>
         </div>
       </UModal>
-    </div>
   </div>
 </template>

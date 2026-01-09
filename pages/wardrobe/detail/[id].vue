@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { Wardrobe, PaginationResponse, WardrobeClothes } from '@/types/api';
-import { getWardrobeList, getClothesList, sortClothee, checkWadrobePassword, sortWardrobe, updateWardrobe, deleteWardrobe } from '@/api/wardrobe'
+import { getWardrobeList, getClothesList, sortClothee,changeWardrobeClothes, checkWadrobePassword, sortWardrobe, updateWardrobe, deleteWardrobe } from '@/api/wardrobe'
 import type { ClothesParams } from '@/api/wardrobe'
 import Draggable from "vuedraggable"
 import { useCopyCurrentUrl } from '~/composables/useCopyCurrentUrl';
@@ -45,6 +45,15 @@ watch(port, (newVal) => {
   }
 })
 
+// 传入颜色（十六进制）和透明度转换为十六进制颜色
+const hexColor = (color: string, opacity: number) => {
+  const r = Number.parseInt(color.slice(1, 3), 16)
+  const g = Number.parseInt(color.slice(3, 5), 16)
+  const b = Number.parseInt(color.slice(5, 7), 16)
+  console.log(`rgba(${r}, ${g}, ${b}, ${opacity})`, '返回的颜色')
+  return `rgba(${r}, ${g}, ${b}, ${opacity})`
+}
+const opearClothesId = ref<number | null>(null)
 let oldList: { clothes_id: number; sort: number }[] = [];
 const record = ref<Wardrobe | null>(null)
 import type ClothesAdd from '@/components/Clothes/ClothesAdd.vue'
@@ -189,14 +198,75 @@ const showAddClothes = () => {
     addEditClothesRef.value.showModel(currentWardrobe.value)
   }
 }
+const getWardrobeIdByPoint = (clientX: number, clientY: number): number | null => {
+  if (typeof document === 'undefined') return null
+
+  const el = document.elementFromPoint(clientX, clientY) as HTMLElement | null
+  if (!el) return null
+
+  let current: HTMLElement | null = el
+  while (current) {
+    // 你的衣柜名称节点 class 是 wardrobe-name，并带有 data-wardrobe-id
+    if (current.classList && current.classList.contains('wardrobe-name')) {
+      const idStr = current.dataset.wardrobeId
+      return idStr ? Number.parseInt(idStr) : null
+    }
+    current = current.parentElement
+  }
+  return null
+}
+const fetchWardrobeClothes = async (clothesId: number, wardrobeId: number) => {
+  const response = await changeWardrobeClothes({
+    clothes_id: clothesId,
+    wardrobe_id: wardrobeId
+  })
+  if (response) {
+    toast.add({
+      title: '服饰已移动到其他衣柜',
+      icon: 'i-heroicons-check-circle',
+      color: 'green'
+    })
+  }
+  const index = list.value.findIndex(item => item.clothes_id === clothesId)
+  if (index !== -1) {
+    list.value.splice(index, 1)
+  }
+  opearClothesId.value = null
+  reload()
+  isSorting.value = false
+}
 // 服饰拖拽部分(*^▽^*)
-const onDragStart = () => {
+const onDragStart = (e) => {
   oldList = list.value.map((item, index) => ({ clothes_id: item.clothes_id, sort: item.sort || index }));
 };
-const onDragEnd = async () => {
+const onDragEnd = async (e: any) => {
   if (isSorting.value) return; // 防止重复提交
   isSorting.value = true;
-
+  console.log('拖拽结束', opearClothesId.value)
+  // 获取正在拖拽的服饰ID
+  const clothesId = e.originalEvent.target.dataset.clothesId
+  if (e.originalEvent.type === 'touchend' && e.originalEvent.changedTouches.length > 0) {
+    const touch = e.originalEvent.changedTouches[0];
+    console.log('touch', touch)
+    const clientX = touch.clientX
+    const clientY = touch.clientY
+    const wardrobeId = getWardrobeIdByPoint(clientX, clientY)
+    if (wardrobeId && wardrobeId !== currentWardrobe.value?.wardrobe_id && opearClothesId.value) {
+      console.log('是衣柜', wardrobeId)
+      await fetchWardrobeClothes(opearClothesId.value, wardrobeId)
+      return
+    }
+  } else {
+    const isWardrobe = e.originalEvent.target.className.includes('wardrobe-name')
+    if (isWardrobe) {
+      const wardrobeId = e.originalEvent.target.dataset.wardrobeId
+      console.log('是衣柜', wardrobeId)
+      if (wardrobeId !== currentWardrobe.value?.wardrobe_id && opearClothesId.value) {
+        await fetchWardrobeClothes(opearClothesId.value, wardrobeId)
+        return
+      }
+    }
+  }
   try {
     // 找出变化的元素
     const changed: { clothes_id: number; sort: number }[] = [];
@@ -371,13 +441,23 @@ const isWardrobeOwner = computed(() => {
 const customStyle = computed(() => {
   if (!info.value?.custom_style) return null
   const style = info.value.custom_style
+
   return {
-    btnColor: style.btnColor || '#ffffff',
-    backColor: style.backColor || '#000000',
-    back_mode: style.back_mode ?? false,
-    fontColor: style.fontColor || '#ffffff',
-    back_opacity: style.back_opacity ?? 1,
-    btnFontColor: style.btnFontColor || '#000000'
+    background: `${info.value?.background
+      ? `linear-gradient(
+          ${hexColor(style.backColor || '#ffffff', style.back_opacity ?? 1)},
+          ${hexColor(style.backColor || '#ffffff', style.back_opacity ?? 1)}
+        ),
+        url(${BASE_IMG + info.value.background}) ${style.back_mode ? 'center/cover no-repeat' : 'repeat'}
+      `
+      : hexColor(style.backColor || '#ffffff', style.back_opacity ?? 1)
+    }`,
+    btnColor: style.btnColor || undefined,
+    backColor: style.backColor || undefined,
+    back_mode: style.back_mode ?? undefined,
+    fontColor: style.fontColor || undefined,
+    back_opacity: style.back_opacity ?? undefined,
+    btnFontColor: style.btnFontColor || undefined
   }
 })
 
@@ -677,7 +757,11 @@ const enableDrag = () => {
 </script>
 <template>
 
-  <div class="wardrobe-wrap">
+  <div class="wardrobe-wrap text-qhx-text" :style="{ 
+    background: customStyle?.background,
+    backgroundPosition: 'center',
+    color: customStyle?.fontColor || 'inherit',
+    }">
     <div v-if="isSorting || isWardrobeSorting" class="absolute inset-0 bg-white/50 flex z-10 items-center justify-center">
       <span class="text-gray-600">正在保存排序……</span>
     </div>
@@ -733,11 +817,10 @@ const enableDrag = () => {
       </div>
     </QhxModal>
 
-    <div class="bg-qhx-bg-card rounded-2xl flex">
+    <div class="rounded-2xl flex">
       <div
         class=" wardrobe-list shadow-xl h-[calc(100vh-20px)] 
         m-[10px] rounded-[10px] w-[180px] max-md:w-[20vw]
-        bg-qhx-bg-card
         overflow-y-auto">
         <div v-if="user.user?.user_id === Number.parseInt(id)" class="text-center py-2 space-y-2">
           <QhxJellyButton>
@@ -763,14 +846,15 @@ const enableDrag = () => {
             <transition-group tag="div" name="list">
               <div class="relative group-item">
                 <div @click="changeWardrobe(element)"
-                  class="group py-4 flex flex-col items-center transition-transform duration-300 ease-out hover:scale-105 text-gray-600 rounded-[10px]"
+                  class="group w-[90%] mx-auto flex flex-col items-center transition-transform duration-300 ease-out  rounded-[10px]"
                   :class="currentWardrobe?.wardrobe_id === element.wardrobe_id ? 'bg-qhx-primary text-qhx-inverted' : ''">
                   <!-- <img :src="`https://lolitalibrary.com/ali/${element.wardrobe_cover || 'static/plan_cover/default.jpg'}`"
                     :alt="element.wardrobe_name"
                     draggable="false"
                     class="object-cover w-[120px] h-[120px] max-md:w-[50px] max-md:h-[50px] rounded-xl border border-gray-200 shadow-md bg-white cursor-grab active:cursor-grabbing"
                     loading="lazy" /> -->
-                  <div class=" text-sm font-medium text-center w-[120px] max-md:w-[auto] text-qhx-text line-clamp-2">
+                  <div class="wardrobe-name py-4 text-sm font-medium text-center w-[full] max-md:w-[auto] cursor-pointer"
+                  :data-wardrobe-id="element.wardrobe_id">
                     {{ element.wardrobe_name }}
                   </div>
                 </div>
@@ -796,7 +880,7 @@ const enableDrag = () => {
           <!-- 半透明遮罩层 -->
           <!-- :style="currentWardrobe?.wardrobe_cover? { backgroundImage: `url(${BASE_IMG + currentWardrobe?.wardrobe_cover})`} : {}" -->
           <div class="absolute inset-0 bg-cover bg-center"></div>
-          <div class="relative z-10 p-6 text-left space-y-4 text-qhx-text max-md:p-2 mt-2">
+          <div class="relative z-10 p-6 text-left space-y-4 max-md:p-2 mt-2">
             <div class="flex items-center space-x-3">
               <div>
                 <p class="text-xs">创建于 {{ dayjs(info.create_date).format('YYYY-MM-DD') }}</p>
@@ -945,14 +1029,17 @@ const enableDrag = () => {
           :scroll-sensitivity="150"
           :scroll-speed="15"
           :fallback-tolerance="0"
-          :forceFallback="true" :delay="150" :disabled="!sortMode" @start="onDragStart" @end="onDragEnd" v-model="list" item-key="id"
+          :forceFallback="true" :delay="150" :disabled="!sortMode" @start="onDragStart" :move="() => { console.log('移动') }" @end="onDragEnd" v-model="list" item-key="id"
             animation="300" ghost-class="drag-ghost" chosen-class="drag-chosen" drag-class="dragging"
             class=" flex flex-wrap">
             <template #item="{ element }">
               <transition-group tag="div"
                 class="[@media(min-width:1920px)]:w-[calc(100%/10)] xl:w-1/6 md:w-1/4 max-md:w-1/3" name="list">
                 <div
-                  class="group drag-handle flex flex-col items-center transition-transform duration-300 ease-out hover:scale-105 py-[10px] px-[15px] max-md:px-[5px]" @click="jumpToClothes(element)">
+                  class="group drag-handle flex flex-col items-center transition-transform duration-300 ease-out hover:scale-105 py-[10px] px-[15px] max-md:px-[5px]"
+                  @mousedown="opearClothesId = element.clothes_id"
+                  @touchstart="opearClothesId = element.clothes_id"
+                  @click="jumpToClothes(element)">
                   <div class="w-full aspect-[1/1] relative shadow-xl">
                     <div
                       class=" absolute bg-qhx-primary text-qhx-inverted left-0 top-0 text-[12px] rounded-tl-[10px] px-1 py-[2px]"
@@ -965,11 +1052,11 @@ const enableDrag = () => {
                       loading="lazy">
                     </img>
                   </div>
-                  <div class="mt-2 text-sm text-qhx-text font-medium text-center w-[140px] truncate">
+                  <div class="mt-2 mx-[2px] line-clamp-2 overflow-hidden text-sm font-medium text-center">
                     {{ element.clothes_note }}
                   </div>
                   <div v-if="element.price"
-                    class="mt-2 text-sm text-qhx-primary font-medium text-center w-[120px] truncate">
+                    class="mt-2 text-sm text-qhx-primary font-medium text-center w-[120px] line-clamp-2 overflow-hidden">
                     ￥ {{ info?.show_price === 2 ? '***' : (element.price || 0) }}
                   </div>
                 </div>

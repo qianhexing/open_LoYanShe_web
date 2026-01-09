@@ -36,14 +36,15 @@
             <div class="flex-1 flex overflow-x-auto"  ref="tagsContainer">
               <div class="flex scrollbar-hide">
                 <div v-if="!type_id">
-                  <QhxTag @click="show_control.wiki_type = true" v-if="!choose_wiki_type" class="cursor-pointer">
+                  <QhxTag style="white-space: nowrap !important;"  @click="show_control.wiki_type = true" v-if="!choose_wiki_type" class="cursor-pointer">
                     选择大类
                   </QhxTag>
-                  <QhxTag @click="show_control.wiki_type = true" v-else class="cursor-pointer">
+                  <QhxTag style="white-space: nowrap !important;"  @click="show_control.wiki_type = true" v-else class="cursor-pointer">
                     {{ choose_wiki_type.label }}
                   </QhxTag>
                 </div>
-                <QhxTag v-for="(tags) in default_options" 
+                <QhxTag v-for="(tags) in default_options"
+                style="white-space: nowrap !important" 
                 class="cursor-pointer"
                 :active="parent_id === tags.wiki_id ? true : false" @click="chooseParentId(tags)">
                   {{ tags.wiki_name }}

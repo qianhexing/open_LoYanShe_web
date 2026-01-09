@@ -6,6 +6,7 @@ interface SearchParams extends PaginationParams {
   need_Statistics?: boolean
   parent_id?: boolean
   examin?: number[]
+  sort?: number  // 排序模式
 }
 export async function getLibraryList(
   params: SearchParams
@@ -138,7 +139,7 @@ export interface LibraryHistoryNew {
   params: Library
   user_id?: number
   create_time?: string
-  type?: string
+  type?: number
   library_id?: number
   is_apply?: number
   user?: User

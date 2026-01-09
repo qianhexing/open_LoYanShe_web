@@ -30,21 +30,21 @@ const handleClick = () => {
     <!-- mini尺寸 -->
     <div 
       v-if="size === 'mini-list'" 
-      class="flex items-center w-full bg-white dark:bg-gray-800 rounded-lg p-2 border border-gray-200 dark:border-gray-700 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+      class="items-center w-full bg-white rounded-lg p-2 border border-gray-200  cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
       @click="handleClick"
     >
-      <div class="flex-shrink-0">
+      <div class="">
         <img 
           :src="`${BASE_IMG}${item.sence_cover || 'static/plan_cover/default.jpg'}`" 
           :alt="item.sence_desc || '场景封面'"
-          class="w-16 h-16 object-cover rounded-md border border-gray-200 dark:border-gray-600"
+          class="w-full aspect-[4/3] object-cover rounded-md border border-gray-200 dark:border-gray-600"
           loading="lazy" 
         />
       </div>
       <div class="flex-1 ml-3 min-w-0">
-        <h3 class="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
+        <!-- <h3 class="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
           {{ item.sence_desc || '未命名场景' }}
-        </h3>
+        </h3> -->
         <p class="text-xs text-gray-500 dark:text-gray-400 mt-1 truncate">
           {{ item.create_time ? new Date(item.create_time).toLocaleDateString() : '' }}
         </p>

@@ -8,6 +8,7 @@ import type { DiaryInterface, LibraryInterface } from '@/types/sence'
 import type SceneMaterial from '@/components/scene/Material.vue'
 import type SceneTextureEditor from '@/components/scene/TextureEditor.vue'
 import { useSceneStore } from '@/stores/sence'
+import { useConfigStore } from '@/stores/config'
 import { createFont } from '~/api';
 import { uploadFileToOSS } from '@/utils/ossUpload';
 import { useSceneCore } from '@/composables/useSceneCore';
@@ -250,6 +251,29 @@ const settingsState = reactive({
     fov: 45, // 镜头角度（视野角度）
     lightAzimuth: 45, // 光源水平角度
     lightElevation: 45, // 光源垂直角度
+    minAzimuthAngle: -180, // 控制器水平旋转最小角度（度）
+    maxAzimuthAngle: 180, // 控制器水平旋转最大角度（度）
+    minPolarAngle: 0, // 控制器垂直旋转最小角度（度）
+    maxPolarAngle: 180, // 控制器垂直旋转最大角度（度）
+})
+
+// 双向滑块使用的计算属性
+const azimuthRange = computed({
+    get: () => [settingsState.minAzimuthAngle, settingsState.maxAzimuthAngle] as [number, number],
+    set: (values: [number, number]) => {
+        settingsState.minAzimuthAngle = values[0]
+        settingsState.maxAzimuthAngle = values[1]
+        handleAzimuthRangeChange(values)
+    }
+})
+
+const polarRange = computed({
+    get: () => [settingsState.minPolarAngle, settingsState.maxPolarAngle] as [number, number],
+    set: (values: [number, number]) => {
+        settingsState.minPolarAngle = values[0]
+        settingsState.maxPolarAngle = values[1]
+        handlePolarRangeChange(values)
+    }
 })
 const shadowQualityOptions = [
     { label: '关闭', value: 'off' },
@@ -279,6 +303,21 @@ const openSettings = (e: MouseEvent) => {
     // 初始化镜头角度
     if (threeCore.value?.camera && (threeCore.value.camera as THREE.PerspectiveCamera).isPerspectiveCamera) {
         settingsState.fov = (threeCore.value.camera as THREE.PerspectiveCamera).fov
+    }
+
+    // 初始化controls旋转角度限制
+    if (threeCore.value?.controls) {
+        // 水平角度（azimuth）：默认无限制（Number.NEGATIVE_INFINITY 到 Number.POSITIVE_INFINITY）
+        const minAzimuthRad = threeCore.value.controls.minAzimuthAngle ?? Number.NEGATIVE_INFINITY
+        const maxAzimuthRad = threeCore.value.controls.maxAzimuthAngle ?? Number.POSITIVE_INFINITY
+        settingsState.minAzimuthAngle = minAzimuthRad === Number.NEGATIVE_INFINITY ? -180 : (minAzimuthRad * 180) / Math.PI
+        settingsState.maxAzimuthAngle = maxAzimuthRad === Number.POSITIVE_INFINITY ? 180 : (maxAzimuthRad * 180) / Math.PI
+        
+        // 垂直角度（polar）：默认 0 到 Math.PI（180度）
+        const minPolarRad = threeCore.value.controls.minPolarAngle ?? 0
+        const maxPolarRad = threeCore.value.controls.maxPolarAngle ?? Math.PI
+        settingsState.minPolarAngle = (minPolarRad * 180) / Math.PI
+        settingsState.maxPolarAngle = (maxPolarRad * 180) / Math.PI
     }
 
     showSettings.value = true
@@ -338,6 +377,22 @@ const changeFov = (val: number) => {
         cam.fov = val
         cam.updateProjectionMatrix()
     }
+}
+
+const handleAzimuthRangeChange = (values: [number, number]) => {
+    if (!threeCore.value || !threeCore.value.controls) return
+    const [min, max] = values
+    // 将度转换为弧度，-180度表示无限制，180度表示无限制
+    threeCore.value.controls.minAzimuthAngle = min === -180 ? Number.NEGATIVE_INFINITY : (min * Math.PI) / 180
+    threeCore.value.controls.maxAzimuthAngle = max === 180 ? Number.POSITIVE_INFINITY : (max * Math.PI) / 180
+}
+
+const handlePolarRangeChange = (values: [number, number]) => {
+    if (!threeCore.value || !threeCore.value.controls) return
+    const [min, max] = values
+    // 将度转换为弧度
+    threeCore.value.controls.minPolarAngle = (min * Math.PI) / 180
+    threeCore.value.controls.maxPolarAngle = (max * Math.PI) / 180
 }
 
 const showObjectSettings = ref(false)
@@ -958,29 +1013,6 @@ useHead({
                         </div>
                         <span class="text-[9px] text-gray-700 dark:text-gray-200 font-medium leading-tight">图片</span>
                     </button>
-
-                    <!-- 点位 -->
-                    <button v-if="edit_mode || add_mode" @click="openPointMenu"
-                        class="w-full flex flex-col items-center gap-1 p-1.5 rounded-xl hover:bg-amber-50 dark:hover:bg-amber-900/20 transition-colors group active:scale-95"
-                        title="点位">
-                        <div
-                            class="w-7 h-7 bg-amber-500 dark:bg-amber-600 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform">
-                            <UIcon name="material-symbols:location-on-rounded" class="text-sm text-white" />
-                        </div>
-                        <span class="text-[9px] text-gray-700 dark:text-gray-200 font-medium leading-tight">点位</span>
-                    </button>
-
-                    <!-- 记录镜头 -->
-                    <button v-if="edit_mode || add_mode" @click="recordCamera"
-                        class="w-full flex flex-col items-center gap-1 p-1.5 rounded-xl hover:bg-rose-50 dark:hover:bg-rose-900/20 transition-colors group active:scale-95"
-                        title="记录镜头">
-                        <div
-                            class="w-7 h-7 bg-rose-500 dark:bg-rose-600 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform">
-                            <UIcon name="material-symbols:videocam-rounded" class="text-sm text-white" />
-                        </div>
-                        <span class="text-[9px] text-gray-700 dark:text-gray-200 font-medium leading-tight">记录镜头</span>
-                    </button>
-
                     <!-- 背景 -->
                     <button v-if="edit_mode || add_mode" @click="addBackgroundClick"
                         class="w-full flex flex-col items-center gap-1 p-1.5 rounded-xl hover:bg-cyan-50 dark:hover:bg-cyan-900/20 transition-colors group active:scale-95"
@@ -992,6 +1024,16 @@ useHead({
                         <span class="text-[9px] text-gray-700 dark:text-gray-200 font-medium leading-tight">背景</span>
                     </button>
 
+                    <!-- 点位 -->
+                    <button v-if="edit_mode || add_mode" @click="openPointMenu"
+                        class="w-full flex flex-col items-center gap-1 p-1.5 rounded-xl hover:bg-amber-50 dark:hover:bg-amber-900/20 transition-colors group active:scale-95"
+                        title="点位">
+                        <div
+                            class="w-7 h-7 bg-amber-500 dark:bg-amber-600 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform">
+                            <UIcon name="material-symbols:location-on-rounded" class="text-sm text-white" />
+                        </div>
+                        <span class="text-[9px] text-gray-700 dark:text-gray-200 font-medium leading-tight">点位</span>
+                    </button>
                     <!-- 文本 -->
                     <button v-if="edit_mode || add_mode" @click="openTextMenu"
                         class="w-full flex flex-col items-center gap-1 p-1.5 rounded-xl hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-colors group active:scale-95"
@@ -1014,16 +1056,6 @@ useHead({
                         <span class="text-[9px] text-gray-700 dark:text-gray-200 font-medium leading-tight">素材</span>
                     </button>
 
-                    <!-- 模版 -->
-                    <button v-if="edit_mode || add_mode" @click="showTemplate()"
-                        class="w-full flex flex-col items-center gap-1 p-1.5 rounded-xl hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors group active:scale-95"
-                        :class="rightPanelType === 'template' ? 'bg-blue-100 dark:bg-blue-900/40' : ''" title="模版">
-                        <div
-                            class="w-7 h-7 bg-blue-500 dark:bg-blue-600 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform">
-                            <UIcon name="material-symbols:dashboard-rounded" class="text-sm text-white" />
-                        </div>
-                        <span class="text-[9px] text-gray-700 dark:text-gray-200 font-medium leading-tight">模版</span>
-                    </button>
 
                     <!-- 特效 -->
                     <button v-if="edit_mode || add_mode" @click="showEffect()"
@@ -1035,7 +1067,27 @@ useHead({
                         </div>
                         <span class="text-[9px] text-gray-700 dark:text-gray-200 font-medium leading-tight">特效</span>
                     </button>
-
+                    
+                    <!-- 模版 -->
+                    <button v-if="edit_mode || add_mode" @click="showTemplate()"
+                        class="w-full flex flex-col items-center gap-1 p-1.5 rounded-xl hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors group active:scale-95"
+                        :class="rightPanelType === 'template' ? 'bg-blue-100 dark:bg-blue-900/40' : ''" title="模版">
+                        <div
+                            class="w-7 h-7 bg-blue-500 dark:bg-blue-600 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform">
+                            <UIcon name="material-symbols:dashboard-rounded" class="text-sm text-white" />
+                        </div>
+                        <span class="text-[9px] text-gray-700 dark:text-gray-200 font-medium leading-tight">模版</span>
+                    </button>
+                    <!-- 记录镜头 -->
+                    <button v-if="edit_mode || add_mode" @click="recordCamera"
+                        class="w-full flex flex-col items-center gap-1 p-1.5 rounded-xl hover:bg-rose-50 dark:hover:bg-rose-900/20 transition-colors group active:scale-95"
+                        title="记录镜头">
+                        <div
+                            class="w-7 h-7 bg-rose-500 dark:bg-rose-600 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform">
+                            <UIcon name="material-symbols:videocam-rounded" class="text-sm text-white" />
+                        </div>
+                        <span class="text-[9px] text-gray-700 dark:text-gray-200 font-medium leading-tight">记录镜头</span>
+                    </button>
                     <!-- 设置 -->
                     <button @click="openSettings"
                         class="w-full flex flex-col items-center gap-1 p-1.5 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors group active:scale-95"
@@ -1105,7 +1157,7 @@ useHead({
                 <div class=" cursor-pointer px-3 flex-shrink-0 text-red-500" @click.stop="deleteModel()">删除</div>
             </div>
         </div>
-        <div class="camera-list fixed right-[10px] bottom-0 w-[40px] h-auto max-h-full" v-if="threeCore">
+        <div class="camera-list fixed z-10 right-[10px] bottom-0 w-[40px] h-auto max-h-full" v-if="threeCore">
             <div class=" relative flex justify-center" v-for="(camera_list, index) in threeCore.cameraList">
                 <QhxJellyButton>
                     <div class="text-center cursor-pointer" @click="lookAtCameraState(camera_list)">
@@ -1198,45 +1250,89 @@ useHead({
             </div>
         </QhxModal>
         <QhxModal v-model="showSettings" :trigger-position="clickPosition">
-            <div class="p-6 w-[300px] bg-white dark:bg-gray-800 rounded-[10px] shadow-lg">
+            <div class="p-6 w-[450px] bg-white dark:bg-gray-800 rounded-[10px] shadow-lg">
                 <h3 class="text-base font-bold mb-4 text-gray-800 dark:text-gray-200">场景设置</h3>
 
-                <!-- 阴影质量 -->
-                <div class="mb-4">
-                    <div class="text-sm text-gray-700 dark:text-gray-300 mb-2">阴影质量</div>
-                    <USelect v-model="settingsState.shadowQuality" :options="shadowQualityOptions"
-                        option-attribute="label" @update:model-value="changeShadowQuality" color="white" />
+                <!-- 光影设置区域 -->
+                <div class="mb-6">
+                    <h4 class="text-sm font-semibold mb-3 text-gray-800 dark:text-gray-200">光影设置</h4>
+                    
+                    <!-- 阴影质量 -->
+                    <div class="mb-4">
+                        <div class="text-sm text-gray-700 dark:text-gray-300 mb-2">阴影质量</div>
+                        <USelect v-model="settingsState.shadowQuality" :options="shadowQualityOptions"
+                            option-attribute="label" @update:model-value="changeShadowQuality" color="white" />
+                    </div>
+
+                    <!-- 镜头角度 -->
+                    <div class="mb-2">
+                        <div class="flex justify-between mb-2">
+                            <span class="text-sm text-gray-700 dark:text-gray-300">镜头角度</span>
+                            <span class="text-xs text-gray-500">{{ Math.round(settingsState.fov) }}°</span>
+                        </div>
+                        <URange v-model="settingsState.fov" :min="10" :max="120" :step="1"
+                            @update:model-value="changeFov" />
+                    </div>
+
+                    <!-- 光源水平角度 -->
+                    <div class="mb-2">
+                        <div class="flex justify-between mb-2">
+                            <span class="text-sm text-gray-700 dark:text-gray-300">光照方向(水平)</span>
+                            <span class="text-xs text-gray-500">{{ Math.round(settingsState.lightAzimuth) }}°</span>
+                        </div>
+                        <URange v-model="settingsState.lightAzimuth" :min="0" :max="360" :step="1"
+                            @update:model-value="updateLightPosition" />
+                    </div>
+
+                    <!-- 光源垂直角度 -->
+                    <div class="mb-2">
+                        <div class="flex justify-between mb-2">
+                            <span class="text-sm text-gray-700 dark:text-gray-300">光照高度(垂直)</span>
+                            <span class="text-xs text-gray-500">{{ Math.round(settingsState.lightElevation) }}°</span>
+                        </div>
+                        <URange v-model="settingsState.lightElevation" :min="0" :max="90" :step="1"
+                            @update:model-value="updateLightPosition" />
+                    </div>
                 </div>
 
-                <!-- 镜头角度 -->
-                <div class="mb-2">
-                    <div class="flex justify-between mb-2">
-                        <span class="text-sm text-gray-700 dark:text-gray-300">镜头角度</span>
-                        <span class="text-xs text-gray-500">{{ Math.round(settingsState.fov) }}°</span>
-                    </div>
-                    <URange v-model="settingsState.fov" :min="10" :max="120" :step="1"
-                        @update:model-value="changeFov" />
-                </div>
+                <!-- 控制器设置区域 - 仅在编辑模式下显示 -->
+                <template v-if="edit_mode || add_mode">
+                    <div class="border-t border-gray-200 dark:border-gray-700 pt-4">
+                        <h4 class="text-sm font-semibold mb-3 text-gray-800 dark:text-gray-200">控制器设置</h4>
+                        
+                        <!-- 水平旋转角度范围 -->
+                        <div class="mb-4">
+                            <div class="flex justify-between mb-2">
+                                <span class="text-sm text-gray-700 dark:text-gray-300">水平旋转角度范围</span>
+                                <span class="text-xs text-gray-500">
+                                    {{ Math.round(settingsState.minAzimuthAngle) }}° ~ {{ Math.round(settingsState.maxAzimuthAngle) }}°
+                                </span>
+                            </div>
+                            <QhxDualRange
+                                v-model="azimuthRange"
+                                :min="-180"
+                                :max="180"
+                                :step="1"
+                            />
+                        </div>
 
-                <!-- 光源水平角度 -->
-                <div class="mb-2">
-                    <div class="flex justify-between mb-2">
-                        <span class="text-sm text-gray-700 dark:text-gray-300">光照方向(水平)</span>
-                        <span class="text-xs text-gray-500">{{ Math.round(settingsState.lightAzimuth) }}°</span>
+                        <!-- 垂直旋转角度范围 -->
+                        <div class="mb-2">
+                            <div class="flex justify-between mb-2">
+                                <span class="text-sm text-gray-700 dark:text-gray-300">垂直旋转角度范围</span>
+                                <span class="text-xs text-gray-500">
+                                    {{ Math.round(settingsState.minPolarAngle) }}° ~ {{ Math.round(settingsState.maxPolarAngle) }}°
+                                </span>
+                            </div>
+                            <QhxDualRange
+                                v-model="polarRange"
+                                :min="0"
+                                :max="180"
+                                :step="1"
+                            />
+                        </div>
                     </div>
-                    <URange v-model="settingsState.lightAzimuth" :min="0" :max="360" :step="1"
-                        @update:model-value="updateLightPosition" />
-                </div>
-
-                <!-- 光源垂直角度 -->
-                <div class="mb-2">
-                    <div class="flex justify-between mb-2">
-                        <span class="text-sm text-gray-700 dark:text-gray-300">光照高度(垂直)</span>
-                        <span class="text-xs text-gray-500">{{ Math.round(settingsState.lightElevation) }}°</span>
-                    </div>
-                    <URange v-model="settingsState.lightElevation" :min="0" :max="90" :step="1"
-                        @update:model-value="updateLightPosition" />
-                </div>
+                </template>
             </div>
         </QhxModal>
         <QhxModal v-model="showObjectSettings" :trigger-position="clickPosition">
@@ -1279,7 +1375,7 @@ useHead({
                 <h3 class="text-sm font-bold mb-3 text-gray-800 dark:text-gray-200">选择文本类型</h3>
 
                 <!-- 长文本选项 -->
-                <button @click="selectLongText"
+                <!-- <button @click="selectLongText"
                     class="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors text-left group">
                     <div
                         class="w-8 h-8 bg-blue-500 dark:bg-blue-600 rounded-lg flex items-center justify-center group-hover:scale-110 transition-transform">
@@ -1289,7 +1385,7 @@ useHead({
                         <div class="text-sm font-medium text-gray-800 dark:text-gray-200">长文本</div>
                         <div class="text-xs text-gray-500 dark:text-gray-400">添加多行文本</div>
                     </div>
-                </button>
+                </button> -->
 
                 <!-- 3D文本选项 -->
                 <button @click="select3DText"

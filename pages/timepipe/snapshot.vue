@@ -4,10 +4,11 @@
     <div class="flex flex-wrap items-center gap-4 mb-6 sticky top-0 bg-white/90 backdrop-blur z-50 p-4 shadow-sm rounded-lg overflow-x-auto">
       <div class="flex items-center gap-2 flex-shrink-0">
         <span class="text-sm font-bold text-gray-700 whitespace-nowrap">选择日期:</span>
-        <div class="w-[280px]"> <!-- 限制日期选择器容器宽度 -->
-            <QhxDatePicker v-model="picked" @change="onChange" />
+        <div class="w-[500px]"> <!-- 限制日期选择器容器宽度 -->
+            
         </div>
       </div>
+      <QhxDatePicker v-model="picked" @change="onChange" />
       
       <div class="flex items-center gap-4 flex-wrap">
         <div class="text-sm text-gray-600 whitespace-nowrap">
@@ -70,7 +71,7 @@
                     {{ item.item?.name }}
                   </div>
                    <!-- 起止时间 -->
-                   <div class="text-[10px] font-medium text-gray-700 leading-tight mb-1" v-if="item.start_time || item.end_time">
+                   <div class="text-[10px] font-medium text-red-600 leading-tight mb-1" v-if="item.start_time || item.end_time">
                      {{ formatTimeRange(item.start_time, item.end_time) }}
                    </div>
                   <!-- 店铺信息 -->
@@ -287,15 +288,30 @@ const downloadChunk = async (index: number) => {
     const fontSizeTitle = 16
     const fontSizeTime = 14
     const fontSizeShop = 14
+    const fontSizeLibrary = 12 // library_list 字体大小
     const gap = 6 // 行间距
     
     ctx.save()
     
     // 准备文字内容
-    const title = item.item?.name || ''
+    const title = `${item.item?.library_price ? `￥${item.item?.library_price}` : ''}${item.item?.name}`
     const timeText = formatTimeRange(item.start_time, item.end_time)
     const shopName = item.item?.shop?.shop_name || ''
     const hasShopLogo = !!item.item?.shop?.shop_logo
+    const libraryList = item.library_list || []
+
+    // 准备 library_list 文本内容（组合成一行，用分隔符连接）
+    const libraryItems: string[] = []
+    if (libraryList.length > 0) {
+      for (const lib of libraryList) {
+        const type = lib.library_type || ''
+        const price = lib.library_price ? `￥${lib.library_price}` : ''
+        const text = [type, price].filter(Boolean).join(' ')
+        if (text) libraryItems.push(text)
+      }
+    }
+    const librarySeparator = ' / '
+    const libraryFullText = libraryItems.join(librarySeparator)
 
     // 设置字体计算宽度
     ctx.font = `bold ${fontSizeTitle}px sans-serif`
@@ -309,11 +325,54 @@ const downloadChunk = async (index: number) => {
     const shopLogoWidth = hasShopLogo ? logoSize + 6 : 0 // logo + margin
     const shopContentWidth = shopLogoWidth + shopTextWidth
 
+    // 计算 library_list 文本宽度（考虑换行）
+    ctx.font = `${fontSizeLibrary}px sans-serif`
+    const availableWidth = cellWidth - (paddingX * 2) - 20 // 可用宽度，留一些边距
+    let libraryLines: string[] = []
+    let maxLibraryWidth = 0
+    
+    if (libraryFullText) {
+      // 如果总宽度不超过可用宽度，直接一行
+      const fullWidth = ctx.measureText(libraryFullText).width
+      if (fullWidth <= availableWidth) {
+        libraryLines = [libraryFullText]
+        maxLibraryWidth = fullWidth
+      } else {
+        // 需要换行：按分隔符分割，然后组合
+        let currentLine = ''
+        for (const item of libraryItems) {
+          const testText = currentLine ? `${currentLine}${librarySeparator}${item}` : item
+          const testWidth = ctx.measureText(testText).width
+          
+          if (testWidth <= availableWidth) {
+            currentLine = testText
+          } else {
+            // 当前行已满，保存并开始新行
+            if (currentLine) {
+              libraryLines.push(currentLine)
+              const lineWidth = ctx.measureText(currentLine).width
+              if (lineWidth > maxLibraryWidth) maxLibraryWidth = lineWidth
+            }
+            currentLine = item
+          }
+        }
+        // 添加最后一行
+        if (currentLine) {
+          libraryLines.push(currentLine)
+          const lineWidth = ctx.measureText(currentLine).width
+          if (lineWidth > maxLibraryWidth) maxLibraryWidth = lineWidth
+        }
+      }
+    }
+
     // 计算浮层总宽高
-    const maxContentWidth = Math.max(titleWidth, timeWidth, shopContentWidth)
+    const maxContentWidth = Math.max(titleWidth, timeWidth, shopContentWidth, maxLibraryWidth)
     const boxWidth = maxContentWidth + (paddingX * 2)
-    // 只有3行: 标题 + 时间 + 店铺
-    const boxHeight = paddingY * 2 + fontSizeTitle + gap + fontSizeTime + gap + Math.max(logoSize, fontSizeShop)
+    // 基础行数: 标题 + 时间 + 店铺，如果有 library_list 则加上
+    const libraryListHeight = libraryLines.length > 0 
+      ? libraryLines.length * (fontSizeLibrary + gap) - gap // 最后一行不需要 gap
+      : 0
+    const boxHeight = paddingY * 2 + fontSizeTitle + gap + fontSizeTime + gap + Math.max(logoSize, fontSizeShop) + (libraryListHeight > 0 ? gap + libraryListHeight : 0)
     
     // 浮层位置 (bottom center, margin-bottom 20px)
     const boxX = x + (cellWidth - boxWidth) / 2
@@ -339,7 +398,7 @@ const downloadChunk = async (index: number) => {
     
     // 时间
     currentY += gap + fontSizeTime
-    ctx.fillStyle = '#374151' // gray-700
+    ctx.fillStyle = '#dc2626' // red-600
     ctx.font = `${fontSizeTime}px sans-serif`
     ctx.fillText(timeText, x + cellWidth/2, currentY)
 
@@ -370,6 +429,19 @@ const downloadChunk = async (index: number) => {
     ctx.font = `${fontSizeShop}px sans-serif`
     ctx.textAlign = 'left' // 改为左对齐方便排版
     ctx.fillText(shopName, shopStartX + shopLogoWidth, currentY)
+
+    // library_list 信息（红色字体，自动换行）
+    if (libraryLines.length > 0) {
+      currentY += gap + fontSizeLibrary
+      ctx.fillStyle = '#dc2626' // red-600
+      ctx.font = `${fontSizeLibrary}px sans-serif`
+      ctx.textAlign = 'center'
+      ctx.textBaseline = 'bottom'
+      for (const line of libraryLines) {
+        ctx.fillText(line, x + cellWidth/2, currentY)
+        currentY += fontSizeLibrary + gap
+      }
+    }
 
     ctx.restore()
   }

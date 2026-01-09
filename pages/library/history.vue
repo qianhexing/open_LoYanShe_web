@@ -384,7 +384,7 @@ useHead({
                 <UBadge
                   class="cursor-pointer"
                   variant="subtle"
-                  v-if="user.hasPermi('library:manage:examin') && history.is_apply === 0"
+                  v-if="user.hasPermi('library:manage:examin') && history.is_apply === 0 && history.type === 2"
                   @click="jumpToLibraryReview(history)"
                 >
                   去审核
