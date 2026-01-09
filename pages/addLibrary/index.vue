@@ -102,32 +102,34 @@
           </div>
         </UFormGroup>
 
-        <UFormGroup label="所属店铺" name="shop_id" required v-if="shouldShowField('shop_id') && layoutReady" :class="getHighlightClass('shop_id')">
-          <div class="flex items-center">
-            <USelectMenu v-model="library.shop_id" :disabled="isReviewMode" :loading="loading" :searchable="fetchShopOptiosns"
-              placeholder="搜索店铺..." option-attribute="shop_name" :multiple="false" trailing by="shop_id"
-              name="shop_name" class="flex-1" :ui="{
-                base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
-                rounded: 'rounded-full',
-                padding: { xs: 'px-4 py-2' },
-                color: {
-                  white: {
-                    outline: 'bg-gray-50 dark:bg-gray-800 ring-1 ring-gray-300 dark:ring-gray-600 focus:ring-2 focus:ring-qhx-primary'
+        <clientOnly>
+          <UFormGroup label="所属店铺" name="shop_id" required v-if="shouldShowField('shop_id')" :class="getHighlightClass('shop_id')">
+            <div class="flex items-center">
+              <USelectMenu v-model="library.shop_id" :disabled="isReviewMode" :loading="loading" :searchable="fetchShopOptiosns"
+                placeholder="搜索店铺..." option-attribute="shop_name" :multiple="false" trailing by="shop_id"
+                name="shop_name" class="flex-1" :ui="{
+                  base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
+                  rounded: 'rounded-full',
+                  padding: { xs: 'px-4 py-2' },
+                  color: {
+                    white: {
+                      outline: 'bg-gray-50 dark:bg-gray-800 ring-1 ring-gray-300 dark:ring-gray-600 focus:ring-2 focus:ring-qhx-primary'
+                    }
                   }
-                }
-              }" />
-            <QhxJellyButton v-if="!isReviewMode">
-              <div
-                class=" m-[5px] text-white rounded-[50%] h-[30px] w-[30px] bg-qhx-primary flex items-center justify-center cursor-pointer"
-                @click="library.shop_id = undefined">
-                <UIcon name="ant-design:close-outlined" class="text-[22px] text-[#ffffff]" />
-              </div>
-            </QhxJellyButton>
-          </div>
-          <div v-if="isReviewMode && isFieldChanged('shop_id')" class="mt-2 text-sm text-gray-600 dark:text-gray-400">
-            <span class="font-semibold">原值：</span>{{ getOriginalValueText('shop_id') || '（空）' }}
-          </div>
-        </UFormGroup>
+                }" />
+              <QhxJellyButton v-if="!isReviewMode">
+                <div
+                  class=" m-[5px] text-white rounded-[50%] h-[30px] w-[30px] bg-qhx-primary flex items-center justify-center cursor-pointer"
+                  @click="library.shop_id = undefined">
+                  <UIcon name="ant-design:close-outlined" class="text-[22px] text-[#ffffff]" />
+                </div>
+              </QhxJellyButton>
+            </div>
+            <div v-if="isReviewMode && isFieldChanged('shop_id')" class="mt-2 text-sm text-gray-600 dark:text-gray-400">
+              <span class="font-semibold">原值：</span>{{ getOriginalValueText('shop_id') || '（空）' }}
+            </div>
+          </UFormGroup>
+        </clientOnly>
 
         <UFormGroup label="主要风格" name="main_style" required v-if="shouldShowField('main_style')" :class="getHighlightClass('main_style')">
           <div class="flex items-center m-1" v-if="library.main_style && library.main_style.length > 0">

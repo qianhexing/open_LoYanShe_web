@@ -78,6 +78,13 @@ export async function updateClothes(
   const response = await use$Post<BaseResponse<WardrobeClothes>>('/clothes/update', params);
   return response.data;
 }
+export async function changeWardrobeClothes (data: {
+  clothes_id: number
+  wardrobe_id: number
+}): Promise<boolean> {
+  const response = await use$Post<BaseResponse<boolean>>('/clothes/update/wardrobe', data);
+  return response.data;
+}
 
 export async function deteleClothes(
   params: {

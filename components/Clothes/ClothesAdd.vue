@@ -787,7 +787,7 @@ defineExpose({
           </UFormGroup>
 
           <!-- 关联场景 -->
-          <UFormGroup label="关联场景" class="space-y-3">
+          <!-- <UFormGroup label="关联场景" class="space-y-3">
             <div v-if="scene" class="inline-block">
               <QhxTag
                 :active="true"
@@ -813,7 +813,7 @@ defineExpose({
                 选择场景
               </UButton>
             </div>
-          </UFormGroup>
+          </UFormGroup> -->
 
           <!-- 服饰图片（封面） -->
           <UFormGroup label="服饰封面" class="space-y-2">

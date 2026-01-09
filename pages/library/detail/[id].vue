@@ -368,7 +368,10 @@ const handleEditLibrary = () => {
           <!-- 笔记 -->
           <div v-show="library.notes" class="mb-4">
             <h3 class="text-sm m-1">笔记</h3>
-            <div class="text-xs p-2" v-html="library.notes"></div>
+            <!-- <div class="text-xs p-2" v-html="library.notes"></div> -->
+            <ClientOnly>
+              <SafeRichText v-if="library.notes" :nodes="parseRichText(library.notes.replace(/\n/g, '<br>'))" />
+            </ClientOnly>
           </div>
 
 

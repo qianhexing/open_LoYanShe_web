@@ -6,8 +6,9 @@
       <div class="p-6 w-[22rem] text-center">
         <div class="p-3 cursor-pointer" @click="jumpToMyWardrobe()">我的衣柜</div>
         <div class="p-3 cursor-pointer" @click="jumpToAddLibrary()">补充图鉴</div>
-
         <div class="p-3 cursor-pointer" @click="jumpToMyLibrary()">我上传的图鉴</div>
+        <div class="p-3 cursor-pointer" @click="jumpToMyScene()">3D场景</div>
+        <div class="p-3 cursor-pointer" @click="jumpToAlbum()">成就簿</div>
         
         <!-- <div class="p-3 cursor-pointer" @click="jumpToMyWardrobe()">工作流</div> -->
         <!-- <div class="p-3 cursor-pointer" @click="jumpToNotification()">通知</div> -->
@@ -46,8 +47,18 @@ const jumpToMyLibrary = () => {
     navigateTo('/library/my');
   }
 }
+const jumpToAlbum = () => {
+  if (user.value) {
+    navigateTo('/album');
+  }
+}
 const logout = () => {
   useUserStore().clearToken()
+}
+const jumpToMyScene = () => {
+  if (user.value) {
+    navigateTo('/user/sence');
+  }
 }
 const loading = ref(false)
 

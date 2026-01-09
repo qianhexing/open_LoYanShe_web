@@ -81,7 +81,7 @@
                 rows: response.rows,
                 count: response.count
               }
-            }" :columns="3" :itemKey="0" :columns_768="layout === '0' ? 2 : 1" :enableWaterfall="true" :enableLoadMore="isActive ? true : false">
+            }" :columns="layout === '0' ? 5 : 3" :itemKey="0" :columns_768="layout === '0' ? 2 : 1" :enableWaterfall="true" :enableLoadMore="isActive ? true : false">
               <template #default="{ item, debouncedApplyLayout }">
                 <!-- 自定义内容 -->
                 <div class="custom-item mr-[1px] mb-1" :key="item.pipe_id">

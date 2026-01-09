@@ -53,3 +53,15 @@ export async function getSenceList(
   );
   return response.data;
 }
+
+export async function deleteScene(
+  params: {
+    sence_id: number
+  }
+): Promise<boolean> {
+  const response = await use$Post<BaseResponse<boolean>>(
+    '/sence/delete',
+    params
+  );
+  return response.data;
+}

@@ -78,7 +78,7 @@ const handleChange = (item: boolean) => {
 </script>
 <template>
   <div @click="toggleLike" class=" cursor-pointer inline-block">
-    <FavoriteOptionsModal @change="handleChange" ref="FavoriteRef">111</FavoriteOptionsModal>
+    <FavoriteOptionsModal v-if="props.need_axios" @change="handleChange" ref="FavoriteRef"></FavoriteOptionsModal>
     <slot :childData="{
       collect_count: isCollect,
       is_collect: isCollect

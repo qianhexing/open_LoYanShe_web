@@ -89,6 +89,7 @@ export interface SceneObjectJSON {
 	scale?: [number, number, number]
 	color?: string
 	size?: [number, number, number] // for box
+	renderOrder?: number // for object
 	radius?: number // for sphere
 	url?: string // for model
 	useDracoLoader?: boolean
@@ -109,6 +110,12 @@ export interface SceneJSON {
 	objects: SceneObjectJSON[]
 	cameraList?: CameraState[]
 	background?: string
+	controls?: {
+		minAzimuthAngle?: number // 控制器水平旋转最小角度（弧度）
+		maxAzimuthAngle?: number // 控制器水平旋转最大角度（弧度）
+		minPolarAngle?: number // 控制器垂直旋转最小角度（弧度）
+		maxPolarAngle?: number // 控制器垂直旋转最大角度（弧度）
+	}
 }
 
 interface ThreeCoreOptions {
@@ -145,7 +152,8 @@ class ThreeCore {
 	public qrScanCanvas?: HTMLCanvasElement
 	public qrScanContext?: CanvasRenderingContext2D | null
 	public lastQRScanTime = 0
-	
+	// 渲染顺序计数
+	public renderOrderCount = 0
 	// 光源系统
 	public lights?: {
 		ambient: THREE.AmbientLight
@@ -791,14 +799,23 @@ class ThreeCore {
 			material.envMap = this.envMap || null
 			material.envMapIntensity = this.envMapIntensity
 			material.needsUpdate = true
+			if (material.map && material.map.colorSpace !== THREE.SRGBColorSpace) {
+				material.map.colorSpace = THREE.SRGBColorSpace
+			}
 		} else if (material instanceof THREE.MeshPhysicalMaterial) {
 			material.envMap = this.envMap || null
 			material.envMapIntensity = this.envMapIntensity
 			material.needsUpdate = true
+			if (material.map && material.map.colorSpace !== THREE.SRGBColorSpace) {
+				material.map.colorSpace = THREE.SRGBColorSpace
+			}
 		} else if (material instanceof THREE.MeshLambertMaterial || 
 				   material instanceof THREE.MeshPhongMaterial) {
 			material.envMap = this.envMap || null
 			material.needsUpdate = true
+			if (material.map && material.map.colorSpace !== THREE.SRGBColorSpace) {
+				material.map.colorSpace = THREE.SRGBColorSpace
+			}
 		}
 	}
 
@@ -1081,6 +1098,25 @@ class ThreeCore {
 
 		return texture
 	}
+	disableLighting(object: THREE.Object3D) {
+		object.traverse((child: any) => {
+			if (child.isMesh) {
+				const oldMat = child.material
+	
+				// 保留原贴图
+				const newMat = new THREE.MeshBasicMaterial({
+					map: oldMat.map || null,
+					color: oldMat.color || new THREE.Color(0xffffff),
+					transparent: oldMat.transparent,
+					opacity: oldMat.opacity,
+					alphaTest: oldMat.alphaTest,
+					side: oldMat.side,
+				})
+	
+				child.material = newMat
+			}
+		})
+	}
 	public async loadModel(
 		url: string,
 		options: any = {
@@ -1096,7 +1132,6 @@ class ThreeCore {
 			dracoLoader.setDecoderPath(decoderPath)
 			loader.setDRACOLoader(dracoLoader)
 		}
-
 		return new Promise((resolve, reject) => {
 			const existing = this.loadedModels.find(obj => obj.userData.url === url)
 			if (this.loadedModelURLs.has(url) && existing) {
@@ -1118,7 +1153,6 @@ class ThreeCore {
 							if (child instanceof THREE.Mesh) {
 								child.castShadow = true
 								child.receiveShadow = true
-								
 								// 确保材质支持阴影和环境贴图
 								if (child.material) {
 									if (Array.isArray(child.material)) {
@@ -1162,6 +1196,7 @@ class ThreeCore {
 								}
 							}
 						})
+						// this.disableLighting(gltf.scene)
 						this.loadedModelURLs.add(url)
 						this.loadedModels.push(model.clone(true))
 
@@ -1228,11 +1263,14 @@ class ThreeCore {
 		this.renderer.setSize(width, height)
 
 		// 启用物理正确的光照
-		this.renderer.physicallyCorrectLights = true
+		this.renderer.physicallyCorrectLights = false
 		
 		// 色彩空间设置
 		this.renderer.outputColorSpace = THREE.SRGBColorSpace
-		this.renderer.toneMapping = THREE.LinearToneMapping
+		// this.renderer.toneMapping = THREE.LinearToneMapping
+		// this.renderer.toneMapping = THREE.NoToneMapping
+		this.renderer.toneMapping = THREE.ReinhardToneMapping
+
 		this.renderer.toneMappingExposure = 1.0
 		
 		// 高质量阴影设置 - 关键配置来避免阴影条纹
@@ -1371,20 +1409,11 @@ class ThreeCore {
 	initLights() {
 		// ================ 环境光设置 ================
 		// 基础环境光 - 为了避免完全黑暗的区域
-		const ambientLight = new THREE.AmbientLight(0xffffff, 1.6)
+		const ambientLight = new THREE.AmbientLight(0xffffff, 2.3)
 		this.scene.add(ambientLight)
 
-		// 半球光 - 模拟天空散射和地面反射
-		const hemiLight = new THREE.HemisphereLight(
-			0x87ceeb, // 天空颜色 - 淡蓝色
-			0x2f4f4f, // 地面颜色 - 暗灰色
-			0.4
-		)
-		hemiLight.position.set(0, 50, 0)
-		this.scene.add(hemiLight)
-
 		// ================ 主要方向光（太阳光） ================
-		const dirLight = new THREE.DirectionalLight(0xffeecc, 1.8)
+		const dirLight = new THREE.DirectionalLight(0xffeecc, 3)
 		dirLight.position.set(50, 50, 30)
 		dirLight.castShadow = true
 
@@ -1402,9 +1431,19 @@ class ThreeCore {
 		dirLight.shadow.bias = -0.0005
 		dirLight.shadow.normalBias = 0.02
 		dirLight.shadow.radius = 4
-		dirLight.shadow.blurSamples = 26
-
+		dirLight.shadow.blurSamples = 40
 		this.scene.add(dirLight)
+
+
+		// 半球光 - 模拟天空散射和地面反射
+		const hemiLight = new THREE.HemisphereLight(
+			0x87ceeb, // 天空颜色 - 淡蓝色
+			0x2f4f4f, // 地面颜色 - 暗灰色
+			0.4
+		)
+		hemiLight.position.set(0, 50, 0)
+		this.scene.add(hemiLight)
+
 
 		// ================ 补光设置 (简化) ================
 		const fillLight = new THREE.DirectionalLight(0xffffff, 0.4)
@@ -1432,7 +1471,7 @@ class ThreeCore {
 		if (this.editMode) {
 			const dirLightHelper = new THREE.CameraHelper(dirLight.shadow.camera)
 			dirLightHelper.visible = false
-			this.scene.add(dirLightHelper)
+			// this.scene.add(dirLightHelper)
 		}
 
 		// 存储光源引用
@@ -2345,7 +2384,6 @@ class ThreeCore {
 			})()
 
 			if (!typeGuess) return
-
 			const position: [number, number, number] = [
 				obj.position.x,
 				obj.position.y,
@@ -2361,12 +2399,14 @@ class ThreeCore {
 				obj.scale.y,
 				obj.scale.z
 			]
+			const renderOrder = obj.renderOrder
 
 			const jsonObj: SceneObjectJSON = {
 				type: typeGuess,
 				position,
 				rotation,
-				scale
+				scale,
+				renderOrder
 			}
 
 			// 如果是 box 或 sphere，保存颜色和大小
@@ -2460,6 +2500,25 @@ class ThreeCore {
 		}
 		if (this.background) {
 			resault.background = this.background
+		}
+		// 保存controls配置（跳过 Infinity 值，因为 JSON 不支持）
+		if (this.controls) {
+			const controlsConfig: SceneJSON['controls'] = {}
+			if (this.controls.minAzimuthAngle !== undefined && this.controls.minAzimuthAngle !== Number.NEGATIVE_INFINITY) {
+				controlsConfig.minAzimuthAngle = this.controls.minAzimuthAngle
+			}
+			if (this.controls.maxAzimuthAngle !== undefined && this.controls.maxAzimuthAngle !== Number.POSITIVE_INFINITY) {
+				controlsConfig.maxAzimuthAngle = this.controls.maxAzimuthAngle
+			}
+			if (this.controls.minPolarAngle !== undefined) {
+				controlsConfig.minPolarAngle = this.controls.minPolarAngle
+			}
+			if (this.controls.maxPolarAngle !== undefined) {
+				controlsConfig.maxPolarAngle = this.controls.maxPolarAngle
+			}
+			if (Object.keys(controlsConfig).length > 0) {
+				resault.controls = controlsConfig
+			}
 		}
 		return resault
 	}
@@ -2647,16 +2706,30 @@ class ThreeCore {
 			if (json.background) {
 				this.background = json.background
 			}
+			// 加载controls配置
+			if (json.controls && this.controls) {
+				if (json.controls.minAzimuthAngle !== undefined) {
+					this.controls.minAzimuthAngle = json.controls.minAzimuthAngle
+				}
+				if (json.controls.maxAzimuthAngle !== undefined) {
+					this.controls.maxAzimuthAngle = json.controls.maxAzimuthAngle
+				}
+				if (json.controls.minPolarAngle !== undefined) {
+					this.controls.minPolarAngle = json.controls.minPolarAngle
+				}
+				if (json.controls.maxPolarAngle !== undefined) {
+					this.controls.maxPolarAngle = json.controls.maxPolarAngle
+				}
+			}
 		}
 
 		const total = json.objects.length
 		let current = 0
-
 		for (const obj of json.objects) {
 			const position = obj.position || [0, 0, 0]
 			const rotation = obj.rotation || [0, 0, 0]
 			const scale = obj.scale || [1, 1, 1]
-
+			this.renderOrderCount += 10
 			let mesh: THREE.Object3D | null = null
 
 			if (obj.type === 'box') {
@@ -2777,6 +2850,9 @@ class ThreeCore {
 				mesh.position.set(...position)
 				mesh.rotation.set(...rotation)
 				mesh.scale.set(...scale)
+				if (obj.renderOrder) {
+					mesh.renderOrder = obj.renderOrder
+				}
 				if (obj.type === 'diary') {
 					if (!this.editMode) {
 						mesh.scale.set(0.001, 0.001, 0.001)

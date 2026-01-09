@@ -239,8 +239,8 @@ export interface WardrobeClothes {
   main_style_list?: { label: string; value: number }[]
   include?: WardrobeClothes[]
   clothes_id?: number
-  wardrobe_id: number
-  clothes_img: string
+  wardrobe_id?: number
+  clothes_img?: string
   clothes_note?: string
   date?: Date
   is_enable?: number
@@ -269,6 +269,7 @@ export interface WardrobeClothes {
   main_style?: string
   num?: number
   last_dress?: Date
+  sence_id?: number
 }
 /** 研习类型 */
 export interface Study {

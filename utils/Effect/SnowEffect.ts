@@ -9,6 +9,7 @@ export default class SnowEffect implements IEffect {
   private options: any;
   private particles?: THREE.Points;
   private propsOptions: any;
+  private circleTexture?: THREE.Texture;
 
   constructor(target: THREE.Object3D, scene: THREE.Scene, options: any = {}) {
     this.id = 'SnowEffect';
@@ -16,6 +17,32 @@ export default class SnowEffect implements IEffect {
     this.scene = scene;
     this.options = Object.assign({ count: 800, size: 0.1 }, options);
     this.propsOptions = options
+  }
+
+  // 创建圆形纹理
+  private createCircleTexture(): THREE.Texture {
+    const canvas = document.createElement('canvas');
+    canvas.width = 64;
+    canvas.height = 64;
+    const context = canvas.getContext('2d');
+    if (!context) {
+      throw new Error('无法获取 canvas 2d 上下文');
+    }
+    
+    // 绘制圆形
+    const gradient = context.createRadialGradient(32, 32, 0, 32, 32, 32);
+    gradient.addColorStop(0, 'rgba(255, 255, 255, 1)');
+    gradient.addColorStop(0.5, 'rgba(255, 255, 255, 0.8)');
+    gradient.addColorStop(1, 'rgba(255, 255, 255, 0)');
+    
+    context.fillStyle = gradient;
+    context.beginPath();
+    context.arc(32, 32, 32, 0, Math.PI * 2);
+    context.fill();
+    
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.needsUpdate = true;
+    return texture;
   }
 
   init() {
@@ -28,9 +55,14 @@ export default class SnowEffect implements IEffect {
     }
     geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
 
+    this.circleTexture = this.createCircleTexture();
     const material = new THREE.PointsMaterial({
       color: 0xffffff,
-      size: this.options.size
+      size: this.options.size,
+      map: this.circleTexture,
+      transparent: true,
+      alphaTest: 0.001,
+      depthWrite: false
     });
 
     this.particles = new THREE.Points(geometry, material);
@@ -56,6 +88,9 @@ export default class SnowEffect implements IEffect {
       this.target.remove(this.particles);
       this.particles.geometry.dispose();
       (this.particles.material as THREE.Material).dispose();
+    }
+    if (this.circleTexture) {
+      this.circleTexture.dispose();
     }
   }
 }

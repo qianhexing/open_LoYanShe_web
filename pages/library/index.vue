@@ -44,13 +44,14 @@ const parent_id = ref(true)
 // 精确搜索模式
 const showFilterList = ref(false)
 const filterList = ref<FilterList[]>([])
+const filterDescription = ref('')
 const wikiOptionsChooseRef = ref<InstanceType<typeof WikiOptionsChooseType> | null>(null)
 
 // 筛选表单数据
 const filterForm = reactive({
   name: '',
-  shop_name: [] as Array<{ label: string; value: string }>,
-  library_type: [] as Array<{ label: string; value: number }>,
+  shop_name: [] as Array<{ label: string; value: string; type?: string }>,
+  library_type: [] as Array<{ label: string; value: number; type?: string }>,
   state: [] as Array<{ label: string; value: number }>,
   shop_country: -1,
   main_style: [] as Array<{ label: string; value: number; type?: string }>,
@@ -98,8 +99,10 @@ definePageMeta({
   middleware: [authGlobal]
 })
 const changeFilterType = (index: number, type: string) => {
-  const field = filterForm[type as keyof typeof filterForm] as Array<{ label: string; value: number; type?: string }>
-  if (field[index].type === 'and') {
+  const field = filterForm[type as keyof typeof filterForm] as Array<{ label: string; value: number | string; type?: string }>
+  if (!field[index].type || field[index].type === 'and') {
+    field[index].type = 'or'
+  } else if (field[index].type === 'or') {
     field[index].type = 'not'
   } else {
     field[index].type = 'and'
@@ -117,6 +120,17 @@ const handlePageChange = (current: number) => {
   // })
 }
 
+const jumpToAddLibrary = () => {
+  // 判断是否登录
+  if (!user.token) {
+    toast.add({
+      title: '请先登录',
+      color: 'red'
+    })
+    return
+  }
+  window.open('/addLibrary', '_blank')
+}
 // 统一处理搜索逻辑
 const handleSearch = () => {
   if (showFilterList.value) {
@@ -141,6 +155,9 @@ const toggleSearchMode = () => {
   if (!showFilterList.value) {
     // 切换到模糊搜索，清空筛选条件
     clearFilter()
+  } else {
+    // 切换到精确搜索，清空描述
+    filterDescription.value = ''
   }
 }
 
@@ -204,7 +221,8 @@ const handleShopSelect = (selected: Shop | null) => {
     if (!exists) {
       filterForm.shop_name.push({
         label: selected.shop_name,
-        value: selected.shop_name
+        value: selected.shop_name,
+        type: 'and'
       })
     }
   }
@@ -264,6 +282,26 @@ const libraryTypeSelectRef = ref<InstanceType<typeof QhxSelect> | null>(null)
 const stateSelectRef = ref<InstanceType<typeof QhxSelect> | null>(null)
 const saleTimeStartSelectRef = ref<InstanceType<typeof QhxSelect> | null>(null)
 const saleTimeEndSelectRef = ref<InstanceType<typeof QhxSelect> | null>(null)
+const sortSelectRef = ref<InstanceType<typeof QhxSelect> | null>(null)
+
+// 排序模式
+const sortMode = ref<number>(0) // 默认时间倒序
+
+// 排序模式选项
+const sortOptions = [
+  { label: '时间倒序', value: 0 },
+  { label: '发售时间倒序', value: 5 },
+  { label: '衣柜排序', value: 6 },
+  { label: '点赞排序', value: 7 },
+  { label: '收藏排序', value: 8 },
+  { label: '时间正序', value: 9 }
+]
+
+// 处理排序变化
+const onSortChange = (option: { label: string; value: number }) => {
+  sortMode.value = option.value
+  waterList.value?.refresh()
+}
 
 // 确认主要风格
 const confirmMainStyle = (selected: { label: string; value: number }) => {
@@ -280,7 +318,7 @@ const confirmLibraryType = (selected: { label: string; value: number }) => {
   if (selected) {
     const hasValue = filterForm.library_type.some(item => item.label === selected.label)
     if (!hasValue) {
-      filterForm.library_type.push(selected)
+      filterForm.library_type.push({ ...selected, type: 'and' })
     }
   }
 }
@@ -380,9 +418,12 @@ const applyFilter = () => {
   // 颜色
   if (filterForm.color.length > 0) {
     const colorValueAnd: string[] = []
+    const colorValueOr: string[] = []
     for (const v of filterForm.color) {
       if (v.type === 'and') {
         colorValueAnd.push(v.label)
+      } else if (v.type === 'or') {
+        colorValueOr.push(v.label)
       } else {
         temp.push({
           field: 'color',
@@ -398,14 +439,24 @@ const applyFilter = () => {
         value: colorValueAnd.join(',')
       })
     }
+    if (colorValueOr.length > 0) {
+      temp.push({
+        field: 'color',
+        op: 'or',
+        value: colorValueOr.join(',')
+      })
+    }
   }
 
   // 主题
   if (filterForm.theme.length > 0) {
     const themeValueAnd: string[] = []
+    const themeValueOr: string[] = []
     for (const v of filterForm.theme) {
       if (v.type === 'and') {
         themeValueAnd.push(v.label)
+      } else if (v.type === 'or') {
+        themeValueOr.push(v.label)
       } else {
         temp.push({
           field: 'theme',
@@ -421,14 +472,24 @@ const applyFilter = () => {
         value: themeValueAnd.join(',')
       })
     }
+    if (themeValueOr.length > 0) {
+      temp.push({
+        field: 'theme',
+        op: 'or',
+        value: themeValueOr.join(',')
+      })
+    }
   }
 
   // 版型部位
   if (filterForm.library_pattern.length > 0) {
     const patternValueAnd: string[] = []
+    const patternValueOr: string[] = []
     for (const v of filterForm.library_pattern) {
       if (v.type === 'and') {
         patternValueAnd.push(v.label)
+      } else if (v.type === 'or') {
+        patternValueOr.push(v.label)
       } else {
         temp.push({
           field: 'library_pattern',
@@ -444,6 +505,13 @@ const applyFilter = () => {
         value: patternValueAnd.join(',')
       })
     }
+    if (patternValueOr.length > 0) {
+      temp.push({
+        field: 'library_pattern',
+        op: 'or',
+        value: patternValueOr.join(',')
+      })
+    }
   }
 
   // 主要风格
@@ -451,14 +519,12 @@ const applyFilter = () => {
     // const mainStyleValue = filterForm.main_style.map(v => v.value).join(',')
     const mainStyleValueAnd: number[] = []
     const mainStyleValueOr: number[] = []
-    const mainStyleValueNot: number[] = []
 
     // biome-ignore lint/complexity/noForEach: <explanation>
     filterForm.main_style.forEach(v => {
       if (v.type === 'and') {
         mainStyleValueAnd.push(v.value)
       } else if (v.type === 'or') {
-
         mainStyleValueOr.push(v.value)
       } else {
         temp.push({
@@ -475,26 +541,79 @@ const applyFilter = () => {
         value: mainStyleValueAnd.join(',')
       })
     }
+    if (mainStyleValueOr.length > 0) {
+      temp.push({
+        field: 'main_style',
+        op: 'or',
+        value: mainStyleValueOr.join(',')
+      })
+    }
   }
 
   // 店铺名称
   if (filterForm.shop_name.length > 0) {
-    const shopNameValue = filterForm.shop_name.map(v => v.value).join(',')
-    temp.push({
-      field: 'shop_name',
-      op: 'and',
-      value: shopNameValue
-    })
+    const shopNameValueAnd: string[] = []
+    const shopNameValueOr: string[] = []
+    for (const v of filterForm.shop_name) {
+      if (v.type === 'and') {
+        shopNameValueAnd.push(v.value)
+      } else if (v.type === 'or') {
+        shopNameValueOr.push(v.value)
+      } else {
+        temp.push({
+          field: 'shop_name',
+          op: 'not',
+          value: v.value
+        })
+      }
+    }
+    if (shopNameValueAnd.length > 0) {
+      temp.push({
+        field: 'shop_name',
+        op: 'and',
+        value: shopNameValueAnd.join(',')
+      })
+    }
+    if (shopNameValueOr.length > 0) {
+      temp.push({
+        field: 'shop_name',
+        op: 'or',
+        value: shopNameValueOr.join(',')
+      })
+    }
   }
 
   // 图鉴类型
   if (filterForm.library_type.length > 0) {
-    const libraryTypeValue = filterForm.library_type.map(v => v.label).join(',')
-    temp.push({
-      field: 'library_type',
-      op: 'and',
-      value: libraryTypeValue
-    })
+    const libraryTypeValueAnd: string[] = []
+    const libraryTypeValueOr: string[] = []
+    for (const v of filterForm.library_type) {
+      if (v.type === 'and') {
+        libraryTypeValueAnd.push(v.label)
+      } else if (v.type === 'or') {
+        libraryTypeValueOr.push(v.label)
+      } else {
+        temp.push({
+          field: 'library_type',
+          op: 'not',
+          value: v.label
+        })
+      }
+    }
+    if (libraryTypeValueAnd.length > 0) {
+      temp.push({
+        field: 'library_type',
+        op: 'and',
+        value: libraryTypeValueAnd.join(',')
+      })
+    }
+    if (libraryTypeValueOr.length > 0) {
+      temp.push({
+        field: 'library_type',
+        op: 'or',
+        value: libraryTypeValueOr.join(',')
+      })
+    }
   }
 
   // 价格
@@ -516,9 +635,12 @@ const applyFilter = () => {
   // 柄图元素
   if (filterForm.pattern_elements.length > 0) {
     const patternElementsValueAnd: string[] = []
+    const patternElementsValueOr: string[] = []
     for (const v of filterForm.pattern_elements) {
       if (v.type === 'and') {
         patternElementsValueAnd.push(v.label)
+      } else if (v.type === 'or') {
+        patternElementsValueOr.push(v.label)
       } else {
         temp.push({
           field: 'pattern_elements',
@@ -534,14 +656,24 @@ const applyFilter = () => {
         value: patternElementsValueAnd.join(',')
       })
     }
+    if (patternElementsValueOr.length > 0) {
+      temp.push({
+        field: 'pattern_elements',
+        op: 'or',
+        value: patternElementsValueOr.join(',')
+      })
+    }
   }
 
   // 设计元素
   if (filterForm.design_elements.length > 0) {
     const designElementsValueAnd: string[] = []
+    const designElementsValueOr: string[] = []
     for (const v of filterForm.design_elements) {
       if (v.type === 'and') {
         designElementsValueAnd.push(v.label)
+      } else if (v.type === 'or') {
+        designElementsValueOr.push(v.label)
       } else {
         temp.push({
           field: 'design_elements',
@@ -557,14 +689,24 @@ const applyFilter = () => {
         value: designElementsValueAnd.join(',')
       })
     }
+    if (designElementsValueOr.length > 0) {
+      temp.push({
+        field: 'design_elements',
+        op: 'or',
+        value: designElementsValueOr.join(',')
+      })
+    }
   }
 
   // 材质布料
   if (filterForm.cloth_elements.length > 0) {
     const clothElementsValueAnd: string[] = []
+    const clothElementsValueOr: string[] = []
     for (const v of filterForm.cloth_elements) {
       if (v.type === 'and') {
         clothElementsValueAnd.push(v.label)
+      } else if (v.type === 'or') {
+        clothElementsValueOr.push(v.label)
       } else {
         temp.push({
           field: 'cloth_elements',
@@ -580,11 +722,127 @@ const applyFilter = () => {
         value: clothElementsValueAnd.join(',')
       })
     }
+    if (clothElementsValueOr.length > 0) {
+      temp.push({
+        field: 'cloth_elements',
+        op: 'or',
+        value: clothElementsValueOr.join(',')
+      })
+    }
   }
 
   filterList.value = temp
   keyword.value = ''
+  
+  // 生成自然语言描述
+  filterDescription.value = generateFilterDescription(temp)
+  
   waterList.value?.refresh()
+}
+
+// 字段名称到中文的映射
+const fieldNameMap: Record<string, string> = {
+  name: '图鉴名称',
+  shop_name: '店名',
+  library_type: '图鉴类型',
+  state: '图鉴状态',
+  shop_country: '国家',
+  main_style: '主要风格',
+  theme: '图鉴主题',
+  color: '颜色配色',
+  library_pattern: '版型部位',
+  design_elements: '设计元素',
+  pattern_elements: '柄图元素',
+  cloth_elements: '材质布料',
+  library_price: '价格区间',
+  sale_time_start: '起始年份',
+  sale_time_end: '结束年份'
+}
+
+// 生成自然语言描述
+const generateFilterDescription = (filters: FilterList[]): string => {
+  if (filters.length === 0) {
+    return ''
+  }
+
+  // 按字段分组
+  const fieldGroups: Record<string, { and: string[], or: string[], not: string[] }> = {}
+  
+  for (const filter of filters) {
+    if (!fieldGroups[filter.field]) {
+      fieldGroups[filter.field] = { and: [], or: [], not: [] }
+    }
+    
+    const value = typeof filter.value === 'string' ? filter.value : String(filter.value)
+    
+    if (filter.op === 'and') {
+      // 处理逗号分隔的值
+      const values = value.split(',').map(v => v.trim())
+      fieldGroups[filter.field].and.push(...values)
+    } else if (filter.op === 'or') {
+      const values = value.split(',').map(v => v.trim())
+      fieldGroups[filter.field].or.push(...values)
+    } else if (filter.op === 'not') {
+      fieldGroups[filter.field].not.push(value)
+    }
+  }
+
+  // 生成描述文本
+  const descriptions: string[] = []
+  
+  for (const field of Object.keys(fieldGroups)) {
+    const group = fieldGroups[field]
+    const fieldName = fieldNameMap[field] || field
+    const parts: string[] = []
+    
+    // 处理 and 条件
+    if (group.and.length > 0) {
+      parts.push(group.and.join('、'))
+    }
+    
+    // 处理 or 条件
+    if (group.or.length > 0) {
+      if (parts.length > 0) {
+        parts.push(`或者 ${group.or.join(' 或者 ')}`)
+      } else {
+        parts.push(group.or.join(' 或者 '))
+      }
+    }
+    
+    // 处理 not 条件
+    if (group.not.length > 0) {
+      if (parts.length > 0) {
+        parts.push(`排除 ${group.not.join('、排除 ')}`)
+      } else {
+        parts.push(`排除 ${group.not.join('、排除 ')}`)
+      }
+    }
+    
+    if (parts.length > 0) {
+      // 特殊处理价格区间
+      if (field === 'library_price') {
+        try {
+          const priceData = JSON.parse(group.and[0] || '{}')
+          if (priceData.start && priceData.end) {
+            descriptions.push(`${fieldName}：${priceData.start} 到 ${priceData.end}`)
+          }
+        } catch {
+          descriptions.push(`${fieldName}：${parts.join('，')}`)
+        }
+      } else if (field === 'sale_time_start' || field === 'sale_time_end') {
+        // 处理年份
+        const year = group.and[0] || group.or[0] || ''
+        descriptions.push(`${fieldName}：${year}`)
+      } else if (field === 'shop_country') {
+        // 国家字段需要从配置中获取名称
+        descriptions.push(`${fieldName}：${parts.join('，')}`)
+      } else {
+        descriptions.push(`${fieldName}：${parts.join('，')}`)
+      }
+    }
+  }
+  
+  return descriptions.join('；')
 }
 
 // 清空筛选
@@ -605,6 +863,7 @@ const clearFilter = () => {
   filterForm.sale_time_start = null
   filterForm.sale_time_end = null
   filterList.value = []
+  filterDescription.value = ''
   waterList.value?.refresh()
 }
 // 处理点赞点击
@@ -816,7 +1075,7 @@ onMounted(async () => {
   <div class="container mx-auto pt-4 pb-20 overflow-hidden">
     <!-- 搜索头部 -->
     <div class="grid grid-cols-2 md:grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4 px-4 pb-3">
-      <div class="w-full flex items-center" v-if="!showFilterList">
+      <div class="w-full flex items-center gap-2">
         <UInput
           v-model="value"
           :placeholder="showFilterList ? '图鉴名检索,多条件空格分割' : '搜索图鉴 多条件空格分割.'"
@@ -833,13 +1092,29 @@ onMounted(async () => {
               }
             }
           }"
+          v-show="!showFilterList"
         />
         <UButton
           icon="i-heroicons-magnifying-glass"
           variant="ghost"
           color="gray"
           @click="handleSearch"
+          v-show="!showFilterList"
         />
+        <QhxTag
+          :active="true"
+          class="cursor-pointer whitespace-nowrap"
+          @click="sortSelectRef?.showPicker($event)"
+        >
+          排序: {{ sortOptions.find(opt => opt.value === sortMode)?.label }}
+        </QhxTag>
+        <QhxTag
+          :active="true"
+          class="cursor-pointer whitespace-nowrap"
+          @click="jumpToAddLibrary()"
+        >
+          补充图鉴
+        </QhxTag>
       </div>
     </div>
     
@@ -861,24 +1136,22 @@ onMounted(async () => {
         />
       </div>
       <div class="flex items-center justify-end">
-        <UButton
+        <QhxTag
+          :active="true"
+          class="cursor-pointer"
           :variant="showFilterList ? 'solid' : 'outline'"
-          color="primary"
           @click="toggleSearchMode"
-          size="sm"
         >
           {{ showFilterList ? '模糊搜索' : '精确搜索' }}
-        </UButton>
+        </QhxTag>
       </div>
     </div>
-
-    <!-- 精确搜索表单 -->
-    <div v-if="showFilterList" class="px-4 pb-4 space-y-4">
-      <!-- 提示信息 -->
-      <div v-if="!showFilterList" class="text-sm text-gray-500 dark:text-gray-400">
-        不显示子图鉴时，仅显示父级图鉴
+    <!-- 提示信息 -->
+    <div v-if="!showFilterList" class="text-sm text-gray-500 dark:text-gray-400">
+        不显示子图鉴时，仅显示上级图鉴
       </div>
-
+    <!-- 精确搜索表单 -->
+    <div v-if="showFilterList" class="px-4 pb-4 space-y-4 md:grid md:grid-cols-2 md:gap-4 md:space-y-0">
       <!-- 图鉴名称 -->
       <div class="flex items-center gap-2">
         <span class="text-sm font-medium min-w-[80px]">图鉴名称：</span>
@@ -919,9 +1192,10 @@ onMounted(async () => {
               :key="index"
               :active="true"
               class="cursor-pointer"
+              :backgroundColor="shop.type === 'and' ? '#317e10' : shop.type === 'or' ? '#0788dc' : '#e11031'"
             >
               <div class="flex items-center gap-1">
-                <span>{{ shop.label }}</span>
+                <span @click="changeFilterType(index, 'shop_name')">{{ shop.label }}</span>
                 <UIcon
                   name="i-heroicons-x-mark"
                   class="text-xs cursor-pointer"
@@ -942,9 +1216,10 @@ onMounted(async () => {
             :key="index"
             :active="true"
             class="cursor-pointer"
+            :backgroundColor="item.type === 'and' ? '#317e10' : item.type === 'or' ? '#0788dc' : '#e11031'"
           >
             <div class="flex items-center gap-1">
-              <span>{{ item.label }}</span>
+              <span @click="changeFilterType(index, 'library_type')">{{ item.label }}</span>
               <UIcon
                 name="i-heroicons-x-mark"
                 class="text-xs cursor-pointer"
@@ -1021,7 +1296,7 @@ onMounted(async () => {
             :key="index"
             :active="true"
             class="cursor-pointer"
-            :backgroundColor="item.type === 'and' ? '#317e10' : item.type === 'or' ? '#107e31' : '#e11031'"
+            :backgroundColor="item.type === 'and' ? '#317e10' : item.type === 'or' ? '#0788dc' : '#e11031'"
           >
             <div class="flex items-center gap-1">
               <span @click="changeFilterType(index, 'main_style')">{{ item.label }}</span>
@@ -1050,7 +1325,7 @@ onMounted(async () => {
             :key="index"
             :active="true"
             class="cursor-pointer"
-            :backgroundColor="item.type === 'and' ? '#317e10' : '#e11031'"
+            :backgroundColor="item.type === 'and' ? '#317e10' : item.type === 'or' ? '#0788dc' : '#e11031'"
           >
             <div class="flex items-center gap-1">
               <span @click="changeFilterType(index, 'theme')">{{ item.label }}</span>
@@ -1079,7 +1354,7 @@ onMounted(async () => {
             :key="index"
             :active="true"
             class="cursor-pointer"
-            :backgroundColor="item.type === 'and' ? '#317e10' : '#e11031'"
+            :backgroundColor="item.type === 'and' ? '#317e10' : item.type === 'or' ? '#0788dc' : '#e11031'"
           >
             <div class="flex items-center gap-1">
               <span @click="changeFilterType(index, 'color')">{{ item.label }}</span>
@@ -1108,7 +1383,7 @@ onMounted(async () => {
             :key="index"
             :active="true"
             class="cursor-pointer"
-            :backgroundColor="item.type === 'and' ? '#317e10' : '#e11031'"
+            :backgroundColor="item.type === 'and' ? '#317e10' : item.type === 'or' ? '#0788dc' : '#e11031'"
           >
             <div class="flex items-center gap-1">
               <span @click="changeFilterType(index, 'library_pattern')">{{ item.label }}</span>
@@ -1137,7 +1412,7 @@ onMounted(async () => {
             :key="index"
             :active="true"
             class="cursor-pointer"
-            :backgroundColor="item.type === 'and' ? '#317e10' : '#e11031'"
+            :backgroundColor="item.type === 'and' ? '#317e10' : item.type === 'or' ? '#0788dc' : '#e11031'"
           >
             <div class="flex items-center gap-1">
               <span @click="changeFilterType(index, 'design_elements')">{{ item.label }}</span>
@@ -1166,7 +1441,7 @@ onMounted(async () => {
             :key="index"
             :active="true"
             class="cursor-pointer"
-            :backgroundColor="item.type === 'and' ? '#317e10' : '#e11031'"
+            :backgroundColor="item.type === 'and' ? '#317e10' : item.type === 'or' ? '#0788dc' : '#e11031'"
           >
             <div class="flex items-center gap-1">
               <span @click="changeFilterType(index, 'pattern_elements')">{{ item.label }}</span>
@@ -1195,7 +1470,7 @@ onMounted(async () => {
             :key="index"
             :active="true"
             class="cursor-pointer"
-            :backgroundColor="item.type === 'and' ? '#317e10' : '#e11031'"
+            :backgroundColor="item.type === 'and' ? '#317e10' : item.type === 'or' ? '#0788dc' : '#e11031'"
           >
             <div class="flex items-center gap-1">
               <span @click="changeFilterType(index, 'cloth_elements')">{{ item.label }}</span>
@@ -1293,9 +1568,40 @@ onMounted(async () => {
           </QhxTag>
         </div>
       </div>
+      <!-- 加一个tip表示各颜色tag的逻辑 -->
+      <div v-if="!filterDescription" class="flex flex-wrap items-center gap-2 px-3 py-2 bg-gray-50 dark:bg-gray-800/50 rounded-lg text-xs text-gray-600 dark:text-gray-400 md:col-span-2">
+        <div class="flex items-center gap-1.5">
+          <UIcon name="i-heroicons-information-circle" class="w-4 h-4 flex-shrink-0" />
+          <span class="font-medium">标签逻辑：</span>
+        </div>
+        <div class="flex items-center gap-1">
+          <span class="inline-block w-3 h-3 rounded" style="background-color: #317e10;"></span>
+          <span>与（and）</span>
+        </div>
+        <div class="flex items-center gap-1">
+          <span class="inline-block w-3 h-3 rounded" style="background-color: #0788dc;"></span>
+          <span>或（or）</span>
+        </div>
+        <div class="flex items-center gap-1">
+          <span class="inline-block w-3 h-3 rounded" style="background-color: #e11031;"></span>
+          <span>非（not）</span>
+        </div>
+        <span class="text-qhx-primary">点击标签文字切换</span>
+      </div>
+
+      <!-- 筛选条件自然语言描述 -->
+      <div v-if="filterDescription && showFilterList" class="px-3 py-2 bg-blue-50 dark:bg-blue-900/20 rounded-lg text-sm text-gray-700 dark:text-gray-300 md:col-span-2 border border-blue-200 dark:border-blue-800">
+        <div class="flex items-start gap-2">
+          <UIcon name="i-heroicons-funnel" class="w-4 h-4 flex-shrink-0 mt-0.5 text-blue-600 dark:text-blue-400" />
+          <div class="flex-1">
+            <span class="font-medium text-blue-700 dark:text-blue-300">当前筛选：</span>
+            <span>{{ filterDescription }}</span>
+          </div>
+        </div>
+      </div>
 
       <!-- 操作按钮 -->
-      <div class="flex items-center gap-4 pt-2">
+      <div class="flex items-center gap-4 pt-2 md:col-span-2">
         <UButton
           color="primary"
           @click="applyFilter"
@@ -1324,7 +1630,8 @@ onMounted(async () => {
         keyword: showFilterList ? null : keyword,
         filter_list: showFilterList ? filterList : [],
         need_Statistics: true,
-        parent_id: parent_id
+        parent_id: parent_id,
+        sort: sortMode
       })
       isLoading = false
       isCheck = parent_id
@@ -1403,6 +1710,12 @@ onMounted(async () => {
       ref="saleTimeEndSelectRef"
       :options="options.sale_time"
       @select="confirmSaleTimeEnd"
+    />
+    <QhxSelect
+      ref="sortSelectRef"
+      :options="sortOptions"
+      :default-value="sortOptions.find(opt => opt.value === sortMode) || sortOptions[0]"
+      @select="onSortChange"
     />
 
     <!-- Wiki选择组件 -->
