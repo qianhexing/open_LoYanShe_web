@@ -152,7 +152,13 @@
             v-if="currentListId"
             :key="currentListId" 
             :fetch-data="waterfallFetch"
-          />
+          >
+          <template #default="{ item, debouncedApplyLayout }">
+            <div class="custom-item" :key="item.pk_id">
+              111
+            </div>
+          </template>
+          </QhxWaterList>
         </div>
       </ClientOnly>
   
