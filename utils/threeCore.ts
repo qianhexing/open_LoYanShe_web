@@ -180,7 +180,7 @@ class ThreeCore {
 	public container?: HTMLElement | null
 	private resizeObserver?: ResizeObserver
 	public loadedModelURLs: Set<string> // 已加载过的模型地址集合
-	public loadedModels: THREE.Object3D[] // 加载成功的模型数组
+	public loadedModels: { model: THREE.Object3D, animations: THREE.AnimationClip[] }[] // 加载成功的模型数组
 	private loadedTextures: Map<string, THREE.Texture> = new Map() // 加载过的贴图
 	private loadingTextures = new Map<string, Promise<THREE.Texture>>() // 正在加载的贴图
 	public effectManager: EffectManager
@@ -913,9 +913,9 @@ class ThreeCore {
 	public async loadImageMesh(url: string, baseWidth = 5): Promise<THREE.Mesh> {
 		return new Promise((resolve, reject) => {
 			if (this.loadedModelURLs.has(url)) {
-				const existing = this.loadedModels.find(obj => obj.userData.url === url)
+				const existing = this.loadedModels.find(obj => obj.model.userData.url === url)
 				if (existing) {
-					const mesh = existing.clone(true) as THREE.Mesh
+					const mesh = existing.model.clone(true) as THREE.Mesh
 					mesh.position.set(0, 0, 0)
 					mesh.rotation.set(0, 0, 0)
 					mesh.scale.set(1, 1, 1)
@@ -953,7 +953,10 @@ class ThreeCore {
 					mesh.userData.effect = []
 
 					this.loadedModelURLs.add(url)
-					this.loadedModels.push(mesh)
+					this.loadedModels.push({
+						model: mesh,
+						animations: []
+					})
 
 					resolve(mesh)
 				},
@@ -1133,10 +1136,17 @@ class ThreeCore {
 			loader.setDRACOLoader(dracoLoader)
 		}
 		return new Promise((resolve, reject) => {
-			const existing = this.loadedModels.find(obj => obj.userData.url === url)
+			const existing = this.loadedModels.find(obj => obj.model.userData.url === url)
 			if (this.loadedModelURLs.has(url) && existing) {
-				const model = existing.clone(true)
+				const model = existing.model.clone(true)
 				this.copyMaterial(model)
+				if(existing.animations && existing.animations.length > 0) {
+					const mixer = new AnimationMixer(model)
+					existing.animations.forEach(animation => {
+						mixer.clipAction(animation).play()
+					})
+					this.mixers.push(mixer)
+				}
 				resolve(model)
 			} else {
 				loader.load(
@@ -1199,7 +1209,10 @@ class ThreeCore {
 						})
 						// this.disableLighting(gltf.scene)
 						this.loadedModelURLs.add(url)
-						this.loadedModels.push(model.clone(true))
+						this.loadedModels.push({
+							model: model.clone(true),
+							animations: gltf.animations
+						})
 
 						// 动画处理
 						if (gltf.animations && gltf.animations.length > 0) {
@@ -1208,11 +1221,10 @@ class ThreeCore {
 							gltf.animations.forEach(clip => {
 								mixer.clipAction(clip).play()
 							})
-
-
-							this.addAnimationCallback(() =>
-								mixer.update(this.clock.getDelta())
-							)
+							this.mixers.push(mixer)
+							// this.addAnimationCallback(() =>
+							// 	mixer.update(this.clock.getDelta())
+							// )
 						}
 						this.copyMaterial(model)
 						resolve(model)
@@ -2055,8 +2067,10 @@ class ThreeCore {
 
 			// 调用额外的动画回调
 			// biome-ignore lint/complexity/noForEach: <explanation>
-			this.animationCallbacks.forEach(callback => callback())
-
+			// this.animationCallbacks.forEach(callback => callback())
+			for (const mixer of this.mixers) {
+				mixer.update(delta)
+			}
 			// ⭐️ 渲染流程修改：Bloom 替代原生 WebGL 渲染
 			// 1. 渲染 bloom 通道
 			this.scene.traverse(obj => {
