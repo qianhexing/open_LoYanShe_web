@@ -12,12 +12,12 @@ export default defineNuxtConfig({
   },
 	nitro: {
 		routeRules: {
-			// '/node/**': {
-			// 	proxy: 'https://lolitalibrary.com/node/**'
-			// }
 			'/node/**': {
-				proxy: 'http://192.168.1.23:3002/**'
+				proxy: 'https://lolitalibrary.com/node/**'
 			},
+			// '/node/**': {
+			// 	proxy: 'http://192.168.1.23:3002/**'
+			// },
 			'/ali/**': {
 				proxy: 'https://lolitalibrary.com/ali/**'
 			}
