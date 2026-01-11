@@ -1142,6 +1142,7 @@ class ThreeCore {
 				loader.load(
 					url,
 					gltf => {
+						console.log(gltf, 'gltf模型')
 						const model = gltf.scene
 						model.userData.url = url
 						model.userData.type = 'model'
@@ -1207,6 +1208,8 @@ class ThreeCore {
 							gltf.animations.forEach(clip => {
 								mixer.clipAction(clip).play()
 							})
+
+
 							this.addAnimationCallback(() =>
 								mixer.update(this.clock.getDelta())
 							)
@@ -1409,11 +1412,11 @@ class ThreeCore {
 	initLights() {
 		// ================ 环境光设置 ================
 		// 基础环境光 - 为了避免完全黑暗的区域
-		const ambientLight = new THREE.AmbientLight(0xffffff, 2.3)
+		const ambientLight = new THREE.AmbientLight(0xffffff, 2.8)
 		this.scene.add(ambientLight)
 
 		// ================ 主要方向光（太阳光） ================
-		const dirLight = new THREE.DirectionalLight(0xffeecc, 3)
+		const dirLight = new THREE.DirectionalLight(0xffeecc, 2)
 		dirLight.position.set(50, 50, 30)
 		dirLight.castShadow = true
 
@@ -1422,16 +1425,16 @@ class ThreeCore {
 		dirLight.shadow.mapSize.height = 2048
 		dirLight.shadow.camera.near = 0.1
 		dirLight.shadow.camera.far = 200
-		dirLight.shadow.camera.left = -80
-		dirLight.shadow.camera.right = 80
-		dirLight.shadow.camera.top = 80
-		dirLight.shadow.camera.bottom = -80
+		dirLight.shadow.camera.left = -20
+		dirLight.shadow.camera.right = 20
+		dirLight.shadow.camera.top = 20
+		dirLight.shadow.camera.bottom = -20
 		
 		// 关键：减少阴影条纹的bias设置
-		dirLight.shadow.bias = -0.0005
+		dirLight.shadow.bias = -0.001
 		dirLight.shadow.normalBias = 0.02
 		dirLight.shadow.radius = 4
-		dirLight.shadow.blurSamples = 40
+		dirLight.shadow.blurSamples = 20
 		this.scene.add(dirLight)
 
 
@@ -1441,7 +1444,7 @@ class ThreeCore {
 			0x2f4f4f, // 地面颜色 - 暗灰色
 			0.4
 		)
-		hemiLight.position.set(0, 50, 0)
+		hemiLight.position.set(0, 10, 0)
 		this.scene.add(hemiLight)
 
 

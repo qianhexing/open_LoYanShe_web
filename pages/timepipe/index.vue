@@ -43,8 +43,19 @@
                 <UButton color="primary" size="sm" @click="showLibraryPipeAdd()" v-if="userStore.token">自主投稿上新</UButton>
               </div>
             </div>
-            <div class="text-sm text-gray-600 p-2" v-if="waterList">
-              总数：{{ waterList.total }}
+            <div class="text-sm text-gray-600 p-2 flex items-center justify-between" v-if="waterList">
+              <div>总数：{{ waterList.total }}</div>
+              <div class="flex items-center gap-2">
+                <UButton type="submit" size="xs" class="bg-qhx-primary text-qhx-inverted hover:bg-qhx-primaryHover"
+                  @click="(e: MouseEvent) => { openSortPicker(e) }">
+                  {{`排序:${sortOptions.find(item => item.value === sortMode)?.label}` || '排序模式'}}
+                </UButton>
+                <QhxSelect ref="sortSelectRef" :options="sortOptions" :default-value="sortOptions[0]"
+                  :canCustomize="false" @select="(select) => {
+                    sortMode = select.value
+                    waterList?.refresh()
+                  }" />
+              </div>
             </div>
             <div class="flex items-center justify-between p-2">
               <div class="flex items-center gap-2 flex-1">
@@ -76,7 +87,7 @@
       </div> -->
             </div>
             <QhxWaterList v-if="layoutReady" ref="waterList" :fetch-data="async (page, pageSize) => {
-              const response = await getLibraryPipeList({ page, pageSize, time: formatted, state: filterState === -1 ? undefined : filterState, examin: 0 })
+              const response = await getLibraryPipeList({ page, pageSize, time: formatted, state: filterState === -1 ? undefined : filterState, examin: 0, sort: sortMode === 0 ? undefined : sortMode })
               return {
                 rows: response.rows,
                 count: response.count
@@ -119,7 +130,8 @@
                         </div>
                         <div class=" flex-1 text-center" :style="{ transform: 'scale(0.7)' }">
                           <UserCollectBtn :collect_count="item.item.collect_count" :pk_type="2" :pk_id="item.item.library_id" :is_collect="item.is_collect === 1 ? true : false"
-                            :need_judge="false"></UserCollectBtn>
+                            :need_judge="false"
+                            :need_axios="false"></UserCollectBtn>
                         </div>
                         <div class=" flex-1 text-center flex justify-center" :style="{ transform: 'scale(0.7)' }">
                           <div @click="handleAddToWardrobe(item.item)" class="cursor-pointer inline-block">
@@ -128,9 +140,6 @@
                           </div>
                           <div class="text-base ml-1">{{ item.item.wardrobe_count || 0 }}</div>
                         </div>
-                        <!-- <div class=" flex-1 text-center">
-                          <UIcon :name="'i-heroicons-heart-20-solid'" class=" text-[26px] text-[#409EFF] cursor-pointer" @click="captureScreen()"/>
-                        </div> -->
                       </div>
                       <!-- <LibraryItem :className="'p-1'" :size="'mini-list'" v-else :item="item.item"
                       @image-load="debouncedApplyLayout"></LibraryItem> -->
@@ -402,6 +411,7 @@ const addWardrobeToDisplay = async () => {
 const layout = ref('1')
 const todayVisit = ref(0)
 const filterState = ref(0)
+const sortMode = ref(0)
 const filterStateOptions = [
   { label: '全部', value: -1 },
   { label: '预约中', value: 0 },
@@ -409,6 +419,14 @@ const filterStateOptions = [
   { label: '截团制作', value: 2 },
   { label: '现货在售', value: 3 },
   { label: '上新图透', value: 4 }
+]
+const sortOptions = [
+  { label: '默认', value: 0 },
+  { label: '随机排序', value: 1 },
+  { label: '按开始时间', value: 2 },
+  { label: '按创建时间', value: 3 },
+  { label: '按收藏', value: 4 },
+  { label: '按点赞', value: 5 }
 ]
 const wardrobeChooseRef = ref<InstanceType<typeof WardrobeChoose> | null>(null)
 const showChooseWardrobe = () => {
@@ -475,9 +493,13 @@ const chooseWardrobe = (wardrobe: Wardrobe[]) => {
   opear_item.value = wardrobe
 }
 const qhxSelectRef = ref<InstanceType<typeof QhxSelect>>()
+const sortSelectRef = ref<InstanceType<typeof QhxSelect>>()
 const currentTab = ref(0)
 const openPicker = (e: MouseEvent) => {
   qhxSelectRef.value?.showPicker(e)
+}
+const openSortPicker = (e: MouseEvent) => {
+  sortSelectRef.value?.showPicker(e)
 }
 const onChangeTab = (index: number) => {
   if (index === 0) {
