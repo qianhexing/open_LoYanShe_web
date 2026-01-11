@@ -9,6 +9,7 @@ import WardrobeAddLibrary from '@/components/Wardrobe/WardrobeAddLibrary.vue'
 import { getWardrobeListOptions } from '@/api/wardrobe'
 import { useToast } from '#imports'
 import type { Wiki } from '@/types/api'
+import dayjs from 'dayjs'
 const user = useUserStore()
 const config = useConfigStore()
 const route = useRoute()
@@ -257,6 +258,28 @@ const handleEditLibrary = () => {
                 '元' }}
               </p>
             </div>
+          </div>
+          <div v-if="library.state === '预约中'" class="mb-4">
+            <h3 class="text-sm m-1">预约时间</h3>
+            <p class="text-xs">
+              <QhxTag :active="true">{{ dayjs(library.start_time).format('YYYY-MM-DD HH:mm') }}</QhxTag>
+              <span>-</span>
+              <QhxTag :active="true">{{ dayjs(library.end_time).format('YYYY-MM-DD HH:mm') }}</QhxTag>
+            </p>
+          </div>
+          <div v-else-if="library.state === '尾款中'" class="mb-4">
+            <h3 class="text-sm m-1">尾款时间</h3>
+            <p class="text-xs">
+              <QhxTag :active="true">{{ dayjs(library.arrears_start).format('YYYY-MM-DD HH:mm') }}</QhxTag>
+              <span>-</span>
+              <QhxTag :active="true">{{ dayjs(library.arrears_end).format('YYYY-MM-DD HH:mm') }}</QhxTag>
+            </p>
+          </div>
+          <div v-else class="mb-4">
+            <h3 class="text-sm m-1">状态</h3>
+            <p class="text-xs">
+              <QhxTag :active="true">{{ library.state }}</QhxTag>
+            </p>
           </div>
           <!-- 信息表 -->
           <div v-if="library.size_image" class="mb-4">

@@ -33,3 +33,5 @@ export async function getStudyForeignList(
   );
   return response.data;
 }
+
+

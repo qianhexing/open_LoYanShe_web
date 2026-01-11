@@ -1,4 +1,5 @@
 <script setup lang="ts">
+  const router = useRouter()
 import type { Study } from '@/types/api';
 interface Props {
   item: Study,
@@ -28,7 +29,8 @@ const handleJump = (ele: Study) => {
       color: 'red'
     })
   } else {
-    window.open(`/study/detail/${item.study_id}`, '_blank')
+    // window.open(`/study/detail/${item.study_id}`, '_blank')
+    router.push(`/study/detail/${item.study_id}`)
   }
   // window.open(`/study/detail/${id}`, '_blank')
   // navigateTo(`/shop/detail/${id}`)
