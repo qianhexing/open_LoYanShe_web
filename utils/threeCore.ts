@@ -105,6 +105,8 @@ export interface SceneObjectJSON {
 	library_id?: number // 图鉴类型
 	effect?: SceneEffectJSON[] // 如果是model效果列表
 	material?: Record<string, any> // 替换过的贴图
+	plugin?: { url: string, options?: Record<string, any> }[] // 插件地址
+	follow?: boolean // 跟随摄像机
 }
 export interface SceneJSON {
 	objects: SceneObjectJSON[]
@@ -133,6 +135,7 @@ interface ThreeCoreOptions {
 }
 
 class ThreeCore {
+	public uFrame = 0
 	public scene: THREE.Scene
 	public camera: THREE.PerspectiveCamera | THREE.OrthographicCamera
 	public renderer: THREE.WebGLRenderer | WebGPURenderer
@@ -202,6 +205,9 @@ class ThreeCore {
 	public gizmo: TransformGizmo | null
 	public transformControls: TransformControls
 	public showbloom: boolean
+	public activePlugins: any[] = []
+	public pluginCache = new Map<string, any>()
+
 	// bloom
 	bloomLayer = new THREE.Layers()
 	bloomPass!: UnrealBloomPass
@@ -1151,12 +1157,13 @@ class ThreeCore {
 			} else {
 				loader.load(
 					url,
-					gltf => {
+					async gltf => {
 						console.log(gltf, 'gltf模型')
 						const model = gltf.scene
 						model.userData.url = url
 						model.userData.type = 'model'
 						model.userData.effect = []
+						model.userData.plugin = []
 						model.userData.useDracoLoader = options.useDracoLoader
 						// this.scene.add(model);
 						// 配置阴影和光照
@@ -1213,7 +1220,7 @@ class ThreeCore {
 							model: model.clone(true),
 							animations: gltf.animations
 						})
-
+						
 						// 动画处理
 						if (gltf.animations && gltf.animations.length > 0) {
 							const mixer = new AnimationMixer(model)
@@ -2024,9 +2031,76 @@ class ThreeCore {
 			}
 		}
 	}
-
+	async  applyRemoteShaderPlugin(
+		root: THREE.Object3D,
+		pluginUrl: string
+	) {
+		const plugin = await this.loadRemotePlugin(pluginUrl)
+	
+		root.traverse((obj: any) => {
+			if (!obj.isMesh || !obj.material) return
+	
+			const materials = Array.isArray(obj.material)
+				? obj.material
+				: [obj.material]
+			// biome-ignore lint/complexity/noForEach: <explanation>
+			materials.forEach((material: THREE.Material) => {
+				if (!material.onBeforeCompile) return
+	
+				material.onBeforeCompile = (shader) => {
+					// uniforms
+					if (plugin.uniforms) {
+						Object.assign(shader.uniforms, plugin.uniforms)
+					}
+	
+					// common
+					if (plugin.injectCommon) {
+						shader.vertexShader = shader.vertexShader.replace(
+							'#include <common>',
+							`#include <common>\n${plugin.injectCommon}`
+						)
+					}
+	
+					// functions
+					if (plugin.injectFunctions) {
+						shader.vertexShader = shader.vertexShader.replace(
+							'void main() {',
+							`${plugin.injectFunctions}\nvoid main() {`
+						)
+					}
+	
+					// vertex transform
+					if (plugin.injectVertexTransform) {
+						shader.vertexShader = shader.vertexShader.replace(
+							'#include <begin_vertex>',
+							`#include <begin_vertex>\n${plugin.injectVertexTransform}`
+						)
+					}
+				}
+	
+				material.needsUpdate = true
+			})
+		})
+	
+		return plugin
+	}
+	// 远程加载着色器插件
+	public async loadRemotePlugin(url: string) {
+		if (this.pluginCache.has(url)) {
+			console.log( '插件缓存')
+			return this.pluginCache.get(url)
+		}
+		console.log( '没有走缓存')
+		const module = await import(/* @vite-ignore */ url)
+		if (!module?.default) {
+			throw new Error(`Shader plugin must export default: ${url}`)
+		}
+		this.pluginCache.set(url, module.default)
+		return module.default
+	}
 	startAnimationLoop() {
 		const animate = (time?: number, frame?: any) => {
+			this.uFrame += 1
 			// 如果不是 XR 模式，需要手动 requestAnimationFrame
 			// 如果是 XR 模式，renderer.setAnimationLoop 会处理循环，不需要 requestAnimationFrame
 			// 但这里为了兼容两套逻辑，我们要做个判断
@@ -2049,21 +2123,30 @@ class ThreeCore {
 				this.scanAndPositionFromQR();
 			}
 
-			// 更新 OrbitControls
-			if (this.controls && this.controls.enabled) {
-				this.controls.update()
-			}
-			// 更新 DeviceOrientationControls
-			if (this.deviceOrientationControls && this.deviceOrientationControls.enabled) {
-				this.deviceOrientationControls.update()
-			}
-			
-			// 更新镜头光位置跟随相机
-			if (this.lensLight && this.camera) {
-				// 让镜头光稍微偏离相机位置，避免直射
-				const offset = new THREE.Vector3(2, 1, 2)
-				this.lensLight.position.copy(this.camera.position).add(offset)
-			}
+		// 更新 OrbitControls
+		if (this.controls && this.controls.enabled) {
+			this.controls.update()
+		}
+		// 更新 DeviceOrientationControls
+		if (this.deviceOrientationControls && this.deviceOrientationControls.enabled) {
+			this.deviceOrientationControls.update()
+		}
+		
+		// 让图片 mesh 轻微跟随镜头旋转
+		// if (this.camera) {
+		// 	const imagePosition = new THREE.Vector3()
+		// 	const direction = new THREE.Vector3()
+		// 	this.scene.traverse(obj => {
+				
+		// 	})
+		// }
+		
+		// 更新镜头光位置跟随相机
+		if (this.lensLight && this.camera) {
+			// 让镜头光稍微偏离相机位置，避免直射
+			const offset = new THREE.Vector3(2, 1, 2)
+			this.lensLight.position.copy(this.camera.position).add(offset)
+		}
 
 			// 调用额外的动画回调
 			// biome-ignore lint/complexity/noForEach: <explanation>
@@ -2071,6 +2154,15 @@ class ThreeCore {
 			for (const mixer of this.mixers) {
 				mixer.update(delta)
 			}
+			// biome-ignore lint/complexity/noForEach: <explanation>
+			this.activePlugins.forEach(p => {
+				if (p.uniforms?.uTime) {
+					p.uniforms.uTime.value = time
+				}
+				if (p.uniforms?.uFrame) {
+					p.uniforms.uFrame.value = this.uFrame
+				}
+			})
 			// ⭐️ 渲染流程修改：Bloom 替代原生 WebGL 渲染
 			// 1. 渲染 bloom 通道
 			this.scene.traverse(obj => {
@@ -2083,6 +2175,23 @@ class ThreeCore {
 					if (obj.parent && obj.parent.isTransformControlsGizmo) {
 						this.materials[mesh.uuid] = mesh.material
 						mesh.material = this.darkMaterial
+					}
+					if (this.camera && obj instanceof THREE.Mesh && obj.userData.type === 'image' && obj.userData.follow) {
+						// 获取图片在世界坐标系中的位置
+						// obj.getWorldPosition(imagePosition)
+						
+						// 计算从图片位置指向相机位置的向量
+						// direction.subVectors(this.camera.position, imagePosition).normalize()
+						// console.log(this.camera.position, imagePosition, '方向')
+						// 计算目标旋转（让图片面向相机）
+						// PlaneGeometry 默认朝向 Z 轴正方向
+						// const targetQuaternion = new THREE.Quaternion()
+						// targetQuaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), direction)
+						
+						// 使用球面线性插值（SLERP）实现轻微跟随效果
+						// 系数越小，跟随越轻微（0.05 表示每次只旋转 5% 的距离）
+						// obj.quaternion.slerp(targetQuaternion, 0.05)
+						obj.quaternion.copy(this.camera.quaternion)
 					}
 				}
 			})
@@ -2462,7 +2571,9 @@ class ThreeCore {
 					}`
 				}
 			}
-
+			if (obj.userData.follow) {
+				jsonObj.follow = obj.userData.follow
+			}
 			if (typeGuess === 'model') {
 				jsonObj.url = obj.userData.url.replace(BASE_IMG, '')
 				if (obj.userData.useDracoLoader) {
@@ -2555,6 +2666,16 @@ class ThreeCore {
 			})
 		}
 		mesh.userData.options = options
+		if (options.plugin && options.plugin.length > 0) {
+			// biome-ignore lint/complexity/noForEach: <explanation>
+			options.plugin.forEach(async plugin => {
+				const pluginObj = await this.applyRemoteShaderPlugin(
+					mesh,
+					plugin.url
+				)
+				this.activePlugins.push(pluginObj)
+			})
+		}
 	}
 	// 为模型设置特效
 	public setEffectModel(
@@ -2780,11 +2901,22 @@ class ThreeCore {
 					if (obj.options) {
 						this.setOptionsModel(mesh, obj.options)
 					}
+
 					if (obj.effect) {
 						this.setEffectModel(mesh, obj.effect)
 					}
 					if (obj.material) {
 						this.setMaterialModel(mesh, obj.material)
+					}
+					if (obj.plugin && obj.plugin.length > 0) {
+						// biome-ignore lint/complexity/noForEach: <explanation>
+						obj.plugin.forEach(async plugin => {
+							const pluginObj = await this.applyRemoteShaderPlugin(
+								model,
+								plugin.url
+							)
+							this.activePlugins.push(pluginObj)
+						})
 					}
 				} catch (e) {
 					console.warn(`模型加载失败：${obj.url}`, e)
@@ -2869,6 +3001,9 @@ class ThreeCore {
 				mesh.scale.set(...scale)
 				if (obj.renderOrder) {
 					mesh.renderOrder = obj.renderOrder
+				}
+				if (obj.follow) {
+					mesh.userData.follow = obj.follow
 				}
 				if (obj.type === 'diary') {
 					if (!this.editMode) {
@@ -3056,6 +3191,7 @@ class ThreeCore {
 			this.scene.remove(object)
 		}
 	}
+	
 }
 
 export default ThreeCore

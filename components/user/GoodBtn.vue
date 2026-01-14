@@ -103,7 +103,7 @@ defineExpose({
       is_good: isGood
     }">
       <div class="flex items-center">
-        <UIcon :name="isGood ? 'i-heroicons-heart-20-solid' : 'i-heroicons-heart-20-solid'" class=" text-[26px]"
+        <UIcon :name="isGood ? 'weui:like-filled' : 'weui:like-filled'" class=" text-[26px]"
         :class="isGood ? 'text-[#409EFF]' : 'text-gray-500'" />
         <div class="text-base ml-1">{{ goodCount }}</div>
       </div>

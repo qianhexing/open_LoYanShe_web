@@ -92,7 +92,7 @@
                 rows: response.rows,
                 count: response.count
               }
-            }" :columns="layout === '0' ? 5 : 3" :itemKey="0" :columns_768="layout === '0' ? 2 : 1" :enableWaterfall="true" :enableLoadMore="isActive ? true : false">
+            }" :columns="columns" :itemKey="0" :columns_768="layout === '0' ? 2 : 1" :enableWaterfall="true" :enableLoadMore="isActive ? true : false">
               <template #default="{ item, debouncedApplyLayout }">
                 <!-- 自定义内容 -->
                 <div class="custom-item mr-[1px] mb-1" :key="item.pipe_id">
@@ -135,7 +135,7 @@
                         </div>
                         <div class=" flex-1 text-center flex justify-center" :style="{ transform: 'scale(0.7)' }">
                           <div @click="handleAddToWardrobe(item.item)" class="cursor-pointer inline-block">
-                            <UIcon name="i-heroicons-archive-box-20-solid" class="text-[26px]" 
+                            <UIcon name="hugeicons:wardrobe-04" class="text-[26px]" 
                             :class="item.is_wardrobe === 1 ? 'text-[#409EFF]' : 'text-gray-500'" />
                           </div>
                           <div class="text-base ml-1">{{ item.item.wardrobe_count || 0 }}</div>
@@ -339,10 +339,11 @@ const libraryTypeColorChooseRef = ref<InstanceType<typeof LibraryTypeColorChoose
 const danmakuRef = ref<InstanceType<typeof DanmakuComment> | null>(null)
 const route = useRoute()
 const token = ref<string | null>(null) // 传入的token
-
 // 窗口宽度响应式变量
 const windowWidth = ref(typeof window !== 'undefined' ? window.innerWidth : 1920)
-
+const columns = computed(() => {
+  return layout.value === '0' ? (windowWidth.value > 768 && windowWidth.value < 1920 ? 4 : 5) : 3
+})
 // 根据窗口宽度计算弹幕速度
 // 速度值越小，弹幕移动越快。窗口越宽，需要的时间应该相应增加
 // 基准：1920px 宽度对应速度 40，按比例计算
@@ -411,7 +412,7 @@ const addWardrobeToDisplay = async () => {
 const layout = ref('1')
 const todayVisit = ref(0)
 const filterState = ref(0)
-const sortMode = ref(0)
+const sortMode = ref(2)
 const filterStateOptions = [
   { label: '全部', value: -1 },
   { label: '预约中', value: 0 },
@@ -421,12 +422,12 @@ const filterStateOptions = [
   { label: '上新图透', value: 4 }
 ]
 const sortOptions = [
-  { label: '默认', value: 0 },
-  { label: '随机排序', value: 1 },
-  { label: '按开始时间', value: 2 },
-  { label: '按创建时间', value: 3 },
-  { label: '按收藏', value: 4 },
-  { label: '按点赞', value: 5 }
+  { label: '预约开始', value: 0 },
+  // { label: '随机排序', value: 1 },
+  { label: '最新上新', value: 2 },
+  { label: '衣柜数', value: 3 },
+  { label: '收藏数', value: 4 },
+  { label: '点赞数', value: 5 }
 ]
 const wardrobeChooseRef = ref<InstanceType<typeof WardrobeChoose> | null>(null)
 const showChooseWardrobe = () => {

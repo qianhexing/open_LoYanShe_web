@@ -1083,12 +1083,13 @@ onMounted(async () => {
           :autofocus="false"
           @keyup.enter="handleSearch"
           :ui="{
-            base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
+            base: 'bg-qhx-primary text-qhx-primary focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
             rounded: 'rounded-full',
             padding: { xs: 'px-4 py-2' },
             color: {
               white: {
-                outline: 'bg-gray-50 dark:bg-gray-800 ring-1 ring-gray-300 dark:ring-gray-600 focus:ring-2 focus:ring-qhx-primary'
+                outline: ' ring-1 ring-gray-300  focus:ring-2 focus:ring-qhx-primary',
+                input: ' bg-qhx-primary',
               }
             }
           }"

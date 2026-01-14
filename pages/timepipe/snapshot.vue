@@ -177,6 +177,7 @@ const fetchData = async () => {
     const res = await getLibraryPipeList({
       page: 1,
       pageSize: 999,
+      sort: 2,
       time: formattedDate.value
     })
     list.value = res.rows || []

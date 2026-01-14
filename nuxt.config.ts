@@ -20,6 +20,9 @@ export default defineNuxtConfig({
 			// },
 			'/ali/**': {
 				proxy: 'https://lolitalibrary.com/ali/**'
+			},
+			'/pc/**': {
+				proxy: 'https://lolitalibrary.com/pc/**'
 			}
 		},
 		compressPublicAssets: true // 启动压缩
