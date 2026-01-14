@@ -53,6 +53,25 @@ function getFileExtension(filename: string): string {
   const lastDot = filename.lastIndexOf('.')
   return lastDot !== -1 ? filename.substring(lastDot) : ''
 }
+
+/**
+ * 判断文件格式是否为 gltf/glb，如果是则计算并返回 MD5，否则返回 false
+ * @param file 要检查的文件
+ * @returns 如果是 gltf/glb 格式，返回 MD5 值；否则返回 false
+ */
+export async function checkGLTFFormatAndGetMD5(file: File): Promise<string | false> {
+  const fileExtension = getFileExtension(file.name).toLowerCase()
+  
+  // 检查是否为 gltf 或 glb 格式
+  if (fileExtension === '.gltf' || fileExtension === '.glb') {
+    // 计算并返回 MD5
+    const md5 = await calculateFileMD5(file)
+    return md5
+  }
+  
+  // 不是 gltf/glb 格式，返回 false
+  return false
+}
 export async function uploadImageOSS(file: { file?: File; url?: string; }): Promise<string> {
   let url: string
   if (file.file) {

@@ -429,6 +429,12 @@ const openObjectSettings = () => {
                 y: operaPosition.value.y
             }
             showObjectSettings.value = true
+        } 
+        if (obj.userData.type === 'image') {
+            // 初始化设置
+            if (obj.userData.follow === undefined) {
+                obj.userData.follow = false
+            }
         }
     }
 }
@@ -1150,7 +1156,9 @@ useHead({
                     v-show="transformType !== 'scale'">缩放
                 </div>
                 <div class=" cursor-pointer px-3 flex-shrink-0" @click.stop="openObjectSettings"
-                    v-if="clickObject && clickObject[0].userData.type === '3Dtext'">设置</div>
+                    v-if="clickObject && (clickObject[0].userData.type === 'image' || clickObject[0].userData.type === '3Dtext')">
+                    设置
+                </div>
                 <div class=" cursor-pointer px-3 flex-shrink-0" @click.stop="copyModel()"
                     v-if="clickObject && clickObject[0].userData.type === 'model'">复制</div>
                 <div class=" cursor-pointer px-3 flex-shrink-0" @click.stop="showTexture()" v-if="canTexture">贴图</div>

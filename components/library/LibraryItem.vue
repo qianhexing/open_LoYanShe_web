@@ -343,7 +343,7 @@ const handleJump = (id: number) => {
       <div @click.stop="handleAddToWardrobe" class="cursor-pointer inline-block">
         <div class="flex items-center">
           <UIcon 
-            name="i-heroicons-archive-box-20-solid" 
+            name="hugeicons:wardrobe-04" 
             class="text-[26px]"
             :class="item.is_wardrobe === 1 ? 'text-[#409EFF]' : 'text-gray-500'" 
           />
