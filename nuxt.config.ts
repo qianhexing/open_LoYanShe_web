@@ -43,11 +43,15 @@ export default defineNuxtConfig({
         }
       ],
       script: [
-        {
-          src: 'https://hm.baidu.com/hm.js?0335ae083b2ed0e0898bed7618373dee',
-          async: true,
-          defer: true,
-        },
+        // 只在生产环境加载百度统计
+        ...(process.env.NODE_ENV === 'production' ? [
+          {
+            src: 'https://hm.baidu.com/hm.js?0335ae083b2ed0e0898bed7618373dee',
+            async: true,
+            defer: true,
+            onerror: 'this.onerror=null;', // 静默处理加载错误
+          },
+        ] : []),
       ],
     },
   },
