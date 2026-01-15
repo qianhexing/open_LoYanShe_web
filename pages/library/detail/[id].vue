@@ -239,7 +239,7 @@ const handleEditLibrary = () => {
             <h1 class="mb-3 text-lg font-semibold">{{ library.name }}</h1>
           </div>
           <div>
-            <QhxTag class="cursor-pointer" v-if="library.examin === 0" @click="handleEditLibrary" :active="true" color="blue">
+            <QhxTag class="cursor-pointer" v-if="library.examin !== 1" @click="handleEditLibrary" :active="true" color="blue">
               申请纠错
             </QhxTag>
             <QhxTag class="cursor-pointer" v-else :active="true" color="blue">
@@ -429,6 +429,13 @@ const handleEditLibrary = () => {
             </div> -->
           </div>
         </div>
+      </div>
+      <div class="flex flex-wrap my-2" v-if="library?.detail_image">
+        <QhxPreviewImage
+          :list="library.detail_image.split(',').map((image) => { return { src: image + '?x-oss-process=image/quality,q_80/resize,w_300,h_300' } })"
+          :preview="library.detail_image.split(',')"
+          :className="'cursor-pointer ml-3 w-[100px] h-[100px]  object-cover rounded-[10px] shadow-lg border border-gray-200'">
+        </QhxPreviewImage>
       </div>
       <div v-if="shop" class="p-3 px-6">
         <ShopItem :item="shop" size="small"></ShopItem>

@@ -12,6 +12,7 @@ provide('layoutReady', layoutReady)
 const times = ref(1)
 const isHome = ref(false)
 const cachedPages = ref(['library']) // 根据你的实际页面名称修改
+const colorMode = useColorMode()
 const jumpToLoyanshe = () => {
   if (times.value >= 3) {
     window.location.href = 'https://a.app.qq.com/o/simple.jsp?pkgname=uni.lolita'
@@ -21,7 +22,7 @@ const jumpToLoyanshe = () => {
 }
 
 const layout_style = ref(0) // 0是带上下栏的 1 是空白页面
-const blank_list = ['/distributedMaps', '/visualization/wardrobe', '/visualization/shop-cloud', '/rank', '/yearlySummary', '/user/changePassword','/matching/detail','/album/detail', '/album', 'clothes/detail', 'scene/detail', 'wardrobe/detail', 'register', 'lighting-debug', 'timepipe', 'user/edit']
+const blank_list = ['/post/', '/distributedMaps', '/visualization/wardrobe', '/visualization/shop-cloud', '/rank', '/yearlySummary', '/user/changePassword','/matching/detail','/album/detail', '/album', 'clothes/detail', 'scene/detail', 'wardrobe/detail', 'register', 'lighting-debug', 'timepipe', 'user/edit']
 const route = useRoute()
 if (route.query?.token) {
   useUserStore().setToken(route.query.token.toString())
@@ -29,6 +30,7 @@ if (route.query?.token) {
 console.log(route.path, '初始路由地址')
 const judgeIsHome = () => {
   console.log('当前路由', route.path)
+  colorMode.value = 'light'
   const is_blank = blank_list.find((path) => {
     return route.path.includes(path)
   })
@@ -78,6 +80,8 @@ const handleInit = (event: MessageEvent) => {
 }
 // 组件会自动导入
 onMounted(async () => {
+  colorMode.value = 'light'
+  console.log(colorMode.value, '颜色模式')
   if (process.client && typeof window !== 'undefined' && window.localStorage) {
     console.log(route.query, '路由参数')
     if (route.query.token) {

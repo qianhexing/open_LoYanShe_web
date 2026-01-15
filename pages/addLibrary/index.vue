@@ -533,6 +533,7 @@ import { uploadImageUrl } from '@/api'
 import { uploadFileToOSS, uploadImageOSS } from '@/utils/ossUpload'
 import { BASE_IMG } from '@/utils/ipConfig'
 import dayjs from 'dayjs'
+let uni: any;
 const showConfirmLibrary = ref(false)
 // 定义组件
 const LibraryChoose = defineAsyncComponent(() => import('~/components/library/LibraryChoose.vue'))
@@ -760,6 +761,9 @@ const toast = useToast()
 
 // 生命周期
 onMounted(async () => {
+  uni = await import('@dcloudio/uni-webview-js').catch((err) => {
+    console.error('Failed to load uni-webview-js:', err);
+  });
   // 检测审核模式
   if (route.query?.library_id && route.query?.review) {
     isReviewMode.value = true
@@ -1983,7 +1987,16 @@ const submitReview = async () => {
     }
     
     await submitLibraryReview(params)
-    
+    const isInUniApp =
+      typeof window !== 'undefined' &&
+      navigator.userAgent.includes('Html5Plus');
+    if (isInUniApp && typeof uni !== 'undefined' && uni.redirectTo) {
+      uni.redirectTo({
+        url: '/pages/library/manage',
+      });
+    } else {
+      window.location.href = `/library/detail/${library_id.value}`
+    }
     toast.add({
       title: '成功',
       description: reviewForm.value.status === 'approved' ? '审核通过' : '已驳回',
