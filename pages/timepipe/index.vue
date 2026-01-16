@@ -1,7 +1,7 @@
 <template>
   <div class="container mx-auto min-h-screen timepipe-wrapper">
     <!-- 弹幕组件 - 一直存在，只在"上新日历"标签页时显示 -->
-    
+    <!-- Wiki选择组件 -->
     <div class="fixed top-0 left-0 w-full h-full pointer-events-none z-40" style="pointer-events: none;">
       <CommentDanmakuComment
         v-show="currentTab === 0"
@@ -47,6 +47,14 @@
               <div>总数：{{ waterList.total }}</div>
               <div class="flex items-center gap-2">
                 <UButton type="submit" size="xs" class="bg-qhx-primary text-qhx-inverted hover:bg-qhx-primaryHover"
+                  @click="showFilterModal = true">
+                  筛选<span v-if="filterCount > 0" class="ml-1">({{ filterCount }})</span>
+                </UButton>
+                <UButton v-if="hasFilter" type="submit" size="xs" class="bg-red-500 text-white hover:bg-red-600"
+                  @click="clearFilter">
+                  重置
+                </UButton>
+                <UButton type="submit" size="xs" class="bg-qhx-primary text-qhx-inverted hover:bg-qhx-primaryHover"
                   @click="(e: MouseEvent) => { openSortPicker(e) }">
                   {{`排序:${sortOptions.find(item => item.value === sortMode)?.label}` || '排序模式'}}
                 </UButton>
@@ -62,7 +70,7 @@
                 <!-- 塞选状态 -->
                 <UButton type="submit" size="xs" class="bg-qhx-primary text-qhx-inverted hover:bg-qhx-primaryHover mt-2"
                   @click="(e: MouseEvent) => { openPicker(e) }">
-                  {{`筛选:${filterStateOptions.find(item => item.value === filterState)?.label}` || '筛选状态'}}
+                  {{`筛选状态:${filterStateOptions.find(item => item.value === filterState)?.label}` || '筛选状态'}}
                 </UButton>
                 <QhxSelect ref="qhxSelectRef" :options="filterStateOptions" :default-value="filterStateOptions[1]"
                   :canCustomize="false" @select="(select) => {
@@ -87,7 +95,15 @@
       </div> -->
             </div>
             <QhxWaterList v-if="layoutReady" ref="waterList" :fetch-data="async (page, pageSize) => {
-              const response = await getLibraryPipeList({ page, pageSize, time: formatted, state: filterState === -1 ? undefined : filterState, examin: 0, sort: sortMode === 0 ? undefined : sortMode })
+              const response = await getLibraryPipeList({ 
+                page, 
+                pageSize, 
+                time: formatted, 
+                state: filterState === -1 ? undefined : filterState, 
+                examin: 0, 
+                sort: sortMode === 0 ? undefined : sortMode,
+                filter_list: filterList.length > 0 ? filterList : undefined
+              })
               return {
                 rows: response.rows,
                 count: response.count
@@ -98,7 +114,7 @@
                 <div class="custom-item mr-[1px] mb-1" :key="item.pipe_id">
                   <div class="polaroid-card">
                     <div class="flex justify-between items-center px-2">
-                      <QhxTag :active="true"> <div class="text-xs">{{ formateState(item.state) }}</div> </QhxTag>
+                      <QhxTag :active="true" :backgroundColor="getStateColor(item.state)"> <div class="text-xs">{{ formateState(item.state) }}</div> </QhxTag>
                       <div class="p-0 flex items-center">
                         <!-- <h3 class="p-2">起止时间</h3> -->
                         <QhxTag :active="true" v-show="layout !== '0'">{{ dayjs(item.start_time).format('YY-MM-DD') }}</QhxTag> -
@@ -311,15 +327,179 @@
     </QhxLoading> -->
     <LibraryTypeColorChoose ref="libraryTypeColorChooseRef" @choose="handleLibraryTypeColorChoose" />
     <WardrobeAddLibrary ref="wardrobeAddLibraryRef" @change="handleWardrobeChange" />
+    
+    <!-- 筛选弹窗 -->
+    <UModal v-model="showFilterModal" :prevent-close="true" :ui="{ width: 'max-w-2xl' }">
+      <UCard>
+        <template #header>
+          <h3 class="text-lg font-semibold">筛选条件</h3>
+        </template>
+        <div class="space-y-4">
+          <!-- 主要风格 -->
+          <div class="flex items-start gap-2">
+            <span class="text-sm font-medium min-w-[80px] pt-2">主要风格：</span>
+            <div class="flex-1 flex flex-wrap gap-2">
+              <QhxTag
+                v-for="(item, index) in filterForm.main_style"
+                :key="index"
+                :active="true"
+                class="cursor-pointer"
+                :backgroundColor="item.type === 'and' ? '#317e10' : item.type === 'or' ? '#0788dc' : '#e11031'"
+              >
+                <div class="flex items-center gap-1">
+                  <span @click="changeFilterType(index, 'main_style')">{{ item.label }}</span>
+                  <UIcon
+                    name="i-heroicons-x-mark"
+                    class="text-xs cursor-pointer"
+                    @click="deleteArrayItem(filterForm.main_style, index)"
+                  />
+                </div>
+              </QhxTag>
+              <QhxTag
+                class="cursor-pointer"
+                @click="mainStyleSelectRef?.showPicker($event)"
+              >
+                选择风格
+              </QhxTag>
+            </div>
+          </div>
+
+          <!-- 设计元素 -->
+          <div class="flex items-start gap-2">
+            <span class="text-sm font-medium min-w-[80px] pt-2">设计元素：</span>
+            <div class="flex-1 flex flex-wrap gap-2">
+              <QhxTag
+                v-for="(item, index) in filterForm.design_elements"
+                :key="index"
+                :active="true"
+                class="cursor-pointer"
+                :backgroundColor="item.type === 'and' ? '#317e10' : item.type === 'or' ? '#0788dc' : '#e11031'"
+              >
+                <div class="flex items-center gap-1">
+                  <span @click="changeFilterType(index, 'design_elements')">{{ item.label }}</span>
+                  <UIcon
+                    name="i-heroicons-x-mark"
+                    class="text-xs cursor-pointer"
+                    @click="deleteArrayItem(filterForm.design_elements, index)"
+                  />
+                </div>
+              </QhxTag>
+              <QhxTag
+                class="cursor-pointer"
+                @click="chooseWiki('design_elements')"
+              >
+                选择设计元素
+              </QhxTag>
+            </div>
+          </div>
+
+          <!-- 柄图元素 -->
+          <div class="flex items-start gap-2">
+            <span class="text-sm font-medium min-w-[80px] pt-2">柄图元素：</span>
+            <div class="flex-1 flex flex-wrap gap-2">
+              <QhxTag
+                v-for="(item, index) in filterForm.pattern_elements"
+                :key="index"
+                :active="true"
+                class="cursor-pointer"
+                :backgroundColor="item.type === 'and' ? '#317e10' : item.type === 'or' ? '#0788dc' : '#e11031'"
+              >
+                <div class="flex items-center gap-1">
+                  <span @click="changeFilterType(index, 'pattern_elements')">{{ item.label }}</span>
+                  <UIcon
+                    name="i-heroicons-x-mark"
+                    class="text-xs cursor-pointer"
+                    @click="deleteArrayItem(filterForm.pattern_elements, index)"
+                  />
+                </div>
+              </QhxTag>
+              <QhxTag
+                class="cursor-pointer"
+                @click="chooseWiki('pattern_elements')"
+              >
+                选择柄图元素
+              </QhxTag>
+            </div>
+          </div>
+
+          <!-- 主题 -->
+          <div class="flex items-start gap-2">
+            <span class="text-sm font-medium min-w-[80px] pt-2">主题：</span>
+            <div class="flex-1 flex flex-wrap gap-2">
+              <QhxTag
+                v-for="(item, index) in filterForm.theme"
+                :key="index"
+                :active="true"
+                class="cursor-pointer"
+                :backgroundColor="item.type === 'and' ? '#317e10' : item.type === 'or' ? '#0788dc' : '#e11031'"
+              >
+                <div class="flex items-center gap-1">
+                  <span @click="changeFilterType(index, 'theme')">{{ item.label }}</span>
+                  <UIcon
+                    name="i-heroicons-x-mark"
+                    class="text-xs cursor-pointer"
+                    @click="deleteArrayItem(filterForm.theme, index)"
+                  />
+                </div>
+              </QhxTag>
+              <QhxTag
+                class="cursor-pointer"
+                @click="chooseWiki('theme')"
+              >
+                选择主题
+              </QhxTag>
+            </div>
+          </div>
+          <WikiOptionsChoose ref="wikiOptionsChooseRef" @choose="onWikiChoose" />
+
+          <!-- 提示信息 -->
+          <div class="flex flex-wrap items-center gap-2 px-3 py-2 bg-gray-50 dark:bg-gray-800/50 rounded-lg text-xs text-gray-600 dark:text-gray-400">
+            <div class="flex items-center gap-1.5">
+              <UIcon name="i-heroicons-information-circle" class="w-4 h-4 flex-shrink-0" />
+              <span class="font-medium">标签逻辑：</span>
+            </div>
+            <div class="flex items-center gap-1">
+              <span class="inline-block w-3 h-3 rounded" style="background-color: #317e10;"></span>
+              <span>与（and）</span>
+            </div>
+            <div class="flex items-center gap-1">
+              <span class="inline-block w-3 h-3 rounded" style="background-color: #0788dc;"></span>
+              <span>或（or）</span>
+            </div>
+            <div class="flex items-center gap-1">
+              <span class="inline-block w-3 h-3 rounded" style="background-color: #e11031;"></span>
+              <span>非（not）</span>
+            </div>
+            <span class="text-qhx-primary">点击标签文字切换</span>
+          </div>
+        </div>
+        <template #footer>
+          <div class="flex justify-end gap-2">
+            <UButton color="gray" @click="showFilterModal = false">取消</UButton>
+            <UButton color="red" variant="outline" @click="clearFilter">清空</UButton>
+            <UButton color="primary" @click="applyFilter">确定</UButton>
+          </div>
+        </template>
+      </UCard>
+    </UModal>
+
+    <!-- 选择器组件 -->
+    <QhxSelect
+      ref="mainStyleSelectRef"
+      :options="filterOptions.main_style"
+      @select="confirmMainStyle"
+    />
+    
+    
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, ref, onMounted, onBeforeUnmount } from 'vue'
+import { computed, ref, onMounted, onBeforeUnmount, reactive } from 'vue'
 import HorizontalDatePicker from '@/components/Qhx/HorizontalDatePicker.vue'
 import { getLibraryPipeList } from '@/api/library'
 import type QhxWaterList from '@/components/Qhx/WaterList.vue'
-import type { LibraryPipe, Shop, Wardrobe, WardrobeClothes } from '@/types/api'
+import type { LibraryPipe, Shop, Wardrobe, WardrobeClothes, FilterList } from '@/types/api'
 import { getUserMy } from '@/api/user'
 import type { User } from '@/types/api'
 import { getBrowTimeOne, insertBrowTime } from '@/api/brow_time'
@@ -333,6 +513,9 @@ import type WardrobeAddLibrary from '@/components/Wardrobe/WardrobeAddLibrary.vu
 import type FavoriteOptionsModal from '@/components/Favorite/OptionsModal.vue'
 import type LibraryTypeColorChoose from '@/components/library/LibraryTypeColorChoose.vue'
 import type DanmakuComment from '@/components/comment/DanmakuComment.vue'
+import WikiOptionsChoose from '@/components/wiki/wikiOptionsChoose.vue'
+import type WikiOptionsChooseType from '@/components/wiki/wikiOptionsChoose.vue'
+import { getWikiOptionsByKeywords } from '@/api/wiki'
 const wardrobeAddLibraryRef = ref<InstanceType<typeof WardrobeAddLibrary> | null>(null)
 const favoriteOptionsModalRef = ref<InstanceType<typeof FavoriteOptionsModal> | null>(null)
 const libraryTypeColorChooseRef = ref<InstanceType<typeof LibraryTypeColorChoose> | null>(null)
@@ -409,14 +592,14 @@ const addWardrobeToDisplay = async () => {
   showConfirm.value = false
   opear_item.value = []
 }
-const layout = ref('1')
+const layout = ref('0')
 const todayVisit = ref(0)
 const filterState = ref(0)
 const sortMode = ref(2)
 const filterStateOptions = [
   { label: '全部', value: -1 },
   { label: '预约中', value: 0 },
-  { label: '尾款中', value: 2 },
+  { label: '尾款中', value: 1 },
   { label: '截团制作', value: 2 },
   { label: '现货在售', value: 3 },
   { label: '上新图透', value: 4 }
@@ -496,6 +679,268 @@ const chooseWardrobe = (wardrobe: Wardrobe[]) => {
 const qhxSelectRef = ref<InstanceType<typeof QhxSelect>>()
 const sortSelectRef = ref<InstanceType<typeof QhxSelect>>()
 const currentTab = ref(0)
+
+// 筛选相关
+const showFilterModal = ref(false)
+const filterList = ref<FilterList[]>([])
+const filterForm = reactive({
+  main_style: [] as Array<{ label: string; value: number; type?: string }>,
+  design_elements: [] as Array<{ label: string; value: number; type?: string }>,
+  pattern_elements: [] as Array<{ label: string; value: number; type?: string }>,
+  theme: [] as Array<{ label: string; value: number; type?: string }>
+})
+const filterOptions = reactive({
+  main_style: [] as Array<{ label: string; value: number }>
+})
+const mainStyleSelectRef = ref<InstanceType<typeof QhxSelect> | null>(null)
+const wikiOptionsChooseRef = ref<InstanceType<typeof WikiOptionsChooseType> | null>(null)
+const currentWikiType = ref<string>('')
+
+// 初始化筛选选项
+const initFilterOptions = async () => {
+  try {
+    // 获取主要风格
+    const mainStyleRes = await getWikiOptionsByKeywords({ type_id: 4 })
+    filterOptions.main_style = mainStyleRes.map(item => ({
+      label: item.wiki_name,
+      value: item.wiki_id as number
+    }))
+  } catch (error) {
+    console.error('初始化筛选选项失败:', error)
+  }
+}
+
+// 选择wiki
+const chooseWiki = (type: string) => {
+  currentWikiType.value = type
+  let typeId = 0
+  const params: { type_id: number; parent_id?: number } = { type_id: typeId }
+
+  if (type === 'design_elements') {
+    typeId = 2
+  } else if (type === 'pattern_elements') {
+    typeId = 3
+  } else if (type === 'theme') {
+    typeId = 14
+  }
+
+  params.type_id = typeId
+  // @ts-ignore
+  wikiOptionsChooseRef.value?.showModel(params)
+}
+
+// Wiki选择回调
+const onWikiChoose = (list: Array<{ wiki_id?: number; wiki_name?: string }>) => {
+  const type = currentWikiType.value
+  if (type && filterForm[type as keyof typeof filterForm]) {
+    const arr = filterForm[type as keyof typeof filterForm] as Array<{ label: string; value: number; type?: string }>
+    for (const child of list) {
+      if (child.wiki_name && child.wiki_id) {
+        const index = arr.findIndex((element) => element.label === child.wiki_name)
+        if (index === -1) {
+          arr.push({
+            label: child.wiki_name,
+            value: child.wiki_id as number,
+            type: 'and'
+          })
+        }
+      }
+    }
+  }
+}
+
+// 确认主要风格
+const confirmMainStyle = (selected: { label: string; value: number }) => {
+  if (selected) {
+    const hasValue = filterForm.main_style.some(item => item.value === selected.value)
+    if (!hasValue) {
+      filterForm.main_style.push({ ...selected, type: 'and' })
+    }
+  }
+}
+
+
+// 删除数组项
+const deleteArrayItem = <T,>(arr: T[], index: number) => {
+  arr.splice(index, 1)
+}
+
+// 应用筛选
+const applyFilter = () => {
+  const temp: FilterList[] = []
+
+  // 主要风格
+  if (filterForm.main_style.length > 0) {
+    const mainStyleValueAnd: number[] = []
+    const mainStyleValueOr: number[] = []
+
+    for (const v of filterForm.main_style) {
+      if (v.type === 'and') {
+        mainStyleValueAnd.push(v.value)
+      } else if (v.type === 'or') {
+        mainStyleValueOr.push(v.value)
+      } else {
+        temp.push({
+          field: 'main_style',
+          op: 'not',
+          value: v.value
+        })
+      }
+    }
+    if (mainStyleValueAnd.length > 0) {
+      temp.push({
+        field: 'main_style',
+        op: 'and',
+        value: mainStyleValueAnd.join(',')
+      })
+    }
+    if (mainStyleValueOr.length > 0) {
+      temp.push({
+        field: 'main_style',
+        op: 'or',
+        value: mainStyleValueOr.join(',')
+      })
+    }
+  }
+
+  // 设计元素
+  if (filterForm.design_elements.length > 0) {
+    const designElementsValueAnd: string[] = []
+    const designElementsValueOr: string[] = []
+    for (const v of filterForm.design_elements) {
+      if (v.type === 'and') {
+        designElementsValueAnd.push(v.label)
+      } else if (v.type === 'or') {
+        designElementsValueOr.push(v.label)
+      } else {
+        temp.push({
+          field: 'design_elements',
+          op: 'not',
+          value: v.label
+        })
+      }
+    }
+    if (designElementsValueAnd.length > 0) {
+      temp.push({
+        field: 'design_elements',
+        op: 'and',
+        value: designElementsValueAnd.join(',')
+      })
+    }
+    if (designElementsValueOr.length > 0) {
+      temp.push({
+        field: 'design_elements',
+        op: 'or',
+        value: designElementsValueOr.join(',')
+      })
+    }
+  }
+
+  // 柄图元素
+  if (filterForm.pattern_elements.length > 0) {
+    const patternElementsValueAnd: string[] = []
+    const patternElementsValueOr: string[] = []
+    for (const v of filterForm.pattern_elements) {
+      if (v.type === 'and') {
+        patternElementsValueAnd.push(v.label)
+      } else if (v.type === 'or') {
+        patternElementsValueOr.push(v.label)
+      } else {
+        temp.push({
+          field: 'pattern_elements',
+          op: 'not',
+          value: v.label
+        })
+      }
+    }
+    if (patternElementsValueAnd.length > 0) {
+      temp.push({
+        field: 'pattern_elements',
+        op: 'and',
+        value: patternElementsValueAnd.join(',')
+      })
+    }
+    if (patternElementsValueOr.length > 0) {
+      temp.push({
+        field: 'pattern_elements',
+        op: 'or',
+        value: patternElementsValueOr.join(',')
+      })
+    }
+  }
+
+  // 主题
+  if (filterForm.theme.length > 0) {
+    const themeValueAnd: string[] = []
+    const themeValueOr: string[] = []
+    for (const v of filterForm.theme) {
+      if (v.type === 'and') {
+        themeValueAnd.push(v.label)
+      } else if (v.type === 'or') {
+        themeValueOr.push(v.label)
+      } else {
+        temp.push({
+          field: 'theme',
+          op: 'not',
+          value: v.label
+        })
+      }
+    }
+    if (themeValueAnd.length > 0) {
+      temp.push({
+        field: 'theme',
+        op: 'and',
+        value: themeValueAnd.join(',')
+      })
+    }
+    if (themeValueOr.length > 0) {
+      temp.push({
+        field: 'theme',
+        op: 'or',
+        value: themeValueOr.join(',')
+      })
+    }
+  }
+
+  filterList.value = temp
+  showFilterModal.value = false
+  waterList.value?.refresh()
+}
+
+// 清空筛选
+const clearFilter = () => {
+  filterForm.main_style = []
+  filterForm.design_elements = []
+  filterForm.pattern_elements = []
+  filterForm.theme = []
+  filterList.value = []
+  waterList.value?.refresh()
+}
+
+// 切换筛选类型
+const changeFilterType = (index: number, type: 'main_style' | 'design_elements' | 'pattern_elements' | 'theme') => {
+  const field = filterForm[type]
+  if (!field[index].type || field[index].type === 'and') {
+    field[index].type = 'or'
+  } else if (field[index].type === 'or') {
+    field[index].type = 'not'
+  } else {
+    field[index].type = 'and'
+  }
+}
+
+// 是否有筛选条件
+const hasFilter = computed(() => {
+  return filterList.value.length > 0
+})
+
+// 筛选条件数量
+const filterCount = computed(() => {
+  return filterForm.main_style.length + 
+         filterForm.design_elements.length + 
+         filterForm.pattern_elements.length + 
+         filterForm.theme.length
+})
 const openPicker = (e: MouseEvent) => {
   qhxSelectRef.value?.showPicker(e)
 }
@@ -532,6 +977,24 @@ const formateState = (state: number) => {
       return '上新图透'
     default:
       return '未知'
+  }
+}
+
+// 根据状态返回对应的背景颜色
+const getStateColor = (state: number): string => {
+  switch (state) {
+    case 0: // 预约中
+      return '#096e00' // 蓝色
+    case 1: // 尾款中
+      return '#f59e0b' // 橙色
+    case 2: // 截团制作
+      return '#8b5cf6' // 紫色
+    case 3: // 现货在售
+      return '#10b981' // 绿色
+    case 4: // 上新图透
+      return '#ec4899' // 粉色
+    default:
+      return '#6b7280' // 灰色（未知状态）
   }
 }
 const coptText = async (text: string) => {
@@ -753,6 +1216,8 @@ onMounted(async () => {
   
   picked.value = new Date()
   getBrowTime()
+  // 初始化筛选选项
+  await initFilterOptions()
   if (userStore.token.value) {
     getUserMy().then((res: User) => {
       console.log(res, '用户信息')

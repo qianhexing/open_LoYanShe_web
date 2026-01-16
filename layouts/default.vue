@@ -13,6 +13,7 @@ const times = ref(1)
 const isHome = ref(false)
 const cachedPages = ref(['library']) // 根据你的实际页面名称修改
 const colorMode = useColorMode()
+let uni: any
 const jumpToLoyanshe = () => {
   if (times.value >= 3) {
     window.location.href = 'https://a.app.qq.com/o/simple.jsp?pkgname=uni.lolita'
@@ -81,6 +82,9 @@ const handleInit = (event: MessageEvent) => {
 // 组件会自动导入
 onMounted(async () => {
   colorMode.value = 'light'
+  uni = await import('@dcloudio/uni-webview-js').catch((err) => {
+    console.error('Failed to load uni-webview-js:', err);
+  });
   console.log(colorMode.value, '颜色模式')
   if (process.client && typeof window !== 'undefined' && window.localStorage) {
     console.log(route.query, '路由参数')
@@ -96,6 +100,12 @@ onMounted(async () => {
     
     configStore.setIsPc(isPC())
     configStore.getConfig()
+    const isInUniApp =
+		typeof window !== 'undefined' &&
+		navigator.userAgent.includes('Html5Plus');
+    if (isInUniApp && typeof uni !== 'undefined' ) {
+      isFromMobie.value = true
+    }
   }
   themeStore.setTheme('light')
   layoutReady.value = true

@@ -82,17 +82,17 @@ const options = reactive({
 // 当前选择的wiki类型
 const currentWikiType = ref<string>('')
 useHead({
-	title: 'Lolita图鉴',
-	meta: [
-		{
-			name: 'keywords',
-			content: 'Lo研社,洛丽塔图鉴,Lolita,Lolita图鉴,Lolita图书馆'
-		},
-		{
-			name: 'description',
-			content: '洛丽塔图书馆汇总,Lolita图书馆'
-		}
-	]
+  title: 'Lolita图鉴',
+  meta: [
+    {
+      name: 'keywords',
+      content: 'Lo研社,洛丽塔图鉴,Lolita,Lolita图鉴,Lolita图书馆'
+    },
+    {
+      name: 'description',
+      content: '洛丽塔图书馆汇总,Lolita图书馆'
+    }
+  ]
 })
 definePageMeta({
   name: 'library',
@@ -130,6 +130,9 @@ const jumpToAddLibrary = () => {
     return
   }
   window.open('/addLibrary', '_blank')
+}
+const jumpToCollectionList = () => {
+  window.open('/collectionList', '_blank')
 }
 // 统一处理搜索逻辑
 const handleSearch = () => {
@@ -733,10 +736,10 @@ const applyFilter = () => {
 
   filterList.value = temp
   keyword.value = ''
-  
+
   // 生成自然语言描述
   filterDescription.value = generateFilterDescription(temp)
-  
+
   waterList.value?.refresh()
 }
 
@@ -767,14 +770,14 @@ const generateFilterDescription = (filters: FilterList[]): string => {
 
   // 按字段分组
   const fieldGroups: Record<string, { and: string[], or: string[], not: string[] }> = {}
-  
+
   for (const filter of filters) {
     if (!fieldGroups[filter.field]) {
       fieldGroups[filter.field] = { and: [], or: [], not: [] }
     }
-    
+
     const value = typeof filter.value === 'string' ? filter.value : String(filter.value)
-    
+
     if (filter.op === 'and') {
       // 处理逗号分隔的值
       const values = value.split(',').map(v => v.trim())
@@ -789,17 +792,17 @@ const generateFilterDescription = (filters: FilterList[]): string => {
 
   // 生成描述文本
   const descriptions: string[] = []
-  
+
   for (const field of Object.keys(fieldGroups)) {
     const group = fieldGroups[field]
     const fieldName = fieldNameMap[field] || field
     const parts: string[] = []
-    
+
     // 处理 and 条件
     if (group.and.length > 0) {
       parts.push(group.and.join('、'))
     }
-    
+
     // 处理 or 条件
     if (group.or.length > 0) {
       if (parts.length > 0) {
@@ -808,7 +811,7 @@ const generateFilterDescription = (filters: FilterList[]): string => {
         parts.push(group.or.join(' 或者 '))
       }
     }
-    
+
     // 处理 not 条件
     if (group.not.length > 0) {
       if (parts.length > 0) {
@@ -817,7 +820,7 @@ const generateFilterDescription = (filters: FilterList[]): string => {
         parts.push(`排除 ${group.not.join('、排除 ')}`)
       }
     }
-    
+
     if (parts.length > 0) {
       // 特殊处理价格区间
       if (field === 'library_price') {
@@ -841,7 +844,7 @@ const generateFilterDescription = (filters: FilterList[]): string => {
       }
     }
   }
-  
+
   return descriptions.join('；')
 }
 
@@ -877,7 +880,7 @@ const handleGoodClick = async (data: { pk_id: number; pk_type: number; type: num
     })
     return
   }
-  
+
   try {
     const result = await insertGood({
       pk_id: data.pk_id,
@@ -903,7 +906,7 @@ const handleGoodClick = async (data: { pk_id: number; pk_type: number; type: num
         waterList.value.updateItem('library_id', opearItem.value, updates)
       }
     }
-    
+
     if (result) {
       toast.add({
         title: '点赞成功',
@@ -941,10 +944,10 @@ const handleCollectClick = (data: { pk_id: number; collect_type: number; library
     })
     return
   }
-  
+
   // 保存当前操作的 library_id
   currentCollectLibraryId.value = data.library_id
-  
+
   // 打开收藏夹选择弹窗
   const clickEvent = event || new MouseEvent('click', { clientX: 0, clientY: 0 })
   favoriteOptionsModalRef.value?.showModel({
@@ -961,7 +964,7 @@ const handleCollectChange = (result: boolean) => {
       icon: 'i-heroicons-check-circle',
       color: 'green'
     })
-    
+
     // 更新对应 item 的状态
     if (waterList.value && currentCollectLibraryId.value) {
       const currentItem = waterList.value.list?.find((item: Library) => item.library_id === currentCollectLibraryId.value)
@@ -1006,7 +1009,7 @@ const handleWardrobeClick = (data: { library: Library }) => {
     })
     return
   }
-  
+
   if (!data.library) {
     toast.add({
       title: '图鉴信息不存在',
@@ -1015,7 +1018,7 @@ const handleWardrobeClick = (data: { library: Library }) => {
     })
     return
   }
-  
+
   // 打开图鉴颜色选择
   libraryTypeColorChooseRef.value?.showModel(data.library)
 }
@@ -1032,7 +1035,7 @@ const handleWardrobeChange = (data?: { library_id?: number }) => {
     icon: 'i-heroicons-check-circle',
     color: 'green'
   })
-  
+
   // 更新对应 item 的状态
   if (waterList.value && data?.library_id) {
     const currentItem = waterList.value.list?.find((item: Library) => item.library_id === data.library_id)
@@ -1076,13 +1079,8 @@ onMounted(async () => {
     <!-- 搜索头部 -->
     <div class="grid grid-cols-2 md:grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4 px-4 pb-3">
       <div class="w-full flex items-center gap-2">
-        <UInput
-          v-model="value"
-          :placeholder="showFilterList ? '图鉴名检索,多条件空格分割' : '搜索图鉴 多条件空格分割.'"
-          class="flex-1 focus:ring-0"
-          :autofocus="false"
-          @keyup.enter="handleSearch"
-          :ui="{
+        <UInput v-model="value" :placeholder="showFilterList ? '图鉴名检索,多条件空格分割' : '搜索图鉴 多条件空格分割.'"
+          class="flex-1 focus:ring-0" :autofocus="false" @keyup.enter="handleSearch" :ui="{
             base: 'bg-qhx-primary text-qhx-primary focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
             rounded: 'rounded-full',
             padding: { xs: 'px-4 py-2' },
@@ -1092,116 +1090,73 @@ onMounted(async () => {
                 input: ' bg-qhx-primary',
               }
             }
-          }"
-          v-show="!showFilterList"
-        />
-        <UButton
-          icon="i-heroicons-magnifying-glass"
-          variant="ghost"
-          color="gray"
-          @click="handleSearch"
-          v-show="!showFilterList"
-        />
-        <QhxTag
-          :active="true"
-          class="cursor-pointer whitespace-nowrap"
-          @click="sortSelectRef?.showPicker($event)"
-        >
-          排序: {{ sortOptions.find(opt => opt.value === sortMode)?.label }}
-        </QhxTag>
-        <QhxTag
-          :active="true"
-          class="cursor-pointer whitespace-nowrap"
-          @click="jumpToAddLibrary()"
-        >
-          补充图鉴
+          }" v-show="!showFilterList" />
+        <UButton icon="i-heroicons-magnifying-glass" variant="ghost" color="gray" @click="handleSearch"
+          v-show="!showFilterList" />
+        <QhxTag :active="true" class="cursor-pointer whitespace-nowrap" @click="sortSelectRef?.showPicker($event)">
+          排序: {{sortOptions.find(opt => opt.value === sortMode)?.label}}
         </QhxTag>
       </div>
     </div>
-    
+    <div class="grid grid-cols-2 md:grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4 px-4 pb-3">
+      <QhxTag :active="true" class="cursor-pointer whitespace-nowrap" @click="jumpToAddLibrary()">
+          补充图鉴
+        </QhxTag>
+        <QhxTag :active="true" class="cursor-pointer whitespace-nowrap" @click="jumpToCollectionList()">
+          找不到图鉴?去发布收录请求
+        </QhxTag>
+    </div>
+
     <!-- 筛选头部 -->
     <div class="grid grid-cols-2 md:grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4 px-4 pb-3">
       <div class="flex items-center justify-between">
-        <UCheckbox 
-          v-model="isCheck"
-          :ui="{ 
-            rounded: 'text-qhx-primary',
-            color: 'qhx-primary',
-            wrapper: 'cursor-pointer',
-            base: 'cursor-pointer'
-          }"
-          @change="handleChange"
-          class="cursor-pointer"
-          label="不显示子图鉴"
-          name="remember"
-        />
+        <UCheckbox v-model="isCheck" :ui="{
+          rounded: 'text-qhx-primary',
+          color: 'qhx-primary',
+          wrapper: 'cursor-pointer',
+          base: 'cursor-pointer'
+        }" @change="handleChange" class="cursor-pointer" label="不显示子图鉴" name="remember" />
+        <div class="flex items-center justify-end">
+          <QhxTag :active="true" class="cursor-pointer" :variant="showFilterList ? 'solid' : 'outline'"
+            @click="toggleSearchMode">
+            {{ showFilterList ? '模糊搜索' : '精确搜索' }}
+          </QhxTag>
+        </div>
       </div>
-      <div class="flex items-center justify-end">
-        <QhxTag
-          :active="true"
-          class="cursor-pointer"
-          :variant="showFilterList ? 'solid' : 'outline'"
-          @click="toggleSearchMode"
-        >
-          {{ showFilterList ? '模糊搜索' : '精确搜索' }}
-        </QhxTag>
-      </div>
+
     </div>
     <!-- 提示信息 -->
     <div v-if="!showFilterList" class="text-sm text-gray-500 dark:text-gray-400">
-        不显示子图鉴时，仅显示上级图鉴
-      </div>
+      不显示子图鉴时，仅显示上级图鉴
+    </div>
     <!-- 精确搜索表单 -->
     <div v-if="showFilterList" class="px-4 pb-4 space-y-4 md:grid md:grid-cols-2 md:gap-4 md:space-y-0">
       <!-- 图鉴名称 -->
       <div class="flex items-center gap-2">
         <span class="text-sm font-medium min-w-[80px]">图鉴名称：</span>
-        <UInput
-          v-model="filterForm.name"
-          placeholder="图鉴名检索,多条件空格分割"
-          class="flex-1"
-          :ui="{
-            base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
-            rounded: 'rounded-lg',
-            padding: { xs: 'px-3 py-2' }
-          }"
-        />
+        <UInput v-model="filterForm.name" placeholder="图鉴名检索,多条件空格分割" class="flex-1" :ui="{
+          base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
+          rounded: 'rounded-lg',
+          padding: { xs: 'px-3 py-2' }
+        }" />
       </div>
 
       <!-- 店名检索 -->
       <div class="flex items-start gap-2">
         <span class="text-sm font-medium min-w-[80px] pt-2">店名检索：</span>
         <div class="flex-1">
-          <USelectMenu
-            placeholder="搜索店铺..."
-            :searchable="fetchShopOptiosns"
-            option-attribute="shop_name"
-            :multiple="false"
-            trailing
-            by="shop_id"
-            name="shop_name"
-            @update:model-value="handleShopSelect"
-            class="mb-2"
+          <USelectMenu placeholder="搜索店铺..." :searchable="fetchShopOptiosns" option-attribute="shop_name"
+            :multiple="false" trailing by="shop_id" name="shop_name" @update:model-value="handleShopSelect" class="mb-2"
             :ui="{
               base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
               rounded: 'rounded-lg'
-            }"
-          />
+            }" />
           <div class="flex flex-wrap gap-2">
-            <QhxTag
-              v-for="(shop, index) in filterForm.shop_name"
-              :key="index"
-              :active="true"
-              class="cursor-pointer"
-              :backgroundColor="shop.type === 'and' ? '#317e10' : shop.type === 'or' ? '#0788dc' : '#e11031'"
-            >
+            <QhxTag v-for="(shop, index) in filterForm.shop_name" :key="index" :active="true" class="cursor-pointer"
+              :backgroundColor="shop.type === 'and' ? '#317e10' : shop.type === 'or' ? '#0788dc' : '#e11031'">
               <div class="flex items-center gap-1">
                 <span @click="changeFilterType(index, 'shop_name')">{{ shop.label }}</span>
-                <UIcon
-                  name="i-heroicons-x-mark"
-                  class="text-xs cursor-pointer"
-                  @click="deleteShop(shop.label)"
-                />
+                <UIcon name="i-heroicons-x-mark" class="text-xs cursor-pointer" @click="deleteShop(shop.label)" />
               </div>
             </QhxTag>
           </div>
@@ -1212,26 +1167,15 @@ onMounted(async () => {
       <div class="flex items-start gap-2">
         <span class="text-sm font-medium min-w-[80px] pt-2">图鉴类型：</span>
         <div class="flex-1 flex flex-wrap gap-2">
-          <QhxTag
-            v-for="(item, index) in filterForm.library_type"
-            :key="index"
-            :active="true"
-            class="cursor-pointer"
-            :backgroundColor="item.type === 'and' ? '#317e10' : item.type === 'or' ? '#0788dc' : '#e11031'"
-          >
+          <QhxTag v-for="(item, index) in filterForm.library_type" :key="index" :active="true" class="cursor-pointer"
+            :backgroundColor="item.type === 'and' ? '#317e10' : item.type === 'or' ? '#0788dc' : '#e11031'">
             <div class="flex items-center gap-1">
               <span @click="changeFilterType(index, 'library_type')">{{ item.label }}</span>
-              <UIcon
-                name="i-heroicons-x-mark"
-                class="text-xs cursor-pointer"
-                @click="deleteArrayItem(filterForm.library_type, index)"
-              />
+              <UIcon name="i-heroicons-x-mark" class="text-xs cursor-pointer"
+                @click="deleteArrayItem(filterForm.library_type, index)" />
             </div>
           </QhxTag>
-          <QhxTag
-            class="cursor-pointer"
-            @click="libraryTypeSelectRef?.showPicker($event)"
-          >
+          <QhxTag class="cursor-pointer" @click="libraryTypeSelectRef?.showPicker($event)">
             选择类型
           </QhxTag>
         </div>
@@ -1241,25 +1185,14 @@ onMounted(async () => {
       <div class="flex items-start gap-2">
         <span class="text-sm font-medium min-w-[80px] pt-2">图鉴状态：</span>
         <div class="flex-1 flex flex-wrap gap-2">
-          <QhxTag
-            v-for="(item, index) in filterForm.state"
-            :key="index"
-            :active="true"
-            class="cursor-pointer"
-          >
+          <QhxTag v-for="(item, index) in filterForm.state" :key="index" :active="true" class="cursor-pointer">
             <div class="flex items-center gap-1">
               <span>{{ item.label }}</span>
-              <UIcon
-                name="i-heroicons-x-mark"
-                class="text-xs cursor-pointer"
-                @click="deleteArrayItem(filterForm.state, index)"
-              />
+              <UIcon name="i-heroicons-x-mark" class="text-xs cursor-pointer"
+                @click="deleteArrayItem(filterForm.state, index)" />
             </div>
           </QhxTag>
-          <QhxTag
-            class="cursor-pointer"
-            @click="stateSelectRef?.showPicker($event)"
-          >
+          <QhxTag class="cursor-pointer" @click="stateSelectRef?.showPicker($event)">
             选择状态
           </QhxTag>
         </div>
@@ -1269,20 +1202,11 @@ onMounted(async () => {
       <div v-if="configStore.config" class="flex items-start gap-2">
         <span class="text-sm font-medium min-w-[80px] pt-2">国家：</span>
         <div class="flex-1 flex flex-wrap gap-2">
-          <QhxTag
-            :active="filterForm.shop_country === -1"
-            class="cursor-pointer"
-            @click="chooseCountry(-1)"
-          >
+          <QhxTag :active="filterForm.shop_country === -1" class="cursor-pointer" @click="chooseCountry(-1)">
             全部
           </QhxTag>
-          <QhxTag
-            v-for="item in configStore.config.shop_country"
-            :key="item.value"
-            :active="filterForm.shop_country === item.value"
-            class="cursor-pointer"
-            @click="chooseCountry(item.value)"
-          >
+          <QhxTag v-for="item in configStore.config.shop_country" :key="item.value"
+            :active="filterForm.shop_country === item.value" class="cursor-pointer" @click="chooseCountry(item.value)">
             {{ item.label }}
           </QhxTag>
         </div>
@@ -1292,26 +1216,15 @@ onMounted(async () => {
       <div class="flex items-start gap-2">
         <span class="text-sm font-medium min-w-[80px] pt-2">主要风格：</span>
         <div class="flex-1 flex flex-wrap gap-2">
-          <QhxTag
-            v-for="(item, index) in filterForm.main_style"
-            :key="index"
-            :active="true"
-            class="cursor-pointer"
-            :backgroundColor="item.type === 'and' ? '#317e10' : item.type === 'or' ? '#0788dc' : '#e11031'"
-          >
+          <QhxTag v-for="(item, index) in filterForm.main_style" :key="index" :active="true" class="cursor-pointer"
+            :backgroundColor="item.type === 'and' ? '#317e10' : item.type === 'or' ? '#0788dc' : '#e11031'">
             <div class="flex items-center gap-1">
               <span @click="changeFilterType(index, 'main_style')">{{ item.label }}</span>
-              <UIcon
-                name="i-heroicons-x-mark"
-                class="text-xs cursor-pointer"
-                @click="deleteArrayItem(filterForm.main_style, index)"
-              />
+              <UIcon name="i-heroicons-x-mark" class="text-xs cursor-pointer"
+                @click="deleteArrayItem(filterForm.main_style, index)" />
             </div>
           </QhxTag>
-          <QhxTag
-            class="cursor-pointer"
-            @click="mainStyleSelectRef?.showPicker($event)"
-          >
+          <QhxTag class="cursor-pointer" @click="mainStyleSelectRef?.showPicker($event)">
             选择风格
           </QhxTag>
         </div>
@@ -1321,26 +1234,15 @@ onMounted(async () => {
       <div class="flex items-start gap-2">
         <span class="text-sm font-medium min-w-[80px] pt-2">图鉴主题：</span>
         <div class="flex-1 flex flex-wrap gap-2">
-          <QhxTag
-            v-for="(item, index) in filterForm.theme"
-            :key="index"
-            :active="true"
-            class="cursor-pointer"
-            :backgroundColor="item.type === 'and' ? '#317e10' : item.type === 'or' ? '#0788dc' : '#e11031'"
-          >
+          <QhxTag v-for="(item, index) in filterForm.theme" :key="index" :active="true" class="cursor-pointer"
+            :backgroundColor="item.type === 'and' ? '#317e10' : item.type === 'or' ? '#0788dc' : '#e11031'">
             <div class="flex items-center gap-1">
               <span @click="changeFilterType(index, 'theme')">{{ item.label }}</span>
-              <UIcon
-                name="i-heroicons-x-mark"
-                class="text-xs cursor-pointer"
-                @click="deleteArrayItem(filterForm.theme, index)"
-              />
+              <UIcon name="i-heroicons-x-mark" class="text-xs cursor-pointer"
+                @click="deleteArrayItem(filterForm.theme, index)" />
             </div>
           </QhxTag>
-          <QhxTag
-            class="cursor-pointer"
-            @click="chooseWiki('theme')"
-          >
+          <QhxTag class="cursor-pointer" @click="chooseWiki('theme')">
             选择主题
           </QhxTag>
         </div>
@@ -1350,26 +1252,15 @@ onMounted(async () => {
       <div class="flex items-start gap-2">
         <span class="text-sm font-medium min-w-[80px] pt-2">颜色配色：</span>
         <div class="flex-1 flex flex-wrap gap-2">
-          <QhxTag
-            v-for="(item, index) in filterForm.color"
-            :key="index"
-            :active="true"
-            class="cursor-pointer"
-            :backgroundColor="item.type === 'and' ? '#317e10' : item.type === 'or' ? '#0788dc' : '#e11031'"
-          >
+          <QhxTag v-for="(item, index) in filterForm.color" :key="index" :active="true" class="cursor-pointer"
+            :backgroundColor="item.type === 'and' ? '#317e10' : item.type === 'or' ? '#0788dc' : '#e11031'">
             <div class="flex items-center gap-1">
               <span @click="changeFilterType(index, 'color')">{{ item.label }}</span>
-              <UIcon
-                name="i-heroicons-x-mark"
-                class="text-xs cursor-pointer"
-                @click="deleteArrayItem(filterForm.color, index)"
-              />
+              <UIcon name="i-heroicons-x-mark" class="text-xs cursor-pointer"
+                @click="deleteArrayItem(filterForm.color, index)" />
             </div>
           </QhxTag>
-          <QhxTag
-            class="cursor-pointer"
-            @click="chooseWiki('color')"
-          >
+          <QhxTag class="cursor-pointer" @click="chooseWiki('color')">
             选择颜色
           </QhxTag>
         </div>
@@ -1379,26 +1270,15 @@ onMounted(async () => {
       <div class="flex items-start gap-2">
         <span class="text-sm font-medium min-w-[80px] pt-2">版型部位：</span>
         <div class="flex-1 flex flex-wrap gap-2">
-          <QhxTag
-            v-for="(item, index) in filterForm.library_pattern"
-            :key="index"
-            :active="true"
-            class="cursor-pointer"
-            :backgroundColor="item.type === 'and' ? '#317e10' : item.type === 'or' ? '#0788dc' : '#e11031'"
-          >
+          <QhxTag v-for="(item, index) in filterForm.library_pattern" :key="index" :active="true" class="cursor-pointer"
+            :backgroundColor="item.type === 'and' ? '#317e10' : item.type === 'or' ? '#0788dc' : '#e11031'">
             <div class="flex items-center gap-1">
               <span @click="changeFilterType(index, 'library_pattern')">{{ item.label }}</span>
-              <UIcon
-                name="i-heroicons-x-mark"
-                class="text-xs cursor-pointer"
-                @click="deleteArrayItem(filterForm.library_pattern, index)"
-              />
+              <UIcon name="i-heroicons-x-mark" class="text-xs cursor-pointer"
+                @click="deleteArrayItem(filterForm.library_pattern, index)" />
             </div>
           </QhxTag>
-          <QhxTag
-            class="cursor-pointer"
-            @click="chooseWiki('library_pattern')"
-          >
+          <QhxTag class="cursor-pointer" @click="chooseWiki('library_pattern')">
             选择版型部位
           </QhxTag>
         </div>
@@ -1408,26 +1288,15 @@ onMounted(async () => {
       <div class="flex items-start gap-2">
         <span class="text-sm font-medium min-w-[80px] pt-2">设计元素：</span>
         <div class="flex-1 flex flex-wrap gap-2">
-          <QhxTag
-            v-for="(item, index) in filterForm.design_elements"
-            :key="index"
-            :active="true"
-            class="cursor-pointer"
-            :backgroundColor="item.type === 'and' ? '#317e10' : item.type === 'or' ? '#0788dc' : '#e11031'"
-          >
+          <QhxTag v-for="(item, index) in filterForm.design_elements" :key="index" :active="true" class="cursor-pointer"
+            :backgroundColor="item.type === 'and' ? '#317e10' : item.type === 'or' ? '#0788dc' : '#e11031'">
             <div class="flex items-center gap-1">
               <span @click="changeFilterType(index, 'design_elements')">{{ item.label }}</span>
-              <UIcon
-                name="i-heroicons-x-mark"
-                class="text-xs cursor-pointer"
-                @click="deleteArrayItem(filterForm.design_elements, index)"
-              />
+              <UIcon name="i-heroicons-x-mark" class="text-xs cursor-pointer"
+                @click="deleteArrayItem(filterForm.design_elements, index)" />
             </div>
           </QhxTag>
-          <QhxTag
-            class="cursor-pointer"
-            @click="chooseWiki('design_elements')"
-          >
+          <QhxTag class="cursor-pointer" @click="chooseWiki('design_elements')">
             选择设计元素
           </QhxTag>
         </div>
@@ -1437,26 +1306,16 @@ onMounted(async () => {
       <div class="flex items-start gap-2">
         <span class="text-sm font-medium min-w-[80px] pt-2">柄图元素：</span>
         <div class="flex-1 flex flex-wrap gap-2">
-          <QhxTag
-            v-for="(item, index) in filterForm.pattern_elements"
-            :key="index"
-            :active="true"
+          <QhxTag v-for="(item, index) in filterForm.pattern_elements" :key="index" :active="true"
             class="cursor-pointer"
-            :backgroundColor="item.type === 'and' ? '#317e10' : item.type === 'or' ? '#0788dc' : '#e11031'"
-          >
+            :backgroundColor="item.type === 'and' ? '#317e10' : item.type === 'or' ? '#0788dc' : '#e11031'">
             <div class="flex items-center gap-1">
               <span @click="changeFilterType(index, 'pattern_elements')">{{ item.label }}</span>
-              <UIcon
-                name="i-heroicons-x-mark"
-                class="text-xs cursor-pointer"
-                @click="deleteArrayItem(filterForm.pattern_elements, index)"
-              />
+              <UIcon name="i-heroicons-x-mark" class="text-xs cursor-pointer"
+                @click="deleteArrayItem(filterForm.pattern_elements, index)" />
             </div>
           </QhxTag>
-          <QhxTag
-            class="cursor-pointer"
-            @click="chooseWiki('pattern_elements')"
-          >
+          <QhxTag class="cursor-pointer" @click="chooseWiki('pattern_elements')">
             选择柄图元素
           </QhxTag>
         </div>
@@ -1466,26 +1325,15 @@ onMounted(async () => {
       <div class="flex items-start gap-2">
         <span class="text-sm font-medium min-w-[80px] pt-2">材质布料：</span>
         <div class="flex-1 flex flex-wrap gap-2">
-          <QhxTag
-            v-for="(item, index) in filterForm.cloth_elements"
-            :key="index"
-            :active="true"
-            class="cursor-pointer"
-            :backgroundColor="item.type === 'and' ? '#317e10' : item.type === 'or' ? '#0788dc' : '#e11031'"
-          >
+          <QhxTag v-for="(item, index) in filterForm.cloth_elements" :key="index" :active="true" class="cursor-pointer"
+            :backgroundColor="item.type === 'and' ? '#317e10' : item.type === 'or' ? '#0788dc' : '#e11031'">
             <div class="flex items-center gap-1">
               <span @click="changeFilterType(index, 'cloth_elements')">{{ item.label }}</span>
-              <UIcon
-                name="i-heroicons-x-mark"
-                class="text-xs cursor-pointer"
-                @click="deleteArrayItem(filterForm.cloth_elements, index)"
-              />
+              <UIcon name="i-heroicons-x-mark" class="text-xs cursor-pointer"
+                @click="deleteArrayItem(filterForm.cloth_elements, index)" />
             </div>
           </QhxTag>
-          <QhxTag
-            class="cursor-pointer"
-            @click="chooseWiki('cloth_elements')"
-          >
+          <QhxTag class="cursor-pointer" @click="chooseWiki('cloth_elements')">
             选择材质布料
           </QhxTag>
         </div>
@@ -1495,29 +1343,17 @@ onMounted(async () => {
       <div class="flex items-center gap-2">
         <span class="text-sm font-medium min-w-[80px]">价格区间：</span>
         <div class="flex-1 flex items-center gap-2">
-          <UInput
-            v-model="filterForm.price.start"
-            type="number"
-            placeholder="起"
-            class="flex-1"
-            :ui="{
-              base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
-              rounded: 'rounded-lg',
-              padding: { xs: 'px-3 py-2' }
-            }"
-          />
+          <UInput v-model="filterForm.price.start" type="number" placeholder="起" class="flex-1" :ui="{
+            base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
+            rounded: 'rounded-lg',
+            padding: { xs: 'px-3 py-2' }
+          }" />
           <span>到</span>
-          <UInput
-            v-model="filterForm.price.end"
-            type="number"
-            placeholder="末"
-            class="flex-1"
-            :ui="{
-              base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
-              rounded: 'rounded-lg',
-              padding: { xs: 'px-3 py-2' }
-            }"
-          />
+          <UInput v-model="filterForm.price.end" type="number" placeholder="末" class="flex-1" :ui="{
+            base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
+            rounded: 'rounded-lg',
+            padding: { xs: 'px-3 py-2' }
+          }" />
         </div>
       </div>
 
@@ -1525,52 +1361,31 @@ onMounted(async () => {
       <div class="flex items-start gap-2">
         <span class="text-sm font-medium min-w-[80px] pt-2">发售年份：</span>
         <div class="flex-1 flex flex-wrap gap-2">
-          <QhxTag
-            v-if="filterForm.sale_time_start"
-            :active="true"
-            class="cursor-pointer"
-          >
+          <QhxTag v-if="filterForm.sale_time_start" :active="true" class="cursor-pointer">
             <div class="flex items-center gap-1">
               <span>{{ filterForm.sale_time_start }}</span>
-              <UIcon
-                name="i-heroicons-x-mark"
-                class="text-xs cursor-pointer"
-                @click="filterForm.sale_time_start = null"
-              />
+              <UIcon name="i-heroicons-x-mark" class="text-xs cursor-pointer"
+                @click="filterForm.sale_time_start = null" />
             </div>
           </QhxTag>
-          <QhxTag
-            v-else
-            class="cursor-pointer"
-            @click="saleTimeStartSelectRef?.showPicker($event)"
-          >
+          <QhxTag v-else class="cursor-pointer" @click="saleTimeStartSelectRef?.showPicker($event)">
             起始年份
           </QhxTag>
-          <QhxTag
-            v-if="filterForm.sale_time_end"
-            :active="true"
-            class="cursor-pointer"
-          >
+          <QhxTag v-if="filterForm.sale_time_end" :active="true" class="cursor-pointer">
             <div class="flex items-center gap-1">
               <span>{{ filterForm.sale_time_end }}</span>
-              <UIcon
-                name="i-heroicons-x-mark"
-                class="text-xs cursor-pointer"
-                @click="filterForm.sale_time_end = null"
-              />
+              <UIcon name="i-heroicons-x-mark" class="text-xs cursor-pointer"
+                @click="filterForm.sale_time_end = null" />
             </div>
           </QhxTag>
-          <QhxTag
-            v-else
-            class="cursor-pointer"
-            @click="saleTimeEndSelectRef?.showPicker($event)"
-          >
+          <QhxTag v-else class="cursor-pointer" @click="saleTimeEndSelectRef?.showPicker($event)">
             结束年份
           </QhxTag>
         </div>
       </div>
       <!-- 加一个tip表示各颜色tag的逻辑 -->
-      <div v-if="!filterDescription" class="flex flex-wrap items-center gap-2 px-3 py-2 bg-gray-50 dark:bg-gray-800/50 rounded-lg text-xs text-gray-600 dark:text-gray-400 md:col-span-2">
+      <div v-if="!filterDescription"
+        class="flex flex-wrap items-center gap-2 px-3 py-2 bg-gray-50 dark:bg-gray-800/50 rounded-lg text-xs text-gray-600 dark:text-gray-400 md:col-span-2">
         <div class="flex items-center gap-1.5">
           <UIcon name="i-heroicons-information-circle" class="w-4 h-4 flex-shrink-0" />
           <span class="font-medium">标签逻辑：</span>
@@ -1591,7 +1406,8 @@ onMounted(async () => {
       </div>
 
       <!-- 筛选条件自然语言描述 -->
-      <div v-if="filterDescription && showFilterList" class="px-3 py-2 bg-blue-50 dark:bg-blue-900/20 rounded-lg text-sm text-gray-700 dark:text-gray-300 md:col-span-2 border border-blue-200 dark:border-blue-800">
+      <div v-if="filterDescription && showFilterList"
+        class="px-3 py-2 bg-blue-50 dark:bg-blue-900/20 rounded-lg text-sm text-gray-700 dark:text-gray-300 md:col-span-2 border border-blue-200 dark:border-blue-800">
         <div class="flex items-start gap-2">
           <UIcon name="i-heroicons-funnel" class="w-4 h-4 flex-shrink-0 mt-0.5 text-blue-600 dark:text-blue-400" />
           <div class="flex-1">
@@ -1603,28 +1419,17 @@ onMounted(async () => {
 
       <!-- 操作按钮 -->
       <div class="flex items-center gap-4 pt-2 md:col-span-2">
-        <UButton
-          color="primary"
-          @click="applyFilter"
-          class="px-6"
-        >
+        <UButton color="primary" @click="applyFilter" class="px-6">
           查询
         </UButton>
-        <UButton
-          color="red"
-          variant="outline"
-          @click="clearFilter"
-          class="px-6"
-        >
+        <UButton color="red" variant="outline" @click="clearFilter" class="px-6">
           清空
         </UButton>
       </div>
     </div>
     <!-- 空状态 -->
-    <QhxWaterList ref="waterList"
-    v-if="layoutReady"
-    :fetch-data="async (page, pageSize) => {
-      
+    <QhxWaterList ref="waterList" v-if="layoutReady" :fetch-data="async (page, pageSize) => {
+
       const response = await getLibraryList({
         page: page,
         pageSize: pageSize,
@@ -1640,27 +1445,20 @@ onMounted(async () => {
         rows: response.rows,
         count: response.count
       }
-    }" :columns="4" :itemKey="0"  :columns_768="2" :enableWaterfall="true" :enableLoadMore="true">
+    }" :columns="4" :itemKey="0" :columns_768="2" :enableWaterfall="true" :enableLoadMore="true">
       <template #default="{ item, debouncedApplyLayout }">
         <!-- 自定义内容 -->
         <div class="custom-item" :key="item.library_id">
-          <LibraryItem 
-            :item="item" 
-            :show-actions="true"
-            @image-load="debouncedApplyLayout"
-            @good-click="(props: any) => {
-              opearItem = item.library_id
-              handleGoodClick(props)
-            }"
-            @collect-click="(props: any) => {
+          <LibraryItem :item="item" :show-actions="true" @image-load="debouncedApplyLayout" @good-click="(props: any) => {
+            opearItem = item.library_id
+            handleGoodClick(props)
+          }" @collect-click="(props: any) => {
               opearItem = item.library_id
               handleCollectClick(props)
-            }"
-            @wardrobe-click="(props: any) => {
+            }" @wardrobe-click="(props: any) => {
               opearItem = item.library_id
               handleWardrobeClick(props)
-            }"
-          ></LibraryItem>
+            }"></LibraryItem>
         </div>
       </template>
     </QhxWaterList>
@@ -1687,55 +1485,32 @@ onMounted(async () => {
     </div> -->
 
     <!-- 选择器组件 -->
-    <QhxSelect
-      ref="mainStyleSelectRef"
-      :options="options.main_style"
-      @select="confirmMainStyle"
-    />
-    <QhxSelect
-      ref="libraryTypeSelectRef"
-      :options="options.library_type"
-      @select="confirmLibraryType"
-    />
-    <QhxSelect
-      ref="stateSelectRef"
-      :options="options.state"
-      @select="confirmState"
-    />
-    <QhxSelect
-      ref="saleTimeStartSelectRef"
-      :options="options.sale_time"
-      @select="confirmSaleTimeStart"
-    />
-    <QhxSelect
-      ref="saleTimeEndSelectRef"
-      :options="options.sale_time"
-      @select="confirmSaleTimeEnd"
-    />
-    <QhxSelect
-      ref="sortSelectRef"
-      :options="sortOptions"
-      :default-value="sortOptions.find(opt => opt.value === sortMode) || sortOptions[0]"
-      @select="onSortChange"
-    />
+    <QhxSelect ref="mainStyleSelectRef" :options="options.main_style" @select="confirmMainStyle" />
+    <QhxSelect ref="libraryTypeSelectRef" :options="options.library_type" @select="confirmLibraryType" />
+    <QhxSelect ref="stateSelectRef" :options="options.state" @select="confirmState" />
+    <QhxSelect ref="saleTimeStartSelectRef" :options="options.sale_time" @select="confirmSaleTimeStart" />
+    <QhxSelect ref="saleTimeEndSelectRef" :options="options.sale_time" @select="confirmSaleTimeEnd" />
+    <QhxSelect ref="sortSelectRef" :options="sortOptions"
+      :default-value="sortOptions.find(opt => opt.value === sortMode) || sortOptions[0]" @select="onSortChange" />
 
     <!-- Wiki选择组件 -->
     <WikiOptionsChoose ref="wikiOptionsChooseRef" @choose="onWikiChoose" />
-    
+
     <!-- 加入衣柜相关组件 -->
     <LibraryTypeColorChoose ref="libraryTypeColorChooseRef" @choose="handleLibraryTypeColorChoose" />
     <WardrobeAddLibrary ref="wardrobeAddLibraryRef" @change="handleWardrobeChange" />
-    
+
     <!-- 收藏夹选择组件 -->
     <FavoriteOptionsModal ref="favoriteOptionsModalRef" @change="handleCollectChange" />
   </div>
 </template>
 
 <style scoped>
-.library-list{
+.library-list {
   position: absolute;
   transition: 0.3s;
 }
+
 .grid {
   container-type: inline-size;
 }
@@ -1760,18 +1535,18 @@ onMounted(async () => {
 .group:hover .group-hover\:scale-110 {
   @apply transform scale-110 transition-transform duration-300;
 }
-.badge-tip{
+
+.badge-tip {
   position: absolute;
-    left: calc(50% - 49px);
-    top: calc(50% - 45px);
-    font-size: 40px;
-    z-index: 10;
-    width: 80px;
-    text-align: center;
-    transform: rotate(-45deg);
-    color: var(--error-color);
+  left: calc(50% - 49px);
+  top: calc(50% - 45px);
+  font-size: 40px;
+  z-index: 10;
+  width: 80px;
+  text-align: center;
+  transform: rotate(-45deg);
+  color: var(--error-color);
 }
+
 /* 拍立得风格卡片样式 */
 </style>
-
-

@@ -312,6 +312,25 @@ export interface Favorite {
   favorite_pic?: string | null;
 }
 
+/** 采集清单（collection_list） */
+export interface CollectionList {
+  /** 主键 ID */
+  collection_id?: number
+  /** 评论 ID，对应后端 comment_id */
+  comment_id?: number
+  /** 用户 ID */
+  user_id?: number
+  /** 创建时间 */
+  create_time?: Date
+  /** 关联类型，0 等各种业务类型 */
+  pk_type?: number
+  /** 关联的业务主键 ID */
+  pk_id?: number
+  /** 是否完成：0/1 等 */
+  is_completed?: number
+  comment?: Comment
+}
+
 export interface CommunityForeign {
   community:Community
   community_fireign_id: number
