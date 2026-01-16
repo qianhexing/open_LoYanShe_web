@@ -47,20 +47,20 @@ const total = ref(0)
 const column = ref(props.columns)
 
 // 获取数据
-const loadData = async () => {
+const loadData = async (initPage: number | undefined = undefined, initPageSize: number | undefined = undefined) => {
   if (isLoading.value || isFinished.value) return
   
   isLoading.value = true
   emit('loading')
   
   try {
-    const response = await props.fetchData(page.value, props.pageSize)
+    const response = await props.fetchData(initPage || page.value, initPageSize || props.pageSize)
     list.value = page.value === 1 
       ? response.rows 
       : [...list.value, ...response.rows]
     
     total.value = response.count
-    isFinished.value = page.value * props.pageSize >= response.count
+    isFinished.value = (initPage || page.value) * (initPageSize || props.pageSize) >= response.count
     
     if (process.client && props.enableWaterfall) {
       setTimeout(() => {
@@ -123,10 +123,15 @@ const loadMore = () => {
 }
 
 // 刷新数据
-const refresh = () => {
-  page.value = 1
-  isFinished.value = false
-  loadData()
+const refresh = (savePage = false) => {
+  if (savePage) {
+    isFinished.value = false
+    loadData(1, props.pageSize * page.value)
+  } else {
+    page.value = 1
+    isFinished.value = false
+    loadData()
+  }
 }
 
 // 监听滚动到底部

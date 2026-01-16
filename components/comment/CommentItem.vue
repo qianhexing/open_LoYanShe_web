@@ -5,12 +5,16 @@ import { getCommentList } from '@/api/comment'
 interface Props {
   className?: string,
   item: Comment
+  need_bottom?: boolean
+  ui?: string
 }
 const emit = defineEmits(['load', 'showReply', 'reply'])
 const props = withDefaults(defineProps<Props>(), {
+  need_bottom: true,
+  ui: 'p-3'
 })
 const richText = ref<RichNode[] | null>(null)
-const { item } = props
+const { item, need_bottom, ui } = props
 const user = useUserStore()
 const image = ref<Array<string>>([])
 const text = ref('')
@@ -40,8 +44,8 @@ onMounted(() => {
 <template>
   <div :class="props.className ? props.className :'w-full'">
     <div>
-      <div class="p-3">
-        <UserInfo :user="item.user"></UserInfo>
+      <div :class="ui">
+        <UserInfo :user="item.user" v-if="item.user"></UserInfo>
         <div class="p-3 leading-[1.8]" v-if="richText">
           <SafeRichText :nodes="richText"></SafeRichText>
         </div>
@@ -51,12 +55,12 @@ onMounted(() => {
             :className="'w-[calc(100%/3-8px)] shadow-lg m-1 object-cover aspect-[1/1] rounded-[10px]'">
           </QhxPreviewImage>
         </div>
-        <div class="mb-2" v-show="!item.isCheck">
+        <div class="mb-2" v-show="!item.isCheck && need_bottom">
           <div v-if="item.r_count && item.r_count > 0" class=" text-qhx-primary cursor-pointer inline-block" @click="showReply()">
             共 {{ item.r_count }} 条回复
           </div>
         </div>
-        <div class="flex items-center text-sm">
+        <div class="flex items-center text-sm" v-show="need_bottom">
           <!-- <div @click="reply()" class=" cursor-pointer">回复</div> -->
           <div class=" ml-2">{{ item.floor }} 楼</div>
         </div>

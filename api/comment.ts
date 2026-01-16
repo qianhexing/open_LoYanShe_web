@@ -29,6 +29,8 @@ interface InsertParams extends PaginationParams {
   type?: string
   comment_id?: number
   comment_content?: string
+  mount_img?: string
+  reply_to?: number
 }
 export async function insertComment(
   params: InsertParams

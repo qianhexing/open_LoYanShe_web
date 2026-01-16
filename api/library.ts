@@ -168,6 +168,7 @@ interface PipeParams extends PaginationParams {
   shop_id?: number
   examin?: number
   sort?: number
+  filter_list?: FilterList[]
 }
 export async function getLibraryPipeList(params: PipeParams): Promise<PaginationResponse<LibraryPipe>> {
   const response = await use$Post<BaseResponse<PaginationResponse<LibraryPipe>>>('/library/pipe/list', params)
