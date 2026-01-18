@@ -1077,7 +1077,7 @@ onMounted(async () => {
 <template>
   <div class="container mx-auto pt-4 pb-20 overflow-hidden">
     <!-- 搜索头部 -->
-    <div class="grid grid-cols-2 md:grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4 px-4 pb-3">
+    <div class="grid grid-cols-1 md:grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4 px-4 pb-3">
       <div class="w-full flex items-center gap-2">
         <UInput v-model="value" :placeholder="showFilterList ? '图鉴名检索,多条件空格分割' : '搜索图鉴 多条件空格分割.'"
           class="flex-1 focus:ring-0" :autofocus="false" @keyup.enter="handleSearch" :ui="{
@@ -1098,7 +1098,7 @@ onMounted(async () => {
         </QhxTag>
       </div>
     </div>
-    <div class="grid grid-cols-2 md:grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4 px-4 pb-3">
+    <div class="flex grid-cols-2 md:grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4 px-4 pb-3">
       <QhxTag :active="true" class="cursor-pointer whitespace-nowrap" @click="jumpToAddLibrary()">
           补充图鉴
         </QhxTag>

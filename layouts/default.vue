@@ -1,6 +1,7 @@
 
 <script setup lang="ts">
 import { getUserMy } from '~/api/user'
+import { useNotification } from '~/composables/useNotification'
 
 const themeStore = useThemeStore()
 const userStore = useUserStore()
@@ -13,6 +14,7 @@ const times = ref(1)
 const isHome = ref(false)
 const cachedPages = ref(['library']) // 根据你的实际页面名称修改
 const colorMode = useColorMode()
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 let uni: any
 const jumpToLoyanshe = () => {
   if (times.value >= 3) {
@@ -79,6 +81,33 @@ const handleInit = (event: MessageEvent) => {
     }
   }
 }
+// WebSocket 通知系统
+type WSConnection = {
+  connect: () => void
+  disconnect: () => void
+  status: Readonly<Ref<'disconnected' | 'connecting' | 'connected' | 'error'>>
+  isConnected: ComputedRef<boolean>
+}
+let wsConnection: WSConnection | null = null
+
+// 初始化 WebSocket 连接（如果有 token）
+const initNotificationSystem = () => {
+  if (process.client) {
+    const { initWebSocket } = useNotification()
+    const token = useCookie('token').value || (typeof window !== 'undefined' && window.localStorage ? localStorage.getItem('token') : null) || userStore.token
+    
+    if (token) {
+      console.log('检测到 token，初始化 WebSocket 通知系统')
+      const connection = initWebSocket()
+      if (connection) {
+        wsConnection = connection
+      }
+    } else {
+      console.log('未检测到 token，跳过 WebSocket 连接')
+    }
+  }
+}
+
 // 组件会自动导入
 onMounted(async () => {
   colorMode.value = 'light'
@@ -92,20 +121,28 @@ onMounted(async () => {
       await getUserMy().then((res) => {
         console.log(res, '用户信息')
         useUserStore().setUserInfo(res)
+        // 用户信息加载完成后，初始化通知系统
+        setTimeout(() => {
+          initNotificationSystem()
+        }, 500)
       })
     } else {
       console.log('加载用户信息')
       await userStore.initialize()
+      // 用户信息加载完成后，初始化通知系统
+      setTimeout(() => {
+        initNotificationSystem()
+      }, 500)
     }
     
     configStore.setIsPc(isPC())
     configStore.getConfig()
-    const isInUniApp =
+  const isInUniApp =
 		typeof window !== 'undefined' &&
 		navigator.userAgent.includes('Html5Plus');
-    if (isInUniApp && typeof uni !== 'undefined' ) {
-      isFromMobie.value = true
-    }
+  if (isInUniApp && uni ) {
+    isFromMobie.value = true
+  }
   }
   themeStore.setTheme('light')
   layoutReady.value = true
@@ -115,10 +152,38 @@ onMounted(async () => {
   // themeStore.loadFromLocalStorage()
   window.addEventListener('message', handleInit)
 })
+
+// 监听 token 变化，重新连接或断开连接
+watch(
+  () => userStore.token,
+  (newToken, oldToken) => {
+    if (process.client) {
+      if (newToken && !oldToken) {
+        // token 从无到有，建立连接
+        console.log('检测到新 token，建立 WebSocket 连接')
+        initNotificationSystem()
+      } else if (!newToken && oldToken) {
+        // token 从有到无，断开连接
+        console.log('token 已清除，断开 WebSocket 连接')
+        if (wsConnection) {
+          wsConnection.disconnect()
+          wsConnection = null
+        }
+      }
+    }
+  }
+)
+
 onBeforeUnmount(() => {
   document.removeEventListener('touchstart', preventZoom);
   document.removeEventListener('gesturestart', (e) => e.preventDefault());
   window.removeEventListener('message', handleInit)
+  
+  // 断开 WebSocket 连接
+  if (wsConnection) {
+    wsConnection.disconnect()
+    wsConnection = null
+  }
 });
 </script> 
 <template>
@@ -126,7 +191,7 @@ onBeforeUnmount(() => {
     <UNotifications position="top-0 right-0" />
     <Header v-show="layout_style === 0 && !isFromMobie" />
     <div v-show="layout_style === 0 && !isFromMobie" class="h-[80px]"></div>
-    <div v-if="HarmonyOS" class="w-full h-full absolute top-0 left-0 z-50 bg-white/80 dark:bg-gray-900/80 backdrop-blur-sm border-t border-gray-200 dark:border-gray-700 left-0 bottom-0 w-full z-50">
+    <div v-if="HarmonyOS" class="w-full h-full absolute top-0 left-0 z-50 bg-white/80 dark:bg-gray-900/80 backdrop-blur-sm border-t border-gray-200 dark:border-gray-700 bottom-0">
       <div class="container mx-auto px-4 py-6">
         <p>鸿蒙消息：{{ HarmonyOS }}</p>
       </div>

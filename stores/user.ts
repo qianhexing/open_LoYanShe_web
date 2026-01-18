@@ -8,7 +8,8 @@ export const useUserStore = defineStore('auth', {
   state: () => ({
     token: null as string | null,
     user: null as User | null,
-    permission: [] as Permission[]
+    permission: [] as Permission[],
+    hasNotification: false as boolean
 
   }),
   
@@ -157,6 +158,11 @@ export const useUserStore = defineStore('auth', {
     hasPermi(permission: string): boolean {
       if (!this.user || !this.user.permission_list || this.user.permission_list.length === 0) return false
       return this.user?.permission_list.some(p => p === permission)
+    },
+    
+    // 设置通知状态
+    setHasNotification(hasNotification: boolean) {
+      this.hasNotification = hasNotification
     }
   }
 })

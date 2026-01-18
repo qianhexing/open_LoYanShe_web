@@ -5,3 +5,22 @@
 ### 项目自定义组合式函数
 - httpCore
   - 在组件中直接use$XXX使用就好
+
+- useWebSocket
+  - WebSocket 连接管理工具
+  - 支持自动重连、心跳检测、消息历史等功能
+  - 使用示例：
+  ```typescript
+  const { status, connect, disconnect, send, isConnected, messages } = useWebSocket({
+    url: 'ws://localhost:3000/getNotice',
+    token: 'your-token',
+    autoReconnect: true,
+    heartbeatInterval: 30000,
+    onMessage: (message) => {
+      console.log('收到消息:', message)
+    },
+    onConnected: (data) => {
+      console.log('连接成功:', data)
+    }
+  })
+  ```

@@ -107,6 +107,8 @@ interface UpdateUserInfoParams {
   is_achieve?: number
   user_face?: string
   is_annual_report?: number
+  email?: string
+  message_config?: string
 }
 
 export async function changeUserInfo(
@@ -147,6 +149,42 @@ export async function changePassword(
 ): Promise<{ success: boolean }> {
   const response = await use$Post<BaseResponse<{ success: boolean }>>(
     '/user/change/password',
+    params
+  );
+  return response.data;
+}
+
+export async function getUserSpace(params: { user_id: number }): Promise<User> {
+  const response = await use$Post<BaseResponse<User>>('/userSpace/id', params);
+  return response.data;
+}
+
+// 发送邮箱验证码
+interface SendEmailCodeParams {
+  email: string
+}
+
+export async function sendEmailCode(
+  params: SendEmailCodeParams
+): Promise<{ success: boolean }> {
+  const response = await use$Post<BaseResponse<{ success: boolean }>>(
+    '/email/code',
+    params
+  );
+  return response.data;
+}
+
+// 绑定邮箱
+interface BindEmailParams {
+  email: string
+  code: string
+}
+
+export async function bindEmail(
+  params: BindEmailParams
+): Promise<{ success: boolean }> {
+  const response = await use$Post<BaseResponse<{ success: boolean }>>(
+    '/email/bind',
     params
   );
   return response.data;
