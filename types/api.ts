@@ -402,6 +402,7 @@ export interface User {
   user_name?: string
   avatar?: Avatar
   permission_list?: string[]
+  email?: string
 }
 export interface Avatar {
   frame_id: number,
@@ -548,4 +549,20 @@ export interface DisplayCabinet {
   update_time?: string
   wardrobe?: Wardrobe
   wardrobe_clothes?: WardrobeClothes[]
+}
+export interface Magazine {
+  magazine_id: number
+  image_list: string
+  title: string
+  desc: string
+  create_user: number
+}
+export interface NoticeMessage {
+  notice_id?: number
+  date?: string
+  notice_content?: string
+  notice?: number
+  type?: number // 0全体 1个人
+  is_enable?: number
+  user_id: number // 如果是1时才有
 }

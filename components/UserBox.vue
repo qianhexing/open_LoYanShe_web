@@ -4,6 +4,8 @@
           class="w-8 h-8 object-cover rounded-[40px] border border-gray-200 my-2" loading="lazy" />
     <template #panel>
       <div class="p-6 w-[22rem] text-center">
+        <div class="p-3 cursor-pointer" @click="jumpToMySpace()">我的空间</div>
+
         <div class="p-3 cursor-pointer" @click="jumpToMyWardrobe()">我的衣柜</div>
         <div class="p-3 cursor-pointer" @click="jumpToAddLibrary()">补充图鉴</div>
         <div class="p-3 cursor-pointer" @click="jumpToMyLibrary()">我上传的图鉴</div>
@@ -27,6 +29,11 @@ const userStore = storeToRefs(useUserStore())
 const { user } = userStore
 const router = useRouter();
 
+const jumpToMySpace = () => {
+  if (user.value) {
+    navigateTo(`/userSpace/${user.value.user_id}`);
+  }
+}
 const jumpToMyWardrobe = () => {
   if (user.value) {
     navigateTo(`/wardrobe/detail/${user.value.user_id}`);

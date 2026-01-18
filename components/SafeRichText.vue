@@ -117,6 +117,7 @@ function getSafeAttrs(tag: string, attrs: Record<string, string>): Record<string
       v-else-if="isSafeTag(node.name)"
       :is="CUSTOM_TAGS[node.name] || node.name"
       v-bind="getSafeAttrs(node.name, node.attrs)"
+      :class="node.name === 'a' ? 'text-qhx-primary' : ''"
     >
       <!-- 递归渲染子节点 -->
       <SafeRichText v-if="node.children?.length" :nodes="node.children" />

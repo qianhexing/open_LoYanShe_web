@@ -180,8 +180,10 @@ export interface RichNode {
 }
 // 解析富文本
 export function parseRichText(html: string): RichNode[] {
+  let newHtml = html.replace(/ahref/g, 'a href')
+  newHtml = newHtml.replace(/editorcommunity/g, 'p')
   const parser = new DOMParser()
-  const doc = parser.parseFromString(html, 'text/html')
+  const doc = parser.parseFromString(newHtml, 'text/html')
 
   function parseNode(node: ChildNode): RichNode | null {
     if (node.nodeType === Node.TEXT_NODE) {
@@ -208,7 +210,6 @@ export function parseRichText(html: string): RichNode[] {
       const children = Array.from(el.childNodes)
         .map(parseNode)
         .filter((n): n is RichNode => n !== null)
-
       return {
         name: tagName,
         text: el.textContent?.trim() || '',
@@ -223,7 +224,7 @@ export function parseRichText(html: string): RichNode[] {
   const rootNodes = Array.from(doc.body.childNodes)
     .map(parseNode)
     .filter((n): n is RichNode => n !== null)
-
+  console.log(rootNodes)
   return rootNodes
 }
 

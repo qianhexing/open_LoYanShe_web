@@ -79,6 +79,35 @@
             }"
           />
         </UFormGroup>
+
+        <!-- 邮箱 -->
+        <UFormGroup label="邮箱" class="mb-4">
+          <div class="flex items-center gap-2">
+            <UInput
+              :model-value="user.email || '未绑定'"
+              disabled
+              class="flex-1"
+            />
+            <UButton
+              @click="showEmailModal = true"
+              variant="outline"
+              size="sm"
+            >
+              {{ user.email ? '换绑邮箱' : '绑定邮箱' }}
+            </UButton>
+          </div>
+          <!-- 邮件通知开关 -->
+          <div v-if="user.email" class="mt-3 flex items-center justify-between">
+            <div class="flex flex-col">
+              <span class="text-sm font-medium text-gray-700 dark:text-gray-300">邮件通知</span>
+              <span class="text-xs text-gray-500 dark:text-gray-400">开启后，系统将通过邮件发送重要通知</span>
+            </div>
+            <UToggle
+              v-model="formData.email_notice"
+              :disabled="loading"
+            />
+          </div>
+        </UFormGroup>
       </UCard>
 
       <!-- 风格标签 -->
@@ -87,22 +116,17 @@
           <div class="text-lg font-semibold">风格标签</div>
         </template>
         <div class="flex flex-wrap gap-2 mb-4">
-          <UTag
+          <QhxTag
             v-for="(style, index) in formData.main_style"
             :key="index"
-            color="orange"
-            variant="soft"
-            size="md"
-            class="cursor-pointer"
+            
           >
-            {{ style.label }}
-            <button
-              @click="deleteStyle(index)"
-              class="ml-2 hover:text-red-500"
-            >
-              <Icon name="i-heroicons-x-mark" class="w-4 h-4" />
-            </button>
-          </UTag>
+            <div class="flex items-center">
+              # {{ style.label }}
+              <Icon @click="deleteStyle(index)" name="i-heroicons-x-mark" class="w-4 h-4 cursor-pointer" />
+
+            </div>
+          </QhxTag>
           <UButton
             @click="openStylePicker"
             variant="outline"
@@ -277,11 +301,78 @@
         </div>
       </UCard>
     </UModal>
+
+    <!-- 邮箱绑定弹窗 -->
+    <UModal v-model="showEmailModal">
+      <UCard>
+        <template #header>
+          <div class="text-lg font-semibold">{{ user?.email ? '换绑邮箱' : '绑定邮箱' }}</div>
+        </template>
+        <div class="space-y-4">
+          <!-- 邮箱输入 -->
+          <UFormGroup label="邮箱" name="email">
+            <UInput
+              v-model="emailForm.email"
+              placeholder="请输入邮箱地址"
+              type="email"
+              icon="i-heroicons-envelope"
+              :ui="{
+                base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
+                rounded: 'rounded-lg',
+              }"
+            />
+          </UFormGroup>
+
+          <!-- 验证码输入 -->
+          <UFormGroup label="验证码" name="email_code">
+            <div class="flex gap-2">
+              <UInput
+                v-model="emailForm.email_code"
+                placeholder="请输入验证码"
+                class="flex-1"
+                icon="i-heroicons-shield-check"
+                :ui="{
+                  base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
+                  rounded: 'rounded-lg',
+                }"
+              />
+              <UButton
+                @click="sendEmailVerificationCode"
+                :disabled="!canSendEmailCode || emailCodeCountdown > 0"
+                :loading="sendingEmailCode"
+                variant="outline"
+                class="px-4 whitespace-nowrap"
+                :ui="{ rounded: 'rounded-lg' }"
+              >
+                {{ emailCodeCountdown > 0 ? `${emailCodeCountdown}s` : (emailCodeSent ? '重新发送' : '获取验证码') }}
+              </UButton>
+            </div>
+          </UFormGroup>
+
+          <div class="flex gap-2 justify-end mt-4">
+            <UButton
+              @click="showEmailModal = false"
+              variant="outline"
+            >
+              取消
+            </UButton>
+            <UButton
+              @click="confirmBindEmail"
+              class="bg-qhx-primary text-qhx-inverted hover:bg-qhx-primaryHover"
+              :loading="bindingEmail"
+              :disabled="!emailForm.email || !emailForm.email_code"
+            >
+              确认绑定
+            </UButton>
+          </div>
+        </div>
+      </UCard>
+    </UModal>
   </div>
 </template>
 
 <script setup lang="ts">
-import { getUserMy, changeUserInfo } from '@/api/user'
+import { getUserMy, changeUserInfo, sendEmailCode, bindEmail } from '@/api/user'
 import { uploadImage } from '@/api/index'
 import { BASE_IMG } from '@/utils/ipConfig'
 import type { User } from '@/types/api'
@@ -312,7 +403,18 @@ const config = computed(() => configStore.config)
 const loading = ref(false)
 const uploadingAvatar = ref(false)
 const showAddressPicker = ref(false)
+const showEmailModal = ref(false)
 const avatarInput = ref<HTMLInputElement | null>(null)
+
+// 邮箱绑定相关
+const emailForm = reactive({
+  email: '',
+  email_code: ''
+})
+const sendingEmailCode = ref(false)
+const emailCodeSent = ref(false)
+const emailCodeCountdown = ref(0)
+const bindingEmail = ref(false)
 
 // 选择器引用
 const styleSelectRef = ref<InstanceType<typeof QhxSelect>>()
@@ -335,7 +437,8 @@ const formData = reactive({
   area: '',
   show_area: false,
   is_achieve: false,
-  user_face: ''
+  user_face: '',
+  email_notice: false
 })
 
 // 地址选项
@@ -388,6 +491,7 @@ const fetchUserInfo = async () => {
       area?: string
       show_area?: number | boolean
       is_achieve?: number | boolean
+      message_config?: string | Record<string, unknown>
     }
     
     formData.signature = userData.signature || ''
@@ -398,6 +502,26 @@ const fetchUserInfo = async () => {
     formData.show_area = userData.show_area === 1 || userData.show_area === true
     formData.is_achieve = userData.is_achieve === 1 || userData.is_achieve === true
     formData.user_face = data.user_face || ''
+    
+    // 如果有邮箱，初始化邮箱表单
+    if (userData.email) {
+      emailForm.email = userData.email
+    }
+    
+    // 解析 message_config JSON，获取 email_notice 设置
+    if (userData.message_config) {
+      try {
+        const messageConfig = typeof userData.message_config === 'string' 
+          ? JSON.parse(userData.message_config) 
+          : userData.message_config
+        formData.email_notice = messageConfig.email_notice === true || messageConfig.email_notice === 1
+      } catch (error) {
+        console.error('解析 message_config 失败:', error)
+        formData.email_notice = false
+      }
+    } else {
+      formData.email_notice = false
+    }
   } catch (error) {
     toast.add({
       title: '获取用户信息失败',
@@ -583,6 +707,7 @@ const saveUserInfo = async () => {
       show_area: number
       is_achieve: number
       user_face?: string
+      message_config?: string
     } = {
       signature: formData.signature,
       province: formData.province || null,
@@ -600,6 +725,31 @@ const saveUserInfo = async () => {
 
     if (formData.user_face) {
       params.user_face = formData.user_face
+    }
+
+    // 更新 message_config JSON
+    try {
+      // 获取现有的 message_config
+      const userWithConfig = user.value as User & { message_config?: string | Record<string, unknown> }
+      let messageConfig: Record<string, unknown> = {}
+      if (userWithConfig?.message_config) {
+        try {
+          messageConfig = typeof userWithConfig.message_config === 'string'
+            ? JSON.parse(userWithConfig.message_config)
+            : userWithConfig.message_config
+        } catch (error) {
+          console.error('解析现有 message_config 失败:', error)
+          messageConfig = {}
+        }
+      }
+      
+      // 更新 email_notice 字段
+      messageConfig.email_notice = formData.email_notice ? 1 : 0
+      
+      // 将 message_config 转换为字符串
+      params.message_config = JSON.stringify(messageConfig)
+    } catch (error) {
+      console.error('更新 message_config 失败:', error)
     }
 
     await changeUserInfo(params)
@@ -638,6 +788,99 @@ const saveUserInfo = async () => {
   }
 }
 
+// 邮箱验证码倒计时
+const canSendEmailCode = computed(() => {
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+  return emailForm.email && emailRegex.test(emailForm.email)
+})
+
+// 发送邮箱验证码
+const sendEmailVerificationCode = async () => {
+  if (!canSendEmailCode.value || emailCodeCountdown.value > 0) return
+
+  sendingEmailCode.value = true
+  try {
+    await sendEmailCode({ email: emailForm.email })
+    emailCodeSent.value = true
+    emailCodeCountdown.value = 60
+    
+    // 开始倒计时
+    const timer = setInterval(() => {
+      emailCodeCountdown.value--
+      if (emailCodeCountdown.value <= 0) {
+        clearInterval(timer)
+      }
+    }, 1000)
+
+    toast.add({
+      title: '验证码已发送',
+      description: '请查看您的邮箱',
+      icon: 'i-heroicons-check-circle',
+      color: 'green'
+    })
+  } catch (error) {
+    toast.add({
+      title: '发送失败',
+      description: getErrorMessage(error),
+      icon: 'i-heroicons-x-circle',
+      color: 'red'
+    })
+  } finally {
+    sendingEmailCode.value = false
+  }
+}
+
+// 确认绑定邮箱
+const confirmBindEmail = async () => {
+  if (!emailForm.email || !emailForm.email_code) {
+    toast.add({
+      title: '请填写完整信息',
+      icon: 'i-heroicons-exclamation-triangle',
+      color: 'orange'
+    })
+    return
+  }
+
+  bindingEmail.value = true
+  try {
+    // 验证并绑定邮箱（调用 /email/code 接口）
+    await bindEmail({
+      email: emailForm.email,
+      code: emailForm.email_code
+    })
+
+    // 绑定成功后，更新用户信息
+    await changeUserInfo({
+      email: emailForm.email
+    })
+
+    // 重新获取用户信息以显示最新数据
+    await fetchUserInfo()
+
+    toast.add({
+      title: '绑定成功',
+      icon: 'i-heroicons-check-circle',
+      color: 'green'
+    })
+
+    // 关闭弹窗并重置表单
+    showEmailModal.value = false
+    emailForm.email = ''
+    emailForm.email_code = ''
+    emailCodeSent.value = false
+    emailCodeCountdown.value = 0
+  } catch (error) {
+    toast.add({
+      title: '绑定失败',
+      description: getErrorMessage(error),
+      icon: 'i-heroicons-x-circle',
+      color: 'red'
+    })
+  } finally {
+    bindingEmail.value = false
+  }
+}
+
 // 错误信息处理
 function getErrorMessage(error: unknown): string {
   if (error instanceof Error) return error.message
@@ -673,24 +916,16 @@ onMounted(async () => {
   await loadAddressData()
   await fetchUserInfo()
 })
+
+// 监听邮箱弹窗关闭，重置表单
+watch(showEmailModal, (newVal) => {
+  if (!newVal) {
+    // 弹窗关闭时，如果不是绑定成功，则重置表单
+    emailForm.email = user.value?.email || ''
+    emailForm.email_code = ''
+    emailCodeSent.value = false
+    emailCodeCountdown.value = 0
+  }
+})
 </script>
-
-<style scoped>
-/* 自定义样式 */
-.bg-qhx-primary {
-  background-color: var(--qhx-primary, #3b82f6);
-}
-
-.text-qhx-primary {
-  color: var(--qhx-primary, #3b82f6);
-}
-
-.text-qhx-inverted {
-  color: var(--qhx-inverted, #ffffff);
-}
-
-.hover\:bg-qhx-primaryHover:hover {
-  background-color: var(--qhx-primary-hover, #2563eb);
-}
-</style>
 

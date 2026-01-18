@@ -34,6 +34,21 @@
             <LoginBox />
           </div>
           <div class="flex items-center gap-2 md:gap-4" v-show="user">
+            <!-- 消息图标 -->
+            <button
+              @click="handleMessageClick"
+              class="relative p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+              aria-label="消息"
+            >
+              <svg class="w-6 h-6 text-gray-700 dark:text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+              </svg>
+              <!-- 红点提示 -->
+              <span
+                v-if="hasNotification"
+                class="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full"
+              ></span>
+            </button>
             <UserBox></UserBox>
           </div>
         </div>
@@ -94,10 +109,21 @@
 
 <script setup lang="ts">
 const mobileMenuOpen = ref(false)
-const userStore = storeToRefs(useUserStore()) 
-const { user } = userStore
+const userStore = useUserStore()
+const userStoreRefs = storeToRefs(userStore)
+const { user, hasNotification } = userStoreRefs
 const { t } = useI18n()
 const route = useRoute()
+const router = useRouter()
+
+// 获取通知系统的方法
+const { markNotificationAsRead } = useNotification()
+
+// 处理消息点击
+const handleMessageClick = () => {
+  // 跳转到消息页面
+  router.push('/user/message')
+}
 
 const navItems = computed(() => [
   { label: t('header.home'), to: "/" },
