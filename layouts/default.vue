@@ -2,7 +2,7 @@
 <script setup lang="ts">
 import { getUserMy } from '~/api/user'
 import { useNotification } from '~/composables/useNotification'
-
+import { hasNotice } from '@/api/message_center'
 const themeStore = useThemeStore()
 const userStore = useUserStore()
 const configStore = useConfigStore()
@@ -97,6 +97,10 @@ const initNotificationSystem = () => {
     const token = useCookie('token').value || (typeof window !== 'undefined' && window.localStorage ? localStorage.getItem('token') : null) || userStore.token
     
     if (token) {
+      hasNotice().then((res) => {
+        console.log(res, '是否有通知')
+        userStore.setHasNotification(res)
+      })
       console.log('检测到 token，初始化 WebSocket 通知系统')
       const connection = initWebSocket()
       if (connection) {

@@ -100,13 +100,15 @@
           <div v-if="user.email" class="mt-3 flex items-center justify-between">
             <div class="flex flex-col">
               <span class="text-sm font-medium text-gray-700 dark:text-gray-300">邮件通知</span>
-              <span class="text-xs text-gray-500 dark:text-gray-400">开启后，系统将通过邮件发送重要通知</span>
+              <span class="text-xs text-gray-500">开启后，系统将通过邮件发送重要通知</span>
             </div>
             <UToggle
               v-model="formData.email_notice"
               :disabled="loading"
+              @update:model-value="updateMessageConfig"
             />
           </div>
+          <div class="text-xs text-gray-500">如果收不到邮件,请将 noreply@chaozj.com 添加至白名单</div>
         </UFormGroup>
       </UCard>
 
@@ -491,7 +493,7 @@ const fetchUserInfo = async () => {
       area?: string
       show_area?: number | boolean
       is_achieve?: number | boolean
-      message_config?: string | Record<string, unknown>
+      message_config?: Record<string, unknown> | undefined
     }
     
     formData.signature = userData.signature || ''
@@ -511,10 +513,9 @@ const fetchUserInfo = async () => {
     // 解析 message_config JSON，获取 email_notice 设置
     if (userData.message_config) {
       try {
-        const messageConfig = typeof userData.message_config === 'string' 
-          ? JSON.parse(userData.message_config) 
-          : userData.message_config
-        formData.email_notice = messageConfig.email_notice === true || messageConfig.email_notice === 1
+        const messageConfig = userData.message_config
+        formData.email_notice = messageConfig.email_notice as boolean || false
+        console.log(formData.email_notice, '配置项')
       } catch (error) {
         console.error('解析 message_config 失败:', error)
         formData.email_notice = false
@@ -684,6 +685,59 @@ const confirmAddress = () => {
   showAddressPicker.value = false
 }
 
+// 更新消息配置（仅更新 message_config）
+const updateMessageConfig = async () => {
+  if (loading.value) return
+
+  loading.value = true
+
+  try {
+    // 获取现有的 message_config
+    const userWithConfig = user.value as User & { message_config?: string | Record<string, unknown> }
+    let messageConfig: Record<string, unknown> = {}
+    if (userWithConfig?.message_config) {
+      try {
+        messageConfig = typeof userWithConfig.message_config === 'string'
+          ? JSON.parse(userWithConfig.message_config)
+          : userWithConfig.message_config
+      } catch (error) {
+        console.error('解析现有 message_config 失败:', error)
+        messageConfig = {}
+      }
+    }
+    // 更新 email_notice 字段
+    messageConfig.email_notice = formData.email_notice
+    
+    // 只传递 message_config
+    await changeUserInfo({
+      message_config: messageConfig
+    })
+
+    // 更新本地用户信息中的 message_config
+    if (user.value) {
+      (user.value as User & { message_config?: Record<string, unknown> }).message_config = messageConfig
+      userStore.setUserInfo(user.value)
+    }
+
+    toast.add({
+      title: '设置已更新',
+      icon: 'i-heroicons-check-circle',
+      color: 'green'
+    })
+  } catch (error) {
+    // 如果更新失败，恢复开关状态
+    formData.email_notice = !formData.email_notice
+    toast.add({
+      title: '更新失败',
+      description: getErrorMessage(error),
+      icon: 'i-heroicons-x-circle',
+      color: 'red'
+    })
+  } finally {
+    loading.value = false
+  }
+}
+
 // 保存用户信息
 const saveUserInfo = async () => {
   if (loading.value) {
@@ -707,7 +761,7 @@ const saveUserInfo = async () => {
       show_area: number
       is_achieve: number
       user_face?: string
-      message_config?: string
+      message_config?: Record<string, unknown>
     } = {
       signature: formData.signature,
       province: formData.province || null,
@@ -742,16 +796,14 @@ const saveUserInfo = async () => {
           messageConfig = {}
         }
       }
-      
       // 更新 email_notice 字段
-      messageConfig.email_notice = formData.email_notice ? 1 : 0
+      messageConfig.email_notice = formData.email_notice
       
-      // 将 message_config 转换为字符串
-      params.message_config = JSON.stringify(messageConfig)
+      params.message_config = messageConfig
+      console.log(params, '配置项')
     } catch (error) {
       console.error('更新 message_config 失败:', error)
     }
-
     await changeUserInfo(params)
 
     toast.add({

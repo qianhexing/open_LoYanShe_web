@@ -121,7 +121,12 @@ const { markNotificationAsRead } = useNotification()
 
 // 处理消息点击
 const handleMessageClick = () => {
-  // 跳转到消息页面
+  // 如果已经在消息页面，直接调用已读方法清除红点状态
+  if (route.path === '/user/message') {
+    markNotificationAsRead()
+    return
+  }
+  // 否则跳转到消息页面
   router.push('/user/message')
 }
 

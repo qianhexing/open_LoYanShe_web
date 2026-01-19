@@ -1,5 +1,5 @@
 <template> 
-  <UPopover ref="popover" v-model:open="open" :popper="{ placement: 'bottom-start' }" :ui="{ rounded: 'rounded-[18px]' }"" >
+  <UPopover ref="popover" v-model:open="open" :popper="{ placement: 'bottom-start' }" :ui="{ rounded: 'rounded-[18px]' }" >
     <img :src="`${BASE_IMG}${user.user_face}`" :alt="user.user_name" v-if="user"
           class="w-8 h-8 object-cover rounded-[40px] border border-gray-200 my-2" loading="lazy" />
     <template #panel>
@@ -33,39 +33,47 @@ const jumpToMySpace = () => {
   if (user.value) {
     navigateTo(`/userSpace/${user.value.user_id}`);
   }
+  open.value = false
 }
 const jumpToMyWardrobe = () => {
   if (user.value) {
     navigateTo(`/wardrobe/detail/${user.value.user_id}`);
   }
+  open.value = false
 }
 const jumpToAddLibrary = () => {
   if (user.value) {
     navigateTo('/addLibrary');
   }
+  open.value = false
 }
 const jumpToNotification = () => {
   if (user.value) {
     navigateTo('/message/notification');
   }
+  open.value = false
 }
 const jumpToMyLibrary = () => {
   if (user.value) {
     navigateTo('/library/my');
   }
+  open.value = false
 }
 const jumpToAlbum = () => {
   if (user.value) {
     navigateTo('/album');
   }
+  open.value = false
 }
 const logout = () => {
   useUserStore().clearToken()
+  open.value = false
 }
 const jumpToMyScene = () => {
   if (user.value) {
     navigateTo('/user/sence');
   }
+  open.value = false
 }
 const loading = ref(false)
 

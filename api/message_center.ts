@@ -16,3 +16,14 @@ export async function getNoticeList(
   return response.data
 }
 
+
+/**
+ * 获取是否有通知
+ * @returns 是否有通知
+ */
+export async function hasNotice(): Promise<boolean> {
+  const response = await use$Post<BaseResponse<boolean>>(
+    '/messageCenter/hasNotice'
+  )
+  return response.data
+}
