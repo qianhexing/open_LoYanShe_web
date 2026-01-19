@@ -35,7 +35,7 @@ export const useNotification = () => {
       }
       // 生产环境 - 根据实际配置调整
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-      return `${protocol}//${hostname}:3003/getNotice`
+      return `${protocol}//${hostname}/wss/getNotice`
     }
     // 默认开发环境
     return 'ws://localhost:3003/getNotice'

@@ -108,7 +108,7 @@ interface UpdateUserInfoParams {
   user_face?: string
   is_annual_report?: number
   email?: string
-  message_config?: string
+  message_config?: Record<string, unknown>
 }
 
 export async function changeUserInfo(
