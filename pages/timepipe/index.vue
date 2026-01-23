@@ -44,16 +44,14 @@
               </div>
             </div>
             <div class="text-sm text-gray-600 p-2 flex items-center justify-between" v-if="waterList">
-              <div>总数：{{ waterList.total }}</div>
+              <div class="flex items-center ">
+                <div>总数：{{ waterList.total }}</div>
+                <div class="flex items-center ml-4">
+                  <UIcon name="i-heroicons-eye" class="text-gray-600" />
+                  <span class="text-sm text-gray-600 ml-1">{{ todayVisit }}</span>
+                </div>
+              </div>
               <div class="flex items-center gap-2">
-                <UButton type="submit" size="xs" class="bg-qhx-primary text-qhx-inverted hover:bg-qhx-primaryHover"
-                  @click="showFilterModal = true">
-                  筛选<span v-if="filterCount > 0" class="ml-1">({{ filterCount }})</span>
-                </UButton>
-                <UButton v-if="hasFilter" type="submit" size="xs" class="bg-red-500 text-white hover:bg-red-600"
-                  @click="clearFilter">
-                  重置
-                </UButton>
                 <UButton type="submit" size="xs" class="bg-qhx-primary text-qhx-inverted hover:bg-qhx-primaryHover"
                   @click="(e: MouseEvent) => { openSortPicker(e) }">
                   {{`排序:${sortOptions.find(item => item.value === sortMode)?.label}` || '排序模式'}}
@@ -63,14 +61,30 @@
                     sortMode = select.value
                     waterList?.refresh()
                   }" />
+                <div v-if="user" class="flex items-center gap-2">
+                  <UToggle
+                    v-model="subscribeNews"
+                    color="primary"
+                    @update:model-value="handleSubscribeNewsChange"
+                  />
+                  <span class="text-xs text-gray-600">订阅资讯</span>
+                </div>
               </div>
             </div>
             <div class="flex items-center justify-between p-2">
               <div class="flex items-center gap-2 flex-1">
                 <!-- 塞选状态 -->
-                <UButton type="submit" size="xs" class="bg-qhx-primary text-qhx-inverted hover:bg-qhx-primaryHover mt-2"
+                <UButton type="submit" size="xs" class="bg-qhx-primary text-qhx-inverted hover:bg-qhx-primaryHover"
                   @click="(e: MouseEvent) => { openPicker(e) }">
                   {{`筛选状态:${filterStateOptions.find(item => item.value === filterState)?.label}` || '筛选状态'}}
+                </UButton>
+                <UButton type="submit" size="xs" class="bg-qhx-primary text-qhx-inverted hover:bg-qhx-primaryHover"
+                  @click="showFilterModal = true">
+                  筛选其他<span v-if="filterCount > 0" class="ml-1">({{ filterCount }})</span>
+                </UButton>
+                <UButton v-if="hasFilter" type="submit" size="xs" class="bg-red-500 text-white hover:bg-red-600"
+                  @click="clearFilter">
+                  重置
                 </UButton>
                 <QhxSelect ref="qhxSelectRef" :options="filterStateOptions" :default-value="filterStateOptions[1]"
                   :canCustomize="false" @select="(select) => {
@@ -78,8 +92,8 @@
                     waterList?.refresh()
                   }" />
               </div>
-              <div class="flex items-center gap-2">
-                <div>今日访问：{{ todayVisit }}</div>
+              
+              <div class="flex items-center gap-2"> 
                 <QhxJellyButton>
                   <div class="h-[60px] text-center px-1  cursor-pointer flex items-center justify-center">
                     <div @click="copyUrl()"
@@ -490,6 +504,12 @@
       @select="confirmMainStyle"
     />
     
+    <!-- 邮箱绑定弹窗 -->
+    <EmailBindModal
+      v-model="showEmailModal"
+      :user="user"
+      @success="handleEmailBindSuccess"
+    />
     
   </div>
 </template>
@@ -516,6 +536,7 @@ import type DanmakuComment from '@/components/comment/DanmakuComment.vue'
 import WikiOptionsChoose from '@/components/wiki/wikiOptionsChoose.vue'
 import type WikiOptionsChooseType from '@/components/wiki/wikiOptionsChoose.vue'
 import { getWikiOptionsByKeywords } from '@/api/wiki'
+import EmailBindModal from '@/components/user/EmailBindModal.vue'
 const wardrobeAddLibraryRef = ref<InstanceType<typeof WardrobeAddLibrary> | null>(null)
 const favoriteOptionsModalRef = ref<InstanceType<typeof FavoriteOptionsModal> | null>(null)
 const libraryTypeColorChooseRef = ref<InstanceType<typeof LibraryTypeColorChoose> | null>(null)
@@ -596,6 +617,14 @@ const layout = ref('0')
 const todayVisit = ref(0)
 const filterState = ref(0)
 const sortMode = ref(2)
+// 从 user 的 message_config 获取订阅资讯初始值
+const getSubscribeNewsInitialValue = () => {
+  if (user.value?.message_config && typeof user.value.message_config === 'object') {
+    return user.value.message_config.daily_news_subscribe === true
+  }
+  return false
+}
+const subscribeNews = ref(getSubscribeNewsInitialValue())
 const filterStateOptions = [
   { label: '全部', value: -1 },
   { label: '预约中', value: 0 },
@@ -682,6 +711,7 @@ const currentTab = ref(0)
 
 // 筛选相关
 const showFilterModal = ref(false)
+const showEmailModal = ref(false)
 const filterList = ref<FilterList[]>([])
 const filterForm = reactive({
   main_style: [] as Array<{ label: string; value: number; type?: string }>,
@@ -947,6 +977,109 @@ const openPicker = (e: MouseEvent) => {
 const openSortPicker = (e: MouseEvent) => {
   sortSelectRef.value?.showPicker(e)
 }
+
+// 处理订阅资讯状态变化
+const handleSubscribeNewsChange = async (value: boolean) => {
+  // 如果开启订阅，需要检查是否绑定邮箱
+  if (value) {
+    // 获取用户缓存
+    const currentUser = user.value || useUserStore().user
+    
+    // 如果没有绑定邮箱，显示绑定邮箱弹窗
+    if (!currentUser?.email) {
+      // 先恢复开关状态
+      subscribeNews.value = false
+      // 显示绑定邮箱弹窗
+      showEmailModal.value = true
+      return
+    }
+    
+    // 如果已绑定邮箱，更新订阅状态并保存
+    try {
+      // 调用 updateMessageConfig 保存订阅状态
+      // message_config 可能不存在，updateMessageConfig 会处理这种情况
+      await useUserStore().updateUserInfo({
+        message_config: {
+          daily_news_subscribe: value
+        }
+      })
+      subscribeNews.value = value
+      toast.add({
+        title: '已开启订阅资讯',
+        icon: 'i-heroicons-check-circle',
+        color: 'green'
+      })
+    } catch (error) {
+      console.error('保存订阅状态失败:', error)
+      // 恢复开关状态
+      subscribeNews.value = false
+      toast.add({
+        title: '保存订阅状态失败',
+        description: error instanceof Error ? error.message : '未知错误',
+        icon: 'i-heroicons-x-circle',
+        color: 'red'
+      })
+    }
+  } else {
+    // 关闭订阅并保存
+    try {
+      // 调用 updateMessageConfig 保存订阅状态
+      await useUserStore().updateUserInfo({
+        message_config: {
+          daily_news_subscribe: false
+        }
+      })
+      subscribeNews.value = value
+      toast.add({
+        title: '已关闭订阅资讯',
+        icon: 'i-heroicons-information-circle',
+        color: 'gray'
+      })
+    } catch (error) {
+      console.error('保存订阅状态失败:', error)
+      // 恢复开关状态
+      subscribeNews.value = !value
+      toast.add({
+        title: '保存订阅状态失败',
+        description: error instanceof Error ? error.message : '未知错误',
+        icon: 'i-heroicons-x-circle',
+        color: 'red'
+      })
+    }
+  }
+}
+
+// 邮箱绑定成功回调
+const handleEmailBindSuccess = async () => {
+  try {
+    // user 是响应式的，会自动更新
+    // 如果用户已经绑定邮箱，自动开启订阅
+    if (user.value?.email && !subscribeNews.value) {
+      // 调用 updateMessageConfig 保存订阅状态
+      // message_config 可能不存在，updateMessageConfig 会处理这种情况
+      await useUserStore().updateUserInfo({
+        message_config: {
+          daily_news_subscribe: true
+        }
+      })
+      // 更新本地订阅状态
+      subscribeNews.value = true
+      toast.add({
+        title: '已开启订阅资讯',
+        icon: 'i-heroicons-check-circle',
+        color: 'green'
+      })
+    }
+  } catch (error) {
+    console.error('保存订阅状态失败:', error)
+    toast.add({
+      title: '保存订阅状态失败',
+      description: error instanceof Error ? error.message : '未知错误',
+      icon: 'i-heroicons-x-circle',
+      color: 'red'
+    })
+  }
+}
 const onChangeTab = (index: number) => {
   if (index === 0) {
     waterList.value?.debouncedApplyLayout()
@@ -1210,6 +1343,19 @@ watch(
     }
   },
   { immediate: true }
+)
+
+// 监听 user 变化，更新订阅资讯状态
+watch(
+  () => user.value?.message_config,
+  (messageConfig) => {
+    if (messageConfig && typeof messageConfig === 'object') {
+      subscribeNews.value = messageConfig.daily_news_subscribe === true
+    } else {
+      subscribeNews.value = false
+    }
+  },
+  { immediate: true, deep: true }
 )
 
 onMounted(async () => {

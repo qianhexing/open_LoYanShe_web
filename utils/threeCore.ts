@@ -79,6 +79,7 @@ export interface SceneObjectJSON {
 		| 'model'
 		| 'image'
 		| 'diary'
+		| 'longtext'
 		| 'template'
 		| 'effect'
 		| 'library'
@@ -972,6 +973,172 @@ class ThreeCore {
 					reject(err)
 				}
 			)
+		})
+	}
+
+	/**
+	 * 加载长文本为 Mesh
+	 * @param text 文本内容（长文本）
+	 * @param baseWidth 基础宽度，默认 5
+	 * @param options 文本样式选项
+	 * @returns Promise<THREE.Mesh>
+	 */
+	public async loadTextMesh(
+		text: string,
+		baseWidth = 5,
+		options: {
+			fontSize?: number
+			fontFamily?: string
+			color?: string
+			backgroundColor?: string
+			padding?: number
+			lineHeight?: number
+			maxWidth?: number
+		} = {}
+	): Promise<THREE.Mesh> {
+		return new Promise((resolve, reject) => {
+			try {
+				// 使用文本内容作为缓存 key
+				const cacheKey = `text_${text}_${JSON.stringify(options)}`
+				
+				if (this.loadedModelURLs.has(cacheKey)) {
+					const existing = this.loadedModels.find(obj => obj.model.userData.textCacheKey === cacheKey)
+					if (existing) {
+						const mesh = existing.model.clone(true) as THREE.Mesh
+						mesh.position.set(0, 0, 0)
+						mesh.rotation.set(0, 0, 0)
+						mesh.scale.set(1, 1, 1)
+						resolve(mesh)
+						return
+					}
+				}
+
+				// 默认样式选项
+				const {
+					fontSize = 24,
+					fontFamily = 'Arial, sans-serif',
+					color = '#000000',
+					backgroundColor = '', // 默认透明背景
+					padding = 20,
+					lineHeight = 1.5,
+					maxWidth = 800
+				} = options
+
+				// 创建 canvas
+				const canvas = document.createElement('canvas')
+				const ctx = canvas.getContext('2d')
+				if (!ctx) {
+					reject(new Error('无法创建 canvas 上下文'))
+					return
+				}
+
+				// 设置字体
+				ctx.font = `${fontSize}px ${fontFamily}`
+				ctx.fillStyle = color
+				ctx.textBaseline = 'top'
+
+				// 计算文本换行（支持中文字符和英文单词）
+				const lines: string[] = []
+				const paragraphs = text.split('\n')
+				
+				for (const paragraph of paragraphs) {
+					let currentLine = ''
+					
+					for (let i = 0; i < paragraph.length; i++) {
+						const char = paragraph[i]
+						const testLine = currentLine + char
+						const metrics = ctx.measureText(testLine)
+						const testWidth = metrics.width
+
+						if (testWidth > maxWidth && currentLine !== '') {
+							lines.push(currentLine)
+							currentLine = char
+						} else {
+							currentLine = testLine
+						}
+					}
+					
+					if (currentLine) {
+						lines.push(currentLine)
+					}
+				}
+
+				// 计算 canvas 尺寸
+				const lineHeightPx = fontSize * lineHeight
+				const textWidth = Math.max(...lines.map(line => ctx.measureText(line).width), maxWidth)
+				const textHeight = lines.length * lineHeightPx
+
+				canvas.width = textWidth + padding * 2
+				canvas.height = textHeight + padding * 2
+
+				// 重新设置上下文（canvas 尺寸改变后需要重新设置）
+				ctx.font = `${fontSize}px ${fontFamily}`
+				ctx.fillStyle = color
+				ctx.textBaseline = 'top'
+
+				// 绘制背景
+				if (backgroundColor) {
+					ctx.fillStyle = backgroundColor
+					ctx.fillRect(0, 0, canvas.width, canvas.height)
+				}
+
+				// 绘制文本
+				ctx.fillStyle = color
+				lines.forEach((line, index) => {
+					const y = padding + index * lineHeightPx
+					ctx.fillText(line, padding, y)
+				})
+
+				// 创建纹理
+				const texture = new THREE.CanvasTexture(canvas)
+				texture.colorSpace = THREE.SRGBColorSpace
+				texture.needsUpdate = true
+
+				// 计算 mesh 尺寸
+				const aspect = canvas.height / canvas.width
+				const width = baseWidth
+				const height = baseWidth * aspect
+
+				// 创建几何体和材质
+				const geometry = new THREE.PlaneGeometry(width, height)
+				// 判断是否需要透明：如果背景色为空字符串、'transparent' 或不是白色，则启用透明
+				const isTransparent = backgroundColor === '' || backgroundColor === 'transparent' || (backgroundColor !== '#ffffff' && backgroundColor !== 'white')
+				const material = new THREE.MeshBasicMaterial({
+					map: texture,
+					transparent: isTransparent,
+					side: THREE.DoubleSide
+				})
+
+				// 创建 mesh
+				const mesh = new THREE.Mesh(geometry, material)
+				mesh.userData.textCacheKey = cacheKey
+				// 长文本类型
+				mesh.userData.type = 'longtext'
+				mesh.userData.text = text
+				mesh.userData.baseWidth = baseWidth
+				mesh.userData.options = {
+					fontSize,
+					fontFamily,
+					color,
+					backgroundColor,
+					padding,
+					lineHeight,
+					maxWidth
+				}
+				mesh.userData.effect = []
+
+				// 缓存
+				this.loadedModelURLs.add(cacheKey)
+				this.loadedModels.push({
+					model: mesh,
+					animations: []
+				})
+
+				resolve(mesh)
+			} catch (err) {
+				console.error('加载文本失败:', err)
+				reject(err)
+			}
 		})
 	}
 
@@ -2485,7 +2652,11 @@ class ThreeCore {
 				if (obj.userData.type === 'effect') {
 					return 'effect'
 				}
-				
+				// 长文本类型
+				if (obj.userData.type === 'longtext') {
+					return 'longtext'
+				}
+
 				if (obj.userData.type && obj.userData.type === 'template') {
 					return 'template'
 				}
@@ -2608,6 +2779,15 @@ class ThreeCore {
 				if ((mat as any).color) {
 					if (!jsonObj.options) jsonObj.options = {}
 					jsonObj.options.color = '#' + (mat as any).color.getHexString()
+				}
+			}
+			if (typeGuess === 'longtext') {
+				jsonObj.content = obj.userData.text
+				if (obj.userData.baseWidth) {
+					jsonObj.baseWidth = obj.userData.baseWidth
+				}
+				if (obj.userData.options) {
+					jsonObj.options = obj.userData.options
 				}
 			}
 			if (typeGuess === 'library') {
@@ -2940,6 +3120,13 @@ class ThreeCore {
 			}
 			if (obj.type === 'image' && obj.url) {
 				mesh = await this.loadImageMesh(BASE_IMG + obj.url, obj.baseWidth || 5)
+			}
+			if (obj.type === 'longtext' && obj.content) {
+				mesh = await this.loadTextMesh(
+					obj.content,
+					obj.baseWidth || 5,
+					obj.options || {}
+				)
 			}
 			if (obj.type === 'diary') {
 				mesh = await this.createDiary(obj)

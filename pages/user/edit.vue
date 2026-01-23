@@ -108,6 +108,18 @@
               @update:model-value="updateMessageConfig"
             />
           </div>
+          <!-- 订阅上新资讯开关 -->
+          <div v-if="user.email" class="mt-3 flex items-center justify-between">
+            <div class="flex flex-col">
+              <span class="text-sm font-medium text-gray-700 dark:text-gray-300">订阅上新资讯</span>
+              <span class="text-xs text-gray-500">开启后，系统将通过邮件发送上新资讯通知</span>
+            </div>
+            <UToggle
+              v-model="formData.daily_news_subscribe"
+              :disabled="loading"
+              @update:model-value="updateMessageConfig"
+            />
+          </div>
           <div class="text-xs text-gray-500">如果收不到邮件,请将 noreply@chaozj.com 添加至白名单</div>
         </UFormGroup>
       </UCard>
@@ -305,80 +317,21 @@
     </UModal>
 
     <!-- 邮箱绑定弹窗 -->
-    <UModal v-model="showEmailModal">
-      <UCard>
-        <template #header>
-          <div class="text-lg font-semibold">{{ user?.email ? '换绑邮箱' : '绑定邮箱' }}</div>
-        </template>
-        <div class="space-y-4">
-          <!-- 邮箱输入 -->
-          <UFormGroup label="邮箱" name="email">
-            <UInput
-              v-model="emailForm.email"
-              placeholder="请输入邮箱地址"
-              type="email"
-              icon="i-heroicons-envelope"
-              :ui="{
-                base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
-                rounded: 'rounded-lg',
-              }"
-            />
-          </UFormGroup>
-
-          <!-- 验证码输入 -->
-          <UFormGroup label="验证码" name="email_code">
-            <div class="flex gap-2">
-              <UInput
-                v-model="emailForm.email_code"
-                placeholder="请输入验证码"
-                class="flex-1"
-                icon="i-heroicons-shield-check"
-                :ui="{
-                  base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
-                  rounded: 'rounded-lg',
-                }"
-              />
-              <UButton
-                @click="sendEmailVerificationCode"
-                :disabled="!canSendEmailCode || emailCodeCountdown > 0"
-                :loading="sendingEmailCode"
-                variant="outline"
-                class="px-4 whitespace-nowrap"
-                :ui="{ rounded: 'rounded-lg' }"
-              >
-                {{ emailCodeCountdown > 0 ? `${emailCodeCountdown}s` : (emailCodeSent ? '重新发送' : '获取验证码') }}
-              </UButton>
-            </div>
-          </UFormGroup>
-
-          <div class="flex gap-2 justify-end mt-4">
-            <UButton
-              @click="showEmailModal = false"
-              variant="outline"
-            >
-              取消
-            </UButton>
-            <UButton
-              @click="confirmBindEmail"
-              class="bg-qhx-primary text-qhx-inverted hover:bg-qhx-primaryHover"
-              :loading="bindingEmail"
-              :disabled="!emailForm.email || !emailForm.email_code"
-            >
-              确认绑定
-            </UButton>
-          </div>
-        </div>
-      </UCard>
-    </UModal>
+    <EmailBindModal
+      v-model="showEmailModal"
+      :user="user"
+      @success="handleEmailBindSuccess"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
-import { getUserMy, changeUserInfo, sendEmailCode, bindEmail } from '@/api/user'
+import { getUserMy } from '@/api/user'
 import { uploadImage } from '@/api/index'
 import { BASE_IMG } from '@/utils/ipConfig'
 import type { User } from '@/types/api'
 import type { default as QhxSelect } from '@/components/Qhx/Select.vue'
+import EmailBindModal from '@/components/user/EmailBindModal.vue'
 let uni: any;
 const port = computed(() => configStore.getPort())
 
@@ -408,16 +361,6 @@ const showAddressPicker = ref(false)
 const showEmailModal = ref(false)
 const avatarInput = ref<HTMLInputElement | null>(null)
 
-// 邮箱绑定相关
-const emailForm = reactive({
-  email: '',
-  email_code: ''
-})
-const sendingEmailCode = ref(false)
-const emailCodeSent = ref(false)
-const emailCodeCountdown = ref(0)
-const bindingEmail = ref(false)
-
 // 选择器引用
 const styleSelectRef = ref<InstanceType<typeof QhxSelect>>()
 const provinceSelectRef = ref<InstanceType<typeof QhxSelect>>()
@@ -440,7 +383,8 @@ const formData = reactive({
   show_area: false,
   is_achieve: false,
   user_face: '',
-  email_notice: false
+  email_notice: false,
+  daily_news_subscribe: false
 })
 
 // 地址选项
@@ -481,7 +425,8 @@ const styleOptions = computed(() => {
 // 获取用户信息
 const fetchUserInfo = async () => {
   try {
-    const data = await getUserMy()
+    // 使用 store 中的方法获取用户信息并更新缓存
+    const data = await userStore.fetchUserInfo()
     user.value = data
     
     // 填充表单数据
@@ -505,23 +450,21 @@ const fetchUserInfo = async () => {
     formData.is_achieve = userData.is_achieve === 1 || userData.is_achieve === true
     formData.user_face = data.user_face || ''
     
-    // 如果有邮箱，初始化邮箱表单
-    if (userData.email) {
-      emailForm.email = userData.email
-    }
-    
-    // 解析 message_config JSON，获取 email_notice 设置
+    // 解析 message_config JSON，获取 email_notice 和 daily_news_subscribe 设置
     if (userData.message_config) {
       try {
         const messageConfig = userData.message_config
         formData.email_notice = messageConfig.email_notice as boolean || false
-        console.log(formData.email_notice, '配置项')
+        formData.daily_news_subscribe = messageConfig.daily_news_subscribe as boolean || false
+        console.log(formData.email_notice, formData.daily_news_subscribe, '配置项')
       } catch (error) {
         console.error('解析 message_config 失败:', error)
         formData.email_notice = false
+        formData.daily_news_subscribe = false
       }
     } else {
       formData.email_notice = false
+      formData.daily_news_subscribe = false
     }
   } catch (error) {
     toast.add({
@@ -692,31 +635,21 @@ const updateMessageConfig = async () => {
   loading.value = true
 
   try {
-    // 获取现有的 message_config
-    const userWithConfig = user.value as User & { message_config?: string | Record<string, unknown> }
-    let messageConfig: Record<string, unknown> = {}
-    if (userWithConfig?.message_config) {
-      try {
-        messageConfig = typeof userWithConfig.message_config === 'string'
-          ? JSON.parse(userWithConfig.message_config)
-          : userWithConfig.message_config
-      } catch (error) {
-        console.error('解析现有 message_config 失败:', error)
-        messageConfig = {}
+    // 使用 store 中的方法更新消息配置并重新拉取数据缓存
+    await userStore.updateUserInfo({
+      message_config: {
+        email_notice: formData.email_notice,
+        daily_news_subscribe: formData.daily_news_subscribe
       }
-    }
-    // 更新 email_notice 字段
-    messageConfig.email_notice = formData.email_notice
-    
-    // 只传递 message_config
-    await changeUserInfo({
-      message_config: messageConfig
     })
 
-    // 更新本地用户信息中的 message_config
-    if (user.value) {
-      (user.value as User & { message_config?: Record<string, unknown> }).message_config = messageConfig
-      userStore.setUserInfo(user.value)
+    // 更新本地 user 引用
+    user.value = userStore.user
+
+    // 更新表单数据（从 store 中获取最新值）
+    if (user.value?.message_config && typeof user.value.message_config === 'object') {
+      formData.email_notice = user.value.message_config.email_notice as boolean || false
+      formData.daily_news_subscribe = user.value.message_config.daily_news_subscribe as boolean || false
     }
 
     toast.add({
@@ -727,6 +660,7 @@ const updateMessageConfig = async () => {
   } catch (error) {
     // 如果更新失败，恢复开关状态
     formData.email_notice = !formData.email_notice
+    formData.daily_news_subscribe = !formData.daily_news_subscribe
     toast.add({
       title: '更新失败',
       description: getErrorMessage(error),
@@ -752,17 +686,7 @@ const saveUserInfo = async () => {
   loading.value = true
 
   try {
-    const params: {
-      signature?: string
-      province?: string | null
-      city?: string | null
-      area?: string | null
-      main_style?: string | null
-      show_area: number
-      is_achieve: number
-      user_face?: string
-      message_config?: Record<string, unknown>
-    } = {
+    const params: User = {
       signature: formData.signature,
       province: formData.province || null,
       city: formData.city || null,
@@ -785,7 +709,7 @@ const saveUserInfo = async () => {
     try {
       // 获取现有的 message_config
       const userWithConfig = user.value as User & { message_config?: string | Record<string, unknown> }
-      let messageConfig: Record<string, unknown> = {}
+      let messageConfig: Record<string, boolean> = {}
       if (userWithConfig?.message_config) {
         try {
           messageConfig = typeof userWithConfig.message_config === 'string'
@@ -796,26 +720,27 @@ const saveUserInfo = async () => {
           messageConfig = {}
         }
       }
-      // 更新 email_notice 字段
+      // 更新 email_notice 和 daily_news_subscribe 字段
       messageConfig.email_notice = formData.email_notice
+      messageConfig.daily_news_subscribe = formData.daily_news_subscribe
       
       params.message_config = messageConfig
       console.log(params, '配置项')
     } catch (error) {
       console.error('更新 message_config 失败:', error)
     }
-    await changeUserInfo(params)
+
+    // 使用 store 中的方法更新用户信息并重新拉取数据缓存
+    await userStore.updateUserInfo(params)
+
+    // 更新本地 user 引用
+    user.value = userStore.user
 
     toast.add({
       title: '保存成功',
       icon: 'i-heroicons-check-circle',
       color: 'green'
     })
-
-    // 更新store中的用户信息
-    if (user.value) {
-      userStore.setUserInfo(user.value)
-    }
 
     // 返回上一页
     if (port.value) {
@@ -840,97 +765,10 @@ const saveUserInfo = async () => {
   }
 }
 
-// 邮箱验证码倒计时
-const canSendEmailCode = computed(() => {
-  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-  return emailForm.email && emailRegex.test(emailForm.email)
-})
-
-// 发送邮箱验证码
-const sendEmailVerificationCode = async () => {
-  if (!canSendEmailCode.value || emailCodeCountdown.value > 0) return
-
-  sendingEmailCode.value = true
-  try {
-    await sendEmailCode({ email: emailForm.email })
-    emailCodeSent.value = true
-    emailCodeCountdown.value = 60
-    
-    // 开始倒计时
-    const timer = setInterval(() => {
-      emailCodeCountdown.value--
-      if (emailCodeCountdown.value <= 0) {
-        clearInterval(timer)
-      }
-    }, 1000)
-
-    toast.add({
-      title: '验证码已发送',
-      description: '请查看您的邮箱',
-      icon: 'i-heroicons-check-circle',
-      color: 'green'
-    })
-  } catch (error) {
-    toast.add({
-      title: '发送失败',
-      description: getErrorMessage(error),
-      icon: 'i-heroicons-x-circle',
-      color: 'red'
-    })
-  } finally {
-    sendingEmailCode.value = false
-  }
-}
-
-// 确认绑定邮箱
-const confirmBindEmail = async () => {
-  if (!emailForm.email || !emailForm.email_code) {
-    toast.add({
-      title: '请填写完整信息',
-      icon: 'i-heroicons-exclamation-triangle',
-      color: 'orange'
-    })
-    return
-  }
-
-  bindingEmail.value = true
-  try {
-    // 验证并绑定邮箱（调用 /email/code 接口）
-    await bindEmail({
-      email: emailForm.email,
-      code: emailForm.email_code
-    })
-
-    // 绑定成功后，更新用户信息
-    await changeUserInfo({
-      email: emailForm.email
-    })
-
-    // 重新获取用户信息以显示最新数据
-    await fetchUserInfo()
-
-    toast.add({
-      title: '绑定成功',
-      icon: 'i-heroicons-check-circle',
-      color: 'green'
-    })
-
-    // 关闭弹窗并重置表单
-    showEmailModal.value = false
-    emailForm.email = ''
-    emailForm.email_code = ''
-    emailCodeSent.value = false
-    emailCodeCountdown.value = 0
-  } catch (error) {
-    toast.add({
-      title: '绑定失败',
-      description: getErrorMessage(error),
-      icon: 'i-heroicons-x-circle',
-      color: 'red'
-    })
-  } finally {
-    bindingEmail.value = false
-  }
+// 邮箱绑定成功回调
+const handleEmailBindSuccess = async () => {
+  // 重新获取用户信息以显示最新数据
+  await fetchUserInfo()
 }
 
 // 错误信息处理
@@ -969,15 +807,5 @@ onMounted(async () => {
   await fetchUserInfo()
 })
 
-// 监听邮箱弹窗关闭，重置表单
-watch(showEmailModal, (newVal) => {
-  if (!newVal) {
-    // 弹窗关闭时，如果不是绑定成功，则重置表单
-    emailForm.email = user.value?.email || ''
-    emailForm.email_code = ''
-    emailCodeSent.value = false
-    emailCodeCountdown.value = 0
-  }
-})
 </script>
 

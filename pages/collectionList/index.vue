@@ -106,7 +106,7 @@ const handleCommentSuccess = async (comment: Comment) => {
   try {
     await insertCollection({
       comment_id: comment.comment_id,
-      user_id: user.user?.user_id ?? undefined,
+      user_id: user.user?.user_id,
       is_completed: 0,
       pk_type: 0,
     })
@@ -189,7 +189,7 @@ definePageMeta({
           const response = await getCollectionList({
             page: page,
             pageSize: pageSize,
-            user_id: user.user?.user_id,
+            // user_id: user.user?.user_id,
             is_completed: onlyUncompleted ? 0 : undefined,
             // 预留关键字过滤，后端若支持可在此传参
             // keywords: keywords.value

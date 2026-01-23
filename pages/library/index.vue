@@ -151,7 +151,9 @@ const handleChange = (e: boolean) => {
   parent_id.value = e
   waterList.value?.refresh()
 }
-
+const jumpToDataVisualization = () => {
+  window.open('/visualization/shop-cloud', '_blank')
+}
 // 切换搜索模式
 const toggleSearchMode = () => {
   showFilterList.value = !showFilterList.value
@@ -1122,6 +1124,12 @@ onMounted(async () => {
             {{ showFilterList ? '模糊搜索' : '精确搜索' }}
           </QhxTag>
         </div>
+      </div>
+      <div class="flex items-center justify-end">
+        <QhxTag :active="true" class="cursor-pointer" :variant="showFilterList ? 'solid' : 'outline'"
+            @click="jumpToDataVisualization()">
+            数据可视化
+          </QhxTag>
       </div>
 
     </div>

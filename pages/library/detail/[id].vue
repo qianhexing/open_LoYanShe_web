@@ -1,11 +1,11 @@
 <script setup lang="ts">
-import type { Library, PaginationResponse, Shop, LibraryVideo } from '@/types/api';
-import { getLibraryDetail, getLibraryList, getLibraryVideo } from '@/api/library'
+import type { Library, PaginationResponse, Shop, LibraryVideo, LibraryPipe } from '@/types/api';
+import { getLibraryDetail, getLibraryList, getLibraryVideo, getLibraryPipeListAll } from '@/api/library'
 import html2canvas from 'html2canvas';
 import QhxTag from '~/components/Qhx/Tag.vue';
 import type { image } from 'html2canvas/dist/types/css/types/image';
-import LibraryTypeColorChoose from '@/components/library/LibraryTypeColorChoose.vue'
-import WardrobeAddLibrary from '@/components/Wardrobe/WardrobeAddLibrary.vue'
+import type LibraryTypeColorChoose from '@/components/library/LibraryTypeColorChoose.vue'
+import type WardrobeAddLibrary from '@/components/Wardrobe/WardrobeAddLibrary.vue'
 import { getWardrobeListOptions } from '@/api/wardrobe'
 import { useToast } from '#imports'
 import type { Wiki } from '@/types/api'
@@ -25,6 +25,7 @@ const style_list = ref<Wiki[]>([])
 const parent = ref<Library | null>(null)
 const child_list = ref<Library[]>([])
 const library_video = ref<LibraryVideo[]>([])
+const library_pipe = ref<LibraryPipe[]>([])
 library.value = data.value?.library ?? null
 style_list.value = data.value?.style_list ?? []
 parent.value = data.value?.parent ?? null
@@ -43,6 +44,41 @@ if (library.value && library.value?.library_type === '系列') {
   }, {})
   child_list.value = data.value?.rows ?? []
 }
+const formateState = (state: number) => {
+  // 0 预约中 1尾款中 2截团制作 3现货在售
+  switch (state) {
+    case 0:
+      return '预约中'
+    case 1:
+      return '尾款中'
+    case 2:
+      return '截团制作'
+    case 3:
+      return '现货在售'
+    case 4:
+      return '上新图透'
+    default:
+      return '未知'
+  }
+}
+
+// 根据状态返回对应的背景颜色
+const getStateColor = (state: number): string => {
+  switch (state) {
+    case 0: // 预约中
+      return '#096e00' // 蓝色
+    case 1: // 尾款中
+      return '#f59e0b' // 橙色
+    case 2: // 截团制作
+      return '#8b5cf6' // 紫色
+    case 3: // 现货在售
+      return '#10b981' // 绿色
+    case 4: // 上新图透
+      return '#ec4899' // 粉色
+    default:
+      return '#6b7280' // 灰色（未知状态）
+  }
+}
 const fetchLibraryVideo = () => {
   const params = {
     pk_id: Number.parseInt(id)
@@ -52,8 +88,26 @@ const fetchLibraryVideo = () => {
       library_video.value = res
     })
 }
+const fetchLibraryPipe = () => {
+  let pk_id = Number.parseInt(id)
+  if (library.value?.library_type !== '系列' && library.value?.parent_id !== 0) {
+    pk_id = library.value?.parent_id as number
+  }
+  getLibraryPipeListAll({
+    pk_id: pk_id,
+    // end_time: dayjs().format('YYYY-MM-DD'),
+    pk_type: 0
+  }).then((res) => {
+    if (library.value?.library_type !== '系列' && library.value?.parent_id !== 0) {
+      library_pipe.value = res.filter((item) => { return item.library_list?.some((child) => child.library_id === Number.parseInt(id)) })
+    } else {
+      library_pipe.value = res
+    }
+  })
+}
 onMounted(() => {
   fetchLibraryVideo()
+  fetchLibraryPipe()
 })
 interface WikiParams {
   wiki_name: string
@@ -457,11 +511,88 @@ const handleEditLibrary = () => {
       </div>
     </div>
     <div v-if="library" class="bg-qhx-bg-card rounded-lg shadow-lg mt-3">
-      <QhxTabs :tabs="['返图']">
+      <QhxTabs :tabs="['返图', '贩售历史']">
         <QhxTabPanel :index="0">
           <template #default="{ isActive }">
             <div class="bg-white">
               <CommunityForeignList :pk_type="7" :pk_id="library.library_id" :can_load="isActive"/>
+            </div>
+          </template>
+        </QhxTabPanel>
+        <QhxTabPanel :index="1">
+          <template #default="{ isActive }">
+            <div class="bg-white" v-if="isActive">
+              <div v-if="library_pipe.length > 0" class="p-4 space-y-3">
+                <h3 class="text-base font-semibold mb-1">图鉴状态流</h3>
+                <div
+                  v-for="pipe in library_pipe"
+                  :key="pipe.pipe_id"
+                  class="rounded-xl border border-gray-100 bg-gradient-to-r from-white to-gray-50/60 shadow-sm hover:shadow-md transition-shadow duration-200 overflow-hidden"
+                >
+                  <div class="px-2 py-3 flex items-center justify-between border-b border-gray-50">
+                    <div class="flex items-center gap-2">
+                      <QhxTag :active="true" :backgroundColor="getStateColor(pipe.state || 0)">
+                        <span class="text-xs">{{ formateState(pipe.state || 0) }}</span>
+                      </QhxTag>
+                      <span class="text-xs text-gray-500">
+                        {{ dayjs(pipe.start_time).format('YY-MM-DD') }} - {{ dayjs(pipe.end_time).format('YY-MM-DD') }}
+                      </span>
+                    </div>
+                  </div>
+                  <div class="px-4 py-3 flex gap-3 items-start">
+                    <div class="flex-1 min-w-0">
+                      <div class="flex items-center gap-2 mb-1">
+                        <div class="w-[36px] h-[36px] rounded-[50%] flex-shrink-0">
+                          <QhxPreviewImage
+                            v-if="pipe.library?.cover"
+                            :list="[{ src: pipe.library.cover + '?x-oss-process=image/quality,q_80/resize,w_300,h_300', alt: pipe.library.name }]"
+                            :preview="[pipe.library.cover]"
+                            :className="'w-[36px] h-[36px] rounded-xl object-cover shadow-sm border border-gray-200 cursor-pointer'"
+                          />
+                        </div>
+                        <span class="text-sm font-medium text-gray-800 truncate">
+                          {{ pipe.library?.name || library.name }}
+                        </span>
+                      </div>
+                      <p v-if="pipe.note" class="text-xs p-2 text-gray-600 line-clamp-2">
+                        备注：{{ pipe.note }}
+                      </p>
+                      <div
+                        v-if="pipe.library_list && pipe.library_list.length > 0"
+                        class="mt-2"
+                      >
+                        <div class="text-xs font-medium text-gray-700 mb-1">
+                          包含版型
+                        </div>
+                        <div class="flex flex-wrap gap-2">
+                          <div
+                            v-for="child in pipe.library_list"
+                            :key="child.library_id"
+                            class="flex items-center gap-2  rounded-full px-2 py-1 shadow-sm border border-gray-100"
+                            :class="child.library_id === Number.parseInt(id) ? 'bg-qhx-primary text-qhx-inverted' : 'bg-white/80'"
+                          >
+                            <div class="w-[24px] h-[24px] rounded-full overflow-hidden flex-shrink-0">
+                              <QhxPreviewImage
+                                v-if="child.cover"
+                                :list="[{ src: child.cover + '?x-oss-process=image/quality,q_80/resize,w_200,h_200', alt: child.name }]"
+                                :preview="[child.cover]"
+                                :className="'w-[24px] h-[24px] rounded-full object-cover cursor-pointer'"
+                              />
+                            </div>
+                            <span class="text-[11px]">
+                              {{ child.library_type }}
+                              <span v-if="child.library_pattern">· {{ child.library_pattern }}</span>
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div v-else class="p-6 text-center text-gray-500 text-sm">
+                暂无状态流
+              </div>
             </div>
           </template>
         </QhxTabPanel>

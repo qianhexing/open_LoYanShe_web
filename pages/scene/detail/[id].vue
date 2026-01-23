@@ -67,7 +67,7 @@ const transformType = ref('translate')
 const showToolbar = ref(true) // 控制工具栏显示/隐藏
 const showRightPanel = ref(false) // 控制右侧面板显示/隐藏
 const rightPanelType = ref<'material' | 'template' | 'effect' | null>(null) // 右侧面板类型
-
+const layoutReady = inject('layoutReady') as Ref<boolean>
 if (route.query?.edit) {
     edit_mode.value = true
 }
@@ -399,7 +399,8 @@ const showObjectSettings = ref(false)
 const objectSettingsState = reactive({
     color: '#ffffff',
     depth: 0.3,
-    size: 1
+    size: 1,
+    longText: '' // 长文本内容
 })
 
 const showTextMenu = ref(false)
@@ -409,6 +410,10 @@ const showPointMenu = ref(false)
 const pointMenuPosition = ref({ x: 0, y: 0 })
 
 const showPostModal = ref(false)
+
+const showLongTextModal = ref(false)
+const longTextContent = ref('')
+const longTextModalPosition = ref({ x: 0, y: 0 })
 
 const openObjectSettings = () => {
     if (clickObject.value && clickObject.value.length > 0) {
@@ -430,6 +435,17 @@ const openObjectSettings = () => {
             }
             showObjectSettings.value = true
         } 
+        if (obj.userData.type === 'longtext') {
+            // 初始化长文本内容
+            objectSettingsState.longText = obj.userData.text || ''
+            
+            // 设置弹窗位置（基于操作菜单位置）
+            clickPosition.value = {
+                x: operaPosition.value.x + 100,
+                y: operaPosition.value.y
+            }
+            showObjectSettings.value = true
+        }
         if (obj.userData.type === 'image') {
             // 初始化设置
             if (obj.userData.follow === undefined) {
@@ -460,6 +476,90 @@ const updateTextObject = () => {
 
             // 重新生成几何体
             threeCore.value.updateTextMesh(obj, obj.userData.title, options)
+        }
+    }
+}
+
+// 更新长文本对象
+const updateLongTextObject = async () => {
+    if (clickObject.value && clickObject.value.length > 0 && threeCore.value) {
+        const obj = clickObject.value[0] as THREE.Mesh
+        if (obj.userData.type === 'longtext' && objectSettingsState.longText.trim()) {
+            try {
+                // 保存当前 mesh 的变换信息
+                const position = obj.position.clone()
+                const rotation = obj.rotation.clone()
+                const scale = obj.scale.clone()
+                const parent = obj.parent
+                const baseWidth = obj.userData.baseWidth || 5
+                const options = obj.userData.options || {}
+
+                // 创建新的长文本 mesh
+                const newMesh = await threeCore.value.loadTextMesh(
+                    objectSettingsState.longText,
+                    baseWidth,
+                    options
+                )
+
+                // 应用之前的变换
+                newMesh.position.copy(position)
+                newMesh.rotation.copy(rotation)
+                newMesh.scale.copy(scale)
+
+                // 从原父节点中移除旧 mesh
+                if (parent) {
+                    parent.remove(obj)
+                } else {
+                    threeCore.value.scene.remove(obj)
+                }
+                // 更新选中的对象
+                clickObject.value = null
+                threeCore.value.transformControls.detach()
+                // 清理旧 mesh 的资源
+                if (obj instanceof THREE.Mesh) {
+                    if (obj.geometry) obj.geometry.dispose()
+                    if (obj.material) {
+                        if (Array.isArray(obj.material)) {
+                            for (const m of obj.material) {
+                                if (m instanceof THREE.MeshBasicMaterial && m.map) {
+                                    m.map.dispose()
+                                }
+                                m.dispose()
+                            }
+                        } else {
+                            const mat = obj.material as THREE.MeshBasicMaterial
+                            if (mat.map) mat.map.dispose()
+                            mat.dispose()
+                        }
+                    }
+                }
+
+                // 添加新 mesh 到原父节点或场景
+                if (parent) {
+                    parent.add(newMesh)
+                } else {
+                    threeCore.value.scene.add(newMesh)
+                }
+                // setTimeout(() => {
+                //     clickObject.value = [newMesh]
+                // }, 100)
+                
+                // 如果 transformControls 正在控制这个对象，需要重新附加
+                // if (threeCore.value.transformControls.object === obj) {
+                //     threeCore.value.transformControls.attach(newMesh)
+                // }
+
+                // 关闭设置弹窗
+                showObjectSettings.value = false
+            } catch (error) {
+                console.error('更新长文本失败:', error)
+                toast.add({
+                    title: '更新失败',
+                    description: '长文本更新失败，请重试',
+                    icon: 'i-heroicons-x-circle',
+                    color: 'red'
+                })
+            }
         }
     }
 }
@@ -540,8 +640,59 @@ const openTextMenu = (e: MouseEvent) => {
 
 // 选择长文本
 const selectLongText = () => {
-    // TODO: 实现长文本功能
     showTextMenu.value = false
+    // 设置弹窗位置（在文本菜单位置附近）
+    longTextModalPosition.value = {
+        x: textMenuPosition.value.x,
+        y: textMenuPosition.value.y
+    }
+    // 清空之前的内容
+    longTextContent.value = ''
+    showLongTextModal.value = true
+}
+
+// 确认创建长文本
+const confirmLongText = async () => {
+    if (!threeCore.value || !longTextContent.value.trim()) {
+        showLongTextModal.value = false
+        return
+    }
+
+    try {
+        // 创建长文本 Mesh
+        const mesh = await threeCore.value.loadTextMesh(longTextContent.value, 5, {
+            fontSize: 32,
+            fontFamily: 'Arial, sans-serif',
+            color: '#000000',
+            backgroundColor: '', // 默认透明背景
+            padding: 20,
+            lineHeight: 1.5,
+            maxWidth: 800
+        })
+
+        // 放到当前视图中心
+        const center = getScreenCenter()
+        mesh.position.set(center.x, center.y, center.z)
+        threeCore.value.scene.add(mesh)
+
+        // 关闭弹窗并清空内容
+        showLongTextModal.value = false
+        longTextContent.value = ''
+    } catch (error) {
+        console.error('创建长文本失败:', error)
+        toast.add({
+            title: '创建失败',
+            description: '长文本创建失败，请重试',
+            icon: 'i-heroicons-x-circle',
+            color: 'red'
+        })
+    }
+}
+
+// 取消长文本输入
+const cancelLongText = () => {
+    showLongTextModal.value = false
+    longTextContent.value = ''
 }
 
 // 选择3D文本
@@ -841,6 +992,15 @@ const saveScene = async () => {
             loading.value = false
         }
     } else {
+        if (loading.value) {
+            toast.add({
+                title: '请求中……',
+                icon: 'i-heroicons-check-circle',
+                color: 'green'
+            })
+            return
+        }
+        loading.value = true
         const sence_cover = await captureSceneImage(Number.parseInt(id))
         if (sence_cover) {
             params.sence_cover = `${sence_cover}?${Date.now()}`
@@ -855,6 +1015,9 @@ const saveScene = async () => {
                     icon: 'i-heroicons-check-circle',
                     color: 'green'
                 })
+            })
+            .finally(() => {
+                loading.value = false
             })
     }
 }
@@ -977,6 +1140,26 @@ useHead({
                     </UButton>
                 </div>
             </template>
+        </div>
+
+        <!-- 场景保存中全屏 Loading -->
+        <div
+            v-if="loading"
+            class="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 backdrop-blur-sm"
+        >
+            <div
+                class="flex items-center gap-3 px-6 py-4 rounded-2xl bg-white/90 dark:bg-gray-900/90 shadow-2xl border border-white/60 dark:border-gray-700"
+            >
+                <div class="w-8 h-8 border-3 border-blue-500 rounded-full border-t-transparent animate-spin"></div>
+                <div class="flex flex-col">
+                    <span class="text-sm font-semibold text-gray-800 dark:text-gray-100">
+                        正在保存场景...
+                    </span>
+                    <span class="text-xs text-gray-500 dark:text-gray-400">
+                        请不要关闭页面或刷新浏览器
+                    </span>
+                </div>
+            </div>
         </div>
 
         <SceneTextureEditor ref="SceneTextureEditorRef" v-if="target" :target="target"
@@ -1156,7 +1339,7 @@ useHead({
                     v-show="transformType !== 'scale'">缩放
                 </div>
                 <div class=" cursor-pointer px-3 flex-shrink-0" @click.stop="openObjectSettings"
-                    v-if="clickObject && (clickObject[0].userData.type === 'image' || clickObject[0].userData.type === '3Dtext')">
+                    v-if="clickObject && (clickObject[0].userData.type === 'image' || clickObject[0].userData.type === '3Dtext' || clickObject[0].userData.type === 'longtext')">
                     设置
                 </div>
                 <div class=" cursor-pointer px-3 flex-shrink-0" @click.stop="copyModel()"
@@ -1217,7 +1400,7 @@ useHead({
                 <div class="p-2">{{ library.title }}</div>
             </div>
         </div>
-        <SceneMaterial v-if="edit_mode" @recordCamera="recordCamera" @chooseTemplate="chooseTemplate"
+        <SceneMaterial v-if="edit_mode && layoutReady" @recordCamera="recordCamera" @chooseTemplate="chooseTemplate"
             @choose-material="chooseMaterial" @clearTemplate="clearTemplate" @addDiary="addDiary" @saveScene="saveScene"
             @addImage="onUpdateFiles" @addBackgroun="addBackgroun" @choose-effect="chooseEffect" @addText="addText"
             ref="MaterialRef" :loadTemplate="threeCore && threeCore.loadTemplate.length > 0 ? true : false">
@@ -1344,38 +1527,80 @@ useHead({
             </div>
         </QhxModal>
         <QhxModal v-model="showObjectSettings" :trigger-position="clickPosition">
-            <div class="p-6 w-[300px] bg-white dark:bg-gray-800 rounded-[10px] shadow-lg">
+            <div class="p-6 w-[400px] bg-white dark:bg-gray-800 rounded-[10px] shadow-lg">
                 <h3 class="text-base font-bold mb-4 text-gray-800 dark:text-gray-200">物体设置</h3>
 
-                <!-- 文本颜色 -->
-                <div class="mb-4">
-                    <div class="text-sm text-gray-700 dark:text-gray-300 mb-2">颜色</div>
-                    <div class="flex items-center gap-2">
-                        <input type="color" v-model="objectSettingsState.color" @input="updateTextObject"
-                            class="w-8 h-8 rounded cursor-pointer border-0 p-0" />
-                        <span class="text-xs text-gray-500">{{ objectSettingsState.color }}</span>
+                <!-- 3D文本设置 -->
+                <template v-if="clickObject && clickObject[0] && clickObject[0].userData.type === '3Dtext'">
+                    <!-- 文本颜色 -->
+                    <div class="mb-4">
+                        <div class="text-sm text-gray-700 dark:text-gray-300 mb-2">颜色</div>
+                        <div class="flex items-center gap-2">
+                            <input type="color" v-model="objectSettingsState.color" @input="updateTextObject"
+                                class="w-8 h-8 rounded cursor-pointer border-0 p-0" />
+                            <span class="text-xs text-gray-500">{{ objectSettingsState.color }}</span>
+                        </div>
                     </div>
-                </div>
 
-                <!-- 文本厚度 -->
-                <div class="mb-4">
-                    <div class="flex justify-between mb-2">
-                        <span class="text-sm text-gray-700 dark:text-gray-300">厚度</span>
-                        <span class="text-xs text-gray-500">{{ objectSettingsState.depth }}</span>
+                    <!-- 文本厚度 -->
+                    <div class="mb-4">
+                        <div class="flex justify-between mb-2">
+                            <span class="text-sm text-gray-700 dark:text-gray-300">厚度</span>
+                            <span class="text-xs text-gray-500">{{ objectSettingsState.depth }}</span>
+                        </div>
+                        <URange v-model="objectSettingsState.depth" :min="0.01" :max="2" :step="0.01"
+                            @update:model-value="updateTextObject" />
                     </div>
-                    <URange v-model="objectSettingsState.depth" :min="0.01" :max="2" :step="0.01"
-                        @update:model-value="updateTextObject" />
-                </div>
 
-                <!-- 文本大小 -->
-                <div class="mb-2">
-                    <div class="flex justify-between mb-2">
-                        <span class="text-sm text-gray-700 dark:text-gray-300">大小</span>
-                        <span class="text-xs text-gray-500">{{ objectSettingsState.size }}</span>
+                    <!-- 文本大小 -->
+                    <div class="mb-2">
+                        <div class="flex justify-between mb-2">
+                            <span class="text-sm text-gray-700 dark:text-gray-300">大小</span>
+                            <span class="text-xs text-gray-500">{{ objectSettingsState.size }}</span>
+                        </div>
+                        <URange v-model="objectSettingsState.size" :min="0.1" :max="5" :step="0.1"
+                            @update:model-value="updateTextObject" />
                     </div>
-                    <URange v-model="objectSettingsState.size" :min="0.1" :max="5" :step="0.1"
-                        @update:model-value="updateTextObject" />
-                </div>
+                </template>
+
+                <!-- 长文本设置 -->
+                <template v-if="clickObject && clickObject[0] && clickObject[0].userData.type === 'longtext'">
+                    <div class="mb-4">
+                        <div class="text-sm text-gray-700 dark:text-gray-300 mb-2">文本内容</div>
+                        <UTextarea 
+                            v-model="objectSettingsState.longText" 
+                            placeholder="请输入长文本内容（支持多行）" 
+                            :rows="8"
+                            class="flex-1 focus:ring-0" 
+                            :ui="{
+                                base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
+                                rounded: 'rounded-[10px]',
+                                padding: { xs: 'px-4 py-2' },
+                                color: {
+                                    white: {
+                                        outline: 'bg-gray-50 dark:bg-gray-800 ring-1 ring-gray-300 dark:ring-gray-600 focus:ring-2 focus:ring-qhx-primary'
+                                    }
+                                }
+                            }" 
+                        />
+                    </div>
+                    <div class="flex gap-3 justify-end">
+                        <UButton 
+                            color="gray" 
+                            variant="outline" 
+                            @click="showObjectSettings = false"
+                        >
+                            取消
+                        </UButton>
+                        <UButton 
+                            color="primary" 
+                            @click="updateLongTextObject"
+                            :disabled="!objectSettingsState.longText.trim()"
+                        >
+                            保存
+                        </UButton>
+                    </div>
+                </template>
             </div>
         </QhxModal>
         <QhxModal v-model="showTextMenu" :trigger-position="textMenuPosition">
@@ -1383,7 +1608,7 @@ useHead({
                 <h3 class="text-sm font-bold mb-3 text-gray-800 dark:text-gray-200">选择文本类型</h3>
 
                 <!-- 长文本选项 -->
-                <!-- <button @click="selectLongText"
+                <button @click="selectLongText"
                     class="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors text-left group">
                     <div
                         class="w-8 h-8 bg-blue-500 dark:bg-blue-600 rounded-lg flex items-center justify-center group-hover:scale-110 transition-transform">
@@ -1393,7 +1618,7 @@ useHead({
                         <div class="text-sm font-medium text-gray-800 dark:text-gray-200">长文本</div>
                         <div class="text-xs text-gray-500 dark:text-gray-400">添加多行文本</div>
                     </div>
-                </button> -->
+                </button>
 
                 <!-- 3D文本选项 -->
                 <button @click="select3DText"
@@ -1407,6 +1632,48 @@ useHead({
                         <div class="text-xs text-gray-500 dark:text-gray-400">添加3D立体文本</div>
                     </div>
                 </button>
+            </div>
+        </QhxModal>
+        <QhxModal v-model="showLongTextModal" :trigger-position="longTextModalPosition">
+            <div class="p-6 w-[500px] bg-white dark:bg-gray-800 rounded-[10px] shadow-lg">
+                <h3 class="text-base font-bold mb-4 text-gray-800 dark:text-gray-200">添加长文本</h3>
+                
+                <div class="mb-4">
+                    <div class="text-sm text-gray-700 dark:text-gray-300 mb-2">文本内容</div>
+                    <UTextarea 
+                        v-model="longTextContent" 
+                        placeholder="请输入长文本内容（支持多行）" 
+                        :rows="8"
+                        class="flex-1 focus:ring-0" 
+                        :ui="{
+                            base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
+                            rounded: 'rounded-[10px]',
+                            padding: { xs: 'px-4 py-2' },
+                            color: {
+                                white: {
+                                    outline: 'bg-gray-50 dark:bg-gray-800 ring-1 ring-gray-300 dark:ring-gray-600 focus:ring-2 focus:ring-qhx-primary'
+                                }
+                            }
+                        }" 
+                    />
+                </div>
+
+                <div class="flex gap-3 justify-end">
+                    <UButton 
+                        color="gray" 
+                        variant="outline" 
+                        @click="cancelLongText"
+                    >
+                        取消
+                    </UButton>
+                    <UButton 
+                        color="primary" 
+                        @click="confirmLongText"
+                        :disabled="!longTextContent.trim()"
+                    >
+                        确认
+                    </UButton>
+                </div>
             </div>
         </QhxModal>
         <QhxModal v-model="showPointMenu" :trigger-position="pointMenuPosition">

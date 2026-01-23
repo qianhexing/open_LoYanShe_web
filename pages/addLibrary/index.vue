@@ -376,8 +376,21 @@
           </div>
         </UFormGroup>
 
-        <UFormGroup label="质检报告" v-if="library.library_type === '系列'">
-          <QhxImagePicker :multiple="true" ref="qualityImageRef" />
+        <UFormGroup label="质检报告" v-if="shouldShowField('quality_test')" :class="getHighlightClass('quality_test')">
+          <QhxImagePicker :multiple="true" ref="qualityImageRef" :disabled="isReviewMode" />
+          <div v-if="isReviewMode && isFieldChanged('quality_test')" class="mt-2">
+            <div class="text-sm text-gray-600 dark:text-gray-400 mb-2">
+              <span class="font-semibold">原值：</span>
+            </div>
+            <div class="flex gap-2 flex-wrap">
+              <div v-for="(img, index) in getOriginalImages('quality_test')" :key="index" class="relative">
+                <img :src="BASE_IMG + img" alt="原质检报告" class="w-20 h-20 object-cover rounded border border-gray-300 dark:border-gray-600" />
+              </div>
+              <div v-if="getOriginalImages('quality_test').length === 0" class="text-sm text-gray-500 dark:text-gray-400">
+                （空）
+              </div>
+            </div>
+          </div>
         </UFormGroup>
 
         <LibraryChoose ref="chooseLibraryRef" @choose="chooseLibrary"
@@ -696,6 +709,8 @@ const getOriginalImages = (fieldName: string): string[] => {
       return original.size_image ? original.size_image.split(',') : []
     case 'detail_image':
       return original.detail_image ? original.detail_image.split(',') : []
+    case 'quality_test':
+      return original.quality_test ? original.quality_test.split(',') : []
     default:
       return []
   }
@@ -1115,6 +1130,7 @@ const compareData = async () => {
   if (original.square_cover !== review.square_cover) changedFields.value.add('square_cover')
   if (original.size_image !== review.size_image) changedFields.value.add('size_image')
   if (original.detail_image !== review.detail_image) changedFields.value.add('detail_image')
+  if (original.quality_test !== review.quality_test) changedFields.value.add('quality_test')
   
   // 对比字符串数组字段（需要转换为数组后对比）
   const compareStringArray = (original: string | undefined, review: string | null) => {
@@ -1273,6 +1289,12 @@ const applyReviewData = async () => {
   }
   if (changedFields.value.has('detail_image') && review.detail_image && detailImageRef.value) {
     detailImageRef.value.previewImages = review.detail_image.split(',').map((item: string) => ({
+      file: undefined,
+      url: BASE_IMG + item
+    }))
+  }
+  if (changedFields.value.has('quality_test') && review.quality_test && qualityImageRef.value) {
+    qualityImageRef.value.previewImages = review.quality_test.split(',').map((item: string) => ({
       file: undefined,
       url: BASE_IMG + item
     }))

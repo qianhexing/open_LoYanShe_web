@@ -397,12 +397,20 @@ export interface Community {
 }
 
 export interface User {
-  user_id: number,
+  user_id?: number,
   user_face?: string
   user_name?: string
   avatar?: Avatar
   permission_list?: string[]
   email?: string
+  message_config?: Record<string, boolean>
+  signature?: string
+  province?: string | null
+  city?: string | null
+  area?: string | null
+  show_area?: number
+  is_achieve?: number
+  main_style?: string | null
 }
 export interface Avatar {
   frame_id: number,

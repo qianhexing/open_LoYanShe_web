@@ -94,12 +94,30 @@ const loadLibrary = async () => {
 	console.log('模型', model)
 }
 const initThreejs = () => {
+	const configStore = useConfigStore()
+	// 先初始化移动端检测（与 scene/detail/[id].vue 保持一致）
+	configStore.initMobileDetection()
+
 	threeCore = new qhxCore({
 		enableCSS3DRenderer: true,
 		alpha: true
 	})
+
 	// 挂载到DOM
 	threeCore.mount(document.getElementById('three-container'));
+
+	// 如果是手机端，关闭阴影（逻辑参考 scene/detail/[id].vue 的 changeShadowQuality('off')）
+	if (configStore.isMobile && threeCore.renderer) {
+		threeCore.renderer.shadowMap.enabled = false
+		// 同时关闭主光/镜头光阴影，避免多余开销
+		if (threeCore.lights?.directional) {
+			threeCore.lights.directional.castShadow = false
+		}
+		if (threeCore.lensLight) {
+			threeCore.lensLight.castShadow = false
+		}
+	}
+
 	createUIDom()
 	loadLibrary()
 	threeCore.controls.enabled = false

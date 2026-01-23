@@ -82,7 +82,7 @@ const isMobile = computed(() => configStore.isMobile)
 
 const fileInput = ref<HTMLInputElement | null>(null)
 const files = ref<File[]>([])
-const previewImages = ref<{ id: string; file: File; url: string }[]>([])
+const previewImages = ref<{ id?: string; file?: File; url?: string }[]>([])
 
 let idCounter = 0
 const generateId = () => `img_${Date.now()}_${++idCounter}`
@@ -138,7 +138,9 @@ const addFiles = (newFiles: File[]) => {
 
 const removeImage = (index: number) => {
   if (props.disabled) return
-  URL.revokeObjectURL(previewImages.value[index].url)
+  if (previewImages.value[index].url) {
+    URL.revokeObjectURL(previewImages.value[index].url)
+  }
   previewImages.value.splice(index, 1)
   files.value.splice(index, 1)
   emit('update:files', files.value)
