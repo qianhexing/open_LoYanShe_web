@@ -23,7 +23,13 @@ export default defineNuxtConfig({
 			},
 			'/pc/**': {
 				proxy: 'https://lolitalibrary.com/pc/**'
-			}
+			},
+			// '/**': {
+			// 	headers: {
+			// 		'Cross-Origin-Opener-Policy': 'same-origin',
+			// 		'Cross-Origin-Embedder-Policy': 'require-corp',
+			// 	}
+			// }
 		},
 		compressPublicAssets: true // 启动压缩
 	},

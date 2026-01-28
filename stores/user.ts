@@ -36,7 +36,7 @@ export const useUserStore = defineStore('auth', {
               user_id: response.data.userId,
               user_name: response.data.userName,
               user_face: response.data.userFace,
-              permission_list: response.data.permission_list
+              permission_list: response.data.permission_list || response.permission.map(item => item.permissions)
             })
           }
         } else {
@@ -170,6 +170,7 @@ export const useUserStore = defineStore('auth', {
       if (this.permission && this.permission.length > 0) {
         return this.permission.some(p => p.permissions === permission)
       }
+      console.log(permission, 'permission')
       return false
     },
     

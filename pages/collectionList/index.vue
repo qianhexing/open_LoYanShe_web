@@ -179,6 +179,9 @@ definePageMeta({
     <div class="text-xs text-qhx-text px-4">
       未收录的裙子可以发布在这里，大家看到会帮忙收录
     </div>
+    <div class="text-xs text-qhx-text px-4 text-red-500 mb-1">
+      一条对应一个，请勿多条一起发布！！！
+    </div>
 
     <!-- 瀑布流列表 -->
     <QhxWaterList

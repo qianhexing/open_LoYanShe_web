@@ -49,6 +49,34 @@ export async function getLibraryVideo(
   return response.data;
 }
 
+
+export async function insertLibraryVideo(params: LibraryVideo): Promise<LibraryVideo> {
+  const response = await use$Post<BaseResponse<LibraryVideo>>('/libraryVideo/insert', params)
+  return response.data
+}
+
+export async function updateLibraryVideo(params: LibraryVideo): Promise<LibraryVideo> {
+  const response = await use$Post<BaseResponse<LibraryVideo>>('/libraryVideo/update', params)
+  return response.data
+}
+
+export interface LibraryVideoDeleteParams {
+  video_id: number
+}
+export async function deleteLibraryVideo(params: LibraryVideoDeleteParams): Promise<boolean> {
+  const response = await use$Post<BaseResponse<boolean>>('/libraryVideo/delete', params)
+  return response.data
+}
+
+export interface LibraryVideoSortParams {
+  pk_id: number
+  sort: Array<{ video_id: number; sort: number }>
+}
+export async function sortLibraryVideo(params: LibraryVideoSortParams): Promise<boolean> {
+  const response = await use$Post<BaseResponse<boolean>>('/libraryVideo/update/sort', params)
+  return response.data
+}
+
 export interface InsertParams {
   library_id?: number | null
   name: string

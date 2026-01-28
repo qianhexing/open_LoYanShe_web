@@ -41,6 +41,9 @@ import { ARButton } from 'three/examples/jsm/webxr/ARButton.js'
 import { DeviceOrientationControls } from './DeviceOrientationControls'
 import jsQR from 'jsqr'
 import { createGrid, updateGrid } from './Grid'
+// @ts-ignore - 高斯泼溅库缺少类型定义
+import * as GaussianSplats3D from '@mkkellogg/gaussian-splats-3d'
+import { SplatMesh, SplatFileType } from '@sparkjsdev/spark';
 const grid = createGrid();
 export interface SceneEffectJSON {
 	type: 'animation' | 'effect' | 'timeline'
@@ -84,6 +87,7 @@ export interface SceneObjectJSON {
 		| 'effect'
 		| 'library'
 		| '3Dtext'
+		| 'splat'
 	position?: [number, number, number]
 	rotation?: [number, number, number]
 	baseWidth?: number
@@ -109,10 +113,136 @@ export interface SceneObjectJSON {
 	plugin?: { url: string, options?: Record<string, any> }[] // 插件地址
 	follow?: boolean // 跟随摄像机
 }
+// 灯光配置接口 - 使用数组存储，用type字段区分类型
+export type LightType = 'ambient' | 'hemisphere' | 'directional' | 'fill' | 'lens' | 'spot' | 'rim' | 'back'
+
+export interface BaseLightConfig {
+	type: LightType
+	[key: string]: any // 允许扩展字段
+}
+
+export interface AmbientLightConfig extends BaseLightConfig {
+	type: 'ambient'
+	color?: number // 颜色 (0xffffff)
+	intensity?: number // 强度
+}
+
+export interface HemisphereLightConfig extends BaseLightConfig {
+	type: 'hemisphere'
+	skyColor?: number // 天空颜色
+	groundColor?: number // 地面颜色
+	intensity?: number // 强度
+	position?: [number, number, number] // 位置
+}
+
+export interface DirectionalLightConfig extends BaseLightConfig {
+	type: 'directional'
+	color?: number // 颜色
+	intensity?: number // 强度
+	position?: [number, number, number] // 位置
+	castShadow?: boolean // 是否投射阴影
+	shadow?: {
+		mapSize?: { width: number, height: number } // 阴影贴图大小
+		camera?: {
+			near?: number
+			far?: number
+			left?: number
+			right?: number
+			top?: number
+			bottom?: number
+		}
+		bias?: number
+		normalBias?: number
+		radius?: number
+		blurSamples?: number
+	}
+}
+
+export interface FillLightConfig extends BaseLightConfig {
+	type: 'fill'
+	color?: number // 颜色
+	intensity?: number // 强度
+	position?: [number, number, number] // 位置
+	castShadow?: boolean // 是否投射阴影
+}
+
+export interface LensLightConfig extends BaseLightConfig {
+	type: 'lens'
+	color?: number // 颜色
+	intensity?: number // 强度
+	distance?: number // 距离
+	decay?: number // 衰减
+	position?: [number, number, number] // 位置（可选，通常跟随相机）
+	castShadow?: boolean // 是否投射阴影
+	shadow?: {
+		mapSize?: { width: number, height: number }
+		camera?: {
+			near?: number
+			far?: number
+		}
+		bias?: number
+		radius?: number
+		blurSamples?: number
+	}
+}
+
+export interface SpotLightConfig extends BaseLightConfig {
+	type: 'spot'
+	color?: number
+	intensity?: number
+	distance?: number
+	angle?: number
+	penumbra?: number
+	decay?: number
+	position?: [number, number, number]
+	target?: [number, number, number]
+	castShadow?: boolean
+	shadow?: {
+		mapSize?: { width: number, height: number }
+		camera?: {
+			near?: number
+			far?: number
+		}
+		bias?: number
+		radius?: number
+		blurSamples?: number
+	}
+}
+
+export interface RimLightConfig extends BaseLightConfig {
+	type: 'rim'
+	color?: number
+	intensity?: number
+	position?: [number, number, number]
+	castShadow?: boolean
+}
+
+export interface BackLightConfig extends BaseLightConfig {
+	type: 'back'
+	color?: number
+	intensity?: number
+	position?: [number, number, number]
+	castShadow?: boolean
+}
+
+export type LightConfig = 
+	| AmbientLightConfig 
+	| HemisphereLightConfig 
+	| DirectionalLightConfig 
+	| FillLightConfig 
+	| LensLightConfig 
+	| SpotLightConfig 
+	| RimLightConfig 
+	| BackLightConfig
+
+// 灯光配置数组
+export type LightingConfig = LightConfig[]
+
 export interface SceneJSON {
 	objects: SceneObjectJSON[]
 	cameraList?: CameraState[]
 	background?: string
+	lighting?: LightingConfig // 完整的灯光配置
 	controls?: {
 		minAzimuthAngle?: number // 控制器水平旋转最小角度（弧度）
 		maxAzimuthAngle?: number // 控制器水平旋转最大角度（弧度）
@@ -208,6 +338,9 @@ class ThreeCore {
 	public showbloom: boolean
 	public activePlugins: any[] = []
 	public pluginCache = new Map<string, any>()
+
+	// 高斯泼溅
+	public splatViewer?: GaussianSplats3D.Viewer
 
 	// bloom
 	bloomLayer = new THREE.Layers()
@@ -916,6 +1049,327 @@ class ThreeCore {
 			object: mesh
 		})
 		return mesh
+	}
+	public fitGaussianSplatCamera(
+		viewer: GaussianSplats3D.Viewer,
+		camera: THREE.PerspectiveCamera,
+		options: GaussianSplats3D.FitOptions = {}
+	) {
+		const {
+			padding = 1.2,
+			minDistance = 0.01,
+			maxDistance = 10000,
+		} = options
+	
+		// 1️⃣ 获取 splat 场景 bounds
+		const scene = viewer.getScene?.(0)
+		if (!scene || !scene.boundingBox) {
+			console.warn('[fitGaussianSplatCamera] boundingBox not ready')
+			return
+		}
+	
+		const bounds = scene.boundingBox
+		// bounds: { min: [x,y,z], max: [x,y,z] }
+	
+		const min = new THREE.Vector3(...bounds.min)
+		const max = new THREE.Vector3(...bounds.max)
+	
+		// 2️⃣ 计算 center & size
+		const center = new THREE.Vector3()
+		const size = new THREE.Vector3()
+		center.addVectors(min, max).multiplyScalar(0.5)
+		size.subVectors(max, min)
+	
+		// 3️⃣ 计算半径（取最大轴）
+		const radius = Math.max(size.x, size.y, size.z) * 0.5
+	
+		// 4️⃣ 根据 FOV 算距离
+		const fovRad = THREE.MathUtils.degToRad(camera.fov)
+		let distance = (radius / Math.tan(fovRad / 2)) * padding
+	
+		distance = THREE.MathUtils.clamp(distance, minDistance, maxDistance)
+	
+		// 5️⃣ 设置相机
+		const dir = new THREE.Vector3(0, 0, 1) // 正前方
+		camera.position.copy(center.clone().add(dir.multiplyScalar(distance)))
+		camera.lookAt(center)
+		camera.updateProjectionMatrix()
+	}
+	public syncCamera(viewer: GaussianSplats3D.Viewer) {
+		const cam = this.camera
+		const splatCam = viewer.camera
+	
+		splatCam.position.copy(cam.position)
+		splatCam.quaternion.copy(cam.quaternion)
+	
+		splatCam.fov = cam.fov
+		splatCam.near = cam.near
+		splatCam.far = cam.far
+		splatCam.aspect = cam.aspect
+	
+		splatCam.updateProjectionMatrix()
+		// 2️⃣ 关键：同步 controls target（平移的本体）
+		if (this.controls && viewer.controls) {
+			viewer.controls.target.copy(this.controls.target)
+			viewer.controls.update()
+		}
+	}
+
+	async loadCompressedGaussian(viewer: GaussianSplats3D.Viewer, url: string, options?: {
+		scale?: [number, number, number],
+		position?: [number, number, number],
+		rotation?: [number, number, number, number]
+	}) {
+		// 默认 transform
+		const { scale = [1, 1, 1], position = [0, 0, 0], rotation = [1, 0, 0, 0] } = options || {};
+	
+		// 1️⃣ 下载二进制文件
+		const buffer = await fetch(url).then(r => r.arrayBuffer());
+		const dv = new DataView(buffer);
+		let offset = 0;
+	
+		// 2️⃣ 读取点数
+		const count = dv.getUint32(offset, true);
+		offset += 4;
+	
+		// 3️⃣ 读取 position float16 → Float32
+		function float16ToFloat32(buffer: ArrayBuffer, offset: number, length: number) {
+			const uint16Arr = new Uint16Array(buffer, offset, length);
+			const float32Arr = new Float32Array(length);
+			for (let i = 0; i < length; i++) {
+				const x = uint16Arr[i];
+				const t1 = (x & 0x7fff) << 13;
+				const t2 = ((x & 0x8000) << 16);
+				const t3 = (x & 0x7c00) === 0x7c00 ? 0x7f800000 : 0;
+				const f = new DataView(new Uint32Array([t1 | t2 | t3]).buffer).getFloat32(0, false);
+				float32Arr[i] = f;
+			}
+			return float32Arr;
+		}
+	
+		const pos = float16ToFloat32(buffer, offset, count * 3);
+		offset += count * 3 * 2;
+	
+		const scaleArr = float16ToFloat32(buffer, offset, count * 3);
+		offset += count * 3 * 2;
+	
+		const rot = new Int16Array(buffer, offset, count * 4);
+		offset += count * 4 * 2;
+	
+		const color = new Uint8Array(buffer, offset, count * 3);
+		offset += count * 3;
+	
+		const opacity = new Uint8Array(buffer, offset, count);
+	
+		// 4️⃣ 调用 addSplatScene
+		await viewer.addSplatScene(
+			{
+				count,
+				pos,
+				scale: scaleArr,
+				rot,
+				color,
+				opacity,
+			},
+			{
+				scale,
+				position,
+				rotation,
+			}
+		);
+	}
+	
+	public removeGaussianSplatUIRoot() {
+		const progressBar = document.querySelector('.progressBarOuterContainer')
+		if (!progressBar) return false
+	
+		let root: HTMLElement | null = progressBar as HTMLElement
+	
+		// 一直向上找，直到父级是 body
+		while (root.parentElement && root.parentElement !== document.body) {
+			root = root.parentElement as HTMLElement
+		}
+	
+		// 确认是直接挂在 body 下的，才删
+		if (root.parentElement === document.body) {
+			root.remove()
+			return true
+		}
+	
+		return false
+	}
+	/**
+	 * 初始化高斯泼溅查看器
+	 */
+
+	public async initSplatViewer2() {
+    // 如果你有旧的 GaussianSplats3D UI，可以先移除
+    // this.removeGaussianSplatUIRoot();
+
+    // 创建 Spark SplatMesh
+    const splatMesh = new SplatMesh({
+      url: '/model/1.compressed.ply', // ⭐ 改成你的压缩 KSPLAT 文件
+      fileType: SplatFileType.PLY,
+			maxSplats: 50000, // ⭐ 每块最大 5 万点
+    });
+		splatMesh.maxSh = 0;
+		// 选择180度
+		splatMesh.userData.type = 'splat';
+		splatMesh.userData.url = '/model/test.ply';
+		splatMesh.userData.ignorePick = true;
+		splatMesh.quaternion.set(1, 0, 0, 0);
+		splatMesh.castShadow = false;
+		splatMesh.receiveShadow = false;
+		splatMesh.updateGenerator();
+    // 添加到 Three.js 场景
+    this.scene.add(splatMesh);
+
+    // 将 Spark 渲染的 Canvas 插入你的容器
+    // const splatCanvas = this.renderer.domElement;
+    // splatCanvas.style.position = 'absolute';
+    // splatCanvas.style.top = '0';
+    // splatCanvas.style.left = '0';
+    // splatCanvas.style.pointerEvents = 'none';
+    // splatCanvas.style.zIndex = '1';
+    // this.container?.appendChild(splatCanvas);
+
+    // 渲染循环
+    // this.renderer.setAnimationLoop(() => {
+    //   // Spark SplatMesh 内部会自动更新渐进加载
+    //   this.renderer.render(this.scene, this.camera);
+    // });
+
+    // 摄像机同步
+    // this.syncCameraWithSplat();
+
+    console.log('Spark SplatMesh initialized:', splatMesh);
+  }
+	public async initSplatViewer() {
+		const viewer = new GaussianSplats3D.Viewer({
+			selfDrivenMode: true,
+			progressiveLoad: true,
+			enableSharedMemory: false,
+			showLoadingUI: false,   // ⭐ 关掉进度条 / spinner
+			showInfoPanel: false,  // ⭐ 关掉调试面板
+
+			threeScene: this.scene,
+			threeCamera: this.camera,
+			threeRenderer: this.renderer,
+		})
+	
+		// await loadCompressedGaussian(viewer, '/model/gaussian.bin', {
+		// 	scale: [1, 1, 1],
+		// 	position: [0, 0, 0],
+		// 	rotation: [1, 0, 0, 0],
+		// });
+		await viewer.addSplatScene(
+			// '/model/point_cloud_29999_clean.compressed.ply',
+			BASE_IMG + '/sence/point_cloud/1.ply',
+
+			{
+				scale: [1, 1, 1],
+				position:[0, 0, 0],
+				rotation:[1, 0, 0, 0]
+			}
+		)
+		
+		// await viewer.addSplatScene(
+		// 	'/model/point_cloud_29999_clean.compressed.ply',
+		// 	{
+		// 		scale: [10, 10, 10],
+		// 		position:[0, 0, 0],
+		// 		rotation:[1, 0, 0, 0]
+		// 	}
+		// )
+		viewer.start()
+		const splatCanvas = viewer.renderer.domElement
+		// 然后再按你自己的方式插入
+		splatCanvas.style.position = 'absolute'
+		splatCanvas.style.top = '0'
+		splatCanvas.style.left = '0'
+		splatCanvas.style.pointerEvents = 'none'
+		splatCanvas.style.zIndex = '1'
+
+		this.container?.appendChild(splatCanvas)
+	
+		console.log('splat scenes', viewer.splatScenes)
+		console.log('splat count', viewer.splatScenes?.[0]?.splatCount)
+		console.log('viewer running', viewer.isRunning)
+		this.syncCamera(viewer)
+		this.controls.addEventListener('change', () => {
+			this.syncCamera(viewer)
+		})
+	}
+
+	/**
+	 * 添加高斯泼溅模型
+	 * @param url 泼溅模型文件路径 (.splat)
+	 * @param options 可选配置
+	 * @returns Promise<THREE.Object3D | null> 返回创建的包装组对象
+	 */
+	public async addSplatScene(
+		url: string,
+		options?: {
+			position?: [number, number, number]
+			rotation?: [number, number, number]
+			scale?: [number, number, number]
+		}
+	): Promise<THREE.Object3D | null> {
+		// 确保 viewer 已初始化
+		const viewer = new GaussianSplats3D.Viewer({
+			selfDrivenMode: true,
+			progressiveLoad: true,
+			enableSharedMemory: false,
+			showLoadingUI: false,   // ⭐ 关掉进度条 / spinner
+			showInfoPanel: false,  // ⭐ 关掉调试面板
+
+			threeScene: this.scene,
+			threeCamera: this.camera,
+			threeRenderer: this.renderer,
+		})
+	
+		// await loadCompressedGaussian(viewer, '/model/gaussian.bin', {
+		// 	scale: [1, 1, 1],
+		// 	position: [0, 0, 0],
+		// 	rotation: [1, 0, 0, 0],
+		// });
+		await viewer.addSplatScene(
+			// '/model/point_cloud_29999_clean.compressed.ply',
+			url,
+			{
+				scale: [1, 1, 1],
+				position:[0, 0, 0],
+				rotation:[1, 0, 0, 0]
+			}
+		)
+		
+		// await viewer.addSplatScene(
+		// 	'/model/point_cloud_29999_clean.compressed.ply',
+		// 	{
+		// 		scale: [10, 10, 10],
+		// 		position:[0, 0, 0],
+		// 		rotation:[1, 0, 0, 0]
+		// 	}
+		// )
+		viewer.start()
+		const splatCanvas = viewer.renderer.domElement
+		// 然后再按你自己的方式插入
+		splatCanvas.style.position = 'absolute'
+		splatCanvas.style.top = '0'
+		splatCanvas.style.left = '0'
+		splatCanvas.style.pointerEvents = 'none'
+		splatCanvas.style.zIndex = '1'
+
+		this.container?.appendChild(splatCanvas)
+	
+		console.log('splat scenes', viewer.splatScenes)
+		console.log('splat count', viewer.splatScenes?.[0]?.splatCount)
+		console.log('viewer running', viewer.isRunning)
+		this.syncCamera(viewer)
+		this.controls.addEventListener('change', () => {
+			this.syncCamera(viewer)
+		})
+		return viewer
 	}
 	public async loadImageMesh(url: string, baseWidth = 5): Promise<THREE.Mesh> {
 		return new Promise((resolve, reject) => {
@@ -1678,7 +2132,7 @@ class ThreeCore {
 	addAnimationCallback(callback: () => void) {
 		this.animationCallbacks.push(callback)
 	}
-	initScene() {
+	async initScene() {
 		this.scene = new THREE.Scene()
 		if (!this.options.alpha) {
 			this.scene.background = null
@@ -1839,6 +2293,7 @@ class ThreeCore {
 
 		// 更新渲染器
 		this.renderer.setSize(width, height)
+		this.splatViewer?.renderer.setSize(width, height)
 
 		// 更新CSS3D渲染器
 		if (this.css3DRenderer) {
@@ -2294,6 +2749,12 @@ class ThreeCore {
 		if (this.controls && this.controls.enabled) {
 			this.controls.update()
 		}
+
+		// 更新高斯泼溅查看器
+		if (this.splatViewer) {
+			this.splatViewer.update()
+		}
+		
 		// 更新 DeviceOrientationControls
 		if (this.deviceOrientationControls && this.deviceOrientationControls.enabled) {
 			this.deviceOrientationControls.update()
@@ -2460,6 +2921,12 @@ class ThreeCore {
 
 			// 初始调整大小
 			this.onContainerResize()
+
+			// 初始化场景后默认加载测试点云模型
+			// this.loadDefaultTestPointCloud()
+			// setTimeout(() => {
+				// this.initSplatViewer()
+			// });
 		} else {
 			// 如果没有指定容器，添加到body
 			document.body.appendChild(this.renderer.domElement)
@@ -2470,6 +2937,27 @@ class ThreeCore {
 
 			// 监听窗口大小变化
 			window.addEventListener('resize', () => this.onContainerResize())
+
+			// 初始化场景后默认加载测试点云模型
+			// this.loadDefaultTestPointCloud()
+		}
+	}
+
+	/**
+	 * 加载默认测试点云模型
+	 */
+	private async loadDefaultTestPointCloud() {
+		try {
+			// 加载测试点云模型
+			console.log('加载默认测试点云模型')
+			await this.addSplatScene('/model/point_cloud_29999.ply', {
+				position: [0, 0, 0],
+				rotation: [0, 0, 0],
+				scale: [1, 1, 1]
+			})
+			console.log('默认测试点云模型加载成功')
+		} catch (error) {
+			console.warn('默认测试点云模型加载失败:', error)
 		}
 	}
 
@@ -2677,6 +3165,9 @@ class ThreeCore {
 					}
 					return 'sphere'
 				}
+				if (obj.userData && obj.userData.type === 'splat') {
+					return 'splat'
+				}
 				return null
 			})()
 
@@ -2795,6 +3286,11 @@ class ThreeCore {
 				jsonObj.cover = obj.userData.cover
 				jsonObj.library_id = obj.userData.library_id
 			}
+			if (typeGuess === 'splat') {
+				if (obj.userData.url) {
+					jsonObj.url = obj.userData.url.replace(BASE_IMG, '')
+				}
+			}
 
 			if (typeGuess === 'template') {
 				jsonObj.template_id = obj.userData.template_id
@@ -2806,7 +3302,13 @@ class ThreeCore {
 		if (this.cameraList && this.cameraList.length > 0) {
 			resault.cameraList = this.cameraList
 		}
-		if (this.background) {
+		// 保存背景：如果是纯色背景（scene.background 是 THREE.Color），保存颜色值
+		if (this.scene.background instanceof THREE.Color) {
+			// 将 THREE.Color 转换为十六进制字符串
+			const colorHex = '#' + this.scene.background.getHexString()
+			resault.background = `color:${colorHex}`
+		} else if (this.background) {
+			// 图片背景直接保存 URL
 			resault.background = this.background
 		}
 		// 保存controls配置（跳过 Infinity 值，因为 JSON 不支持）
@@ -2824,11 +3326,484 @@ class ThreeCore {
 			if (this.controls.maxPolarAngle !== undefined) {
 				controlsConfig.maxPolarAngle = this.controls.maxPolarAngle
 			}
-			if (Object.keys(controlsConfig).length > 0) {
-				resault.controls = controlsConfig
+		if (Object.keys(controlsConfig).length > 0) {
+			resault.controls = controlsConfig
+		}
+		// 保存灯光配置
+		const lightingConfig = this.getLightingConfig()
+		if (lightingConfig) {
+			resault.lighting = lightingConfig
+		}
+	}
+	return resault
+}
+
+	/**
+	 * 获取当前所有灯光的配置（数组格式）
+	 */
+	public getLightingConfig(): LightingConfig | null {
+		if (!this.lights) return null
+
+		const configs: LightingConfig = []
+
+		// 环境光
+		if (this.lights.ambient) {
+			configs.push({
+				type: 'ambient',
+				color: (this.lights.ambient.color as THREE.Color).getHex(),
+				intensity: this.lights.ambient.intensity
+			})
+		}
+
+		// 半球光
+		if (this.lights.hemisphere) {
+			configs.push({
+				type: 'hemisphere',
+				skyColor: (this.lights.hemisphere.color as THREE.Color).getHex(),
+				groundColor: (this.lights.hemisphere.groundColor as THREE.Color).getHex(),
+				intensity: this.lights.hemisphere.intensity,
+				position: [
+					this.lights.hemisphere.position.x,
+					this.lights.hemisphere.position.y,
+					this.lights.hemisphere.position.z
+				]
+			})
+		}
+
+		// 主方向光
+		if (this.lights.directional) {
+			const dirLight = this.lights.directional
+			const dirConfig: DirectionalLightConfig = {
+				type: 'directional',
+				color: (dirLight.color as THREE.Color).getHex(),
+				intensity: dirLight.intensity,
+				position: [
+					dirLight.position.x,
+					dirLight.position.y,
+					dirLight.position.z
+				],
+				castShadow: dirLight.castShadow
+			}
+
+			if (dirLight.castShadow && dirLight.shadow) {
+				dirConfig.shadow = {
+					mapSize: {
+						width: dirLight.shadow.mapSize.width,
+						height: dirLight.shadow.mapSize.height
+					},
+					camera: {
+						near: dirLight.shadow.camera.near,
+						far: dirLight.shadow.camera.far,
+						left: (dirLight.shadow.camera as THREE.OrthographicCamera).left,
+						right: (dirLight.shadow.camera as THREE.OrthographicCamera).right,
+						top: (dirLight.shadow.camera as THREE.OrthographicCamera).top,
+						bottom: (dirLight.shadow.camera as THREE.OrthographicCamera).bottom
+					},
+					bias: dirLight.shadow.bias,
+					normalBias: dirLight.shadow.normalBias,
+					radius: dirLight.shadow.radius,
+					blurSamples: dirLight.shadow.blurSamples
+				}
+			}
+			configs.push(dirConfig)
+		}
+
+		// 补光
+		if (this.lights.fill) {
+			configs.push({
+				type: 'fill',
+				color: (this.lights.fill.color as THREE.Color).getHex(),
+				intensity: this.lights.fill.intensity,
+				position: [
+					this.lights.fill.position.x,
+					this.lights.fill.position.y,
+					this.lights.fill.position.z
+				],
+				castShadow: this.lights.fill.castShadow
+			})
+		}
+
+		// 镜头光（点光源）
+		if (this.lensLight) {
+			const lensConfig: LensLightConfig = {
+				type: 'lens',
+				color: (this.lensLight.color as THREE.Color).getHex(),
+				intensity: this.lensLight.intensity,
+				distance: this.lensLight.distance,
+				decay: this.lensLight.decay,
+				position: [
+					this.lensLight.position.x,
+					this.lensLight.position.y,
+					this.lensLight.position.z
+				],
+				castShadow: this.lensLight.castShadow
+			}
+
+			if (this.lensLight.castShadow && this.lensLight.shadow) {
+				lensConfig.shadow = {
+					mapSize: {
+						width: this.lensLight.shadow.mapSize.width,
+						height: this.lensLight.shadow.mapSize.height
+					},
+					camera: {
+						near: this.lensLight.shadow.camera.near,
+						far: this.lensLight.shadow.camera.far
+					},
+					bias: this.lensLight.shadow.bias,
+					radius: this.lensLight.shadow.radius,
+					blurSamples: this.lensLight.shadow.blurSamples
+				}
+			}
+			configs.push(lensConfig)
+		}
+
+		// 聚光灯（如果存在）
+		if (this.lights.spot) {
+			const spotLight = this.lights.spot
+			const spotConfig: SpotLightConfig = {
+				type: 'spot',
+				color: (spotLight.color as THREE.Color).getHex(),
+				intensity: spotLight.intensity,
+				distance: spotLight.distance,
+				angle: spotLight.angle,
+				penumbra: spotLight.penumbra,
+				decay: spotLight.decay,
+				position: [
+					spotLight.position.x,
+					spotLight.position.y,
+					spotLight.position.z
+				],
+				target: [
+					spotLight.target.position.x,
+					spotLight.target.position.y,
+					spotLight.target.position.z
+				],
+				castShadow: spotLight.castShadow
+			}
+
+			if (spotLight.castShadow && spotLight.shadow) {
+				spotConfig.shadow = {
+					mapSize: {
+						width: spotLight.shadow.mapSize.width,
+						height: spotLight.shadow.mapSize.height
+					},
+					camera: {
+						near: spotLight.shadow.camera.near,
+						far: spotLight.shadow.camera.far
+					},
+					bias: spotLight.shadow.bias,
+					radius: spotLight.shadow.radius,
+					blurSamples: spotLight.shadow.blurSamples
+				}
+			}
+			configs.push(spotConfig)
+		}
+
+		// 边缘光（如果存在）
+		if (this.lights.rim) {
+			configs.push({
+				type: 'rim',
+				color: (this.lights.rim.color as THREE.Color).getHex(),
+				intensity: this.lights.rim.intensity,
+				position: [
+					this.lights.rim.position.x,
+					this.lights.rim.position.y,
+					this.lights.rim.position.z
+				],
+				castShadow: this.lights.rim.castShadow
+			})
+		}
+
+		// 背光（如果存在）
+		if (this.lights.back) {
+			configs.push({
+				type: 'back',
+				color: (this.lights.back.color as THREE.Color).getHex(),
+				intensity: this.lights.back.intensity,
+				position: [
+					this.lights.back.position.x,
+					this.lights.back.position.y,
+					this.lights.back.position.z
+				],
+				castShadow: this.lights.back.castShadow
+			})
+		}
+
+		return configs.length > 0 ? configs : null
+	}
+
+	/**
+	 * 应用灯光配置（数组格式）
+	 */
+	public applyLightingConfig(configs: LightingConfig) {
+		if (!this.lights || !Array.isArray(configs)) return
+
+		// 遍历配置数组，根据 type 字段应用不同的灯光
+		for (const config of configs) {
+			switch (config.type) {
+				case 'ambient':
+					if (this.lights.ambient) {
+						const ambientConfig = config as AmbientLightConfig
+						if (ambientConfig.color !== undefined) {
+							this.lights.ambient.color.setHex(ambientConfig.color)
+						}
+						if (ambientConfig.intensity !== undefined) {
+							this.lights.ambient.intensity = ambientConfig.intensity
+						}
+					}
+					break
+
+				case 'hemisphere':
+					if (this.lights.hemisphere) {
+						const hemiConfig = config as HemisphereLightConfig
+						if (hemiConfig.skyColor !== undefined) {
+							this.lights.hemisphere.color.setHex(hemiConfig.skyColor)
+						}
+						if (hemiConfig.groundColor !== undefined) {
+							this.lights.hemisphere.groundColor.setHex(hemiConfig.groundColor)
+						}
+						if (hemiConfig.intensity !== undefined) {
+							this.lights.hemisphere.intensity = hemiConfig.intensity
+						}
+						if (hemiConfig.position) {
+							this.lights.hemisphere.position.set(...hemiConfig.position)
+						}
+					}
+					break
+
+				case 'directional':
+					if (this.lights.directional) {
+						const dirConfig = config as DirectionalLightConfig
+						const dirLight = this.lights.directional
+						if (dirConfig.color !== undefined) {
+							dirLight.color.setHex(dirConfig.color)
+						}
+						if (dirConfig.intensity !== undefined) {
+							dirLight.intensity = dirConfig.intensity
+						}
+						if (dirConfig.position) {
+							dirLight.position.set(...dirConfig.position)
+						}
+						if (dirConfig.castShadow !== undefined) {
+							dirLight.castShadow = dirConfig.castShadow
+						}
+
+						// 应用阴影配置
+						if (dirConfig.shadow && dirLight.shadow) {
+							if (dirConfig.shadow.mapSize) {
+								dirLight.shadow.mapSize.width = dirConfig.shadow.mapSize.width
+								dirLight.shadow.mapSize.height = dirConfig.shadow.mapSize.height
+							}
+							if (dirConfig.shadow.camera) {
+								const cam = dirLight.shadow.camera as THREE.OrthographicCamera
+								if (dirConfig.shadow.camera.near !== undefined) {
+									cam.near = dirConfig.shadow.camera.near
+								}
+								if (dirConfig.shadow.camera.far !== undefined) {
+									cam.far = dirConfig.shadow.camera.far
+								}
+								if (dirConfig.shadow.camera.left !== undefined) {
+									cam.left = dirConfig.shadow.camera.left
+								}
+								if (dirConfig.shadow.camera.right !== undefined) {
+									cam.right = dirConfig.shadow.camera.right
+								}
+								if (dirConfig.shadow.camera.top !== undefined) {
+									cam.top = dirConfig.shadow.camera.top
+								}
+								if (dirConfig.shadow.camera.bottom !== undefined) {
+									cam.bottom = dirConfig.shadow.camera.bottom
+								}
+								cam.updateProjectionMatrix()
+							}
+							if (dirConfig.shadow.bias !== undefined) {
+								dirLight.shadow.bias = dirConfig.shadow.bias
+							}
+							if (dirConfig.shadow.normalBias !== undefined) {
+								dirLight.shadow.normalBias = dirConfig.shadow.normalBias
+							}
+							if (dirConfig.shadow.radius !== undefined) {
+								dirLight.shadow.radius = dirConfig.shadow.radius
+							}
+							if (dirConfig.shadow.blurSamples !== undefined) {
+								dirLight.shadow.blurSamples = dirConfig.shadow.blurSamples
+							}
+						}
+					}
+					break
+
+				case 'fill':
+					if (this.lights.fill) {
+						const fillConfig = config as FillLightConfig
+						if (fillConfig.color !== undefined) {
+							this.lights.fill.color.setHex(fillConfig.color)
+						}
+						if (fillConfig.intensity !== undefined) {
+							this.lights.fill.intensity = fillConfig.intensity
+						}
+						if (fillConfig.position) {
+							this.lights.fill.position.set(...fillConfig.position)
+						}
+						if (fillConfig.castShadow !== undefined) {
+							this.lights.fill.castShadow = fillConfig.castShadow
+						}
+					}
+					break
+
+				case 'lens':
+					if (this.lensLight) {
+						const lensConfig = config as LensLightConfig
+						if (lensConfig.color !== undefined) {
+							this.lensLight.color.setHex(lensConfig.color)
+						}
+						if (lensConfig.intensity !== undefined) {
+							this.lensLight.intensity = lensConfig.intensity
+						}
+						if (lensConfig.distance !== undefined) {
+							this.lensLight.distance = lensConfig.distance
+						}
+						if (lensConfig.decay !== undefined) {
+							this.lensLight.decay = lensConfig.decay
+						}
+						if (lensConfig.position) {
+							this.lensLight.position.set(...lensConfig.position)
+						}
+						if (lensConfig.castShadow !== undefined) {
+							this.lensLight.castShadow = lensConfig.castShadow
+						}
+
+						// 应用阴影配置
+						if (lensConfig.shadow && this.lensLight.shadow) {
+							if (lensConfig.shadow.mapSize) {
+								this.lensLight.shadow.mapSize.width = lensConfig.shadow.mapSize.width
+								this.lensLight.shadow.mapSize.height = lensConfig.shadow.mapSize.height
+							}
+							if (lensConfig.shadow.camera) {
+								const cam = this.lensLight.shadow.camera as THREE.PerspectiveCamera
+								if (lensConfig.shadow.camera.near !== undefined) {
+									cam.near = lensConfig.shadow.camera.near
+								}
+								if (lensConfig.shadow.camera.far !== undefined) {
+									cam.far = lensConfig.shadow.camera.far
+								}
+								cam.updateProjectionMatrix()
+							}
+							if (lensConfig.shadow.bias !== undefined) {
+								this.lensLight.shadow.bias = lensConfig.shadow.bias
+							}
+							if (lensConfig.shadow.radius !== undefined) {
+								this.lensLight.shadow.radius = lensConfig.shadow.radius
+							}
+							if (lensConfig.shadow.blurSamples !== undefined) {
+								this.lensLight.shadow.blurSamples = lensConfig.shadow.blurSamples
+							}
+						}
+					}
+					break
+
+				case 'spot':
+					if (this.lights.spot) {
+						const spotConfig = config as SpotLightConfig
+						const spotLight = this.lights.spot
+						if (spotConfig.color !== undefined) {
+							spotLight.color.setHex(spotConfig.color)
+						}
+						if (spotConfig.intensity !== undefined) {
+							spotLight.intensity = spotConfig.intensity
+						}
+						if (spotConfig.distance !== undefined) {
+							spotLight.distance = spotConfig.distance
+						}
+						if (spotConfig.angle !== undefined) {
+							spotLight.angle = spotConfig.angle
+						}
+						if (spotConfig.penumbra !== undefined) {
+							spotLight.penumbra = spotConfig.penumbra
+						}
+						if (spotConfig.decay !== undefined) {
+							spotLight.decay = spotConfig.decay
+						}
+						if (spotConfig.position) {
+							spotLight.position.set(...spotConfig.position)
+						}
+						if (spotConfig.target) {
+							spotLight.target.position.set(...spotConfig.target)
+						}
+						if (spotConfig.castShadow !== undefined) {
+							spotLight.castShadow = spotConfig.castShadow
+						}
+
+						// 应用阴影配置
+						if (spotConfig.shadow && spotLight.shadow) {
+							if (spotConfig.shadow.mapSize) {
+								spotLight.shadow.mapSize.width = spotConfig.shadow.mapSize.width
+								spotLight.shadow.mapSize.height = spotConfig.shadow.mapSize.height
+							}
+							if (spotConfig.shadow.camera) {
+								const cam = spotLight.shadow.camera as THREE.PerspectiveCamera
+								if (spotConfig.shadow.camera.near !== undefined) {
+									cam.near = spotConfig.shadow.camera.near
+								}
+								if (spotConfig.shadow.camera.far !== undefined) {
+									cam.far = spotConfig.shadow.camera.far
+								}
+								cam.updateProjectionMatrix()
+							}
+							if (spotConfig.shadow.bias !== undefined) {
+								spotLight.shadow.bias = spotConfig.shadow.bias
+							}
+							if (spotConfig.shadow.radius !== undefined) {
+								spotLight.shadow.radius = spotConfig.shadow.radius
+							}
+							if (spotConfig.shadow.blurSamples !== undefined) {
+								spotLight.shadow.blurSamples = spotConfig.shadow.blurSamples
+							}
+						}
+					}
+					break
+
+				case 'rim':
+					if (this.lights.rim) {
+						const rimConfig = config as RimLightConfig
+						if (rimConfig.color !== undefined) {
+							this.lights.rim.color.setHex(rimConfig.color)
+						}
+						if (rimConfig.intensity !== undefined) {
+							this.lights.rim.intensity = rimConfig.intensity
+						}
+						if (rimConfig.position) {
+							this.lights.rim.position.set(...rimConfig.position)
+						}
+						if (rimConfig.castShadow !== undefined) {
+							this.lights.rim.castShadow = rimConfig.castShadow
+						}
+					}
+					break
+
+				case 'back':
+					if (this.lights.back) {
+						const backConfig = config as BackLightConfig
+						if (backConfig.color !== undefined) {
+							this.lights.back.color.setHex(backConfig.color)
+						}
+						if (backConfig.intensity !== undefined) {
+							this.lights.back.intensity = backConfig.intensity
+						}
+						if (backConfig.position) {
+							this.lights.back.position.set(...backConfig.position)
+						}
+						if (backConfig.castShadow !== undefined) {
+							this.lights.back.castShadow = backConfig.castShadow
+						}
+					}
+					break
+
+				default:
+					// 未知类型，忽略或记录警告
+					console.warn(`Unknown light type: ${(config as any).type}`)
+					break
 			}
 		}
-		return resault
 	}
 	// 为模型设置属性
 	public setOptionsModel(
@@ -3022,7 +3997,23 @@ class ThreeCore {
 				this.cameraList = json.cameraList
 			}
 			if (json.background) {
-				this.background = json.background
+				// 检查是否是纯色背景（格式：color:#ffffff）
+				if (json.background.startsWith('color:')) {
+					const colorValue = json.background.replace('color:', '')
+					const threeColor = new THREE.Color(colorValue)
+					this.scene.background = threeColor
+					// 清除图片背景
+					this.background = null
+				} else {
+					// 图片背景
+					this.background = json.background
+					// 清除纯色背景
+					this.scene.background = null
+				}
+			}
+			// 加载灯光配置
+			if (json.lighting) {
+				this.applyLightingConfig(json.lighting)
 			}
 			// 加载controls配置
 			if (json.controls && this.controls) {
@@ -3134,6 +4125,18 @@ class ThreeCore {
 			if (obj.type === 'library') {
 				mesh = await this.createLibrary(obj)
 			}
+			if (obj.type === 'splat' && obj.url) {
+				try {
+					const splatGroup = await this.addSplatScene(BASE_IMG + obj.url, {
+						position: obj.position,
+						rotation: obj.rotation,
+						scale: obj.scale
+					})
+					mesh = null
+				} catch (e) {
+					console.warn(`泼溅模型加载失败：${obj.url}`, e)
+				}
+			}
 			if (obj.type === 'template') {
 				// 加载模版类型
 				console.log(obj, '对象')
@@ -3206,6 +4209,16 @@ class ThreeCore {
 					} else {
 						mesh.scale.set(1, 1, 1)
 					}
+				}
+				// 泼溅模型不需要添加到 allObjects，因为它由 viewer 管理
+				if (obj.type === 'splat' && mesh) {
+					// 泼溅模型已经通过 addSplatScene 添加到场景中
+					// 不需要再次添加到场景或 allObjects
+					current++
+					if (onProgress && !renturGroup) {
+						onProgress(current, total)
+					}
+					continue
 				}
 				if (renturGroup) {
 					mesh.userData.ignorePick = true
@@ -3362,6 +4375,15 @@ class ThreeCore {
 			this.css3DRenderer.domElement.parentNode.removeChild(
 				this.css3DRenderer.domElement
 			)
+		}
+
+		// 清理高斯泼溅查看器
+		if (this.splatViewer) {
+			// 如果 viewer 有 dispose 方法，调用它
+			if (typeof (this.splatViewer as any).dispose === 'function') {
+				(this.splatViewer as any).dispose()
+			}
+			this.splatViewer = undefined
 		}
 
 		// 清理场景

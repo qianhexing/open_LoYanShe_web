@@ -247,6 +247,10 @@ const jumpToLibraryHistory = () => {
 const handleEditLibrary = () => {
   window.open(`/addLibrary?library_id=${library.value?.library_id}`, '_blank')
 }
+const jumpToLibraryVideoManage = () => {
+  if (!library.value?.library_id) return
+  window.open(`/library/manageVideo/${library.value.library_id}`, '_blank')
+}
 </script>
 <template>
   <div class="container mx-auto p-4 max-md:p-2">
@@ -301,6 +305,10 @@ const handleEditLibrary = () => {
             </QhxTag>
             <QhxTag class="cursor-pointer" @click="jumpToLibraryHistory" :active="true" color="blue">
               修改历史
+            </QhxTag>
+            <!-- v-if="user.hasPermi('library:detail:update')" -->
+            <QhxTag class="cursor-pointer" @click="jumpToLibraryVideoManage"  :active="true" color="blue">
+              管理人台图
             </QhxTag>
           </div>
           <div class="text-qhx-primary m-2 font-semibold" v-if="library.library_price">
