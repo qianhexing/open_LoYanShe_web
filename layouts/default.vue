@@ -31,6 +31,33 @@ if (route.query?.token) {
   useUserStore().setToken(route.query.token.toString())
 }
 console.log(route.path, '初始路由地址')
+
+// SSR 阶段获取用户信息
+const { data: userInfo } = await useAsyncData('user-info', async () => {
+  // 如果有路由参数中的 token，在 SSR 和客户端都获取用户信息
+  if (route.query?.token) {
+    try {
+      const res = await getUserMy()
+      console.log(res, '用户信息 (SSR)')
+      userStore.setUserInfo(res)
+      return res
+    } catch (error) {
+      console.error('获取用户信息失败:', error)
+      return null
+    }
+  } else {
+    // 如果没有路由参数 token，只在客户端从 localStorage 加载
+    // 服务端跳过，返回 null
+    if (process.client) {
+      await userStore.initialize()
+      return userStore.user
+    }
+    return null
+  }
+}, {
+  server: true, // 在服务端执行
+  default: () => null
+})
 const judgeIsHome = () => {
   console.log('当前路由', route.path)
   colorMode.value = 'light'
@@ -120,33 +147,19 @@ onMounted(async () => {
   });
   console.log(colorMode.value, '颜色模式')
   if (process.client && typeof window !== 'undefined' && window.localStorage) {
-    console.log(route.query, '路由参数')
-    if (route.query.token) {
-      await getUserMy().then((res) => {
-        console.log(res, '用户信息')
-        useUserStore().setUserInfo(res)
-        // 用户信息加载完成后，初始化通知系统
-        setTimeout(() => {
-          initNotificationSystem()
-        }, 500)
-      })
-    } else {
-      console.log('加载用户信息')
-      await userStore.initialize()
-      // 用户信息加载完成后，初始化通知系统
-      setTimeout(() => {
-        initNotificationSystem()
-      }, 500)
-    }
+    // 用户信息已在 SSR 阶段加载，这里只需要初始化通知系统
+    setTimeout(() => {
+      initNotificationSystem()
+    }, 500)
     
     configStore.setIsPc(isPC())
     configStore.getConfig()
-  const isInUniApp =
-		typeof window !== 'undefined' &&
-		navigator.userAgent.includes('Html5Plus');
-  if (isInUniApp && uni ) {
-    isFromMobie.value = true
-  }
+    const isInUniApp =
+      typeof window !== 'undefined' &&
+      navigator.userAgent.includes('Html5Plus');
+    if (isInUniApp && uni ) {
+      isFromMobie.value = true
+    }
   }
   themeStore.setTheme('light')
   layoutReady.value = true

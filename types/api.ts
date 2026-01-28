@@ -397,12 +397,23 @@ export interface Community {
 }
 
 export interface User {
-  user_id: number,
+  user_id?: number,
   user_face?: string
   user_name?: string
   avatar?: Avatar
   permission_list?: string[]
   email?: string
+  message_config?: Record<string, boolean>
+  signature?: string
+  province?: string | null
+  city?: string | null
+  area?: string | null
+  show_area?: number
+  is_achieve?: number
+  main_style?: string | null
+  exp?: number
+  level?: number
+  star_coin?: number
 }
 export interface Avatar {
   frame_id: number,
@@ -424,15 +435,15 @@ export interface CommunityHide {
 
 
 export interface LibraryVideo {
-  addr: string
-  create_time: string
-  is_enable: number
-  is_show: number
-  pk_id: number
-  pk_type: number
-  sort: number
-  title: string
-  video_id: number
+  addr?: string
+  create_time?: string
+  is_enable?: number
+  is_show?: number
+  pk_id?: number
+  pk_type?: number
+  sort?: number
+  title?: string
+  video_id?: number
 }
 
 export interface Scene {

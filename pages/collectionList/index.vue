@@ -106,7 +106,7 @@ const handleCommentSuccess = async (comment: Comment) => {
   try {
     await insertCollection({
       comment_id: comment.comment_id,
-      user_id: user.user?.user_id ?? undefined,
+      user_id: user.user?.user_id,
       is_completed: 0,
       pk_type: 0,
     })
@@ -179,6 +179,9 @@ definePageMeta({
     <div class="text-xs text-qhx-text px-4">
       未收录的裙子可以发布在这里，大家看到会帮忙收录
     </div>
+    <div class="text-xs text-qhx-text px-4 text-red-500 mb-1">
+      一条对应一个，请勿多条一起发布！！！
+    </div>
 
     <!-- 瀑布流列表 -->
     <QhxWaterList
@@ -189,7 +192,7 @@ definePageMeta({
           const response = await getCollectionList({
             page: page,
             pageSize: pageSize,
-            user_id: user.user?.user_id,
+            // user_id: user.user?.user_id,
             is_completed: onlyUncompleted ? 0 : undefined,
             // 预留关键字过滤，后端若支持可在此传参
             // keywords: keywords.value

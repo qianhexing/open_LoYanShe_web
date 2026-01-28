@@ -31,7 +31,7 @@ onMounted(async () => {
   uni = await import('@dcloudio/uni-webview-js').catch((err) => {
     console.error('Failed to load uni-webview-js:', err);
   });
-  
+
   const sceneElement = document.getElementById('scene-ar');
   if (sceneElement) {
     await initScene(sceneElement, id, {
@@ -88,18 +88,28 @@ const handleClickLibrary = (item: LibraryInterface) => {
 useHead({
   title: 'AR场景展示',
   meta: [
+    { name: 'viewport', content: 'width=device-width, initial-scale=1, user-scalable=no' },
     { name: 'viewport', content: 'width=device-width, initial-scale=1, user-scalable=no' }
+  ],
+  script: [
+    {
+      src: 'https://aframe.io/releases/1.6.0/aframe.min.js',
+      crossorigin: 'anonymous'
+    },
+    {
+      src: 'https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js',
+      crossorigin: 'anonymous'
+    }
   ]
 });
+
 </script>
 
 <template>
   <div class="relative w-full h-screen overflow-hidden select-none touch-callout-none bg-transparent">
     <!-- 场景加载状态 -->
-    <div 
-      v-if="sceneLoading || sceneLoadError" 
-      class="absolute inset-0 flex flex-col items-center justify-center bg-white/90 backdrop-blur-sm z-50"
-    >
+    <div v-if="sceneLoading || sceneLoadError"
+      class="absolute inset-0 flex flex-col items-center justify-center bg-white/90 backdrop-blur-sm z-50">
       <template v-if="sceneLoading && !sceneLoadError">
         <div class="w-16 h-16 border-4 border-purple-400 rounded-full border-t-transparent animate-spin"></div>
         <p class="mt-4 text-purple-600 tracking-widest font-bold">
@@ -111,7 +121,7 @@ useHead({
           </span>
         </p>
       </template>
-      
+
       <template v-else-if="sceneLoadError">
         <div class="flex flex-col items-center gap-4">
           <div class="w-16 h-16 flex items-center justify-center">
@@ -119,14 +129,10 @@ useHead({
           </div>
           <p class="text-red-600 font-bold text-lg">加载失败</p>
           <p class="text-gray-600 text-sm max-w-md text-center px-4">{{ sceneLoadError }}</p>
-          <UButton 
-            color="purple" 
-            @click="() => {
-              const el = document.getElementById('scene-ar');
-              if(el) initScene(el, id, { editMode: false, baseUrl: BASE_IMG });
-            }"
-            class="mt-2"
-          >
+          <UButton color="purple" @click="() => {
+            const el = document.getElementById('scene-ar');
+            if (el) initScene(el, id, { editMode: false, baseUrl: BASE_IMG });
+          }" class="mt-2">
             重试
           </UButton>
         </div>
@@ -138,31 +144,20 @@ useHead({
     <div id="scene-ar" class="w-full h-full"></div>
 
     <!-- 日记点列表 -->
-    <div 
-      v-for="diary in diaryList" 
-      :key="diary.id"
-      @click.stop="(e) => handleClickDiary(e, diary)" 
-      class="fixed p-3 cursor-pointer bg-white/80 backdrop-blur-sm rounded-[30px] shadow-lg z-10 h-[60px] flex items-center whitespace-nowrap overflow-hidden" 
-      :style="{ left: diary.position?.x + 'px', top: diary.position?.y - 30 + 'px' }"
-    >
+    <div v-for="diary in diaryList" :key="diary.id" @click.stop="(e) => handleClickDiary(e, diary)"
+      class="fixed p-3 cursor-pointer bg-white/80 backdrop-blur-sm rounded-[30px] shadow-lg z-10 h-[60px] flex items-center whitespace-nowrap overflow-hidden"
+      :style="{ left: diary.position?.x + 'px', top: diary.position?.y - 30 + 'px' }">
       {{ diary.title }}
     </div>
 
     <!-- 图书馆列表 -->
-    <div 
-      v-for="library in libraryList" 
-      :key="library.id"
-      @click.stop="handleClickLibrary(library)" 
-      class="fixed cursor-pointer bg-white/80 backdrop-blur-sm rounded-[30px] shadow-lg z-10 h-[60px] flex items-center whitespace-nowrap overflow-hidden" 
-      :style="{ left: library.position?.x + 'px', top: library.position?.y - 30 + 'px' }"
-    >
+    <div v-for="library in libraryList" :key="library.id" @click.stop="handleClickLibrary(library)"
+      class="fixed cursor-pointer bg-white/80 backdrop-blur-sm rounded-[30px] shadow-lg z-10 h-[60px] flex items-center whitespace-nowrap overflow-hidden"
+      :style="{ left: library.position?.x + 'px', top: library.position?.y - 30 + 'px' }">
       <div class="flex items-center">
         <div>
-          <img 
-            :src="`${BASE_IMG}${library.cover}`"
-            class="w-16 h-16 object-cover rounded-[60px] border border-gray-200 my-2 cursor-pointer" 
-            loading="lazy" 
-          />
+          <img :src="`${BASE_IMG}${library.cover}`"
+            class="w-16 h-16 object-cover rounded-[60px] border border-gray-200 my-2 cursor-pointer" loading="lazy" />
         </div>
         <div class="p-2">{{ library.title }}</div>
       </div>
@@ -177,34 +172,26 @@ useHead({
     </QhxModal>
 
     <!-- Webcam AR 专属 UI -->
-    <div v-if="isWebcamAR" class="absolute bottom-10 left-0 w-full flex flex-col items-center justify-center gap-4 z-50 pointer-events-none">
-        <!-- 准星 -->
-        <div class="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-8 h-8 border-2 border-white rounded-full pointer-events-none z-40 opacity-70">
-            <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-1 h-1 bg-white rounded-full"></div>
-        </div>
+    <div v-if="isWebcamAR"
+      class="absolute bottom-10 left-0 w-full flex flex-col items-center justify-center gap-4 z-50 pointer-events-none">
+      <!-- 准星 -->
+      <div
+        class="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-8 h-8 border-2 border-white rounded-full pointer-events-none z-40 opacity-70">
+        <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-1 h-1 bg-white rounded-full"></div>
+      </div>
 
-        <div class="pointer-events-auto flex flex-col gap-2">
-            <UButton 
-                color="white" 
-                variant="solid" 
-                @click="requestPermission"
-                class="shadow-lg backdrop-blur-md bg-white/20"
-            >
-                授权陀螺仪 (iOS)
-            </UButton>
-            <UButton 
-                color="primary" 
-                size="xl"
-                variant="solid" 
-                @click="placeScene"
-                class="shadow-xl"
-            >
-                放置场景
-            </UButton>
-        </div>
-        <div class="text-white text-xs bg-black/50 px-2 py-1 rounded">
-            将准星对准位置点击放置，或者扫描二维码自动定位
-        </div>
+      <div class="pointer-events-auto flex flex-col gap-2">
+        <UButton color="white" variant="solid" @click="requestPermission"
+          class="shadow-lg backdrop-blur-md bg-white/20">
+          授权陀螺仪 (iOS)
+        </UButton>
+        <UButton color="primary" size="xl" variant="solid" @click="placeScene" class="shadow-xl">
+          放置场景
+        </UButton>
+      </div>
+      <div class="text-white text-xs bg-black/50 px-2 py-1 rounded">
+        将准星对准位置点击放置，或者扫描二维码自动定位
+      </div>
     </div>
   </div>
 </template>

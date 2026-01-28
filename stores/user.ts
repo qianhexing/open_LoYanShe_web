@@ -1,6 +1,6 @@
 // stores/auth.ts
 import { defineStore } from 'pinia'
-import { loginIn, registerUser, sendVerificationCode } from '@/api/user'
+import { loginIn, registerUser, sendVerificationCode, getUserMy, changeUserInfo } from '@/api/user'
 import type { Permission } from '@/api/user'
 import type { User } from '@/types/api';
 
@@ -25,14 +25,20 @@ export const useUserStore = defineStore('auth', {
         
         // 假设返回数据中有token字段
         this.setToken(response.token)
-        // 可以在这里存储用户信息
+        // 调用 getUserMy 获取完整用户信息并缓存
         if (response.data) {
-          this.setUserInfo({
-            user_id: response.data.userId,
-            user_name: response.data.userName,
-            user_face: response.data.userFace,
-            permission_list: response.data.permission_list
-          })
+          try {
+            const userInfo = await getUserMy()
+            this.setUserInfo(userInfo)
+          } catch (error) {
+            // 如果获取失败，使用登录返回的基础信息
+            this.setUserInfo({
+              user_id: response.data.userId,
+              user_name: response.data.userName,
+              user_face: response.data.userFace,
+              permission_list: response.data.permission_list || response.permission.map(item => item.permissions)
+            })
+          }
         } else {
           this.user = null
         }
@@ -156,13 +162,80 @@ export const useUserStore = defineStore('auth', {
     
     // 检查权限
     hasPermi(permission: string): boolean {
-      if (!this.user || !this.user.permission_list || this.user.permission_list.length === 0) return false
-      return this.user?.permission_list.some(p => p === permission)
+      // 优先使用 user.permission_list
+      if (this.user?.permission_list && this.user.permission_list.length > 0) {
+        return this.user.permission_list.some(p => p === permission)
+      }
+      // 如果没有 permission_list，使用 this.permission
+      if (this.permission && this.permission.length > 0) {
+        return this.permission.some(p => p.permissions === permission)
+      }
+      console.log(permission, 'permission')
+      return false
     },
     
     // 设置通知状态
     setHasNotification(hasNotification: boolean) {
       this.hasNotification = hasNotification
-    }
+    },
+    
+    // 获取用户信息并更新 store
+    async fetchUserInfo() {
+      try {
+        const userInfo = await getUserMy()
+        this.setUserInfo(userInfo)
+        return userInfo
+      } catch (error) {
+        console.error('获取用户信息失败:', error)
+        throw error
+      }
+    },
+    
+    // 更新用户信息并重新拉取数据缓存
+    async updateUserInfo(params: User) {
+      try {
+        // 保存用户信息
+        await changeUserInfo(params)
+        // 重新拉取用户信息并更新 store
+        await this.fetchUserInfo()
+        return this.user
+      } catch (error) {
+        console.error('更新用户信息失败:', error)
+        throw error
+      }
+    },
+    
+    // 更新消息配置（仅更新 message_config）
+    // async updateMessageConfig(messageConfig: Record<string, unknown>) {
+    //   try {
+    //     // 获取现有的 message_config
+    //     const userWithConfig = this.user as User & { message_config?: string | Record<string, unknown> }
+    //     let config: Record<string, unknown> = {}
+        
+    //     if (userWithConfig?.message_config) {
+    //       try {
+    //         config = typeof userWithConfig.message_config === 'string'
+    //           ? JSON.parse(userWithConfig.message_config)
+    //           : userWithConfig.message_config
+    //       } catch (error) {
+    //         console.error('解析现有 message_config 失败:', error)
+    //         config = {}
+    //       }
+    //     }
+        
+    //     // 合并新的配置
+    //     config = { ...config, ...messageConfig }
+        
+    //     // 更新用户信息并重新拉取数据
+    //     await this.updateUserInfo({
+    //       message_config: config
+    //     })
+        
+    //     return this.user
+    //   } catch (error) {
+    //     console.error('更新消息配置失败:', error)
+    //     throw error
+    //   }
+    // }
   }
 })

@@ -7,12 +7,15 @@ import { insertCommunity } from '@/api/community'
 import type { DiaryInterface, LibraryInterface } from '@/types/sence'
 import type SceneMaterial from '@/components/scene/Material.vue'
 import type SceneTextureEditor from '@/components/scene/TextureEditor.vue'
+import type QhxColorPicker from '@/components/Qhx/ColorPicker.vue'
 import { useSceneStore } from '@/stores/sence'
 import { useConfigStore } from '@/stores/config'
 import { createFont } from '~/api';
 import { uploadFileToOSS } from '@/utils/ossUpload';
 import { useSceneCore } from '@/composables/useSceneCore';
 import YearlySummaryPostModal from '@/components/yearlySummary/PostModal.vue';
+// @ts-ignore - 缺少类型定义
+import InfiniteGridHelper from '@plackyfantacky/three.infinitegridhelper';
 
 const sceneStore = useSceneStore()
 const configStore = useConfigStore()
@@ -67,7 +70,7 @@ const transformType = ref('translate')
 const showToolbar = ref(true) // 控制工具栏显示/隐藏
 const showRightPanel = ref(false) // 控制右侧面板显示/隐藏
 const rightPanelType = ref<'material' | 'template' | 'effect' | null>(null) // 右侧面板类型
-
+const layoutReady = inject('layoutReady') as Ref<boolean>
 if (route.query?.edit) {
     edit_mode.value = true
 }
@@ -399,7 +402,8 @@ const showObjectSettings = ref(false)
 const objectSettingsState = reactive({
     color: '#ffffff',
     depth: 0.3,
-    size: 1
+    size: 1,
+    longText: '' // 长文本内容
 })
 
 const showTextMenu = ref(false)
@@ -408,7 +412,21 @@ const textMenuPosition = ref({ x: 0, y: 0 })
 const showPointMenu = ref(false)
 const pointMenuPosition = ref({ x: 0, y: 0 })
 
+const showImageMenu = ref(false)
+const imageMenuPosition = ref({ x: 0, y: 0 })
+
+const showColorPicker = ref(false)
+const colorPickerRef = ref<InstanceType<typeof QhxColorPicker> | null>(null)
+
+const showLightMenu = ref(false)
+const lightMenuPosition = ref({ x: 0, y: 0 })
+const currentLightPreset = ref('default')
+
 const showPostModal = ref(false)
+
+const showLongTextModal = ref(false)
+const longTextContent = ref('')
+const longTextModalPosition = ref({ x: 0, y: 0 })
 
 const openObjectSettings = () => {
     if (clickObject.value && clickObject.value.length > 0) {
@@ -430,6 +448,17 @@ const openObjectSettings = () => {
             }
             showObjectSettings.value = true
         } 
+        if (obj.userData.type === 'longtext') {
+            // 初始化长文本内容
+            objectSettingsState.longText = obj.userData.text || ''
+            
+            // 设置弹窗位置（基于操作菜单位置）
+            clickPosition.value = {
+                x: operaPosition.value.x + 100,
+                y: operaPosition.value.y
+            }
+            showObjectSettings.value = true
+        }
         if (obj.userData.type === 'image') {
             // 初始化设置
             if (obj.userData.follow === undefined) {
@@ -464,6 +493,90 @@ const updateTextObject = () => {
     }
 }
 
+// 更新长文本对象
+const updateLongTextObject = async () => {
+    if (clickObject.value && clickObject.value.length > 0 && threeCore.value) {
+        const obj = clickObject.value[0] as THREE.Mesh
+        if (obj.userData.type === 'longtext' && objectSettingsState.longText.trim()) {
+            try {
+                // 保存当前 mesh 的变换信息
+                const position = obj.position.clone()
+                const rotation = obj.rotation.clone()
+                const scale = obj.scale.clone()
+                const parent = obj.parent
+                const baseWidth = obj.userData.baseWidth || 5
+                const options = obj.userData.options || {}
+
+                // 创建新的长文本 mesh
+                const newMesh = await threeCore.value.loadTextMesh(
+                    objectSettingsState.longText,
+                    baseWidth,
+                    options
+                )
+
+                // 应用之前的变换
+                newMesh.position.copy(position)
+                newMesh.rotation.copy(rotation)
+                newMesh.scale.copy(scale)
+
+                // 从原父节点中移除旧 mesh
+                if (parent) {
+                    parent.remove(obj)
+                } else {
+                    threeCore.value.scene.remove(obj)
+                }
+                // 更新选中的对象
+                clickObject.value = null
+                threeCore.value.transformControls.detach()
+                // 清理旧 mesh 的资源
+                if (obj instanceof THREE.Mesh) {
+                    if (obj.geometry) obj.geometry.dispose()
+                    if (obj.material) {
+                        if (Array.isArray(obj.material)) {
+                            for (const m of obj.material) {
+                                if (m instanceof THREE.MeshBasicMaterial && m.map) {
+                                    m.map.dispose()
+                                }
+                                m.dispose()
+                            }
+                        } else {
+                            const mat = obj.material as THREE.MeshBasicMaterial
+                            if (mat.map) mat.map.dispose()
+                            mat.dispose()
+                        }
+                    }
+                }
+
+                // 添加新 mesh 到原父节点或场景
+                if (parent) {
+                    parent.add(newMesh)
+                } else {
+                    threeCore.value.scene.add(newMesh)
+                }
+                // setTimeout(() => {
+                //     clickObject.value = [newMesh]
+                // }, 100)
+                
+                // 如果 transformControls 正在控制这个对象，需要重新附加
+                // if (threeCore.value.transformControls.object === obj) {
+                //     threeCore.value.transformControls.attach(newMesh)
+                // }
+
+                // 关闭设置弹窗
+                showObjectSettings.value = false
+            } catch (error) {
+                console.error('更新长文本失败:', error)
+                toast.add({
+                    title: '更新失败',
+                    description: '长文本更新失败，请重试',
+                    icon: 'i-heroicons-x-circle',
+                    color: 'red'
+                })
+            }
+        }
+    }
+}
+
 const closeRightPanel = () => {
     showRightPanel.value = false
     rightPanelType.value = null
@@ -473,6 +586,145 @@ const closeRightPanel = () => {
 const addImage = () => {
     if (MaterialRef.value) {
         MaterialRef.value.addImage()
+    }
+}
+
+// 打开图片菜单
+const openImageMenu = (e: MouseEvent) => {
+    imageMenuPosition.value = {
+        x: e.clientX + 50,
+        y: e.clientY
+    }
+    showImageMenu.value = true
+}
+
+// 选择图片
+const selectImage = () => {
+    showImageMenu.value = false
+    addImage()
+}
+
+// 选择背景
+const selectBackground = () => {
+    showImageMenu.value = false
+    addBackgroundClick()
+}
+
+// 选择纯色背景
+const selectSolidColorBackground = () => {
+    showImageMenu.value = false
+    if (colorPickerRef.value) {
+        colorPickerRef.value.showModel()
+    }
+}
+
+// 设置纯色背景
+const setSolidColorBackground = (color: string) => {
+    if (!threeCore.value) return
+    // 将颜色字符串转换为 THREE.Color
+    const threeColor = new THREE.Color(color)
+    threeCore.value.scene.background = threeColor
+    // 保存颜色值到 background（使用特殊格式 color:#ffffff 以便区分图片背景）
+    threeCore.value.background = `color:${color}`
+}
+
+// 灯光预设配置
+interface LightPreset {
+    name: string
+    description: string
+    ambientIntensity: number
+    directionalIntensity: number
+    directionalAzimuth: number
+    directionalElevation: number
+    hemisphereIntensity?: number
+    fillIntensity?: number
+    lensIntensity: number
+}
+
+const lightPresets: Record<string, LightPreset> = {
+    default: {
+        name: '默认',
+        description: '默认灯光配置',
+        ambientIntensity: 2.8,
+        directionalIntensity: 2,
+        directionalAzimuth: 45,
+        directionalElevation: 45,
+        hemisphereIntensity: 0.4,
+        fillIntensity: 0.4,
+        lensIntensity: 0.5
+    },
+    warm: {
+        name: '温暖',
+        description: '温暖的暖色调灯光',
+        ambientIntensity: 1.5,
+        directionalIntensity: 2.5,
+        directionalAzimuth: 60,
+        directionalElevation: 50,
+        hemisphereIntensity: 0.6,
+        fillIntensity: 0.5,
+        lensIntensity: 0.8
+    },
+    cool: {
+        name: '冷调',
+        description: '冷色调灯光效果',
+        ambientIntensity: 1.2,
+        directionalIntensity: 1.8,
+        directionalAzimuth: 30,
+        directionalElevation: 60,
+        hemisphereIntensity: 0.5,
+        fillIntensity: 0.3,
+        lensIntensity: 0.6
+    }
+}
+
+// 打开灯光菜单
+const openLightMenu = (e: MouseEvent) => {
+    lightMenuPosition.value = {
+        x: e.clientX + 50,
+        y: e.clientY
+    }
+    showLightMenu.value = true
+}
+
+// 应用灯光预设
+const applyLightPreset = (presetKey: string, silent = false) => {
+    if (!threeCore.value || !lightPresets[presetKey]) return
+    
+    const preset = lightPresets[presetKey]
+    currentLightPreset.value = presetKey
+    
+    // 应用环境光
+    threeCore.value.setAmbientLightIntensity(preset.ambientIntensity)
+    
+    // 应用主方向光
+    threeCore.value.setMainLightPosition(
+        preset.directionalAzimuth,
+        preset.directionalElevation
+    )
+    threeCore.value.setMainLightIntensity(preset.directionalIntensity)
+    
+    // 应用镜头光
+    threeCore.value.setLensLightIntensity(preset.lensIntensity)
+    
+    // 应用半球光和补光（如果存在）
+    if (threeCore.value.lights) {
+        if (preset.hemisphereIntensity !== undefined && threeCore.value.lights.hemisphere) {
+            threeCore.value.lights.hemisphere.intensity = preset.hemisphereIntensity
+        }
+        if (preset.fillIntensity !== undefined && threeCore.value.lights.fill) {
+            threeCore.value.lights.fill.intensity = preset.fillIntensity
+        }
+    }
+    
+    if (!silent) {
+        showLightMenu.value = false
+        
+        toast.add({
+            title: '灯光预设已应用',
+            description: `已切换到"${preset.name}"预设`,
+            icon: 'i-heroicons-check-circle',
+            color: 'green'
+        })
     }
 }
 
@@ -540,8 +792,59 @@ const openTextMenu = (e: MouseEvent) => {
 
 // 选择长文本
 const selectLongText = () => {
-    // TODO: 实现长文本功能
     showTextMenu.value = false
+    // 设置弹窗位置（在文本菜单位置附近）
+    longTextModalPosition.value = {
+        x: textMenuPosition.value.x,
+        y: textMenuPosition.value.y
+    }
+    // 清空之前的内容
+    longTextContent.value = ''
+    showLongTextModal.value = true
+}
+
+// 确认创建长文本
+const confirmLongText = async () => {
+    if (!threeCore.value || !longTextContent.value.trim()) {
+        showLongTextModal.value = false
+        return
+    }
+
+    try {
+        // 创建长文本 Mesh
+        const mesh = await threeCore.value.loadTextMesh(longTextContent.value, 5, {
+            fontSize: 32,
+            fontFamily: 'Arial, sans-serif',
+            color: '#000000',
+            backgroundColor: '', // 默认透明背景
+            padding: 20,
+            lineHeight: 1.5,
+            maxWidth: 800
+        })
+
+        // 放到当前视图中心
+        const center = getScreenCenter()
+        mesh.position.set(center.x, center.y, center.z)
+        threeCore.value.scene.add(mesh)
+
+        // 关闭弹窗并清空内容
+        showLongTextModal.value = false
+        longTextContent.value = ''
+    } catch (error) {
+        console.error('创建长文本失败:', error)
+        toast.add({
+            title: '创建失败',
+            description: '长文本创建失败，请重试',
+            icon: 'i-heroicons-x-circle',
+            color: 'red'
+        })
+    }
+}
+
+// 取消长文本输入
+const cancelLongText = () => {
+    showLongTextModal.value = false
+    longTextContent.value = ''
 }
 
 // 选择3D文本
@@ -745,6 +1048,7 @@ const captureSceneImage = async (sence_id: number): Promise<string | null> => {
 const saveScene = async () => {
     if (!threeCore.value) return
     const json_data = threeCore.value.saveSceneToJSON()
+    // 灯光配置已经在 saveSceneToJSON 中自动保存了
     const params: {
         json_data: typeof json_data
         sence_cover?: string
@@ -841,6 +1145,15 @@ const saveScene = async () => {
             loading.value = false
         }
     } else {
+        if (loading.value) {
+            toast.add({
+                title: '请求中……',
+                icon: 'i-heroicons-check-circle',
+                color: 'green'
+            })
+            return
+        }
+        loading.value = true
         const sence_cover = await captureSceneImage(Number.parseInt(id))
         if (sence_cover) {
             params.sence_cover = `${sence_cover}?${Date.now()}`
@@ -856,6 +1169,9 @@ const saveScene = async () => {
                     color: 'green'
                 })
             })
+            .finally(() => {
+                loading.value = false
+            })
     }
 }
 const onUpdateFiles = async (resault) => {
@@ -867,6 +1183,8 @@ const onUpdateFiles = async (resault) => {
 const addBackgroun = async (resault) => {
     if (!threeCore.value) return
     threeCore.value.background = resault.file_url
+    // 清除纯色背景
+    threeCore.value.scene.background = null
 }
 const addText = async (resault: string) => {
     if (!threeCore.value) return
@@ -880,6 +1198,13 @@ const addText = async (resault: string) => {
 
 onUnmounted(() => {
     disposeScene(document.getElementById('scene') || undefined)
+    
+    // 恢复 body 样式
+    if (process.client) {
+        document.body.style.width = ''
+        document.body.style.height = ''
+        document.body.style.overflow = ''
+    }
 })
 
 const setMode = (type: 'translate' | 'scale' | 'rotate') => {
@@ -901,10 +1226,45 @@ const initThreejs = async () => {
             baseUrl: BASE_IMG,
             sceneData: detail.value
         })
+        
+        // 场景加载完成后，灯光配置已经在 loadSceneFromJSON 中自动应用了
+        // 如果没有保存的灯光配置，使用默认预设
+        if (threeCore.value && !detail.value?.json_data?.lighting) {
+            applyLightPreset('default', true)
+        }
+
+        // 如果是编辑模式，添加坐标系和无限地面
+        if (threeCore.value && edit_mode.value && false) {
+            // 添加坐标系（AxesHelper）
+            const axesHelper = new THREE.AxesHelper(10) // 5 个单位长度
+            axesHelper.userData.ignorePick = true // 不参与拾取
+            threeCore.value.scene.add(axesHelper)
+
+            // 添加无限地面网格（使用 InfiniteGridHelper）
+            // 参数：size1 (次要网格), size2 (主要网格), color, distance (淡出距离), axes
+            const gridHelper = new InfiniteGridHelper(
+                1,  // size1 - 次要网格线大小
+                5,  // size2 - 主要网格线大小
+                new THREE.Color(0xcfd3dc),  // color - 网格颜色
+                30, // distance - 淡出距离（30 会让淡出效果更好）
+                'xzy' // axes - 轴方向（xzy 表示在 XZ 平面上）
+            )
+            gridHelper.position.y = 0
+            gridHelper.userData.ignorePick = true // 不参与拾取
+            threeCore.value.scene.add(gridHelper)
+            // 注意：InfiniteGridHelper 会自动跟随相机，不需要手动更新位置
+        }
     }
 }
 
 onMounted(async () => {
+    // 设置 body 样式
+    if (process.client) {
+        document.body.style.width = '100vw'
+        document.body.style.height = '100vh'
+        document.body.style.overflow = 'hidden'
+    }
+    
     uni = await import('@dcloudio/uni-webview-js').catch((err) => {
         console.error('Failed to load uni-webview-js:', err);
     });
@@ -936,7 +1296,7 @@ useHead({
 </script>
 <template>
     <div class="select-none touch-callout-none"
-        :style="{ background: threeCore && threeCore.background ? `url(${BASE_IMG}${threeCore.background})` : '', backgroundSize: 'cover' }">
+        :style="{ background: threeCore && threeCore.background && !threeCore.background.startsWith('color:') ? `url(${BASE_IMG}${threeCore.background})` : '', backgroundSize: 'cover' }">
         <div v-if="detail && userStore.user?.user_id === detail?.user_id"
             class="fixed top-[60px] right-4 z-50 flex items-center gap-3">
             <button @click="showPostModal = true"
@@ -979,6 +1339,26 @@ useHead({
             </template>
         </div>
 
+        <!-- 场景保存中全屏 Loading -->
+        <div
+            v-if="loading"
+            class="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 backdrop-blur-sm"
+        >
+            <div
+                class="flex items-center gap-3 px-6 py-4 rounded-2xl bg-white/90 dark:bg-gray-900/90 shadow-2xl border border-white/60 dark:border-gray-700"
+            >
+                <div class="w-8 h-8 border-3 border-blue-500 rounded-full border-t-transparent animate-spin"></div>
+                <div class="flex flex-col">
+                    <span class="text-sm font-semibold text-gray-800 dark:text-gray-100">
+                        正在保存场景...
+                    </span>
+                    <span class="text-xs text-gray-500 dark:text-gray-400">
+                        请不要关闭页面或刷新浏览器
+                    </span>
+                </div>
+            </div>
+        </div>
+
         <SceneTextureEditor ref="SceneTextureEditorRef" v-if="target" :target="target"
             :image-url="BASE_IMG + threeCore?.background" @close="target = null" />
 
@@ -1009,8 +1389,19 @@ useHead({
                         <span class="text-[9px] text-gray-700 dark:text-gray-200 font-medium leading-tight">保存</span>
                     </button>
 
+                    <!-- 灯光 -->
+                    <button v-if="edit_mode || add_mode" @click="openLightMenu"
+                        class="w-full flex flex-col items-center gap-1 p-1.5 rounded-xl hover:bg-yellow-50 dark:hover:bg-yellow-900/20 transition-colors group active:scale-95"
+                        title="灯光">
+                        <div
+                            class="w-7 h-7 bg-yellow-500 dark:bg-yellow-600 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform">
+                            <UIcon name="material-symbols:lightbulb-rounded" class="text-sm text-white" />
+                        </div>
+                        <span class="text-[9px] text-gray-700 dark:text-gray-200 font-medium leading-tight">灯光</span>
+                    </button>
+
                     <!-- 图片 -->
-                    <button v-if="edit_mode || add_mode" @click="addImage"
+                    <button v-if="edit_mode || add_mode" @click="openImageMenu"
                         class="w-full flex flex-col items-center gap-1 p-1.5 rounded-xl hover:bg-green-50 dark:hover:bg-green-900/20 transition-colors group active:scale-95"
                         title="图片">
                         <div
@@ -1018,16 +1409,6 @@ useHead({
                             <UIcon name="material-symbols:add-photo-alternate-rounded" class="text-sm text-white" />
                         </div>
                         <span class="text-[9px] text-gray-700 dark:text-gray-200 font-medium leading-tight">图片</span>
-                    </button>
-                    <!-- 背景 -->
-                    <button v-if="edit_mode || add_mode" @click="addBackgroundClick"
-                        class="w-full flex flex-col items-center gap-1 p-1.5 rounded-xl hover:bg-cyan-50 dark:hover:bg-cyan-900/20 transition-colors group active:scale-95"
-                        title="背景">
-                        <div
-                            class="w-7 h-7 bg-cyan-500 dark:bg-cyan-600 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform">
-                            <UIcon name="material-symbols:wallpaper-rounded" class="text-sm text-white" />
-                        </div>
-                        <span class="text-[9px] text-gray-700 dark:text-gray-200 font-medium leading-tight">背景</span>
                     </button>
 
                     <!-- 点位 -->
@@ -1156,7 +1537,7 @@ useHead({
                     v-show="transformType !== 'scale'">缩放
                 </div>
                 <div class=" cursor-pointer px-3 flex-shrink-0" @click.stop="openObjectSettings"
-                    v-if="clickObject && (clickObject[0].userData.type === 'image' || clickObject[0].userData.type === '3Dtext')">
+                    v-if="clickObject && (clickObject[0].userData.type === 'image' || clickObject[0].userData.type === '3Dtext' || clickObject[0].userData.type === 'longtext')">
                     设置
                 </div>
                 <div class=" cursor-pointer px-3 flex-shrink-0" @click.stop="copyModel()"
@@ -1217,7 +1598,7 @@ useHead({
                 <div class="p-2">{{ library.title }}</div>
             </div>
         </div>
-        <SceneMaterial v-if="edit_mode" @recordCamera="recordCamera" @chooseTemplate="chooseTemplate"
+        <SceneMaterial v-if="edit_mode && layoutReady" @recordCamera="recordCamera" @chooseTemplate="chooseTemplate"
             @choose-material="chooseMaterial" @clearTemplate="clearTemplate" @addDiary="addDiary" @saveScene="saveScene"
             @addImage="onUpdateFiles" @addBackgroun="addBackgroun" @choose-effect="chooseEffect" @addText="addText"
             ref="MaterialRef" :loadTemplate="threeCore && threeCore.loadTemplate.length > 0 ? true : false">
@@ -1257,9 +1638,17 @@ useHead({
                 </UButton>
             </div>
         </QhxModal>
-        <QhxModal v-model="showSettings" :trigger-position="clickPosition">
-            <div class="p-6 w-[450px] bg-white dark:bg-gray-800 rounded-[10px] shadow-lg">
-                <h3 class="text-base font-bold mb-4 text-gray-800 dark:text-gray-200">场景设置</h3>
+        <QhxBottomDrawer v-if="showSettings" :direction="isMobile ? 'bottom' : 'right'" :default-size="isMobile ? 500 : 450">
+            <div class="py-2">
+                <div class="flex items-center justify-between mb-4">
+                    <h3 class="text-base font-bold text-gray-800 dark:text-gray-200">场景设置</h3>
+                    <button
+                        @click="showSettings = false"
+                        class="w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors group"
+                    >
+                        <UIcon name="i-heroicons-x-mark" class="text-gray-500 dark:text-gray-400 group-hover:text-gray-700 dark:group-hover:text-gray-200 transition-colors" />
+                    </button>
+                </div>
 
                 <!-- 光影设置区域 -->
                 <div class="mb-6">
@@ -1342,40 +1731,82 @@ useHead({
                     </div>
                 </template>
             </div>
-        </QhxModal>
+        </QhxBottomDrawer>
         <QhxModal v-model="showObjectSettings" :trigger-position="clickPosition">
-            <div class="p-6 w-[300px] bg-white dark:bg-gray-800 rounded-[10px] shadow-lg">
+            <div class="p-6 w-[400px] bg-white dark:bg-gray-800 rounded-[10px] shadow-lg">
                 <h3 class="text-base font-bold mb-4 text-gray-800 dark:text-gray-200">物体设置</h3>
 
-                <!-- 文本颜色 -->
-                <div class="mb-4">
-                    <div class="text-sm text-gray-700 dark:text-gray-300 mb-2">颜色</div>
-                    <div class="flex items-center gap-2">
-                        <input type="color" v-model="objectSettingsState.color" @input="updateTextObject"
-                            class="w-8 h-8 rounded cursor-pointer border-0 p-0" />
-                        <span class="text-xs text-gray-500">{{ objectSettingsState.color }}</span>
+                <!-- 3D文本设置 -->
+                <template v-if="clickObject && clickObject[0] && clickObject[0].userData.type === '3Dtext'">
+                    <!-- 文本颜色 -->
+                    <div class="mb-4">
+                        <div class="text-sm text-gray-700 dark:text-gray-300 mb-2">颜色</div>
+                        <div class="flex items-center gap-2">
+                            <input type="color" v-model="objectSettingsState.color" @input="updateTextObject"
+                                class="w-8 h-8 rounded cursor-pointer border-0 p-0" />
+                            <span class="text-xs text-gray-500">{{ objectSettingsState.color }}</span>
+                        </div>
                     </div>
-                </div>
 
-                <!-- 文本厚度 -->
-                <div class="mb-4">
-                    <div class="flex justify-between mb-2">
-                        <span class="text-sm text-gray-700 dark:text-gray-300">厚度</span>
-                        <span class="text-xs text-gray-500">{{ objectSettingsState.depth }}</span>
+                    <!-- 文本厚度 -->
+                    <div class="mb-4">
+                        <div class="flex justify-between mb-2">
+                            <span class="text-sm text-gray-700 dark:text-gray-300">厚度</span>
+                            <span class="text-xs text-gray-500">{{ objectSettingsState.depth }}</span>
+                        </div>
+                        <URange v-model="objectSettingsState.depth" :min="0.01" :max="2" :step="0.01"
+                            @update:model-value="updateTextObject" />
                     </div>
-                    <URange v-model="objectSettingsState.depth" :min="0.01" :max="2" :step="0.01"
-                        @update:model-value="updateTextObject" />
-                </div>
 
-                <!-- 文本大小 -->
-                <div class="mb-2">
-                    <div class="flex justify-between mb-2">
-                        <span class="text-sm text-gray-700 dark:text-gray-300">大小</span>
-                        <span class="text-xs text-gray-500">{{ objectSettingsState.size }}</span>
+                    <!-- 文本大小 -->
+                    <div class="mb-2">
+                        <div class="flex justify-between mb-2">
+                            <span class="text-sm text-gray-700 dark:text-gray-300">大小</span>
+                            <span class="text-xs text-gray-500">{{ objectSettingsState.size }}</span>
+                        </div>
+                        <URange v-model="objectSettingsState.size" :min="0.1" :max="5" :step="0.1"
+                            @update:model-value="updateTextObject" />
                     </div>
-                    <URange v-model="objectSettingsState.size" :min="0.1" :max="5" :step="0.1"
-                        @update:model-value="updateTextObject" />
-                </div>
+                </template>
+
+                <!-- 长文本设置 -->
+                <template v-if="clickObject && clickObject[0] && clickObject[0].userData.type === 'longtext'">
+                    <div class="mb-4">
+                        <div class="text-sm text-gray-700 dark:text-gray-300 mb-2">文本内容</div>
+                        <UTextarea 
+                            v-model="objectSettingsState.longText" 
+                            placeholder="请输入长文本内容（支持多行）" 
+                            :rows="8"
+                            class="flex-1 focus:ring-0" 
+                            :ui="{
+                                base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
+                                rounded: 'rounded-[10px]',
+                                padding: { xs: 'px-4 py-2' },
+                                color: {
+                                    white: {
+                                        outline: 'bg-gray-50 dark:bg-gray-800 ring-1 ring-gray-300 dark:ring-gray-600 focus:ring-2 focus:ring-qhx-primary'
+                                    }
+                                }
+                            }" 
+                        />
+                    </div>
+                    <div class="flex gap-3 justify-end">
+                        <UButton 
+                            color="gray" 
+                            variant="outline" 
+                            @click="showObjectSettings = false"
+                        >
+                            取消
+                        </UButton>
+                        <UButton 
+                            color="primary" 
+                            @click="updateLongTextObject"
+                            :disabled="!objectSettingsState.longText.trim()"
+                        >
+                            保存
+                        </UButton>
+                    </div>
+                </template>
             </div>
         </QhxModal>
         <QhxModal v-model="showTextMenu" :trigger-position="textMenuPosition">
@@ -1383,7 +1814,7 @@ useHead({
                 <h3 class="text-sm font-bold mb-3 text-gray-800 dark:text-gray-200">选择文本类型</h3>
 
                 <!-- 长文本选项 -->
-                <!-- <button @click="selectLongText"
+                <button @click="selectLongText"
                     class="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors text-left group">
                     <div
                         class="w-8 h-8 bg-blue-500 dark:bg-blue-600 rounded-lg flex items-center justify-center group-hover:scale-110 transition-transform">
@@ -1393,7 +1824,7 @@ useHead({
                         <div class="text-sm font-medium text-gray-800 dark:text-gray-200">长文本</div>
                         <div class="text-xs text-gray-500 dark:text-gray-400">添加多行文本</div>
                     </div>
-                </button> -->
+                </button>
 
                 <!-- 3D文本选项 -->
                 <button @click="select3DText"
@@ -1407,6 +1838,48 @@ useHead({
                         <div class="text-xs text-gray-500 dark:text-gray-400">添加3D立体文本</div>
                     </div>
                 </button>
+            </div>
+        </QhxModal>
+        <QhxModal v-model="showLongTextModal" :trigger-position="longTextModalPosition">
+            <div class="p-6 w-[500px] bg-white dark:bg-gray-800 rounded-[10px] shadow-lg">
+                <h3 class="text-base font-bold mb-4 text-gray-800 dark:text-gray-200">添加长文本</h3>
+                
+                <div class="mb-4">
+                    <div class="text-sm text-gray-700 dark:text-gray-300 mb-2">文本内容</div>
+                    <UTextarea 
+                        v-model="longTextContent" 
+                        placeholder="请输入长文本内容（支持多行）" 
+                        :rows="8"
+                        class="flex-1 focus:ring-0" 
+                        :ui="{
+                            base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
+                            rounded: 'rounded-[10px]',
+                            padding: { xs: 'px-4 py-2' },
+                            color: {
+                                white: {
+                                    outline: 'bg-gray-50 dark:bg-gray-800 ring-1 ring-gray-300 dark:ring-gray-600 focus:ring-2 focus:ring-qhx-primary'
+                                }
+                            }
+                        }" 
+                    />
+                </div>
+
+                <div class="flex gap-3 justify-end">
+                    <UButton 
+                        color="gray" 
+                        variant="outline" 
+                        @click="cancelLongText"
+                    >
+                        取消
+                    </UButton>
+                    <UButton 
+                        color="primary" 
+                        @click="confirmLongText"
+                        :disabled="!longTextContent.trim()"
+                    >
+                        确认
+                    </UButton>
+                </div>
             </div>
         </QhxModal>
         <QhxModal v-model="showPointMenu" :trigger-position="pointMenuPosition">
@@ -1455,6 +1928,106 @@ useHead({
                 </button> -->
             </div>
         </QhxModal>
+        <QhxModal v-model="showImageMenu" :trigger-position="imageMenuPosition">
+            <div class="p-4 w-[200px] bg-white dark:bg-gray-800 rounded-[10px] shadow-lg">
+                <h3 class="text-sm font-bold mb-3 text-gray-800 dark:text-gray-200">选择类型</h3>
+
+                <!-- 图片选项 -->
+                <button @click="selectImage"
+                    class="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors text-left group">
+                    <div
+                        class="w-8 h-8 bg-green-500 dark:bg-green-600 rounded-lg flex items-center justify-center group-hover:scale-110 transition-transform">
+                        <UIcon name="material-symbols:add-photo-alternate-rounded" class="text-base text-white" />
+                    </div>
+                    <div class="flex-1">
+                        <div class="text-sm font-medium text-gray-800 dark:text-gray-200">图片</div>
+                        <div class="text-xs text-gray-500 dark:text-gray-400">添加图片到场景</div>
+                    </div>
+                </button>
+
+                <!-- 背景选项 -->
+                <button @click="selectBackground"
+                    class="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors text-left group mt-2">
+                    <div
+                        class="w-8 h-8 bg-cyan-500 dark:bg-cyan-600 rounded-lg flex items-center justify-center group-hover:scale-110 transition-transform">
+                        <UIcon name="material-symbols:wallpaper-rounded" class="text-base text-white" />
+                    </div>
+                    <div class="flex-1">
+                        <div class="text-sm font-medium text-gray-800 dark:text-gray-200">背景</div>
+                        <div class="text-xs text-gray-500 dark:text-gray-400">设置场景背景</div>
+                    </div>
+                </button>
+
+                <!-- 纯色背景选项 -->
+                <button @click="selectSolidColorBackground"
+                    class="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors text-left group mt-2">
+                    <div
+                        class="w-8 h-8 bg-purple-500 dark:bg-purple-600 rounded-lg flex items-center justify-center group-hover:scale-110 transition-transform">
+                        <UIcon name="material-symbols:palette-rounded" class="text-base text-white" />
+                    </div>
+                    <div class="flex-1">
+                        <div class="text-sm font-medium text-gray-800 dark:text-gray-200">纯色背景</div>
+                        <div class="text-xs text-gray-500 dark:text-gray-400">选择纯色作为背景</div>
+                    </div>
+                </button>
+            </div>
+        </QhxModal>
+        <QhxModal v-model="showLightMenu" :trigger-position="lightMenuPosition">
+            <div class="p-4 w-[240px] bg-white dark:bg-gray-800 rounded-[10px] shadow-lg">
+                <h3 class="text-sm font-bold mb-3 text-gray-800 dark:text-gray-200">选择灯光预设</h3>
+
+                <!-- 默认预设 -->
+                <button @click="applyLightPreset('default')"
+                    class="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors text-left group"
+                    :class="currentLightPreset === 'default' ? 'bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800' : ''">
+                    <div
+                        class="w-8 h-8 bg-yellow-500 dark:bg-yellow-600 rounded-lg flex items-center justify-center group-hover:scale-110 transition-transform">
+                        <UIcon name="material-symbols:light-mode-rounded" class="text-base text-white" />
+                    </div>
+                    <div class="flex-1">
+                        <div class="text-sm font-medium text-gray-800 dark:text-gray-200">默认</div>
+                        <div class="text-xs text-gray-500 dark:text-gray-400">默认灯光配置</div>
+                    </div>
+                    <UIcon v-if="currentLightPreset === 'default'" name="material-symbols:check-circle-rounded"
+                        class="text-yellow-500 text-lg" />
+                </button>
+
+                <!-- 温暖预设 -->
+                <button @click="applyLightPreset('warm')"
+                    class="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors text-left group mt-2"
+                    :class="currentLightPreset === 'warm' ? 'bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800' : ''">
+                    <div
+                        class="w-8 h-8 bg-orange-500 dark:bg-orange-600 rounded-lg flex items-center justify-center group-hover:scale-110 transition-transform">
+                        <UIcon name="material-symbols:wb-sunny-rounded" class="text-base text-white" />
+                    </div>
+                    <div class="flex-1">
+                        <div class="text-sm font-medium text-gray-800 dark:text-gray-200">温暖</div>
+                        <div class="text-xs text-gray-500 dark:text-gray-400">温暖的暖色调灯光</div>
+                    </div>
+                    <UIcon v-if="currentLightPreset === 'warm'" name="material-symbols:check-circle-rounded"
+                        class="text-yellow-500 text-lg" />
+                </button>
+
+                <!-- 冷调预设 -->
+                <button @click="applyLightPreset('cool')"
+                    class="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors text-left group mt-2"
+                    :class="currentLightPreset === 'cool' ? 'bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800' : ''">
+                    <div
+                        class="w-8 h-8 bg-cyan-500 dark:bg-cyan-600 rounded-lg flex items-center justify-center group-hover:scale-110 transition-transform">
+                        <UIcon name="material-symbols:ac-unit-rounded" class="text-base text-white" />
+                    </div>
+                    <div class="flex-1">
+                        <div class="text-sm font-medium text-gray-800 dark:text-gray-200">冷调</div>
+                        <div class="text-xs text-gray-500 dark:text-gray-400">冷色调灯光效果</div>
+                    </div>
+                    <UIcon v-if="currentLightPreset === 'cool'" name="material-symbols:check-circle-rounded"
+                        class="text-yellow-500 text-lg" />
+                </button>
+            </div>
+        </QhxModal>
+
+        <!-- 颜色选择器 -->
+        <QhxColorPicker ref="colorPickerRef" @choose="setSolidColorBackground" />
 
         <!-- 发帖弹窗 -->
         <ClientOnly>
@@ -1495,4 +2068,5 @@ useHead({
         max-height: calc(100vh - 2rem);
     }
 }
+
 </style>
