@@ -1,7 +1,31 @@
 import type { BaseResponse, PaginationParams, PaginationResponse, Compilations } from '@/types/api';
+import { use$Post } from '@/composables/httpCore'
+
 interface SearchParams extends PaginationParams {
   keyword?: string | null  // 可选字段
 }
+
+// 创建合集
+export async function insertComp(
+  data: Partial<Compilations>
+): Promise<BaseResponse<Compilations>> {
+  return await use$Post<BaseResponse<Compilations>>('/comp/insert', data)
+}
+
+// 更新合集
+export async function updateComp(
+  data: Partial<Compilations>
+): Promise<BaseResponse<Compilations>> {
+  return await use$Post<BaseResponse<Compilations>>('/comp/update', data)
+}
+
+// 删除合集
+export async function deleteComp(
+  data: { comp_id: number }
+): Promise<BaseResponse<null>> {
+  return await use$Post<BaseResponse<null>>('/comp/delete', data)
+}
+
 // 新增单条合集数据
 export async function insertCompDetail(
   data: Partial<Compilations>
@@ -53,10 +77,17 @@ export async function deleteCompList(
   return await use$Post<BaseResponse<null>>('/comp/detail/delete', data)
 }
 
+// 用户删除自己添加的合集数据
+export async function deleteCompListUser(
+  data: { comp_id: number; library_id: number }
+): Promise<BaseResponse<null>> {
+  return await use$Post<BaseResponse<null>>('/comp/detail/delete/user', data)
+}
+
 // 获取合集详情列表（如子项列表等）
 export async function getCompDetailList(
   data: PaginationParams & { comp_id: number; keywords?: string }
-): Promise<PaginationResponse<any[]>> {
-  const response = await use$Post<BaseResponse<PaginationResponse<any[]>>>('/comp/detail/list', data)
+): Promise<PaginationResponse<unknown[]>> {
+  const response = await use$Post<BaseResponse<PaginationResponse<unknown[]>>>('/comp/detail/list', data)
   return response.data
 }

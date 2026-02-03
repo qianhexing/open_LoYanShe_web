@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import type { Compilations, PaginationResponse, Library } from '@/types/api';
-import { getCompById, getCompDetailList, insertCompDetailArray, deleteCompList } from '@/api/compilations'
+import { getCompById, getCompDetailList, insertCompDetailArray, deleteCompList, deleteCompListUser } from '@/api/compilations'
 import { BASE_IMG } from '@/utils/ipConfig'
 import type { MatchingListItem } from '@/api/matching_list'
-import LibraryChoose from '@/components/library/LibraryChoose.vue'
-import MatchingChoose from '@/components/matching/MatchingChoose.vue'
+import type LibraryChoose from '@/components/library/LibraryChoose.vue'
+import type MatchingChoose from '@/components/matching/MatchingChoose.vue'
 import LibraryItem from '@/components/library/LibraryItem.vue'
 import CommentSection from '@/components/comment/CommentSection.vue'
 import CommunityForeignList from '@/components/community/CommunityForeignList.vue'
@@ -212,10 +212,18 @@ const deleteCompListItem = async () => {
   if (!library_id) return
   
   try {
-    await deleteCompList({
-      comp_id: Number.parseInt(id),
-      library_id: library_id
-    })
+    // 根据权限判断调用哪个删除接口
+    if (user.hasPermi('comp:detail:delete')) {
+      await deleteCompList({
+        comp_id: Number.parseInt(id),
+        library_id: library_id
+      })
+    } else {
+      await deleteCompListUser({
+        comp_id: Number.parseInt(id),
+        library_id: library_id
+      })
+    }
     toast.add({
       title: '删除成功',
       icon: 'i-heroicons-check-circle',
@@ -269,6 +277,19 @@ const previewImage = (urls: string[], index: number) => {
   // 图片预览功能
 }
 
+// 判断是否是创建者
+const isCreator = computed(() => {
+  if (!detail.value || !user.user?.user_id) return false
+  return detail.value.create_user === user.user.user_id
+})
+
+// 判断是否显示添加按钮（is_open = 1 或者是当前用户）
+const canAddItem = computed(() => {
+  if (!detail.value || !user.token) return false
+  // 如果是开放编辑或者是创建者，则显示添加按钮
+  return detail.value.is_open === 1 || isCreator.value
+})
+
 // 初始化
 onMounted(() => {
   layoutReady.value = true
@@ -294,7 +315,7 @@ useHead({
     <div v-if="detail" class="container mx-auto px-1 py-3">
       <!-- 封面 -->
       <div class="w-full md:flex">
-        <div  v-if="(detail as any).sence_id || detail.comp_cover" class="w-full md:w-[700px] mb-4 rounded-lg overflow-hidden">
+        <div  v-if="(detail as any).sence_id || detail.comp_cover" class="w-full md:w-[700px] mb-4 p-2 rounded-lg overflow-hidden">
           <iframe
             v-if="(detail as any).sence_id"
             border="0"
@@ -306,14 +327,20 @@ useHead({
             v-else-if="detail.comp_cover"
             :src="BASE_IMG + detail.comp_cover"
             :alt="detail.comp_name || '合集封面'"
-            class="w-full aspect-[4/3] object-cover"
+            class="w-full aspect-[4/3] object-cover rounded-lg"
           />
         </div>
 
         <!-- 标题和描述 -->
-        <div class="mb-4 md:flex-1 md:ml-2">
+        <div class="mb-4 md:flex-1 md:ml-4">
           <h1 class="text-2xl font-bold text-qhx-primary mb-2">{{ detail.comp_name }}</h1>
           <div class="text-sm text-gray-500 mb-2">{{ formatDate(detail.create_date) }}</div>
+          <div class="flex items-center gap-2 mb-2">
+            <span class="text-sm text-gray-500">编辑权限：</span>
+            <QhxTag :class="detail.is_open === 1 ? 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300' : 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300'">
+              {{ detail.is_open === 1 ? '开放编辑' : '仅创建者可编辑' }}
+            </QhxTag>
+          </div>
           <div class="text-base text-gray-700 dark:text-gray-300" v-if="detail.comp_describe">
             {{ detail.comp_describe }}
           </div>
@@ -338,7 +365,7 @@ useHead({
           <span class="text-xs">贡献者列表</span>
         </button> -->
         <button
-          v-if="user.hasPermi('comp:detail:delete')"
+          v-if="isCreator"
           @click="openDelete"
           :class="[
             'flex flex-col items-center gap-1 transition-colors',
@@ -372,7 +399,7 @@ useHead({
       <!-- 合集列表 -->
       <div v-show="currentNav === 0">
         <!-- 添加按钮 -->
-        <div class="flex justify-center mb-4" v-if="user.token">
+        <div class="flex justify-center mb-4" v-if="canAddItem">
           <button
             v-if="detail.pk_type === 0"
             @click="showLibraryChoose"
@@ -417,7 +444,7 @@ useHead({
           v-if="detail.pk_type === 0 && layoutReady"
           ref="waterListRef"
           :fetch-data="fetchCompilationsList"
-          :columns="4"
+          :columns="5"
           :itemKey="0"
           :columns_768="2"
           :enableWaterfall="true"
@@ -542,6 +569,7 @@ useHead({
       :multiple="true"
       :need-status="false"
       @choose="libraryChoose"
+      :keywordMode="true"
     />
 
     <!-- 选择搭配组件 -->

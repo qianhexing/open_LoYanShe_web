@@ -137,6 +137,7 @@ const navItems = computed(() => [
   { label: t('header.collection'), to: "/compilations" },
   { label: t('header.community'), to: "/community" },
   { label: t('header.study'), to: "/study" },
+  { label: t('header.teaParty'), to: "/teaparty" },
 ])
 
 // 监听路由变化，关闭移动端菜单

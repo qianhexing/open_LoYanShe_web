@@ -75,6 +75,9 @@ const handlePageChange = (current: number) => {
   })
 }
 
+const userStore = useUserStore()
+const user = computed(() => userStore.user)
+
 const showToast = () => {
   const user = useUserStore()
   console.log(user.token, '获取到的token')
@@ -96,11 +99,16 @@ const handleSearch = () => {
     page.value = 1
   }
 }
+
+// 跳转到添加店铺页面
+const jumpToAddShop = () => {
+  router.push('/addShop')
+}
 </script>
 <template>
   <div class="container mx-auto p-4 pb-20">
     <div class="grid grid-cols-2 md:grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4 px-4  pb-3">
-      <div class="w-full flex items-center">
+      <div class="w-full flex items-center gap-2">
         <UInput
           v-model="value"
           :autofocus="false"
@@ -124,6 +132,15 @@ const handleSearch = () => {
           color="gray"
           @click="handleSearch"
         />
+        <UButton
+          v-if="user"
+          icon="i-heroicons-plus"
+          color="primary"
+          @click="jumpToAddShop"
+          class="whitespace-nowrap"
+        >
+          补充店铺
+        </UButton>
       </div>
     </div>
     <!-- 加载状态 -->

@@ -9,7 +9,7 @@ import {
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { AnimationMixer } from 'three'
 import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js'
-import { BASE_IMG } from '@/utils/ipConfig.js'
+import { BASE_IMG_MODEL as BASE_IMG } from '@/utils/ipConfig.js'
 // @ts-ignore
 import { GPUPicker } from 'three_gpu_picking/src/gpupicker.js'
 // import { TransformGizmo } from './TransformGizmo'
@@ -2793,8 +2793,27 @@ class ThreeCore {
 			})
 			// ⭐️ 渲染流程修改：Bloom 替代原生 WebGL 渲染
 			// 1. 渲染 bloom 通道
+			// 临时隐藏点云模型以优化 Bloom 渲染性能（点云模型渲染耗时，不需要 Bloom 效果）
+			const splatMeshes: Array<{ mesh: THREE.Object3D, wasVisible: boolean }> = [];
 			this.scene.traverse(obj => {
-				if ((obj as any).isMesh) {
+				if (obj.userData?.type === 'splat' && obj instanceof SplatMesh) {
+					splatMeshes.push({ mesh: obj, wasVisible: obj.visible });
+					obj.visible = false; // 临时隐藏点云模型，避免在 Bloom 中渲染
+					// 确保矩阵已更新，避免渲染器在遍历时重新计算
+					obj.updateMatrixWorld(false);
+					// 更新点云模型（在隐藏状态下更新，避免影响渲染）
+					const viewToWorld = new THREE.Matrix4();
+					viewToWorld.multiplyMatrices(this.camera.matrixWorldInverse, obj.matrixWorld);
+					viewToWorld.invert();
+					obj.update({
+							time: this.clock.getElapsedTime(),
+							viewToWorld: viewToWorld,
+							deltaTime: delta,
+							globalEdits: []
+					});
+					return; // 跳过点云模型的材质处理
+				}
+				if ((obj as any).isMesh && obj.userData?.type !== 'splat') {
 					const mesh = obj as THREE.Mesh
 					if (!this.bloomLayer.test(mesh.layers)) {
 						this.materials[mesh.uuid] = mesh.material
@@ -2823,13 +2842,18 @@ class ThreeCore {
 					}
 				}
 			})
-			if (this.showbloom) {
+			if (this.showbloom && splatMeshes.length === 0) {
 				this.bloomComposer.render()
+			}
+
+			// 恢复点云模型的可见性（在 Bloom 渲染后）
+			for (const { mesh, wasVisible } of splatMeshes) {
+				mesh.visible = wasVisible;
 			}
 
 			// 还原材质
 			this.scene.traverse(obj => {
-				if ((obj as any).isMesh && this.materials[obj.uuid]) {
+				if ((obj as any).isMesh && this.materials[obj.uuid] && obj.userData?.type !== 'splat') {
 					const mesh = obj as THREE.Mesh
 					mesh.material = this.materials[mesh.uuid] // 修改点：类型兼容
 					delete this.materials[mesh.uuid]
@@ -2844,7 +2868,13 @@ class ThreeCore {
 				this.renderer.render(this.scene, this.camera);
 			} else {
 				// 2. 合成最终场景
-				this.finalComposer.render()
+				// 如果有点云对象，跳过 Final Composer 渲染，直接使用原生渲染器（避免性能问题）
+				if (splatMeshes.length > 0) {
+					console.log('有高斯泼溅模型，跳过 Final Composer 渲染')
+					this.renderer.render(this.scene, this.camera);
+				} else {
+					this.finalComposer.render()
+				}
 			}
 
 			// 渲染 CSS3D 场景（叠加在 WebGL 上）
@@ -4127,12 +4157,29 @@ class ThreeCore {
 			}
 			if (obj.type === 'splat' && obj.url) {
 				try {
-					const splatGroup = await this.addSplatScene(BASE_IMG + obj.url, {
-						position: obj.position,
-						rotation: obj.rotation,
-						scale: obj.scale
+					const url = BASE_IMG + obj.url
+
+					// 使用 Spark SplatMesh 加载点云模型
+					 const splatMesh =await new SplatMesh({
+						url,
+						fileType: SplatFileType.PLY,
+						maxSplats: 50000
 					})
-					mesh = null
+
+					// 一些默认配置，可根据需要调整 / 扩展到 obj.options
+					splatMesh.maxSh = 2
+					splatMesh.userData.type = 'splat'
+					splatMesh.userData.url = url
+					splatMesh.userData.ignorePick = true
+					splatMesh.castShadow = false
+					splatMesh.quaternion.set(1, 0, 0, 0);
+					splatMesh.receiveShadow = false
+					splatMesh.updateGenerator()
+
+					// 作为普通 mesh 交给后续逻辑统一设置 position/rotation/scale 并加入场景
+					// mesh = splatMesh as unknown as THREE.Mesh
+					this.scene.add(splatMesh)
+					console.log(mesh, '泼溅模型')
 				} catch (e) {
 					console.warn(`泼溅模型加载失败：${obj.url}`, e)
 				}
@@ -4186,9 +4233,9 @@ class ThreeCore {
 				}
 			}
 			if (mesh) {
-				mesh.position.set(...position)
-				mesh.rotation.set(...rotation)
-				mesh.scale.set(...scale)
+				mesh.position.set(...position || [0, 0, 0])
+				mesh.rotation.set(...rotation || [0, 0, 0])
+				mesh.scale.set(...scale || [1, 1, 1])
 				if (obj.renderOrder) {
 					mesh.renderOrder = obj.renderOrder
 				}
@@ -4209,16 +4256,6 @@ class ThreeCore {
 					} else {
 						mesh.scale.set(1, 1, 1)
 					}
-				}
-				// 泼溅模型不需要添加到 allObjects，因为它由 viewer 管理
-				if (obj.type === 'splat' && mesh) {
-					// 泼溅模型已经通过 addSplatScene 添加到场景中
-					// 不需要再次添加到场景或 allObjects
-					current++
-					if (onProgress && !renturGroup) {
-						onProgress(current, total)
-					}
-					continue
 				}
 				if (renturGroup) {
 					mesh.userData.ignorePick = true

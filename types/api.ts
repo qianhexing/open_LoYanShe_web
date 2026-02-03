@@ -110,6 +110,9 @@ export interface Compilations {
   good_number?: number
   brows_times?: number
   pk_type?: number // 0是图鉴合集 1是搭配合集
+  is_enable?: number
+  is_open?: number // 是否开放编辑
+  is_official?: number // 是否官方合集
 }
 
 
@@ -134,9 +137,20 @@ export interface Shop {
 export interface PhysicalShop {
 	physical_id?: number
   physical_name?: string
-  latitude?: number
-  longitude?: number
+  latitude?: string | number
+  longitude?: string | number
   physical_logo?: string
+  address?: string
+  area?: string
+  city?: string
+  province?: string
+  create_time?: string
+  shop_id?: number
+  shop?: {
+    shop_id: number
+    shop_name?: string
+    shop_url?: string | null
+  }
 }
 export interface Wiki {
   wiki_id: number | string
@@ -329,6 +343,7 @@ export interface CollectionList {
   /** 是否完成：0/1 等 */
   is_completed?: number
   comment?: Comment
+  note?: string
 }
 
 export interface CommunityForeign {
@@ -576,4 +591,39 @@ export interface NoticeMessage {
   type?: number // 0全体 1个人
   is_enable?: number
   user_id: number // 如果是1时才有
+}
+
+/** 茶会 */
+export interface Teaparty {
+  tea_id?: number
+  tea_title?: string
+  tea_desc?: string
+  tea_cover?: string
+  create_time?: Date
+  start_time?: Date
+  end_time?: Date
+  limit_number?: number
+  current_number?: number
+  admin_user?: number
+  address?: string
+  province?: string
+  city?: string
+  area?: string
+  tea_type?: number
+  join_way?: number
+  detail_image?: string
+  user?: User
+  latitude?: number
+  longitude?: number
+}
+
+/** 茶会参与者 */
+export interface TeapartyAttend {
+  attend_id?: number
+  tea_id?: number
+  user_id?: number
+  is_approval?: number // 0待审批 1已通过 2已拒绝
+  note?: string
+  create_time?: Date
+  user?: User
 }

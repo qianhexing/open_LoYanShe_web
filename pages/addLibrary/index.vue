@@ -3,6 +3,17 @@
     <!-- 新增图鉴 -->
     <div class="head-seat"></div>
     <div class="add-library">
+      <div class="mb-6 flex justify-center">
+        <UButton 
+          color="primary" 
+          size="lg"
+          icon="i-heroicons-chat-bubble-left-right"
+          @click="joinQQGroup"
+          class="rounded-full"
+        >
+          加入交流QQ群
+        </UButton>
+      </div>
       <UForm ref="libraryForm" :state="library" :rules="rules" class="space-y-6">
         <UFormGroup :label="t('addLibrary.name')" name="name" required v-if="shouldShowField('name')" :class="getHighlightClass('name')">
           <UInput v-model="library.name" :disabled="isReviewMode" :ui="{
@@ -2045,6 +2056,11 @@ const submitReview = async () => {
   } finally {
     reviewLoading.value = false
   }
+}
+
+// 加入QQ群
+const joinQQGroup = () => {
+  window.open('https://qm.qq.com/cgi-bin/qm/qr?k=QHxbdobmidEJ6SqlA6y_gsC3Nia2E1Pw&jump_from=webapi&authKey=urMk9ED6h5KNgQ20HkWHR+uv7+c08prYmMcT3pmZ3is3ZFC16LRawiwvALf0FL4l', '_blank')
 }
 </script>
 

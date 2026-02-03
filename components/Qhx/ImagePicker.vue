@@ -56,7 +56,7 @@
                 color="red"
                 size="2xs"
                 variant="soft"
-                class="absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition"
+                class="absolute top-1 right-1 z-10"
                 @click="removeImage(index)"
               />
             </div>
@@ -137,6 +137,13 @@ const addFiles = (newFiles: File[]) => {
 }
 
 const removeImage = (index: number) => {
+  // 删除弹出提示
+  const toast = useToast()
+  toast.add({
+    title: '删除图片',
+    icon: 'i-heroicons-exclamation-circle',
+    color: 'orange'
+  })
   if (props.disabled) return
   if (previewImages.value[index].url) {
     URL.revokeObjectURL(previewImages.value[index].url)

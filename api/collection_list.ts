@@ -11,6 +11,8 @@ export interface CollectionListParams extends PaginationParams {
   pk_id?: number
   /** 是否完成 */
   is_completed?: number
+  /** 关键字搜索，用于按备注或关联信息搜索 */
+  keywords?: string
 }
 
 
@@ -42,6 +44,18 @@ export async function completedCollection(
 ): Promise<CollectionList> {
   const response = await use$Post<BaseResponse<CollectionList>>(
     '/collectionList/completed',
+    params
+  )
+  return response.data
+}
+
+// 对应后台：.post('/collectionList/refuse', CollectionListController.refuseCollection)
+export async function refuseCollection(params: {
+  collection_id: number
+  note: string
+}): Promise<CollectionList> {
+  const response = await use$Post<BaseResponse<CollectionList>>(
+    '/collectionList/refuse',
     params
   )
   return response.data

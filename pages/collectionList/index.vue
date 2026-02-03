@@ -2,11 +2,13 @@
 import type { CollectionList, Comment } from '@/types/api'
 import { getCollectionList } from '@/api/collection_list'
 import { insertCollection, completedCollection } from '@/api/collection_list'
+import { refuseCollection } from '@/api/collection_list'
 // eslint-disable-next-line @typescript-eslint/no-import-type-side-effects
 import CommentModal from '@/components/community/CommentModal.vue'
 import type QhxWaterList from '@/components/Qhx/WaterList.vue'
 import type LibraryChoose from '@/components/library/LibraryChoose.vue'
 import type { Library } from '@/types/api'
+import { unref } from 'vue'
 
 const layoutReady = inject('layoutReady') as Ref<boolean>
 const waterList = ref<InstanceType<typeof QhxWaterList> | null>(null)
@@ -22,6 +24,51 @@ onMounted(async () => {
   });
 })
 const opear_item = ref<CollectionList | null>(null)
+
+// 拒绝收录弹窗
+const showRefuseModal = ref(false)
+const refuseNote = ref('')
+const refuseLoading = ref(false)
+const refuseTriggerPosition = ref({ x: 0, y: 0 })
+const openRefuseModal = (item: CollectionList, e: MouseEvent) => {
+  opear_item.value = item
+  refuseNote.value = ''
+  refuseTriggerPosition.value = { x: e.clientX + 50, y: e.clientY }
+  showRefuseModal.value = true
+}
+const confirmRefuse = async () => {
+  const collection_id = opear_item.value?.collection_id
+  if (!collection_id) {
+    toast.add({ title: '缺少 collection_id', icon: 'i-heroicons-x-circle', color: 'red' })
+    return
+  }
+  if (!refuseNote.value.trim()) {
+    toast.add({ title: '请输入拒绝原因', icon: 'i-heroicons-exclamation-circle', color: 'orange' })
+    return
+  }
+  if (refuseLoading.value) return
+
+  refuseLoading.value = true
+  try {
+    await refuseCollection({
+      collection_id,
+      note: refuseNote.value.trim()
+    })
+    toast.add({ title: '已提交拒绝原因', icon: 'i-heroicons-check-circle', color: 'green' })
+    showRefuseModal.value = false
+    waterList.value?.refresh(true)
+  } catch (error) {
+    console.error('拒绝收录失败:', error)
+    toast.add({
+      title: '拒绝收录失败',
+      description: error instanceof Error ? error.message : '请稍后重试',
+      icon: 'i-heroicons-x-circle',
+      color: 'red'
+    })
+  } finally {
+    refuseLoading.value = false
+  }
+}
 const jumpToLibrary = (item: CollectionList) => {
   window.open('/addLibrary', '_blank')
 }
@@ -189,13 +236,13 @@ definePageMeta({
       v-if="layoutReady"
       :fetch-data="async (page, pageSize) => {
         try {
+          const keywordValue = unref(keywords).trim()
           const response = await getCollectionList({
             page: page,
             pageSize: pageSize,
             // user_id: user.user?.user_id,
             is_completed: onlyUncompleted ? 0 : undefined,
-            // 预留关键字过滤，后端若支持可在此传参
-            // keywords: keywords.value
+            keywords: keywordValue || undefined
           })
           return {
             rows: response.rows,
@@ -227,12 +274,14 @@ definePageMeta({
               <span
                 class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium"
                 :class="
-                  item.is_completed
+                  item.is_completed === 1
                     ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-900/20 dark:text-emerald-300'
+                    : item.is_completed === 2
+                    ? 'bg-red-50 text-red-600 dark:bg-red-900/20 dark:text-red-300'
                     : 'bg-amber-50 text-amber-600 dark:bg-amber-900/20 dark:text-amber-300'
                 "
               >
-                {{ item.is_completed ? '已采集' : '未采集' }}
+                {{ item.is_completed === 1 ? '已采集' : item.is_completed === 2 ? '已拒绝' : '未采集' }}
               </span>
             </div>
             <div>
@@ -269,6 +318,9 @@ definePageMeta({
             </div>
             <div class="mt-2 flex items-center justify-between text-xs text-gray-400" v-if="item.is_completed === 0">
               <UButton @click="jumpToLibrary(item)">去收录</UButton>
+              <UButton variant="ghost" color="red" @click="(e: MouseEvent) => openRefuseModal(item, e)">
+                <span>拒绝收录</span>
+              </UButton>
               <UButton variant="ghost" color="gray" @click="(e: MouseEvent) => showChooseLibrary(item, e)">
                 <span>
                   <UIcon name="i-heroicons-check-circle" class="w-4 h-4" />
@@ -281,6 +333,9 @@ definePageMeta({
               <img :src="BASE_IMG + item.library.cover + '?x-oss-process=image/quality,q_100/resize,w_300,h_300'"
               class="w-10 h-10 rounded-full object-cover" alt="图鉴封面">
               <span>{{ item.library.name }}</span>
+            </div>
+            <div class="mt-2 flex items-center text-xs cursor-pointer text-red-600" v-if="item.is_completed === 2 && item.note"> 
+              <span>拒绝原因：{{ item.note }}</span>
             </div>
           </div>
         </div>
@@ -317,6 +372,40 @@ definePageMeta({
       :keywordMode="true"
       @choose="handleLibraryChoose"
     />
+
+    <!-- 拒绝收录弹窗 -->
+    <QhxModal v-model="showRefuseModal" :trigger-position="refuseTriggerPosition">
+      <div class="p-6 w-[420px] bg-white dark:bg-gray-800 rounded-[10px] shadow-lg">
+        <h3 class="text-base font-bold mb-4 text-gray-800 dark:text-gray-200">拒绝收录</h3>
+        <div class="mb-2 text-sm text-gray-600 dark:text-gray-300">
+          请输入拒绝原因（将写入 note 字段）
+        </div>
+        <UTextarea
+          v-model="refuseNote"
+          placeholder="例如：信息不完整/重复/不符合收录规则…"
+          :rows="6"
+          class="flex-1 focus:ring-0"
+          :ui="{
+            base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
+            rounded: 'rounded-[10px]',
+            padding: { xs: 'px-4 py-2' },
+            color: {
+              white: {
+                outline: 'bg-gray-50 dark:bg-gray-800 ring-1 ring-gray-300 dark:ring-gray-600 focus:ring-2 focus:ring-qhx-primary'
+              }
+            }
+          }"
+        />
+        <div class="flex gap-3 justify-end mt-4">
+          <UButton color="gray" variant="outline" @click="showRefuseModal = false" :disabled="refuseLoading">
+            取消
+          </UButton>
+          <UButton color="red" @click="confirmRefuse" :loading="refuseLoading">
+            确认拒绝
+          </UButton>
+        </div>
+      </div>
+    </QhxModal>
   </div>
 </template>
 

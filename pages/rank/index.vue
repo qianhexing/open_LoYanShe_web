@@ -21,25 +21,32 @@
           <QhxTabPanel :index="0">
             <template #default="{ isActive }">
               <div v-if="isActive" class="p-4 md:p-6">
-                <RankContent key="contribute7" type="contribute7" />
+                <RankContent key="exp" type="exp" />
               </div>
             </template>
           </QhxTabPanel>
           <QhxTabPanel :index="1">
             <template #default="{ isActive }">
               <div v-if="isActive" class="p-4 md:p-6">
-                <RankContent key="good" type="good" />
+                <RankContent key="contribute7" type="contribute7" />
               </div>
             </template>
           </QhxTabPanel>
           <QhxTabPanel :index="2">
             <template #default="{ isActive }">
               <div v-if="isActive" class="p-4 md:p-6">
-                <RankContent key="collect" type="collect" />
+                <RankContent key="good" type="good" />
               </div>
             </template>
           </QhxTabPanel>
           <QhxTabPanel :index="3">
+            <template #default="{ isActive }">
+              <div v-if="isActive" class="p-4 md:p-6">
+                <RankContent key="collect" type="collect" />
+              </div>
+            </template>
+          </QhxTabPanel>
+          <QhxTabPanel :index="4">
             <template #default="{ isActive }">
               <div v-if="isActive" class="p-4 md:p-6">
                 <RankContent key="contribute" type="contribute" />
@@ -69,22 +76,25 @@ useHead({
 })
 
 const navList = [
+  '等级排行',
   '七日图鉴贡献',
   '点赞排行',
   '收藏排行',
   '图鉴贡献'
 ]
 
-const currentType = ref<'good' | 'collect' | 'contribute' | 'contribute7'>('contribute7')
+const currentType = ref<'good' | 'collect' | 'contribute' | 'contribute7' | 'exp'>('exp')
 
 const changeNav = (index: number) => {
   if (index === 0) {
-    currentType.value = 'contribute7'
+    currentType.value = 'exp'
   } else if (index === 1) {
-    currentType.value = 'good'
+    currentType.value = 'contribute7'
   } else if (index === 2) {
-    currentType.value = 'collect'
+    currentType.value = 'good'
   } else if (index === 3) {
+    currentType.value = 'collect'
+  } else if (index === 4) {
     currentType.value = 'contribute'
   }
 }

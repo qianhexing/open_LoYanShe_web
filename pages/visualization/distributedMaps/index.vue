@@ -3,9 +3,11 @@ import { ref, onMounted, onBeforeUnmount, shallowRef } from 'vue';
 import * as THREE from 'three';
 import ThreeCore from '@/utils/threeCore';
 import { getDistributedMaps, type DistributedMapData } from '@/api/statistics';
-import type { PhysicalShop } from '@/types/api';
+import { getAllPhysicalShops } from '@/api/shop';
+import type { PhysicalShop, Teaparty } from '@/types/api';
+import { getTeapartyByYear } from '@/api/teapart';
 import { useHead } from '@unhead/vue';
-import { BASE_IMG } from '@/utils/ipConfig';
+import { BASE_IMG, BASE_IMG_MODEL } from '@/utils/ipConfig';
 import dayjs from 'dayjs';
 import TimeRuler from '@/components/TimeRuler.vue';
 
@@ -39,6 +41,7 @@ interface RankItem {
   name: string;
   count: number;
   percent: string;
+  populationPercent?: string; // 占总人口的占比
 }
 
 interface DataItem {
@@ -47,6 +50,7 @@ interface DataItem {
 }
 
 interface TeaParty {
+  tea_id?: number;
   tea_cover: string;
   tea_title: string;
   longitude: number;
@@ -60,6 +64,7 @@ const container = ref<HTMLElement | null>(null);
 const threeCore = shallowRef<ThreeCore | null>(null);
 const loading = ref(true);
 const shopLoading = ref(false); // 实体店加载状态
+const teaPartyLoading = ref(false); // 茶会加载状态
 const rankList = ref<RankItem[]>([]);
 const isRankExpanded = ref(false); // 排行榜默认不展开
 const totalCount = ref(0);
@@ -71,6 +76,8 @@ const showBars = ref(true);
 const showTeaParties = ref(true);
 const teaPartyList = ref<TeaParty[]>([]);
 const loadedYears = ref<Set<number>>(new Set());
+// 防抖定时器
+let loadTeaPartyTimer: NodeJS.Timeout | null = null;
 let teaPartyGroup: THREE.Group | null = null;
 const TIME_SCALE = 0.5; // 1天对应的刻度 (高度单位)
 // 控制实体店的显示
@@ -97,15 +104,168 @@ const currentDate = ref(new Date());
 const formattedDate = ref(dayjs().format('YYYY-MM-DD'));
 const showDateToast = ref(false);
 let dateToastTimer: NodeJS.Timeout | null = null;
+const provincePopulation = ref({
+  "北京市": 21843000,
+  "天津市": 13630000,
+  "河北省": 74200000,
+  "山西省": 34810000,
+  "内蒙古": 24010000,
+  "辽宁省": 41970000,
+  "吉林省": 23470000,
+  "黑龙江省": 30990000,
+  "上海市": 24758900,
+  "江苏省": 85150000,
+  "浙江省": 65770000,
+  "安徽省": 61270000,
+  "福建省": 41880000,
+  "江西省": 45270000,
+  "山东省": 101628000,
+  "河南省": 98720000,
+  "湖北省": 58440000,
+  "湖南省": 66040000,
+  "广东省": 126568000,
+  "广西": 50470000,
+  "海南省": 10270000,
+  "重庆市": 32133000,
+  "四川省": 83740000,
+  "贵州省": 38560000,
+  "云南省": 46930000,
+  "西藏": 3640000,
+  "陕西省": 39560000,
+  "甘肃省": 24920000,
+  "青海省": 5950000,
+  "宁夏": 7280000,
+  "新疆": 25870000,
+  "台湾": 23570000,
+  "香港": 7291600,
+  "澳门": 672800
+})
+
+// 判断是否为 uniapp 环境
+const isUniApp = (): boolean => {
+  if (import.meta.client && typeof window !== 'undefined') {
+    return navigator.userAgent.includes('Html5Plus') || 
+           typeof (window as { uni?: unknown }).uni !== 'undefined';
+  }
+  return false;
+};
+
+// 跳转到茶会详情页
+const goToTeaPartyDetail = (teaId?: number) => {
+  if (!teaId) return;
+  
+  const url = `/teaparty/detail/${teaId}`;
+  
+  if (isUniApp()) {
+    // uniapp 环境使用 uni.navigateTo
+    try {
+      const uni = (window as { uni?: { navigateTo?: (options: { url: string; fail?: (err: unknown) => void }) => void } }).uni;
+      if (uni?.navigateTo) {
+        uni.navigateTo({
+          url: `/pages/teaparty/detail/teapartyDetail?id=${teaId}`,
+          fail: (err: unknown) => {
+            console.error('跳转失败:', err);
+          }
+        });
+      } else {
+        // 如果 uni 对象不存在，使用 window.open
+        window.open(url, '_blank');
+      }
+    } catch (error) {
+      console.error('uniapp 跳转失败:', error);
+      window.open(url, '_blank');
+    }
+  } else {
+    // 非 uniapp 环境，新页签打开
+    window.open(url, '_blank');
+  }
+  
+  // 关闭弹窗
+  teaPartyModalVisible.value = false;
+};
+
+// 跳转到店铺详情页
+const goToShopDetail = (shopId?: number) => {
+  if (!shopId) return;
+  
+  const url = `/shop/detail/${shopId}`;
+  
+  if (isUniApp()) {
+    // uniapp 环境使用 uni.navigateTo
+    try {
+      const uni = (window as { uni?: { navigateTo?: (options: { url: string; fail?: (err: unknown) => void }) => void } }).uni;
+      if (uni?.navigateTo) {
+        uni.navigateTo({
+          url: `/pages/shop/shopDetail/shopDetail?id=${shopId}`,
+          fail: (err: unknown) => {
+            console.error('跳转失败:', err);
+          }
+        });
+      } else {
+        // 如果 uni 对象不存在，使用 window.open
+        window.open(url, '_blank');
+      }
+    } catch (error) {
+      console.error('uniapp 跳转失败:', error);
+      window.open(url, '_blank');
+    }
+  } else {
+    // 非 uniapp 环境，新页签打开
+    window.open(url, '_blank');
+  }
+};
+
+// 格式化日期
+const formatDate = (dateStr?: string) => {
+  if (!dateStr) return '';
+  try {
+    return dayjs(dateStr).format('YYYY-MM-DD');
+  } catch {
+    return dateStr;
+  }
+};
+
+// 格式化地址
+const formatAddress = (shop: PhysicalShop) => {
+  const parts: string[] = [];
+  if (shop.province) parts.push(shop.province);
+  if (shop.city && shop.city !== '市辖区') parts.push(shop.city);
+  if (shop.area) parts.push(shop.area);
+  if (shop.address) parts.push(shop.address);
+  return parts.join(' ');
+};
+
+// 格式化坐标（处理字符串或数字类型）
+const formatCoordinate = (value: number | string | undefined): string => {
+  if (value === undefined || value === null) return '0.0000';
+  const num = typeof value === 'string' ? Number.parseFloat(value) : value;
+  if (Number.isNaN(num)) return '0.0000';
+  return num.toFixed(4);
+};
+
+// 安全地将坐标转换为数字（处理字符串或数字类型）
+const toNumber = (value: number | string | undefined): number => {
+  if (value === undefined || value === null) return 0;
+  if (typeof value === 'number') return value;
+  const num = Number.parseFloat(value);
+  return Number.isNaN(num) ? 0 : num;
+};
 
 const handleDateChange = (date: Date) => {
   const fDate = dayjs(date).format('YYYY-MM-DD');
   formattedDate.value = fDate;
   
-  // 检查是否跨年，如果是则加载新数据
+  // 检查是否跨年，如果是则加载新数据（使用防抖，避免高频触发）
   const year = date.getFullYear();
-  if (!loadedYears.value.has(year)) {
+  if (!loadedYears.value.has(year) && !teaPartyLoading.value) {
+    // 清除之前的定时器
+    if (loadTeaPartyTimer) {
+      clearTimeout(loadTeaPartyTimer);
+    }
+    // 防抖：延迟300ms执行，如果在这期间再次触发则重新计时
+    loadTeaPartyTimer = setTimeout(() => {
       loadTeaPartyData(date);
+    }, 300);
   }
   
   // 实时更新位置
@@ -161,44 +321,8 @@ const selectedShopCluster = ref<PhysicalShop[]>([]);
 const teaPartyModalVisible = ref(false);
 const selectedTeaParty = ref<TeaParty | null>(null);
 
-// 模拟实体店数据
-const mockPhysicalShops: PhysicalShop[] = [
-  {
-    physical_id: 1,
-    physical_name: '上海实体店',
-    latitude: 31.23,
-    longitude: 121.47,
-    physical_logo: '/images/shop1.jpg'
-  },
-  {
-    physical_id: 2,
-    physical_name: '北京实体店',
-    latitude: 39.90,
-    longitude: 116.40,
-    physical_logo: '/images/shop2.jpg'
-  },
-  {
-    physical_id: 3,
-    physical_name: '广州实体店',
-    latitude: 23.13,
-    longitude: 113.26,
-    physical_logo: '/images/shop3.jpg'
-  },
-  {
-    physical_id: 4,
-    physical_name: '深圳实体店',
-    latitude: 22.54,
-    longitude: 114.07,
-    physical_logo: '/images/shop4.jpg'
-  },
-  {
-    physical_id: 5,
-    physical_name: '成都实体店',
-    latitude: 30.67,
-    longitude: 104.06,
-    physical_logo: '/images/shop5.jpg'
-  }
-];
+// 实体店数据
+const physicalShops = ref<PhysicalShop[]>([]);
 
 // 地图相关配置
 const MAP_CENTER = [104.0, 37.5]; 
@@ -263,37 +387,111 @@ const project = (lng: number, lat: number) => {
   return { x, y };
 };
 
-const createTextSprite = (text: string, color: string = '#333333') => {
+const createTextSprite = (text: string, color: string = '#333333', options?: { fontSize?: number; withBackground?: boolean; strokeWidth?: number }) => {
   const canvas = document.createElement('canvas');
-  const fontSize = 32;
+  const fontSize = options?.fontSize || 36; // 缩小默认字体到 36
+  const withBackground = options?.withBackground !== false; // 默认添加背景
+  const strokeWidth = options?.strokeWidth || 2.5; // 减小描边宽度
+  
   const context = canvas.getContext('2d');
   if (!context) return null;
 
-  context.font = `bold ${fontSize}px "Microsoft YaHei", sans-serif`;
+  // 测量文本尺寸，优化内边距
+  const padding = 10;
+  context.font = `600 ${fontSize}px "Microsoft YaHei", "PingFang SC", "Helvetica Neue", Arial, sans-serif`;
   const metrics = context.measureText(text);
-  const width = metrics.width;
-  const height = fontSize * 1.4;
+  const textWidth = metrics.width;
+  const textHeight = fontSize * 1.3;
+  
+  // 计算画布尺寸（包含内边距和描边）
+  const width = textWidth + padding * 2 + strokeWidth * 2;
+  const height = textHeight + padding * 2 + strokeWidth * 2;
 
   canvas.width = width;
   canvas.height = height;
 
-  context.font = `bold ${fontSize}px "Microsoft YaHei", sans-serif`;
-  context.fillStyle = color;
+  // 设置高质量渲染
+  context.imageSmoothingEnabled = true;
+  context.imageSmoothingQuality = 'high';
+
+  // 绘制背景（带渐变和阴影效果，更大的圆角）
+  if (withBackground) {
+    const radius = 12; // 增大圆角半径
+    const x = strokeWidth / 2;
+    const y = strokeWidth / 2;
+    const w = width - strokeWidth;
+    const h = height - strokeWidth;
+    
+    // 绘制阴影
+    context.shadowColor = 'rgba(0, 0, 0, 0.15)';
+    context.shadowBlur = 8;
+    context.shadowOffsetX = 0;
+    context.shadowOffsetY = 2;
+    
+    // 使用兼容的方式绘制圆角矩形
+    context.beginPath();
+    context.moveTo(x + radius, y);
+    context.lineTo(x + w - radius, y);
+    context.quadraticCurveTo(x + w, y, x + w, y + radius);
+    context.lineTo(x + w, y + h - radius);
+    context.quadraticCurveTo(x + w, y + h, x + w - radius, y + h);
+    context.lineTo(x + radius, y + h);
+    context.quadraticCurveTo(x, y + h, x, y + h - radius);
+    context.lineTo(x, y + radius);
+    context.quadraticCurveTo(x, y, x + radius, y);
+    context.closePath();
+    
+    // 创建渐变背景（增加透明度）
+    const gradient = context.createLinearGradient(x, y, x, y + h);
+    gradient.addColorStop(0, 'rgba(255, 255, 255, 0.85)');
+    gradient.addColorStop(1, 'rgba(255, 255, 255, 0.75)');
+    context.fillStyle = gradient;
+    context.fill();
+    
+    // 清除阴影，绘制边框
+    context.shadowColor = 'transparent';
+    context.shadowBlur = 0;
+    context.shadowOffsetX = 0;
+    context.shadowOffsetY = 0;
+    
+    // 添加更精致的边框（降低不透明度）
+    context.strokeStyle = 'rgba(0, 0, 0, 0.06)';
+    context.lineWidth = 1.5;
+    context.stroke();
+  }
+
+  // 设置文本样式
+  context.font = `600 ${fontSize}px "Microsoft YaHei", "PingFang SC", "Helvetica Neue", Arial, sans-serif`;
   context.textAlign = 'center';
   context.textBaseline = 'middle';
   
-  context.shadowColor = 'rgba(255, 255, 255, 0.8)';
-  context.shadowBlur = 4;
-  context.shadowOffsetX = 0;
-  context.shadowOffsetY = 0;
+  const centerX = width / 2;
+  const centerY = height / 2;
   
-  context.fillText(text, width / 2, height / 2);
+  // 先绘制描边（白色描边，增强对比度）
+  context.strokeStyle = 'rgba(255, 255, 255, 0.9)';
+  context.lineWidth = strokeWidth;
+  context.lineJoin = 'round';
+  context.miterLimit = 2;
+  context.strokeText(text, centerX, centerY);
+  
+  // 绘制填充
+  context.fillStyle = color;
+  context.fillText(text, centerX, centerY);
 
   const texture = new THREE.CanvasTexture(canvas);
-  const material = new THREE.SpriteMaterial({ map: texture, transparent: true, depthTest: false });
+  texture.minFilter = THREE.LinearFilter;
+  texture.magFilter = THREE.LinearFilter;
+  const material = new THREE.SpriteMaterial({ 
+    map: texture, 
+    transparent: true, 
+    depthTest: false,
+    alphaTest: 0.05 // 降低阈值，使边缘更柔和
+  });
   const sprite = new THREE.Sprite(material);
   
-  const scale = 0.12;
+  // 缩小 scale，使文本更精致
+  const scale = 0.12; // 从 0.15 减小到 0.12
   sprite.scale.set(width * scale * 0.1, height * scale * 0.1, 1);
   sprite.renderOrder = 10;
   return sprite;
@@ -504,49 +702,83 @@ const getInterpolatedColor = (rank: number, maxRank: number) => {
 
 // --- 茶会相关逻辑 ---
 
-// 生成模拟茶会数据
-const getMockTeaParties = (year: number): TeaParty[] => {
-  const list: TeaParty[] = [];
-  const count = 5 + Math.floor(Math.random() * 5); // 每年5-10个
+// 将 Teaparty 转换为 TeaParty 格式
+const convertTeapartyToTeaParty = (teaparty: Teaparty): TeaParty => {
+  // 处理时间：如果是 Date 对象转换为时间戳，如果是字符串也转换，如果是数字直接使用
+  let startTime = 0;
+  let endTime = 0;
   
-  for (let i = 0; i < count; i++) {
-    const month = Math.floor(Math.random() * 12);
-    const day = 1 + Math.floor(Math.random() * 28);
-    const start = dayjs().year(year).month(month).date(day).startOf('day');
-    const durationDays = 1 + Math.floor(Math.random() * 3); // 1-3天
-    const end = start.add(durationDays, 'day');
-    
-    // 随机在中国范围内
-    const lng = 100 + Math.random() * 20;
-    const lat = 25 + Math.random() * 15;
-    
-    list.push({
-      tea_cover: '',
-      tea_title: `${year}年茶会-${i+1}`,
-      longitude: lng,
-      latitude: lat,
-      start_time: start.valueOf(),
-      end_time: end.valueOf()
-    });
+  if (teaparty.start_time) {
+    if (teaparty.start_time instanceof Date) {
+      startTime = teaparty.start_time.getTime();
+    } else if (typeof teaparty.start_time === 'string') {
+      startTime = new Date(teaparty.start_time).getTime();
+    } else if (typeof teaparty.start_time === 'number') {
+      startTime = teaparty.start_time;
+    }
   }
-  return list;
+  
+  if (teaparty.end_time) {
+    if (teaparty.end_time instanceof Date) {
+      endTime = teaparty.end_time.getTime();
+    } else if (typeof teaparty.end_time === 'string') {
+      endTime = new Date(teaparty.end_time).getTime();
+    } else if (typeof teaparty.end_time === 'number') {
+      endTime = teaparty.end_time;
+    }
+  }
+  
+  // 处理封面图片：如果有 BASE_IMG 前缀则保留，否则添加
+  let teaCover = teaparty.tea_cover || '';
+  if (teaCover && !teaCover.startsWith('http') && !teaCover.startsWith(BASE_IMG)) {
+    teaCover = `${BASE_IMG}${teaCover}`;
+  }
+  
+  return {
+    tea_id: teaparty.tea_id,
+    tea_cover: teaCover,
+    tea_title: teaparty.tea_title || '未命名茶会',
+    longitude: teaparty.longitude || 0,
+    latitude: teaparty.latitude || 0,
+    start_time: startTime,
+    end_time: endTime
+  };
 };
 
 const loadTeaPartyData = async (date: Date) => {
   const year = date.getFullYear();
+  // 如果已经加载过该年份的数据，不再重复获取
   if (loadedYears.value.has(year)) return;
   
-  // 模拟请求
-  console.log(`Loading tea party data for ${year}...`);
-  const data = getMockTeaParties(year);
+  // 如果正在加载中，避免重复请求
+  if (teaPartyLoading.value) return;
   
-  teaPartyList.value = [...teaPartyList.value, ...data];
-  loadedYears.value.add(year);
-  
-  // 更新绘制 (只添加新的)
-  // 为了简单起见，这里重绘所有茶会圆柱。在实际项目中可能需要优化。
-  if (threeCore.value && mapGroup) {
+  try {
+    // 设置加载状态
+    teaPartyLoading.value = true;
+    console.log(`Loading tea party data for ${year}...`);
+    
+    // 调用真实 API 获取该年份的茶会数据
+    const teapartyList = await getTeapartyByYear({ year });
+    
+    // 转换为本地使用的格式
+    const convertedData = teapartyList.map(convertTeapartyToTeaParty);
+    
+    // 合并到现有列表（避免重复）
+    teaPartyList.value = [...teaPartyList.value, ...convertedData];
+    
+    // 标记该年份已加载
+    loadedYears.value.add(year);
+    
+    // 更新绘制
+    if (threeCore.value && mapGroup) {
       drawTeaParties(threeCore.value.scene, mapGroup.position);
+    }
+  } catch (error) {
+    console.error(`Failed to load tea party data for ${year}:`, error);
+  } finally {
+    // 无论成功或失败，都要重置加载状态
+    teaPartyLoading.value = false;
   }
 };
 
@@ -626,6 +858,7 @@ const drawTeaParties = (scene: THREE.Scene, mapGroupOffset: THREE.Vector3) => {
         
         mesh.userData = {
             isTeaParty: true,
+            tea_id: party.tea_id,
             start_time: party.start_time,
             end_time: party.end_time,
             zBase: zBase,
@@ -686,7 +919,7 @@ const drawTeaParties = (scene: THREE.Scene, mapGroupOffset: THREE.Vector3) => {
 
 const loadMapData = async () => {
   try {
-    const url = `${BASE_IMG}ssr/world.json`; 
+    const url = `${BASE_IMG_MODEL}ssr/world.json`; 
     try {
         const res = await fetch(url);
         if (res.ok) {
@@ -716,16 +949,36 @@ const drawMap = (geojson: GeoJSON, scene: THREE.Scene, dataMap: Map<string, Data
     const coordinates = feature.geometry.coordinates;
     const type = feature.geometry.type;
     
-    // 查找数据
+    // 查找数据（特别处理内蒙古和蒙古的区分）
     let count = 0;
     let rank = 0;
     let dataItem = dataMap.get(provinceName);
     if (!dataItem) {
+        const isInnerMongolia = provinceName === '内蒙古自治区' || provinceName.includes('内蒙古');
+        const isMongolia = provinceName === '蒙古' && !provinceName.includes('内');
+        
         for (const [key, value] of dataMap.entries()) {
-            if (provinceName.includes(key) || key.includes(provinceName)) {
-                dataItem = value;
-                break;
+          // 如果是内蒙古，只匹配包含"内蒙古"的
+          if (isInnerMongolia) {
+            if (key.includes('内蒙古')) {
+              dataItem = value;
+              break;
             }
+          }
+          // 如果是蒙古（不是内蒙古），只匹配不包含"内"的蒙古
+          else if (isMongolia) {
+            if ((key === '蒙古' || key.replace(/省|市|自治区|特别行政区$/, '') === '蒙古') && !key.includes('内')) {
+              dataItem = value;
+              break;
+            }
+          }
+          // 其他情况使用原来的匹配逻辑
+          else {
+            if (provinceName.includes(key) || key.includes(provinceName)) {
+              dataItem = value;
+              break;
+            }
+          }
         }
     }
     if (dataItem) {
@@ -853,6 +1106,46 @@ const getGeometryCenter = (coordinates: any[], type: string): [number, number] |
     return [(xMin + xMax) / 2, (yMin + yMax) / 2];
 };
 
+// 处理标签文本：中国省份加"省"，台湾前加"中国"
+const formatLocationLabel = (location: string): string => {
+  // 如果是台湾，前面加上"中国"
+  if (location === '台湾' || location === '台湾省' || location.includes('台湾')) {
+    // 如果已经是"中国台湾"开头，则不再添加
+    if (location.startsWith('中国')) {
+      return location;
+    }
+    return `中国${location}`;
+  }
+  
+  // 检查是否是中国省份（排除台湾，因为上面已经处理了）
+  // 先去掉后缀，然后匹配省份名称
+  const locationWithoutSuffix = location.replace(/省|市|自治区|特别行政区$/, '');
+  const matchedProvince = CHINA_PROVINCES.find(province => {
+    const provinceWithoutSuffix = province.replace(/省|市|自治区|特别行政区$/, '');
+    return province === location || 
+           provinceWithoutSuffix === location || 
+           provinceWithoutSuffix === locationWithoutSuffix ||
+           location.includes(provinceWithoutSuffix) ||
+           province.includes(locationWithoutSuffix);
+  });
+  
+  if (matchedProvince && !matchedProvince.includes('台湾')) {
+    // 如果名称中已经包含"省"、"市"、"自治区"、"特别行政区"等后缀，则直接返回
+    if (/省|市|自治区|特别行政区$/.test(location)) {
+      return location;
+    }
+    // 如果匹配到的省份名称有后缀，使用匹配到的完整名称
+    if (matchedProvince && matchedProvince !== location) {
+      return matchedProvince;
+    }
+    // 否则加上"省"
+    return `${location}省`;
+  }
+  
+  // 其他情况直接返回原名称
+  return location;
+};
+
 const drawBars = (data: DistributedMapData[], geojson: GeoJSON, scene: THREE.Scene, mapGroupOffset: THREE.Vector3) => {
   // 如果已存在，先移除
   if (barGroup) {
@@ -870,10 +1163,26 @@ const drawBars = (data: DistributedMapData[], geojson: GeoJSON, scene: THREE.Sce
     // 确保有数据的区块都生成圆柱
     if (item.COUNT === 0) return;
 
-    // 尝试匹配 feature (增强匹配逻辑)
+    // 尝试匹配 feature (增强匹配逻辑，特别处理内蒙古和蒙古)
+    const isInnerMongolia = item.ip_location === '内蒙古' || item.ip_location === '内蒙古自治区' || item.ip_location.includes('内蒙古');
+    const isMongolia = item.ip_location === '蒙古' && !item.ip_location.includes('内');
+    
     let feature = geojson.features.find(f => f.properties.name === item.ip_location);
     if (!feature) {
-        feature = geojson.features.find(f => f.properties.name.includes(item.ip_location) || item.ip_location.includes(f.properties.name));
+        feature = geojson.features.find(f => {
+          const fName = f.properties.name;
+          // 如果是内蒙古，只匹配包含"内蒙古"的
+          if (isInnerMongolia) {
+            return fName.includes('内蒙古');
+          }
+          // 如果是蒙古（不是内蒙古），只匹配不包含"内"的蒙古
+          if (isMongolia) {
+            return (fName === '蒙古' || fName.replace(/省|市|自治区|特别行政区$/, '') === '蒙古') && !fName.includes('内');
+          }
+          // 其他情况使用原来的匹配逻辑
+          return fName.includes(item.ip_location);
+        });
+        console.log(feature,item.ip_location, '省份数据');
     }
 
     if (feature) {
@@ -931,12 +1240,22 @@ const drawBars = (data: DistributedMapData[], geojson: GeoJSON, scene: THREE.Sce
             const border = new THREE.LineSegments(edges, borderMaterial);
             mesh.add(border);
 
-            const label = createTextSprite(`${item.ip_location}`, '#333333');
-            const numLabel = createTextSprite(`${count}`, '#7130ae');
+            // 使用优化后的字体大小和样式
+            const formattedLabel = formatLocationLabel(item.ip_location);
+            const label = createTextSprite(formattedLabel, '#1f2937', { 
+              fontSize: 40, 
+              withBackground: true,
+              strokeWidth: 2.5 
+            });
+            const numLabel = createTextSprite(`${count}`, '#7130ae', { 
+              fontSize: 42, 
+              withBackground: true,
+              strokeWidth: 2.5 
+            });
             
             if (label && numLabel) {
-                label.position.set(x, y, zBase + height + 2.0);
-                numLabel.position.set(x, y, zBase + height + 0.8);
+                label.position.set(x, y, zBase + height + 2.2);
+                numLabel.position.set(x, y, zBase + height + 0.9);
                 barGroup.add(label);
                 barGroup.add(numLabel);
             }
@@ -1062,27 +1381,33 @@ const clusterShops = (shops: PhysicalShop[], threshold: number = 5): ShopCluster
   const processed = new Set<number>();
   
   for (let i = 0; i < shops.length; i++) {
-    if (processed.has(i) || !shops[i].latitude || !shops[i].longitude) continue;
-    
     const shop = shops[i];
-    const { x, y } = project(shop.longitude, shop.latitude);
+    const lat = toNumber(shop.latitude);
+    const lng = toNumber(shop.longitude);
+    
+    if (processed.has(i) || !lat || !lng) continue;
+    
+    const { x, y } = project(lng, lat);
     
     // 创建新聚类
     const cluster: ShopCluster = {
       shops: [shop],
       centerX: x,
       centerY: y,
-      centerLng: shop.longitude!,
-      centerLat: shop.latitude!
+      centerLng: lng,
+      centerLat: lat
     };
     processed.add(i);
     
     // 查找附近的实体店
     for (let j = i + 1; j < shops.length; j++) {
-      if (processed.has(j) || !shops[j].latitude || !shops[j].longitude) continue;
-      
       const otherShop = shops[j];
-      const { x: x2, y: y2 } = project(otherShop.longitude!, otherShop.latitude!);
+      const otherLat = toNumber(otherShop.latitude);
+      const otherLng = toNumber(otherShop.longitude);
+      
+      if (processed.has(j) || !otherLat || !otherLng) continue;
+      
+      const { x: x2, y: y2 } = project(otherLng, otherLat);
       const distance = calculateDistance(x, y, x2, y2);
       
       if (distance < threshold) {
@@ -1091,8 +1416,8 @@ const clusterShops = (shops: PhysicalShop[], threshold: number = 5): ShopCluster
         // 更新聚类中心（平均值）
         cluster.centerX = (cluster.centerX * (cluster.shops.length - 1) + x2) / cluster.shops.length;
         cluster.centerY = (cluster.centerY * (cluster.shops.length - 1) + y2) / cluster.shops.length;
-        cluster.centerLng = (cluster.centerLng * (cluster.shops.length - 1) + otherShop.longitude!) / cluster.shops.length;
-        cluster.centerLat = (cluster.centerLat * (cluster.shops.length - 1) + otherShop.latitude!) / cluster.shops.length;
+        cluster.centerLng = (cluster.centerLng * (cluster.shops.length - 1) + otherLng) / cluster.shops.length;
+        cluster.centerLat = (cluster.centerLat * (cluster.shops.length - 1) + otherLat) / cluster.shops.length;
       }
     }
     
@@ -1195,9 +1520,11 @@ const drawPhysicalShops = async (
     const clusters = clusterShops(shops, 5); // 阈值5个单位距离
     
     for (const cluster of clusters) {
-    const { x, y } = project(cluster.centerLng, cluster.centerLat);
+    const centerLng = toNumber(cluster.centerLng);
+    const centerLat = toNumber(cluster.centerLat);
+    const { x, y } = project(centerLng, centerLat);
     // 计算该位置的地图高度
-    const mapHeight = getMapHeightAtLocation(cluster.centerLng, cluster.centerLat, geojson, dataMap, maxCount);
+    const mapHeight = getMapHeightAtLocation(centerLng, centerLat, geojson, dataMap, maxCount);
     const zBase = mapHeight; // 使用地图高度作为基础高度
     
     if (cluster.shops.length === 1) {
@@ -1209,7 +1536,13 @@ const drawPhysicalShops = async (
       const logoSprite = await createCircularImageSprite(logoUrl || '');
       if (logoSprite) {
         logoSprite.position.set(x, y, zBase + 1);
-        logoSprite.userData = { isPhysicalShop: true, shop: shop, cluster: cluster.shops };
+        // 增大 Sprite 的点击区域，提升点击体验
+        logoSprite.scale.set(2.0, 2.0, 1); // 从 1.5 增大到 2.0
+        logoSprite.userData = { 
+          isPhysicalShop: true, 
+          shop: shop, 
+          cluster: cluster.shops 
+        };
         shopGroup.add(logoSprite);
       }
       
@@ -1271,30 +1604,37 @@ const drawPhysicalShops = async (
         shopGroup.add(edges);
       }
       
-      // 显示数量标签（位置与大圆相同，白色文字）
-      const countLabel = createTextSprite(`${cluster.shops.length}实体店`, '#ffffff');
+      // 显示数量标签（位置与大圆相同，白色文字，无背景）
+      const countLabel = createTextSprite(`${cluster.shops.length}实体店`, '#ffffff', { 
+        withBackground: false 
+      });
       if (countLabel) {
         countLabel.position.set(x, y, zBase + radius);
         shopGroup.add(countLabel);
       }
     }
     
-    // 创建标记点（小圆点）- 用于点击检测
-    const markerGeometry = new THREE.SphereGeometry(0.3, 16, 16);
+    // 创建标记点（用于点击检测）
+    // 单个实体店使用更大的点击区域，提升点击体验
+    const markerRadius = cluster.shops.length === 1 ? 1.0 : 0.3;
+    const markerGeometry = new THREE.SphereGeometry(markerRadius, 16, 16);
     const markerMaterial = new THREE.MeshBasicMaterial({ 
       color: 0x7130ae,
       transparent: true,
-      opacity: 0.8
+      // 单个实体店的标记点完全透明，只用于点击检测
+      opacity: cluster.shops.length === 1 ? 0 : 0.8
     });
     const marker = new THREE.Mesh(markerGeometry, markerMaterial);
-    marker.position.set(x, y, zBase);
+    // 单个实体店的标记点位置提升到和 logo 相同高度，增大点击区域
+    const markerZ = cluster.shops.length === 1 ? zBase + 1 : zBase;
+    marker.position.set(x, y, markerZ);
     marker.userData = { 
       isPhysicalShop: cluster.shops.length === 1, 
       isShopCluster: cluster.shops.length > 1,
       shop: cluster.shops.length === 1 ? cluster.shops[0] : null,
       cluster: cluster.shops 
     };
-      shopGroup.add(marker);
+    shopGroup.add(marker);
     }
     
     // 根据状态决定是否添加到场景
@@ -1314,9 +1654,9 @@ const toggleShops = async () => {
   if (!threeCore.value) return;
   
   // 如果实体店组不存在，需要先绘制（只绘制一次）
-  if (!shopGroup && mapGroup) {
+  if (!shopGroup && mapGroup && physicalShops.value.length > 0) {
     await drawPhysicalShops(
-      mockPhysicalShops, 
+      physicalShops.value, 
       threeCore.value.scene, 
       mapGroup.position,
       cachedGeoJson,
@@ -1356,11 +1696,53 @@ const processData = (data: DistributedMapData[]) => {
       sameRankCount = 1;
       lastCount = item.COUNT;
     }
+    
+    // 计算人口占比（如果有总人口数据，特别处理内蒙古和蒙古的区分）
+    let populationPercent: string | undefined;
+    // 尝试直接匹配
+    let population = provincePopulation.value[item.ip_location as keyof typeof provincePopulation.value];
+    // 如果直接匹配失败，尝试去掉后缀后匹配
+    if (!population) {
+      const isInnerMongolia = item.ip_location === '内蒙古' || item.ip_location === '内蒙古自治区' || item.ip_location.includes('内蒙古');
+      const isMongolia = item.ip_location === '蒙古' && !item.ip_location.includes('内');
+      const nameWithoutSuffix = item.ip_location.replace(/省|市|自治区|特别行政区$/, '');
+      
+      for (const [key, value] of Object.entries(provincePopulation.value)) {
+        const keyWithoutSuffix = key.replace(/省|市|自治区|特别行政区$/, '');
+        
+        // 如果是内蒙古，只匹配包含"内蒙古"的
+        if (isInnerMongolia) {
+          if (key === '内蒙古' || key.includes('内蒙古')) {
+            population = value;
+            break;
+          }
+        }
+        // 如果是蒙古（不是内蒙古），只匹配不包含"内"的蒙古
+        else if (isMongolia) {
+          if (key === '蒙古' && !key.includes('内')) {
+            population = value;
+            break;
+          }
+        }
+        // 其他情况使用原来的匹配逻辑
+        else {
+          if (keyWithoutSuffix === nameWithoutSuffix || key === item.ip_location || item.ip_location.includes(keyWithoutSuffix)) {
+            population = value;
+            break;
+          }
+        }
+      }
+    }
+    if (population && population > 0) {
+      populationPercent = ((item.COUNT / population) * 100000).toFixed(2) + '‱';
+    }
+    
     return {
       rank: lastRank,
       name: item.ip_location,
       count: item.COUNT,
       percent: total > 0 ? ((item.COUNT / total) * 100).toFixed(2) + '%' : '0%',
+      populationPercent,
     };
   });
 };
@@ -1556,10 +1938,17 @@ const initThree = async () => {
   fillLight.position.set(-50, 50, 50);
   core.scene.add(fillLight);
 
-  const [geojson, distData] = await Promise.all([
+  const [geojson, distData, shopsData] = await Promise.all([
     loadMapData(),
-    getDistributedMaps().then(res => res.data)
+    getDistributedMaps().then(res => res.data),
+    getAllPhysicalShops().catch(err => {
+      console.error('加载实体店数据失败:', err);
+      return [];
+    })
   ]);
+  
+  // 存储实体店数据
+  physicalShops.value = shopsData || [];
 
   if (geojson) {
     const dataMap = new Map<string, DataItem>();
@@ -1591,8 +1980,8 @@ const initThree = async () => {
     await loadTeaPartyData(currentDate.value);
     
     // 如果实体店模式开启，绘制实体店
-    if (showShops.value) {
-      await drawPhysicalShops(mockPhysicalShops, core.scene, mapGroup.position, geojson, dataMap, maxCount, core.effectManager);
+    if (showShops.value && physicalShops.value.length > 0) {
+      await drawPhysicalShops(physicalShops.value, core.scene, mapGroup.position, geojson, dataMap, maxCount, core.effectManager);
     }
 
     // 调整镜头对准上海
@@ -1734,8 +2123,6 @@ const initThree = async () => {
       const intersects = raycaster.intersectObjects(threeCore.value.scene.children, true);
       
       if (intersects.length > 0) {
-        const object = intersects.find(i => i.object.type === 'Mesh' || i.object.type === 'Sprite')?.object;
-        
         // Helper to find interactive object in hierarchy
         const findInteractiveObject = (obj: THREE.Object3D): THREE.Object3D | null => {
              if (obj.userData && (obj.userData.isPhysicalShop || obj.userData.isShopCluster || obj.userData.isTeaParty)) {
@@ -1746,6 +2133,13 @@ const initThree = async () => {
              }
              return null;
         };
+        
+        // 优先检测实体店相关的对象（Mesh 和 Sprite）
+        const object = intersects.find(i => {
+          const obj = i.object;
+          return (obj.type === 'Mesh' || obj.type === 'Sprite') && 
+                 (obj.userData?.isPhysicalShop || obj.userData?.isShopCluster);
+        })?.object || intersects.find(i => i.object.type === 'Mesh' || i.object.type === 'Sprite')?.object;
         
         const interactiveObject = object ? findInteractiveObject(object) : null;
 
@@ -1762,6 +2156,7 @@ const initThree = async () => {
           } else if (interactiveObject.userData.isTeaParty) {
               // 点击了茶会
               selectedTeaParty.value = {
+                  tea_id: interactiveObject.userData.tea_id,
                   tea_cover: interactiveObject.userData.tea_cover || '',
                   tea_title: interactiveObject.userData.name,
                   longitude: 0, 
@@ -1839,7 +2234,13 @@ const onClick = (event: MouseEvent) => {
         return null;
     };
 
-    const firstIntersect = intersects.find(i => i.object.type === 'Mesh' || i.object.type === 'Sprite');
+    // 优先检测实体店相关的对象（Mesh 和 Sprite）
+    // 先查找有实体店标识的对象，再查找其他 Mesh/Sprite
+    const firstIntersect = intersects.find(i => {
+      const obj = i.object;
+      return (obj.type === 'Mesh' || obj.type === 'Sprite') && 
+             (obj.userData?.isPhysicalShop || obj.userData?.isShopCluster);
+    }) || intersects.find(i => i.object.type === 'Mesh' || i.object.type === 'Sprite');
     const object = firstIntersect ? findInteractiveObject(firstIntersect.object) : null;
     
     if (object) {
@@ -1855,6 +2256,7 @@ const onClick = (event: MouseEvent) => {
       } else if (object.userData.isTeaParty) {
           // 点击了茶会
           selectedTeaParty.value = {
+              tea_id: object.userData.tea_id,
               tea_cover: object.userData.tea_cover || '',
               tea_title: object.userData.name,
               longitude: 0, // 这里的坐标不重要，主要用于显示信息
@@ -1912,6 +2314,77 @@ const focusOnTarget = (clientX: number, clientY: number) => {
         target: point
       }, 1000);
     }
+  }
+};
+
+// 跳转到指定省份位置
+const focusOnProvince = (provinceName: string) => {
+  if (!threeCore.value || !cachedGeoJson || !mapGroup) return;
+  
+  // 特别处理内蒙古和蒙古的区分
+  const isInnerMongolia = provinceName === '内蒙古' || provinceName === '内蒙古自治区' || provinceName.includes('内蒙古');
+  const isMongolia = provinceName === '蒙古' && !provinceName.includes('内');
+  
+  // 查找对应的省份 feature
+  let feature = cachedGeoJson.features.find(f => f.properties.name === provinceName);
+  if (!feature) {
+    // 尝试模糊匹配，但要特别处理内蒙古和蒙古
+    feature = cachedGeoJson.features.find(f => {
+      const fName = f.properties.name;
+      const fNameWithoutSuffix = fName.replace(/省|市|自治区|特别行政区$/, '');
+      const provinceNameWithoutSuffix = provinceName.replace(/省|市|自治区|特别行政区$/, '');
+      
+      // 如果是内蒙古，只匹配包含"内蒙古"的
+      if (isInnerMongolia) {
+        return fName.includes('内蒙古') || fNameWithoutSuffix === '内蒙古';
+      }
+      // 如果是蒙古（不是内蒙古），只匹配不包含"内"的蒙古
+      if (isMongolia) {
+        return (fName === '蒙古' || fNameWithoutSuffix === '蒙古') && !fName.includes('内');
+      }
+      
+      // 其他情况使用原来的匹配逻辑
+      return fName.includes(provinceName) || 
+             provinceName.includes(fNameWithoutSuffix) ||
+             fNameWithoutSuffix === provinceNameWithoutSuffix;
+    });
+  }
+  
+  if (!feature) return;
+  
+  // 获取省份中心点
+  let center: [number, number] | undefined = feature.properties.centroid;
+  if (!center) {
+    center = feature.properties.center;
+  }
+  // 如果都没有，尝试计算几何中心
+  if (!center) {
+    const computed = getGeometryCenter(feature.geometry.coordinates, feature.geometry.type);
+    if (computed) {
+      center = computed;
+    }
+  }
+  
+  if (!center) return;
+  
+  // 转换为世界坐标
+  const { x, y } = project(center[0], center[1]);
+  const groupOffset = mapGroup.position;
+  const worldX = x + groupOffset.x;
+  const worldY = y + groupOffset.y;
+  
+  // 计算相机位置和目标
+  const targetPoint = new THREE.Vector3(worldX, worldY, 0);
+  const cameraHeight = 50;
+  const cameraOffsetZ = 45;
+  const cameraPos = new THREE.Vector3(worldX, worldY - cameraOffsetZ, cameraHeight);
+  
+  // 跳转镜头
+  if (threeCore.value.controls) {
+    threeCore.value.lookAtCameraState({
+      position: cameraPos,
+      target: targetPoint
+    }, 1000);
   }
 };
 
@@ -2078,6 +2551,15 @@ onBeforeUnmount(() => {
       container.value.removeEventListener('touchend', touchHandlers.end);
     }
   }
+  // 清理定时器
+  if (loadTeaPartyTimer) {
+    clearTimeout(loadTeaPartyTimer);
+    loadTeaPartyTimer = null;
+  }
+  if (dateToastTimer) {
+    clearTimeout(dateToastTimer);
+    dateToastTimer = null;
+  }
   window.removeEventListener('resize', checkIsMobile);
 });
 
@@ -2098,96 +2580,135 @@ useHead({
       <p class="mt-4 text-purple-600 tracking-widest font-bold">正在生成星图...</p>
     </div>
 
-    <!-- 控制按钮 -->
-    <div class="absolute top-4 left-4 z-40 flex flex-col gap-2 pointer-events-auto">
-      <!-- 分布图显示/隐藏按钮 -->
-      <button
-        @click.stop="toggleBars"
-        class="px-4 py-2 bg-white/95 backdrop-blur-md rounded-lg shadow-lg border border-gray-200 text-sm font-medium transition-colors flex items-center gap-2 touch-manipulation"
-        :class="showBars ? 'text-gray-700 hover:bg-gray-50' : 'bg-gray-100 text-gray-500'"
-      >
-        <span>{{ showBars ? '隐藏' : '显示' }}分布图</span>
-        <span>{{ showBars ? '👁️' : '👁️‍🗨️' }}</span>
-      </button>
-      
-      <!-- 实体店显示/隐藏按钮 -->
-      <button
-        @click.stop="toggleShops"
-        class="px-4 py-2 bg-white/95 backdrop-blur-md rounded-lg shadow-lg border border-gray-200 text-sm font-medium transition-colors flex items-center gap-2 touch-manipulation"
-        :class="showShops ? 'bg-purple-100 text-purple-700 border-purple-300' : 'text-gray-700 hover:bg-gray-50'"
-        :disabled="shopLoading"
-      >
-        <span v-if="shopLoading" class="flex items-center gap-2">
-          <div class="w-3 h-3 border-2 border-purple-400 rounded-full border-t-transparent animate-spin"></div>
-          <span>加载中...</span>
-        </span>
-        <span v-else>
-          <span>{{ showShops ? '隐藏' : '显示' }}实体店</span>
-          <span>{{ showShops ? '🏪' : '📍' }}</span>
-        </span>
-      </button>
-      
-      <!-- 茶会显示/隐藏按钮 -->
-      <button
-        @click.stop="toggleTeaParties"
-        class="px-4 py-2 bg-white/95 backdrop-blur-md rounded-lg shadow-lg border border-gray-200 text-sm font-medium transition-colors flex items-center gap-2 touch-manipulation"
-        :class="showTeaParties ? 'bg-blue-100 text-blue-700 border-blue-300' : 'text-gray-700 hover:bg-gray-50'"
-      >
-        <span>{{ showTeaParties ? '隐藏' : '显示' }}茶会</span>
-        <span>{{ showTeaParties ? '🍵' : '🫖' }}</span>
-      </button>
-      
-      <!-- 光影显示/隐藏按钮 -->
-      <button
-        @click.stop="toggleShadows"
-        class="px-4 py-2 bg-white/95 backdrop-blur-md rounded-lg shadow-lg border border-gray-200 text-sm font-medium transition-colors flex items-center gap-2 touch-manipulation"
-        :class="showShadows ? 'bg-yellow-100 text-yellow-700 border-yellow-300' : 'text-gray-700 hover:bg-gray-50'"
-      >
-        <span>{{ showShadows ? '隐藏' : '显示' }}光影</span>
-        <span>{{ showShadows ? '☀️' : '🌙' }}</span>
-      </button>
-      
-      <!-- 实体店加载中提示 -->
-      <div v-if="shopLoading && showShops"
-        class="px-4 py-2 bg-white/95 backdrop-blur-md rounded-lg shadow-lg border border-purple-200 text-sm text-purple-600 flex items-center gap-2">
-        <div class="w-4 h-4 border-2 border-purple-400 rounded-full border-t-transparent animate-spin"></div>
-        <span>正在加载实体店...</span>
-      </div>
-      
-      <!-- 排行榜 -->
-      <div class="w-[280px] bg-white/95 backdrop-blur-md rounded-xl shadow-lg overflow-hidden text-sm transition-all duration-300 border border-gray-200 pointer-events-auto">
-        <div 
-          class="flex justify-between items-center px-4 py-3 cursor-pointer border-b border-gray-100 hover:bg-gray-50 touch-manipulation"
-          @click.stop="isRankExpanded = !isRankExpanded"
-        >
-          <span class="font-bold text-gray-800 flex items-center gap-2">
-              <span class="text-xl">📊</span>
-              分布图 样本总数: {{ totalCount }}
-          </span>
-          <span class="transform transition-transform duration-300 text-gray-500" :class="{ 'rotate-180': isRankExpanded }">▼</span>
-        </div>
-
-        <div v-show="isRankExpanded" class="max-h-[60vh] overflow-y-auto custom-scrollbar">
-          <div 
-            v-for="item in rankList" 
-            :key="item.name"
-            class="flex items-center px-4 py-2.5 border-b border-gray-50 last:border-0 hover:bg-gray-50 transition-colors"
-            :class="{ 'bg-purple-50': item.rank % 2 !== 0 }"
+    <!-- 控制面板 -->
+    <div class="absolute top-3 left-3 z-40 pointer-events-auto">
+      <div class="bg-white/95 backdrop-blur-md rounded-xl shadow-lg border border-gray-200 overflow-hidden">
+        <div class="flex flex-col gap-1.5 p-2">
+          <!-- 分布图显示/隐藏按钮 -->
+          <button
+            @click.stop="toggleBars"
+            class="px-3 py-1.5 bg-white/95 backdrop-blur-md rounded-lg shadow-sm border border-gray-200 text-xs font-medium transition-colors flex items-center justify-between gap-2 touch-manipulation min-w-[140px]"
+            :class="showBars ? 'text-gray-700 hover:bg-gray-50' : 'bg-gray-100 text-gray-500'"
           >
-            <span 
-              class="w-6 h-6 flex items-center justify-center rounded-full text-xs font-bold mr-2"
-              :class="{
-                  'bg-yellow-400 text-yellow-900': item.rank === 1,
-                  'bg-gray-300 text-gray-800': item.rank === 2,
-                  'bg-amber-600 text-amber-100': item.rank === 3,
-                  'bg-purple-200 text-purple-800': item.rank > 3
-              }"
-            >
-              {{ item.rank }}
+            <span>{{ showBars ? '隐藏' : '显示' }}分布图</span>
+            <span>{{ showBars ? '👁️' : '👁️‍🗨️' }}</span>
+          </button>
+          
+          <!-- 实体店显示/隐藏按钮 -->
+          <button
+            @click.stop="toggleShops"
+            class="px-3 py-1.5 bg-white/95 backdrop-blur-md rounded-lg shadow-sm border border-gray-200 text-xs font-medium transition-colors flex items-center justify-between gap-2 touch-manipulation min-w-[140px]"
+            :class="showShops ? 'bg-purple-100 text-purple-700 border-purple-300' : 'text-gray-700 hover:bg-gray-50'"
+            :disabled="shopLoading"
+          >
+            <span v-if="shopLoading" class="flex items-center gap-1.5">
+              <div class="w-2.5 h-2.5 border-2 border-purple-400 rounded-full border-t-transparent animate-spin"></div>
+              <span>加载中...</span>
             </span>
-            <span class="flex-1 truncate text-gray-700 font-medium">{{ item.name }}</span>
-            <span class="w-12 text-right text-gray-600 font-mono font-bold">{{ item.count }}</span>
-            <span class="w-14 text-right text-gray-400 text-xs scale-90">{{ item.percent }}</span>
+            <template v-else>
+              <span>{{ showShops ? '隐藏' : '显示' }}实体店</span>
+              <span>{{ showShops ? '🏪' : '📍' }}</span>
+            </template>
+          </button>
+          
+          <!-- 茶会显示/隐藏按钮 -->
+          <button
+            @click.stop="toggleTeaParties"
+            class="px-3 py-1.5 bg-white/95 backdrop-blur-md rounded-lg shadow-sm border border-gray-200 text-xs font-medium transition-colors flex items-center justify-between gap-2 touch-manipulation min-w-[140px]"
+            :class="showTeaParties ? 'bg-blue-100 text-blue-700 border-blue-300' : 'text-gray-700 hover:bg-gray-50'"
+          >
+            <span>{{ showTeaParties ? '隐藏' : '显示' }}茶会</span>
+            <span>{{ showTeaParties ? '🍵' : '🫖' }}</span>
+          </button>
+          
+          <!-- 光影显示/隐藏按钮 -->
+          <button
+            @click.stop="toggleShadows"
+            class="px-3 py-1.5 bg-white/95 backdrop-blur-md rounded-lg shadow-sm border border-gray-200 text-xs font-medium transition-colors flex items-center justify-between gap-2 touch-manipulation min-w-[140px]"
+            :class="showShadows ? 'bg-yellow-100 text-yellow-700 border-yellow-300' : 'text-gray-700 hover:bg-gray-50'"
+          >
+            <span>{{ showShadows ? '隐藏' : '显示' }}光影</span>
+            <span>{{ showShadows ? '☀️' : '🌙' }}</span>
+          </button>
+          
+          <!-- 实体店加载中提示 -->
+          <div v-if="shopLoading && showShops"
+            class="px-3 py-1.5 bg-purple-50/80 backdrop-blur-sm rounded-lg border border-purple-200 text-xs text-purple-600 flex items-center gap-1.5">
+            <div class="w-2.5 h-2.5 border-2 border-purple-400 rounded-full border-t-transparent animate-spin"></div>
+            <span>正在加载实体店...</span>
+          </div>
+          
+          <!-- 排行榜 -->
+          <div class="w-[320px] bg-white/95 backdrop-blur-md rounded-lg shadow-sm overflow-hidden text-xs transition-all duration-300 border border-gray-200">
+            <div 
+              class="flex justify-between items-center px-3 py-2 cursor-pointer border-b border-gray-100 hover:bg-gray-50 touch-manipulation"
+              @click.stop="isRankExpanded = !isRankExpanded"
+            >
+              <span class="font-bold text-gray-800 flex items-center gap-1.5 text-xs">
+                  <span class="text-base">📊</span>
+                  <span>样本总数: {{ totalCount }}</span>
+              </span>
+              <span class="transform transition-transform duration-300 text-gray-500 text-xs" :class="{ 'rotate-180': isRankExpanded }">▼</span>
+            </div>
+
+            <div v-show="isRankExpanded">
+              <!-- 说明提示 -->
+              <div class="px-3 py-2 bg-gray-50 border-b border-gray-200 space-y-1.5">
+                <!-- 排名颜色说明 -->
+                <div class="flex items-center gap-2 text-[10px] text-gray-600">
+                  <span class="font-medium text-gray-700">排名颜色：</span>
+                  <div class="flex items-center gap-1.5">
+                    <span class="w-3 h-3 rounded-full bg-yellow-400"></span>
+                    <span>第1名</span>
+                    <span class="w-3 h-3 rounded-full bg-gray-300 ml-1"></span>
+                    <span>第2名</span>
+                    <span class="w-3 h-3 rounded-full bg-amber-600 ml-1"></span>
+                    <span>第3名</span>
+                    <span class="w-3 h-3 rounded-full bg-purple-200 ml-1"></span>
+                    <span>其他</span>
+                  </div>
+                </div>
+                <!-- 占比说明 -->
+                <div class="flex items-center gap-2 text-[10px] text-gray-600">
+                  <span class="font-medium text-gray-700">占比说明：</span>
+                  <div class="flex items-center gap-2">
+                    <span class="text-gray-500">灰色=样本占比</span>
+                    <span class="text-blue-500">蓝色=人口十万分比</span>
+                  </div>
+                </div>
+              </div>
+              
+              <div class="max-h-[50vh] overflow-y-auto custom-scrollbar">
+                <div 
+                  v-for="item in rankList" 
+                  :key="item.name"
+                  class="flex items-center px-3 py-1.5 border-b border-gray-50 last:border-0 hover:bg-gray-50 transition-colors cursor-pointer"
+                  :class="{ 'bg-purple-50': item.rank % 2 !== 0 }"
+                  @click="focusOnProvince(item.name)"
+                >
+                  <span 
+                    class="w-5 h-5 flex items-center justify-center rounded-full text-[10px] font-bold mr-1.5"
+                    :class="{
+                        'bg-yellow-400 text-yellow-900': item.rank === 1,
+                        'bg-gray-300 text-gray-800': item.rank === 2,
+                        'bg-amber-600 text-amber-100': item.rank === 3,
+                        'bg-purple-200 text-purple-800': item.rank > 3
+                    }"
+                  >
+                    {{ item.rank }}
+                  </span>
+                  <span class="flex-1 truncate text-gray-700 font-medium text-xs">{{ item.name }}</span>
+                  <span class="w-10 text-right text-gray-600 font-mono font-bold text-xs">{{ item.count }}</span>
+                  <span class="w-12 text-right text-gray-400 text-[10px]">{{ item.percent }}</span>
+                  <span class="w-14 text-right text-[10px]">
+                    <span v-if="item.populationPercent" class="text-blue-500 font-medium" title="占总人口十万分比">
+                      {{ item.populationPercent }}
+                    </span>
+                    <span v-else class="text-transparent">—</span>
+                  </span>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -2233,26 +2754,77 @@ useHead({
           <div 
             v-for="shop in selectedShopCluster" 
             :key="shop.physical_id"
-            class="flex items-center gap-4 p-4 bg-gray-50 dark:bg-gray-800 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+            class="p-4 bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 hover:shadow-md transition-all"
           >
-            <!-- 店铺Logo -->
-            <div class="w-16 h-16 flex-shrink-0 rounded-full overflow-hidden bg-gradient-to-br from-purple-100 to-pink-100 dark:from-purple-900/30 dark:to-pink-900/30 border-2 border-purple-300 dark:border-purple-600">
-              <img 
-                v-if="shop.physical_logo" 
-                :src="BASE_IMG + shop.physical_logo" 
-                class="w-full h-full object-cover" 
-                alt="logo" 
-              />
-              <div v-else class="w-full h-full flex items-center justify-center text-2xl">🏪</div>
-            </div>
-            
-            <!-- 店铺信息 -->
-            <div class="flex-1 min-w-0">
-              <h3 class="font-bold text-base text-purple-700 dark:text-purple-400 mb-1">
-                {{ shop.physical_name || '未命名实体店' }}
-              </h3>
-              <div v-if="shop.latitude && shop.longitude" class="text-xs text-gray-500 dark:text-gray-400">
-                位置: {{ shop.latitude.toFixed(4) }}, {{ shop.longitude.toFixed(4) }}
+            <div class="flex gap-4">
+              <!-- 店铺Logo -->
+              <div class="w-20 h-20 flex-shrink-0 rounded-xl overflow-hidden bg-gradient-to-br from-purple-100 to-pink-100 dark:from-purple-900/30 dark:to-pink-900/30 border-2 border-purple-300 dark:border-purple-600 shadow-sm">
+                <img 
+                  v-if="shop.physical_logo" 
+                  :src="BASE_IMG + shop.physical_logo" 
+                  class="w-full h-full object-cover" 
+                  alt="logo" 
+                />
+                <div v-else class="w-full h-full flex items-center justify-center text-3xl">🏪</div>
+              </div>
+              
+              <!-- 店铺信息 -->
+              <div class="flex-1 min-w-0">
+                <div class="flex items-start justify-between gap-2 mb-2">
+                  <h3 class="font-bold text-lg text-purple-700 dark:text-purple-400 truncate">
+                    {{ shop.physical_name || '未命名实体店' }}
+                  </h3>
+                  <UButton 
+                    v-if="shop.shop_id || shop.shop?.shop_id"
+                    size="xs"
+                    color="purple"
+                    variant="soft"
+                    icon="i-heroicons-arrow-top-right-on-square"
+                    @click="goToShopDetail(shop.shop_id || shop.shop?.shop_id)"
+                  >
+                    查看店铺
+                  </UButton>
+                </div>
+                
+                <!-- 店铺名称（如果存在） -->
+                <div v-if="shop.shop?.shop_name" class="text-sm text-gray-600 dark:text-gray-400 mb-2">
+                  <span class="inline-flex items-center gap-1">
+                    <UIcon name="i-heroicons-building-storefront" class="w-4 h-4" />
+                    {{ shop.shop.shop_name }}
+                  </span>
+                </div>
+                
+                <!-- 地址信息 -->
+                <div v-if="formatAddress(shop)" class="text-sm text-gray-600 dark:text-gray-400 mb-2">
+                  <span class="inline-flex items-start gap-1">
+                    <UIcon name="i-heroicons-map-pin" class="w-4 h-4 mt-0.5 flex-shrink-0" />
+                    <span class="break-words">{{ formatAddress(shop) }}</span>
+                  </span>
+                </div>
+                
+                <!-- 详细信息 -->
+                <div class="flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-500 dark:text-gray-500">
+                  <div v-if="shop.province" class="flex items-center gap-1">
+                    <UIcon name="i-heroicons-globe-alt" class="w-3.5 h-3.5" />
+                    <span>{{ shop.province }}</span>
+                  </div>
+                  <div v-if="shop.area" class="flex items-center gap-1">
+                    <UIcon name="i-heroicons-map" class="w-3.5 h-3.5" />
+                    <span>{{ shop.area }}</span>
+                  </div>
+                  <div v-if="shop.create_time" class="flex items-center gap-1">
+                    <UIcon name="i-heroicons-calendar" class="w-3.5 h-3.5" />
+                    <span>{{ formatDate(shop.create_time) }}</span>
+                  </div>
+                </div>
+                
+                <!-- 坐标信息 -->
+                <div v-if="shop.latitude && shop.longitude" class="mt-2 text-xs text-gray-400 dark:text-gray-500 font-mono">
+                  <span class="inline-flex items-center gap-1">
+                    <UIcon name="i-heroicons-command-line" class="w-3.5 h-3.5" />
+                    {{ formatCoordinate(shop.latitude) }}, {{ formatCoordinate(shop.longitude) }}
+                  </span>
+                </div>
               </div>
             </div>
           </div>
@@ -2265,43 +2837,87 @@ useHead({
     </UModal>
 
     <!-- 茶会详情弹窗 -->
-    <UModal v-model="teaPartyModalVisible" :ui="{ width: 'max-w-md' }">
-      <UCard v-if="selectedTeaParty">
+    <UModal v-model="teaPartyModalVisible" :ui="{ width: 'max-w-lg' }">
+      <UCard v-if="selectedTeaParty" class="overflow-hidden">
         <template #header>
-          <div class="flex justify-between items-center">
-            <h2 class="text-lg font-semibold text-blue-700">
-              茶会详情
+          <div class="flex justify-between items-center pb-2">
+            <h2 class="text-xl font-bold text-blue-700 flex items-center gap-2">
+              <span class="text-2xl">🍵</span>
+              <span>茶会详情</span>
             </h2>
-            <UButton color="gray" variant="ghost" icon="i-heroicons-x-mark" @click="teaPartyModalVisible = false" />
+            <UButton 
+              color="gray" 
+              variant="ghost" 
+              icon="i-heroicons-x-mark" 
+              @click="teaPartyModalVisible = false"
+              class="hover:bg-gray-100"
+            />
           </div>
         </template>
         
-        <div class="space-y-4">
-            <div class="w-full h-40 bg-blue-50 rounded-lg flex items-center justify-center overflow-hidden">
-                <img v-if="selectedTeaParty.tea_cover" :src="selectedTeaParty.tea_cover" class="w-full h-full object-cover" />
-                <span v-else class="text-4xl">🍵</span>
+        <div class="space-y-5">
+            <!-- 封面图片 -->
+            <div class="w-full h-56 bg-gradient-to-br from-blue-50 to-blue-100 rounded-xl flex items-center justify-center overflow-hidden shadow-md">
+                <img 
+                  v-if="selectedTeaParty.tea_cover" 
+                  :src="selectedTeaParty.tea_cover" 
+                  class="w-full h-full object-cover"
+                  alt="茶会封面"
+                />
+                <div v-else class="flex flex-col items-center gap-3 text-blue-400">
+                  <span class="text-6xl">🍵</span>
+                  <span class="text-sm font-medium">暂无封面</span>
+                </div>
             </div>
             
+            <!-- 茶会标题 -->
             <div>
-                <h3 class="font-bold text-xl text-gray-800 mb-2">{{ selectedTeaParty.tea_title }}</h3>
+                <h3 class="font-bold text-2xl text-gray-800 mb-4 line-clamp-2">
+                  {{ selectedTeaParty.tea_title }}
+                </h3>
                 
-                <div class="flex flex-col gap-2 text-sm text-gray-600">
-                    <div class="flex items-center gap-2">
-                        <span class="i-heroicons-calendar w-4 h-4 text-blue-500"></span>
-                        <span class="font-medium">开始时间:</span>
-                        <span>{{ dayjs(selectedTeaParty.start_time).format('YYYY-MM-DD HH:mm') }}</span>
+                <!-- 时间信息 -->
+                <div class="flex flex-col gap-3 text-sm">
+                    <div class="flex items-center gap-3 p-3 bg-blue-50 rounded-lg">
+                        <span class="i-heroicons-calendar w-5 h-5 text-blue-500 flex-shrink-0"></span>
+                        <div class="flex-1">
+                            <span class="font-medium text-gray-700">开始时间:</span>
+                            <span class="ml-2 text-gray-600">{{ dayjs(selectedTeaParty.start_time).format('YYYY-MM-DD HH:mm') }}</span>
+                        </div>
                     </div>
-                    <div class="flex items-center gap-2">
-                        <span class="i-heroicons-clock w-4 h-4 text-blue-500"></span>
-                        <span class="font-medium">结束时间:</span>
-                        <span>{{ dayjs(selectedTeaParty.end_time).format('YYYY-MM-DD HH:mm') }}</span>
+                    <div class="flex items-center gap-3 p-3 bg-blue-50 rounded-lg">
+                        <span class="i-heroicons-clock w-5 h-5 text-blue-500 flex-shrink-0"></span>
+                        <div class="flex-1">
+                            <span class="font-medium text-gray-700">结束时间:</span>
+                            <span class="ml-2 text-gray-600">{{ dayjs(selectedTeaParty.end_time).format('YYYY-MM-DD HH:mm') }}</span>
+                        </div>
                     </div>
-                    <div class="flex items-center gap-2">
-                         <span class="i-heroicons-clock w-4 h-4 text-green-500"></span>
-                         <span class="font-medium">持续时间:</span>
-                         <span>{{ ((selectedTeaParty.end_time - selectedTeaParty.start_time) / (1000 * 60 * 60 * 24)).toFixed(1) }} 天</span>
+                    <div class="flex items-center gap-3 p-3 bg-green-50 rounded-lg">
+                        <span class="i-heroicons-clock w-5 h-5 text-green-500 flex-shrink-0"></span>
+                        <div class="flex-1">
+                            <span class="font-medium text-gray-700">持续时间:</span>
+                            <span class="ml-2 text-green-600 font-semibold">
+                              {{ ((selectedTeaParty.end_time - selectedTeaParty.start_time) / (1000 * 60 * 60 * 24)).toFixed(1) }} 天
+                            </span>
+                        </div>
                     </div>
                 </div>
+            </div>
+            
+            <!-- 跳转按钮 -->
+            <div class="pt-2">
+              <UButton
+                v-if="selectedTeaParty.tea_id"
+                color="blue"
+                variant="solid"
+                size="lg"
+                block
+                class="font-semibold shadow-lg hover:shadow-xl transition-all"
+                @click="goToTeaPartyDetail(selectedTeaParty.tea_id)"
+              >
+                <span class="i-heroicons-arrow-top-right-on-square mr-2"></span>
+                查看完整详情
+              </UButton>
             </div>
         </div>
       </UCard>
