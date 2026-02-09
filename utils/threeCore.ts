@@ -2192,7 +2192,10 @@ class ThreeCore {
 		)
 	}
 	gpuPick(ev: MouseEvent | TouchEvent) {
-		function shouldPickObject(object: THREE.Object3D) {
+		const allowSplatProxyPick = this.editMode
+		const shouldPickObject = (object: THREE.Object3D) => {
+			if (object instanceof SplatMesh) return false
+			if (object.userData?.splatProxy && !allowSplatProxyPick) return false
 			return object.userData && !object.userData.ignorePick
 		}
 
@@ -3216,6 +3219,9 @@ class ThreeCore {
 			)
 				return
 			const typeGuess = (() => {
+				if (obj.userData?.type === 'splat') {
+					return 'splat'
+				}
 				if (obj.userData.url) {
 					if (obj.userData.type === 'model') {
 						return 'model'
@@ -3252,9 +3258,6 @@ class ThreeCore {
 						return 'library'
 					}
 					return 'sphere'
-				}
-				if (obj.userData && obj.userData.type === 'splat') {
-					return 'splat'
 				}
 				return null
 			})()
@@ -4220,7 +4223,7 @@ class ThreeCore {
 					const url = BASE_IMG + obj.url
 
 					// 使用 Spark SplatMesh 加载点云模型
-					 const splatMesh =await new SplatMesh({
+					const splatMesh = await new SplatMesh({
 						url,
 						fileType: SplatFileType.PLY,
 						maxSplats: 50000
@@ -4235,13 +4238,20 @@ class ThreeCore {
 					splatMesh.quaternion.set(1, 0, 0, 0);
 					splatMesh.receiveShadow = false
 					splatMesh.updateGenerator()
-					const group = new THREE.Group()
-					group.add(splatMesh)
-					this.scene.add(group)
+					const proxy = this.createSplatProxyMesh()
+					this.scheduleSplatProxyFit(proxy, splatMesh)
+
+					const splatGroup = new THREE.Group()
+					splatGroup.userData.type = 'splat'
+					splatGroup.userData.url = url
+					if (obj.options) {
+						splatGroup.userData.options = obj.options
+					}
+					splatGroup.add(proxy)
+					splatGroup.add(splatMesh)
 
 					// 作为普通 mesh 交给后续逻辑统一设置 position/rotation/scale 并加入场景
-					// mesh = splatMesh as unknown as THREE.Mesh
-					// this.scene.add(splatMesh)
+					mesh = splatGroup
 					console.log(mesh, '泼溅模型')
 				} catch (e) {
 					console.warn(`泼溅模型加载失败：${obj.url}`, e)
@@ -4354,6 +4364,90 @@ class ThreeCore {
 			return group
 		}
 		return null
+	}
+
+	private createSplatProxyMesh(): THREE.Mesh {
+		const geometry = new THREE.BoxGeometry(1, 1, 1)
+		const material = new THREE.MeshBasicMaterial({
+			color: 0x00ffff,
+			transparent: true,
+			opacity: 0,
+			depthWrite: false,
+			depthTest: false
+		})
+		const proxy = new THREE.Mesh(geometry, material)
+		proxy.name = 'splat-proxy'
+		proxy.userData.splatProxy = true
+		proxy.userData.type = 'splat'
+		proxy.castShadow = false
+		proxy.receiveShadow = false
+		return proxy
+	}
+
+	private updateSplatProxyFromMesh(
+		proxy: THREE.Mesh,
+		splatMesh: THREE.Object3D,
+		fallbackSize = 1
+	): boolean {
+		const bounds = new THREE.Box3()
+		let fromWorld = false
+		const geometry = (splatMesh as any).geometry
+		if (geometry) {
+			if (typeof geometry.computeBoundingBox === 'function') {
+				geometry.computeBoundingBox()
+			}
+			if (geometry.boundingBox) {
+				splatMesh.updateMatrix()
+				bounds.copy(geometry.boundingBox)
+				bounds.applyMatrix4(splatMesh.matrix)
+			}
+		}
+
+		if (bounds.isEmpty()) {
+			splatMesh.updateMatrixWorld(true)
+			bounds.setFromObject(splatMesh)
+			fromWorld = true
+			if (bounds.isEmpty()) {
+				proxy.position.set(0, 0, 0)
+				proxy.scale.set(fallbackSize, fallbackSize, fallbackSize)
+				return false
+			}
+		}
+
+		const size = new THREE.Vector3()
+		const center = new THREE.Vector3()
+		bounds.getSize(size)
+		bounds.getCenter(center)
+
+		if (fromWorld && splatMesh.parent) {
+			splatMesh.parent.worldToLocal(center)
+			const parentScale = new THREE.Vector3()
+			splatMesh.parent.getWorldScale(parentScale)
+			if (parentScale.x) size.x /= parentScale.x
+			if (parentScale.y) size.y /= parentScale.y
+			if (parentScale.z) size.z /= parentScale.z
+		}
+
+		const safeX = Number.isFinite(size.x) && size.x > 0 ? size.x : fallbackSize
+		const safeY = Number.isFinite(size.y) && size.y > 0 ? size.y : fallbackSize
+		const safeZ = Number.isFinite(size.z) && size.z > 0 ? size.z : fallbackSize
+
+		proxy.position.copy(center)
+		proxy.scale.set(safeX, safeY, safeZ)
+		return true
+	}
+
+	private scheduleSplatProxyFit(
+		proxy: THREE.Mesh,
+		splatMesh: THREE.Object3D,
+		attempts = 3
+	) {
+		const fitted = this.updateSplatProxyFromMesh(proxy, splatMesh)
+		if (fitted || attempts <= 0) return
+		if (typeof requestAnimationFrame !== 'function') return
+		requestAnimationFrame(() => {
+			this.scheduleSplatProxyFit(proxy, splatMesh, attempts - 1)
+		})
 	}
 
 	createBoundingBoxMesh(object: THREE.Object3D) {

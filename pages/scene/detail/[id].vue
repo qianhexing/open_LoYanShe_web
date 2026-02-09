@@ -116,13 +116,36 @@ const showTexture = async () => {
 const copyModel = async () => {
     if (!threeCore.value) return
     if (clickObject.value && clickObject.value.length > 0) {
-        if (clickObject.value[0].userData.url) {
-            if (clickObject.value[0].userData.type === 'model') {
-                const mesh = await threeCore.value.loadModel(clickObject.value[0].userData.url)
-                if (clickObject.value[0].userData.options) {
-                    threeCore.value.setOptionsModel(mesh, clickObject.value[0].userData.options)
-                }
-                threeCore.value.scene.add(mesh)
+        const source = clickObject.value[0]
+        if (source.userData.url && source.userData.type === 'model') {
+            const useDracoLoader = Boolean(source.userData.useDracoLoader)
+            const mesh = await threeCore.value.loadModel(
+                source.userData.url,
+                useDracoLoader
+                    ? { useDracoLoader: true, dracoDecoderPath: '/draco/gltf/' }
+                    : undefined
+            )
+
+            if (source.userData.options) {
+                threeCore.value.setOptionsModel(mesh, source.userData.options)
+            }
+            if (source.userData.effect) {
+                threeCore.value.setEffectModel(mesh, source.userData.effect)
+                mesh.userData.effect = source.userData.effect
+            }
+            if (source.userData.material) {
+                threeCore.value.setMaterialModel(mesh, source.userData.material)
+            }
+
+            mesh.position.copy(source.position)
+            mesh.rotation.copy(source.rotation)
+            mesh.scale.copy(source.scale)
+            mesh.renderOrder = source.renderOrder
+
+            threeCore.value.scene.add(mesh)
+            clickObject.value = [mesh]
+            if (edit_mode.value || add_mode.value) {
+                threeCore.value.transformControls.attach(mesh)
             }
         }
     }
@@ -403,7 +426,8 @@ const objectSettingsState = reactive({
     color: '#ffffff',
     depth: 0.3,
     size: 1,
-    longText: '' // 长文本内容
+    longText: '', // 长文本内容
+    follow: false
 })
 
 const showTextMenu = ref(false)
@@ -464,6 +488,14 @@ const openObjectSettings = () => {
             if (obj.userData.follow === undefined) {
                 obj.userData.follow = false
             }
+            objectSettingsState.follow = Boolean(obj.userData.follow)
+
+            // 设置弹窗位置（基于操作菜单位置）
+            clickPosition.value = {
+                x: operaPosition.value.x + 100,
+                y: operaPosition.value.y
+            }
+            showObjectSettings.value = true
         }
     }
 }
@@ -573,6 +605,15 @@ const updateLongTextObject = async () => {
                     color: 'red'
                 })
             }
+        }
+    }
+}
+
+const updateImageObject = () => {
+    if (clickObject.value && clickObject.value.length > 0) {
+        const obj = clickObject.value[0]
+        if (obj.userData.type === 'image') {
+            obj.userData.follow = Boolean(objectSettingsState.follow)
         }
     }
 }
@@ -1766,6 +1807,26 @@ useHead({
                         </div>
                         <URange v-model="objectSettingsState.size" :min="0.1" :max="5" :step="0.1"
                             @update:model-value="updateTextObject" />
+                    </div>
+                </template>
+
+                <!-- 图片设置 -->
+                <template v-if="clickObject && clickObject[0] && clickObject[0].userData.type === 'image'">
+                    <div class="mb-4 flex items-center justify-between">
+                        <span class="text-sm text-gray-700 dark:text-gray-300">跟随镜头</span>
+                        <div class="flex items-center gap-2">
+                            <UToggle
+                                v-model="objectSettingsState.follow"
+                                color="primary"
+                                @update:model-value="updateImageObject"
+                            />
+                            <span class="text-xs text-gray-500">
+                                {{ objectSettingsState.follow ? '开启' : '关闭' }}
+                            </span>
+                        </div>
+                    </div>
+                    <div class="text-xs text-gray-500 dark:text-gray-400">
+                        开启后图片会始终朝向镜头
                     </div>
                 </template>
 
