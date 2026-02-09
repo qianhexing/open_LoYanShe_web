@@ -19,6 +19,8 @@ import type ClothesAdd from '@/components/Clothes/ClothesAdd.vue'
 import type QhxSelect from '@/components/Qhx/Select.vue'
 import type SceneChoose from '@/components/scene/SceneChoose.vue'
 import { BASE_IMG } from '@/utils/ipConfig'
+import PhysicsDrop from '@/components/PhysicsDrop.client.vue'
+import type { MaterialForeign, Material } from '@/types/api'
 let uni: any;
 const configStore = useConfigStore()
 const port = computed(() => configStore.getPort())
@@ -519,6 +521,58 @@ const chooseScene = async (list: Scene[]) => {
         color: 'red'
       })
     }
+  }
+}
+
+// PhysicsDrop 组件相关 - 从接口返回的 model_list 动态生成
+const physicsDropModels = computed(() => {
+  // 没有服饰详情或没有模型列表时不展示
+  const modelList = detail.value?.model_list
+  if (!detail.value || !Array.isArray(modelList)) {
+    return []
+  }
+
+  return modelList
+    // 只取启用并且有 material_box 的数据
+    .filter((item): item is MaterialForeign & { material_box: NonNullable<Material> } => {
+      return !!item && item.is_enable === 0 && !!item.material_box && !!item.material_box.materia_url
+    })
+    // 格式化成 PhysicsDrop 组件需要的结构
+    .map((item) => ({
+      url: item.material_box.materia_url,
+      id: item.materia_id ?? item.material_box.materia_id,
+      name: item.material_box.materia_title || '未命名',
+      options: item.material_box.options || { useDracoLoader: true }
+    }))
+})
+
+const handleObjectClick = (data: { url: string; name: string; id: string | number }) => {
+  console.log('点击了物体:', data)
+  // toast.add({
+  //   title: `点击了: ${data.name}`,
+  //   description: `ID: ${data.id}`,
+  //   icon: 'i-heroicons-information-circle',
+  //   color: 'blue'
+  // })
+}
+
+// PhysicsDrop 显示/隐藏控制 - 与 library detail 共用缓存
+const PHYSICS_DROP_VISIBLE_KEY = 'physicsDropVisible'
+// 从 localStorage 读取初始状态，默认显示
+const getInitialVisibility = (): boolean => {
+  if (import.meta.client) {
+    const savedState = localStorage.getItem(PHYSICS_DROP_VISIBLE_KEY)
+    return savedState !== null ? savedState === 'true' : true
+  }
+  return true
+}
+const isPhysicsDropVisible = ref(getInitialVisibility())
+
+// 切换显示/隐藏状态
+const togglePhysicsDrop = () => {
+  isPhysicsDropVisible.value = !isPhysicsDropVisible.value
+  if (import.meta.client) {
+    localStorage.setItem(PHYSICS_DROP_VISIBLE_KEY, String(isPhysicsDropVisible.value))
   }
 }
 </script>
@@ -1290,5 +1344,31 @@ const chooseScene = async (list: Scene[]) => {
           </div>
         </div>
       </UModal>
+    
+    <!-- 物理掉落组件 - 只在没有 sence_id 时显示 -->
+    <ClientOnly>
+      <PhysicsDrop 
+        v-if="!detail?.sence_id && isPhysicsDropVisible && physicsDropModels.length > 0"
+        :models="physicsDropModels"
+        @object-click="handleObjectClick"
+      />
+    </ClientOnly>
+    
+    <!-- 悬浮开关按钮 - 只在没有 sence_id 且有模型时显示 -->
+    <div 
+      class="fixed bottom-8 left-8 z-50 pointer-events-none" 
+      v-if="!detail?.sence_id && detail && physicsDropModels.length > 0"
+    >
+      <button
+        @click="togglePhysicsDrop"
+        class="pointer-events-auto bg-gray-900/80 dark:bg-white/80 backdrop-blur-md text-white dark:text-gray-900 px-4 py-2 rounded-full shadow-2xl flex items-center gap-1.5 transform transition-all duration-300 hover:scale-105 active:scale-95 group"
+      >
+        <UIcon
+          :name="isPhysicsDropVisible ? 'weui:eyes-on-filled' : 'weui:eyes-off-filled'"
+          class="text-[16px] group-hover:rotate-12 transition-transform"
+        />
+        <span class="text-sm font-semibold">{{ isPhysicsDropVisible ? '关闭掉落' : '开启掉落' }}</span>
+      </button>
+    </div>
   </div>
 </template>

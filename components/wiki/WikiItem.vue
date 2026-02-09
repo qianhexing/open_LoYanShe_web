@@ -6,20 +6,22 @@ interface Props {
   className?: string,
   size?: string // 尺寸 mini small mid big
   needJump?: boolean // 是否需要跳转
+  showManualSort?: boolean // 是否显示手动排序按钮（用于特殊类型）
 }
-const emit = defineEmits(['imageLoad'])
+const emit = defineEmits(['imageLoad', 'manualSort'])
 const configStore = useConfigStore()
 const config = computed(() => configStore.config)
 const props = withDefaults(defineProps<Props>(), {
   size: 'big',
-  needJump: true
+  needJump: true,
+  showManualSort: false
 })
 const port = computed(() => configStore.getPort())
 // 响应式变量
 const size = toRef(props, 'size')
 // 转换为响应式
 const { needJump } = toRefs(props)
-const item = props.item
+const item = toRef(props, 'item')
 const imageLoad = () => {
   emit('imageLoad')
 }
@@ -35,7 +37,7 @@ const handleJump = (id: number | string) => {
   const isInUniApp =
 		typeof window !== 'undefined' &&
 		navigator.userAgent.includes('Html5Plus');
-	if (!item.wiki_id) return
+	if (!item.value.wiki_id) return
 	if (isInUniApp && typeof uni !== 'undefined' && uni.navigateTo) {
 		// UniApp WebView 环境
 		uni.navigateTo({
@@ -74,6 +76,17 @@ const handleJump = (id: number | string) => {
             {{ item.wiki_name }}
           </h3>
           <QhxTag v-if="item.type_id" class="mt-2">排序序号: {{ item.sort }}</QhxTag>
+          <div v-if="props.showManualSort" class="mt-2 flex justify-center">
+            <UButton
+              size="xs"
+              color="primary"
+              variant="soft"
+              icon="i-heroicons-adjustments-horizontal"
+              @click.stop="emit('manualSort', item)"
+            >
+              手动排序
+            </UButton>
+          </div>
           <div v-if="item.parent_list && item.parent_list.length > 0" class="w-full flex flex-wrap items-center">
             <div>上级</div>
             <div v-for="parent in item.parent_list" :key="parent.foreign_id" class="flex flex-wrap">

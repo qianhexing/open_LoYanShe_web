@@ -44,12 +44,12 @@
           @click="removeImage(index)"
         />
       </div> -->
-      <Draggable :disabled="!props.multiple || props.disabled" v-model="previewImages" item-key="id" animation="250" ghost-class="drag-ghost"
+      <Draggable :forceFallback="true" :disabled="!props.multiple || props.disabled" :delay="150" v-model="previewImages" item-key="id" animation="250" ghost-class="drag-ghost"
           chosen-class="drag-chosen" drag-class="dragging"
           class="grid grid-cols-3 gap-4">
           <template #item="{ element, index }">
-            <div class="relative group">
-              <img :src="element.url" alt="预览图" class="w-full aspect-square object-cover rounded" />
+            <div class="relative group aspect-square">
+              <img :src="element.url" alt="预览图" class="w-full h-full aspect-square object-cover rounded no-long-press" />
               <UButton
                 v-if="!props.disabled"
                 icon="i-heroicons-x-mark"
@@ -161,3 +161,16 @@ defineExpose({
   triggerInput, clear, previewImages
 })
 </script>
+
+<style scoped>
+/* 禁止手机浏览器的长按事件 */
+.no-long-press {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
+  pointer-events: auto;
+  touch-action: manipulation;
+}
+</style>

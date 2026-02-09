@@ -283,6 +283,7 @@ definePageMeta({
               >
                 {{ item.is_completed === 1 ? '已采集' : item.is_completed === 2 ? '已拒绝' : '未采集' }}
               </span>
+              {{ item.is_completed }}
             </div>
             <div>
               <!-- <SafeRichText :nodes="parseRichText(item.comment?.comment_content)"></SafeRichText> -->

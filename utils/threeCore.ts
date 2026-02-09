@@ -1,5 +1,6 @@
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
+import { FlyControls } from 'three/examples/jsm/controls/FlyControls.js'
 import Stats from 'three/examples/jsm/libs/stats.module.js'
 import TWEEN from '@tweenjs/tween.js'
 import {
@@ -263,6 +264,13 @@ interface ThreeCoreOptions {
 	enableCSS3DRenderer?: boolean // 新增选项：是否启用CSS3D渲染器
 	editMode?: boolean
 	enableAR?: boolean
+	enableWebGPU?: boolean
+	/**
+	 * 控制器类型：
+	 * - 'orbit'：轨道控制器（默认）
+	 * - 'fly'：飞行控制器（three/examples/jsm/controls/FlyControls）
+	 */
+	controlsType?: 'orbit' | 'fly'
 }
 
 class ThreeCore {
@@ -272,7 +280,8 @@ class ThreeCore {
 	public renderer: THREE.WebGLRenderer | WebGPURenderer
 	public rendererGPU: WebGPURenderer
 	public css3DRenderer?: CSS3DRenderer // CSS3D渲染器
-	public controls: OrbitControls
+	// 控制器实例，默认是 OrbitControls，也可以根据配置切换为 FlyControls
+	public controls: any
 	public deviceOrientationControls?: DeviceOrientationControls // 陀螺仪控制器
 	public allObjects: THREE.Object3D[] // 场景里的所有模型
 	
@@ -360,7 +369,9 @@ class ThreeCore {
 			enableOrbitControls: true,
 			enableStats: false,
 			pixelRatio: window.devicePixelRatio || 1,
-			enableCSS3DRenderer: false // 默认不启用CSS3D渲染器
+			enableCSS3DRenderer: false, // 默认不启用CSS3D渲染器
+			enableWebGPU: false,
+			controlsType: 'orbit'
 		}
 		this.editMode = false
 		this.options = { ...defaultOptions, ...options }
@@ -1681,6 +1692,11 @@ class ThreeCore {
 	): THREE.CanvasTexture {
 		const { offsetX, offsetY, scale, rotation } = params
 
+		// 设置允许跨域（如果图片还未加载完成，这会生效）
+		if (!img.crossOrigin) {
+			img.crossOrigin = 'Anonymous'
+		}
+
 		// 创建画布
 		const canvas = document.createElement('canvas')
 		canvas.width = size
@@ -1887,15 +1903,17 @@ class ThreeCore {
 			alpha: this.options.alpha
 		})
 		this.renderer.debug.checkShaderErrors = true; 
-		this.rendererGPU = new WebGPURenderer({
-			antialias: true
-			// device: navigator.gpu?.requestAdapter()?.requestDevice() // 可选手动设置 device
-		})
-		this.rendererGPU.domElement.addEventListener('mousedown', e => {
-			// 将事件传递给底层的WebGL渲染器
-		})
+		if(this.options.enableWebGPU) {
+			this.rendererGPU = new WebGPURenderer({
+				antialias: true
+				// device: navigator.gpu?.requestAdapter()?.requestDevice() // 可选手动设置 device
+			})
+			this.rendererGPU.domElement.addEventListener('mousedown', e => {
+				// 将事件传递给底层的WebGL渲染器
+			})
+		}
 
-		this.renderer.setPixelRatio(this.options.pixelRatio)
+		this.renderer.setPixelRatio(this.options.pixelRatio || 1)
 
 		const width = this.container
 			? this.container.clientWidth
@@ -1928,16 +1946,39 @@ class ThreeCore {
 		} else {
 			this.renderer.setClearColor(0x000000, 0) // 背景透明
 		}
-
-		this.rendererGPU.setSize(width, height)
+		if(this.options.enableWebGPU) {
+			this.rendererGPU.setSize(width, height)
+		}
 		console.log(this.renderer, '渲染器=======')
 		// this.container.appendChild(this.rendererGPU.domElement);
 	}
 	initOrbitControls() {
 		if (!this.camera || !this.renderer) return
-		this.controls = new OrbitControls(this.camera, this.renderer.domElement)
-		this.controls.enableDamping = true
-		this.controls.dampingFactor = 0.05
+
+		// 根据配置选择控制器类型，默认仍然是 OrbitControls
+		if (this.options.controlsType === 'fly') {
+			// 飞行控制器一般只支持透视相机
+			if (this.camera instanceof THREE.PerspectiveCamera) {
+				const flyControls = new FlyControls(this.camera, this.renderer.domElement)
+				// 一些较通用的默认参数，可以根据需要在外部再调整
+				flyControls.movementSpeed = 10
+				flyControls.rollSpeed = Math.PI / 24
+				flyControls.dragToLook = true
+				flyControls.autoForward = false
+				this.controls = flyControls
+			} else {
+				// 如果不是透视相机，回退到轨道控制
+				const orbitControls = new OrbitControls(this.camera, this.renderer.domElement)
+				orbitControls.enableDamping = true
+				orbitControls.dampingFactor = 0.05
+				this.controls = orbitControls
+			}
+		} else {
+			const orbitControls = new OrbitControls(this.camera, this.renderer.domElement)
+			orbitControls.enableDamping = true
+			orbitControls.dampingFactor = 0.05
+			this.controls = orbitControls
+		}
 	}
 	initTransformontrols() {
 		if (!this.camera || !this.renderer) return
@@ -1948,7 +1989,9 @@ class ThreeCore {
 		this.scene.add(this.transformControls._root)
 		console.log(this.transformControls, '变换控制器')
 		this.transformControls.addEventListener('dragging-changed', event => {
-			this.controls.enabled = !event.value
+			if (this.controls && 'enabled' in this.controls) {
+				this.controls.enabled = !event.value
+			}
 		})
 		// restyleGizmo(this.transformControls, {
 		// 	x: 0xff3b30,   // X轴颜色
@@ -2481,7 +2524,9 @@ class ThreeCore {
 		// 2. 初始化陀螺仪控制
 		// 注意：iOS 需要用户交互触发权限请求，这部分逻辑应在外部 UI 调用
 		this.deviceOrientationControls = new DeviceOrientationControls(this.camera, this.renderer.domElement);
-		this.controls.enabled = false; // 禁用 OrbitControls
+		if (this.controls && 'enabled' in this.controls) {
+			this.controls.enabled = false; // 禁用 OrbitControls / 其他带 enabled 的控制器
+		}
 
 		// 3. 创建 AR 内容组并默认放置在前方
 		this.arContentGroup = new THREE.Group();
@@ -2745,9 +2790,19 @@ class ThreeCore {
 				this.scanAndPositionFromQR();
 			}
 
-		// 更新 OrbitControls
-		if (this.controls && this.controls.enabled) {
-			this.controls.update()
+		// 更新控制器（支持 OrbitControls 和 FlyControls）
+		if (this.controls) {
+			// FlyControls 需要传入 delta，并且没有 enabled 属性
+			if (this.controls instanceof FlyControls) {
+				this.controls.update(delta)
+			} else if ('enabled' in this.controls) {
+				if (this.controls.enabled && typeof this.controls.update === 'function') {
+					this.controls.update()
+				}
+			} else if (typeof (this.controls as any).update === 'function') {
+				// 兜底：有 update 就直接调一下
+				;(this.controls as any).update()
+			}
 		}
 
 		// 更新高斯泼溅查看器
@@ -2870,7 +2925,6 @@ class ThreeCore {
 				// 2. 合成最终场景
 				// 如果有点云对象，跳过 Final Composer 渲染，直接使用原生渲染器（避免性能问题）
 				if (splatMeshes.length > 0) {
-					console.log('有高斯泼溅模型，跳过 Final Composer 渲染')
 					this.renderer.render(this.scene, this.camera);
 				} else {
 					this.finalComposer.render()
@@ -2880,6 +2934,10 @@ class ThreeCore {
 			// 渲染 CSS3D 场景（叠加在 WebGL 上）
 			if (this.css3DRenderer) {
 				this.css3DRenderer.render(this.scene, this.camera)
+			}
+			if (this.animationCallbacks.length > 0) {
+				// biome-ignore lint/complexity/noForEach: <explanation>
+				this.animationCallbacks.forEach(callback => callback())
 			}
 
 			// 性能监控
@@ -3900,6 +3958,8 @@ class ThreeCore {
 					// child.material.map = texture
 					// child.material.transparent = true
 					const img = new Image()
+					// 设置允许跨域
+					img.crossOrigin = 'Anonymous'
 					img.src = BASE_IMG + options.url
 					console.log('参数', options)
 					img.onload = () => {
@@ -4175,10 +4235,13 @@ class ThreeCore {
 					splatMesh.quaternion.set(1, 0, 0, 0);
 					splatMesh.receiveShadow = false
 					splatMesh.updateGenerator()
+					const group = new THREE.Group()
+					group.add(splatMesh)
+					this.scene.add(group)
 
 					// 作为普通 mesh 交给后续逻辑统一设置 position/rotation/scale 并加入场景
 					// mesh = splatMesh as unknown as THREE.Mesh
-					this.scene.add(splatMesh)
+					// this.scene.add(splatMesh)
 					console.log(mesh, '泼溅模型')
 				} catch (e) {
 					console.warn(`泼溅模型加载失败：${obj.url}`, e)

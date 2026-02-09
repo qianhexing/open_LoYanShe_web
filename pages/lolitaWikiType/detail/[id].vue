@@ -36,6 +36,54 @@ const sortMode = ref(false)
 const isSorting = ref(false) // 排序保存状态
 let oldList: { wiki_id: number | string; sort: number }[] = []
 
+// 是否为使用手动排序的类型（当前仅类型 3，预留后续扩展）
+const isManualSortType = computed(() => {
+  return type_id.value === 3
+})
+
+// 手动排序弹框相关
+const showSortDialog = ref(false)
+const currentSortWiki = ref<WikiWithSort | null>(null)
+const currentSortValue = ref<number | undefined>(undefined)
+
+const openManualSort = (wiki: WikiWithSort) => {
+  if (!sortMode.value || !isManualSortType.value) return
+  currentSortWiki.value = wiki
+  currentSortValue.value = wiki.sort ?? 0
+  showSortDialog.value = true
+}
+
+const confirmManualSort = async () => {
+  if (!currentSortWiki.value || currentSortValue.value === undefined) return
+  if (isSorting.value) return
+  isSorting.value = true
+  try {
+    const params: SortParams = {
+      type_id: type_id.value,
+      sort: [
+        {
+          wiki_id: Number(currentSortWiki.value.wiki_id),
+          sort: Number(currentSortValue.value)
+        }
+      ]
+    }
+    await sortWikiList(params)
+    // 更新本地列表中的 sort 值
+    const index = list.value.findIndex(item => item.wiki_id === currentSortWiki.value?.wiki_id)
+    if (index !== -1) {
+      list.value[index].sort = Number(currentSortValue.value)
+    }
+    // 重新拉取列表，确保排序立即生效
+    // page.value = 1
+    await fetchWikiList(1, pageSize * page.value)
+    showSortDialog.value = false
+  } catch (error) {
+    console.error('手动排序失败:', error)
+  } finally {
+    isSorting.value = false
+  }
+}
+
 // 获取 wiki 类型信息（可选，失败不影响列表显示）
 const fetchWikiTypeInfo = async () => {
   try {
@@ -103,19 +151,25 @@ const fetchWikiList = async (Ipage: number | null = null, IpageSize: number | nu
 const handleSearch = () => {
   keyword.value = value.value.trim()
   page.value = 1
+  // 如果有搜索关键词，自动关闭排序模式
+  if (keyword.value && type_id.value !== 3) {
+    sortMode.value = false
+  }
   fetchWikiList()
 }
 
+// 计算是否有搜索关键词
+const hasSearchKeyword = computed(() => !!keyword.value)
+
 // 拖拽排序相关
 const onDragStart = () => {
-  // 保存拖拽前的列表状态，记录每个项目的 sort 值
+  // 保存拖拽前的列表状态，根据总数和位置计算 sort 值（不受原来排序值影响）
   oldList = list.value.map((item, index) => {
-    const currentSort = (item as WikiWithSort).sort
-    // 如果没有 sort 值，根据位置计算（位置越靠前，sort 值越大）
-    const defaultSort = list.value.length - index
+    // 根据总数和位置计算：位置越靠前（index 越小），sort 值越大
+    const sort = total.value - index + 1
     return { 
       wiki_id: item.wiki_id, 
-      sort: currentSort ?? defaultSort
+      sort: sort
     }
   })
 }
@@ -242,7 +296,10 @@ onMounted(async () => {
       <!-- 排序按钮 -->
       <div class="flex items-center gap-2" v-if="user.token && (user.user?.user_id === 1 || user.user?.user_id === 2018)">
         <QhxJellyButton>
-          <div class="h-[60px] text-center px-1 cursor-pointer" @click="sortMode = !sortMode">
+          <div 
+            class="h-[60px] text-center px-1" 
+            :class="hasSearchKeyword ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'"
+            @click="!hasSearchKeyword && (sortMode = !sortMode)">
             <div
               class="m-[5px] text-white rounded-[50%] h-[30px] w-[30px] flex items-center justify-center"
               :class="sortMode ? 'bg-qhx-primary' : 'bg-qhx-info'">
@@ -263,7 +320,7 @@ onMounted(async () => {
     <div class="px-4">
       <Draggable 
         :delay="50"
-        :disabled="!sortMode"
+        :disabled="!sortMode || hasSearchKeyword || isManualSortType"
         @start="onDragStart" 
         @end="onDragEnd" 
         v-model="list" 
@@ -286,7 +343,13 @@ onMounted(async () => {
             name="list"
           >
             <div class="custom-item cursor-grab active:cursor-grabbing">
-              <WikiItem :item="element" :need-jump="!sortMode"></WikiItem>
+              <WikiItem
+                :item="element"
+                :need-jump="!sortMode"
+                :key="element.wiki_id"
+                :show-manual-sort="sortMode && isManualSortType"
+                @manual-sort="openManualSort"
+              />
             </div>
           </transition-group>
         </template>
@@ -314,6 +377,40 @@ onMounted(async () => {
         <span class="text-gray-600 dark:text-gray-300">暂无数据</span>
       </div>
     </div>
+
+    <!-- 手动排序弹框 -->
+    <UModal v-model="showSortDialog" :ui="{ width: 'max-w-md' }">
+      <UCard>
+        <template #header>
+          <h3 class="text-lg font-semibold">手动调整排序</h3>
+        </template>
+        <div class="space-y-4">
+          <div>
+            <div class="text-sm text-gray-500 mb-1">当前百科</div>
+            <div class="font-medium text-gray-900 dark:text-gray-100">
+              {{ currentSortWiki?.wiki_name }} (ID: {{ currentSortWiki?.wiki_id }})
+            </div>
+          </div>
+          <div>
+            <div class="text-sm text-gray-500 mb-1">排序序号（数字越大越靠前）</div>
+            <UInput
+              v-model.number="currentSortValue"
+              type="number"
+              min="0"
+              placeholder="请输入排序序号"
+            />
+          </div>
+        </div>
+        <template #footer>
+          <div class="flex justify-end gap-2">
+            <UButton color="gray" @click="showSortDialog = false">取消</UButton>
+            <UButton color="primary" :loading="isSorting" @click="confirmManualSort">
+              确认
+            </UButton>
+          </div>
+        </template>
+      </UCard>
+    </UModal>
   </div>
 </template>
 

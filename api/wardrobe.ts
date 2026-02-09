@@ -168,3 +168,21 @@ export async function getWardrobeVisualization(
   const response = await use$Post<BaseResponse<WardrobeVisualizationData>>('/visualization/wardrobe', params);
   return response.data;
 }
+
+// 全局搜索衣柜服饰
+export interface ClothesSearchParams extends PaginationParams {
+  filter_list?: Array<{ field: string; op: string; value: string | number }>
+  wardrobe_id?: number[]
+}
+
+interface ClothesSearchResponse {
+  rows: WardrobeClothes[];
+  count: number;
+}
+
+export async function getClothesSearch(
+  params: ClothesSearchParams
+): Promise<ClothesSearchResponse> {
+  const response = await use$Post<BaseResponse<ClothesSearchResponse>>('/clothes/search', params);
+  return response.data;
+}

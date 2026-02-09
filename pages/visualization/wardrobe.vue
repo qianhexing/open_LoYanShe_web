@@ -142,7 +142,7 @@ import { useRoute, useRouter } from 'vue-router';
 import * as THREE from 'three';
 import ThreeCore from '@/utils/threeCore';
 import type { User, Wardrobe, WardrobeClothes } from '@/types/api';
-import { BASE_IMG } from '@/utils/ipConfig';
+import { BASE_IMG_MODEL as BASE_IMG } from '@/utils/ipConfig';
 import gsap from 'gsap';
 import { useUserStore } from '@/stores/user';
 import { getUserMy } from '@/api/user';
@@ -388,6 +388,8 @@ const convertTextureToCircle = (texture: THREE.Texture): Promise<THREE.Texture> 
 const createAvatarTexture = (user: User) => {
   if (user.user_face) {
     const loader = new THREE.TextureLoader();
+    // 设置允许跨域
+    loader.crossOrigin = 'Anonymous';
     // 注意：真实场景下需要处理跨域问题，这里假设 avatar 是同域或支持 CORS 的
     // 如果是外部链接，可以尝试设置 loader.crossOrigin = 'Anonymous';
     // 但为了演示稳定，如果加载失败我们回退到 Canvas 生成

@@ -58,17 +58,60 @@ let oldList: { clothes_id: number; sort: number }[] = [];
 const record = ref<Wardrobe | null>(null)
 import type ClothesAdd from '@/components/Clothes/ClothesAdd.vue'
 import type WardrobeAddEdit from '@/components/Wardrobe/WardrobeAddEdit.vue'
+import type WardrobeSearch from '@/components/Wardrobe/WardrobeSearch.vue'
 import dayjs from 'dayjs';
 const addEditClothesRef = ref<InstanceType<typeof ClothesAdd> | null>(null)
 const toast = useToast()
 const filter_list =  ref({
   tags: [] as string[],
-  wardrobe_status: [] as string[]
+  wardrobe_status: [] as string[],
+  clothes_note: '' as string
 }) 
+const showFilterDrawer = ref(false)
 const addEditWardrobeRef = ref<InstanceType<typeof WardrobeAddEdit> | null>(null)
+const wardrobeSearchRef = ref<InstanceType<typeof WardrobeSearch> | null>(null)
+
+// 判断是否为移动端
+const isMobile = computed(() => {
+  if (typeof window === 'undefined') return false
+  return window.innerWidth < 768
+})
+
+// 衣柜状态选项
+const wardrobeStatusOptions = computed(() => {
+  if (!wardrobeStore.config?.wardrobe_status) return []
+  return wardrobeStore.config.wardrobe_status
+    .filter((status: string) => status !== '自定义')
+    .map((status: string) => ({
+      label: status,
+      value: status
+    }))
+})
+
+// 筛选条件数量
+const filterCount = computed(() => {
+  let count = 0
+  if (filter_list.value.wardrobe_status.length > 0) {
+    count += filter_list.value.wardrobe_status.length
+  }
+  if (filter_list.value.clothes_note && filter_list.value.clothes_note.trim() !== '') {
+    count += 1
+  }
+  return count
+})
+
+// 是否有激活的筛选
+const hasActiveFilter = computed(() => {
+  return filterCount.value > 0
+})
 const showAddWardrobe = () => {
   if (addEditWardrobeRef.value) {
     addEditWardrobeRef.value.showModel()
+  }
+}
+const openWardrobeSearch = () => {
+  if (wardrobeSearchRef.value) {
+    wardrobeSearchRef.value.showModel()
   }
 }
 const showEditWardrobe = (item: Wardrobe) => {
@@ -114,7 +157,8 @@ const checkPassword = (wardrobe_id: number) => {
 const initFilter = () => {
   filter_list.value = {
     tags: [],
-    wardrobe_status: []
+    wardrobe_status: [],
+    clothes_note: ''
   }
 }
 const changeWardrobe = (item: Wardrobe) => {
@@ -616,6 +660,33 @@ const chooseTags = (tags: string) => {
   }
   reload()
 }
+// 选择状态
+const chooseStatus = (label: string) => {
+  const index = filter_list.value.wardrobe_status.findIndex((status) => {
+    return status === label
+  })
+  if (index === -1) {
+    filter_list.value.wardrobe_status.push(label)
+  } else {
+    filter_list.value.wardrobe_status.splice(index, 1)
+  }
+}
+// 重置筛选
+const resetFilter = () => {
+  filter_list.value.wardrobe_status = []
+  filter_list.value.clothes_note = ''
+  confirmFilter()
+}
+// 确认筛选
+const confirmFilter = () => {
+  showFilterDrawer.value = false
+  page.value = 1
+  fetchClothesList()
+}
+// 关闭筛选抽屉
+const closeFilterDrawer = () => {
+  showFilterDrawer.value = false
+}
 const jumpToClothes = (item: WardrobeClothes) => {
   if (sortMode.value) {
     console.log('排序模式返回')
@@ -629,7 +700,7 @@ const jumpToClothes = (item: WardrobeClothes) => {
 	if (isInUniApp && typeof uni !== 'undefined' && uni.navigateTo) {
 		// UniApp WebView 环境
 		uni.navigateTo({
-			url: `/pages/clothes/detail/${item.clothes_id}`,
+			url: `/pages/common/outerLink?url=https://lolitalibrary.com/clothes/detail/${item.clothes_id}`,
 			fail: () => {
 				console.log('跳转错误')
 			}
@@ -692,6 +763,40 @@ const jumpToVisualization = () => {
     } else {
       // 普通网页环境
       navigateTo(visualizationUrl)
+    }
+  }
+}
+
+// 跳转到定制计划页面
+const jumpToPlan = () => {
+  showMoreMenu.value = false
+  const planUrl = `/user/plan`
+  
+  const isInUniApp =
+    typeof window !== 'undefined' &&
+    navigator.userAgent.includes('Html5Plus');
+  
+  if (isInUniApp && typeof uni !== 'undefined' && uni.navigateTo) {
+    // UniApp WebView 环境
+    uni.navigateTo({
+      url: `/pages/common/outerLink?url=https://lolitalibrary.com${planUrl}`,
+      fail: () => {
+        console.log('跳转错误')
+      }
+    });
+  } else {
+    if (port.value) {
+      // 鸿蒙系统
+      port.value.postMessage(JSON.stringify({
+        type: 'jump',
+        path: 'Outlink',
+        params: {
+          url: `https://lolitalibrary.com${planUrl}`
+        }
+      }));
+    } else {
+      // 普通网页环境
+      navigateTo(planUrl)
     }
   }
 }
@@ -814,21 +919,41 @@ const enableDrag = () => {
             <div class="text-xs text-gray-500 dark:text-gray-400">查看衣柜可视化</div>
           </div>
         </button>
+
+        <!-- 定制计划选项 -->
+        <button @click="jumpToPlan"
+          class="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors text-left group mt-2">
+          <div
+            class="w-8 h-8 bg-gradient-to-br from-blue-500 to-cyan-500 rounded-lg flex items-center justify-center group-hover:scale-110 transition-transform">
+            <UIcon name="material-symbols:calendar-month" class="text-base text-white" />
+          </div>
+          <div class="flex-1">
+            <div class="text-sm font-medium text-gray-800 dark:text-gray-200">定制计划</div>
+            <div class="text-xs text-gray-500 dark:text-gray-400">查看攒钱计划列表</div>
+          </div>
+        </button>
       </div>
     </QhxModal>
 
     <div class="rounded-2xl flex">
       <div
-        class=" wardrobe-list shadow-xl h-[calc(100vh-20px)] 
-        m-[10px] rounded-[10px] w-[180px] max-md:w-[20vw]
+        class=" wardrobe-list shadow-xl h-[calc(100vh)]  rounded-[10px] w-[180px] max-md:w-[20vw]
         overflow-y-auto">
-        <div v-if="user.user?.user_id === Number.parseInt(id)" class="text-center py-2 space-y-2">
+        <div v-if="user.user?.user_id === Number.parseInt(id)" class="flex flex-col items-center py-2 gap-2">
           <QhxJellyButton>
             <div class="h-[60px] text-center px-1  cursor-pointer" @click="showAddWardrobe()">
               <div class="my-[5px] mx-auto text-white rounded-[50%] h-[30px] w-[30px] bg-qhx-primary flex items-center justify-center">
                 <UIcon name="material-symbols:add-2" class="text-[22px] text-[#ffffff]" />
               </div>
               <div class=" text-sm text-qhx-text">新建衣柜</div>
+            </div>
+          </QhxJellyButton>
+          <QhxJellyButton>
+            <div class="h-[60px] text-center px-1 cursor-pointer" @click="openWardrobeSearch()">
+              <div class="my-[5px] mx-auto text-white rounded-[50%] h-[30px] w-[30px] bg-blue-500 flex items-center justify-center">
+                <UIcon name="i-heroicons-magnifying-glass" class="text-[22px] text-[#ffffff]" />
+              </div>
+              <div class="text-sm text-qhx-text">搜索</div>
             </div>
           </QhxJellyButton>
           <QhxJellyButton>
@@ -995,25 +1120,41 @@ const enableDrag = () => {
             />
           </div>
         </div>
-        <div class=" flex flex-wrap sticky top-[10px] z-10" v-if="user.user?.user_id === Number.parseInt(id)">
-          <QhxJellyButton>
-            <div class="h-[60px] text-center px-1  cursor-pointer" @click="showAddClothes()">
-              <div
-                class=" m-[5px] text-white rounded-[50%] h-[30px] w-[30px] flex items-center justify-center bg-qhx-primary" >
-                <UIcon name="material-symbols:add-2" class="text-[22px] text-[#ffffff]" />
+        <div class="flex justify-between items-center sticky top-[10px] z-10" v-if="user.user?.user_id === Number.parseInt(id)">
+          <div class="flex flex-wrap">
+            <QhxJellyButton>
+              <div class="h-[60px] text-center px-1  cursor-pointer" @click="showAddClothes()">
+                <div
+                  class=" m-[5px] text-white rounded-[50%] h-[30px] w-[30px] flex items-center justify-center bg-qhx-primary" >
+                  <UIcon name="material-symbols:add-2" class="text-[22px] text-[#ffffff]" />
+                </div>
+                <div class=" text-sm text-qhx-text">添加</div>
               </div>
-              <div class=" text-sm text-qhx-text">添加</div>
-            </div>
-          </QhxJellyButton>
-          <QhxJellyButton>
-            <div class="h-[60px] text-center px-1  cursor-pointer" @click="sortMode = !sortMode">
-              <div
-                class=" m-[5px] text-white rounded-[50%] h-[30px] w-[30px] flex items-center justify-center" :class="sortMode ? 'bg-qhx-primary' : 'bg-qhx-info'">
-                <UIcon name="icon-park-outline:sort-two" class="text-[22px] text-[#ffffff]" />
+            </QhxJellyButton>
+            <QhxJellyButton>
+              <div class="h-[60px] text-center px-1  cursor-pointer" @click="sortMode = !sortMode">
+                <div
+                  class=" m-[5px] text-white rounded-[50%] h-[30px] w-[30px] flex items-center justify-center" :class="sortMode ? 'bg-qhx-primary' : 'bg-qhx-info'">
+                  <UIcon name="icon-park-outline:sort-two" class="text-[22px] text-[#ffffff]" />
+                </div>
+                <div class=" text-sm text-qhx-text">排序</div>
               </div>
-              <div class=" text-sm text-qhx-text">排序</div>
-            </div>
-          </QhxJellyButton>
+            </QhxJellyButton>
+          </div>
+          <div class="flex flex-wrap">
+            <QhxJellyButton>
+              <div class="h-[60px] text-center px-1  cursor-pointer" @click="showFilterDrawer = true">
+                <div
+                  class="relative m-[5px] text-white rounded-[50%] h-[30px] w-[30px] flex items-center justify-center" :class="hasActiveFilter ? 'bg-qhx-primary' : 'bg-qhx-info'">
+                  <UIcon name="material-symbols:filter-list" class="text-[22px] text-[#ffffff]" />
+                  <span v-if="filterCount > 0" class="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 flex items-center justify-center bg-red-500 text-white text-[10px] font-bold rounded-full">
+                    {{ filterCount > 99 ? '99+' : filterCount }}
+                  </span>
+                </div>
+                <div class=" text-sm text-qhx-text">筛选</div>
+              </div>
+            </QhxJellyButton>
+          </div>
         </div>
         <div class="flex flex-wrap gap-2" v-if="tagList && tagList.length > 0">
           
@@ -1069,12 +1210,79 @@ const enableDrag = () => {
         <div class="pb-[40px]"></div>
       </div>
     </div>
-    <!-- <QhxDrawer v-model="show" direction="right" size="400px">
-      <div class="p-4">
-        <h2 class="text-xl font-bold">抽屉内容</h2>
-        <p>这里可以放任意组件或内容</p>
+    <!-- 筛选抽屉 -->
+    <QhxBottomDrawer v-if="showFilterDrawer" :direction="isMobile ? 'bottom' : 'right'" :default-size="isMobile ? 500 : 450">
+      <div class="flex flex-col h-full">
+        <!-- 标题栏 -->
+        <div class="flex items-center justify-between mb-2 px-4 pt-2 flex-shrink-0">
+          <h3 class="text-base font-bold text-gray-800 dark:text-gray-200">筛选</h3>
+          <button
+            @click="closeFilterDrawer"
+            class="w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors group"
+          >
+            <UIcon name="i-heroicons-x-mark" class="text-gray-500 dark:text-gray-400 group-hover:text-gray-700 dark:group-hover:text-gray-200 transition-colors" />
+          </button>
+        </div>
+        
+        <!-- 可滚动内容区域 -->
+        <div class="flex-1 overflow-y-auto px-4">
+          <div class="mb-4 p-3 bg-yellow-50 dark:bg-yellow-900/20 rounded-lg border border-yellow-200 dark:border-yellow-800">
+            <p class="text-sm text-yellow-800 dark:text-yellow-200">注意: 该筛选会影响总价等统计数据</p>
+          </div>
+          
+          <div class="mb-4">
+            <div class="text-sm font-semibold mb-2 text-gray-800 dark:text-gray-200">服饰名字：</div>
+            <UInput 
+              v-model="filter_list.clothes_note" 
+              placeholder="请输入服饰名字进行筛选"
+              class="w-full"
+              :ui="{
+                base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
+                rounded: 'rounded-[10px]',
+                padding: { xs: 'px-4 py-2' },
+                color: {
+                  white: {
+                    outline: 'bg-gray-50 dark:bg-gray-800 ring-1 ring-gray-300 dark:ring-gray-600 focus:ring-2 focus:ring-qhx-primary'
+                  }
+                }
+              }"
+            />
+          </div>
+          
+          <div class="mb-2">
+            <div class="text-sm font-semibold mb-3 text-gray-800 dark:text-gray-200">状态：</div>
+            <div class="flex flex-wrap gap-2">
+              <QhxTag
+                v-for="(status, index) in wardrobeStatusOptions"
+                :key="index"
+                :active="filter_list.wardrobe_status.includes(status.label)"
+                class="cursor-pointer"
+                @click="chooseStatus(status.label)"
+              >
+                {{ status.label }}
+              </QhxTag>
+            </div>
+          </div>
+        </div>
+        
+        <!-- 固定在底部的按钮 -->
+        <div class="flex justify-end gap-2 px-4 pb-4 pt-2 border-t border-gray-200 dark:border-gray-700 flex-shrink-0">
+          <UButton color="gray" variant="outline" @click="resetFilter">
+            重置
+          </UButton>
+          <UButton color="primary" @click="confirmFilter">
+            确认筛选
+          </UButton>
+        </div>
       </div>
-    </QhxDrawer> -->
+    </QhxBottomDrawer>
+
+    <!-- 全局搜索组件 -->
+    <WardrobeSearch
+      ref="wardrobeSearchRef"
+      :wardrobe-list="wardrobeList"
+      :can-choose="false"
+    />
   </div>
 </template>
 

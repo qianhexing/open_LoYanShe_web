@@ -405,7 +405,8 @@
         </UFormGroup>
 
         <LibraryChoose ref="chooseLibraryRef" @choose="chooseLibrary"
-          :filter_list="[{ field: 'library_type', value: '系列', op: 'and' }]" />
+           />
+           <!-- :filter_list="[{ field: 'library_type', value: '系列', op: 'and' }]" -->
 
         <UModal v-model="showComposition" :ui="{ width: 'max-w-4xl' }">
           <UCard>
@@ -1319,7 +1320,6 @@ const chooseLibrary = (item: Library[]) => {
   showConfirmLibrary.value = true
 }
 const copyLibraryInfo = () => {
-  console.log(library.value, '图鉴信息')
   if (!library.value.parent_id) {
     toast.add({
       title: t('addLibrary.warning'),
@@ -1328,10 +1328,14 @@ const copyLibraryInfo = () => {
     })
     return false
   }
+  console.log(library.value.parent_id, '图鉴信息')
+
   const item: Library = library.value.parent_id
   showConfirmLibrary.value = false
   library.value.name = `${item.name} ${ library.value.library_type ? library.value.library_type : ''}`
-
+  if (item.shop) {
+    library.value.shop_id = item.shop
+  }
   if (item.theme) {
     library.value.theme = item.theme.split(',').map((item: string) => {
       return {

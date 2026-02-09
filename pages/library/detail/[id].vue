@@ -10,6 +10,9 @@ import { getWardrobeListOptions } from '@/api/wardrobe'
 import { useToast } from '#imports'
 import type { Wiki } from '@/types/api'
 import dayjs from 'dayjs'
+import PhysicsDrop from '@/components/PhysicsDrop.client.vue'
+import { getWikiDetail, type WikiDetailParams } from '@/api/wiki'
+import SPZModelViewer from '@/components/ModelViewer/SPZModelViewer.vue'
 const user = useUserStore()
 const config = useConfigStore()
 const route = useRoute()
@@ -26,6 +29,7 @@ const parent = ref<Library | null>(null)
 const child_list = ref<Library[]>([])
 const library_video = ref<LibraryVideo[]>([])
 const library_pipe = ref<LibraryPipe[]>([])
+const spzModelViewerRef = ref<{ showModel: (models: Array<{ url: string; type?: 'splat' | 'model'; position?: [number, number, number]; rotation?: [number, number, number]; scale?: [number, number, number]; options?: Record<string, unknown> }>) => Promise<void> } | null>(null)
 library.value = data.value?.library ?? null
 style_list.value = data.value?.style_list ?? []
 parent.value = data.value?.parent ?? null
@@ -88,6 +92,24 @@ const fetchLibraryVideo = () => {
       library_video.value = res
     })
 }
+
+// 处理人台图点击事件
+const handleVideoClick = (item: LibraryVideo) => {
+  // 如果是点云类型 (pk_type === 2)，打开点云弹窗
+  if (item.pk_type === 2 && item.addr) {
+    const modelUrls = item.addr.split(',').filter(url => url.trim())
+    const modelList = modelUrls.map((url, index) => ({
+      url: url.trim(),
+      type: 'splat' as const,
+      position: [index * 3, 0, 0] as [number, number, number],
+      options: {
+        useDracoLoader: true,
+        dracoDecoderPath: '/draco/gltf/'
+      }
+    }))
+    spzModelViewerRef.value?.showModel(modelList)
+  }
+}
 const fetchLibraryPipe = () => {
   let pk_id = Number.parseInt(id)
   if (library.value?.library_type !== '系列' && library.value?.parent_id !== 0) {
@@ -113,8 +135,85 @@ interface WikiParams {
   wiki_name: string
   type_id: number
 }
-const jumpToWiki = (params: WikiParams) => {
-  console.log(params)
+let uni: { navigateTo?: (options: { url: string; fail?: () => void }) => void } | undefined
+onMounted(async () => {
+  try {
+    // @ts-ignore
+    uni = await import('@dcloudio/uni-webview-js')
+  } catch (err) {
+    console.error('Failed to load uni-webview-js:', err)
+    uni = undefined
+  }
+})
+const port = computed(() => config.getPort())
+const jumpToWiki = async (params: WikiParams) => {
+  const { wiki_name, type_id } = params
+  if (!wiki_name) return
+  
+  try {
+    // 调用接口查询 wiki，获取 wiki_id
+    const wikiParams: WikiDetailParams = {
+      wiki_name: wiki_name.trim(),
+      type_id: type_id
+    }
+    const wikiDetail = await getWikiDetail(wikiParams)
+    
+    if (!wikiDetail || !wikiDetail.wiki_id) {
+      toast.add({
+        title: '未找到对应的百科词条',
+        icon: 'i-heroicons-exclamation-circle',
+        color: 'orange'
+      })
+      return
+    }
+    
+    const wikiId = typeof wikiDetail.wiki_id === 'number' 
+      ? wikiDetail.wiki_id 
+      : Number.parseInt(String(wikiDetail.wiki_id))
+    
+    if (Number.isNaN(wikiId)) {
+      toast.add({
+        title: '百科ID无效',
+        icon: 'i-heroicons-exclamation-circle',
+        color: 'red'
+      })
+      return
+    }
+    
+    // 根据 wiki_id 跳转
+    const isInUniApp =
+      typeof window !== 'undefined' &&
+      navigator.userAgent.includes('Html5Plus')
+    
+    if (isInUniApp && uni && uni.navigateTo) {
+      // UniApp WebView 环境
+      uni.navigateTo({
+        url: `/pages/lolitaWiki/detail/${wikiId}`,
+        fail: () => {
+          console.log('跳转错误')
+        }
+      })
+    } else if (port.value) {
+      // 鸿蒙系统
+      port.value.postMessage(JSON.stringify({
+        type: 'jump',
+        path: 'Outlink',
+        params: {
+          url: `https://lolitalibrary.com/lolitaWiki/detail/${wikiId}`
+        }
+      }))
+    } else {
+      // 普通网页环境
+      navigateTo(`/lolitaWiki/detail/${wikiId}`)
+    }
+  } catch (error) {
+    console.error('查询wiki失败:', error)
+    toast.add({
+      title: '查询百科失败',
+      icon: 'i-heroicons-exclamation-circle',
+      color: 'red'
+    })
+  }
 }
 useHead({
   title: library.value ? library.value.name : 'Lolita图鉴',
@@ -180,7 +279,7 @@ const checkWardrobeStatus = async () => {
     // 检查是否有至少一个衣柜包含该图鉴
     isInWardrobe.value = data.some(item => item.is_wardrobe !== 0 && !!item.is_wardrobe)
     // 统计已加入的衣柜数量
-    wardrobeCount.value = data.filter(item => item.is_wardrobe !== 0 && !!item.is_wardrobe).length
+    // wardrobeCount.value = data.filter(item => item.is_wardrobe !== 0 && !!item.is_wardrobe).length
   } catch (error) {
     console.error('检查衣柜状态失败:', error)
   } finally {
@@ -230,6 +329,7 @@ const handleLibraryTypeColorChoose = (data: { library: Library; clothes_img: str
 // 初始化时检查状态
 watch(() => library.value, (newLibrary) => {
   if (newLibrary) {
+    console.log(newLibrary,'newLibrary')
     wardrobeCount.value = newLibrary.wardrobe_count || 0
     checkWardrobeStatus()
   }
@@ -237,6 +337,8 @@ watch(() => library.value, (newLibrary) => {
 
 onMounted(() => {
   if (library.value) {
+    console.log(library.value.wardrobe_count,'初始化时检查状态')
+    
     wardrobeCount.value = library.value.wardrobe_count || 0
     checkWardrobeStatus()
   }
@@ -250,6 +352,108 @@ const handleEditLibrary = () => {
 const jumpToLibraryVideoManage = () => {
   if (!library.value?.library_id) return
   window.open(`/library/manageVideo/${library.value.library_id}`, '_blank')
+}
+
+// PhysicsDrop 组件相关 - 从接口返回的 model_list 动态生成
+interface LibraryModelItem {
+  foreign_id: number
+  pk_type: number
+  pk_id: number
+  materia_id: number
+  create_time: string
+  is_enable: number
+  material_box?: {
+    materia_id: number
+    user_id: number
+    pk_type: number
+    pk_id: number
+    create_time: string
+    is_enable: number
+    is_private: number
+    materia_url: string
+    materia_title: string
+    cover: string | null
+    options?: {
+      useDracoLoader?: boolean
+      [key: string]: unknown
+    }
+  }
+}
+
+const physicsDropModels = computed(() => {
+  // 没有图鉴或没有模型列表时不展示
+  const modelList = (library.value as Library & { model_list?: LibraryModelItem[] })?.model_list
+  if (!library.value || !Array.isArray(modelList)) {
+    return []
+  }
+
+  // model_list 示例：
+  // [
+  //   {
+  //     foreign_id: 1,
+  //     pk_type: 0,
+  //     pk_id: 43,
+  //     materia_id: 13,
+  //     create_time: '2026-02-03T08:48:09.000Z',
+  //     is_enable: 0,
+  //     material_box: {
+  //       materia_id: 13,
+  //       user_id: 1,
+  //       pk_type: 1,
+  //       pk_id: 0,
+  //       create_time: '2026-01-01T05:46:51.000Z',
+  //       is_enable: 0,
+  //       is_private: 0,
+  //       materia_url: '/sence/13.glb',
+  //       materia_title: '叶子',
+  //       cover: null,
+  //       options: { useDracoLoader: true }
+  //     }
+  //   }
+  // ]
+
+  return modelList
+    // 只取启用并且有 material_box 的数据
+    .filter((item): item is LibraryModelItem & { material_box: NonNullable<LibraryModelItem['material_box']> } => {
+      return !!item && item.is_enable === 0 && !!item.material_box && !!item.material_box.materia_url
+    })
+    // 格式化成 PhysicsDrop 组件需要的结构
+    .map((item) => ({
+      url: item.material_box.materia_url,
+      id: item.materia_id ?? item.material_box.materia_id,
+      name: item.material_box.materia_title,
+      options: item.material_box.options || { useDracoLoader: true }
+    }))
+})
+
+const handleObjectClick = (data: { url: string; name: string; id: string | number }) => {
+  console.log('点击了物体:', data)
+  toast.add({
+    title: `点击了: ${data.name}`,
+    description: `ID: ${data.id}`,
+    icon: 'i-heroicons-information-circle',
+    color: 'blue'
+  })
+}
+
+// PhysicsDrop 显示/隐藏控制
+const PHYSICS_DROP_VISIBLE_KEY = 'physicsDropVisible'
+// 从 localStorage 读取初始状态，默认显示
+const getInitialVisibility = (): boolean => {
+  if (import.meta.client) {
+    const savedState = localStorage.getItem(PHYSICS_DROP_VISIBLE_KEY)
+    return savedState !== null ? savedState === 'true' : true
+  }
+  return true
+}
+const isPhysicsDropVisible = ref(getInitialVisibility())
+
+// 切换显示/隐藏状态
+const togglePhysicsDrop = () => {
+  isPhysicsDropVisible.value = !isPhysicsDropVisible.value
+  if (import.meta.client) {
+    localStorage.setItem(PHYSICS_DROP_VISIBLE_KEY, String(isPhysicsDropVisible.value))
+  }
 }
 </script>
 <template>
@@ -358,7 +562,12 @@ const jumpToLibraryVideoManage = () => {
           <div v-if="library.theme" class="mb-1">
             <h3 class="text-sm m-1">主题</h3>
             <div class="flex flex-wrap gap-2">
-              <QhxTag v-for="(tags, index) in library.theme.split(',')" :key="index">
+              <QhxTag
+                v-for="(tags, index) in library.theme.split(',')"
+                :key="index"
+                @click="jumpToWiki({ wiki_name: tags.trim(), type_id: 14 })"
+                class="cursor-pointer hover:opacity-80 transition-opacity"
+              >
                 {{ tags }}
               </QhxTag>
             </div>
@@ -368,7 +577,12 @@ const jumpToLibraryVideoManage = () => {
           <div v-if="library.library_pattern" class="mb-1">
             <h3 class="text-sm m-1">版型/部位</h3>
             <div class="flex flex-wrap gap-2">
-              <QhxTag v-for="(tags, index) in library.library_pattern.split(',')" :key="index">
+              <QhxTag
+                v-for="(tags, index) in library.library_pattern.split(',')"
+                :key="index"
+                @click="jumpToWiki({ wiki_name: tags.trim(), type_id: 1 })"
+                class="cursor-pointer hover:opacity-80 transition-opacity"
+              >
                 {{ tags }}
               </QhxTag>
             </div>
@@ -401,7 +615,12 @@ const jumpToLibraryVideoManage = () => {
           <div v-if="library.pattern_elements" class="mb-1">
             <h3 class="text-sm m-1">柄图元素</h3>
             <div class="flex flex-wrap gap-2">
-              <QhxTag v-for="(tags, index) in library.pattern_elements.split(',')" :key="index">
+              <QhxTag
+                v-for="(tags, index) in library.pattern_elements.split(',')"
+                :key="index"
+                @click="jumpToWiki({ wiki_name: tags.trim(), type_id: 3 })"
+                class="cursor-pointer hover:opacity-80 transition-opacity"
+              >
                 {{ tags }}
               </QhxTag>
             </div>
@@ -411,7 +630,12 @@ const jumpToLibraryVideoManage = () => {
           <div v-if="library.design_elements" class="mb-4">
             <h3 class="text-sm m-1">设计元素</h3>
             <div class="flex flex-wrap gap-2">
-              <QhxTag v-for="(tags, index) in library.design_elements.split(',')" :key="index">
+              <QhxTag
+                v-for="(tags, index) in library.design_elements.split(',')"
+                :key="index"
+                @click="jumpToWiki({ wiki_name: tags.trim(), type_id: 2 })"
+                class="cursor-pointer hover:opacity-80 transition-opacity"
+              >
                 {{ tags }}
               </QhxTag>
             </div>
@@ -478,7 +702,7 @@ const jumpToLibraryVideoManage = () => {
               <div @click="handleAddToWardrobe" class="cursor-pointer inline-block">
                 <div class="flex items-center">
                   <UIcon 
-                    name="i-heroicons-archive-box-20-solid" 
+                    name="hugeicons:wardrobe-04" 
                     class="text-[26px]"
                     :class="isInWardrobe ? 'text-[#409EFF]' : 'text-gray-500'" 
                   />
@@ -507,17 +731,47 @@ const jumpToLibraryVideoManage = () => {
       <div class="p-3 max-md:block">
         <h1 class="mb-3 text-lg font-semibold">人台图</h1>
         <div class="flex flex-wrap pb-3 max-md:justify-center">
-          <div v-for="(item) in library_video" class="w-[100px] h-[100px] mr-3 mb-2 relative">
-            <QhxPreviewImage
-              :list="[{ src: item.addr.split(',')[0] + '?x-oss-process=image/quality,q_80/resize,w_300,h_300', alt: library.name }]"
-              :preview="item.addr.split(',').map((image) => { return { src: image, title: item.title }})"
-              :className="'cursor-pointer ml-3 w-[100px] h-[100px] relative  object-cover rounded-[10px] shadow-lg border border-gray-200'">
-              <div class=" absolute right-[-20px] top-[-10px] w-[20px] h-[20px] flex justify-center items-center bg-qhx-primary text-xs text-qhx-inverted rounded-[50%]">{{ item.addr.split(',').length }}</div>
-            </QhxPreviewImage>
+          <div v-for="(item) in library_video" :key="item.video_id" class="w-[100px] mr-3 mb-2">
+            <div class="relative">
+              <!-- 点云类型：点击打开点云弹窗 -->
+              <div
+                v-if="item.pk_type === 2"
+                @click="handleVideoClick(item)"
+                class="cursor-pointer ml-3 w-[100px] h-[100px] relative object-cover rounded-[10px] shadow-lg border border-gray-200 overflow-hidden"
+              >
+                <img
+                  v-if="item.cover"
+                  :src="BASE_IMG + item.cover + '?x-oss-process=image/quality,q_80/resize,w_300,h_300'"
+                  :alt="item.title || library.name"
+                  class="w-full h-full object-cover"
+                />
+                <div v-else class="w-full h-full bg-gray-200 dark:bg-gray-700 flex items-center justify-center">
+                  <UIcon name="i-heroicons-cube" class="w-8 h-8 text-gray-400" />
+                </div>
+                <div class="absolute left-[0px] top-[0px] px-1.5 py-0.5 flex justify-center items-center bg-qhx-primary text-[10px] text-qhx-inverted rounded-[4px] font-semibold">
+                  3D
+                </div>
+                <div v-if="item.addr" class="absolute right-[-20px] top-[-10px] w-[20px] h-[20px] flex justify-center items-center bg-qhx-primary text-xs text-qhx-inverted rounded-[50%]">
+                  {{ item.addr.split(',').length }}
+                </div>
+              </div>
+              <!-- 普通类型：使用预览图片组件，优先使用 cover 字段 -->
+              <QhxPreviewImage
+                v-else
+                :list="[{ src: (item.cover || item.addr?.split(',')[0] || '') + '?x-oss-process=image/quality,q_80/resize,w_300,h_300', alt: item.title || library.name }]"
+                :preview="item.cover ? [item.cover] : (item.addr ? item.addr.split(',').map((image) => ({ src: image, title: item.title })) : [])"
+                :className="'cursor-pointer ml-3 w-[100px] h-[100px] relative  object-cover rounded-[10px] shadow-lg border border-gray-200'">
+                <div v-if="item.addr" class=" absolute right-[-20px] top-[-10px] w-[20px] h-[20px] flex justify-center items-center bg-qhx-primary text-xs text-qhx-inverted rounded-[50%]">{{ item.addr.split(',').length }}</div>
+              </QhxPreviewImage>
+            </div>
+            <div v-if="item.title" class="ml-3 mt-2 text-xs text-gray-600 dark:text-gray-400 truncate" :title="item.title">{{ item.title }}</div>
           </div>
         </div>
       </div>
     </div>
+    
+    <!-- SPZ模型查看器弹窗 -->
+    <SPZModelViewer ref="spzModelViewerRef" />
     <div v-if="library" class="bg-qhx-bg-card rounded-lg shadow-lg mt-3">
       <QhxTabs :tabs="['返图', '贩售历史']">
         <QhxTabPanel :index="0">
@@ -610,6 +864,29 @@ const jumpToLibraryVideoManage = () => {
     <!-- 加入衣柜相关组件 -->
     <LibraryTypeColorChoose ref="libraryTypeColorChooseRef" @choose="handleLibraryTypeColorChoose" />
     <WardrobeAddLibrary ref="wardrobeAddLibraryRef" @change="handleWardrobeChange" />
+    
+    <!-- 物理掉落组件 -->
+    <ClientOnly>
+      <PhysicsDrop 
+        v-if="isPhysicsDropVisible && physicsDropModels.length > 0"
+        :models="physicsDropModels"
+        @object-click="handleObjectClick"
+      />
+    </ClientOnly>
+    
+    <!-- 悬浮开关按钮 -->
+    <div class="fixed bottom-8 left-8 z-50 pointer-events-none" v-if="library && physicsDropModels.length > 0">
+      <button
+        @click="togglePhysicsDrop"
+        class="pointer-events-auto bg-gray-900/80 dark:bg-white/80 backdrop-blur-md text-white dark:text-gray-900 px-4 py-2 rounded-full shadow-2xl flex items-center gap-1.5 transform transition-all duration-300 hover:scale-105 active:scale-95 group"
+      >
+        <UIcon
+          :name="isPhysicsDropVisible ? 'weui:eyes-on-filled' : 'weui:eyes-off-filled'"
+          class="text-[16px] group-hover:rotate-12 transition-transform"
+        />
+        <span class="text-sm font-semibold">{{ isPhysicsDropVisible ? '关闭掉落' : '开启掉落' }}</span>
+      </button>
+    </div>
   </div>
 </template>
 
@@ -635,4 +912,5 @@ const jumpToLibraryVideoManage = () => {
 .library-list-wrap::-webkit-scrollbar-thumb:hover {
   background: #ccc;
 }
+
 </style>

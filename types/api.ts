@@ -284,6 +284,16 @@ export interface WardrobeClothes {
   num?: number
   last_dress?: Date
   sence_id?: number
+  model_list?: MaterialForeign[]
+}
+export interface MaterialForeign {
+  foreign_id?: number
+  pk_type?: number
+  pk_id?: number
+  materia_id?: number
+  create_time?: string
+  is_enable?: number
+  material_box?: Material
 }
 /** 研习类型 */
 export interface Study {
@@ -459,6 +469,7 @@ export interface LibraryVideo {
   sort?: number
   title?: string
   video_id?: number
+  cover?: string
 }
 
 export interface Scene {
@@ -626,4 +637,22 @@ export interface TeapartyAttend {
   note?: string
   create_time?: Date
   user?: User
+}
+export interface PlanList {
+  list_id?: number
+  create_user?: number
+  plan_member?: string
+  plan_name?: string
+  need_money?: number
+  have_money?: number
+  plan_cover?: string
+  plan_note?: string
+  is_complete?  : number
+  is_enable?: number
+  create_time?: Date
+  end_time?: Date
+  parent_id?: number
+  clothes_id?: number
+  is_email?: number
+  plan_list?: PlanList[]
 }
