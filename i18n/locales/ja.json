@@ -205,5 +205,6 @@
 	"addLibrary.original_cover": "元のカバー",
 	"addLibrary.original_size": "元のサイズ表",
 	"addLibrary.original_detail": "元の詳細画像",
-	"addLibrary.original_quality": "元の品質検査"
+	"addLibrary.original_quality": "元の品質検査",
+	"addLibrary.reselect": "再選択"
 }

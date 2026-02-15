@@ -66,6 +66,7 @@ export const useSceneCore = () => {
     const gpuPick = (ev: MouseEvent | TouchEvent) => {
         if (!threeCore.value) return
         const obj = threeCore.value.gpuPick(ev)
+        console.log('点击对象', obj)
         // console.log('点击', obj)
         if (obj) {
             if (doubleClickTimer.value) {
@@ -122,6 +123,8 @@ export const useSceneCore = () => {
 
     const _onPointerUp = (event: PointerEvent) => {
         if (isClick.value) {
+            console.log(threeCore.value?.scene, 'threeCore.value.scene.children')
+            // if (threeCore.value.)
             gpuPick(event)
         }
         isClick.value = false
@@ -131,7 +134,8 @@ export const useSceneCore = () => {
         editMode: boolean, 
         baseUrl: string,
         sceneData?: Scene | null,
-        enableAR?: boolean
+        enableAR?: boolean,
+        enableRaycaster?: boolean
     }) => {
         console.log('initScene', options.editMode)
         sceneLoading.value = true
@@ -144,7 +148,8 @@ export const useSceneCore = () => {
                 enableCSS3DRenderer: true,
                 alpha: true,
                 editMode: options.editMode,
-                enableAR: options.enableAR
+                enableAR: options.enableAR,
+                enableRaycaster: options.enableRaycaster
             })
             threeCore.value = core
             

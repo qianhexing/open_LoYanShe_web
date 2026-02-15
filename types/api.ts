@@ -354,6 +354,7 @@ export interface CollectionList {
   is_completed?: number
   comment?: Comment
   note?: string
+  url?: string
 }
 
 export interface CommunityForeign {

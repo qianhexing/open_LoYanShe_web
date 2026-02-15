@@ -21,7 +21,7 @@ interface Props {
   className?: string,
   needJump?: boolean // 是否需要跳转
   loadTemplate?: boolean
-  panelType?: 'material' | 'template' | 'effect' | null // 面板类型
+  panelType?: 'material' | 'template' | 'effect' | 'clothing' | null // 面板类型
 }
 const addImage = () => {
   imageType.value = 0
@@ -244,7 +244,7 @@ defineExpose({
       <QhxTabPanel :index="0">
         <template #default="{ isActive }">
           <div class="bg-white h-[370px] md:h-[calc(100vh-130px)] overflow-y-auto">
-            <MateriaList @choose="chooseMaterial"></MateriaList>
+            <MateriaList @choose="chooseMaterial" :pk-type="[0, 1, 2]"></MateriaList>
           </div>
         </template>
       </QhxTabPanel>
@@ -279,7 +279,12 @@ defineExpose({
   <div v-else class="w-full">
     <!-- 素材列表 -->
     <div v-if="panelType === 'material'" class="w-full">
-      <MateriaList @choose="chooseMaterial" :compact="true"></MateriaList>
+      <MateriaList @choose="chooseMaterial" :compact="true" :pk-type="[0, 1, 2]"></MateriaList>
+    </div>
+    
+    <!-- 服饰列表 -->
+    <div v-if="panelType === 'clothing'" class="w-full">
+      <MateriaList @choose="chooseMaterial" :compact="true" :pk-type="3"></MateriaList>
     </div>
     
     <!-- 模版列表 -->

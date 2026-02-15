@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { type CameraState } from '@/utils/threeCore';
+import type { CameraState, SceneObjectJSON, SceneJSON } from '@/utils/threeCore';
 import * as THREE from 'three';
 import { updateScene, insertScene, getSceneId } from '@/api/scene'
 import type { Community, Effect, Library, Material, Scene, TemplateInterface } from '@/types/api'
@@ -14,6 +14,7 @@ import { createFont } from '~/api';
 import { uploadFileToOSS } from '@/utils/ossUpload';
 import { useSceneCore } from '@/composables/useSceneCore';
 import YearlySummaryPostModal from '@/components/yearlySummary/PostModal.vue';
+import { BASE_IMG_MODEL as BASE_IMG } from '@/utils/ipConfig';
 // @ts-ignore - 缺少类型定义
 import InfiniteGridHelper from '@plackyfantacky/three.infinitegridhelper';
 
@@ -69,7 +70,7 @@ const target: Ref<THREE.Object3D | null> = ref(null)
 const transformType = ref('translate')
 const showToolbar = ref(true) // 控制工具栏显示/隐藏
 const showRightPanel = ref(false) // 控制右侧面板显示/隐藏
-const rightPanelType = ref<'material' | 'template' | 'effect' | null>(null) // 右侧面板类型
+const rightPanelType = ref<'material' | 'template' | 'effect' | 'clothing' | null>(null) // 右侧面板类型
 const layoutReady = inject('layoutReady') as Ref<boolean>
 if (route.query?.edit) {
     edit_mode.value = true
@@ -244,6 +245,16 @@ const showEffect = () => {
     } else {
         showRightPanel.value = true
         rightPanelType.value = 'effect'
+    }
+}
+
+const showClothing = () => {
+    if (rightPanelType.value === 'clothing') {
+        showRightPanel.value = false
+        rightPanelType.value = null
+    } else {
+        showRightPanel.value = true
+        rightPanelType.value = 'clothing'
     }
 }
 
@@ -915,6 +926,54 @@ const chooseMaterial = async (item: Material) => {
         });
 
         threeCore.value.scene.add(mesh)
+    } else if (item.pk_type === 3) {
+        sceneStore.setLoading(true)
+        try {
+            // 判断是否射线模式，如果不是则切换至射线模式
+            if (!threeCore.value.options.enableRaycaster) {
+                threeCore.value.setRaycasterMode(true)
+            }
+            
+            // 获取屏幕中心坐标
+            const screenCenter = getScreenCenter()
+            
+            // 使用封装的 loadSplat 方法加载点云
+            const url = BASE_IMG + item.materia_url
+            const splatOptions = {
+                fileType: item.options?.fileType || undefined,
+                maxSplats: item.options?.maxSplats || undefined,
+                maxSh: item.options?.maxSh || undefined
+            }
+            
+            const group = await threeCore.value.loadSplat(url, splatOptions)
+            
+            // 设置位置、旋转和缩放
+            group.position.set(screenCenter.x, screenCenter.y, screenCenter.z)
+            group.rotation.set(0, 0, 0)
+            group.scale.set(1, 1, 1)
+            
+            // 设置额外的 userData
+            group.userData.materia_id = item.materia_id
+            
+            // 添加到场景
+            threeCore.value.scene.add(group)
+            
+            // 调整相机视角
+            setTimeout(() => {
+                threeCore.value!.lookAtSelectObj([group])
+            })
+        } catch (error) {
+            console.error('加载点云失败:', error)
+            if (process.client) {
+                toast.add({
+                    title: '加载失败',
+                    description: '点云模型加载失败，请稍后重试',
+                    color: 'red'
+                })
+            }
+        } finally {
+            sceneStore.setLoading(false)
+        }
     }
 }
 const chooseTemplate = async (item: TemplateInterface) => {
@@ -1221,10 +1280,16 @@ const lookAtCameraState = (item: CameraState) => {
 const initThreejs = async () => {
     const sceneElement = document.getElementById('scene')
     if (sceneElement) {
+        // 判断场景数据中是否有点云类型的对象
+        const hasSplatObject = detail.value?.json_data?.objects?.some(
+            (obj: SceneObjectJSON) => obj.type === 'splat'
+        ) ?? false
+        
         await initScene(sceneElement, id, {
             editMode: edit_mode.value,
             baseUrl: BASE_IMG,
-            sceneData: detail.value
+            sceneData: detail.value,
+            enableRaycaster: hasSplatObject
         })
         
         // 场景加载完成后，灯光配置已经在 loadSceneFromJSON 中自动应用了
@@ -1443,6 +1508,16 @@ useHead({
                         <span class="text-[9px] text-gray-700 dark:text-gray-200 font-medium leading-tight">素材</span>
                     </button>
 
+                    <!-- 服饰 -->
+                    <button v-if="edit_mode || add_mode" @click="showClothing()"
+                        class="w-full flex flex-col items-center gap-1 p-1.5 rounded-xl hover:bg-pink-50 dark:hover:bg-pink-900/20 transition-colors group active:scale-95"
+                        :class="rightPanelType === 'clothing' ? 'bg-pink-100 dark:bg-pink-900/40' : ''" title="服饰">
+                        <div
+                            class="w-7 h-7 bg-pink-500 dark:bg-pink-600 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform">
+                            <UIcon name="material-symbols:checkroom-rounded" class="text-sm text-white" />
+                        </div>
+                        <span class="text-[9px] text-gray-700 dark:text-gray-200 font-medium leading-tight">服饰</span>
+                    </button>
 
                     <!-- 特效 -->
                     <button v-if="edit_mode || add_mode" @click="showEffect()"
@@ -1498,7 +1573,7 @@ useHead({
                 <div
                     class="flex items-center justify-between p-1.5 border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
                     <h3 class="text-[10px] font-semibold text-gray-700 dark:text-gray-200">
-                        {{ rightPanelType === 'material' ? '素材' : rightPanelType === 'template' ? '模版' : '特效' }}
+                        {{ rightPanelType === 'material' ? '素材' : rightPanelType === 'template' ? '模版' : rightPanelType === 'clothing' ? '服饰' : '特效' }}
                     </h3>
                     <button @click="closeRightPanel"
                         class="w-4 h-4 flex items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors">

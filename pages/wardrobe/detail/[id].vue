@@ -939,6 +939,9 @@ const enableDrag = () => {
       <div
         class=" wardrobe-list shadow-xl h-[calc(100vh)]  rounded-[10px] w-[180px] max-md:w-[20vw]
         overflow-y-auto">
+        <!-- 状态栏高度占位 -->
+        <div v-if="configStore.statusBarHeight > 0" :style="{ height: `${configStore.statusBarHeight}px` }"></div>
+        
         <div v-if="user.user?.user_id === Number.parseInt(id)" class="flex flex-col items-center py-2 gap-2">
           <QhxJellyButton>
             <div class="h-[60px] text-center px-1  cursor-pointer" @click="showAddWardrobe()">
@@ -1001,6 +1004,8 @@ const enableDrag = () => {
         </Draggable>
       </div>
       <div class="flex-1 h-screen overflow-y-auto pr-3 overflow-x-hidden">
+        <!-- 状态栏高度占位 -->
+        <div v-if="configStore.statusBarHeight > 0" :style="{ height: `${configStore.statusBarHeight}px` }"></div>
         <div class="relative w-full rounded-2xl overflow-hidden shadow-lg mb-3" v-if="info">
           <!-- 半透明遮罩层 -->
           <!-- :style="currentWardrobe?.wardrobe_cover? { backgroundImage: `url(${BASE_IMG + currentWardrobe?.wardrobe_cover})`} : {}" -->
@@ -1187,7 +1192,7 @@ const enableDrag = () => {
                       v-if="element.wardrobe_status">
                       {{ element.wardrobe_status }}
                     </div>
-                    <img :src="`https://lolitalibrary.com/ali/${element.clothes_img}`"
+                    <img :src="`${BASE_IMG}${element.clothes_img}`"
                       draggable="false"
                       class="object-cover w-full aspect-[1/1.5] max-md:aspect-[1/1] rounded-xl border border-gray-200 cursor-grab active:cursor-grabbing"
                       loading="lazy">

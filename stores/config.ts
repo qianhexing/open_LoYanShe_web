@@ -11,6 +11,7 @@ interface configState {
   port: MessagePort | null
   isMobile: boolean
   windowWidth: number
+  statusBarHeight: number
 }
 export const useConfigStore = defineStore('config', {
   state: ():configState => ({
@@ -19,7 +20,8 @@ export const useConfigStore = defineStore('config', {
     loading: false,
     port: null as MessagePort | null, // 鸿蒙 WebView 的 MessagePort
     isMobile: false,
-    windowWidth: typeof window !== 'undefined' ? window.innerWidth : 1024
+    windowWidth: typeof window !== 'undefined' ? window.innerWidth : 1024,
+    statusBarHeight: 0
   }),
   
   getters: {
@@ -65,6 +67,12 @@ export const useConfigStore = defineStore('config', {
     },
     clearPort() {
       this.port = null
+    },
+    setStatusBarHeight(height: number) {
+      this.statusBarHeight = height
+    },
+    getStatusBarHeight() {
+      return this.statusBarHeight
     },
     async getConfig(forceRefresh = false) {
       // 已有缓存且不强制刷新

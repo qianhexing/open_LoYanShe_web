@@ -205,5 +205,6 @@
 	"addLibrary.original_cover": "Original Cover",
 	"addLibrary.original_size": "Original Size Chart",
 	"addLibrary.original_detail": "Original Detail Images",
-	"addLibrary.original_quality": "Original Quality Test"
+	"addLibrary.original_quality": "Original Quality Test",
+	"addLibrary.reselect": "Reselect"
 }

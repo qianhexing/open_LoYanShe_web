@@ -25,10 +25,16 @@ const jumpToLoyanshe = () => {
 }
 
 const layout_style = ref(0) // 0是带上下栏的 1 是空白页面
-const blank_list = ['/user/plan', '/post/', '/distributedMaps', '/visualization/wardrobe', '/visualization/shop-cloud', '/rank', '/yearlySummary', '/user/changePassword','/matching/detail','/album/detail', '/album', 'clothes/detail', 'scene/detail', 'wardrobe/detail', 'register', 'lighting-debug', 'timepipe', 'user/edit']
+const blank_list = ['/humanPlatform/', '/user/plan', '/post/', '/distributedMaps', '/visualization/wardrobe', '/visualization/shop-cloud', '/rank', '/yearlySummary', '/user/changePassword','/matching/detail','/album/detail', '/album', 'clothes/detail', 'scene/detail', 'wardrobe/detail', 'register', 'lighting-debug', 'timepipe', 'user/edit']
 const route = useRoute()
 if (route.query?.token) {
   useUserStore().setToken(route.query.token.toString())
+}
+if (route.query?.statusbar) {
+  const statusBarHeight = Number(route.query.statusbar)
+  if (!Number.isNaN(statusBarHeight) && statusBarHeight > 0) {
+    configStore.setStatusBarHeight(statusBarHeight)
+  }
 }
 console.log(route.path, '初始路由地址')
 

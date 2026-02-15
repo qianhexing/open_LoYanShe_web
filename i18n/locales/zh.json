@@ -205,5 +205,6 @@
 	"addLibrary.original_cover": "原封面图",
 	"addLibrary.original_size": "原尺码图",
 	"addLibrary.original_detail": "原详情图",
-	"addLibrary.original_quality": "原质检报告"
+	"addLibrary.original_quality": "原质检报告",
+	"addLibrary.reselect": "重新选择"
 }

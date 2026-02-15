@@ -49,6 +49,15 @@ export async function getLibraryVideo(
   return response.data;
 }
 
+export async function getLibraryVideoById(
+  params: { video_id: number }
+): Promise<LibraryVideo> {
+  const response = await use$Post<BaseResponse<LibraryVideo>>(
+    '/libraryVideo/id',
+    params
+  );
+  return response.data;
+}
 
 export async function insertLibraryVideo(params: LibraryVideo): Promise<LibraryVideo> {
   const response = await use$Post<BaseResponse<LibraryVideo>>('/libraryVideo/insert', params)
@@ -234,5 +243,10 @@ export interface LibraryHistoryParams {
 }
 export async function getLibraryHistory(params: LibraryHistoryParams): Promise<LibraryHistoryNew[]> {
   const response = await use$Post<BaseResponse<LibraryHistoryNew[]>>('/library/histroy/all', params)
+  return response.data
+}
+
+export async function cheackLibraryName(params: { name: string, shop_id?: number | null }): Promise<boolean> {
+  const response = await use$Post<BaseResponse<boolean>>('/library/cheackName', params)
   return response.data
 }

@@ -87,12 +87,14 @@ export async function uploadImageOSS(file: { file?: File; url?: string; }): Prom
  * @param file 要上传的文件
  * @param path 可选的自定义路径，默认为 'editor'
  * @param customName 可选的自定义文件名，默认为 undefined
+ * @param onProgress 可选的进度回调函数，参数为进度百分比 (0-1)
  * @returns 返回文件信息，包含 file_url
  */
 export async function uploadFileToOSS(
   file: File,
   path = 'editor',
-  customName: string | undefined = undefined
+  customName: string | undefined = undefined,
+  onProgress?: (progress: number) => void
 ): Promise<FileInterface> {
   try {
     // 1. 计算文件 MD5
@@ -134,11 +136,24 @@ export async function uploadFileToOSS(
     })
     
     // 6. 上传文件到 OSS
-    const uploadResult = await client.put(objectName, file, {
+    const uploadOptions: {
+      headers: Record<string, string>
+      progress?: (p: number, cpt: number, res: unknown) => void
+    } = {
       headers: {
         'Content-Type': file.type || 'application/octet-stream'
       }
-    })
+    }
+    
+    // 如果提供了进度回调，添加进度监听
+    if (onProgress) {
+      uploadOptions.progress = (p: number) => {
+        // p 是进度百分比 (0-1)
+        onProgress(p)
+      }
+    }
+    
+    const uploadResult = await client.put(objectName, file, uploadOptions)
     console.log('上传结果', uploadResult)
     // 7. 构建文件 URL
     // OSS 返回的 URL 格式通常是: https://bucket.region.aliyuncs.com/path/file

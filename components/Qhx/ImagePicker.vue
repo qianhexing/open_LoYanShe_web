@@ -1,26 +1,17 @@
 <template>
   <div class="space-y-4">
     <!-- 上传按钮 -->
-    <UButton v-if="!props.disabled" size="xs" class="bg-qhx-primary text-qhx-inverted hover:bg-qhx-primaryHover mt-2" icon="i-heroicons-photo" @click="triggerInput" color="primary">
+    <UButton v-if="!props.disabled" size="xs" class="bg-qhx-primary text-qhx-inverted hover:bg-qhx-primaryHover mt-2"
+      icon="i-heroicons-photo" @click="triggerInput" color="primary">
       选择图片
     </UButton>
 
-    <input
-      ref="fileInput"
-      type="file"
-      accept="image/*"
-      :multiple="multiple"
-      class="hidden"
-      @change="handleFiles"
-    />
+    <input ref="fileInput" type="file" accept="image/*" :multiple="multiple" class="hidden" @change="handleFiles" />
 
     <!-- 拖拽上传区 -->
-    <div
-      v-if="!props.disabled && !isMobile"
-      class="w-full border-2 border-dashed border-gray-300 p-4 text-center rounded-lg"
-      @dragover.prevent
-      @drop.prevent="handleDrop"
-    >
+    <div v-if="!props.disabled && !isMobile"
+      class="w-full border-2 border-dashed border-gray-300 p-4 text-center rounded-lg" @dragover.prevent
+      @drop.prevent="handleDrop">
       拖拽图片到这里上传
     </div>
 
@@ -44,24 +35,46 @@
           @click="removeImage(index)"
         />
       </div> -->
-      <Draggable :forceFallback="true" :disabled="!props.multiple || props.disabled" :delay="150" v-model="previewImages" item-key="id" animation="250" ghost-class="drag-ghost"
-          chosen-class="drag-chosen" drag-class="dragging"
-          class="grid grid-cols-3 gap-4">
-          <template #item="{ element, index }">
-            <div class="relative group aspect-square">
-              <img :src="element.url" alt="预览图" class="w-full h-full aspect-square object-cover rounded no-long-press" />
-              <UButton
-                v-if="!props.disabled"
-                icon="i-heroicons-x-mark"
-                color="red"
-                size="2xs"
-                variant="soft"
-                class="absolute top-1 right-1 z-10"
-                @click="removeImage(index)"
-              />
+
+      <Draggable :scroll="true" :scroll-sensitivity="150" :scroll-speed="15" :fallback-tolerance="0"
+        :forceFallback="true" :delay="150" :disabled="!props.multiple || props.disabled"
+        item-key="id" animation="300"
+        v-model="previewImages"
+        ghost-class="drag-ghost" chosen-class="drag-chosen" drag-class="dragging" class=" flex flex-wrap">
+        <template #item="{ element, index }">
+          <transition-group tag="div"
+            class="[@media(min-width:1920px)]:w-[calc(100%/10)] xl:w-1/4 md:w-1/4 max-md:w-1/3" name="list">
+            <div
+              class="group drag-handle flex flex-col items-center transition-transform duration-300 ease-out hover:scale-105 py-[10px] px-[15px] max-md:px-[5px]">
+              <div class="w-full aspect-[1/1] relative shadow-xl">
+                <img :src="element.url" draggable="false"
+                  class="object-cover w-full aspect-[1/1] max-md:aspect-[1/1] rounded-xl border border-gray-200 cursor-grab active:cursor-grabbing"
+                  style="-webkit-touch-callout: none; -webkit-user-select: none; user-select: none;"
+                  loading="lazy">
+                </img>
+                <UButton v-if="!props.disabled" icon="i-heroicons-x-mark" color="red" size="2xs" variant="soft"
+                  class="absolute top-1 right-1 z-10" @click="removeImage(index)" />
+                <!-- 透明遮罩层，防止移动端长按事件 -->
+                <div class="absolute z-[1] w-full h-full inset-0 rounded-xl" 
+                  style="background: transparent;">
+                </div>
+              </div>
             </div>
-          </template>
-        </Draggable>
+          </transition-group>
+        </template>
+      </Draggable>
+      <!-- <Draggable :forceFallback="true" :disabled="!props.multiple || props.disabled" :delay="150"
+        v-model="previewImages" item-key="id" animation="250" ghost-class="drag-ghost" chosen-class="drag-chosen"
+        drag-class="dragging" class="grid grid-cols-3 gap-4">
+        <template #item="{ element, index }">
+
+          <div class="relative group aspect-square">
+            <img :src="element.url" alt="预览图" class="w-full h-full aspect-square object-cover rounded no-long-press" />
+            <UButton v-if="!props.disabled" icon="i-heroicons-x-mark" color="red" size="2xs" variant="soft"
+              class="absolute top-1 right-1 z-10" @click="removeImage(index)" />
+          </div>
+        </template>
+      </Draggable> -->
     </div>
   </div>
 </template>
@@ -138,6 +151,7 @@ const addFiles = (newFiles: File[]) => {
 
 const removeImage = (index: number) => {
   // 删除弹出提示
+  console.log(index)
   const toast = useToast()
   toast.add({
     title: '删除图片',
@@ -165,12 +179,12 @@ defineExpose({
 <style scoped>
 /* 禁止手机浏览器的长按事件 */
 .no-long-press {
-  -webkit-touch-callout: none;
+  /* -webkit-touch-callout: none;
   -webkit-user-select: none;
   -moz-user-select: none;
   -ms-user-select: none;
   user-select: none;
-  pointer-events: auto;
-  touch-action: manipulation;
+  pointer-events: none;
+  touch-action: manipulation; */
 }
 </style>

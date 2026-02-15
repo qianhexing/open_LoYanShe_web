@@ -15,10 +15,15 @@ const isLoading = ref(true)
 const getList = async () => {
   isLoading.value = true
   try {
-    const response = await getMaterialctList({
+    const params: any = {
       page: page.value,
       pageSize: pageSize
-    })
+    }
+    // 如果传入了 pk_type，则添加到参数中
+    if (props.pkType !== undefined) {
+      params.pk_type = props.pkType
+    }
+    const response = await getMaterialctList(params)
     if (page.value === 1) {
       list.value = response.rows ?? []
     } else {
@@ -67,9 +72,11 @@ const handlePageChange = async (current: number) => {
 
 interface Props {
   compact?: boolean // 紧凑模式
+  pkType?: number | number[] // pk_type 参数，可以是单个数字或数组
 }
 const props = withDefaults(defineProps<Props>(), {
-  compact: false
+  compact: false,
+  pkType: undefined
 })
 
 const emit = defineEmits(['choose'])
@@ -99,7 +106,7 @@ onMounted(() => {
     <div v-else class="text-center text-gray-500 py-4 text-xs">
       暂无数据
     </div>
-    <QhxLoading :loading="isLoading" :page="page" :total="total" :page-size="pageSize" @load-more="loadMore"></QhxLoading>
+    <QhxLoading :loading="isLoading" :page="page" :total="total" :page-size="pageSize" style="transform: scale(0.6);" @load-more="loadMore"></QhxLoading>
   </div>
 </template>
 
