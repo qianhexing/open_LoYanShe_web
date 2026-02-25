@@ -17,7 +17,7 @@ import { GPUPicker } from 'three_gpu_picking/src/gpupicker.js'
 import { getTemplateOne } from '@/api/temeplate.js'
 import { EffectManager } from './EffectManager'
 import type { Effect } from '~/types/api'
-import type { LibraryInterface } from '~/types/sence'
+import type { LibraryInterface, LaxianInterface } from '~/types/sence'
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js'
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js'
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js'
@@ -87,6 +87,7 @@ export interface SceneObjectJSON {
 		| 'template'
 		| 'effect'
 		| 'library'
+		| 'laxian'
 		| '3Dtext'
 		| 'splat'
 	position?: [number, number, number]
@@ -109,6 +110,7 @@ export interface SceneObjectJSON {
 	effect_name?: string // 特效名称
 	cover?: string // 图鉴类型
 	library_id?: number // 图鉴类型
+	laxian_id?: string // 拉线点类型，用于连线标识
 	effect?: SceneEffectJSON[] // 如果是model效果列表
 	material?: Record<string, any> // 替换过的贴图
 	plugin?: { url: string; options?: Record<string, any> }[] // 插件地址
@@ -351,6 +353,7 @@ class ThreeCore {
 		object: THREE.Object3D
 	}> // 加载成功的模型数组
 	public loadedLibrary: LibraryInterface[] // 加载成功的模型数组
+	public loadedLaxian: LaxianInterface[] // 加载的拉线点
 	public allMat: THREE.Material[]
 
 	public loadTemplate: THREE.Group[] // 加载成功的模型数组
@@ -414,6 +417,7 @@ class ThreeCore {
 		this.allObjects = []
 		this.loadedDiary = [] // 加载的日记文本
 		this.loadedLibrary = []
+		this.loadedLaxian = []
 		this.loadTemplate = [] // 加载的模版
 		this.cameraList = []
 		this.background = null
@@ -1095,6 +1099,24 @@ class ThreeCore {
 			title: obj.title || '没有标题',
 			cover: obj.cover || 'static/plan_cover/default.jpg',
 			library_id: obj.library_id || 0,
+			object: mesh
+		})
+		return mesh
+	}
+	public async createLaxian(obj: SceneObjectJSON): Promise<THREE.Mesh> {
+		const radius = 1
+		const geometry = new THREE.SphereGeometry(radius, 32, 32)
+		const material = new THREE.MeshStandardMaterial({
+			color: '#7fffaa'
+		})
+
+		const mesh = new THREE.Mesh(geometry, material)
+		mesh.userData.type = 'laxian'
+		mesh.userData.title = obj.title
+		mesh.userData.laxian_id = obj.laxian_id
+		this.loadedLaxian.push({
+			title: obj.title || '拉线点',
+			laxian_id: obj.laxian_id,
 			object: mesh
 		})
 		return mesh
@@ -2418,6 +2440,77 @@ class ThreeCore {
 			console.log('射线模式已禁用')
 		}
 	}
+
+	/**
+	 * 判断一个 3D 对象是否被遮挡
+	 * @param object 需要检测的 Object3D
+	 * @param ignoreObjects 需要忽略检测的对象数组（可选）
+	 * @returns boolean 是否被遮挡
+	 */
+	isOccluded(
+		object: THREE.Object3D,
+		ignoreObjects: THREE.Object3D[] = []
+	): boolean {
+		if (!object.visible) return true
+
+		// 如果 raycaster 未初始化，创建一个临时的
+		const raycaster = this.raycaster || new THREE.Raycaster()
+		const tempVec3 = new THREE.Vector3()
+		const box = new THREE.Box3()
+
+		// 获取对象包围盒中心点（世界坐标）
+		box.setFromObject(object)
+		box.getCenter(tempVec3)
+
+		// 方向向量
+		const dir = tempVec3.clone().sub(this.camera.position).normalize()
+
+		raycaster.set(this.camera.position, dir)
+
+		// 创建忽略集合，包含目标对象和所有忽略对象及其子对象
+		const ignoreSet = new Set<THREE.Object3D>()
+		ignoreSet.add(object)
+		for (const ignoreObj of ignoreObjects) {
+			ignoreSet.add(ignoreObj)
+			ignoreObj.traverse(child => {
+				ignoreSet.add(child)
+			})
+		}
+
+		// 过滤场景中的对象，排除忽略列表
+		const objectsToCheck = this.scene.children.filter(obj => {
+			// 如果对象本身在忽略列表中，直接跳过
+			if (ignoreSet.has(obj)) return false
+			// 检查对象的子对象是否在忽略列表中
+			let shouldIgnore = false
+			obj.traverse(child => {
+				if (ignoreSet.has(child)) {
+					shouldIgnore = true
+				}
+			})
+			return !shouldIgnore
+		})
+
+		// 所有可检测物体（排除自己和忽略列表）
+		const intersects = raycaster.intersectObjects(objectsToCheck, true)
+
+		if (intersects.length === 0) return false
+
+		const firstHit = intersects[0]
+
+		// 如果第一个击中的不是当前物体 → 被遮挡
+		let hitObject: THREE.Object3D | null = firstHit.object
+
+		// 往父级找，看是否是目标物体
+		while (hitObject) {
+			if (hitObject === object) {
+				return false // 没被遮挡
+			}
+			hitObject = hitObject.parent
+		}
+
+		return true // 被遮挡
+	}
 	gpuPick(ev: MouseEvent | TouchEvent) {
 		function shouldPickObject(object: THREE.Object3D) {
 			if (
@@ -3606,6 +3699,9 @@ class ThreeCore {
 					if (obj.userData && obj.userData.type === 'library') {
 						return 'library'
 					}
+					if (obj.userData && obj.userData.type === 'laxian') {
+						return 'laxian'
+					}
 					return 'sphere'
 				}
 				if (obj.userData && obj.userData.type === 'splat') {
@@ -3728,6 +3824,10 @@ class ThreeCore {
 				jsonObj.title = obj.userData.title
 				jsonObj.cover = obj.userData.cover
 				jsonObj.library_id = obj.userData.library_id
+			}
+			if (typeGuess === 'laxian') {
+				jsonObj.title = obj.userData.title
+				jsonObj.laxian_id = obj.userData.laxian_id
 			}
 			if (typeGuess === 'splat') {
 				if (obj.userData.url) {
@@ -4591,6 +4691,9 @@ class ThreeCore {
 			if (obj.type === 'library') {
 				mesh = await this.createLibrary(obj)
 			}
+			if (obj.type === 'laxian') {
+				mesh = await this.createLaxian(obj)
+			}
 			if (obj.type === 'splat' && obj.url) {
 				try {
 					const url = BASE_IMG + obj.url
@@ -4676,6 +4779,13 @@ class ThreeCore {
 					console.log('创建日记点', this.editMode)
 				}
 				if (obj.type === 'library') {
+					if (!this.editMode) {
+						mesh.scale.set(0.001, 0.001, 0.001)
+					} else {
+						mesh.scale.set(1, 1, 1)
+					}
+				}
+				if (obj.type === 'laxian') {
 					if (!this.editMode) {
 						mesh.scale.set(0.001, 0.001, 0.001)
 					} else {

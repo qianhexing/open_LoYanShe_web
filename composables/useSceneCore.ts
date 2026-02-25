@@ -1,7 +1,7 @@
 import qhxCore, { type CameraState } from '@/utils/threeCore';
 import * as THREE from 'three';
 import { getSceneId } from '@/api/scene'
-import type { DiaryInterface, LibraryInterface } from '@/types/sence'
+import type { DiaryInterface, LibraryInterface, LaxianInterface } from '@/types/sence'
 import type { Scene } from '@/types/api'
 
 export const useSceneCore = () => {
@@ -11,13 +11,29 @@ export const useSceneCore = () => {
     const sceneLoadError = ref<string | null>(null)
     const diaryList = ref<DiaryInterface[]>([])
     const libraryList = ref<LibraryInterface[]>([])
+    const laxianList = ref<LaxianInterface[]>([])
     const clickObject = ref<THREE.Object3D[] | null>(null)
     const isClick = ref(false)
     const pointerDownPosition = ref({ x: 0, y: 0 })
     const MOVE_THRESHOLD = 5
     const doubleClickTimer = ref<ReturnType<typeof setTimeout> | null>(null)
     const operaPosition = ref<{ x: number, y: number }>({ x: 0, y: 0 })
-    
+
+    // 拉线点遮挡缓存，仅在控制器变化时更新
+    const laxianOcclusionCache = new Map<string, boolean>()
+    let controlsChangeHandler: (() => void) | null = null
+
+    const updateLaxianOcclusionCache = () => {
+        const core = threeCore.value
+        if (!core?.loadedLaxian?.length || !core.isOccluded) return
+        laxianOcclusionCache.clear()
+        for (const laxian of core.loadedLaxian) {
+            if (laxian.object) {
+                laxianOcclusionCache.set(laxian.object.uuid, core.isOccluded(laxian.object))
+            }
+        }
+    }
+
     // 基础配置
     const config = reactive({
         editMode: false,
@@ -33,6 +49,7 @@ export const useSceneCore = () => {
 
         const diary_list: DiaryInterface[] = []
         if (threeCore.value.loadedDiary && threeCore.value.loadedDiary.length > 0) {
+            // biome-ignore lint/complexity/noForEach: <explanation>
             threeCore.value.loadedDiary.forEach((diary) => {
                 const position = threeCore.value!.screenPositionFromObject(diary.object)
                 diary_list.push({ 
@@ -48,6 +65,7 @@ export const useSceneCore = () => {
 
         const library_list: LibraryInterface[] = []
         if (threeCore.value.loadedLibrary && threeCore.value.loadedLibrary.length > 0) {
+            // biome-ignore lint/complexity/noForEach: <explanation>
             threeCore.value.loadedLibrary.forEach((library) => {
                 const position = threeCore.value!.screenPositionFromObject(library.object)
                 library_list.push({ 
@@ -61,6 +79,39 @@ export const useSceneCore = () => {
             })
         }
         libraryList.value = library_list
+
+        const laxian_list: LaxianInterface[] = []
+        if (threeCore.value.loadedLaxian && threeCore.value.loadedLaxian.length > 0) {
+            // 首次有拉线点时更新遮挡缓存（loadModels 可能在 initScene 之后才加载）
+            if (laxianOcclusionCache.size === 0) {
+                updateLaxianOcclusionCache()
+            }
+            // screenPositionFromObject 使用 window 坐标，中线划分左右
+            const centerX = window.innerWidth / 2
+            const leftEdge = 12
+            const rightEdge = window.innerWidth - 12
+            // biome-ignore lint/complexity/noForEach: <explanation>
+            threeCore.value.loadedLaxian.forEach((laxian) => {
+                if (!laxian.object) return
+                const core = threeCore.value!
+                const position = core.screenPositionFromObject(laxian.object)
+                const occluded = laxianOcclusionCache.get(laxian.object.uuid) ?? false
+                const isLeft = position.x < centerX
+                const edgePosition = {
+                    x: isLeft ? leftEdge : rightEdge,
+                    y: position.y
+                }
+                laxian_list.push({
+                    object: laxian.object,
+                    title: laxian.object.userData.title ?? laxian.title ?? '拉线点',
+                    laxian_id: laxian.object.userData.laxian_id ?? laxian.laxian_id,
+                    position,
+                    edgePosition,
+                    occluded
+                })
+            })
+        }
+        laxianList.value = laxian_list
     }
 
     const gpuPick = (ev: MouseEvent | TouchEvent) => {
@@ -203,6 +254,11 @@ export const useSceneCore = () => {
             core.startAnimationLoop()
             core.addAnimationFunc = () => { updateDiaryAndLibraryLists() }
 
+            // 控制器变化时更新拉线点遮挡缓存（避免每帧调用 isOccluded）
+            controlsChangeHandler = () => { updateLaxianOcclusionCache() }
+            // core.controls.addEventListener('change', controlsChangeHandler)
+            updateLaxianOcclusionCache()
+
             sceneLoading.value = false
             sceneLoadError.value = null
             
@@ -229,6 +285,11 @@ export const useSceneCore = () => {
             container.removeEventListener('pointerup', _onPointerUp)
         }
         if (threeCore.value) {
+            if (controlsChangeHandler) {
+                threeCore.value.controls.removeEventListener('change', controlsChangeHandler)
+                controlsChangeHandler = null
+            }
+            laxianOcclusionCache.clear()
             threeCore.value.dispose?.()
             threeCore.value = null
         }
@@ -259,6 +320,7 @@ export const useSceneCore = () => {
         sceneLoadError,
         diaryList,
         libraryList,
+        laxianList,
         clickObject,
         operaPosition,
         initScene,

@@ -117,6 +117,7 @@ export interface InsertParams {
   detail_image?: string | null
   quality_test?: string | null
   size_image?: string | null
+  complete?: 0 | 1
 }
 export async function insertLibrary(params: InsertParams): Promise<Library> {
   const response = await use$Post<BaseResponse<Library>>('/library/insert', params)

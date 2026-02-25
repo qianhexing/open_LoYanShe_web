@@ -53,6 +53,13 @@ const props = withDefaults(defineProps<Props>(), {
   panelType: null
 })
 const { loadTemplate, panelType } = toRefs(props)
+// 记录已访问的面板类型，懒加载：首次访问才挂载，切换时保持挂载不重新加载
+const visitedTypes = ref<Set<'material' | 'clothing' | 'template' | 'effect'>>(new Set())
+watch(panelType, (val) => {
+    if (val && !visitedTypes.value.has(val)) {
+        visitedTypes.value = new Set([...visitedTypes.value, val])
+    }
+}, { immediate: true })
 const emit = defineEmits(['addImage', 'saveScene', 'addDiary', 'chooseTemplate', 'chooseEffect', 'clearTemplate', 'recordCamera', 'addBackgroun', 'chooseMaterial', 'addText'])
 
 const saveScene = () => {

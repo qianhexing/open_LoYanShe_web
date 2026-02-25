@@ -14,11 +14,28 @@ export interface ModelItem {
     options?: Record<string, unknown> // 其他选项
 }
 
-interface Props {
-    modelList: ModelItem[]
+// 拉线点项接口
+export interface LaxianItem {
+    position?: [number, number, number]
+    rotation?: [number, number, number]
+    scale?: [number, number, number]
+    title?: string
+    laxian_id?: string
 }
 
-const props = defineProps<Props>()
+interface Props {
+    modelList: ModelItem[]
+    /** 拉线点数组，有数据时会加入场景 objects */
+    laxianList?: LaxianItem[]
+}
+
+const props = withDefaults(defineProps<Props>(), {
+    laxianList: () => [
+        { position: [0, 1, 0] as [number, number, number], title: '设计元素', laxian_id: 'point_001' },
+        { position: [2, 1, 1] as [number, number, number], title: '吐槽啊啊啊', laxian_id: 'point_002' },
+        { position: [-1, 0.5, 2] as [number, number, number], title: '标注点！嘎嘎嘎嘎嘎嘎嘎嘎嘎嘎嘎嘎', laxian_id: 'point_003' }
+    ] as LaxianItem[]
+})
 
 // 场景相关状态
 const sceneLoading = ref(false)
@@ -28,12 +45,15 @@ const sceneLoadError = ref<string | null>(null)
 const {
     threeCore,
     initScene,
-    disposeScene
+    disposeScene,
+    laxianList
 } = useSceneCore()
 
-// 监听模型列表变化，自动加载
-watch(() => props.modelList, async (newList) => {
-    if (newList && newList.length > 0) {
+// 监听模型列表和拉线点变化，自动加载
+watch([() => props.modelList, () => props.laxianList], async ([newList, newLaxian]) => {
+    const hasModels = newList && newList.length > 0
+    const hasLaxian = newLaxian && newLaxian.length > 0
+    if (hasModels || hasLaxian) {
         await nextTick()
         await initThreejs()
     }
@@ -60,8 +80,8 @@ const initThreejs = async () => {
             threeCore.value.scene.background = new THREE.Color(0xffffff)
         }
 
-        // 加载模型列表
-        if (props.modelList.length > 0 && threeCore.value) {
+        // 加载模型列表或拉线点
+        if ((props.modelList.length > 0 || (props.laxianList?.length ?? 0) > 0) && threeCore.value) {
             await loadModels()
         }
 
@@ -75,22 +95,36 @@ const initThreejs = async () => {
 
 // 加载模型列表
 const loadModels = async () => {
-    if (!threeCore.value || props.modelList.length === 0) return
+    const hasModels = props.modelList.length > 0
+    const hasLaxian = (props.laxianList?.length ?? 0) > 0
+    if (!threeCore.value || (!hasModels && !hasLaxian)) return
 
     try {
         // 将模型列表转换为 SceneJSON 格式
+        const modelObjects: SceneObjectJSON[] = props.modelList.map((item, index) => {
+            const obj: SceneObjectJSON = {
+                type: item.type || 'splat',
+                url: item.url,
+                position: item.position || [index * 3, 0, 0], // 默认横向排列
+                rotation: item.rotation || [0, 0, 0],
+                scale: item.scale || [1, 1, 1],
+                options: item.options || {}
+            }
+            return obj
+        })
+
+        // 若有拉线点数据，加入 objects
+        const laxianObjects: SceneObjectJSON[] = (props.laxianList?.length ? props.laxianList : []).map((item) => ({
+            type: 'laxian' as const,
+            position: item.position || [0, 0, 0],
+            rotation: item.rotation || [0, 0, 0],
+            scale: item.scale || [1, 1, 1],
+            title: item.title || '拉线点',
+            laxian_id: item.laxian_id
+        }))
+
         const sceneJSON: SceneJSON = {
-            objects: props.modelList.map((item, index) => {
-                const obj: SceneObjectJSON = {
-                    type: item.type || 'splat',
-                    url: item.url,
-                    position: item.position || [index * 3, 0, 0], // 默认横向排列
-                    rotation: item.rotation || [0, 0, 0],
-                    scale: item.scale || [1, 1, 1],
-                    options: item.options || {}
-                }
-                return obj
-            }),
+            objects: [...modelObjects, ...laxianObjects],
             cameraList: [],
             background: undefined,
             lighting: []
@@ -107,9 +141,11 @@ const loadModels = async () => {
         await threeCore.value.loadSceneFromJSON(sceneJSON, false, onProgress)
 
         // 调整相机视角，让所有模型都在视野内
-        if (threeCore.value && props.modelList.length > 0) {
+        if (threeCore.value && (props.modelList.length > 0 || (props.laxianList?.length ?? 0) > 0)) {
             adjustCamera()
         }
+        // 打印场景所有对象
+
     } catch (error) {
         console.error('加载模型失败:', error)
         sceneLoadError.value = error instanceof Error ? error.message : '加载模型失败'
@@ -123,7 +159,7 @@ const adjustCamera = () => {
     // 计算所有模型的包围盒
     const box = new THREE.Box3()
     threeCore.value.scene.traverse((child) => {
-        if (child.userData.type === 'splat' || child.userData.type === 'model') {
+        if (child.userData.type === 'splat' || child.userData.type === 'model' || child.userData.type === 'laxian') {
             if (child instanceof THREE.Mesh || child instanceof THREE.Group) {
                 const childBox = new THREE.Box3().setFromObject(child)
                 box.union(childBox)
@@ -175,7 +211,8 @@ defineExpose({
     sceneLoading,
     sceneLoadProgress,
     sceneLoadError,
-    modelCount: computed(() => props.modelList.length)
+    modelCount: computed(() => props.modelList.length),
+    laxianList
 })
 </script>
 

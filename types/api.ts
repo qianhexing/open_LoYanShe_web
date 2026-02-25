@@ -224,6 +224,7 @@ export interface Library {
   is_collect?: number;
   is_wardrobe?: number;
   examin?: number;
+  complete?: boolean;
 }
 /** 衣柜 */
 export interface Wardrobe {
@@ -440,6 +441,7 @@ export interface User {
   exp?: number
   level?: number
   star_coin?: number
+  access_level?: number
 }
 export interface Avatar {
   frame_id: number,
@@ -639,6 +641,17 @@ export interface TeapartyAttend {
   create_time?: Date
   user?: User
 }
+/** 经验获取记录 */
+export interface ExpRecord {
+  record_id: number
+  create_time: string
+  user_id: number
+  type: number
+  num: number
+  note: string
+  pk_type: number
+}
+
 export interface PlanList {
   list_id?: number
   create_user?: number

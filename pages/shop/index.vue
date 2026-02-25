@@ -107,7 +107,7 @@ const jumpToAddShop = () => {
 </script>
 <template>
   <div class="container mx-auto p-4 pb-20">
-    <div class="grid grid-cols-2 md:grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4 px-4  pb-3">
+    <div class="grid grid-cols-1 md:grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4 px-4  pb-3">
       <div class="w-full flex items-center gap-2">
         <UInput
           v-model="value"

@@ -2,7 +2,7 @@
   <div class="min-h-screen bg-gray-50 dark:bg-gray-900 py-6">
     <!-- 加载状态 -->
     <div v-if="loading" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div class="text-white text-lg">加载中...</div>
+      <div class="text-white text-lg">{{ t('addShop.loading') }}</div>
     </div>
 
     <!-- 警告提示 -->
@@ -14,10 +14,10 @@
         class="mb-6"
       >
         <template #title>
-          注意！
+          {{ t('addShop.notice_title') }}
         </template>
         <template #description>
-          添加之前最好可以加群和我沟通一下基础规则QQ群号679654177，尽量使用已有词条
+          {{ t('addShop.notice_desc') }}
         </template>
       </UAlert>
 
@@ -25,10 +25,10 @@
       <div v-if="user && user.access_level >= (config?.min_add_library || 0)">
         <UForm ref="formRef" :state="form" class="space-y-6 bg-white dark:bg-gray-800 rounded-lg p-6 shadow-sm">
           <!-- 店铺名字 -->
-          <UFormGroup label="(必填)店铺名字" name="shop_name" required>
+          <UFormGroup :label="t('addShop.shop_name')" name="shop_name" required>
             <UInput
               v-model="form.shop_name"
-              placeholder="请输入店铺名字"
+              :placeholder="t('addShop.shop_name_placeholder')"
               :ui="{
                 base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
                 rounded: 'rounded-full',
@@ -43,7 +43,7 @@
           </UFormGroup>
 
           <!-- 店铺LOGO -->
-          <UFormGroup label="(必填)店铺LOGO" name="shop_logo" required>
+          <UFormGroup :label="t('addShop.shop_logo')" name="shop_logo" required>
             <QhxImagePicker
               ref="logoImagePickerRef"
               :multiple="false"
@@ -53,10 +53,10 @@
           </UFormGroup>
 
           <!-- 淘宝地址 -->
-          <UFormGroup label="淘宝地址" name="shop_url">
+          <UFormGroup :label="t('addShop.taobao_url')" name="shop_url">
             <UInput
               v-model="form.shop_url"
-              placeholder="淘宝电脑版的地址连接，如果是日牌，可以填官网地址"
+              :placeholder="t('addShop.taobao_url_placeholder')"
               :ui="{
                 base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
                 rounded: 'rounded-full',
@@ -69,15 +69,15 @@
               }"
             />
             <div class="mt-1 text-sm text-gray-500 dark:text-gray-400">
-              淘宝电脑版的地址连接，如果是日牌，可以填官网地址
+              {{ t('addShop.taobao_url_placeholder') }}
             </div>
           </UFormGroup>
 
           <!-- 微博名 -->
-          <UFormGroup label="微博名" name="wb_name">
+          <UFormGroup :label="t('addShop.weibo_name')" name="wb_name">
             <UInput
               v-model="form.wb_name"
-              placeholder="请输入微博名"
+              :placeholder="t('addShop.weibo_name_placeholder')"
               :ui="{
                 base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
                 rounded: 'rounded-full',
@@ -92,10 +92,10 @@
           </UFormGroup>
 
           <!-- 微博地址 -->
-          <UFormGroup label="微博地址" name="wb_url">
+          <UFormGroup :label="t('addShop.weibo_url')" name="wb_url">
             <UInput
               v-model="form.wb_url"
-              placeholder="请输入微博地址"
+              :placeholder="t('addShop.weibo_url_placeholder')"
               :ui="{
                 base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
                 rounded: 'rounded-full',
@@ -110,10 +110,10 @@
           </UFormGroup>
 
           <!-- 店铺描述 -->
-          <UFormGroup label="店铺描述" name="shop_describe">
+          <UFormGroup :label="t('addShop.shop_describe')" name="shop_describe">
             <UTextarea
               v-model="form.shop_describe"
-              placeholder="店铺简介，理念之类的，想写什么写什么"
+              :placeholder="t('addShop.shop_describe_placeholder')"
               :rows="5"
               :ui="{
                 base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
@@ -129,10 +129,10 @@
           </UFormGroup>
 
           <!-- 所属国别 -->
-          <UFormGroup label="所属国别" name="shop_country">
+          <UFormGroup :label="t('addShop.shop_country')" name="shop_country">
             <div class="flex flex-wrap items-center gap-2">
               <QhxTag v-if="form.shop_country" :active="true">
-                {{ form.shop_country.label }}
+                {{ shopCountryOptions.find(o => o.value === form.shop_country?.value)?.label ?? form.shop_country?.label }}
                 <UIcon
                   name="i-heroicons-x-mark"
                   class="ml-1 text-sm cursor-pointer"
@@ -145,13 +145,13 @@
                 variant="outline"
                 @click="showShopCountrySelect = true"
               >
-                选择国别
+                {{ t('addShop.select_country') }}
               </UButton>
             </div>
           </UFormGroup>
 
           <!-- 主营类型 -->
-          <UFormGroup label="主营类型" name="shop_type">
+          <UFormGroup :label="t('addShop.shop_type')" name="shop_type">
             <div class="flex flex-wrap items-center gap-2 mb-2">
               <QhxTag
                 v-for="(item, index) in form.shop_type"
@@ -172,12 +172,12 @@
               variant="outline"
               @click="showShopTypeSelect = true"
             >
-              选择类型
+              {{ t('addShop.select_type') }}
             </UButton>
           </UFormGroup>
 
           <!-- 主营风格 -->
-          <UFormGroup label="主营风格" name="shop_style">
+          <UFormGroup :label="t('addShop.shop_style')" name="shop_style">
             <div class="flex flex-wrap items-center gap-2 mb-2">
               <QhxTag
                 v-for="(item, index) in form.shop_style"
@@ -198,15 +198,15 @@
               variant="outline"
               @click="showShopStyleSelect = true"
             >
-              选择类型
+              {{ t('addShop.select_type') }}
             </UButton>
           </UFormGroup>
 
           <!-- 店铺状态 -->
-          <UFormGroup label="店铺状态" name="shop_state">
+          <UFormGroup :label="t('addShop.shop_state')" name="shop_state">
             <div class="flex flex-wrap items-center gap-2">
               <QhxTag v-if="form.shop_state" :active="true">
-                {{ form.shop_state.label }}
+                {{ shopStateOptions.find(o => o.value === form.shop_state?.value)?.label ?? form.shop_state?.label }}
                 <UIcon
                   name="i-heroicons-x-mark"
                   class="ml-1 text-sm cursor-pointer"
@@ -219,13 +219,13 @@
                 variant="outline"
                 @click="showShopStateSelect = true"
               >
-                选择状态
+                {{ t('addShop.select_state') }}
               </UButton>
             </div>
           </UFormGroup>
 
           <!-- 主体类型 -->
-          <UFormGroup label="主体类型" name="main_type">
+          <UFormGroup :label="t('addShop.main_type')" name="main_type">
             <div class="flex flex-wrap items-center gap-2 mb-2">
               <QhxTag
                 v-for="(item, index) in form.main_type"
@@ -246,7 +246,7 @@
               variant="outline"
               @click="showMainTypeSelect = true"
             >
-              选择类型
+              {{ t('addShop.select_type') }}
             </UButton>
           </UFormGroup>
 
@@ -259,7 +259,7 @@
               @click="handleSubmit"
               class="w-full md:w-auto px-8"
             >
-              {{ shopId ? '修改店铺' : '新增店铺' }}
+              {{ shopId ? t('addShop.update_shop') : t('addShop.add_shop') }}
             </UButton>
           </div>
         </UForm>
@@ -274,16 +274,16 @@
           class="mb-4"
         >
           <template #title>
-            权限不足
+            {{ t('addShop.no_permission') }}
           </template>
           <template #description>
-            必须要正式会员才有新增店铺的权限。
+            {{ t('addShop.no_permission_desc') }}
           </template>
         </UAlert>
         <div class="flex justify-center">
           <NuxtLink to="/pages/user/invite/index">
             <UButton color="primary" variant="outline">
-              成为正式居民
+              {{ t('addShop.become_member') }}
             </UButton>
           </NuxtLink>
         </div>
@@ -295,15 +295,15 @@
     <UModal v-model="showShopCountrySelect">
       <UCard>
         <template #header>
-          <h3 class="text-lg font-semibold">选择国别</h3>
+          <h3 class="text-lg font-semibold">{{ t('addShop.select_country_modal') }}</h3>
         </template>
         <div class="space-y-2">
           <div
-            v-for="item in option.shop_country"
+            v-for="item in shopCountryOptions"
             :key="item.value"
             class="p-3 rounded-lg cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
             :class="{ 'bg-qhx-primary text-white': form.shop_country?.value === item.value }"
-            @click="form.shop_country = item; showShopCountrySelect = false"
+              @click="form.shop_country = item; showShopCountrySelect = false"
           >
             {{ item.label }}
           </div>
@@ -315,7 +315,7 @@
     <UModal v-model="showShopTypeSelect">
       <UCard>
         <template #header>
-          <h3 class="text-lg font-semibold">选择主营类型</h3>
+          <h3 class="text-lg font-semibold">{{ t('addShop.select_shop_type_modal') }}</h3>
         </template>
         <div class="space-y-2 max-h-[60vh] overflow-y-auto">
           <div
@@ -334,7 +334,7 @@
     <UModal v-model="showShopStyleSelect">
       <UCard>
         <template #header>
-          <h3 class="text-lg font-semibold">选择主营风格</h3>
+          <h3 class="text-lg font-semibold">{{ t('addShop.select_shop_style_modal') }}</h3>
         </template>
         <div class="space-y-2 max-h-[60vh] overflow-y-auto">
           <div
@@ -353,15 +353,15 @@
     <UModal v-model="showShopStateSelect">
       <UCard>
         <template #header>
-          <h3 class="text-lg font-semibold">选择店铺状态</h3>
+          <h3 class="text-lg font-semibold">{{ t('addShop.select_shop_state_modal') }}</h3>
         </template>
         <div class="space-y-2">
           <div
-            v-for="item in option.shop_state"
+            v-for="item in shopStateOptions"
             :key="item.value"
             class="p-3 rounded-lg cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
             :class="{ 'bg-qhx-primary text-white': form.shop_state?.value === item.value }"
-            @click="form.shop_state = item; showShopStateSelect = false"
+              @click="form.shop_state = item; showShopStateSelect = false"
           >
             {{ item.label }}
           </div>
@@ -373,11 +373,11 @@
     <UModal v-model="showMainTypeSelect">
       <UCard>
         <template #header>
-          <h3 class="text-lg font-semibold">选择主体类型</h3>
+          <h3 class="text-lg font-semibold">{{ t('addShop.select_main_type_modal') }}</h3>
         </template>
         <div class="space-y-2 max-h-[60vh] overflow-y-auto">
           <div
-            v-for="item in option.main_type"
+            v-for="item in mainTypeOptions"
             :key="item.value"
             class="p-3 rounded-lg cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
             @click="confirmMainType(item)"
@@ -401,6 +401,7 @@ definePageMeta({
   ssr: false
 })
 
+const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
 const toast = useToast()
@@ -434,24 +435,36 @@ const form = reactive({
 // 选项数据
 const option = reactive({
   shop_type: [] as Array<{ label: string; value: number }>,
-  shop_style: [] as Array<{ label: string; value: number }>,
-  shop_country: [
-    { label: '国牌', value: 0 },
-    { label: '日牌', value: 1 },
-    { label: '其他', value: 2 }
-  ],
-  shop_state: [
-    { label: '经营中', value: 0 },
-    { label: '闭店', value: 1 },
-    { label: '永久闭店', value: 2 },
-    { label: '仅作展示', value: 3 }
-  ],
-  main_type: [
-    { label: '网店', value: 0 },
-    { label: '实体店', value: 1 },
-    { label: '手作店', value: 2 }
+  shop_style: [] as Array<{ label: string; value: number }>
+})
+
+// 多语言选项（随语言切换更新）
+const shopCountryOptions = computed(() => {
+  if (config.value?.shop_country?.length) {
+    return config.value.shop_country.map((item: { label: string; value: number }) => ({
+      label: item.label,
+      value: item.value
+    }))
+  }
+  return [
+    { label: t('addShop.country_domestic'), value: 0 },
+    { label: t('addShop.country_japanese'), value: 1 },
+    { label: t('addShop.country_other'), value: 2 }
   ]
 })
+
+const shopStateOptions = computed(() => [
+  { label: t('addShop.state_operating'), value: 0 },
+  { label: t('addShop.state_closed'), value: 1 },
+  { label: t('addShop.state_permanently_closed'), value: 2 },
+  { label: t('addShop.state_display_only'), value: 3 }
+])
+
+const mainTypeOptions = computed(() => [
+  { label: t('addShop.main_type_online'), value: 0 },
+  { label: t('addShop.main_type_physical'), value: 1 },
+  { label: t('addShop.main_type_handmade'), value: 2 }
+])
 
 // 选择器显示状态
 const showShopCountrySelect = ref(false)
@@ -482,13 +495,7 @@ const initOptions = async () => {
       }))
     }
 
-    // 从配置中获取国别选项
-    if (config.value?.shop_country) {
-      option.shop_country = config.value.shop_country.map((item) => ({
-        label: item.label,
-        value: item.value
-      }))
-    }
+    // 国别选项从 shopCountryOptions 计算属性获取（支持 config 覆盖）
   } catch (error) {
     console.error('获取选项失败:', error)
   }
@@ -514,7 +521,7 @@ const fetchShopDetail = async (id: number) => {
 
     // 设置国别
     if (res.shop_country !== undefined) {
-      const country = option.shop_country.find((item) => item.value === res.shop_country)
+      const country = shopCountryOptions.value.find((item) => item.value === res.shop_country)
       if (country) {
         form.shop_country = country
       }
@@ -522,7 +529,7 @@ const fetchShopDetail = async (id: number) => {
 
     // 设置店铺状态
     if (res.shop_state !== undefined) {
-      const state = option.shop_state.find((item) => item.value === res.shop_state)
+      const state = shopStateOptions.value.find((item) => item.value === res.shop_state)
       if (state) {
         form.shop_state = state
       }
@@ -547,7 +554,7 @@ const fetchShopDetail = async (id: number) => {
     // 设置主体类型
     if (res.main_type) {
       const mainTypeList = res.main_type.split(',').map((val) => {
-        const type = option.main_type.find((item) => item.value === Number.parseInt(val))
+        const type = mainTypeOptions.value.find((item) => item.value === Number.parseInt(val))
         return type || { label: '', value: Number.parseInt(val) }
       }).filter((item) => item.label)
       form.main_type = mainTypeList
@@ -555,7 +562,7 @@ const fetchShopDetail = async (id: number) => {
   } catch (error) {
     console.error('获取店铺详情失败:', error)
     toast.add({
-      title: '获取店铺详情失败',
+      title: t('addShop.fetch_failed'),
       icon: 'i-heroicons-x-circle',
       color: 'red'
     })
@@ -582,10 +589,10 @@ const confirmShopType = (value: { label: string; value: number }) => {
   const hasValue = form.shop_type.some((item) => item.value === value.value)
   if (!hasValue) {
     form.shop_type.push(value)
-    showShopTypeSelect = false
+    showShopTypeSelect.value = false
   } else {
     toast.add({
-      title: '重复添加',
+      title: t('addShop.duplicate_add'),
       icon: 'i-heroicons-exclamation-circle',
       color: 'yellow'
     })
@@ -597,10 +604,10 @@ const confirmShopStyle = (value: { label: string; value: number }) => {
   const hasValue = form.shop_style.some((item) => item.value === value.value)
   if (!hasValue) {
     form.shop_style.push(value)
-    showShopStyleSelect = false
+    showShopStyleSelect.value = false
   } else {
     toast.add({
-      title: '重复添加',
+      title: t('addShop.duplicate_add'),
       icon: 'i-heroicons-exclamation-circle',
       color: 'yellow'
     })
@@ -612,10 +619,10 @@ const confirmMainType = (value: { label: string; value: number }) => {
   const hasValue = form.main_type.some((item) => item.value === value.value)
   if (!hasValue) {
     form.main_type.push(value)
-    showMainTypeSelect = false
+    showMainTypeSelect.value = false
   } else {
     toast.add({
-      title: '重复添加',
+      title: t('addShop.duplicate_add'),
       icon: 'i-heroicons-exclamation-circle',
       color: 'yellow'
     })
@@ -626,7 +633,7 @@ const confirmMainType = (value: { label: string; value: number }) => {
 const handleSubmit = async () => {
   if (!form.shop_name || form.shop_name.trim() === '') {
     toast.add({
-      title: '店铺名不可为空',
+      title: t('addShop.shop_name_required'),
       icon: 'i-heroicons-exclamation-circle',
       color: 'yellow'
     })
@@ -641,7 +648,7 @@ const handleSubmit = async () => {
 
   if (!hasLogoFile && !hasLogoPreview && !hasExistingLogo) {
     toast.add({
-      title: '封面不可为空',
+      title: t('addShop.cover_required'),
       icon: 'i-heroicons-exclamation-circle',
       color: 'yellow'
     })
@@ -687,14 +694,14 @@ const handleSubmit = async () => {
       params.shop_id = shopId.value
       await updateShop(params)
       toast.add({
-        title: '修改成功',
+        title: t('addShop.update_success'),
         icon: 'i-heroicons-check-circle',
         color: 'green'
       })
     } else {
       await insertShop(params)
       toast.add({
-        title: '新增成功',
+        title: t('addShop.add_success'),
         icon: 'i-heroicons-check-circle',
         color: 'green'
       })
@@ -725,7 +732,7 @@ const handleSubmit = async () => {
   } catch (error) {
     console.error('提交失败:', error)
     toast.add({
-      title: '提交失败',
+      title: t('addShop.submit_failed'),
       icon: 'i-heroicons-x-circle',
       color: 'red'
     })

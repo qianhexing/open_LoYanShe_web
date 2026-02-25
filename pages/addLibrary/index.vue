@@ -10,6 +10,7 @@
         </UButton>
       </div>
       <UForm ref="libraryForm" :state="library" :rules="rules" class="space-y-6">
+        <!-- 母级图鉴 -->
         <UFormGroup :label="t('addLibrary.parent_id')" name="parent_id"
           v-if="library.library_type !== '系列' && shouldShowField('parent_id')" :class="getHighlightClass('parent_id')">
           <div class="flex items-center gap-2">
@@ -27,6 +28,7 @@
           </div>
         </UFormGroup>
         <clientOnly>
+          <!-- 店铺 -->
           <UFormGroup :label="t('addLibrary.shop_id')" name="shop_id" required v-if="shouldShowField('shop_id')"
             :class="getHighlightClass('shop_id')">
             <div class="flex items-center">
@@ -57,6 +59,7 @@
             </div>
           </UFormGroup>
         </clientOnly>
+        <!-- 图鉴名称 -->
         <UFormGroup :label="t('addLibrary.name')" name="name" required v-if="shouldShowField('name')"
           :class="getHighlightClass('name')">
           <UInput v-model="library.name" :disabled="isReviewMode" :ui="{
@@ -78,6 +81,7 @@
           </div>
         </UFormGroup>
 
+        <!-- 图鉴类型 -->
         <UFormGroup :label="t('addLibrary.library_type')" name="library_type" required
           v-if="shouldShowField('library_type')" :class="getHighlightClass('library_type')">
           <div v-if="!isReviewMode">
@@ -107,6 +111,7 @@
           </div>
         </UFormGroup>
 
+        <!-- 状态 -->
         <UFormGroup :label="t('addLibrary.state')" name="state" required v-if="shouldShowField('state')"
           :class="getHighlightClass('state')">
           <div v-if="!isReviewMode">
@@ -134,6 +139,7 @@
               t('addLibrary.empty') }}
           </div>
         </UFormGroup>
+        <!-- 预约开始时间 -->
         <UFormGroup :label="t('addLibrary.start_time')" name="start_time"
           v-if="library.state === '预约中' && shouldShowField('start_time')" required
           :class="getHighlightClass('start_time')">
@@ -152,6 +158,7 @@
           </div>
         </UFormGroup>
 
+        <!-- 尾款开始时间 -->
         <UFormGroup :label="t('addLibrary.arrears_start')" name="arrears_start"
           v-if="library.state === '尾款中' && shouldShowField('arrears_start')" required
           :class="getHighlightClass('arrears_start')">
@@ -164,6 +171,7 @@
               dayjs(originalLibrary.arrears_end).format('YYYY-MM-DD HH:mm') : '' }}
           </div>
         </UFormGroup>
+        <!-- 封面图 -->
         <UFormGroup :label="t('addLibrary.cover')" v-if="shouldShowField('cover')" :class="getHighlightClass('cover')">
           <QhxImagePicker :multiple="false" ref="coverRef" :disabled="isReviewMode" />
           <div v-if="isReviewMode && isFieldChanged('cover')" class="mt-2">
@@ -182,8 +190,10 @@
           </div>
         </UFormGroup>
 
+        <!-- 主要风格 -->
         <UFormGroup :label="t('addLibrary.main_style')" name="main_style" required v-if="shouldShowField('main_style')"
           :class="getHighlightClass('main_style')">
+          <!-- 显示已选择的主要风格标签 -->
           <div class="flex items-center m-1" v-if="library.main_style && library.main_style.length > 0">
             <QhxTag v-for="(item, index) in library.main_style" :key="item">
               {{main_style_options.find((child) => { return child.value === item })?.label}}
@@ -191,13 +201,13 @@
                 @click="library.main_style.splice(index, 1)" />
             </QhxTag>
           </div>
-          <div class="flex items-center m-1" v-if="library.theme && library.theme.length > 0">
+          <!-- <div class="flex items-center m-1" v-if="library.theme && library.theme.length > 0">
             <QhxTag v-for="(item, index) in library.theme" :key="item.wiki_id">
               {{ item.wiki_name }}
               <UIcon v-if="!isReviewMode" name="i-heroicons-x-mark" class="ml-1 text-sm cursor-pointer"
                 @click="library.theme.splice(index, 1)" />
             </QhxTag>
-          </div>
+          </div> -->
 
           <!-- <USelectMenu v-model="library.main_style" :disabled="isReviewMode" :options="main_style_options"
             :placeholder="t('addLibrary.main_style_placeholder')" multiple class="w-1/2 min-w-[200px]"
@@ -211,8 +221,10 @@
                 }
               }
             }" /> -->
+          <!-- 选择主要风格按钮 -->
           <UButton v-if="!isReviewMode" color="primary" size="sm" @click="showChooseWiki('main_style')">{{
             t('addLibrary.main_style') }}</UButton>
+          <!-- 审核模式：显示原始值 -->
           <div v-if="isReviewMode && isFieldChanged('main_style')"
             class="mt-2 text-sm text-gray-600 dark:text-gray-400">
             <span class="font-semibold">{{ t('addLibrary.original_value') }}</span>{{ getOriginalValueText('main_style')
@@ -220,6 +232,7 @@
           </div>
         </UFormGroup>
 
+        <!-- 价格 -->
         <UFormGroup :label="t('addLibrary.price')" v-if="shouldShowField('library_price')"
           :class="getHighlightClass('library_price')">
           <UInput v-model="library.library_price" :disabled="isReviewMode" type="number"
@@ -240,6 +253,7 @@
           </div>
         </UFormGroup>
 
+        <!-- 主题 -->
         <UFormGroup :label="t('addLibrary.theme')" v-if="shouldShowField('theme')" :class="getHighlightClass('theme')">
           <div class="flex items-center m-1" v-if="library.theme && library.theme.length > 0">
             <QhxTag v-for="(item, index) in library.theme" :key="item.wiki_id">
@@ -273,6 +287,7 @@
           </div>
         </UFormGroup>
         <WikiOptionsChoose ref="wikiOptionsChooseRef" @choose="chooseWiki" />
+        <!-- 图鉴图案 -->
         <UFormGroup :label="t('addLibrary.library_pattern')" v-if="shouldShowField('library_pattern')"
           :class="getHighlightClass('library_pattern')">
           <div class="flex items-center m-1" v-if="library.library_pattern && library.library_pattern.length > 0">
@@ -291,6 +306,7 @@
           </div>
         </UFormGroup>
 
+        <!-- 颜色 -->
         <UFormGroup :label="t('addLibrary.color')" v-if="shouldShowField('color')" :class="getHighlightClass('color')">
           <div class="flex items-center m-1" v-if="library.color && library.color.length > 0">
             <QhxTag v-for="(item, index) in library.color" :key="item.wiki_id">
@@ -307,6 +323,7 @@
           </div>
         </UFormGroup>
 
+        <!-- 尺寸图 -->
         <UFormGroup :label="t('addLibrary.size_image')" v-if="shouldShowField('size_image')"
           :class="getHighlightClass('size_image')">
           <QhxImagePicker :multiple="true" ref="sizeImageRef" :disabled="isReviewMode" />
@@ -326,6 +343,7 @@
           </div>
         </UFormGroup>
 
+        <!-- 图案元素 -->
         <UFormGroup :label="t('addLibrary.pattern_elements')" v-if="shouldShowField('pattern_elements')"
           :class="getHighlightClass('pattern_elements')">
           <div class="flex items-center m-1" v-if="library.pattern_elements && library.pattern_elements.length > 0">
@@ -361,6 +379,7 @@
           </div>
         </UFormGroup>
 
+        <!-- 设计元素 -->
         <UFormGroup :label="t('addLibrary.design_elements')" v-if="shouldShowField('design_elements')"
           :class="getHighlightClass('design_elements')">
           <div class="flex items-center m-1" v-if="library.design_elements && library.design_elements.length > 0">
@@ -379,6 +398,7 @@
           </div>
         </UFormGroup>
 
+        <!-- 面料成分 -->
         <UFormGroup :label="t('addLibrary.fabric_composition')" v-if="shouldShowField('fabric_composition')"
           :class="getHighlightClass('fabric_composition')">
           <div class="flex flex-wrap gap-2 mb-2">
@@ -397,6 +417,7 @@
           </div>
         </UFormGroup>
 
+        <!-- 布料元素 -->
         <UFormGroup :label="t('addLibrary.cloth_elements')" v-if="shouldShowField('cloth_elements')"
           :class="getHighlightClass('cloth_elements')">
           <div class="flex items-center m-1" v-if="library.cloth_elements && library.cloth_elements.length > 0">
@@ -415,6 +436,7 @@
           </div>
         </UFormGroup>
 
+        <!-- 次要布料 -->
         <UFormGroup :label="t('addLibrary.secondary_cloth')" v-if="shouldShowField('secondary_cloth')"
           :class="getHighlightClass('secondary_cloth')">
           <div class="flex items-center m-1" v-if="library.secondary_cloth && library.secondary_cloth.length > 0">
@@ -433,6 +455,7 @@
           </div>
         </UFormGroup>
 
+        <!-- 备注 -->
         <UFormGroup :label="t('addLibrary.notes')" v-if="shouldShowField('notes')" :class="getHighlightClass('notes')">
           <UTextarea v-model="library.notes" :disabled="isReviewMode" :placeholder="t('addLibrary.notes_placeholder')"
             :rows="3" :ui="{
@@ -451,6 +474,7 @@
           </div>
         </UFormGroup>
 
+        <!-- 发售时间 -->
         <UFormGroup :label="t('addLibrary.sale_time')" v-if="shouldShowField('sale_time')"
           :class="getHighlightClass('sale_time')">
           <div class="w-1/2 min-w-[200px]">
@@ -463,6 +487,7 @@
           </div>
         </UFormGroup>
 
+        <!-- 季节 -->
         <UFormGroup :label="t('addLibrary.season')" v-if="shouldShowField('season')"
           :class="getHighlightClass('season')">
           <USelectMenu v-model="library.season" :disabled="isReviewMode" :options="season_options"
@@ -483,6 +508,7 @@
           </div>
         </UFormGroup>
 
+        <!-- 链接 -->
         <UFormGroup :label="t('addLibrary.link')" v-if="shouldShowField('link')" :class="getHighlightClass('link')">
           <UInput v-model="library.link" :disabled="isReviewMode" :placeholder="t('addLibrary.link_placeholder')" :ui="{
             base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
@@ -500,6 +526,7 @@
           </div>
         </UFormGroup>
 
+        <!-- 详情图 -->
         <UFormGroup :label="t('addLibrary.detail_image')" v-if="shouldShowField('detail_image')"
           :class="getHighlightClass('detail_image')">
           <QhxImagePicker :multiple="true" ref="detailImageRef" :disabled="isReviewMode" />
@@ -520,6 +547,7 @@
           </div>
         </UFormGroup>
 
+        <!-- 质检图 -->
         <UFormGroup :label="t('addLibrary.quality_test')" v-if="shouldShowField('quality_test')"
           :class="getHighlightClass('quality_test')">
           <QhxImagePicker :multiple="true" ref="qualityImageRef" :disabled="isReviewMode" />
@@ -543,6 +571,7 @@
         <LibraryChoose ref="chooseLibraryRef" @choose="chooseLibrary" />
         <!-- :filter_list="[{ field: 'library_type', value: '系列', op: 'and' }]" -->
 
+        <!-- 添加面料成分弹窗 -->
         <UModal v-model="showComposition" :ui="{ width: 'max-w-4xl' }">
           <UCard>
             <template #header>
@@ -550,6 +579,7 @@
             </template>
 
             <UForm :state="fabric_composition" class="space-y-4">
+              <!-- 面料成分选择 -->
               <UFormGroup :label="t('addLibrary.fabric_composition')">
                 <USelectMenu v-model="fabric_composition.name" by="value" name="label"
                   :placeholder="t('addLibrary.fabric_composition_placeholder')" :searchable="getFabricComposition"
@@ -565,6 +595,7 @@
                   }" />
               </UFormGroup>
 
+              <!-- 面料百分比 -->
               <UFormGroup :label="t('addLibrary.fabric_percentage')">
                 <div class="space-y-2">
                   <URange v-model="fabric_composition.value" :max="100" />
@@ -576,37 +607,59 @@
 
             <template #footer>
               <div class="flex justify-end gap-2">
+                <!-- 取消按钮 -->
                 <UButton @click="showComposition = false">{{ t('addLibrary.cancel') }}</UButton>
+                <!-- 确认按钮 -->
                 <UButton color="primary" @click="addFabricComposition()">{{ t('addLibrary.confirm') }}</UButton>
               </div>
             </template>
           </UCard>
         </UModal>
 
+        <!-- 是否完成 -->
+        <UFormGroup :label="t('addLibrary.complete')" name="complete" v-if="!isReviewMode">
+          <div class="flex items-center gap-2">
+            <UToggle
+              v-model="library.complete"
+              color="primary"
+            />
+            <span class="text-sm text-gray-600 dark:text-gray-400">
+              {{ library.complete ? t('addLibrary.complete_yes') : t('addLibrary.complete_no') }}
+            </span>
+          </div>
+        </UFormGroup>
+
+        <!-- 提交按钮区域 -->
         <div class="flex justify-center pt-6">
           <template v-if="isReviewMode">
+            <!-- 审核按钮 -->
             <UButton v-if="!loading" color="primary" size="lg" @click="showReviewModal = true">
               {{ t('addLibrary.review') }}
             </UButton>
+            <!-- 审核提交中按钮 -->
             <UButton v-else color="red" size="lg" disabled>{{ t('addLibrary.requesting') }}</UButton>
           </template>
           <template v-else>
+            <!-- 提交/更新按钮 -->
             <UButton v-if="!loading" color="primary" size="lg" @click="add()">
               {{ library_id ? t('addLibrary.update') : t('addLibrary.upload') }}
             </UButton>
+            <!-- 提交中按钮 -->
             <UButton v-else color="red" size="lg" disabled>{{ t('addLibrary.requesting') }}</UButton>
           </template>
         </div>
       </UForm>
     </div>
-    <!-- 操作确认 -->
+    <!-- 确认复制图鉴信息弹窗 -->
     <UModal v-model="showConfirmLibrary" :ui="{ width: 'max-w-4xl' }">
       <UCard>
         <template #header>
           <h3 class="text-lg font-semibold">{{ t('addLibrary.confirm_copy_title') }}</h3>
         </template>
         <div class="flex justify-end gap-2">
+          <!-- 取消按钮 -->
           <UButton @click="showConfirmLibrary = false">{{ t('addLibrary.cancel') }}</UButton>
+          <!-- 确认按钮 -->
           <UButton color="primary" @click="copyLibraryInfo()">{{ t('addLibrary.confirm') }}</UButton>
         </div>
       </UCard>
@@ -620,6 +673,7 @@
         </template>
 
         <UForm :state="reviewForm" class="space-y-4">
+          <!-- 审核结果 -->
           <UFormGroup :label="t('addLibrary.review_result')" required>
             <div class="flex gap-4">
               <UButton :color="reviewForm.status === 'approved' ? 'green' : 'gray'"
@@ -635,6 +689,7 @@
             </div>
           </UFormGroup>
 
+          <!-- 审核建议 -->
           <UFormGroup :label="t('addLibrary.review_suggestion')">
             <UTextarea v-model="reviewForm.suggestion" :placeholder="t('addLibrary.review_suggestion_placeholder')"
               :rows="4" :ui="{
@@ -652,7 +707,9 @@
 
         <template #footer>
           <div class="flex justify-end gap-2">
+            <!-- 取消按钮 -->
             <UButton @click="showReviewModal = false">{{ t('addLibrary.cancel') }}</UButton>
+            <!-- 确认提交审核按钮 -->
             <UButton color="primary" :disabled="!reviewForm.status || reviewLoading" @click="submitReview()">
               {{ reviewLoading ? t('addLibrary.submitting') : t('addLibrary.confirm') }}
             </UButton>
@@ -881,7 +938,8 @@ const library = ref({
   parent_id: undefined as Library | undefined,
   theme: [] as Wiki[],
   library_pattern: [] as Wiki[],
-  fabric_composition: [] as FabricComposition[] // 成分
+  fabric_composition: [] as FabricComposition[], // 成分
+  complete: false as boolean // 是否完成，1完成0未完成
 })
 
 // 检查图鉴名称是否可能已收录
@@ -1172,7 +1230,7 @@ const fetchLibraryById = async () => {
     if (isReviewMode.value) {
       originalLibrary.value = { ...res }
     }
-    const { theme, style_list, name, library_type, state, shop, parent, library_price, library_pattern, detail_image, color, size, pattern_elements, design_elements, cloth_elements, secondary_cloth, notes, sale_time, season, link, cover, end_time, start_time, size_image, fabric_composition, quality_test } = res
+    const { theme, style_list, name, library_type, state, shop, parent, library_price, library_pattern, detail_image, color, size, pattern_elements, design_elements, cloth_elements, secondary_cloth, notes, sale_time, season, link, cover, end_time, start_time, size_image, fabric_composition, quality_test, complete } = res
     library.value.name = name
 
     library.value.library_type = library_type
@@ -1253,6 +1311,7 @@ const fetchLibraryById = async () => {
       library.value.season = season.split(',')
     }
     library.value.link = link
+    library.value.complete = !!complete
     library.value.start_time = [start_time || '', end_time || '']
     console.log(library.value.start_time, '预约时间')
     if (fabric_composition) {
@@ -1662,7 +1721,8 @@ const init = () => {
     parent_id: undefined,
     theme: [],
     library_pattern: [],
-    fabric_composition: []
+    fabric_composition: [],
+    complete: false
   }
 }
 const getShopOptions = async (query: string) => {
@@ -2184,6 +2244,7 @@ const add = async () => {
     } else {
       params.library_pattern = null
     }
+    params.complete = library.value.complete ? 1 : 0
 
     console.log(params, main_style, '最终参数')
 

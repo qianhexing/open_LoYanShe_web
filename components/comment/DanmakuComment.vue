@@ -611,32 +611,32 @@ watch([() => props.width, () => props.height], () => {
     </div>
 
     <!-- 控制按钮 -->
-    <div class="danmaku-controls">
-      <button
-        class="control-btn"
-        @click="toggleVisibility"
-        :title="isVisible ? '隐藏弹幕' : '显示弹幕'"
-      >
-        <svg v-if="isVisible" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
-          <circle cx="12" cy="12" r="3"></circle>
-        </svg>
-        <svg v-else xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path>
-          <line x1="1" y1="1" x2="23" y2="23"></line>
-        </svg>
-      </button>
-
-      <button
-        class="control-btn"
-        @click="openSendDialog"
-        title="发送弹幕"
-      >
-        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <line x1="22" y1="2" x2="11" y2="13"></line>
-          <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
-        </svg>
-      </button>
+    <div class="danmaku-controls flex flex-col items-center gap-2">
+      <QhxJellyButton>
+        <div
+          class="h-[60px] text-center px-1 cursor-pointer"
+          @click="toggleVisibility"
+          :title="isVisible ? '隐藏弹幕' : '显示弹幕'"
+        >
+          <div class="my-[5px] mx-auto text-white rounded-[50%] h-[30px] w-[30px] bg-qhx-primary flex items-center justify-center">
+            <UIcon v-if="isVisible" name="i-heroicons-eye" class="text-[18px] text-[#ffffff]" />
+            <UIcon v-else name="i-heroicons-eye-slash" class="text-[18px] text-[#ffffff]" />
+          </div>
+          <div class="text-sm text-qhx-text">{{ isVisible ? '隐藏' : '显示' }}</div>
+        </div>
+      </QhxJellyButton>
+      <QhxJellyButton>
+        <div
+          class="h-[60px] text-center px-1 cursor-pointer"
+          @click="openSendDialog"
+          title="发送弹幕"
+        >
+          <div class="my-[5px] mx-auto text-white rounded-[50%] h-[30px] w-[30px] bg-qhx-primary flex items-center justify-center">
+            <UIcon name="i-heroicons-paper-airplane" class="text-[18px] text-[#ffffff]" />
+          </div>
+          <div class="text-sm text-qhx-text">发弹幕</div>
+        </div>
+      </QhxJellyButton>
     </div>
   </div>
 </template>
@@ -693,38 +693,7 @@ watch([() => props.width, () => props.height], () => {
   bottom: 20px;
   left: 20px;
   z-index: 30;
-  display: flex;
-  gap: 10px;
   pointer-events: auto; /* 关键：允许按钮被点击 */
-}
-
-.control-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 36px;
-  height: 36px;
-  background: rgba(0, 0, 0, 0.5);
-  backdrop-filter: blur(4px);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 50%;
-  color: #fff;
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-.control-btn:hover:not(:disabled) {
-  background: rgba(0, 0, 0, 0.8);
-  transform: scale(1.1);
-}
-
-.control-btn:active:not(:disabled) {
-  transform: scale(0.95);
-}
-
-.control-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
 }
 
 /* 用户信息弹窗 */

@@ -151,6 +151,7 @@ const copyClothes = () => {
 // 删除服饰
 const confirmDelete = async () => {
   if (!detail.value) return
+  if (!detail.value.clothes_id) return
   try {
     await deteleClothes({
       clothes_id: detail.value.clothes_id
@@ -165,6 +166,10 @@ const confirmDelete = async () => {
       typeof window !== 'undefined' &&
       navigator.userAgent.includes('Html5Plus');
     if (isInUniApp && typeof uni !== 'undefined' && uni.navigateBack) {
+      // 发送刷新通知，让上一页在返回时刷新列表
+      if (typeof uni.postMessage === 'function') {
+        uni.postMessage({ data: { type: 'BackAndReload' } })
+      }
       uni.navigateBack()
     } else {
       if (port.value) {

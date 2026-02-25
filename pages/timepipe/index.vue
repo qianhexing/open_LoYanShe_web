@@ -37,9 +37,9 @@
             <div class="flex justify-between items-center p-2">
               <div class="text-sm text-gray-600">当前选择：{{ dayjs(formatted).format('YY-MM-DD') }}</div>
               <div class="flex items-center gap-2">
-                <UButton color="primary" size="sm" @click="layout = layout === '0' ? '1' : '0'"> {{ layout === '0' ?
-                  '列表:大图' :
-                  '列表:简洁' }} </UButton>
+                <UButton color="primary" size="sm" @click="layout = layout === '0' ? '1' : layout === '1' ? '2' : '0'"> {{
+                  layout === '0' ? '列表:大图' :
+                  layout === '1' ? '列表:简洁' : '列表:纯文本' }} </UButton>
                 <UButton color="primary" size="sm" @click="showLibraryPipeAdd()" v-if="userStore.token">自主投稿上新</UButton>
               </div>
             </div>
@@ -122,25 +122,31 @@
                 rows: response.rows,
                 count: response.count
               }
-            }" :columns="columns" :itemKey="0" :columns_768="layout === '0' ? 2 : 1" :enableWaterfall="true" :enableLoadMore="isActive ? true : false">
+            }" :columns="columns" :itemKey="0" :columns_768="layout === '0' ? 2 : 1" :enableLoadMore="isActive ? true : false">
               <template #default="{ item, debouncedApplyLayout }">
                 <!-- 自定义内容 -->
                 <div class="custom-item mr-[1px] mb-1" :key="item.pipe_id">
                   <div class="polaroid-card">
-                    <div class="flex justify-between items-center px-2">
-                      <QhxTag :active="true" :backgroundColor="getStateColor(item.state)"> <div class="text-xs">{{ formateState(item.state) }}</div> </QhxTag>
-                      <div class="p-0 flex items-center">
-                        <!-- <h3 class="p-2">起止时间</h3> -->
-                        <QhxTag :active="true" v-show="layout !== '0'">{{ dayjs(item.start_time).format('YY-MM-DD') }}</QhxTag> -
-                        <QhxTag :active="true" v-show="layout !== '0'">{{ dayjs(item.end_time).format('YY-MM-DD') }}</QhxTag>
-                        <h3 class="p-0 text-xs text-gray-600">截止: {{ dayjs(item.end_time).diff(dayjs(), 'day') }}天</h3>
-                      </div>
+                    <div class="flex items-center px-2" :class="layout === '2' ? 'text-sm text-gray-600 gap-2 flex-wrap' : 'justify-between'">
+                      <template v-if="layout === '2'">
+                        <span>{{ formateState(item.state) }}</span>
+                        <span>{{ dayjs(item.start_time).format('YY-MM-DD') }}~{{ dayjs(item.end_time).format('YY-MM-DD') }}</span>
+                        <span>截止{{ dayjs(item.end_time).diff(dayjs(), 'day') }}天</span>
+                      </template>
+                      <template v-else>
+                        <QhxTag :active="true" :backgroundColor="getStateColor(item.state)"> <div class="text-xs">{{ formateState(item.state) }}</div> </QhxTag>
+                        <div class="p-0 flex items-center">
+                          <QhxTag :active="true" v-show="layout !== '0'">{{ dayjs(item.start_time).format('YY-MM-DD') }}</QhxTag> -
+                          <QhxTag :active="true" v-show="layout !== '0'">{{ dayjs(item.end_time).format('YY-MM-DD') }}</QhxTag>
+                          <h3 class="p-0 text-xs text-gray-600">截止: {{ dayjs(item.end_time).diff(dayjs(), 'day') }}天</h3>
+                        </div>
+                      </template>
                     </div>
                     <div class="px-2 text-sm text-gray-600" v-if="item.note">
                       备注: {{ item.note }}
                     </div>
                     <div v-if="item.item">
-                      <LibraryItem :style="layout === '0' ? { marginTop: '-10px' } : { }" :className="'p-1'" :size="layout === '0' ? 'big' : 'mini-list'" :item="item.item"
+                      <LibraryItem :style="layout === '0' ? { marginTop: '-10px' } : { }" :className="'p-1'" :size="layout === '0' ? 'big' : layout === '1' ? 'mini-list' : 'text-only'" :item="item.item"
                         @image-load="debouncedApplyLayout">
                         <template #tagInfo v-if="layout !== '0'">
                           <div v-if="item.library_list && item.library_list.length > 0">
@@ -153,7 +159,7 @@
                           </div>
                         </template>
                       </LibraryItem>
-                      <div class="flex justify-center">
+                      <div class="flex justify-center" v-show="layout !== '2'">
                         <div class=" flex-1 text-center" :style="{ transform: 'scale(0.7)' }">
                           <UserGoodBtn :pk_type="2" :pk_id="item.item.library_id" :is_good="item.is_good === 1 ? true : false" :good_count="item.item.good_count" :need_judge="false">
                           </UserGoodBtn>
@@ -208,7 +214,7 @@
               <template #default="{ item, debouncedApplyLayout }">
                 <!-- 自定义内容 -->
                 <div class="custom-item m-2" :key="item.cabinet_id">
-                  <div class="polaroid-card">
+                  <div class="polaroid-card rounded-[5px]">
                     <div class="flex justify-center items-center cursor-pointer" @click="jumpToShop(item.item?.shop)">
                       <img :src="`${BASE_IMG}${item.item?.shop?.shop_logo || 'static/plan_cover/default.jpg'}`" alt="cover" class="w-[60px] h-[60px] object-cover rounded-full m-2"></img>
                       <div class="flex-1 items-center justify-center">
@@ -515,7 +521,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, onMounted, onBeforeUnmount, reactive } from 'vue'
+import { computed, ref, watch, nextTick, onMounted, onBeforeUnmount, reactive } from 'vue'
 import HorizontalDatePicker from '@/components/Qhx/HorizontalDatePicker.vue'
 import { getLibraryPipeList } from '@/api/library'
 import type QhxWaterList from '@/components/Qhx/WaterList.vue'
@@ -546,7 +552,9 @@ const token = ref<string | null>(null) // 传入的token
 // 窗口宽度响应式变量
 const windowWidth = ref(typeof window !== 'undefined' ? window.innerWidth : 1920)
 const columns = computed(() => {
-  return layout.value === '0' ? (windowWidth.value > 768 && windowWidth.value < 1920 ? 4 : 5) : 3
+  if (layout.value === '0') return windowWidth.value > 768 && windowWidth.value < 1920 ? 4 : 5
+  if (layout.value === '2') return 1 // 纯文本单列
+  return 3
 })
 // 根据窗口宽度计算弹幕速度
 // 速度值越小，弹幕移动越快。窗口越宽，需要的时间应该相应增加
@@ -614,6 +622,13 @@ const addWardrobeToDisplay = async () => {
   opear_item.value = []
 }
 const layout = ref('0')
+watch(layout, (val) => {
+  if (val === '2') {
+    nextTick(() => {
+      waterList.value?.debouncedApplyLayout()
+    })
+  }
+})
 const todayVisit = ref(0)
 const filterState = ref(0)
 const sortMode = ref(2)

@@ -69,8 +69,11 @@ const clickPosition = ref({ x: 0, y: 0 })
 const target: Ref<THREE.Object3D | null> = ref(null)
 const transformType = ref('translate')
 const showToolbar = ref(true) // 控制工具栏显示/隐藏
-const showRightPanel = ref(false) // 控制右侧面板显示/隐藏
-const rightPanelType = ref<'material' | 'template' | 'effect' | 'clothing' | null>(null) // 右侧面板类型
+// 四个独立的悬浮列表展开状态，互不联动，但同时只展开一个
+const materialListExpanded = ref(false)
+const clothingListExpanded = ref(false)
+const effectListExpanded = ref(false)
+const templateListExpanded = ref(false)
 const layoutReady = inject('layoutReady') as Ref<boolean>
 if (route.query?.edit) {
     edit_mode.value = true
@@ -218,44 +221,38 @@ const resetCamera = (index: number) => {
     threeCore.value.cameraList[index] = threeCore.value.recordCamera(false)
 }
 
+// 每个按钮独立控制其列表：点击展开时收起其它三个，点击已展开的则收起
 const showMaterial = () => {
-    if (rightPanelType.value === 'material') {
-        showRightPanel.value = false
-        rightPanelType.value = null
-    } else {
-        showRightPanel.value = true
-        rightPanelType.value = 'material'
-    }
+    const wasExpanded = materialListExpanded.value
+    materialListExpanded.value = false
+    clothingListExpanded.value = false
+    effectListExpanded.value = false
+    templateListExpanded.value = false
+    if (!wasExpanded) materialListExpanded.value = true
 }
-
-const showTemplate = () => {
-    if (rightPanelType.value === 'template') {
-        showRightPanel.value = false
-        rightPanelType.value = null
-    } else {
-        showRightPanel.value = true
-        rightPanelType.value = 'template'
-    }
-}
-
-const showEffect = () => {
-    if (rightPanelType.value === 'effect') {
-        showRightPanel.value = false
-        rightPanelType.value = null
-    } else {
-        showRightPanel.value = true
-        rightPanelType.value = 'effect'
-    }
-}
-
 const showClothing = () => {
-    if (rightPanelType.value === 'clothing') {
-        showRightPanel.value = false
-        rightPanelType.value = null
-    } else {
-        showRightPanel.value = true
-        rightPanelType.value = 'clothing'
-    }
+    const wasExpanded = clothingListExpanded.value
+    materialListExpanded.value = false
+    clothingListExpanded.value = false
+    effectListExpanded.value = false
+    templateListExpanded.value = false
+    if (!wasExpanded) clothingListExpanded.value = true
+}
+const showEffect = () => {
+    const wasExpanded = effectListExpanded.value
+    materialListExpanded.value = false
+    clothingListExpanded.value = false
+    effectListExpanded.value = false
+    templateListExpanded.value = false
+    if (!wasExpanded) effectListExpanded.value = true
+}
+const showTemplate = () => {
+    const wasExpanded = templateListExpanded.value
+    materialListExpanded.value = false
+    clothingListExpanded.value = false
+    effectListExpanded.value = false
+    templateListExpanded.value = false
+    if (!wasExpanded) templateListExpanded.value = true
 }
 
 const showSettings = ref(false)
@@ -586,11 +583,6 @@ const updateLongTextObject = async () => {
             }
         }
     }
-}
-
-const closeRightPanel = () => {
-    showRightPanel.value = false
-    rightPanelType.value = null
 }
 
 // 添加图片
@@ -1500,7 +1492,7 @@ useHead({
                     <!-- 素材 -->
                     <button v-if="edit_mode || add_mode" @click="showMaterial()"
                         class="w-full flex flex-col items-center gap-1 p-1.5 rounded-xl hover:bg-purple-50 dark:hover:bg-purple-900/20 transition-colors group active:scale-95"
-                        :class="rightPanelType === 'material' ? 'bg-purple-100 dark:bg-purple-900/40' : ''" title="素材">
+                        :class="materialListExpanded ? 'bg-purple-100 dark:bg-purple-900/40' : ''" title="素材">
                         <div
                             class="w-7 h-7 bg-purple-500 dark:bg-purple-600 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform">
                             <UIcon name="material-symbols:deployed-code-rounded" class="text-sm text-white" />
@@ -1511,7 +1503,7 @@ useHead({
                     <!-- 服饰 -->
                     <button v-if="edit_mode || add_mode" @click="showClothing()"
                         class="w-full flex flex-col items-center gap-1 p-1.5 rounded-xl hover:bg-pink-50 dark:hover:bg-pink-900/20 transition-colors group active:scale-95"
-                        :class="rightPanelType === 'clothing' ? 'bg-pink-100 dark:bg-pink-900/40' : ''" title="服饰">
+                        :class="clothingListExpanded ? 'bg-pink-100 dark:bg-pink-900/40' : ''" title="服饰">
                         <div
                             class="w-7 h-7 bg-pink-500 dark:bg-pink-600 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform">
                             <UIcon name="material-symbols:checkroom-rounded" class="text-sm text-white" />
@@ -1522,7 +1514,7 @@ useHead({
                     <!-- 特效 -->
                     <button v-if="edit_mode || add_mode" @click="showEffect()"
                         class="w-full flex flex-col items-center gap-1 p-1.5 rounded-xl hover:bg-orange-50 dark:hover:bg-orange-900/20 transition-colors group active:scale-95"
-                        :class="rightPanelType === 'effect' ? 'bg-orange-100 dark:bg-orange-900/40' : ''" title="特效">
+                        :class="effectListExpanded ? 'bg-orange-100 dark:bg-orange-900/40' : ''" title="特效">
                         <div
                             class="w-7 h-7 bg-orange-500 dark:bg-orange-600 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform">
                             <UIcon name="material-symbols:auto-fix-high-rounded" class="text-sm text-white" />
@@ -1533,7 +1525,7 @@ useHead({
                     <!-- 模版 -->
                     <button v-if="edit_mode || add_mode" @click="showTemplate()"
                         class="w-full flex flex-col items-center gap-1 p-1.5 rounded-xl hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors group active:scale-95"
-                        :class="rightPanelType === 'template' ? 'bg-blue-100 dark:bg-blue-900/40' : ''" title="模版">
+                        :class="templateListExpanded ? 'bg-blue-100 dark:bg-blue-900/40' : ''" title="模版">
                         <div
                             class="w-7 h-7 bg-blue-500 dark:bg-blue-600 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform">
                             <UIcon name="material-symbols:dashboard-rounded" class="text-sm text-white" />
@@ -1564,30 +1556,149 @@ useHead({
             </div>
         </div>
 
-        <!-- 右侧素材/模版/特效面板 -->
-        <div v-if="showRightPanel && rightPanelType"
-            class="fixed right-2 top-0 z-[60] transition-all duration-300 w-[100px] h-[90vh] mt-[5vh]">
+        <!-- 四个独立的悬浮列表，展开后居中、固定高度，互不联动，同时只展开一个，隐藏时 v-show 不销毁 -->
+        <!-- 素材 -->
+        <div
+            v-if="edit_mode || add_mode"
+            class="fixed right-0 z-[20] flex flex-col rounded-l-xl bg-white/95 dark:bg-gray-800/95 shadow-lg backdrop-blur-sm border border-gray-200/50 dark:border-gray-600/50 overflow-hidden transition-all duration-300 ease-out"
+            :class="materialListExpanded
+                ? 'top-1/2 -translate-y-1/2 h-[70vh] w-[180px] sm:w-[200px] md:w-[220px] z-[30]'
+                : 'top-[calc(50%-160px)] -translate-y-1/2 h-[60px] w-[44px] sm:w-[52px]'"
+        >
+            <button
+                type="button"
+                class="items-center justify-center gap-1.5 py-2.5 px-2 shrink-0 text-purple-600 dark:text-purple-400 hover:bg-purple-50 dark:hover:bg-gray-700/50 transition-colors"
+                :class="materialListExpanded ? 'border-b border-gray-100 dark:border-gray-600 flex' : 'min-h-[60px] block leading-[15px]'"
+                :title="materialListExpanded ? '收起列表' : '展开列表'"
+                @click="showMaterial()"
+            >
+                <UIcon
+                    :name="materialListExpanded ? 'material-symbols:chevron-right' : 'carbon:model-alt'"
+                    class="text-xl sm:text-2xl transition-transform"
+                    :class="materialListExpanded ? '' : 'rotate-0'"
+                />
+                <span class="text-xs font-medium sm:inline">素材</span>
+            </button>
             <div
-                class="bg-white dark:bg-gray-800 backdrop-blur-md rounded-l-2xl shadow-xl border-l border-t border-b border-gray-200 dark:border-gray-700 overflow-hidden flex flex-col h-full">
-                <!-- 头部标题和关闭按钮 -->
-                <div
-                    class="flex items-center justify-between p-1.5 border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
-                    <h3 class="text-[10px] font-semibold text-gray-700 dark:text-gray-200">
-                        {{ rightPanelType === 'material' ? '素材' : rightPanelType === 'template' ? '模版' : rightPanelType === 'clothing' ? '服饰' : '特效' }}
-                    </h3>
-                    <button @click="closeRightPanel"
-                        class="w-4 h-4 flex items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors">
-                        <UIcon name="ant-design:close-outlined" class="text-[10px] text-gray-600 dark:text-gray-300" />
-                    </button>
-                </div>
-
-                <!-- 内容区域 -->
-                <div class="flex-1 overflow-y-auto scrollbar-hide min-h-0">
-                    <SceneMaterial :panel-type="rightPanelType"
-                        :load-template="threeCore && threeCore.loadTemplate.length > 0 ? true : false"
-                        @choose-material="chooseMaterial" @choose-template="chooseTemplate"
-                        @choose-effect="chooseEffect" @clear-template="clearTemplate" />
-                </div>
+                v-show="materialListExpanded"
+                class="flex-1 overflow-y-auto overscroll-contain p-2 space-y-2 min-h-0 h-0"
+            >
+                <SceneMaterial
+                    panel-type="material"
+                    :load-template="false"
+                    @choose-material="chooseMaterial"
+                    @choose-template="chooseTemplate"
+                    @choose-effect="chooseEffect"
+                    @clear-template="clearTemplate"
+                />
+            </div>
+        </div>
+        <!-- 服饰 -->
+        <div
+            v-if="edit_mode || add_mode"
+            class="fixed right-0 z-[20] flex flex-col rounded-l-xl bg-white/95 dark:bg-gray-800/95 shadow-lg backdrop-blur-sm border border-gray-200/50 dark:border-gray-600/50 overflow-hidden transition-all duration-300 ease-out"
+            :class="clothingListExpanded
+                ? 'top-1/2 -translate-y-1/2 h-[70vh] w-[180px] sm:w-[200px] md:w-[220px] z-[30]'
+                : 'top-[calc(50%-53px)] -translate-y-1/2 h-[60px] w-[44px] sm:w-[52px]'"
+        >
+            <button
+                type="button"
+                class="items-center justify-center gap-1.5 py-2.5 px-2 shrink-0 text-pink-600 dark:text-pink-400 hover:bg-pink-50 dark:hover:bg-gray-700/50 transition-colors"
+                :class="clothingListExpanded ? 'border-b border-gray-100 dark:border-gray-600 flex' : 'min-h-[60px] block leading-[15px]'"
+                :title="clothingListExpanded ? '收起列表' : '展开列表'"
+                @click="showClothing()"
+            >
+                <UIcon
+                    :name="clothingListExpanded ? 'material-symbols:chevron-right' : 'material-symbols:checkroom-rounded'"
+                    class="text-xl sm:text-2xl transition-transform"
+                    :class="clothingListExpanded ? '' : 'rotate-0'"
+                />
+                <span class="text-xs font-medium sm:inline">服饰</span>
+            </button>
+            <div
+                v-show="clothingListExpanded"
+                class="flex-1 overflow-y-auto overscroll-contain p-2 space-y-2 min-h-0 h-0"
+            >
+                <SceneMaterial
+                    panel-type="clothing"
+                    :load-template="false"
+                    @choose-material="chooseMaterial"
+                    @choose-template="chooseTemplate"
+                    @choose-effect="chooseEffect"
+                    @clear-template="clearTemplate"
+                />
+            </div>
+        </div>
+        <!-- 特效 -->
+        <div
+            v-if="edit_mode || add_mode"
+            class="fixed right-0 z-[20] flex flex-col rounded-l-xl bg-white/95 dark:bg-gray-800/95 shadow-lg backdrop-blur-sm border border-gray-200/50 dark:border-gray-600/50 overflow-hidden transition-all duration-300 ease-out"
+            :class="effectListExpanded
+                ? 'top-1/2 -translate-y-1/2 h-[70vh] w-[180px] sm:w-[200px] md:w-[220px] z-[30]'
+                : 'top-[calc(50%+54px)] -translate-y-1/2 h-[60px] w-[44px] sm:w-[52px]'"
+        >
+            <button
+                type="button"
+                class="items-center justify-center gap-1.5 py-2.5 px-2 shrink-0 text-orange-600 dark:text-orange-400 hover:bg-orange-50 dark:hover:bg-gray-700/50 transition-colors"
+                :class="effectListExpanded ? 'border-b border-gray-100 dark:border-gray-600 flex' : 'min-h-[60px] block leading-[15px]'"
+                :title="effectListExpanded ? '收起列表' : '展开列表'"
+                @click="showEffect()"
+            >
+                <UIcon
+                    :name="effectListExpanded ? 'material-symbols:chevron-right' : 'icon-park-twotone:effects'"
+                    class="text-xl sm:text-2xl transition-transform"
+                    :class="effectListExpanded ? '' : 'rotate-0'"
+                />
+                <span class="text-xs font-medium sm:inline">特效</span>
+            </button>
+            <div
+                v-show="effectListExpanded"
+                class="flex-1 overflow-y-auto overscroll-contain p-2 space-y-2 min-h-0 h-0"
+            >
+                <SceneMaterial
+                    panel-type="effect"
+                    :load-template="false"
+                    @choose-material="chooseMaterial"
+                    @choose-template="chooseTemplate"
+                    @choose-effect="chooseEffect"
+                    @clear-template="clearTemplate"
+                />
+            </div>
+        </div>
+        <!-- 模版 -->
+        <div
+            v-if="edit_mode || add_mode"
+            class="fixed right-0 z-[20] flex flex-col rounded-l-xl bg-white/95 dark:bg-gray-800/95 shadow-lg backdrop-blur-sm border border-gray-200/50 dark:border-gray-600/50 overflow-hidden transition-all duration-300 ease-out"
+            :class="templateListExpanded
+                ? 'top-1/2 -translate-y-1/2 h-[70vh] w-[180px] sm:w-[200px] md:w-[220px] z-[30]'
+                : 'top-[calc(50%+161px)] -translate-y-1/2 h-[60px] w-[44px] sm:w-[52px]'"
+        >
+            <button
+                type="button"
+                class="items-center justify-center gap-1.5 py-2.5 px-2 shrink-0 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-gray-700/50 transition-colors"
+                :class="templateListExpanded ? 'border-b border-gray-100 dark:border-gray-600 flex' : 'min-h-[60px] block leading-[15px]'"
+                :title="templateListExpanded ? '收起列表' : '展开列表'"
+                @click="showTemplate()"
+            >
+                <UIcon
+                    :name="templateListExpanded ? 'material-symbols:chevron-right' : 'material-symbols:dashboard-rounded'"
+                    class="text-xl sm:text-2xl transition-transform"
+                    :class="templateListExpanded ? '' : 'rotate-0'"
+                />
+                <span class="text-xs font-medium sm:inline">模版</span>
+            </button>
+            <div
+                v-show="templateListExpanded"
+                class="flex-1 overflow-y-auto overscroll-contain p-2 space-y-2 min-h-0 h-0"
+            >
+                <SceneMaterial
+                    panel-type="template"
+                    :load-template="threeCore && threeCore.loadTemplate.length > 0 ? true : false"
+                    @choose-material="chooseMaterial"
+                    @choose-template="chooseTemplate"
+                    @choose-effect="chooseEffect"
+                    @clear-template="clearTemplate"
+                />
             </div>
         </div>
 

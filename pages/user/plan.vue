@@ -1,342 +1,252 @@
 <template>
-  <div class="container mx-auto p-4 pb-20 max-w-4xl">
+  <div class="container mx-auto p-2 pb-20 max-w-4xl">
     <!-- 统计卡片区域 -->
-    <div v-if="layoutReady && statistics" class="mb-6">
-      <div class="grid grid-cols-2 gap-3 mb-3">
-        <div class="bg-gray-900 dark:bg-gray-800 rounded-xl p-4 shadow-md border border-gray-800 dark:border-gray-700">
-          <div class="flex items-center mb-2">
-            <div class="w-10 h-10 rounded-lg bg-gray-800 dark:bg-gray-700 flex items-center justify-center mr-3">
-              <UIcon name="i-heroicons-document-text" class="w-5 h-5 text-white" />
+    <div ref="statisticsRef" v-if="layoutReady && statistics" class="mb-4">
+      <div class="bg-gray-900 dark:bg-gray-800 rounded-lg p-2.5 border border-gray-800 dark:border-gray-700">
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-x-3 gap-y-1.5">
+          <div class="flex items-center gap-1.5">
+            <UIcon name="i-heroicons-document-text" class="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
+            <div class="min-w-0">
+              <div class="text-sm font-semibold text-white">{{ statistics.total_plan || 0 }}</div>
+              <div class="text-[10px] text-gray-500">总计划</div>
             </div>
-            <div class="flex-1">
-              <div class="text-lg font-bold text-white">{{ statistics.total_plan || 0 }}</div>
-              <div class="text-xs text-gray-400">总计划</div>
+          </div>
+          <div class="flex items-center gap-1.5">
+            <UIcon name="i-heroicons-check-circle" class="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
+            <div class="min-w-0">
+              <div class="text-sm font-semibold text-white">{{ statistics.is_complete || 0 }}</div>
+              <div class="text-[10px] text-gray-500">已完成</div>
+            </div>
+          </div>
+          <div class="flex items-center gap-1.5">
+            <UIcon name="i-heroicons-currency-dollar" class="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
+            <div class="min-w-0">
+              <div class="text-sm font-semibold text-white truncate">￥{{ formatMoney(statistics.have_money || 0) }}</div>
+              <div class="text-[10px] text-gray-500">已攒</div>
+            </div>
+          </div>
+          <div class="flex items-center gap-1.5">
+            <UIcon name="i-heroicons-exclamation-triangle" class="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
+            <div class="min-w-0">
+              <div class="text-sm font-semibold text-white truncate">￥{{ formatMoney((statistics.need_money || 0) - (statistics.have_money || 0)) }}</div>
+              <div class="text-[10px] text-gray-500">还需</div>
             </div>
           </div>
         </div>
-        
-        <div class="bg-gray-900 dark:bg-gray-800 rounded-xl p-4 shadow-md border border-gray-800 dark:border-gray-700">
-          <div class="flex items-center mb-2">
-            <div class="w-10 h-10 rounded-lg bg-gray-800 dark:bg-gray-700 flex items-center justify-center mr-3">
-              <UIcon name="i-heroicons-check-circle" class="w-5 h-5 text-white" />
-            </div>
-            <div class="flex-1">
-              <div class="text-lg font-bold text-white">{{ statistics.is_complete || 0 }}</div>
-              <div class="text-xs text-gray-400">已完成</div>
-            </div>
-          </div>
+        <div
+          v-if="(statistics.need_money || 0) - (statistics.have_money || 0) > 0"
+          class="mt-2 pt-2 flex items-center gap-1.5 border-t border-gray-700"
+        >
+          <span class="text-sm">⚠️</span>
+          <span class="text-xs text-amber-400">注意尾款！</span>
         </div>
-        
-        <div class="bg-gray-900 dark:bg-gray-800 rounded-xl p-4 shadow-md border border-gray-800 dark:border-gray-700">
-          <div class="flex items-center mb-2">
-            <div class="w-10 h-10 rounded-lg bg-gray-800 dark:bg-gray-700 flex items-center justify-center mr-3">
-              <UIcon name="i-heroicons-currency-dollar" class="w-5 h-5 text-white" />
-            </div>
-            <div class="flex-1">
-              <div class="text-lg font-bold text-white">￥{{ formatMoney(statistics.have_money || 0) }}</div>
-              <div class="text-xs text-gray-400">已攒金额</div>
-            </div>
-          </div>
-        </div>
-        
-        <div class="bg-gray-900 dark:bg-gray-800 rounded-xl p-4 shadow-md border border-gray-800 dark:border-gray-700">
-          <div class="flex items-center mb-2">
-            <div class="w-10 h-10 rounded-lg bg-gray-800 dark:bg-gray-700 flex items-center justify-center mr-3">
-              <UIcon name="i-heroicons-exclamation-triangle" class="w-5 h-5 text-white" />
-            </div>
-            <div class="flex-1">
-              <div class="text-lg font-bold text-white">￥{{ formatMoney((statistics.need_money || 0) - (statistics.have_money || 0)) }}</div>
-              <div class="text-xs text-gray-400">还需金额</div>
-            </div>
-          </div>
-        </div>
-      </div>
-      
-      <div 
-        v-if="(statistics.need_money || 0) - (statistics.have_money || 0) > 0"
-        class="bg-gray-900 dark:bg-gray-800 rounded-lg p-3 flex items-center backdrop-blur-sm border border-gray-800 dark:border-gray-700"
-      >
-        <span class="text-lg mr-2">⚠️</span>
-        <span class="text-sm text-white font-medium">注意尾款！</span>
       </div>
     </div>
 
-    <!-- 新建计划按钮 -->
-    <div v-if="layoutReady && userStore.user" class="mb-6">
-      <UButton
-        @click="(e: MouseEvent) => openAddPlan(e)"
-        icon="i-heroicons-plus"
-        color="primary"
-        class="w-full bg-gray-900 hover:bg-gray-800 dark:bg-gray-800 dark:hover:bg-gray-700 text-white"
-        size="lg"
-      >
-        新建攒钱计划
-      </UButton>
+    <!-- 功能栏 -->
+    <div v-if="layoutReady && userStore.user" class="flex justify-between items-center sticky top-[10px] z-10 mb-4">
+      <div class="flex flex-wrap">
+        <QhxJellyButton>
+          <div class="h-[60px] text-center px-1 cursor-pointer" @click="(e: MouseEvent) => openAddPlan(e)">
+            <div class="m-[5px] text-white rounded-[50%] h-[30px] w-[30px] flex items-center justify-center bg-qhx-primary">
+              <UIcon name="material-symbols:add-2" class="text-[22px] text-[#ffffff]" />
+            </div>
+            <div class="text-sm text-qhx-text">新建</div>
+          </div>
+        </QhxJellyButton>
+      </div>
+      <div class="flex items-center gap-2">
+        <UToggle
+          v-model="emailNotice"
+          color="primary"
+          @update:model-value="handleEmailNoticeChange"
+        />
+        <span class="text-xs text-gray-600 dark:text-gray-400">订阅邮件通知</span>
+      </div>
+      <!-- <div class="flex flex-wrap">
+        <QhxJellyButton>
+          <div class="h-[60px] text-center px-1 cursor-pointer" @click="scrollToStatistics">
+            <div class="m-[5px] text-white rounded-[50%] h-[30px] w-[30px] flex items-center justify-center bg-qhx-info">
+              <UIcon name="i-heroicons-chart-bar" class="text-[22px] text-[#ffffff]" />
+            </div>
+            <div class="text-sm text-qhx-text">统计</div>
+          </div>
+        </QhxJellyButton>
+      </div> -->
     </div>
 
     <!-- 计划列表 -->
-    <div v-if="layoutReady" class="space-y-4">
+    <div v-if="layoutReady" class="space-y-2">
       <div
         v-for="item in planList"
         :key="item.list_id"
-        class="px-2"
+        class="px-1"
       >
-        <!-- 父计划项 -->
+        <!-- 母计划项 -->
         <div
-          class="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden hover:shadow-md transition-shadow relative"
+          class="bg-white dark:bg-gray-800 rounded-md shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden hover:shadow transition-shadow relative"
           :class="{ 'opacity-85': item.is_complete === 1 }"
         >
-          <!-- 完成徽章 -->
           <img
             v-if="item.is_complete === 1"
             :src="`${BASE_IMG}/static/plan/complete.png`"
             alt="已完成"
-            class="absolute right-4 bottom-6 w-15 h-15 z-5 opacity-90"
+            class="absolute right-2 top-[30px] w-10 h-10 z-5 opacity-90"
           />
           
-          <div class="p-4">
-            <div class="flex gap-4">
-              <!-- 计划封面 -->
-              <div class="flex-shrink-0">
-                <div
-                  class="w-24 h-24 md:w-32 md:h-32 rounded-lg overflow-hidden border border-gray-200 dark:border-gray-700 cursor-pointer"
-                  @click="showCover(item.plan_cover)"
-                >
-                  <img
-                    :src="`${BASE_IMG}${item.plan_cover || 'static/plan_cover/default.jpg'}`"
-                    :alt="item.plan_name || '计划封面'"
-                    class="w-full h-full object-cover"
-                    loading="lazy"
-                  />
-                </div>
-              </div>
-              
-              <!-- 计划信息 -->
-              <div class="flex-1 min-w-0">
-                <div class="flex items-start justify-between mb-2">
-                  <div class="flex items-center gap-2 flex-1 min-w-0">
-                    <!-- 展开/折叠按钮 -->
-                    <button
-                      v-if="hasChildren(item)"
-                      @click.stop="toggleExpand(item.list_id)"
-                      class="flex-shrink-0 w-6 h-6 flex items-center justify-center rounded hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
-                    >
-                      <UIcon
-                        :name="isExpanded(item.list_id) ? 'i-heroicons-chevron-down' : 'i-heroicons-chevron-right'"
-                        class="text-gray-500 dark:text-gray-400"
-                      />
-                    </button>
-                    
-                    <h3
-                      class="text-lg font-semibold text-gray-800 dark:text-gray-100 truncate cursor-pointer"
-                      @click="handlePlanClick(item)"
-                    >
-                      {{ item.plan_name || '未命名计划' }}
-                    </h3>
-                  </div>
-                  
-                  <div class="flex items-center gap-2 flex-shrink-0 ml-2 relative z-6">
-                    <!-- 编辑和删除按钮 -->
-                    <div class="flex gap-2">
-                      <button
-                        v-if="item.is_complete !== 1"
-                        @click.stop="editPlan(item)"
-                        class="w-8 h-8 rounded-full bg-blue-500 hover:bg-blue-600 flex items-center justify-center text-white shadow-md transition-all active:scale-90"
-                        title="编辑"
-                      >
-                        <UIcon name="i-heroicons-pencil" class="w-4 h-4" />
-                      </button>
-                      <button
-                        @click.stop="confirmDeletePlan(item.list_id)"
-                        class="w-8 h-8 rounded-full bg-red-500 hover:bg-red-600 flex items-center justify-center text-white shadow-md transition-all active:scale-90"
-                        title="删除"
-                      >
-                        <UIcon name="i-heroicons-trash" class="w-4 h-4" />
-                      </button>
-                    </div>
-                  </div>
-                </div>
-                
-                <!-- 金额信息 -->
-                <div class="flex gap-5 mb-3">
-                  <div class="flex-1">
-                    <div class="text-xs text-gray-500 dark:text-gray-400 mb-1">共需</div>
-                    <div class="text-lg font-bold text-gray-800 dark:text-gray-200">￥{{ formatMoney(item.need_money || 0) }}</div>
-                  </div>
-                  <div class="flex-1">
-                    <div class="text-xs text-gray-500 dark:text-gray-400 mb-1">已有</div>
-                    <div class="text-lg font-bold text-gray-800 dark:text-gray-200">￥{{ formatMoney(item.have_money || 0) }}</div>
-                  </div>
-                </div>
-                
-                <!-- 操作按钮 -->
-                <div class="flex items-center gap-2 mb-3">
-                  <button
-                    v-if="!item.show_add && item.is_complete !== 1 && (!item.plan_list || item.plan_list.length === 0)"
-                    @click="item.show_add = true"
-                    class="flex items-center gap-1 px-3 py-1.5 bg-blue-500 hover:bg-blue-600 text-white text-sm rounded-full shadow-md transition-all active:scale-95"
-                  >
-                    <UIcon name="i-heroicons-plus" class="w-4 h-4" />
-                    <span>添加金额</span>
-                  </button>
-                  <UButton
-                    v-if="item.have_money === item.need_money && item.is_complete !== 1 && (!item.plan_list || item.plan_list.length === 0)"
-                    @click="confirmCompletePlan(item.list_id)"
-                    size="xs"
-                    color="primary"
-                    class="bg-blue-500 hover:bg-blue-600"
-                  >
-                    完成计划
-                  </UButton>
-                </div>
-                
-                <!-- 添加金额面板 -->
-                <div
-                  v-if="item.show_add"
-                  class="bg-gray-50 dark:bg-gray-900 rounded-lg p-4 mb-3 border border-gray-200 dark:border-gray-700"
-                >
-                  <div class="mb-3">
-                    <label class="text-sm text-gray-600 dark:text-gray-400 mb-2 block">攒钱金额</label>
-                    <UInput
-                      :model-value="item.add_money ?? undefined"
-                      type="number"
-                      placeholder="请输入金额"
-                      class="w-full"
-                      @update:model-value="(val) => { item.add_money = val as number | null }"
-                    />
-                  </div>
-                  <div class="flex gap-2">
-                    <UButton
-                      @click="addHaveMoney(item.list_id, item.add_money)"
-                      size="sm"
-                      color="primary"
-                      :loading="addLoading"
-                      class="flex-1"
-                    >
-                      确认添加
-                    </UButton>
-                    <UButton
-                      @click="item.show_add = false; item.add_money = null"
-                      size="sm"
-                      color="gray"
-                      variant="outline"
-                      class="flex-1"
-                    >
-                      取消
-                    </UButton>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-          <!-- 进度信息 -->
-          <div class="mb-3 p-2 px-3">
-            <div class="flex items-center justify-between text-xs mb-1">
-              <span class="text-gray-600 dark:text-gray-400">进度</span>
-              <span class="font-medium text-gray-800 dark:text-gray-200">
-                {{ Math.ceil(getProgress(item)) }}%
-              </span>
-            </div>
-            <div class="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-3">
-              <div
-                class="bg-gradient-to-r from-blue-500 to-cyan-500 h-3 rounded-full transition-all duration-300"
-                :style="{ width: `${getProgress(item)}%` }"
-              ></div>
-            </div>
-          </div>
-          
-          <!-- 计划备注 -->
-          <div v-if="item.plan_note" class="px-4 pb-3">
-            <div class="bg-gray-50 dark:bg-gray-900 rounded-lg p-3 border border-gray-200 dark:border-gray-700">
-              <div class="text-xs text-gray-500 dark:text-gray-400 mb-1">备注</div>
-              <div class="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">{{ item.plan_note }}</div>
-            </div>
-          </div>
-          
-          <!-- 计划元信息 -->
-          <div class="px-4 pb-3">
-            <div class="space-y-1 text-xs text-gray-500 dark:text-gray-400">
-              <div
-                v-if="item.end_time && item.is_complete !== 1"
-                class="flex items-center gap-1 text-orange-600 dark:text-orange-400 font-medium"
-              >
-                <UIcon name="i-heroicons-clock" class="w-3 h-3" />
-                <span>
-                  距离尾款 {{ getTimeDifferenceText(item.end_time) }}
-                </span>
-              </div>
-              <div class="flex items-center gap-1">
-                <UIcon name="i-heroicons-calendar" class="w-3 h-3" />
-                <span>创建时间 {{ formatDate(item.create_time) }}</span>
-              </div>
-            </div>
-          </div>
-          
-          <!-- 关联衣物 -->
-          <div
-            v-if="getWardrobeClothes(item)"
-            @click="jumpToClothes(getWardrobeClothes(item))"
-            class="mx-4 mb-3 bg-gray-50 dark:bg-gray-900 rounded-lg p-3 border border-gray-200 dark:border-gray-700 flex items-center gap-3 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
-          >
-            <div class="w-12 h-12 rounded-full overflow-hidden flex-shrink-0 border border-gray-200 dark:border-gray-700">
+          <div class="px-3 py-2 flex gap-2">
+            <!-- 封面 -->
+            <div
+              class="w-9 h-9 rounded-md overflow-hidden border border-gray-200 dark:border-gray-700 flex-shrink-0 cursor-pointer"
+              @click="showCover(getPlanCoverSrc(item))"
+            >
               <img
-                :src="`${BASE_IMG}${getWardrobeClothes(item)?.clothes_img || ''}${getImageParams()}`"
-                :alt="getWardrobeClothes(item)?.clothes_note || ''"
+                :src="getPlanCoverSrc(item)"
+                :alt="item.plan_name || '封面'"
                 class="w-full h-full object-cover"
                 loading="lazy"
               />
             </div>
-            <div class="flex-1 text-sm text-gray-700 dark:text-gray-300 truncate">
-              {{ getWardrobeClothes(item)?.clothes_note }}
+            
+            <!-- 信息区 -->
+            <div class="flex-1 min-w-0">
+              <div class="flex items-center justify-between gap-1 mb-0.5">
+                <div class="flex items-center gap-1 flex-1 min-w-0">
+                  <button
+                    v-if="hasChildren(item)"
+                    @click.stop="toggleExpand(item.list_id)"
+                    class="w-5 h-5 flex items-center justify-center rounded hover:bg-gray-100 dark:hover:bg-gray-700"
+                  >
+                    <UIcon
+                      :name="isExpanded(item.list_id) ? 'i-heroicons-chevron-down' : 'i-heroicons-chevron-right'"
+                      class="text-gray-500 w-3.5 h-3.5"
+                    />
+                  </button>
+                  <h3
+                    class="text-xs font-medium text-gray-800 dark:text-gray-100 truncate cursor-pointer"
+                    @click="handlePlanClick(item)"
+                  >
+                    {{ item.plan_name || '未命名' }}
+                  </h3>
+                </div>
+                <div class="flex items-center gap-1 flex-shrink-0 relative z-6">
+                  <button
+                    v-if="item.is_complete !== 1"
+                    @click.stop="editPlan(item)"
+                    class="w-6 h-6 rounded-full bg-qhx-primary hover:bg-qhx-primary/80 flex items-center justify-center text-white"
+                    title="编辑"
+                  >
+                    <UIcon name="i-heroicons-pencil" class="w-3 h-3" />
+                  </button>
+                  <button
+                    @click.stop="confirmDeletePlan(item.list_id)"
+                    class="w-6 h-6 rounded-full bg-red-500 hover:bg-red-600 flex items-center justify-center text-white"
+                    title="删除"
+                  >
+                    <UIcon name="i-heroicons-trash" class="w-3 h-3" />
+                  </button>
+                </div>
+              </div>
+              
+              <!-- 金额+进度 单行 -->
+              <div class="flex items-center gap-2 text-xs"> 
+                <span class="text-gray-500">{{ Math.ceil(getProgress(item)) }}%</span>
+                <div class="flex-1 bg-gray-200 dark:bg-gray-700 rounded-full h-1.5 max-w-16">
+                  <div
+                    class="bg-qhx-primary h-1.5 rounded-full transition-all"
+                    :style="{ width: `${getProgress(item)}%` }"
+                  ></div>
+                </div>
+                <span class="text-gray-700 dark:text-gray-300 font-medium">
+                  ￥{{ formatMoney(item.have_money || 0) }}/{{ formatMoney(item.need_money || 0) }}
+                </span>
+              </div>
+              
+              <!-- 操作行 -->
+              <div class="flex items-center gap-2 my-1">
+                <button
+                  v-if="!item.show_add && item.is_complete !== 1 && (!item.plan_list || item.plan_list.length === 0)"
+                  @click="item.show_add = true"
+                  class="flex items-center gap-0.5 px-2 py-0.5 bg-qhx-primary hover:bg-qhx-primary/80 text-white text-xs rounded"
+                >
+                  <UIcon name="i-heroicons-plus" class="w-3 h-3" />
+                  添加
+                </button>
+                <button
+                  v-if="item.have_money === item.need_money && item.is_complete !== 1 && (!item.plan_list || item.plan_list.length === 0)"
+                  @click="confirmCompletePlan(item.list_id)"
+                  class="px-2 py-0.5 text-xs bg-qhx-primary hover:bg-qhx-primary/80 text-white rounded"
+                >
+                  完成
+                </button>
+              </div>
+              
+              <!-- 添加金额 紧凑 -->
+              <div v-if="item.show_add" class="my-1 flex gap-0.5 items-center">
+                <UInput
+                  :model-value="item.add_money ?? undefined"
+                  type="number"
+                  placeholder="金额"
+                  size="xs"
+                  class="flex-1 min-w-0 text-[11px]"
+                  :ui="{ padding: { xs: 'px-2 py-1' } }"
+                  @update:model-value="(val) => { item.add_money = val as number | null }"
+                />
+                <UButton @click="addHaveMoney(item.list_id, item.add_money)" size="2xs" color="primary" :loading="addLoading">添加</UButton>
+                <UButton @click="item.show_add = false; item.add_money = null" size="2xs" color="gray" variant="outline">取消</UButton>
+              </div>
+              
+              <!-- 备注 单行省略 -->
+              <div v-if="item.plan_note" class="text-xs text-gray-500 truncate mt-0.5">{{ item.plan_note }}</div>
+              
+              <!-- 尾款/创建时间 单行 -->
+              <div class="flex items-center gap-2 text-[10px] text-gray-400 mt-0.5">
+                <span v-if="item.end_time && item.is_complete !== 1" class="text-orange-500">{{ getTimeDifferenceText(item.end_time) }}</span>
+                <span>{{ formatDate(item.create_time) }}</span>
+              </div> 
             </div>
           </div>
-          
-          <!-- 子计划列表 -->
+          <!-- 关联衣物 紧凑 -->
+          <div
+            v-if="getWardrobeClothes(item)"
+            @click="jumpToClothes(getWardrobeClothes(item))"
+            class="mt-1 flex items-center gap-2 py-1 px-2 bg-gray-50 dark:bg-gray-900 rounded cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800"
+          >
+            <div class="w-6 h-6 rounded-full overflow-hidden flex-shrink-0">
+              <img
+                :src="`${BASE_IMG}${getWardrobeClothes(item)?.clothes_img || ''}${getImageParams()}`"
+                class="w-full h-full object-cover"
+                loading="lazy"
+              />
+            </div>
+            <span class="text-xs text-gray-600 dark:text-gray-400 truncate">{{ getWardrobeClothes(item)?.clothes_note }}</span>
+          </div>
+          <!-- 子计划 -->
           <div
             v-if="hasChildren(item) && isExpanded(item.list_id)"
-            class="ml-6 mt-2 space-y-2 border-l-2 border-blue-200 dark:border-blue-800 pl-4"
+            class="ml-4 pb-2 pr-2 border-l-2 border-blue-200 dark:border-blue-800 pl-3 space-y-1"
           >
-          <div
-            v-for="child in item.plan_list"
-            :key="child.list_id"
-            class="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-3"
-          >
-            <div class="flex items-center justify-between mb-2">
-              <div class="flex items-center gap-2 flex-1">
-                <div class="flex-shrink-0 w-1 h-5 bg-blue-400 dark:bg-blue-500 rounded"></div>
-                <div class="flex-1">
-                  <div class="flex items-center gap-2">
-                    <span class="text-xs text-gray-500 dark:text-gray-400">共需</span>
-                    <span class="text-base font-bold text-gray-800 dark:text-gray-200">￥{{ formatMoney(child.need_money || 0) }}</span>
-                  </div>
-                </div>
+            <div
+              v-for="child in item.plan_list"
+              :key="child.list_id"
+              class="flex items-center justify-between py-1.5 px-2 bg-gray-50 dark:bg-gray-900 rounded text-xs"
+            >
+              <div class="flex items-center gap-2 flex-1 min-w-0">
+                <div class="w-0.5 h-4 bg-blue-400 rounded flex-shrink-0"></div>
+                <span class="font-medium">￥{{ formatMoney(child.need_money || 0) }}</span>
+                <span v-if="child.plan_note" class="text-gray-500 truncate">{{ child.plan_note }}</span>
+                <span v-if="child.end_time" class="text-gray-400">{{ formatDate(child.end_time) }}</span>
               </div>
               <button
                 v-if="child.is_complete !== 1"
                 @click="confirmCompletePlan(child.list_id)"
-                class="px-3 py-1 text-xs bg-blue-500 hover:bg-blue-600 text-white rounded-full shadow-md transition-all active:scale-95"
+                class="px-2 py-0.5 text-xs bg-qhx-primary text-white rounded flex-shrink-0"
               >
                 完成
               </button>
-              <span
-                v-else
-                class="px-3 py-1 text-xs bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-400 rounded-full"
-              >
-                已完成
-              </span>
-            </div>
-            
-            <div v-if="child.plan_note" class="text-xs text-gray-600 dark:text-gray-400 mb-1">
-              <span class="text-gray-500 dark:text-gray-500">备注：</span>
-              <span>{{ child.plan_note }}</span>
-            </div>
-            
-            <div v-if="child.end_time" class="text-xs text-gray-600 dark:text-gray-400">
-              <span class="text-gray-500 dark:text-gray-500">尾款时间：</span>
-              <span>{{ formatDate(child.end_time) }}</span>
+              <span v-else class="text-gray-400 text-xs flex-shrink-0">已完成</span>
             </div>
           </div>
-        </div>
         </div>
       </div>
       
@@ -419,6 +329,13 @@
     :preview="coverPreview.map(img => img.replace(BASE_IMG, ''))"
     className="hidden"
   />
+
+  <!-- 邮箱绑定弹窗 -->
+  <EmailBindModal
+    v-model="showEmailModal"
+    :user="userStore.user"
+    @success="handleEmailBindSuccess"
+  />
 </template>
 
 <script setup lang="ts">
@@ -431,6 +348,7 @@ import dayjs from 'dayjs'
 import { useUserStore } from '@/stores/user'
 import { useConfigStore } from '@/stores/config'
 import QhxPreviewImage from '@/components/Qhx/PreviewImage.vue'
+import EmailBindModal from '@/components/user/EmailBindModal.vue'
 
 // 禁用 SSR
 definePageMeta({
@@ -476,6 +394,99 @@ const addLoading = ref(false)
 
 // 封面预览
 const coverPreview = ref<string[]>([])
+
+// 订阅邮件通知
+const getEmailNoticeInitialValue = () => {
+  if (userStore.user?.message_config && typeof userStore.user.message_config === 'object') {
+    return (userStore.user.message_config as Record<string, boolean>).email_notice === true
+  }
+  return false
+}
+const emailNotice = ref(getEmailNoticeInitialValue())
+const showEmailModal = ref(false)
+
+// 处理订阅邮件通知状态变化
+const handleEmailNoticeChange = async (value: boolean) => {
+  if (value) {
+    const currentUser = userStore.user
+    if (!currentUser?.email) {
+      emailNotice.value = false
+      showEmailModal.value = true
+      return
+    }
+    try {
+      await userStore.updateUserInfo({
+        message_config: {
+          ...(currentUser.message_config as Record<string, unknown> || {}),
+          email_notice: value
+        }
+      })
+      emailNotice.value = value
+      toast.add({
+        title: '已开启订阅邮件通知',
+        icon: 'i-heroicons-check-circle',
+        color: 'green'
+      })
+    } catch (error) {
+      console.error('保存订阅状态失败:', error)
+      emailNotice.value = false
+      toast.add({
+        title: '保存订阅状态失败',
+        description: error instanceof Error ? error.message : '未知错误',
+        icon: 'i-heroicons-x-circle',
+        color: 'red'
+      })
+    }
+  } else {
+    try {
+      const currentUser = userStore.user
+      await userStore.updateUserInfo({
+        message_config: {
+          ...(currentUser?.message_config as Record<string, unknown> || {}),
+          email_notice: false
+        }
+      })
+      emailNotice.value = value
+      toast.add({
+        title: '已关闭订阅邮件通知',
+        icon: 'i-heroicons-information-circle',
+        color: 'gray'
+      })
+    } catch (error) {
+      console.error('保存订阅状态失败:', error)
+      emailNotice.value = !value
+      toast.add({
+        title: '保存订阅状态失败',
+        description: error instanceof Error ? error.message : '未知错误',
+        icon: 'i-heroicons-x-circle',
+        color: 'red'
+      })
+    }
+  }
+}
+
+// 邮箱绑定成功回调
+const handleEmailBindSuccess = async () => {
+  try {
+    const currentUser = userStore.user
+    if (currentUser?.email && !emailNotice.value) {
+      await userStore.updateUserInfo({
+        message_config: {
+          ...(currentUser.message_config as Record<string, unknown> || {}),
+          email_notice: true
+        }
+      })
+      emailNotice.value = true
+      toast.add({
+        title: '已开启订阅邮件通知',
+        icon: 'i-heroicons-check-circle',
+        color: 'green'
+      })
+    }
+  } catch (error) {
+    console.error('保存订阅状态失败:', error)
+  }
+}
 
 // 是否有更多数据
 const hasMore = computed(() => {
@@ -597,6 +608,12 @@ const toggleExpand = (planId: number | undefined) => {
   } else {
     expandedPlans.value.add(planId)
   }
+}
+
+// 滚动到统计区域
+const statisticsRef = ref<HTMLElement | null>(null)
+const scrollToStatistics = () => {
+  statisticsRef.value?.scrollIntoView({ behavior: 'smooth', block: 'start' })
 }
 
 // 打开添加计划弹窗
@@ -731,10 +748,10 @@ const addHaveMoney = async (id: number | undefined, money: number | null | undef
   }
 }
 
-// 显示封面预览
+// 显示封面预览（cover 为完整 URL）
 const showCover = (cover: string | undefined) => {
   if (cover) {
-    coverPreview.value = [`${BASE_IMG}${cover}`]
+    coverPreview.value = [cover]
     // 触发预览（需要根据 QhxPreviewImage 组件的实际实现调整）
     nextTick(() => {
       // 这里可能需要调用预览组件的显示方法
@@ -761,6 +778,14 @@ const getWardrobeClothes = (item: PlanList & { wardrobe_clothes?: WardrobeClothe
   return Array.isArray(item.wardrobe_clothes) ? item.wardrobe_clothes[0] : item.wardrobe_clothes
 }
 
+// 计划封面图：优先 plan_cover，其次关联衣物图，最后默认图
+const getPlanCoverSrc = (item: PlanList & { wardrobe_clothes?: WardrobeClothes | WardrobeClothes[] }) => {
+  if (item.plan_cover) return `${BASE_IMG}${item.plan_cover}`
+  const clothes = getWardrobeClothes(item)
+  if (clothes?.clothes_img) return `${BASE_IMG}${clothes.clothes_img}${getImageParams()}`
+  return `${BASE_IMG}static/plan_cover/default.jpg`
+}
+
 // 计算时间差文本
 const getTimeDifferenceText = (endTime: Date | string | undefined): string => {
   if (!endTime) return ''
@@ -783,6 +808,19 @@ const handlePlanSuccess = () => {
   editPlanData.value = null
   fetchPlanList()
 }
+
+// 监听 user.message_config 变化，同步订阅邮件通知状态
+watch(
+  () => userStore.user?.message_config,
+  (messageConfig) => {
+    if (messageConfig && typeof messageConfig === 'object') {
+      emailNotice.value = (messageConfig as Record<string, boolean>).email_notice === true
+    } else {
+      emailNotice.value = false
+    }
+  },
+  { immediate: true, deep: true }
+)
 
 // 组件挂载时加载数据
 onMounted(() => {

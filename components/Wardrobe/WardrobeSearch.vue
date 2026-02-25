@@ -1,4 +1,5 @@
 <template>
+  <Transition :name="`drawer-${isMobile ? 'bottom' : 'right'}`">
   <QhxBottomDrawer 
     v-if="show" 
     :direction="isMobile ? 'bottom' : 'right'" 
@@ -6,7 +7,7 @@
   >
     <div class="flex flex-col h-full">
       <!-- 标题栏 -->
-      <div class="flex items-center justify-between mb-2 px-4 pt-2 flex-shrink-0 border-b border-gray-200 dark:border-gray-700 pb-3">
+      <div class="flex items-center justify-between mb-2 px-2 pt-2 flex-shrink-0 border-b border-gray-200 dark:border-gray-700 pb-3">
         <h3 class="text-lg font-bold text-gray-800 dark:text-gray-200">搜索衣柜</h3>
         <button
           @click="closeModel"
@@ -17,7 +18,7 @@
       </div>
 
       <!-- 可滚动内容区域 -->
-      <div class="flex-1 overflow-y-auto px-4 py-2">
+      <div class="flex-1 overflow-y-auto px-2 py-2">
         <!-- 所属衣柜 -->
         <div v-if="wardrobeList.length > 0" class="mb-3 flex items-start gap-3">
           <div class="text-sm font-semibold text-gray-800 dark:text-gray-200 flex-shrink-0 w-20">所属衣柜：</div>
@@ -432,7 +433,7 @@
             />
           </div>
         </template>
-        <div class="p-4">
+        <div class="p-2">
           <p class="text-sm text-gray-600 dark:text-gray-400 mb-4">为了方便检索，请优先选择衣柜内已有的颜色</p>
           <div class="flex flex-wrap gap-2">
             <div
@@ -450,6 +451,7 @@
       </UCard>
     </UModal>
   </QhxBottomDrawer>
+  </Transition>
 </template>
 
 <script setup lang="ts">

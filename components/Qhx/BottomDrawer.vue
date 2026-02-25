@@ -339,5 +339,102 @@ onUnmounted(() => {
 .drawer-content::-webkit-scrollbar-thumb:hover {
   background: rgba(0, 0, 0, 0.3);
 }
+
+/* ========== 显示/隐藏动画 - 需父级用 <Transition :name="`drawer-${direction}`"> 包裹 ========== */
+/* bottom: 从下方弹出，向下方收缩 */
+.drawer-bottom-enter-from {
+  transform: translateY(100%);
+  opacity: 0;
+}
+.drawer-bottom-enter-active {
+  transition: transform 0.3s cubic-bezier(0.32, 0.72, 0, 1), opacity 0.25s ease-out;
+}
+.drawer-bottom-enter-to {
+  transform: translateY(0);
+  opacity: 1;
+}
+.drawer-bottom-leave-from {
+  transform: translateY(0);
+  opacity: 1;
+}
+.drawer-bottom-leave-active {
+  transition: transform 0.25s cubic-bezier(0.32, 0.72, 0, 1), opacity 0.2s ease-in;
+}
+.drawer-bottom-leave-to {
+  transform: translateY(100%);
+  opacity: 0;
+}
+
+/* top: 从上方弹出，向上方收缩 */
+.drawer-top-enter-from {
+  transform: translateY(-100%);
+  opacity: 0;
+}
+.drawer-top-enter-active {
+  transition: transform 0.3s cubic-bezier(0.32, 0.72, 0, 1), opacity 0.25s ease-out;
+}
+.drawer-top-enter-to {
+  transform: translateY(0);
+  opacity: 1;
+}
+.drawer-top-leave-from {
+  transform: translateY(0);
+  opacity: 1;
+}
+.drawer-top-leave-active {
+  transition: transform 0.25s cubic-bezier(0.32, 0.72, 0, 1), opacity 0.2s ease-in;
+}
+.drawer-top-leave-to {
+  transform: translateY(-100%);
+  opacity: 0;
+}
+
+/* left: 从左侧弹出，向左侧收缩 */
+.drawer-left-enter-from {
+  transform: translateX(-100%);
+  opacity: 0;
+}
+.drawer-left-enter-active {
+  transition: transform 0.3s cubic-bezier(0.32, 0.72, 0, 1), opacity 0.25s ease-out;
+}
+.drawer-left-enter-to {
+  transform: translateX(0);
+  opacity: 1;
+}
+.drawer-left-leave-from {
+  transform: translateX(0);
+  opacity: 1;
+}
+.drawer-left-leave-active {
+  transition: transform 0.25s cubic-bezier(0.32, 0.72, 0, 1), opacity 0.2s ease-in;
+}
+.drawer-left-leave-to {
+  transform: translateX(-100%);
+  opacity: 0;
+}
+
+/* right: 从右侧弹出，向右侧收缩 */
+.drawer-right-enter-from {
+  transform: translateX(100%);
+  opacity: 0;
+}
+.drawer-right-enter-active {
+  transition: transform 0.3s cubic-bezier(0.32, 0.72, 0, 1), opacity 0.25s ease-out;
+}
+.drawer-right-enter-to {
+  transform: translateX(0);
+  opacity: 1;
+}
+.drawer-right-leave-from {
+  transform: translateX(0);
+  opacity: 1;
+}
+.drawer-right-leave-active {
+  transition: transform 0.25s cubic-bezier(0.32, 0.72, 0, 1), opacity 0.2s ease-in;
+}
+.drawer-right-leave-to {
+  transform: translateX(100%);
+  opacity: 0;
+}
 </style>
 

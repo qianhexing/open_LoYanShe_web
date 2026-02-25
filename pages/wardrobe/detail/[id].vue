@@ -45,6 +45,18 @@ watch(port, (newVal) => {
   }
 })
 
+// 监听 UniApp iframe 传来的 postMessage 刷新
+const handleUniRefreshMessage = (e: MessageEvent) => {
+  try {
+    const data = typeof e.data === 'string' ? JSON.parse(e.data) : e.data
+    if (data?.type === 'refresh' && data?.from === 'uni') {
+      reload()
+    }
+  } catch {
+    // 忽略解析错误
+  }
+}
+
 // 传入颜色（十六进制）和透明度转换为十六进制颜色
 const hexColor = (color: string, opacity: number) => {
   const r = Number.parseInt(color.slice(1, 3), 16)
@@ -801,6 +813,9 @@ const jumpToPlan = () => {
   }
 }
 onMounted(async () => {
+  if (typeof window !== 'undefined') {
+    window.addEventListener('message', handleUniRefreshMessage)
+  }
   uni = await import('@dcloudio/uni-webview-js').catch((err) => {
     console.error('Failed to load uni-webview-js:', err);
   });
@@ -840,6 +855,12 @@ onMounted(async () => {
       wardrobeStore.getWardrobeConfig()
     }
   });
+})
+
+onUnmounted(() => {
+  if (typeof window !== 'undefined') {
+    window.removeEventListener('message', handleUniRefreshMessage)
+  }
 })
 
 useHead({
@@ -953,16 +974,16 @@ const enableDrag = () => {
           </QhxJellyButton>
           <QhxJellyButton>
             <div class="h-[60px] text-center px-1 cursor-pointer" @click="openWardrobeSearch()">
-              <div class="my-[5px] mx-auto text-white rounded-[50%] h-[30px] w-[30px] bg-blue-500 flex items-center justify-center">
-                <UIcon name="i-heroicons-magnifying-glass" class="text-[22px] text-[#ffffff]" />
+              <div class="my-[5px] mx-auto text-white rounded-[50%] h-[30px] w-[30px] bg-qhx-primary flex items-center justify-center">
+                <UIcon name="i-heroicons-magnifying-glass" class="text-[18px] text-[#ffffff]" />
               </div>
               <div class="text-sm text-qhx-text">搜索</div>
             </div>
           </QhxJellyButton>
           <QhxJellyButton>
             <div class="h-[60px] text-center px-1 cursor-pointer" @click="openMoreMenu($event)">
-              <div class="my-[5px] mx-auto text-white rounded-[50%] h-[30px] w-[30px] bg-gray-500 flex items-center justify-center">
-                <UIcon name="material-symbols:more-horiz" class="text-[22px] text-[#ffffff]" />
+              <div class="my-[5px] mx-auto text-white rounded-[50%] h-[30px] w-[30px] bg-qhx-primary flex items-center justify-center">
+                <UIcon name="material-symbols:more-horiz" class="text-[18px] text-[#ffffff]" />
               </div>
               <div class="text-sm text-qhx-text">更多</div>
             </div>
@@ -1216,7 +1237,8 @@ const enableDrag = () => {
       </div>
     </div>
     <!-- 筛选抽屉 -->
-    <QhxBottomDrawer v-if="showFilterDrawer" :direction="isMobile ? 'bottom' : 'right'" :default-size="isMobile ? 500 : 450">
+    <Transition :name="`drawer-${isMobile ? 'bottom' : 'right'}`">
+      <QhxBottomDrawer v-if="showFilterDrawer" :direction="isMobile ? 'bottom' : 'right'" :default-size="isMobile ? 500 : 450">
       <div class="flex flex-col h-full">
         <!-- 标题栏 -->
         <div class="flex items-center justify-between mb-2 px-4 pt-2 flex-shrink-0">
@@ -1281,6 +1303,7 @@ const enableDrag = () => {
         </div>
       </div>
     </QhxBottomDrawer>
+    </Transition>
 
     <!-- 全局搜索组件 -->
     <WardrobeSearch

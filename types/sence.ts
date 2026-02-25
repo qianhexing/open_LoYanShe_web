@@ -22,3 +22,21 @@ export interface LibraryInterface {
     y: number
   }
 }
+
+export interface LaxianInterface {
+  title: string
+  laxian_id?: string
+  object?: THREE.Object3D
+  /** 3D 点投影到屏幕的坐标 */
+  position?: {
+    x: number
+    y: number
+  }
+  /** 拉线终点（屏幕边缘）坐标，以中线划分左右 */
+  edgePosition?: {
+    x: number
+    y: number
+  }
+  /** 是否被其他物体遮挡 */
+  occluded?: boolean
+}
