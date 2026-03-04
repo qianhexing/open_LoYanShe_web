@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import SPZModelViewerContent from '@/components/ModelViewer/SPZModelViewerContent.vue'
+import QhxModal from '@/components/Qhx/Modal.vue'
 import type { LaxianInterface } from '@/types/sence'
+
 
 // 模型项接口（与 SPZModelViewerContent 保持一致）
 interface ModelItem {
@@ -153,15 +155,24 @@ const handleFeedback = () => {
 
 // 拉线点列表（从 SPZModelViewerContent 暴露）
 const viewerRef = ref<InstanceType<typeof SPZModelViewerContent> | null>(null)
-const laxianList = computed<LaxianInterface[]>(
-    () => {
-        console.log('laxianList', viewerRef.value?.laxianList.length, (viewerRef.value?.laxianList as { value?: LaxianInterface[] } | undefined)?.value ?? [])
-        return (viewerRef.value?.laxianList as { value?: LaxianInterface[] } | undefined) ?? []
-    }
-)
+const laxianList = computed<LaxianInterface[]>(() => {
+    const raw = viewerRef.value?.laxianList
+    if (!raw) return []
+    return (raw as { value?: LaxianInterface[] }).value ?? (Array.isArray(raw) ? raw : [])
+})
 
-// 是否显示拉线
-const showLaxian = ref(true)
+// 拉线类型显示开关：0 设计元素，1 柄图元素
+const showType0 = ref(true)
+const showType1 = ref(true)
+const showLaxianModal = ref(false)
+const laxianModalPosition = ref({ x: 0, y: 0 })
+const openLaxianModal = (e: MouseEvent) => {
+    laxianModalPosition.value = { x: e.clientX, y: e.clientY }
+    showLaxianModal.value = true
+}
+
+// 是否开启自动旋转
+const autoRotateEnabled = ref(false)
 
 // 屏幕中线，用于判断拉线方向
 const screenCenterX = ref(typeof window !== 'undefined' ? window.innerWidth / 2 : 0)
@@ -198,18 +209,25 @@ const laxianWithLayout = computed<LaxianWithLayout[]>(() => {
     const list = laxianList.value
     if (list.length === 0) return []
 
+    // 按类型开关过滤
+    const filtered = list.filter((item) => {
+        const t = item.type ?? 0
+        return (t === 0 && showType0.value) || (t === 1 && showType1.value)
+    })
+    if (filtered.length === 0) return []
+
     const centerX = screenCenterX.value
     const innerHeight = screenHeight.value
     const innerWidth = screenWidth.value
     const safeTop = LABEL_SAFE_TOP + configStore.statusBarHeight
     const availableRange = innerHeight - safeTop - LABEL_SAFE_BOTTOM - LABEL_HEIGHT
 
-    const left = list
+    const left = filtered
         .filter((item) => (item.edgePosition?.x ?? 0) < centerX)
         .map((item) => ({ item, y: item.edgePosition?.y ?? 0 }))
         .sort((a, b) => a.y - b.y)
 
-    const right = list
+    const right = filtered
         .filter((item) => (item.edgePosition?.x ?? 0) >= centerX)
         .map((item) => ({ item, y: item.edgePosition?.y ?? 0 }))
         .sort((a, b) => a.y - b.y)
@@ -334,7 +352,7 @@ const drawLaxianCanvas = () => {
     ctx.scale(dpr, dpr)
     ctx.clearRect(0, 0, w, h)
 
-    if (!showLaxian.value || laxianWithLayout.value.length === 0) {
+    if (laxianWithLayout.value.length === 0) {
         currentLineEnd.clear()
         ctx.restore()
         rafId = requestAnimationFrame(drawLaxianCanvas)
@@ -350,6 +368,12 @@ const drawLaxianCanvas = () => {
         if (!keys.has(k)) currentLineEnd.delete(k)
     }
 
+    // 拉线颜色：0 设计元素-紫色，1 柄图元素-青色
+    const type0Line = 'rgba(147, 51, 234, 0.6)'
+    const type0Dot = 'rgba(147, 51, 234, 0.8)'
+    const type1Line = 'rgba(20, 184, 166, 0.6)'
+    const type1Dot = 'rgba(20, 184, 166, 0.8)'
+
     for (let i = 0; i < list.length; i++) {
         const item = list[i]
         const key = item.laxian_id ?? `idx-${i}`
@@ -358,17 +382,20 @@ const drawLaxianCanvas = () => {
         const end = lerpLineEnd(key, item.lineEnd.x, item.lineEnd.y, now)
         const x2 = end.x
         const y2 = end.y
+        const t = item.type ?? 0
+        const lineColor = t === 1 ? type1Line : type0Line
+        const dotColor = t === 1 ? type1Dot : type0Dot
 
         ctx.beginPath()
         ctx.moveTo(x1, y1)
         ctx.lineTo(x2, y2)
-        ctx.strokeStyle = 'rgba(147, 51, 234, 0.6)'
+        ctx.strokeStyle = lineColor
         ctx.lineWidth = 2
         ctx.stroke()
 
         ctx.beginPath()
         ctx.arc(x1, y1, 5, 0, Math.PI * 2)
-        ctx.strokeStyle = 'rgba(147, 51, 234, 0.8)'
+        ctx.strokeStyle = dotColor
         ctx.lineWidth = 2
         ctx.stroke()
     }
@@ -422,6 +449,7 @@ onUnmounted(() => {
             <SPZModelViewerContent
                 ref="viewerRef"
                 :model-list="modelList"
+                :auto-rotate="autoRotateEnabled"
             />
             <!-- 功能栏 -->
             <div
@@ -431,13 +459,22 @@ onUnmounted(() => {
                 <button
                     v-if="laxianList.length > 0"
                     type="button"
-                    class="flex flex-col items-center gap-0.5 py-1.5 px-2 rounded-md hover:shadow-lg transition-all duration-200 hover:scale-105 active:scale-95"
-                    :class="showLaxian ? 'text-purple-600 dark:text-purple-400' : 'text-gray-400 dark:text-gray-500'"
-                    :title="showLaxian ? '隐藏拉线' : '显示拉线'"
-                    @click="showLaxian = !showLaxian"
+                    class="flex flex-col items-center gap-0.5 py-1.5 px-2 rounded-md hover:shadow-lg transition-all duration-200 hover:scale-105 active:scale-95 text-purple-600 dark:text-purple-400"
+                    title="拉线设置"
+                    @click="openLaxianModal"
                 >
                     <UIcon name="material-symbols:timeline" class="text-lg" />
                     <span class="text-[10px] font-medium leading-tight">拉线</span>
+                </button>
+                <button
+                    type="button"
+                    class="flex flex-col items-center gap-0.5 py-1.5 px-2 rounded-md hover:shadow-lg transition-all duration-200 hover:scale-105 active:scale-95"
+                    :class="autoRotateEnabled ? 'text-purple-600 dark:text-purple-400' : 'text-gray-400 dark:text-gray-500'"
+                    :title="autoRotateEnabled ? '关闭自动旋转' : '开启自动旋转'"
+                    @click="autoRotateEnabled = !autoRotateEnabled"
+                >
+                    <UIcon name="material-symbols:rotate-right" class="text-lg" />
+                    <span class="text-[10px] font-medium leading-tight">自动旋转</span>
                 </button>
                 <button
                     type="button"
@@ -509,26 +546,43 @@ onUnmounted(() => {
                 </div>
             </div>
             <!-- 拉线点 overlay：Canvas 层（仅展示，忽略点击触摸） -->
-            <div class="fixed inset-0 pointer-events-none z-10" v-show="showLaxian">
+            <div class="fixed inset-0 pointer-events-none z-10" v-show="laxianWithLayout.length > 0">
                 <canvas
                     ref="canvasRef"
                     class="absolute inset-0 w-full h-full block"
                 />
             </div>
             <!-- 拉线点 overlay：标题层（显示在 Canvas 上层） -->
-            <div class="fixed inset-0 pointer-events-none z-20" v-show="showLaxian">
+            <div class="fixed inset-0 pointer-events-none z-20" v-show="laxianWithLayout.length > 0">
                 <div
                     v-for="(item, i) in laxianWithLayout"
                     :key="'label-' + (item.laxian_id ?? i)"
-                    class="absolute p-2 px-3 pointer-events-auto cursor-pointer bg-qhx-bg-card/95 dark:bg-qhx-bg-card-dark/95 rounded-2xl shadow-lg text-sm w-[130px] line-clamp-3 laxian-label transition-all duration-300 ease-out"
+                    class="absolute p-2 px-3 pointer-events-auto cursor-pointer bg-qhx-bg-card/95 dark:bg-qhx-bg-card-dark/95 rounded-2xl shadow-lg text-sm w-[130px] line-clamp-3 laxian-label transition-all duration-300 ease-out hover:shadow-xl hover:scale-[1.02] active:scale-[0.98]"
                     :style="{
                         top: item.displayTop + 20 + 'px',
                         left: (item.edgePosition?.x ?? 0) < screenCenterX ? '12px' : 'calc(100% - 142px)'
                     }"
+                    @click="viewerRef?.focusLaxianCamera?.(item)"
                 >
                     {{ item.title }}
                 </div>
             </div>
+            <!-- 拉线设置弹窗 -->
+            <QhxModal v-model="showLaxianModal" :trigger-position="laxianModalPosition" @close="showLaxianModal = false">
+                <div class="p-6 w-[240px] bg-white dark:bg-gray-800 rounded-2xl shadow-xl border border-gray-200/50 dark:border-gray-700/50">
+                    <h3 class="text-sm font-semibold text-gray-800 dark:text-gray-100 mb-4">拉线显示</h3>
+                    <div class="space-y-3">
+                        <label class="flex items-center justify-between gap-3 cursor-pointer">
+                            <span class="text-sm text-gray-700 dark:text-gray-300">设计元素</span>
+                            <UToggle v-model="showType0" />
+                        </label>
+                        <label class="flex items-center justify-between gap-3 cursor-pointer">
+                            <span class="text-sm text-gray-700 dark:text-gray-300">柄图元素</span>
+                            <UToggle v-model="showType1" />
+                        </label>
+                    </div>
+                </div>
+            </QhxModal>
         </client-only>
     </div>
 </template>

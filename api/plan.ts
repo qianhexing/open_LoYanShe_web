@@ -23,6 +23,24 @@ interface UpdatePlanListParams extends Partial<PlanList> {
   list_id: number;
 }
 
+/** 计划关联服饰参数 */
+interface PlanListRelateParams {
+  list_id: number;
+  /** 服饰ID，传 null 可取消关联 */
+  clothes_id: number | null;
+}
+
+/** 计划关联/取消关联服饰 */
+export async function planListRelate(
+  params: PlanListRelateParams
+): Promise<PlanList> {
+  const response = await use$Post<BaseResponse<PlanList>>(
+    '/plan/list/relate',
+    params
+  );
+  return response.data;
+}
+
 /** 修改攒钱计划 */
 export async function updatePlanList(
   params: UpdatePlanListParams
@@ -116,6 +134,39 @@ export async function planComplete(
     '/plan/complete',
     params
   );
+  return response.data;
+}
+
+/** 按月查询计划列表（不包含有子计划的父计划） */
+export async function getPlanListByMonth(params: {
+  year: number;
+  month: number;
+}): Promise<PlanList[]> {
+  const response = await use$Get<BaseResponse<PlanList[]>>(
+    '/plan/list/byMonth',
+    params
+  );
+  return response.data;
+}
+
+/** 按年汇总计划总价（按月聚合，不统计有子计划的父计划） */
+export async function getPlanTotalByYear(params: {
+  year: number;
+}): Promise<{ month: number; total_money: number }[]> {
+  const response = await use$Get<
+    BaseResponse<{ month: number; total_money: number }[]>
+  >('/plan/list/totalByYear', params);
+  return response.data;
+}
+
+/** 按日汇总计划总价（按 end_time 日期聚合，无数据补 0，排除有子计划的父计划） */
+export async function getPlanTotalByDay(params: {
+  year: number;
+  month: number;
+}): Promise<{ day: number; total_money: number }[]> {
+  const response = await use$Get<
+    BaseResponse<{ day: number; total_money: number }[]>
+  >('/plan/list/totalByDay', params);
   return response.data;
 }
 

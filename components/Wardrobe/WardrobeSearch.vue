@@ -81,6 +81,42 @@
           />
         </div>
 
+        <!-- 来源搜索 -->
+        <div class="mb-3 flex items-center gap-3">
+          <div class="text-sm font-semibold text-gray-800 dark:text-gray-200 flex-shrink-0 w-20">来源搜索：</div>
+          <div class="flex-1 flex items-center">
+            <USelectMenu
+              v-model="origin_shop"
+              :loading="loading"
+              :searchable="fetchShopOptiosns"
+              placeholder="搜索店铺..."
+              option-attribute="shop_name"
+              creatable
+              :multiple="false"
+              trailing
+              by="shop_id"
+              name="shop_name"
+              class="flex-1"
+              :ui="{
+                base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
+                rounded: 'rounded-[10px]',
+                padding: { xs: 'px-4 py-2' },
+                color: {
+                  white: {
+                    outline: 'bg-gray-50 dark:bg-gray-800 ring-1 ring-gray-300 dark:ring-gray-600 focus:ring-2 focus:ring-qhx-primary'
+                  }
+                }
+              }"
+            />
+            <QhxJellyButton>
+              <div class="m-[5px] text-white rounded-[50%] h-[30px] w-[30px] bg-qhx-primary flex items-center justify-center cursor-pointer"
+                @click="origin_shop = undefined">
+                <UIcon name="ant-design:close-outlined" class="text-[22px] text-[#ffffff]" />
+              </div>
+            </QhxJellyButton>
+          </div>
+        </div>
+
         <!-- 筛选颜色 -->
         <div class="mb-3 flex items-start gap-3">
           <div class="text-sm font-semibold text-gray-800 dark:text-gray-200 flex-shrink-0 w-20">筛选颜色：</div>
@@ -341,12 +377,11 @@
                     class="inline-block"
                   />
                 </div>
-                <div v-if="item.season" class="flex flex-wrap gap-1 mb-1">
+                <div v-if="item.season" class="flex flex-wrap gap-1 mb-1 items-center">
                   <span class="text-xs text-gray-600 dark:text-gray-400">季节：</span>
                   <QhxTag
                     v-for="(season, seasonIndex) in item.season.split(',')"
                     :key="seasonIndex"
-                    size="xs"
                   >
                     {{ season }}
                   </QhxTag>
@@ -455,8 +490,9 @@
 </template>
 
 <script setup lang="ts">
-import type { Wardrobe, WardrobeClothes } from '@/types/api'
+import type { Wardrobe, WardrobeClothes, Shop } from '@/types/api'
 import { getClothesSearch } from '@/api/wardrobe'
+import { getShopOptiosns } from '@/api/shop'
 import type QhxSelect from '@/components/Qhx/Select.vue'
 import { BASE_IMG } from '@/utils/ipConfig'
 import dayjs from 'dayjs'
@@ -562,6 +598,13 @@ const filter_list = ref({
   note: '',
   tags: [] as Array<{ value: string; label: string }>
 })
+
+const origin_shop = ref<Shop | undefined>(undefined)
+const fetchShopOptiosns = async (keywords: string) => {
+  const response = await getShopOptiosns({ shop_name: keywords || '' })
+  const data: Shop[] = response.length > 20 ? response.slice(0, 19) : response
+  return data
+}
 
 const filter_list1 = ref<Array<{ field: string; op: string; value: string | number }>>([])
 
@@ -832,6 +875,18 @@ const formatFilterList = () => {
     })
   }
 
+  // 来源
+  if (origin_shop.value) {
+    const val = origin_shop.value.shop_id ?? origin_shop.value.shop_name
+    if (val != null && String(val).trim() !== '') {
+      filterList.push({
+        field: 'origin',
+        op: 'and',
+        value: val
+      })
+    }
+  }
+
   // 状态
   if (filter_list.value.wardrobe_status.length > 0) {
     filterList.push({
@@ -898,6 +953,7 @@ const clearFilter = () => {
     note: '',
     tags: []
   }
+  origin_shop.value = undefined
   reload()
 }
 
@@ -1011,6 +1067,7 @@ const initData = () => {
     note: '',
     tags: []
   }
+  origin_shop.value = undefined
   filter_list1.value = []
   page.value = 1
   total.value = 0

@@ -25,7 +25,7 @@ const jumpToLoyanshe = () => {
 }
 
 const layout_style = ref(0) // 0是带上下栏的 1 是空白页面
-const blank_list = ['/humanPlatform/', '/user/plan', '/post/', '/distributedMaps', '/visualization/wardrobe', '/visualization/shop-cloud', '/rank', '/yearlySummary', '/user/changePassword','/matching/detail','/album/detail', '/album', 'clothes/detail', 'scene/detail', 'wardrobe/detail', 'register', 'lighting-debug', 'timepipe', 'user/edit']
+const blank_list = ['/humanPlatform/', '/user/plan', '/user/center', '/post/', '/distributedMaps', '/visualization/wardrobe', '/visualization/shop-cloud', '/rank', '/yearlySummary', '/user/changePassword','/matching/detail','/album/detail', '/album', 'clothes/detail', 'scene/detail', 'wardrobe/detail', 'register', 'lighting-debug', 'timepipe', 'user/edit', '/journal']
 const route = useRoute()
 if (route.query?.token) {
   useUserStore().setToken(route.query.token.toString())
@@ -125,7 +125,7 @@ let wsConnection: WSConnection | null = null
 
 // 初始化 WebSocket 连接（如果有 token）
 const initNotificationSystem = () => {
-  if (process.client) {
+  if (process.client && !navigator.userAgent.includes('Html5Plus')) {
     const { initWebSocket } = useNotification()
     const token = useCookie('token').value || (typeof window !== 'undefined' && window.localStorage ? localStorage.getItem('token') : null) || userStore.token
     
@@ -153,7 +153,7 @@ onMounted(async () => {
   });
   console.log(colorMode.value, '颜色模式')
   if (process.client && typeof window !== 'undefined' && window.localStorage) {
-    // 用户信息已在 SSR 阶段加载，这里只需要初始化通知系统
+    // 用户信息已在 SSR 阶段加载，这里只需要初始化通知系统（uniapp 环境不连接 websocket）
     setTimeout(() => {
       initNotificationSystem()
     }, 500)

@@ -135,6 +135,9 @@ const jumpToAddLibrary = () => {
 const jumpToCollectionList = () => {
   window.open('/collectionList', '_blank')
 }
+const jumpToBuild3d = () => {
+  router.push('/library/build3d')
+}
 // 统一处理搜索逻辑
 const handleSearch = () => {
   if (showFilterList.value) {
@@ -1107,6 +1110,9 @@ onMounted(async () => {
         </QhxTag>
         <QhxTag :active="true" class="cursor-pointer whitespace-nowrap" @click="jumpToCollectionList()">
           {{ t('library.not_found_request') }}
+        </QhxTag>
+        <QhxTag :active="true" class="cursor-pointer whitespace-nowrap" @click="jumpToBuild3d()">
+          3D建设
         </QhxTag>
     </div>
 

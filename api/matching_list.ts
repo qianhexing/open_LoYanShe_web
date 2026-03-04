@@ -35,7 +35,15 @@ export interface InsertMatchingListParams {
   [key: string]: unknown
 }
 
-// 更新搭配列表参数
+// 更新搭配列表时使用的 list 项格式
+export interface MatchingListUpdateItem {
+  id: number
+  cover: string
+  type: number
+  name?: string
+}
+
+// 更新搭配列表参数（编辑时传 list 不传 clothes_id）
 export interface UpdateMatchingListParams {
   matching_id: number
   cover?: string
@@ -43,6 +51,7 @@ export interface UpdateMatchingListParams {
   width?: number
   note?: string
   main_style?: string
+  list?: MatchingListUpdateItem[]
   clothes_list?: Array<{ clothes_id?: number; clothes_img?: string }>
   library_list?: Array<{ library_id?: number; square_cover?: string; cover?: string }>
   [key: string]: unknown

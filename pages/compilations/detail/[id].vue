@@ -349,6 +349,13 @@ useHead({
 
       <!-- 功能按钮 -->
       <div class="flex justify-center items-center gap-4 mb-6 pb-4 border-b border-gray-200 dark:border-gray-700">
+        <NuxtLink
+          :to="`/compilations/detail/snapshot?id=${id}`"
+          class="flex flex-col items-center gap-1 text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 transition-colors"
+        >
+          <UIcon name="i-heroicons-camera" class="text-2xl" />
+          <span class="text-xs">生成图</span>
+        </NuxtLink>
         <button
           @click="copyCompUrl"
           class="flex flex-col items-center gap-1 text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 transition-colors"

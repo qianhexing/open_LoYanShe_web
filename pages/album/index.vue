@@ -146,7 +146,7 @@ const handleJump = (item: Album) => {
 		navigator.userAgent.includes('Html5Plus');
 	if (isInUniApp && typeof uni !== 'undefined' && uni.navigateTo) {
 		uni.navigateTo({
-			url: `/pages/album/detail/${item.album_id}`,
+			url: `/pages/common/outerLink2?url=https://lolitalibrary.com/album/detail/${item.album_id}`,
 		});
 	}
 	else if (port.value) {

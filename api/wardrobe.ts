@@ -86,6 +86,21 @@ export async function changeWardrobeClothes (data: {
   return response.data;
 }
 
+/** 批量移动服饰到指定衣柜，ids 为逗号分割字符串，如 "1,2,3" */
+export async function changeWardrobeClothesBatch(data: {
+  ids: string
+  wardrobe_id: number
+}): Promise<boolean> {
+  const response = await use$Post<BaseResponse<boolean>>('/clothes/update/wardrobe', data);
+  return response.data;
+}
+
+/** 批量删除服饰，ids 为逗号分割字符串，如 "1,2,3" */
+export async function deleteClothesByIds(params: { ids: string }): Promise<boolean> {
+  const response = await use$Post<BaseResponse<boolean>>('/clothes/delete/ids', params);
+  return response.data;
+}
+
 export async function deteleClothes(
   params: {
     clothes_id: number

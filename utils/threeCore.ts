@@ -111,6 +111,10 @@ export interface SceneObjectJSON {
 	cover?: string // 图鉴类型
 	library_id?: number // 图鉴类型
 	laxian_id?: string // 拉线点类型，用于连线标识
+	/** 拉线类型：0 设计元素，1 柄图元素 */
+	laxian_type?: 0 | 1
+	/** 拉线镜头聚焦参数（可选），点击拉线时若有则聚焦至该机位 */
+	camera?: { position: [number, number, number]; target: [number, number, number] }
 	effect?: SceneEffectJSON[] // 如果是model效果列表
 	material?: Record<string, any> // 替换过的贴图
 	plugin?: { url: string; options?: Record<string, any> }[] // 插件地址
@@ -1114,10 +1118,16 @@ class ThreeCore {
 		mesh.userData.type = 'laxian'
 		mesh.userData.title = obj.title
 		mesh.userData.laxian_id = obj.laxian_id
+		mesh.userData.laxian_type = obj.laxian_type ?? 0
+		if (obj.camera) {
+			mesh.userData.camera = obj.camera
+		}
 		this.loadedLaxian.push({
 			title: obj.title || '拉线点',
 			laxian_id: obj.laxian_id,
-			object: mesh
+			laxian_type: obj.laxian_type ?? 0,
+			object: mesh,
+			camera: obj.camera
 		})
 		return mesh
 	}
@@ -3828,6 +3838,10 @@ class ThreeCore {
 			if (typeGuess === 'laxian') {
 				jsonObj.title = obj.userData.title
 				jsonObj.laxian_id = obj.userData.laxian_id
+				jsonObj.laxian_type = obj.userData.laxian_type ?? 0
+				if (obj.userData.camera) {
+					jsonObj.camera = obj.userData.camera
+				}
 			}
 			if (typeGuess === 'splat') {
 				if (obj.userData.url) {

@@ -1,5 +1,6 @@
 // types/api.ts
 import type { SceneJSON } from '@/utils/threeCore'
+import type { MatchingListItem } from '@/api/matching_list'
 /** 基础响应类型 */
 export interface BaseResponse<T = any> {
   code: number;
@@ -226,6 +227,11 @@ export interface Library {
   examin?: number;
   complete?: boolean;
 }
+/** 衣柜配置 */
+export interface WardrobeConfig {
+  open_danmu?: number
+}
+
 /** 衣柜 */
 export interface Wardrobe {
   wardrobe_id?: number
@@ -248,6 +254,7 @@ export interface Wardrobe {
   total_community?: number
   total_price?: number
   total_count?: number
+  config?: WardrobeConfig
 }
 /** 服饰 */
 export interface WardrobeClothes {
@@ -286,6 +293,7 @@ export interface WardrobeClothes {
   last_dress?: Date
   sence_id?: number
   model_list?: MaterialForeign[]
+  plan?: PlanList | null
 }
 export interface MaterialForeign {
   foreign_id?: number
@@ -465,6 +473,7 @@ export interface CommunityHide {
 export interface LibraryVideo {
   addr?: string
   create_time?: string
+  user_id?: number | null
   is_enable?: number
   is_show?: number
   pk_id?: number
@@ -473,7 +482,34 @@ export interface LibraryVideo {
   title?: string
   video_id?: number
   cover?: string
+  library?: Library
+  json_data?: {
+    laxian_list?: LaxianItem[]
+  }
 }
+
+/** 拉线镜头聚焦参数（可选） */
+export interface LaxianCameraState {
+  position: [number, number, number]
+  target: [number, number, number]
+}
+
+/** 拉线类型：0 设计元素，1 柄图元素 */
+export type LaxianType = 0 | 1
+
+// 拉线点项接口
+export interface LaxianItem {
+  position?: [number, number, number]
+  rotation?: [number, number, number]
+  scale?: [number, number, number]
+  title?: string
+  laxian_id?: string
+  /** 拉线类型：0 设计元素，1 柄图元素，默认 0 */
+  type?: LaxianType
+  /** 镜头聚焦参数（可选），点击拉线时若有则聚焦至该机位 */
+  camera?: LaxianCameraState
+}
+
 
 export interface Scene {
   addr?: string
@@ -652,6 +688,17 @@ export interface ExpRecord {
   pk_type: number
 }
 
+/** 父计划摘要（子计划时的关联信息） */
+export interface ParentPlanSummary {
+  list_id?: number
+  plan_name?: string
+  need_money?: number
+  have_money?: number
+  parent_id?: number
+  plan_cover?: string
+  end_time?: string | Date
+}
+
 export interface PlanList {
   list_id?: number
   create_user?: number
@@ -669,4 +716,25 @@ export interface PlanList {
   clothes_id?: number
   is_email?: number
   plan_list?: PlanList[]
+  wardrobe_clothes?: WardrobeClothes
+  parent_plan?: ParentPlanSummary
+}
+
+/** 手账 */
+export interface Journal {
+  journal_id: number
+  pk_type: number // 0=评论(签到) 1=帖子 2=服饰 3=搭配 4=图鉴 5=计划
+  pk_id: number
+  journal_time: string // YYYY-MM-DD
+  create_time?: string
+  is_enable?: number
+  note?: string
+  json_data?: Record<string, unknown>
+  /** 根据 pk_type 返回关联数据 */
+  community?: Community
+  comment?: Comment
+  wardrobe_clothes?: WardrobeClothes
+  matching_list?: MatchingListItem
+  library?: Library
+  plan?: PlanList
 }

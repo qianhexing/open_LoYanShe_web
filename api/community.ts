@@ -1,6 +1,8 @@
 import type { BaseResponse, PaginationParams, PaginationResponse, Community, CommunityForeign } from '@/types/api';
 interface SearchParams extends PaginationParams {
   keywords?: string | null  // 可选字段
+  user_id?: number  // 可选，仅该用户的帖子
+  filter_list?: Array<{ field: string; op: string; value: string | number }>  // 可选筛选
 }
 export async function getCommunityList(
   params: SearchParams

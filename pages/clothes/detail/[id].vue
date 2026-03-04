@@ -7,10 +7,6 @@ interface ExtendedWardrobeClothes extends WardrobeClothes {
   library?: Library
   wardrobe?: Wardrobe
   origin_shop?: Shop
-  plan?: {
-    plan_id?: number
-    [key: string]: unknown
-  }
   sence_id?: number
   image_list?: string[]
 }
@@ -721,6 +717,48 @@ const togglePhysicsDrop = () => {
                       价格：￥{{ detail.price }}
                     </div>
 
+                    <!-- 尾款计划 -->
+                    <div v-if="detail.plan_id || detail.plan" class="border-t pt-3 mt-3">
+                      <div class="flex items-center gap-2 mb-2">
+                        <UIcon name="material-symbols:savings-rounded" class="text-amber-500 dark:text-amber-400 text-lg" />
+                        <span class="text-sm font-semibold text-amber-700 dark:text-amber-300">尾款计划</span>
+                      </div>
+                      <div class="p-3 rounded-xl bg-amber-50/80 dark:bg-amber-900/20 border border-amber-200/60 dark:border-amber-700/50 space-y-2">
+                        <div class="flex items-center justify-between">
+                          <span class="text-sm text-gray-600 dark:text-gray-400">{{ detail.plan?.plan_name || '尾款计划' }}</span>
+                          <span class="text-base font-bold text-amber-600 dark:text-amber-400">￥{{ detail.plan?.need_money ?? 0 }}</span>
+                        </div>
+                        <div v-if="detail.plan?.have_money != null" class="text-xs text-gray-500 dark:text-gray-400">
+                          已攒：￥{{ detail.plan.have_money }}
+                        </div>
+                        <div v-if="detail.plan?.end_time" class="text-xs text-gray-500 dark:text-gray-400">
+                          尾款时间：{{ formatDate(detail.plan.end_time) }}
+                        </div>
+                        <!-- 子计划列表 -->
+                        <div
+                          v-if="detail.plan?.plan_list && detail.plan.plan_list.length > 0"
+                          class="ml-2 pl-2 border-l-2 border-amber-200/60 dark:border-amber-600/40 space-y-1 mt-2"
+                        >
+                          <div
+                            v-for="(child, idx) in detail.plan.plan_list"
+                            :key="child.list_id ?? idx"
+                            class="flex items-center justify-between text-xs"
+                          >
+                            <span class="text-gray-600 dark:text-gray-400">{{ child.plan_note || `阶段 ${idx + 1}` }}</span>
+                            <span class="text-amber-600 dark:text-amber-400 font-medium">￥{{ child.need_money ?? 0 }}</span>
+                          </div>
+                        </div>
+                        <NuxtLink
+                          v-if="detail.plan?.list_id"
+                          :to="`/user/plan`"
+                          class="inline-flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400 hover:underline"
+                        >
+                          查看计划详情
+                          <UIcon name="i-heroicons-arrow-right" class="text-xs" />
+                        </NuxtLink>
+                      </div>
+                    </div>
+
                     <!-- 尺码 -->
                     <div v-if="detail.size" class="text-sm">
                       尺码：{{ detail.size }}
@@ -1065,6 +1103,48 @@ const togglePhysicsDrop = () => {
                     <!-- 价格 -->
                     <div v-if="detail.price" class="text-sm">
                       价格：￥{{ detail.price }}
+                    </div>
+
+                    <!-- 尾款计划 -->
+                    <div v-if="detail.plan_id || detail.plan" class="border-t pt-3 mt-3">
+                      <div class="flex items-center gap-2 mb-2">
+                        <UIcon name="material-symbols:savings-rounded" class="text-amber-500 dark:text-amber-400 text-lg" />
+                        <span class="text-sm font-semibold text-amber-700 dark:text-amber-300">尾款计划</span>
+                      </div>
+                      <div class="p-3 rounded-xl bg-amber-50/80 dark:bg-amber-900/20 border border-amber-200/60 dark:border-amber-700/50 space-y-2">
+                        <div class="flex items-center justify-between">
+                          <span class="text-sm text-gray-600 dark:text-gray-400">{{ detail.plan?.plan_name || '尾款计划' }}</span>
+                          <span class="text-base font-bold text-amber-600 dark:text-amber-400">￥{{ detail.plan?.need_money ?? 0 }}</span>
+                        </div>
+                        <div v-if="detail.plan?.have_money != null" class="text-xs text-gray-500 dark:text-gray-400">
+                          已攒：￥{{ detail.plan.have_money }}
+                        </div>
+                        <div v-if="detail.plan?.end_time" class="text-xs text-gray-500 dark:text-gray-400">
+                          尾款时间：{{ formatDate(detail.plan.end_time) }}
+                        </div>
+                        <!-- 子计划列表 -->
+                        <div
+                          v-if="detail.plan?.plan_list && detail.plan.plan_list.length > 0"
+                          class="ml-2 pl-2 border-l-2 border-amber-200/60 dark:border-amber-600/40 space-y-1 mt-2"
+                        >
+                          <div
+                            v-for="(child, idx) in detail.plan.plan_list"
+                            :key="child.list_id ?? idx"
+                            class="flex items-center justify-between text-xs"
+                          >
+                            <span class="text-gray-600 dark:text-gray-400">{{ child.plan_name || `阶段 ${idx + 1}` }}</span>
+                            <span class="text-amber-600 dark:text-amber-400 font-medium">￥{{ child.need_money ?? 0 }}</span>
+                          </div>
+                        </div>
+                        <NuxtLink
+                          v-if="detail.plan?.list_id"
+                          :to="`/user/plan`"
+                          class="inline-flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400 hover:underline"
+                        >
+                          查看计划详情
+                          <UIcon name="i-heroicons-arrow-right" class="text-xs" />
+                        </NuxtLink>
+                      </div>
                     </div>
 
                     <!-- 尺码 -->

@@ -44,7 +44,7 @@ const confirm = () => {
 <template>
   <QhxModal v-model="show" :trigger-position="clickPosition">
     <div class="bg-white rounded-[10px] max-h-[50vh] overflow-y-auto">
-      <div class="m-6 w-[400px]">
+      <div class="m-6 w-[90vw] md:w-[400px]">
         <color-picker format="hex"  v-model:pureColor="colorValue" style="width: 100%;" :isWidget="true" :pickerType="'chrome'"/>
         <div class="flex justify-end">
           <UButton 

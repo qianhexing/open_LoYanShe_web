@@ -101,13 +101,17 @@ export const useSceneCore = () => {
                     x: isLeft ? leftEdge : rightEdge,
                     y: position.y
                 }
+                const camera = laxian.object.userData.camera ?? (laxian as LaxianInterface).camera
+                const laxianType = laxian.object.userData.laxian_type ?? (laxian as LaxianInterface).type ?? 0
                 laxian_list.push({
                     object: laxian.object,
                     title: laxian.object.userData.title ?? laxian.title ?? '拉线点',
                     laxian_id: laxian.object.userData.laxian_id ?? laxian.laxian_id,
+                    type: laxianType,
                     position,
                     edgePosition,
-                    occluded
+                    occluded,
+                    camera
                 })
             })
         }

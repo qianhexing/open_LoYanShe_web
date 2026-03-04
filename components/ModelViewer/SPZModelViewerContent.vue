@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { useSceneCore } from '@/composables/useSceneCore'
 import type { SceneObjectJSON, SceneJSON } from '@/utils/threeCore'
+import type { LaxianInterface } from '@/types/sence'
 import * as THREE from 'three'
 import { BASE_IMG } from '@/utils/ipConfig'
+import type { LaxianItem } from '@/types/api'
 
 // 模型项接口
 export interface ModelItem {
@@ -14,26 +16,39 @@ export interface ModelItem {
     options?: Record<string, unknown> // 其他选项
 }
 
-// 拉线点项接口
-export interface LaxianItem {
-    position?: [number, number, number]
-    rotation?: [number, number, number]
-    scale?: [number, number, number]
-    title?: string
-    laxian_id?: string
-}
 
 interface Props {
     modelList: ModelItem[]
     /** 拉线点数组，有数据时会加入场景 objects */
     laxianList?: LaxianItem[]
+    /** 是否开启自动旋转 */
+    autoRotate?: boolean
 }
 
 const props = withDefaults(defineProps<Props>(), {
+    autoRotate: false,
     laxianList: () => [
-        { position: [0, 1, 0] as [number, number, number], title: '设计元素', laxian_id: 'point_001' },
-        { position: [2, 1, 1] as [number, number, number], title: '吐槽啊啊啊', laxian_id: 'point_002' },
-        { position: [-1, 0.5, 2] as [number, number, number], title: '标注点！嘎嘎嘎嘎嘎嘎嘎嘎嘎嘎嘎嘎', laxian_id: 'point_003' }
+        {
+            position: [0, 1, 0] as [number, number, number],
+            title: '设计元素',
+            laxian_id: 'point_001',
+            type: 0 as const,
+            camera: { position: [2, 2, 3] as [number, number, number], target: [0, 1, 0] as [number, number, number] }
+        },
+        {
+            position: [2, 1, 1] as [number, number, number],
+            title: '吐槽啊啊啊',
+            laxian_id: 'point_002',
+            type: 1 as const,
+            camera: { position: [4, 2, 2] as [number, number, number], target: [2, 1, 1] as [number, number, number] }
+        },
+        {
+            position: [-1, 0.5, 2] as [number, number, number],
+            title: '标注点！嘎嘎嘎嘎嘎嘎嘎嘎嘎嘎嘎嘎',
+            laxian_id: 'point_003',
+            type: 0 as const,
+            camera: { position: [0, 1.5, 4] as [number, number, number], target: [-1, 0.5, 2] as [number, number, number] }
+        }
     ] as LaxianItem[]
 })
 
@@ -48,6 +63,16 @@ const {
     disposeScene,
     laxianList
 } = useSceneCore()
+
+// 同步 autoRotate 到 OrbitControls
+watch([() => props.autoRotate, () => threeCore.value], ([autoRotate, core]) => {
+    if (!core?.controls || !('autoRotate' in core.controls)) return
+    if (autoRotate) {
+        // 开启自动旋转前：先计算物体包围盒、聚焦中心，确保物体全部显示
+        adjustCamera()
+    }
+    (core.controls as { autoRotate: boolean }).autoRotate = !!autoRotate
+}, { immediate: true })
 
 // 监听模型列表和拉线点变化，自动加载
 watch([() => props.modelList, () => props.laxianList], async ([newList, newLaxian]) => {
@@ -120,7 +145,9 @@ const loadModels = async () => {
             rotation: item.rotation || [0, 0, 0],
             scale: item.scale || [1, 1, 1],
             title: item.title || '拉线点',
-            laxian_id: item.laxian_id
+            laxian_id: item.laxian_id,
+            laxian_type: item.type ?? 0,
+            camera: item.camera
         }))
 
         const sceneJSON: SceneJSON = {
@@ -140,9 +167,9 @@ const loadModels = async () => {
 
         await threeCore.value.loadSceneFromJSON(sceneJSON, false, onProgress)
 
-        // 调整相机视角，让所有模型都在视野内
+        // 调整相机视角，让所有模型都在视野内（带过渡动画）
         if (threeCore.value && (props.modelList.length > 0 || (props.laxianList?.length ?? 0) > 0)) {
-            adjustCamera()
+            adjustCamera(true)
         }
         // 打印场景所有对象
 
@@ -152,8 +179,11 @@ const loadModels = async () => {
     }
 }
 
-// 调整相机视角
-const adjustCamera = () => {
+/** 聚焦时长（毫秒） */
+const FOCUS_DURATION = 800
+
+// 调整相机视角（带过渡动画）
+const adjustCamera = (animate = true) => {
     if (!threeCore.value) return
 
     // 计算所有模型的包围盒
@@ -174,21 +204,43 @@ const adjustCamera = () => {
     const maxDim = Math.max(size.x, size.y, size.z)
     const distance = maxDim * 2
 
-    // 设置相机位置和目标
-    if (threeCore.value.camera instanceof THREE.PerspectiveCamera) {
-        threeCore.value.camera.position.set(
-            center.x,
-            center.y + distance * 0.5,
-            center.z + distance
-        )
-        threeCore.value.camera.lookAt(center)
-        threeCore.value.camera.updateProjectionMatrix()
-    }
+    const targetPosition = new THREE.Vector3(
+        center.x,
+        center.y + distance * 0.5,
+        center.z + distance
+    )
 
-    // 更新控制器目标
-    if (threeCore.value.controls) {
-        threeCore.value.controls.target.copy(center)
-        threeCore.value.controls.update()
+    if (animate) {
+        threeCore.value.lookAtCameraState(
+            { position: targetPosition, target: center.clone() },
+            FOCUS_DURATION
+        )
+    } else {
+        if (threeCore.value.camera instanceof THREE.PerspectiveCamera) {
+            threeCore.value.camera.position.copy(targetPosition)
+            threeCore.value.camera.lookAt(center)
+            threeCore.value.camera.updateProjectionMatrix()
+        }
+        if (threeCore.value.controls) {
+            threeCore.value.controls.target.copy(center)
+            threeCore.value.controls.update()
+        }
+    }
+}
+
+/** 点击拉线时聚焦镜头：若有 camera 则使用其 position/target，否则聚焦到拉线点对象（带过渡动画） */
+const focusLaxianCamera = (item: LaxianInterface) => {
+    if (!threeCore.value) return
+    if (item.camera) {
+        threeCore.value.lookAtCameraState(
+            {
+                position: new THREE.Vector3(...item.camera.position),
+                target: new THREE.Vector3(...item.camera.target)
+            },
+            FOCUS_DURATION
+        )
+    } else if (item.object) {
+        threeCore.value.lookAtSelectObj([item.object])
     }
 }
 
@@ -212,7 +264,8 @@ defineExpose({
     sceneLoadProgress,
     sceneLoadError,
     modelCount: computed(() => props.modelList.length),
-    laxianList
+    laxianList,
+    focusLaxianCamera
 })
 </script>
 

@@ -1,12 +1,15 @@
 <script setup lang="ts">
 import { ref, nextTick } from 'vue'
-import type { Library, Shop, Wardrobe, Scene } from '~/types/api'
+import type { Library, Shop, Wardrobe, Scene, PlanList } from '~/types/api'
 import { getShopOptiosns } from '@/api/shop'
 import { insertClothes, updateClothes } from '@/api/wardrobe'
+import { getPlanList } from '@/api/plan'
 import type LibraryChoose from '@/components/library/LibraryChoose.vue'
 const LibraryChooseRef = ref<InstanceType<typeof LibraryChoose> | null>(null)
 import type SceneChoose from '@/components/scene/SceneChoose.vue'
 const SceneChooseRef = ref<InstanceType<typeof SceneChoose> | null>(null)
+import type PlanAddEdit from '@/components/Plan/PlanAddEdit.vue'
+const PlanAddEditRef = ref<InstanceType<typeof PlanAddEdit> | null>(null)
 import type QhxImagePicker from '@/components/Qhx/ImagePicker.vue'
 const wardrobeCoverRef = ref<InstanceType<typeof QhxImagePicker> | null>(null)
 import type QhxColorPicker from '@/components/Qhx/ColorPicker.vue'
@@ -25,6 +28,7 @@ interface ExtendedClothesItem extends Partial<WardrobeClothes> {
   library?: Library
   scene?: Scene
   origin_shop?: Shop
+  plan?: PlanList
   main_style_list?: { label: string; value: number }[]
   detail_image_list?: string[]
 }
@@ -64,6 +68,8 @@ const type = ref(0) // 0 添加 1 编辑
 const clickPosition = ref({ x: 0, y: 0 })
 const showSceneChooseModal = ref(false)
 const sceneChooseClickPosition = ref({ x: 0, y: 0 })
+const plan = ref<PlanList | null>(null)
+const planAddEditClickPosition = ref({ x: 0, y: 0 })
 
 const form = ref<{
   wardrobe_id: number | null
@@ -169,7 +175,7 @@ const chooseExistingScene = () => {
     }
   })
 }
-const showModel = (item: ExtendedClothesItem | null, isCopy = false, event?: MouseEvent) => {
+const showModel = async (item: ExtendedClothesItem | null, isCopy = false, event?: MouseEvent) => {
   // 记录触发位置（如果有事件对象）
   if (event) {
     clickPosition.value = {
@@ -227,6 +233,27 @@ const showModel = (item: ExtendedClothesItem | null, isCopy = false, event?: Mou
     form.value.is_have = item.is_have !== undefined ? item.is_have : true
     form.value.wardrobe_status = item.wardrobe_status || null
     form.value.plan_id = item.plan_id || null
+    // 修改时代入 plan，支持从 item.plan 或按 plan_id 拉取
+    if (item.plan && (item.plan as PlanList).list_id) {
+      plan.value = item.plan as PlanList
+    } else if (item.plan_id) {
+      try {
+        const res = await getPlanList({ list_id: item.plan_id, pageSize: 1 })
+        if (res?.rows?.[0]) {
+          plan.value = res.rows[0]
+        } else {
+          plan.value = null
+        }
+      } catch {
+        plan.value = null
+      }
+    } else {
+      plan.value = null
+    }
+    if (isCopy) {
+      form.value.plan_id = null
+      plan.value = null
+    }
     form.value.add_time = item.add_time || null
     form.value.origin = item.origin || null
     setTimeout(() => {
@@ -402,6 +429,7 @@ const showModel = (item: ExtendedClothesItem | null, isCopy = false, event?: Mou
   } else {
     // 如果没有传入 item，重置表单
     initData()
+    plan.value = null
   }
 
   show.value = true
@@ -450,6 +478,19 @@ const chooseLibrary = (list: Library[]) => {
     if (!form.value.price || form.value.price === 0) {
       form.value.price = selectedLibrary.library_price || 0
     }
+
+    // 如果有店铺信息，代入来源表单
+    if (selectedLibrary.shop) {
+      origin_shop.value = selectedLibrary.shop
+    } else if (selectedLibrary.shop_id) {
+      // 仅有 shop_id 时，创建最小化 Shop 对象
+      origin_shop.value = {
+        shop_id: selectedLibrary.shop_id,
+        shop_name: `店铺 #${selectedLibrary.shop_id}`,
+        shop_logo: '',
+        shop_country: 0
+      }
+    }
   }
 }
 
@@ -459,6 +500,45 @@ const chooseScene = (list: Scene[]) => {
     scene.value = selectedScene
     form.value.plan_id = selectedScene.sence_id
   }
+}
+
+// 尾款计划：创建
+const showPlanAddEdit = (e?: MouseEvent) => {
+  if (e) {
+    planAddEditClickPosition.value = { x: e.clientX, y: e.clientY }
+  } else {
+    planAddEditClickPosition.value = { x: window.innerWidth / 2, y: window.innerHeight / 2 }
+  }
+  PlanAddEditRef.value?.showModel(e)
+}
+
+// 尾款计划：编辑（代入 plan）
+const showPlanAddEditForEdit = (e?: MouseEvent) => {
+  if (!plan.value) return
+  if (e) {
+    planAddEditClickPosition.value = { x: e.clientX, y: e.clientY }
+  } else {
+    planAddEditClickPosition.value = { x: window.innerWidth / 2, y: window.innerHeight / 2 }
+  }
+  PlanAddEditRef.value?.showModel(e)
+}
+
+// 计划创建成功：记录计划，显示金额，传参 plan_id
+const onPlanInsert = (data: PlanList) => {
+  if (data?.list_id) {
+    form.value.plan_id = data.list_id
+    plan.value = data
+  }
+}
+
+// 计划编辑成功：更新本地 plan
+const onPlanUpdated = (data: PlanList) => {
+  if (data) plan.value = data
+}
+
+const clearPlan = () => {
+  plan.value = null
+  form.value.plan_id = null
 }
 const chooseColor = (color: string) => {
   if (form.value.color.findIndex((child: string) => {
@@ -503,6 +583,7 @@ const initData = () => {
 			wardrobe.value = null
 			wardrobeName.value = ''
 			origin_shop.value = undefined
+			plan.value = null
 			
 			// 清空图片选择器
 			if (wardrobeCoverRef.value) {
@@ -516,6 +597,7 @@ const fetchUpload = async (file: { file: { readonly lastModified: number; readon
   try {
     let url: string
     if (file.file) {
+      console.log(file.file, 'file.file图片文件')
       const res = await uploadImage(file.file)
       url = res.file_url
     } else {
@@ -596,11 +678,7 @@ const insert = async () => {
     params.library_id = null
   }
 
-  if (scene.value) {
-    params.plan_id = scene.value.sence_id
-  } else {
-    params.plan_id = form.value.plan_id
-  }
+  params.plan_id = form.value.plan_id
 
   if (color && color.length > 0) {
     params.color = color.join()
@@ -896,8 +974,65 @@ defineExpose({
               }"
             />
         </UFormGroup>
-        <UFormGroup label="尾款计划">
-          
+        <UFormGroup label="尾款计划" class="space-y-3">
+          <div v-if="plan" class="space-y-2">
+            <div
+              class="inline-flex items-center gap-2.5 px-4 py-2.5 rounded-xl border border-gray-200/80 dark:border-gray-600/80 bg-gradient-to-r from-amber-50/80 to-orange-50/60 dark:from-gray-700/40 dark:to-gray-800/40 transition-all duration-200 hover:shadow-md hover:border-amber-300/60 dark:hover:border-amber-500/40"
+            >
+              <UIcon name="material-symbols:savings-rounded" class="text-amber-500 dark:text-amber-400 text-lg flex-shrink-0" />
+              <div class="flex flex-col gap-0.5">
+                <span class="text-sm font-medium text-gray-800 dark:text-gray-200">{{ plan.plan_name || '尾款计划' }}</span>
+                <span class="text-base font-bold text-amber-600 dark:text-amber-400">¥{{ plan.need_money ?? 0 }}</span>
+              </div>
+              <div class="flex items-center gap-1 ml-1">
+                <button
+                  type="button"
+                  class="p-1.5 rounded-lg text-gray-500 hover:text-amber-600 hover:bg-amber-100/80 dark:hover:text-amber-400 dark:hover:bg-amber-900/30 transition-colors"
+                  title="编辑"
+                  @click.stop="showPlanAddEditForEdit($event)"
+                >
+                  <UIcon name="ant-design:edit-outlined" class="text-sm" />
+                </button>
+                <button
+                  type="button"
+                  class="p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+                  title="移除"
+                  @click.stop="clearPlan"
+                >
+                  <UIcon name="ant-design:close-outlined" class="text-sm" />
+                </button>
+              </div>
+            </div>
+            <!-- 子计划简单列表 -->
+            <div
+              v-if="plan.plan_list && plan.plan_list.length > 0"
+              class="ml-6 pl-3 border-l-2 border-amber-200/60 dark:border-amber-600/40 space-y-1.5"
+            >
+              <div
+                v-for="(child, idx) in plan.plan_list"
+                :key="child.list_id ?? idx"
+                class="flex items-center justify-between gap-2 py-1 text-xs"
+              >
+                <span class="text-gray-600 dark:text-gray-400 truncate">{{ child.plan_note || `阶段 ${idx + 1}` }}</span>
+                <span class="text-amber-600 dark:text-amber-400 font-medium flex-shrink-0">¥{{ child.need_money ?? 0 }}</span>
+              </div>
+            </div>
+          </div>
+          <div v-else class="space-y-2">
+            <UButton
+              type="button"
+              size="sm"
+              class="bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white shadow-md shadow-amber-500/25 transition-all duration-200"
+              :loading="loading"
+              @click="showPlanAddEdit($event)"
+            >
+              <UIcon name="material-symbols:savings-rounded" class="mr-1.5" />
+              创建尾款计划
+            </UButton>
+            <p class="text-xs text-gray-500 dark:text-gray-400">
+              💡 可将当前价格预填到计划中
+            </p>
+          </div>
         </UFormGroup>
         <UFormGroup label="尺码">
           <UInput
@@ -1232,6 +1367,13 @@ defineExpose({
     </div>
     <LibraryChoose ref="LibraryChooseRef" :keywordMode="true" @choose="chooseLibrary"></LibraryChoose>
     <SceneChoose ref="SceneChooseRef" @choose="chooseScene"></SceneChoose>
+    <PlanAddEdit
+      ref="PlanAddEditRef"
+      :plan-list="plan"
+      :initial-need-money="form.price || 0"
+      @insert="onPlanInsert"
+      @updated="onPlanUpdated"
+    />
     
     <!-- 场景选择对话框 -->
     <QhxModal v-model="showSceneChooseModal" :trigger-position="sceneChooseClickPosition" @close="handleSceneChooseClose">

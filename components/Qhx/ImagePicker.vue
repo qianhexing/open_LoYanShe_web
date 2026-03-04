@@ -114,9 +114,81 @@ function handleFiles(event: Event) {
   }
 }
 
-function handleDrop(event: DragEvent) {
-  if (!props.disabled && event.dataTransfer?.files) {
-    addFiles(Array.from(event.dataTransfer.files))
+async function handleDrop(event: DragEvent) {
+  if (props.disabled) return
+  const dt = event.dataTransfer
+  if (!dt) return
+
+  let filesToAdd: File[] = []
+  let needSafeConvert = false
+
+  // 1. 优先从 dataTransfer.files 获取（本地/网页图片拖入）
+  if (dt.files?.length) {
+    filesToAdd = Array.from(dt.files)
+    needSafeConvert = true
+  }
+  // 2. 从 dataTransfer.items 获取（网页拖入时有些浏览器只在这里提供）
+  else if (dt.items?.length) {
+    const fromFiles: File[] = []
+    const urlPromises: Promise<File | null>[] = []
+    for (let i = 0; i < dt.items.length; i++) {
+      const item = dt.items[i]
+      if (item.kind === 'file') {
+        const file = item.getAsFile()
+        if (file) fromFiles.push(file)
+      } else if (item.kind === 'string' && item.type === 'text/uri-list') {
+        urlPromises.push(
+          new Promise((resolve) => {
+            item.getAsString((url) => resolve(fetchImageAsFile(url)))
+          })
+        )
+      }
+    }
+    if (fromFiles.length) {
+      filesToAdd = fromFiles
+      needSafeConvert = true
+    } else if (urlPromises.length) {
+      const fetched = await Promise.all(urlPromises)
+      filesToAdd = fetched.filter((f): f is File => f != null)
+      // fetchImageAsFile 已创建新 File，无需再转换
+    }
+  }
+
+  if (filesToAdd.length) {
+    const safe = needSafeConvert
+      ? await Promise.all(filesToAdd.map(toSafeUploadFile))
+      : filesToAdd
+    addFiles(safe)
+  }
+}
+
+/** 从 URL 拉取图片并转为 File（网页拖入时可能只有 URL） */
+async function fetchImageAsFile(url: string): Promise<File | null> {
+  try {
+    const res = await fetch(url, { mode: 'cors' })
+    if (!res.ok) return null
+    const blob = await res.blob()
+    if (!blob.type.startsWith('image/')) return null
+    const name = url.split('/').pop()?.split('?')[0] || 'image.png'
+    return new File([blob], name, { type: blob.type })
+  } catch {
+    return null
+  }
+}
+
+/**
+ * 将 File 转为可安全上传的副本。
+ * 从其他网页拖拽过来的 File 可能带跨域/引用限制，直接上传易触发 CORS 或 500，转为本地 Blob 副本可规避。
+ */
+async function toSafeUploadFile(file: File): Promise<File> {
+  if (file.size === 0) return file
+  try {
+    const blob = await file.arrayBuffer()
+    const type = file.type?.startsWith('image/') ? file.type : 'image/jpeg'
+    const name = file.name || 'image.jpg'
+    return new File([blob], name, { type })
+  } catch {
+    return file
   }
 }
 

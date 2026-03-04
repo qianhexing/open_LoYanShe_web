@@ -76,7 +76,7 @@
                 <!-- 塞选状态 -->
                 <UButton type="submit" size="xs" class="bg-qhx-primary text-qhx-inverted hover:bg-qhx-primaryHover"
                   @click="(e: MouseEvent) => { openPicker(e) }">
-                  {{`筛选状态:${filterStateOptions.find(item => item.value === filterState)?.label}` || '筛选状态'}}
+                  {{`${filterStateOptions.find(item => item.value === filterState)?.label}` || '筛选状态'}}
                 </UButton>
                 <UButton type="submit" size="xs" class="bg-qhx-primary text-qhx-inverted hover:bg-qhx-primaryHover"
                   @click="showFilterModal = true">
@@ -86,6 +86,14 @@
                   @click="clearFilter">
                   重置
                 </UButton>
+                <div class="flex items-center gap-2">
+                  <UToggle
+                    v-model="onlyNewToday"
+                    color="primary"
+                    @update:model-value="waterList?.refresh()"
+                  />
+                  <span class="text-xs text-gray-600">只看新增</span>
+                </div>
                 <QhxSelect ref="qhxSelectRef" :options="filterStateOptions" :default-value="filterStateOptions[1]"
                   :canCustomize="false" @select="(select) => {
                     filterState = select.value
@@ -116,7 +124,8 @@
                 state: filterState === -1 ? undefined : filterState, 
                 examin: 0, 
                 sort: sortMode === 0 ? undefined : sortMode,
-                filter_list: filterList.length > 0 ? filterList : undefined
+                filter_list: filterList.length > 0 ? filterList : undefined,
+                create_time: onlyNewToday ? formatted : undefined
               })
               return {
                 rows: response.rows,
@@ -640,6 +649,7 @@ const getSubscribeNewsInitialValue = () => {
   return false
 }
 const subscribeNews = ref(getSubscribeNewsInitialValue())
+const onlyNewToday = ref(false)
 const filterStateOptions = [
   { label: '全部', value: -1 },
   { label: '预约中', value: 0 },

@@ -1064,6 +1064,21 @@ onMounted(async () => {
     fetchLibraryById()
   }
 
+  // 如果有 shop_id 和 shop_name 参数，默认选择该店铺（仅新增时生效）
+  const urlShopId = route.query?.shop_id
+  const urlShopName = route.query?.shop_name
+  if (urlShopId && !library_id.value) {
+    try {
+      const shop = await getShopDetail({ shop_id: Number(urlShopId) })
+      library.value.shop_id = shop
+    } catch {
+      // API 失败时，若有 shop_name 则用 URL 参数构造展示
+      if (urlShopName) {
+        library.value.shop_id = { shop_id: Number(urlShopId), shop_name: String(urlShopName) } as Shop
+      }
+    }
+  }
+
   getLibraryType()
   getMainStyle()
 })
@@ -1328,7 +1343,7 @@ const fetchLibraryById = async () => {
         }
         return {
           name: {
-            label: '',
+            label: child[0],
             value: 0
           },
           value: 0
@@ -2151,7 +2166,11 @@ const add = async () => {
     }
     // 添加可选参数
     if (coverImage) params.cover = coverImage
-    if (sizeImage && sizeImage.length > 0) params.size_image = sizeImage.join(',')
+    if (sizeImage && sizeImage.length > 0) {
+      params.size_image = sizeImage.join(',')
+    } else {
+      params.size_image = null
+    }
     if (notes && notes !== '') {
       params.notes = notes
     } else {
@@ -2256,7 +2275,15 @@ const add = async () => {
         description: t('addLibrary.update_success'),
         color: 'green'
       })
-      await navigateTo(`/library/detail/${library_id.value}`)
+      // 如果是 uniapp，向 app 发送刷新图鉴列表通知
+      const isInUniApp =
+        typeof window !== 'undefined' &&
+        navigator.userAgent.includes('Html5Plus')
+      if (isInUniApp && typeof uni !== 'undefined' && typeof uni.postMessage === 'function') {
+        uni.postMessage({ data: { type: 'reloadLibrary' } })
+      } else {
+        await navigateTo(`/library/detail/${library_id.value}`)
+      }
     } else {
       const res = await insertLibrary(params)
       toast.add({

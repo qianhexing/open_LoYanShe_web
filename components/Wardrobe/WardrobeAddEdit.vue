@@ -52,6 +52,15 @@
           <p class="text-xs text-gray-500 mt-1" v-if="form.is_private === 0">非私有衣柜将对其他用户开放</p>
         </UFormGroup>
 
+        <!-- 开放弹幕 -->
+        <UFormGroup label="开放弹幕">
+          <URadioGroup v-model="form.config.open_danmu" :options="[
+            { label: '关闭', value: 0 },
+            { label: '开启', value: 1 }
+          ]" />
+          <p class="text-xs text-gray-500 mt-1">开启后访客可在衣柜页面发送弹幕</p>
+        </UFormGroup>
+
         <!-- 访问密码 -->
         <UFormGroup label="访问密码" v-if="form.is_private === 1">
           <UInput v-model="form.password" type="password" placeholder="设置密码后需要密码才能访问" class="flex-1 focus:ring-0" :ui="{
@@ -292,6 +301,9 @@ const form = ref<{
   show_price: number
   password: string
   background: string
+  config: {
+    open_danmu: number
+  }
   custom_style: {
     btnColor: string | null
     btnFontColor: string | null
@@ -309,14 +321,17 @@ const form = ref<{
   show_price: 1,
   password: '',
   background: '',
-    custom_style: {
-      btnColor: null,
-      btnFontColor: null,
-      fontColor: null,
-      backColor: null,
-      back_mode: false,
-      back_opacity: 1
-    }
+  config: {
+    open_danmu: 0
+  },
+  custom_style: {
+    btnColor: null,
+    btnFontColor: null,
+    fontColor: null,
+    backColor: null,
+    back_mode: false,
+    back_opacity: 1
+  }
 })
 
 // 显示模型
@@ -330,6 +345,7 @@ const showModel = (item: Wardrobe | null = null) => {
     form.value.show_price = item.show_price ?? 1
     form.value.password = item.password || ''
     form.value.background = item.background || ''
+    form.value.config.open_danmu = item.config?.open_danmu ?? 0
     
     // 初始化自定义样式
     if (item.custom_style) {
@@ -436,7 +452,8 @@ const insert = async () => {
       is_private: form.value.is_private,
       sort_type: form.value.sort_type,
       show_price: form.value.show_price,
-      custom_style: form.value.custom_style
+      custom_style: form.value.custom_style,
+      config: form.value.config
     }
 
     // 处理密码
@@ -523,6 +540,9 @@ const initData = () => {
     show_price: 1,
     password: '',
     background: '',
+    config: {
+      open_danmu: 0
+    },
     custom_style: {
       btnColor: null,
       btnFontColor: null,

@@ -45,15 +45,43 @@
 
     <!-- 功能栏 -->
     <div v-if="layoutReady && userStore.user" class="flex justify-between items-center sticky top-[10px] z-10 mb-4">
-      <div class="flex flex-wrap">
+      <div class="flex flex-wrap items-center gap-2">
         <QhxJellyButton>
-          <div class="h-[60px] text-center px-1 cursor-pointer" @click="(e: MouseEvent) => openAddPlan(e)">
+          <!-- h-[40px] -->
+          <div class=" text-center px-1 cursor-pointer" @click="(e: MouseEvent) => openAddPlan(e)">
             <div class="m-[5px] text-white rounded-[50%] h-[30px] w-[30px] flex items-center justify-center bg-qhx-primary">
               <UIcon name="material-symbols:add-2" class="text-[22px] text-[#ffffff]" />
             </div>
-            <div class="text-sm text-qhx-text">新建</div>
+            <!-- <div class="text-sm text-qhx-text">新建</div> -->
           </div>
         </QhxJellyButton>
+        <!-- 全部/按月/按日切换 -->
+        <div class="flex rounded-lg border border-gray-300 dark:border-gray-600 overflow-hidden">
+          <button
+            type="button"
+            class="px-2.5 py-1.5 text-xs font-medium transition-colors"
+            :class="viewMode === 'all' ? 'bg-qhx-primary text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600'"
+            @click="viewMode = 'all'; fetchPlanList()"
+          >
+            全部
+          </button>
+          <button
+            type="button"
+            class="px-2.5 py-1.5 text-xs font-medium transition-colors"
+            :class="viewMode === 'month' ? 'bg-qhx-primary text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600'"
+            @click="viewMode = 'month'; fetchYearTotal()"
+          >
+            按月
+          </button>
+          <button
+            type="button"
+            class="px-2.5 py-1.5 text-xs font-medium transition-colors"
+            :class="viewMode === 'day' ? 'bg-qhx-primary text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600'"
+            @click="viewMode = 'day'; fetchDayTotal()"
+          >
+            按日
+          </button>
+        </div>
       </div>
       <div class="flex items-center gap-2">
         <UToggle
@@ -75,179 +103,28 @@
       </div> -->
     </div>
 
-    <!-- 计划列表 -->
-    <div v-if="layoutReady" class="space-y-2">
-      <div
-        v-for="item in planList"
-        :key="item.list_id"
-        class="px-1"
-      >
-        <!-- 母计划项 -->
-        <div
-          class="bg-white dark:bg-gray-800 rounded-md shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden hover:shadow transition-shadow relative"
-          :class="{ 'opacity-85': item.is_complete === 1 }"
-        >
-          <img
-            v-if="item.is_complete === 1"
-            :src="`${BASE_IMG}/static/plan/complete.png`"
-            alt="已完成"
-            class="absolute right-2 top-[30px] w-10 h-10 z-5 opacity-90"
-          />
-          
-          <div class="px-3 py-2 flex gap-2">
-            <!-- 封面 -->
-            <div
-              class="w-9 h-9 rounded-md overflow-hidden border border-gray-200 dark:border-gray-700 flex-shrink-0 cursor-pointer"
-              @click="showCover(getPlanCoverSrc(item))"
-            >
-              <img
-                :src="getPlanCoverSrc(item)"
-                :alt="item.plan_name || '封面'"
-                class="w-full h-full object-cover"
-                loading="lazy"
-              />
-            </div>
-            
-            <!-- 信息区 -->
-            <div class="flex-1 min-w-0">
-              <div class="flex items-center justify-between gap-1 mb-0.5">
-                <div class="flex items-center gap-1 flex-1 min-w-0">
-                  <button
-                    v-if="hasChildren(item)"
-                    @click.stop="toggleExpand(item.list_id)"
-                    class="w-5 h-5 flex items-center justify-center rounded hover:bg-gray-100 dark:hover:bg-gray-700"
-                  >
-                    <UIcon
-                      :name="isExpanded(item.list_id) ? 'i-heroicons-chevron-down' : 'i-heroicons-chevron-right'"
-                      class="text-gray-500 w-3.5 h-3.5"
-                    />
-                  </button>
-                  <h3
-                    class="text-xs font-medium text-gray-800 dark:text-gray-100 truncate cursor-pointer"
-                    @click="handlePlanClick(item)"
-                  >
-                    {{ item.plan_name || '未命名' }}
-                  </h3>
-                </div>
-                <div class="flex items-center gap-1 flex-shrink-0 relative z-6">
-                  <button
-                    v-if="item.is_complete !== 1"
-                    @click.stop="editPlan(item)"
-                    class="w-6 h-6 rounded-full bg-qhx-primary hover:bg-qhx-primary/80 flex items-center justify-center text-white"
-                    title="编辑"
-                  >
-                    <UIcon name="i-heroicons-pencil" class="w-3 h-3" />
-                  </button>
-                  <button
-                    @click.stop="confirmDeletePlan(item.list_id)"
-                    class="w-6 h-6 rounded-full bg-red-500 hover:bg-red-600 flex items-center justify-center text-white"
-                    title="删除"
-                  >
-                    <UIcon name="i-heroicons-trash" class="w-3 h-3" />
-                  </button>
-                </div>
-              </div>
-              
-              <!-- 金额+进度 单行 -->
-              <div class="flex items-center gap-2 text-xs"> 
-                <span class="text-gray-500">{{ Math.ceil(getProgress(item)) }}%</span>
-                <div class="flex-1 bg-gray-200 dark:bg-gray-700 rounded-full h-1.5 max-w-16">
-                  <div
-                    class="bg-qhx-primary h-1.5 rounded-full transition-all"
-                    :style="{ width: `${getProgress(item)}%` }"
-                  ></div>
-                </div>
-                <span class="text-gray-700 dark:text-gray-300 font-medium">
-                  ￥{{ formatMoney(item.have_money || 0) }}/{{ formatMoney(item.need_money || 0) }}
-                </span>
-              </div>
-              
-              <!-- 操作行 -->
-              <div class="flex items-center gap-2 my-1">
-                <button
-                  v-if="!item.show_add && item.is_complete !== 1 && (!item.plan_list || item.plan_list.length === 0)"
-                  @click="item.show_add = true"
-                  class="flex items-center gap-0.5 px-2 py-0.5 bg-qhx-primary hover:bg-qhx-primary/80 text-white text-xs rounded"
-                >
-                  <UIcon name="i-heroicons-plus" class="w-3 h-3" />
-                  添加
-                </button>
-                <button
-                  v-if="item.have_money === item.need_money && item.is_complete !== 1 && (!item.plan_list || item.plan_list.length === 0)"
-                  @click="confirmCompletePlan(item.list_id)"
-                  class="px-2 py-0.5 text-xs bg-qhx-primary hover:bg-qhx-primary/80 text-white rounded"
-                >
-                  完成
-                </button>
-              </div>
-              
-              <!-- 添加金额 紧凑 -->
-              <div v-if="item.show_add" class="my-1 flex gap-0.5 items-center">
-                <UInput
-                  :model-value="item.add_money ?? undefined"
-                  type="number"
-                  placeholder="金额"
-                  size="xs"
-                  class="flex-1 min-w-0 text-[11px]"
-                  :ui="{ padding: { xs: 'px-2 py-1' } }"
-                  @update:model-value="(val) => { item.add_money = val as number | null }"
-                />
-                <UButton @click="addHaveMoney(item.list_id, item.add_money)" size="2xs" color="primary" :loading="addLoading">添加</UButton>
-                <UButton @click="item.show_add = false; item.add_money = null" size="2xs" color="gray" variant="outline">取消</UButton>
-              </div>
-              
-              <!-- 备注 单行省略 -->
-              <div v-if="item.plan_note" class="text-xs text-gray-500 truncate mt-0.5">{{ item.plan_note }}</div>
-              
-              <!-- 尾款/创建时间 单行 -->
-              <div class="flex items-center gap-2 text-[10px] text-gray-400 mt-0.5">
-                <span v-if="item.end_time && item.is_complete !== 1" class="text-orange-500">{{ getTimeDifferenceText(item.end_time) }}</span>
-                <span>{{ formatDate(item.create_time) }}</span>
-              </div> 
-            </div>
-          </div>
-          <!-- 关联衣物 紧凑 -->
-          <div
-            v-if="getWardrobeClothes(item)"
-            @click="jumpToClothes(getWardrobeClothes(item))"
-            class="mt-1 flex items-center gap-2 py-1 px-2 bg-gray-50 dark:bg-gray-900 rounded cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800"
-          >
-            <div class="w-6 h-6 rounded-full overflow-hidden flex-shrink-0">
-              <img
-                :src="`${BASE_IMG}${getWardrobeClothes(item)?.clothes_img || ''}${getImageParams()}`"
-                class="w-full h-full object-cover"
-                loading="lazy"
-              />
-            </div>
-            <span class="text-xs text-gray-600 dark:text-gray-400 truncate">{{ getWardrobeClothes(item)?.clothes_note }}</span>
-          </div>
-          <!-- 子计划 -->
-          <div
-            v-if="hasChildren(item) && isExpanded(item.list_id)"
-            class="ml-4 pb-2 pr-2 border-l-2 border-blue-200 dark:border-blue-800 pl-3 space-y-1"
-          >
-            <div
-              v-for="child in item.plan_list"
-              :key="child.list_id"
-              class="flex items-center justify-between py-1.5 px-2 bg-gray-50 dark:bg-gray-900 rounded text-xs"
-            >
-              <div class="flex items-center gap-2 flex-1 min-w-0">
-                <div class="w-0.5 h-4 bg-blue-400 rounded flex-shrink-0"></div>
-                <span class="font-medium">￥{{ formatMoney(child.need_money || 0) }}</span>
-                <span v-if="child.plan_note" class="text-gray-500 truncate">{{ child.plan_note }}</span>
-                <span v-if="child.end_time" class="text-gray-400">{{ formatDate(child.end_time) }}</span>
-              </div>
-              <button
-                v-if="child.is_complete !== 1"
-                @click="confirmCompletePlan(child.list_id)"
-                class="px-2 py-0.5 text-xs bg-qhx-primary text-white rounded flex-shrink-0"
-              >
-                完成
-              </button>
-              <span v-else class="text-gray-400 text-xs flex-shrink-0">已完成</span>
-            </div>
-          </div>
-        </div>
+    <!-- 计划列表（全部视图） -->
+    <div v-if="layoutReady && viewMode === 'all'" class="space-y-2">
+      <div v-for="item in planList" :key="item.list_id" class="px-1">
+        <PlanListItem
+          :item="item"
+          variant="full"
+          :add-loading="addLoading"
+          :has-children="hasChildren(item)"
+          :is-expanded="isExpanded(item.list_id)"
+          :wardrobe-clothes="getWardrobeClothes(item)"
+          :image-params="getImageParams()"
+          @cover="showCover"
+          @edit="editPlan"
+          @delete="confirmDeletePlan"
+          @complete="confirmCompletePlan"
+          @toggle-expand="toggleExpand"
+          @click="handlePlanClick"
+          @add-money="addHaveMoney(item.list_id, $event)"
+          @link-clothes="openClothesChoose(item)"
+          @unlink-clothes="handleUnlinkClothes(item)"
+          @jump-clothes="jumpToClothes"
+        />
       </div>
       
       <!-- 加载更多 -->
@@ -273,6 +150,249 @@
       </div>
     </div>
 
+    <!-- 按月视图 -->
+    <div v-if="layoutReady && viewMode === 'month'" class="space-y-2">
+      <!-- 年份切换 -->
+      <div class="flex items-center gap-2 mb-3 px-1">
+        <button
+          type="button"
+          class="w-8 h-8 flex items-center justify-center rounded-lg bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600"
+          @click="yearSelect = yearSelect - 1; fetchYearTotal()"
+        >
+          <UIcon name="i-heroicons-chevron-left" class="w-4 h-4 text-gray-600 dark:text-gray-400" />
+        </button>
+        <span class="text-sm font-semibold text-gray-800 dark:text-gray-200 min-w-[60px] text-center">{{ yearSelect }}年</span>
+        <button
+          type="button"
+          class="w-8 h-8 flex items-center justify-center rounded-lg bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600"
+          @click="yearSelect = yearSelect + 1; fetchYearTotal()"
+        >
+          <UIcon name="i-heroicons-chevron-right" class="w-4 h-4 text-gray-600 dark:text-gray-400" />
+        </button>
+      </div>
+      <!-- 月度汇总：12个月按块分布，无数据补0 -->
+      <div v-if="monthTotalLoading" class="text-center py-8 text-gray-400 dark:text-gray-500 text-sm">加载中...</div>
+      <div v-else class="space-y-2">
+        <!-- 第一行 1-4 月 -->
+        <div class="grid grid-cols-4 gap-2">
+          <button
+            v-for="m in all12Months.slice(0, 4)"
+            :key="m.month"
+            type="button"
+            class="px-2 py-2.5 flex flex-col items-center gap-0.5 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700/50 active:scale-[0.98] transition-all text-center"
+            :class="{ 'ring-2 ring-qhx-primary border-qhx-primary': expandedMonth === m.month }"
+            @click="toggleMonthExpand(m.month)"
+          >
+            <span class="text-xs text-gray-500 dark:text-gray-400">{{ m.month }}月</span>
+            <span class="text-sm font-semibold tabular-nums" :class="m.total_money > 0 ? 'text-qhx-primary' : 'text-gray-400 dark:text-gray-500'">￥{{ formatMoney(m.total_money) }}</span>
+            <UIcon :name="expandedMonth === m.month ? 'i-heroicons-chevron-down' : 'i-heroicons-chevron-right'" class="w-3.5 h-3.5 text-gray-400 mt-0.5" />
+          </button>
+        </div>
+        <!-- 第一行与第二行之间：1-4 月 -->
+        <div
+          class="month-slot grid overflow-hidden"
+          :style="{ gridTemplateRows: slot1Expanded ? '1fr' : '0fr' }"
+          @transitionend.self="onSlotTransitionEnd(1)"
+        >
+          <div class="min-h-0 overflow-hidden">
+            <div v-if="displayMonthSlot1 !== null" class="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+              <div class="px-3 py-2 border-b border-gray-200 dark:border-gray-700 text-sm font-medium text-gray-800 dark:text-gray-200">{{ yearSelect }}年{{ displayMonthSlot1 }}月 计划列表</div>
+              <div class="px-3 py-2">
+                <div v-if="monthPlanLoading[displayMonthSlot1]" class="text-center py-6 text-gray-400 text-xs">加载中...</div>
+                <div v-else-if="monthPlanList[displayMonthSlot1]?.length === 0" class="text-center py-6 text-gray-400 text-xs">暂无计划</div>
+                <div v-else class="space-y-1.5">
+                  <PlanListItem
+                    v-for="item in monthPlanList[displayMonthSlot1]"
+                    :key="item.list_id"
+                    :item="item"
+                    variant="compact"
+                    :add-loading="addLoading"
+                    :wardrobe-clothes="getWardrobeClothes(item)"
+                    :image-params="getImageParams()"
+                    @cover="showCover"
+                    @delete="confirmDeletePlan"
+                    @complete="confirmCompletePlan"
+                    @add-money="addHaveMoney(item.list_id, $event)"
+                    @jump-clothes="jumpToClothes"
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 第二行 5-8 月 -->
+        <div class="grid grid-cols-4 gap-2">
+          <button
+            v-for="m in all12Months.slice(4, 8)"
+            :key="m.month"
+            type="button"
+            class="px-2 py-2.5 flex flex-col items-center gap-0.5 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700/50 active:scale-[0.98] transition-all text-center"
+            :class="{ 'ring-2 ring-qhx-primary border-qhx-primary': expandedMonth === m.month }"
+            @click="toggleMonthExpand(m.month)"
+          >
+            <span class="text-xs text-gray-500 dark:text-gray-400">{{ m.month }}月</span>
+            <span class="text-sm font-semibold tabular-nums" :class="m.total_money > 0 ? 'text-qhx-primary' : 'text-gray-400 dark:text-gray-500'">￥{{ formatMoney(m.total_money) }}</span>
+            <UIcon :name="expandedMonth === m.month ? 'i-heroicons-chevron-down' : 'i-heroicons-chevron-right'" class="w-3.5 h-3.5 text-gray-400 mt-0.5" />
+          </button>
+        </div>
+        <!-- 第二行与第三行之间：5-8 月 -->
+        <div
+          class="month-slot grid overflow-hidden"
+          :style="{ gridTemplateRows: slot2Expanded ? '1fr' : '0fr' }"
+          @transitionend.self="onSlotTransitionEnd(2)"
+        >
+          <div class="min-h-0 overflow-hidden">
+            <div v-if="displayMonthSlot2 !== null" class="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+              <div class="px-3 py-2 border-b border-gray-200 dark:border-gray-700 text-sm font-medium text-gray-800 dark:text-gray-200">{{ yearSelect }}年{{ displayMonthSlot2 }}月 计划列表</div>
+              <div class="px-3 py-2">
+                <div v-if="monthPlanLoading[displayMonthSlot2]" class="text-center py-6 text-gray-400 text-xs">加载中...</div>
+                <div v-else-if="monthPlanList[displayMonthSlot2]?.length === 0" class="text-center py-6 text-gray-400 text-xs">暂无计划</div>
+                <div v-else class="space-y-1.5">
+                  <PlanListItem
+                    v-for="item in monthPlanList[displayMonthSlot2]"
+                    :key="item.list_id"
+                    :item="item"
+                    variant="compact"
+                    :add-loading="addLoading"
+                    :wardrobe-clothes="getWardrobeClothes(item)"
+                    :image-params="getImageParams()"
+                    @cover="showCover"
+                    @delete="confirmDeletePlan"
+                    @complete="confirmCompletePlan"
+                    @add-money="addHaveMoney(item.list_id, $event)"
+                    @jump-clothes="jumpToClothes"
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 第三行 9-12 月 -->
+        <div class="grid grid-cols-4 gap-2">
+          <button
+            v-for="m in all12Months.slice(8, 12)"
+            :key="m.month"
+            type="button"
+            class="px-2 py-2.5 flex flex-col items-center gap-0.5 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700/50 active:scale-[0.98] transition-all text-center"
+            :class="{ 'ring-2 ring-qhx-primary border-qhx-primary': expandedMonth === m.month }"
+            @click="toggleMonthExpand(m.month)"
+          >
+            <span class="text-xs text-gray-500 dark:text-gray-400">{{ m.month }}月</span>
+            <span class="text-sm font-semibold tabular-nums" :class="m.total_money > 0 ? 'text-qhx-primary' : 'text-gray-400 dark:text-gray-500'">￥{{ formatMoney(m.total_money) }}</span>
+            <UIcon :name="expandedMonth === m.month ? 'i-heroicons-chevron-down' : 'i-heroicons-chevron-right'" class="w-3.5 h-3.5 text-gray-400 mt-0.5" />
+          </button>
+        </div>
+        <!-- 第三行下方：9-12 月 -->
+        <div
+          class="month-slot grid overflow-hidden"
+          :style="{ gridTemplateRows: slot3Expanded ? '1fr' : '0fr' }"
+          @transitionend.self="onSlotTransitionEnd(3)"
+        >
+          <div class="min-h-0 overflow-hidden">
+            <div v-if="displayMonthSlot3 !== null" class="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+              <div class="px-3 py-2 border-b border-gray-200 dark:border-gray-700 text-sm font-medium text-gray-800 dark:text-gray-200">{{ yearSelect }}年{{ displayMonthSlot3 }}月 计划列表</div>
+              <div class="px-3 py-2">
+                <div v-if="monthPlanLoading[displayMonthSlot3]" class="text-center py-6 text-gray-400 text-xs">加载中...</div>
+                <div v-else-if="monthPlanList[displayMonthSlot3]?.length === 0" class="text-center py-6 text-gray-400 text-xs">暂无计划</div>
+                <div v-else class="space-y-1.5">
+                  <PlanListItem
+                    v-for="item in monthPlanList[displayMonthSlot3]"
+                    :key="item.list_id"
+                    :item="item"
+                    variant="compact"
+                    :add-loading="addLoading"
+                    :wardrobe-clothes="getWardrobeClothes(item)"
+                    :image-params="getImageParams()"
+                    @cover="showCover"
+                    @delete="confirmDeletePlan"
+                    @complete="confirmCompletePlan"
+                    @add-money="addHaveMoney(item.list_id, $event)"
+                    @jump-clothes="jumpToClothes"
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 按日视图 -->
+    <div v-if="layoutReady && viewMode === 'day'" class="space-y-2">
+      <!-- 年月切换 -->
+      <div class="flex items-center gap-2 mb-3 px-1 flex-wrap">
+        <div class="flex items-center gap-1">
+          <button type="button" class="w-8 h-8 flex items-center justify-center rounded-lg bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600" @click="yearSelect = yearSelect - 1; fetchDayTotal()">
+            <UIcon name="i-heroicons-chevron-left" class="w-4 h-4 text-gray-600 dark:text-gray-400" />
+          </button>
+          <span class="text-sm font-semibold text-gray-800 dark:text-gray-200 min-w-[50px] text-center">{{ yearSelect }}年</span>
+          <button type="button" class="w-8 h-8 flex items-center justify-center rounded-lg bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600" @click="yearSelect = yearSelect + 1; fetchDayTotal()">
+            <UIcon name="i-heroicons-chevron-right" class="w-4 h-4 text-gray-600 dark:text-gray-400" />
+          </button>
+        </div>
+        <div class="flex items-center gap-1">
+          <button type="button" class="w-8 h-8 flex items-center justify-center rounded-lg bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600" @click="dayMonthSelect = Math.max(1, dayMonthSelect - 1); fetchDayTotal()">
+            <UIcon name="i-heroicons-chevron-left" class="w-4 h-4 text-gray-600 dark:text-gray-400" />
+          </button>
+          <span class="text-sm font-semibold text-gray-800 dark:text-gray-200 min-w-[40px] text-center">{{ dayMonthSelect }}月</span>
+          <button type="button" class="w-8 h-8 flex items-center justify-center rounded-lg bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600" @click="dayMonthSelect = Math.min(12, dayMonthSelect + 1); fetchDayTotal()">
+            <UIcon name="i-heroicons-chevron-right" class="w-4 h-4 text-gray-600 dark:text-gray-400" />
+          </button>
+        </div>
+      </div>
+      <!-- 日块：7 列网格 -->
+      <div v-if="dayTotalLoading" class="text-center py-8 text-gray-400 dark:text-gray-500 text-sm">加载中...</div>
+      <div v-else class="space-y-2">
+        <div class="grid grid-cols-7 gap-1.5">
+          <button
+            v-for="d in allDaysInMonth"
+            :key="d.day"
+            type="button"
+            class="px-1 py-2 flex flex-col items-center gap-0.5 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700/50 active:scale-[0.98] transition-all text-center min-w-0"
+            :class="{ 'ring-2 ring-qhx-primary border-qhx-primary': expandedDay === d.day || collapsingDay === d.day }"
+            @click="toggleDayExpand(d.day)"
+          >
+            <span class="text-xs text-gray-500 dark:text-gray-400">{{ d.day }}日</span>
+            <span class="text-xs font-semibold tabular-nums truncate w-full" :class="d.total_money > 0 ? 'text-qhx-primary' : 'text-gray-400 dark:text-gray-500'">￥{{ formatMoney(d.total_money) }}</span>
+          </button>
+        </div>
+        <!-- 占满整行的日计划列表 -->
+        <div
+          class="month-slot grid overflow-hidden"
+          :style="{ gridTemplateRows: daySlotExpanded ? '1fr' : '0fr' }"
+          @transitionend.self="onDaySlotTransitionEnd"
+        >
+          <div class="min-h-0 overflow-hidden">
+            <div v-if="displayDay !== null" class="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+              <div class="px-3 py-2 border-b border-gray-200 dark:border-gray-700 text-sm font-medium text-gray-800 dark:text-gray-200">{{ yearSelect }}年{{ dayMonthSelect }}月{{ displayDay }}日 计划列表</div>
+              <div class="px-3 py-2">
+                <div v-if="monthPlanLoading[dayMonthSelect]" class="text-center py-6 text-gray-400 text-xs">加载中...</div>
+                <div v-else-if="plansForExpandedDay.length === 0" class="text-center py-6 text-gray-400 text-xs">暂无计划</div>
+                <div v-else class="space-y-1.5">
+                  <PlanListItem
+                    v-for="item in plansForExpandedDay"
+                    :key="item.list_id"
+                    :item="item"
+                    variant="compact"
+                    :add-loading="addLoading"
+                    :wardrobe-clothes="getWardrobeClothes(item)"
+                    :image-params="getImageParams()"
+                    @cover="showCover"
+                    @delete="confirmDeletePlan"
+                    @complete="confirmCompletePlan"
+                    @add-money="addHaveMoney(item.list_id, $event)"
+                    @jump-clothes="jumpToClothes"
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- 空状态 -->
     <div v-if="!layoutReady" class="text-center py-12">
       <div class="text-gray-400 dark:text-gray-500">加载中...</div>
@@ -284,6 +404,8 @@
     ref="planAddEditRef"
     :plan-list="editPlanData"
     @success="handlePlanSuccess"
+    @insert="handlePlanSuccess"
+    @edit="handlePlanSuccess"
   />
   
   <!-- 删除确认弹窗 -->
@@ -336,11 +458,14 @@
     :user="userStore.user"
     @success="handleEmailBindSuccess"
   />
+
+  <!-- 选择衣柜服饰弹框 -->
+  <WardrobeClothesChoose ref="wardrobeClothesChooseRef" @choose="handleClothesChoose" />
 </template>
 
 <script setup lang="ts">
 import { ref, inject, computed, onMounted, watch, nextTick } from 'vue'
-import { getPlanList, deletePlanList, updatePlanMoney, planComplete } from '@/api/plan'
+import { getPlanList, getPlanListByMonth, getPlanTotalByYear, getPlanTotalByDay, deletePlanList, updatePlanMoney, planComplete, planListRelate } from '@/api/plan'
 import type { PlanList, PaginationResponse, WardrobeClothes } from '@/types/api'
 import type PlanAddEdit from '@/components/Plan/PlanAddEdit.vue'
 import { BASE_IMG } from '@/utils/ipConfig'
@@ -349,6 +474,9 @@ import { useUserStore } from '@/stores/user'
 import { useConfigStore } from '@/stores/config'
 import QhxPreviewImage from '@/components/Qhx/PreviewImage.vue'
 import EmailBindModal from '@/components/user/EmailBindModal.vue'
+// biome-ignore lint/style/useImportType: 组件在 template 中使用
+import WardrobeClothesChoose from '@/components/Wardrobe/WardrobeClothesChoose.vue'
+import PlanListItem from '@/components/Plan/PlanListItem.vue'
 
 // 禁用 SSR
 definePageMeta({
@@ -357,12 +485,101 @@ definePageMeta({
 
 const layoutReady = inject('layoutReady') as Ref<boolean>
 const planAddEditRef = ref<InstanceType<typeof PlanAddEdit> | null>(null)
+const wardrobeClothesChooseRef = ref<InstanceType<typeof WardrobeClothesChoose> | null>(null)
 const userStore = useUserStore()
 const configStore = useConfigStore()
 const toast = useToast()
 
+// 视图模式：全部 | 按月 | 按日
+const viewMode = ref<'all' | 'month' | 'day'>('all')
+
+// 按月视图相关
+const yearSelect = ref(new Date().getFullYear())
+const monthTotals = ref<{ month: number; total_money: number }[]>([])
+const monthTotalLoading = ref(false)
+const expandedMonth = ref<number | null>(null)
+const collapsingMonth = ref<number | null>(null) // 收起动画进行中时保留的月份
+const slotCollapsing = ref<number | null>(null) // 1|2|3 表示哪个 slot 正在收起
+const monthPlanList = ref<Record<number, PlanList[]>>({})
+const monthPlanLoading = ref<Record<number, boolean>>({})
+// 12个月块分布，无数据补0
+const all12Months = computed(() => {
+  const map = Object.fromEntries(monthTotals.value.map((m) => [m.month, m.total_money]))
+  return Array.from({ length: 12 }, (_, i) => ({
+    month: i + 1,
+    total_money: map[i + 1] ?? 0
+  }))
+})
+
+// 各 slot 要显示的月份（展开优先，收起动画时用 collapsingMonth）
+const displayMonthSlot1 = computed(() => {
+  if (expandedMonth.value !== null && expandedMonth.value <= 4) return expandedMonth.value
+  if (collapsingMonth.value !== null && collapsingMonth.value <= 4) return collapsingMonth.value
+  return null
+})
+const displayMonthSlot2 = computed(() => {
+  if (expandedMonth.value !== null && expandedMonth.value >= 5 && expandedMonth.value <= 8) return expandedMonth.value
+  if (collapsingMonth.value !== null && collapsingMonth.value >= 5 && collapsingMonth.value <= 8) return collapsingMonth.value
+  return null
+})
+const displayMonthSlot3 = computed(() => {
+  if (expandedMonth.value !== null && expandedMonth.value >= 9) return expandedMonth.value
+  if (collapsingMonth.value !== null && collapsingMonth.value >= 9) return collapsingMonth.value
+  return null
+})
+
+// 各 slot 的 grid 是否展开（1=展开 0=收起）
+const slot1Expanded = computed(() => {
+  const inRange = expandedMonth.value !== null && expandedMonth.value <= 4
+  const collapsingInRange = collapsingMonth.value !== null && collapsingMonth.value <= 4 && slotCollapsing.value !== 1
+  return inRange || collapsingInRange
+})
+const slot2Expanded = computed(() => {
+  const inRange = expandedMonth.value !== null && expandedMonth.value >= 5 && expandedMonth.value <= 8
+  const collapsingInRange = collapsingMonth.value !== null && collapsingMonth.value >= 5 && collapsingMonth.value <= 8 && slotCollapsing.value !== 2
+  return inRange || collapsingInRange
+})
+const slot3Expanded = computed(() => {
+  const inRange = expandedMonth.value !== null && expandedMonth.value >= 9
+  const collapsingInRange = collapsingMonth.value !== null && collapsingMonth.value >= 9 && slotCollapsing.value !== 3
+  return inRange || collapsingInRange
+})
+
+// 按日视图相关
+const dayMonthSelect = ref(new Date().getMonth() + 1)
+const dayTotals = ref<{ day: number; total_money: number }[]>([])
+const dayTotalLoading = ref(false)
+const expandedDay = ref<number | null>(null)
+const collapsingDay = ref<number | null>(null)
+const daySlotForceCollapse = ref(false)
+
+const daysInCurrentMonth = computed(() => new Date(yearSelect.value, dayMonthSelect.value, 0).getDate())
+
+const allDaysInMonth = computed(() => {
+  const map = Object.fromEntries(dayTotals.value.map((d) => [d.day, d.total_money]))
+  return Array.from({ length: daysInCurrentMonth.value }, (_, i) => ({
+    day: i + 1,
+    total_money: map[i + 1] ?? 0
+  }))
+})
+
+const displayDay = computed(() => expandedDay.value ?? collapsingDay.value)
+const daySlotExpanded = computed(
+  () => (expandedDay.value !== null) || (collapsingDay.value !== null && !daySlotForceCollapse.value)
+)
+
+const plansForExpandedDay = computed(() => {
+  const day = displayDay.value
+  const month = dayMonthSelect.value
+  if (day === null || !monthPlanList.value[month]) return []
+  return monthPlanList.value[month].filter((p) => {
+    if (!p.end_time) return false
+    return dayjs(p.end_time).date() === day
+  })
+})
+
 // 计划列表数据
-const planList = ref<(PlanList & { show_add?: boolean; add_money?: number | null })[]>([])
+const planList = ref<PlanList[]>([])
 const page = ref(1)
 const pageSize = ref(20)
 const total = ref(0)
@@ -391,6 +608,10 @@ const completeLoading = ref(false)
 
 // 添加金额相关
 const addLoading = ref(false)
+
+// 关联服饰相关
+const planForClothes = ref<PlanList | null>(null)
+const linkClothesLoading = ref(false)
 
 // 封面预览
 const coverPreview = ref<string[]>([])
@@ -549,15 +770,8 @@ const fetchPlanList = async (isLoadMore = false) => {
       pageSize: pageSize.value
     })
     
-    // 处理返回数据，添加 show_add 和 add_money 字段
-    const processedRows = response.rows.map((plan: PlanList) => ({
-      ...plan,
-      show_add: false,
-      add_money: null as number | null
-    }))
-    
     // 只显示顶级计划（parent_id 为空或0的计划）
-    const topLevelPlans = processedRows.filter((plan: PlanList) => !plan.parent_id || plan.parent_id === 0)
+    const topLevelPlans = response.rows.filter((plan: PlanList) => !plan.parent_id || plan.parent_id === 0)
     
     // 如果有子计划，默认展开
     for (const plan of topLevelPlans) {
@@ -597,6 +811,108 @@ const fetchPlanList = async (isLoadMore = false) => {
 const loadMore = () => {
   if (hasMore.value && !isLoading.value && !isLoadingMore.value) {
     fetchPlanList(true)
+  }
+}
+
+// 按年汇总（月度）
+const fetchYearTotal = async () => {
+  monthTotalLoading.value = true
+  try {
+    monthTotals.value = await getPlanTotalByYear({ year: yearSelect.value })
+    expandedMonth.value = null
+    monthPlanList.value = {}
+  } catch (error) {
+    console.error('获取年度汇总失败:', error)
+    toast.add({ title: '获取年度汇总失败', icon: 'i-heroicons-exclamation-circle', color: 'red' })
+  } finally {
+    monthTotalLoading.value = false
+  }
+}
+
+// 切换月份展开
+const getSlotForMonth = (m: number) => (m <= 4 ? 1 : m <= 8 ? 2 : 3)
+
+const onSlotTransitionEnd = (slot: number) => {
+  if (slotCollapsing.value === slot) {
+    collapsingMonth.value = null
+    slotCollapsing.value = null
+  }
+}
+
+const toggleMonthExpand = async (month: number) => {
+  if (expandedMonth.value === month) {
+    collapsingMonth.value = month
+    expandedMonth.value = null
+    await nextTick()
+    slotCollapsing.value = getSlotForMonth(month)
+    return
+  }
+  if (expandedMonth.value !== null) {
+    collapsingMonth.value = expandedMonth.value
+    await nextTick()
+    slotCollapsing.value = collapsingMonth.value !== null ? getSlotForMonth(collapsingMonth.value) : null
+  }
+  expandedMonth.value = month
+  dayMonthSelect.value = month
+  if (!monthPlanList.value[month]) {
+    monthPlanLoading.value = { ...monthPlanLoading.value, [month]: true }
+    try {
+      const list = await getPlanListByMonth({ year: yearSelect.value, month })
+      monthPlanList.value = { ...monthPlanList.value, [month]: list }
+    } catch (error) {
+      console.error('获取月度计划失败:', error)
+      toast.add({ title: '获取月度计划失败', icon: 'i-heroicons-exclamation-circle', color: 'red' })
+    } finally {
+      monthPlanLoading.value = { ...monthPlanLoading.value, [month]: false }
+    }
+  }
+}
+
+// 按日视图
+const fetchDayTotal = async () => {
+  dayTotalLoading.value = true
+  try {
+    dayTotals.value = await getPlanTotalByDay({ year: yearSelect.value, month: dayMonthSelect.value })
+    expandedDay.value = null
+    collapsingDay.value = null
+  } catch (error) {
+    console.error('获取日度汇总失败:', error)
+    toast.add({ title: '获取日度汇总失败', icon: 'i-heroicons-exclamation-circle', color: 'red' })
+  } finally {
+    dayTotalLoading.value = false
+  }
+}
+
+const toggleDayExpand = async (day: number) => {
+  if (expandedDay.value === day) {
+    collapsingDay.value = day
+    expandedDay.value = null
+    await nextTick()
+    daySlotForceCollapse.value = true
+    return
+  }
+  collapsingDay.value = null
+  daySlotForceCollapse.value = false
+  expandedDay.value = day
+  const month = dayMonthSelect.value
+  if (!monthPlanList.value[month]) {
+    monthPlanLoading.value = { ...monthPlanLoading.value, [month]: true }
+    try {
+      const list = await getPlanListByMonth({ year: yearSelect.value, month })
+      monthPlanList.value = { ...monthPlanList.value, [month]: list }
+    } catch (error) {
+      console.error('获取月度计划失败:', error)
+      toast.add({ title: '获取月度计划失败', icon: 'i-heroicons-exclamation-circle', color: 'red' })
+    } finally {
+      monthPlanLoading.value = { ...monthPlanLoading.value, [month]: false }
+    }
+  }
+}
+
+const onDaySlotTransitionEnd = () => {
+  if (collapsingDay.value !== null) {
+    collapsingDay.value = null
+    daySlotForceCollapse.value = false
   }
 }
 
@@ -660,6 +976,12 @@ const handleDelete = async () => {
     deleteModal.value = false
     deleteId.value = null
     fetchPlanList()
+    if (viewMode.value === 'month' && expandedMonth.value) {
+      refreshMonthPlans(expandedMonth.value)
+    }
+    if (viewMode.value === 'day' && expandedDay.value !== null) {
+      refreshMonthPlans(dayMonthSelect.value)
+    }
   } catch (error) {
     console.error('删除计划失败:', error)
     toast.add({
@@ -694,6 +1016,12 @@ const handleComplete = async () => {
     completeModal.value = false
     completeId.value = null
     fetchPlanList()
+    if (viewMode.value === 'month' && expandedMonth.value) {
+      refreshMonthPlans(expandedMonth.value)
+    }
+    if (viewMode.value === 'day' && expandedDay.value !== null) {
+      refreshMonthPlans(dayMonthSelect.value)
+    }
   } catch (error) {
     console.error('完成计划失败:', error)
     toast.add({
@@ -706,11 +1034,10 @@ const handleComplete = async () => {
   }
 }
 
-// 添加金额
-const addHaveMoney = async (id: number | undefined, money: number | null | undefined) => {
-  if (!id || !money || addLoading.value) return
-  
-  if (!money || money <= 0) {
+// 添加/减少金额（money 为正加、为负减）
+const addHaveMoney = async (id: number | undefined, money: number) => {
+  if (!id || addLoading.value) return
+  if (!money || money === 0) {
     toast.add({
       title: '请输入有效金额',
       icon: 'i-heroicons-exclamation-circle',
@@ -718,24 +1045,23 @@ const addHaveMoney = async (id: number | undefined, money: number | null | undef
     })
     return
   }
-  
+
   addLoading.value = true
   try {
     await updatePlanMoney({ list_id: id, add_money: money })
     toast.add({
-      title: '添加成功',
+      title: money > 0 ? '添加成功' : '减少成功',
       icon: 'i-heroicons-check-circle',
       color: 'green'
     })
-    
-    // 关闭添加面板
-    const plan = planList.value.find(p => p.list_id === id)
-    if (plan) {
-      plan.show_add = false
-      plan.add_money = null
-    }
-    
+
     fetchPlanList()
+    if (viewMode.value === 'month' && expandedMonth.value) {
+      refreshMonthPlans(expandedMonth.value)
+    }
+    if (viewMode.value === 'day' && expandedDay.value !== null) {
+      refreshMonthPlans(dayMonthSelect.value)
+    }
   } catch (error) {
     console.error('添加金额失败:', error)
     toast.add({
@@ -772,6 +1098,74 @@ const getImageParams = () => {
   return configStore.config?.image_params || ''
 }
 
+// 打开选择服饰弹框
+const openClothesChoose = (item: PlanList) => {
+  planForClothes.value = item
+  wardrobeClothesChooseRef.value?.showModel()
+}
+
+// 选择服饰后关联
+const handleClothesChoose = async (clothes: WardrobeClothes) => {
+  const plan = planForClothes.value
+  if (!plan?.list_id || !clothes?.clothes_id || linkClothesLoading.value) return
+  linkClothesLoading.value = true
+  try {
+    await planListRelate({ list_id: plan.list_id, clothes_id: clothes.clothes_id })
+    toast.add({
+      title: '关联成功',
+      icon: 'i-heroicons-check-circle',
+      color: 'green'
+    })
+    planForClothes.value = null
+    fetchPlanList()
+    if (viewMode.value === 'month' && expandedMonth.value) {
+      refreshMonthPlans(expandedMonth.value)
+    }
+    if (viewMode.value === 'day' && expandedDay.value !== null) {
+      refreshMonthPlans(dayMonthSelect.value)
+    }
+  } catch (error) {
+    console.error('关联失败:', error)
+    toast.add({
+      title: '关联失败',
+      icon: 'i-heroicons-exclamation-circle',
+      color: 'red'
+    })
+  } finally {
+    linkClothesLoading.value = false
+  }
+}
+
+// 取消关联服饰
+const handleUnlinkClothes = async (item: PlanList) => {
+  if (!item.list_id || linkClothesLoading.value) return
+  linkClothesLoading.value = true
+  try {
+    await planListRelate({ list_id: item.list_id, clothes_id: null })
+    toast.add({
+      title: '已取消关联',
+      icon: 'i-heroicons-check-circle',
+      color: 'green'
+    })
+    fetchPlanList()
+    if (viewMode.value === 'month' && expandedMonth.value) {
+      refreshMonthPlans(expandedMonth.value)
+    }
+    if (viewMode.value === 'day' && expandedDay.value !== null) {
+      refreshMonthPlans(dayMonthSelect.value)
+    }
+  } catch (error) {
+    console.error('取消关联失败:', error)
+    toast.add({
+      title: '取消关联失败',
+      icon: 'i-heroicons-exclamation-circle',
+      color: 'red'
+    })
+  } finally {
+    linkClothesLoading.value = false
+  }
+}
+
 // 获取关联衣物（处理类型）
 const getWardrobeClothes = (item: PlanList & { wardrobe_clothes?: WardrobeClothes | WardrobeClothes[] }): WardrobeClothes | undefined => {
   if (!item.wardrobe_clothes) return undefined
@@ -803,10 +1197,26 @@ const getTimeDifferenceText = (endTime: Date | string | undefined): string => {
   }
 }
 
+// 刷新某月计划列表
+const refreshMonthPlans = async (month: number) => {
+  try {
+    const list = await getPlanListByMonth({ year: yearSelect.value, month })
+    monthPlanList.value = { ...monthPlanList.value, [month]: list }
+  } catch {
+    monthPlanList.value = { ...monthPlanList.value, [month]: [] }
+  }
+}
+
 // 计划添加/编辑成功后的回调
 const handlePlanSuccess = () => {
   editPlanData.value = null
   fetchPlanList()
+  if (viewMode.value === 'month' && expandedMonth.value) {
+    refreshMonthPlans(expandedMonth.value)
+  }
+  if (viewMode.value === 'day' && expandedDay.value !== null) {
+    refreshMonthPlans(dayMonthSelect.value)
+  }
 }
 
 // 监听 user.message_config 变化，同步订阅邮件通知状态
@@ -868,5 +1278,10 @@ useHead({
   line-clamp: 1;
   -webkit-box-orient: vertical;
   overflow: hidden;
+}
+
+/* 月度列表 slot：grid-template-rows 实现高度动画，收起时下方块平滑上移 */
+.month-slot {
+  transition: grid-template-rows 0.35s cubic-bezier(0.32, 0.72, 0, 1);
 }
 </style>

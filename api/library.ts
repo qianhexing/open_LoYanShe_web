@@ -49,6 +49,23 @@ export async function getLibraryVideo(
   return response.data;
 }
 
+/** libraryVideo/list 接口参数 */
+export interface LibraryVideoListParams extends PaginationParams {
+  keywords?: string
+  create_time?: string
+  pk_type?: number
+}
+
+export async function getLibraryVideoList(
+  params: LibraryVideoListParams
+): Promise<PaginationResponse<LibraryVideo>> {
+  const response = await use$Post<BaseResponse<PaginationResponse<LibraryVideo>>>(
+    '/libraryVideo/list',
+    params
+  )
+  return response.data
+}
+
 export async function getLibraryVideoById(
   params: { video_id: number }
 ): Promise<LibraryVideo> {
@@ -207,6 +224,7 @@ interface PipeParams extends PaginationParams {
   examin?: number
   sort?: number
   filter_list?: FilterList[]
+  create_time?: string
 }
 export async function getLibraryPipeList(params: PipeParams): Promise<PaginationResponse<LibraryPipe>> {
   const response = await use$Post<BaseResponse<PaginationResponse<LibraryPipe>>>('/library/pipe/list', params)
