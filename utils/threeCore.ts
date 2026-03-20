@@ -44,7 +44,11 @@ import jsQR from 'jsqr'
 import { createGrid, updateGrid } from './Grid'
 // @ts-ignore - 高斯泼溅库缺少类型定义
 import * as GaussianSplats3D from '@mkkellogg/gaussian-splats-3d'
-import { SplatMesh, SplatFileType } from '@sparkjsdev/spark'
+import {
+	SplatMesh,
+	SplatFileType,
+	SparkRenderer
+} from '@sparkjsdev/spark'
 const grid = createGrid()
 export interface SceneEffectJSON {
 	type: 'animation' | 'effect' | 'timeline'
@@ -266,6 +270,14 @@ export interface SceneJSON {
 	}
 }
 
+/** 检测是否为移动设备（用于 Splat 等渲染优化） */
+function isMobileDevice(): boolean {
+	if (typeof navigator === 'undefined') return false
+	return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(
+		navigator.userAgent
+	)
+}
+
 interface ThreeCoreOptions {
 	antialias?: boolean
 	alpha?: boolean
@@ -279,6 +291,8 @@ interface ThreeCoreOptions {
 	editMode?: boolean
 	enableAR?: boolean
 	enableWebGPU?: boolean
+	/** 移动端优化：限制 pixelRatio、减少 overdraw，目标 45-60 FPS */
+	mobileOptimized?: boolean
 	/**
 	 * 控制器类型：
 	 * - 'orbit'：轨道控制器（默认）
@@ -374,6 +388,9 @@ class ThreeCore {
 
 	// 高斯泼溅
 	public splatViewer?: GaussianSplats3D.Viewer
+
+	/** 编辑模式下显示的相机视点标记（controls.target 位置） */
+	private editTargetMarker?: THREE.Mesh
 
 	// bloom
 	bloomLayer = new THREE.Layers()
@@ -1131,6 +1148,115 @@ class ThreeCore {
 		})
 		return mesh
 	}
+
+	/**
+	 * 创建编辑模式下的相机视点标记（橙色线框球，显示新增点将加在哪）
+	 */
+	private createEditTargetMarker() {
+		if (!this.scene || !this.controls) return
+		const geometry = new THREE.SphereGeometry(0.12, 16, 16)
+		const material = new THREE.MeshBasicMaterial({
+			color: 0xff6600,
+			wireframe: true,
+			transparent: true,
+			opacity: 0.9
+		})
+		const mesh = new THREE.Mesh(geometry, material)
+		mesh.userData.ignorePick = true
+		mesh.renderOrder = 99999
+		this.scene.add(mesh)
+		this.editTargetMarker = mesh
+	}
+
+	/**
+	 * 移除场景中的拉线点（通过 laxian_id，用于编辑模式）
+	 */
+	public removeLaxianById(laxianId: string | undefined): boolean {
+		if (!laxianId) return false
+		const idx = this.loadedLaxian.findIndex(
+			(l) => l.object?.userData?.laxian_id === laxianId || l.laxian_id === laxianId
+		)
+		if (idx < 0) return false
+		const item = this.loadedLaxian[idx]
+		if (item?.object) {
+			this.scene.remove(item.object)
+			if (item.object instanceof THREE.Mesh) {
+				item.object.geometry?.dispose()
+				;(item.object.material as THREE.Material)?.dispose?.()
+			}
+		}
+		this.loadedLaxian.splice(idx, 1)
+		return true
+	}
+
+	/**
+	 * 更新拉线点的标题、类型、镜头（用于编辑模式）
+	 */
+	public updateLaxianById(
+		laxianId: string | undefined,
+		updates: {
+			title?: string
+			type?: 0 | 1
+			camera?: { position: [number, number, number]; target: [number, number, number] }
+		}
+	): boolean {
+		if (!laxianId) return false
+		const item = this.loadedLaxian.find(
+			(l) => l.object?.userData?.laxian_id === laxianId || l.laxian_id === laxianId
+		)
+		if (!item?.object) return false
+		if (updates.title !== undefined) {
+			item.object.userData.title = updates.title
+			item.title = updates.title
+		}
+		if (updates.type !== undefined) {
+			item.object.userData.laxian_type = updates.type
+			item.laxian_type = updates.type
+		}
+		if (updates.camera !== undefined) {
+			item.object.userData.camera = updates.camera
+			item.camera = updates.camera
+		}
+		return true
+	}
+
+	/**
+	 * 动态添加拉线点到场景（用于编辑模式，避免全量重载）
+	 */
+	public async addLaxianToScene(item: {
+		position: [number, number, number]
+		title?: string
+		laxian_id?: string
+		type?: 0 | 1
+		camera?: { position: [number, number, number]; target: [number, number, number] }
+	}): Promise<THREE.Mesh | null> {
+		const obj: SceneObjectJSON = {
+			type: 'laxian',
+			position: item.position,
+			title: item.title || '新拉线点',
+			laxian_id: item.laxian_id,
+			laxian_type: item.type ?? 0,
+			camera: item.camera
+		}
+		const mesh = await this.createLaxian(obj)
+		mesh.position.set(...item.position)
+		// 编辑模式下放大可见，方便查看位置
+		const pointScale = this.editMode ? 0.1 : 0.001
+		mesh.scale.set(pointScale, pointScale, pointScale)
+		if (this.editMode && mesh instanceof THREE.Mesh && mesh.material) {
+			const mat = mesh.material as THREE.MeshStandardMaterial
+			mat.emissive = new THREE.Color('#00ff88')
+			mat.emissiveIntensity = 0.6
+		}
+		this.allObjects.push(mesh)
+		if (this.options.enableAR && this.arContentGroup) {
+			this.arContentGroup.add(mesh)
+		} else {
+			this.scene.add(mesh)
+		}
+		return mesh
+	}
+
 	public fitGaussianSplatCamera(
 		viewer: GaussianSplats3D.Viewer,
 		camera: THREE.PerspectiveCamera,
@@ -1989,6 +2115,7 @@ class ThreeCore {
 	 * 加载点云模型（Splat）
 	 * @param url 点云文件URL
 	 * @param options 加载选项
+	 * @param options.mobileOptimized 移动端优化预设：25k-40k splats、SH degree 1、降低 overdraw，目标 45-60 FPS
 	 * @returns Promise<THREE.Group> 包含点云模型的组
 	 */
 	public async loadSplat(
@@ -1997,13 +2124,20 @@ class ThreeCore {
 			fileType?: SplatFileType
 			maxSplats?: number
 			maxSh?: number
+			/** 移动端优化预设：限制 splats、SH1、中等高斯尺寸，目标稳定 45-60 FPS */
+			mobileOptimized?: boolean
 		} = {}
 	): Promise<THREE.Group> {
 		const {
 			fileType = SplatFileType.PLY,
-			maxSplats = 50000,
-			maxSh = 2
+			maxSplats: rawMaxSplats = 500000,
+			maxSh: rawMaxSh = 2,
+			mobileOptimized = false
 		} = options
+
+		// 移动端优化预设：25k-40k splats、SH degree 1、减少 overdraw、压缩格式
+		const maxSplats = mobileOptimized ? 40000 : rawMaxSplats
+		const maxSh = mobileOptimized ? 1 : rawMaxSh
 
 		try {
 			// 使用 Spark SplatMesh 加载点云模型
@@ -2013,10 +2147,11 @@ class ThreeCore {
 				maxSplats
 			})
 
-			// 配置点云属性
+			// 配置点云属性：SH degree 1 保持方向光照同时减少显存与计算
 			splatMesh.maxSh = maxSh
 			splatMesh.userData.type = 'splat'
 			splatMesh.userData.url = url
+			splatMesh.userData.mobileOptimized = mobileOptimized
 			splatMesh.castShadow = false
 			splatMesh.quaternion.set(1, 0, 0, 0)
 			splatMesh.receiveShadow = false
@@ -2067,7 +2202,13 @@ class ThreeCore {
 			})
 		}
 
-		this.renderer.setPixelRatio(this.options.pixelRatio || 1)
+		// 移动端优化：限制 pixelRatio 以减少 overdraw，目标 45-60 FPS
+		const rawPR = this.options.pixelRatio ?? window.devicePixelRatio ?? 1
+		const pixelRatio =
+			this.options.mobileOptimized || isMobileDevice()
+				? Math.min(rawPR, 2)
+				: rawPR
+		this.renderer.setPixelRatio(pixelRatio)
 
 		const width = this.container
 			? this.container.clientWidth
@@ -2104,6 +2245,26 @@ class ThreeCore {
 			this.rendererGPU.setSize(width, height)
 		}
 		console.log(this.renderer, '渲染器=======')
+
+		// 预置 SparkRenderer，配置高斯点云排序与渲染参数，解决旋转闪烁和模糊
+		// WebGL 渲染管线：antialias 对 Splat 无益且耗性能，Spark 建议关掉
+		// GPU 排序：sort32 使用 float32 双通道排序，避免整数精度导致闪烁
+		// Gaussian Splatting：sortRadial=false 用 Z-depth 更准确，focalAdjustment 改善模糊
+		const sparkRenderer = new SparkRenderer({
+			renderer: this.renderer,
+			view: {
+				sortRadial: false, // Z-depth 排序，与训练时一致，减少旋转闪烁
+				sort32: true, // float32 双通道排序，提升深度精度
+				sortDistance: 0.005, // 相机移动阈值，更频繁重排
+				sortCoorient: 0.9995, // 视角变化阈值，更敏感地触发重排
+				depthBias: 1.0
+			},
+			focalAdjustment: 1.2, // 略高于 1 可锐化投影，减轻模糊
+			maxStdDev: Math.sqrt(8) // 标准高斯截断，平衡质量与性能
+		})
+		// 伽马校色：encodeLinear=true 使 Splat 输出线性，与普通模型共用同一伽马管线，避免混合场景偏色
+		sparkRenderer.defaultView.encodeLinear = true
+		this.scene.add(sparkRenderer)
 		// this.container.appendChild(this.rendererGPU.domElement);
 	}
 	initOrbitControls() {
@@ -3289,16 +3450,11 @@ class ThreeCore {
 					obj.visible = false // 临时隐藏点云模型，避免在 Bloom 中渲染
 					// 确保矩阵已更新，避免渲染器在遍历时重新计算
 					obj.updateMatrixWorld(false)
-					// 更新点云模型（在隐藏状态下更新，避免影响渲染）
-					const viewToWorld = new THREE.Matrix4()
-					viewToWorld.multiplyMatrices(
-						this.camera.matrixWorldInverse,
-						obj.matrixWorld
-					)
-					viewToWorld.invert()
+					// 更新点云模型：viewToWorld 应为 camera.matrixWorld（视空间→世界空间）
+					// 错误使用 objectToView 的逆会导致排序闪烁
 					obj.update({
 						time: this.clock.getElapsedTime(),
-						viewToWorld: viewToWorld,
+						viewToWorld: this.camera.matrixWorld.clone(),
 						deltaTime: delta,
 						globalEdits: []
 					})
@@ -3371,6 +3527,7 @@ class ThreeCore {
 				// 如果有点云对象，跳过 Final Composer 渲染，直接使用原生渲染器（避免性能问题）
 				if (splatMeshes.length > 0) {
 					this.renderer.render(this.scene, this.camera)
+					this.finalComposer.render()
 				} else {
 					this.finalComposer.render()
 				}
@@ -3388,6 +3545,19 @@ class ThreeCore {
 			// 性能监控
 			if (this.stats) {
 				this.stats.update()
+			}
+
+			// 编辑模式：更新相机视点标记位置（方便查看新增点将加在哪里）
+			if (this.editMode && this.controls) {
+				if (!this.editTargetMarker) {
+					this.createEditTargetMarker()
+				}
+				if (this.editTargetMarker) {
+					this.editTargetMarker.position.copy(this.controls.target)
+					this.editTargetMarker.visible = true
+				}
+			} else if (this.editTargetMarker) {
+				this.editTargetMarker.visible = false
 			}
 
 			// 额外动画逻辑
@@ -3620,19 +3790,32 @@ class ThreeCore {
 		const camera = this.camera
 		if (!camera) return null
 
-		// 计算理想距离
+		// 计算理想距离（单点或极小物体时保证最小距离，避免镜头与点位重叠）
 		const fov = camera.fov * (Math.PI / 180)
-		const idealDistance = Math.abs(radius / Math.sin(fov / 2)) * 1.2
+		const minRadius = 0.5
+		const safeRadius = Math.max(radius, minRadius)
+		const idealDistance = Math.max(
+			Math.abs(safeRadius / Math.sin(fov / 2)) * 1.2,
+			minRadius * 3
+		)
 
 		// 计算目标位置方向 (从中心指向当前相机位置)
 		const direction = new THREE.Vector3()
 			.subVectors(camera.position, center)
-			.normalize()
+		const dirLen = direction.length()
+
+		// 相机与点位重叠或过近时，direction 会接近零向量，normalize 会产生 NaN 导致拉线左右位置计算错误
+		// 使用 fallback：沿 Z 轴正方向，确保镜头与目标点保持合理距离
+		if (dirLen < 1e-6) {
+			direction.set(0, 0, 1)
+		} else {
+			direction.normalize()
+		}
 
 		// 计算完整的目标位置
 		const fullTargetPosition = new THREE.Vector3()
 			.copy(center)
-			.add(direction.multiplyScalar(idealDistance))
+			.add(direction.clone().multiplyScalar(idealDistance))
 
 		// 使用lerp在当前位置和目标位置之间插值
 		const lerpedPosition = new THREE.Vector3()
@@ -3663,6 +3846,8 @@ class ThreeCore {
 		console.log(this.scene.children)
 		// biome-ignore lint: <就用forEach>
 		this.scene.children.forEach(obj => {
+			// 忽略视点标记球体（编辑模式用，不应保存）
+			if (obj === this.editTargetMarker) return
 			// 忽略灯光、摄像机等非 Mesh 类型
 			if (
 				!(obj instanceof THREE.Mesh) &&
@@ -4712,11 +4897,12 @@ class ThreeCore {
 				try {
 					const url = BASE_IMG + obj.url
 					
-					// 从 options 中获取配置，如果没有则使用默认值
+					// 从 options 中获取配置；mobileOptimized 启用移动端预设(25k-40k splats, SH1, 45-60 FPS)
 					const splatOptions = {
 						fileType: obj.options?.fileType || SplatFileType.PLY,
 						maxSplats: obj.options?.maxSplats || 50000,
-						maxSh: obj.options?.maxSh || 2
+						maxSh: obj.options?.maxSh || 2,
+						mobileOptimized: obj.options?.mobileOptimized ?? false
 					}
 
 					// 使用封装的 loadSplat 方法加载点云模型
@@ -4803,7 +4989,12 @@ class ThreeCore {
 					if (!this.editMode) {
 						mesh.scale.set(0.001, 0.001, 0.001)
 					} else {
-						mesh.scale.set(1, 1, 1)
+						mesh.scale.set(0.1, 0.1, 0.1)
+						if (mesh instanceof THREE.Mesh && mesh.material) {
+							const mat = mesh.material as THREE.MeshStandardMaterial
+							mat.emissive = new THREE.Color('#00ff88')
+							mat.emissiveIntensity = 0.6
+						}
 					}
 				}
 				if (renturGroup) {
@@ -4970,6 +5161,14 @@ class ThreeCore {
 				;(this.splatViewer as any).dispose()
 			}
 			this.splatViewer = undefined
+		}
+
+		// 清理编辑模式视点标记
+		if (this.editTargetMarker) {
+			this.editTargetMarker.geometry?.dispose()
+			;(this.editTargetMarker.material as THREE.Material)?.dispose?.()
+			this.scene?.remove(this.editTargetMarker)
+			this.editTargetMarker = undefined
 		}
 
 		// 清理场景

@@ -10,10 +10,13 @@ interface ExtendedWardrobeClothes extends WardrobeClothes {
   sence_id?: number
   image_list?: string[]
 }
-import { getClothesDetail, updateClothes, deteleClothes } from '@/api/wardrobe'
+import { getClothesDetail, updateClothes, deteleClothes, addClothesCitation } from '@/api/wardrobe'
+import { planComplete, deletePlanList } from '@/api/plan'
 import type ClothesAdd from '@/components/Clothes/ClothesAdd.vue'
+import PlanAddEdit from '@/components/Plan/PlanAddEdit.vue'
 import type QhxSelect from '@/components/Qhx/Select.vue'
 import type SceneChoose from '@/components/scene/SceneChoose.vue'
+import WardrobeClothesChoose from '@/components/Wardrobe/WardrobeClothesChoose.vue'
 import { BASE_IMG } from '@/utils/ipConfig'
 import PhysicsDrop from '@/components/PhysicsDrop.client.vue'
 import type { MaterialForeign, Material } from '@/types/api'
@@ -44,6 +47,14 @@ const showChooseCommunityModal = ref(false)
 const showDeleteCommunityModal = ref(false)
 const showSceneChooseModal = ref(false)
 const showRemoveSceneModal = ref(false)
+const showRemovePlanModal = ref(false)
+const showCompletePlanModal = ref(false)
+const completePlanListId = ref<number | null>(null)
+const showDeletePlanModal = ref(false)
+const planAddEditRef = ref<InstanceType<typeof PlanAddEdit> | null>(null)
+const planRemoveLoading = ref(false)
+const planCompleteLoading = ref(false)
+const planDeleteLoading = ref(false)
 const sceneChooseClickPosition = ref({ x: 0, y: 0 })
 const selectedClothes = ref<WardrobeClothes | null>(null)
 const selectedCommunity = ref<{ community_id: number;[key: string]: unknown } | null>(null)
@@ -55,6 +66,9 @@ const addEditClothesRef = ref<InstanceType<typeof ClothesAdd> | null>(null)
 const numSelectRef = ref<InstanceType<typeof QhxSelect> | null>(null)
 const timesSelectRef = ref<InstanceType<typeof QhxSelect> | null>(null)
 const SceneChooseRef = ref<InstanceType<typeof SceneChoose> | null>(null)
+const wardrobeClothesChooseRef = ref<InstanceType<typeof WardrobeClothesChoose> | null>(null)
+const linkClothesLoading = ref(false)
+const sharedLoading = ref(false)
 
 // 数字选择器选项
 const numOptions = Array.from({ length: 100 }, (_, i) => ({
@@ -121,6 +135,13 @@ const fetchClothesDetail = async () => {
 const isOwner = computed(() => {
   return detail.value?.wardrobe && detail.value.wardrobe.user_id === user.user?.user_id
 })
+
+// 是否共享（兼容 undefined/null/0）
+const isShared = computed(() => (detail.value?.is_shared ?? 0) === 1)
+
+// 共享时的赞数与引用数（确保为数字）
+const displayGoodCount = computed(() => Number(detail.value?.good_count) || 0)
+const displayCitationCount = computed(() => Number(detail.value?.citation_count) || 0)
 
 // 编辑服饰
 const editClothes = () => {
@@ -212,6 +233,26 @@ const setFavorite = async (is_favorite: number) => {
   }
 }
 
+// 设置是否共享（实时修改）
+const setShared = async (is_shared: number) => {
+  if (!detail.value || !isOwner.value || sharedLoading.value) return
+  sharedLoading.value = true
+  try {
+    await updateClothes({
+      clothes_id: detail.value.clothes_id,
+      is_shared
+    })
+    if (detail.value) {
+      detail.value.is_shared = is_shared
+    }
+    // 刷新详情以获取最新的 good_count、citation_count
+    await fetchClothesDetail()
+  } catch (error) {
+  } finally {
+    sharedLoading.value = false
+  }
+}
+
 // 更新数量
 const updateNum = async (num: number) => {
   if (!detail.value || !isOwner.value) return
@@ -298,6 +339,56 @@ const exchangeRate = (shop_country: number | undefined, price: number | undefine
 }
 
 // 预览图片（由 QhxPreviewImage 组件处理）
+
+// 打开关联服饰选择
+const openLinkClothesChoose = (e?: MouseEvent) => {
+  wardrobeClothesChooseRef.value?.showModel(e)
+}
+
+// 选择服饰后关联
+const handleLinkClothesChoose = async (clothes: WardrobeClothes) => {
+  if (!detail.value?.clothes_id || !clothes?.clothes_id || linkClothesLoading.value) return
+  if (clothes.clothes_id === detail.value.clothes_id) {
+    toast.add({ title: '不能关联自身', icon: 'i-heroicons-exclamation-circle', color: 'red' })
+    return
+  }
+  const currentInclude = detail.value.include_clothes ? detail.value.include_clothes.split(',') : []
+  if (currentInclude.includes(String(clothes.clothes_id))) {
+    toast.add({ title: '该服饰已关联', icon: 'i-heroicons-exclamation-circle', color: 'red' })
+    return
+  }
+  if (currentInclude.length >= 10) {
+    toast.add({ title: '最多关联10条', icon: 'i-heroicons-exclamation-circle', color: 'red' })
+    return
+  }
+  linkClothesLoading.value = true
+  try {
+    // 自身：新增选中的 clothes_id 到 include_clothes
+    const selfIncludeClothes = detail.value.include_clothes
+      ? `${detail.value.include_clothes},${clothes.clothes_id}`
+      : String(clothes.clothes_id)
+    await updateClothes({
+      clothes_id: detail.value.clothes_id,
+      include_clothes: selfIncludeClothes
+    })
+    // 被关联对象：新增当前 clothes_id 到其 include_clothes
+    const otherIncludeClothes = clothes.include_clothes
+      ? `${clothes.include_clothes},${detail.value.clothes_id}`
+      : String(detail.value.clothes_id)
+    await updateClothes({
+      clothes_id: clothes.clothes_id,
+      include_clothes: otherIncludeClothes
+    })
+    await fetchClothesDetail()
+    // 用户通过 include_clothes 引用他人服饰，增加被引用服饰的 citation_count
+    await addClothesCitation({ clothes_id: clothes.clothes_id }).catch(() => {})
+    toast.add({ title: '关联成功', icon: 'i-heroicons-check-circle', color: 'green' })
+  } catch (error) {
+    toast.add({ title: '关联失败', icon: 'i-heroicons-exclamation-circle', color: 'red' })
+  } finally {
+    linkClothesLoading.value = false
+  }
+}
 
 // 删除关联服饰
 const deleteLinkClothes = async () => {
@@ -576,11 +667,116 @@ const togglePhysicsDrop = () => {
     localStorage.setItem(PHYSICS_DROP_VISIBLE_KEY, String(isPhysicsDropVisible.value))
   }
 }
+
+// ---------- 计划相关逻辑（参考计划页面） ----------
+const getPlanListId = () => detail.value?.plan?.list_id ?? detail.value?.plan_id
+
+// 完成计划（主计划）
+const confirmCompletePlan = () => {
+  completePlanListId.value = getPlanListId() ?? null
+  showCompletePlanModal.value = true
+}
+
+// 完成子计划
+const confirmCompleteChildPlan = (child: { list_id?: number }) => {
+  if (!child?.list_id) return
+  completePlanListId.value = child.list_id
+  showCompletePlanModal.value = true
+}
+
+const handleCompletePlan = async () => {
+  const listId = completePlanListId.value ?? getPlanListId()
+  if (!listId) return
+  planCompleteLoading.value = true
+  try {
+    await planComplete({ list_id: listId })
+    toast.add({ title: '计划已完成', icon: 'i-heroicons-check-circle', color: 'green' })
+    showCompletePlanModal.value = false
+    completePlanListId.value = null
+    await fetchClothesDetail()
+  } catch (error) {
+    toast.add({ title: '完成失败', icon: 'i-heroicons-exclamation-circle', color: 'red' })
+  } finally {
+    planCompleteLoading.value = false
+  }
+}
+
+// 移除计划（取消服饰与计划的关联）
+const confirmRemovePlan = () => {
+  showRemovePlanModal.value = true
+}
+
+const handleRemovePlan = async () => {
+  if (!detail.value?.clothes_id) return
+  planRemoveLoading.value = true
+  try {
+    await updateClothes({ clothes_id: detail.value.clothes_id, plan_id: null })
+    toast.add({ title: '已移除计划', icon: 'i-heroicons-check-circle', color: 'green' })
+    showRemovePlanModal.value = false
+    await fetchClothesDetail()
+  } catch (error) {
+    toast.add({ title: '移除失败', icon: 'i-heroicons-exclamation-circle', color: 'red' })
+  } finally {
+    planRemoveLoading.value = false
+  }
+}
+
+// 删除计划（彻底删除计划，参考计划页面）
+const confirmDeletePlan = () => {
+  showDeletePlanModal.value = true
+}
+
+const handleDeletePlan = async () => {
+  const listId = getPlanListId()
+  if (!listId || !detail.value?.clothes_id) return
+  planDeleteLoading.value = true
+  try {
+    await deletePlanList({ list_id: listId })
+    await updateClothes({ clothes_id: detail.value.clothes_id, plan_id: null })
+    toast.add({ title: '删除成功', icon: 'i-heroicons-check-circle', color: 'green' })
+    showDeletePlanModal.value = false
+    await fetchClothesDetail()
+  } catch (error) {
+    toast.add({ title: '删除失败', icon: 'i-heroicons-exclamation-circle', color: 'red' })
+  } finally {
+    planDeleteLoading.value = false
+  }
+}
+
+// 添加计划
+const showAddPlan = (e?: MouseEvent) => {
+  planAddEditRef.value?.showModel(e)
+}
+
+const onPlanAddSuccess = async (data: { list_id?: number }) => {
+  if (!detail.value?.clothes_id || !data?.list_id) return
+  try {
+    await updateClothes({ clothes_id: detail.value.clothes_id, plan_id: data.list_id })
+    toast.add({ title: '关联计划成功', icon: 'i-heroicons-check-circle', color: 'green' })
+    await fetchClothesDetail()
+  } catch (error) {
+    toast.add({ title: '关联失败', icon: 'i-heroicons-exclamation-circle', color: 'red' })
+  }
+}
+
+// 编辑计划
+const showEditPlan = (e?: MouseEvent) => {
+  if (!detail.value?.plan) return
+  planAddEditRef.value?.showModel(e)
+}
 </script>
 
 <template>
   <div>
     <clothes-add ref="addEditClothesRef" @success="onEditSuccess"></clothes-add>
+    <PlanAddEdit
+      ref="planAddEditRef"
+      :plan-list="detail?.plan ?? null"
+      :initial-need-money="detail?.price ?? 0"
+      @insert="onPlanAddSuccess"
+      @updated="() => fetchClothesDetail()"
+    />
+    <WardrobeClothesChoose ref="wardrobeClothesChooseRef" @choose="handleLinkClothesChoose" />
 
     <!-- 有场景ID时的布局：全屏背景 + 可拖拽半模态框 -->
     <template v-if="detail && detail.sence_id">
@@ -591,7 +787,8 @@ const togglePhysicsDrop = () => {
       </div>
 
       <!-- 可拖拽的半模态框 -->
-      <QhxBottomDrawer :direction="isMobile ? 'bottom' : 'right'">
+      <Transition :name="`drawer-${isMobile ? 'bottom' : 'right'}`">
+        <QhxBottomDrawer v-if="detail" :direction="isMobile ? 'bottom' : 'right'">
         <div v-if="detail" class="bg-qhx-bg-card">
           <!-- 标签页 -->
           <QhxTabs :tabs="['基本信息', '记忆']" @change="(index) => currentTab = index">
@@ -609,7 +806,7 @@ const togglePhysicsDrop = () => {
 
                       <div class="h-[60px] text-center px-[1px]  cursor-pointer">
                         <div
-                          class="bg-qhx-primary my-[5px] mx-auto text-white rounded-[50%] h-[30px] w-[30px] bg-qhx-primary flex items-center justify-center cursor-pointer"
+                          class="my-[5px] mx-auto text-white rounded-[50%] h-[30px] w-[30px] bg-qhx-primary flex items-center justify-center cursor-pointer"
                           @click="showRemoveSceneModal = true">
                           <UIcon name="i-heroicons-trash" class="text-[22px] text-[#ffffff]" />
                         </div>
@@ -619,7 +816,7 @@ const togglePhysicsDrop = () => {
                       <QhxJellyButton>
                         <div class="h-[60px] text-center px-[1px]  cursor-pointer">
                           <div
-                            class="bg-qhx-primary my-[5px] mx-auto text-white rounded-[50%] h-[30px] w-[30px] bg-qhx-primary flex items-center justify-center cursor-pointer"
+                            class="my-[5px] mx-auto text-white rounded-[50%] h-[30px] w-[30px] bg-qhx-primary flex items-center justify-center cursor-pointer"
                             @click="jumpToScene(detail.sence_id)">
                             <UIcon name="i-heroicons-pencil-square" class="text-[22px] text-[#ffffff]" />
                           </div>
@@ -627,7 +824,7 @@ const togglePhysicsDrop = () => {
                         </div>
                       </QhxJellyButton>
                       <QhxJellyButton>
-                        <div class="h-[60px] text-center px-[1px  cursor-pointer">
+                        <div class="h-[60px] text-center px-1 cursor-pointer">
                           <div
                             class="my-[5px] mx-auto text-white rounded-[50%] h-[30px] w-[30px] bg-qhx-primary flex items-center justify-center cursor-pointer"
                             @click="copyClothes">
@@ -637,7 +834,7 @@ const togglePhysicsDrop = () => {
                         </div>
                       </QhxJellyButton>
                       <QhxJellyButton>
-                        <div class="h-[60px] text-center px-[1px  cursor-pointer">
+                        <div class="h-[60px] text-center px-1 cursor-pointer">
                           <div
                             class="my-[5px] mx-auto text-white rounded-[50%] h-[30px] w-[30px] bg-qhx-primary flex items-center justify-center cursor-pointer"
                             @click="editClothes">
@@ -645,10 +842,19 @@ const togglePhysicsDrop = () => {
                           </div>
                           <div class=" text-[12px]">修改</div>
                         </div>
-
                       </QhxJellyButton>
                       <QhxJellyButton>
-                        <div class="h-[60px] text-center px-[1px  cursor-pointer">
+                        <div class="h-[60px] text-center px-[1px] cursor-pointer">
+                          <div
+                            :class="['my-[5px] mx-auto text-white rounded-[50%] h-[30px] w-[30px] bg-qhx-primary flex items-center justify-center cursor-pointer', linkClothesLoading ? 'opacity-70' : '']"
+                            @click="openLinkClothesChoose">
+                            <UIcon name="i-heroicons-link" class="text-[22px] text-[#ffffff]" />
+                          </div>
+                          <div class=" text-[12px]">关联服饰</div>
+                        </div>
+                      </QhxJellyButton>
+                      <QhxJellyButton>
+                        <div class="h-[60px] text-center px-1 cursor-pointer">
                           <div
                             class="my-[5px] mx-auto text-white rounded-[50%] h-[30px] w-[30px] bg-qhx-primary flex items-center justify-center cursor-pointer"
                             @click="showDeleteModal = true">
@@ -715,48 +921,6 @@ const togglePhysicsDrop = () => {
                     <!-- 价格 -->
                     <div v-if="detail.price" class="text-sm">
                       价格：￥{{ detail.price }}
-                    </div>
-
-                    <!-- 尾款计划 -->
-                    <div v-if="detail.plan_id || detail.plan" class="border-t pt-3 mt-3">
-                      <div class="flex items-center gap-2 mb-2">
-                        <UIcon name="material-symbols:savings-rounded" class="text-amber-500 dark:text-amber-400 text-lg" />
-                        <span class="text-sm font-semibold text-amber-700 dark:text-amber-300">尾款计划</span>
-                      </div>
-                      <div class="p-3 rounded-xl bg-amber-50/80 dark:bg-amber-900/20 border border-amber-200/60 dark:border-amber-700/50 space-y-2">
-                        <div class="flex items-center justify-between">
-                          <span class="text-sm text-gray-600 dark:text-gray-400">{{ detail.plan?.plan_name || '尾款计划' }}</span>
-                          <span class="text-base font-bold text-amber-600 dark:text-amber-400">￥{{ detail.plan?.need_money ?? 0 }}</span>
-                        </div>
-                        <div v-if="detail.plan?.have_money != null" class="text-xs text-gray-500 dark:text-gray-400">
-                          已攒：￥{{ detail.plan.have_money }}
-                        </div>
-                        <div v-if="detail.plan?.end_time" class="text-xs text-gray-500 dark:text-gray-400">
-                          尾款时间：{{ formatDate(detail.plan.end_time) }}
-                        </div>
-                        <!-- 子计划列表 -->
-                        <div
-                          v-if="detail.plan?.plan_list && detail.plan.plan_list.length > 0"
-                          class="ml-2 pl-2 border-l-2 border-amber-200/60 dark:border-amber-600/40 space-y-1 mt-2"
-                        >
-                          <div
-                            v-for="(child, idx) in detail.plan.plan_list"
-                            :key="child.list_id ?? idx"
-                            class="flex items-center justify-between text-xs"
-                          >
-                            <span class="text-gray-600 dark:text-gray-400">{{ child.plan_note || `阶段 ${idx + 1}` }}</span>
-                            <span class="text-amber-600 dark:text-amber-400 font-medium">￥{{ child.need_money ?? 0 }}</span>
-                          </div>
-                        </div>
-                        <NuxtLink
-                          v-if="detail.plan?.list_id"
-                          :to="`/user/plan`"
-                          class="inline-flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400 hover:underline"
-                        >
-                          查看计划详情
-                          <UIcon name="i-heroicons-arrow-right" class="text-xs" />
-                        </NuxtLink>
-                      </div>
                     </div>
 
                     <!-- 尺码 -->
@@ -828,10 +992,165 @@ const togglePhysicsDrop = () => {
                     <div v-if="detail.add_time" class="text-sm">
                       购入：{{ formatDate(detail.add_time) }}
                     </div>
-
+                    <!-- 关联服饰 -->
+                    <div v-if="detail.include && detail.include.length > 0" class="border-t pt-3 mt-3">
+                      <div class="flex items-center justify-between mb-2">
+                        <h3 class="text-sm font-semibold text-gray-700 dark:text-gray-300">关联服饰</h3>
+                        <button
+                          v-if="isOwner"
+                          type="button"
+                          class="text-xs px-2 py-1 rounded transition-colors"
+                          :class="sortMode ? 'bg-red-500 text-white' : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600'"
+                          @click="sortMode = !sortMode">
+                          {{ sortMode ? '退出排序' : '排序模式' }}
+                        </button>
+                      </div>
+                      <ul class="space-y-2">
+                        <li
+                          v-for="(item, index) in detail.include"
+                          :key="item.clothes_id"
+                          class="flex items-center gap-3 p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800/50 transition-colors"
+                          :class="{ 'cursor-pointer': !sortMode }"
+                          @click="!sortMode && jumpToClothes(item)">
+                          <img
+                            :src="`${BASE_IMG}${item.clothes_img || ''}${config.config?.image_params || ''}`"
+                            class="w-10 h-10 rounded-lg object-cover flex-shrink-0"
+                            :alt="item.clothes_note" />
+                          <span class="text-sm truncate flex-1">{{ item.clothes_note || item.library?.name || '未命名' }}</span>
+                          <template v-if="isOwner && sortMode">
+                            <div class="flex items-center gap-1 flex-shrink-0">
+                              <button
+                                v-if="index !== 0"
+                                type="button"
+                                class="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700"
+                                @click.stop="upItem(index)">
+                                <UIcon name="i-heroicons-chevron-up" class="w-4 h-4" />
+                              </button>
+                              <button
+                                v-if="index < detail.include.length - 1"
+                                type="button"
+                                class="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700"
+                                @click.stop="downItem(index)">
+                                <UIcon name="i-heroicons-chevron-down" class="w-4 h-4" />
+                              </button>
+                              <button
+                                type="button"
+                                class="p-1 rounded hover:bg-red-100 dark:hover:bg-red-900/30 text-red-500"
+                                @click.stop="selectedClothes = item; showDeleteLinkModal = true">
+                                <UIcon name="i-heroicons-x-mark" class="w-4 h-4" />
+                              </button>
+                            </div>
+                          </template>
+                          <UIcon v-else name="i-heroicons-chevron-right" class="w-4 h-4 text-gray-400 flex-shrink-0" />
+                        </li>
+                      </ul>
+                    </div>
                     <!-- 来源 -->
                     <div v-if="!detail.library && !detail.origin_shop && detail.origin" class="text-sm">
                       来源：{{ detail.origin }}
+                    </div>
+
+                    <!-- 尾款计划 -->
+                    <div v-if="detail.plan_id || detail.plan" class="border-t pt-3 mt-3">
+                      <div class="flex items-center gap-2 mb-2">
+                        <UIcon name="material-symbols:savings-rounded" class="text-amber-500 dark:text-amber-400 text-lg" />
+                        <span class="text-sm font-semibold text-amber-700 dark:text-amber-300">尾款计划</span>
+                        <!-- 计划操作按钮（仅所有者） -->
+                        <div v-if="isOwner" class="flex items-center gap-1 ml-auto">
+                          <template v-if="detail.plan?.is_complete !== 1">
+                            <button
+                              type="button"
+                              class="px-2 py-0.5 text-xs bg-qhx-primary hover:bg-qhx-primary/80 text-white rounded"
+                              @click="confirmCompletePlan"
+                            >
+                              完成
+                            </button>
+                            <button
+                              type="button"
+                              class="p-1 rounded text-amber-600 hover:bg-amber-100 dark:hover:bg-amber-900/30"
+                              title="编辑"
+                              @click="showEditPlan"
+                            >
+                              <UIcon name="i-heroicons-pencil" class="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              class="p-1 rounded text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20"
+                              title="移除"
+                              @click="confirmRemovePlan"
+                            >
+                              <UIcon name="i-heroicons-x-mark" class="w-3.5 h-3.5" />
+                            </button>
+                          </template>
+                          <button
+                            type="button"
+                            class="p-1 rounded text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20"
+                            title="删除计划"
+                            @click="confirmDeletePlan"
+                          >
+                            <UIcon name="i-heroicons-trash" class="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                      <div class="p-3 rounded-xl bg-amber-50/80 dark:bg-amber-900/20 border border-amber-200/60 dark:border-amber-700/50 space-y-2">
+                        <div class="flex items-center justify-between">
+                          <span class="text-sm text-gray-600 dark:text-gray-400">{{ detail.plan?.plan_name || '尾款计划' }}</span>
+                          <span class="text-base font-bold text-amber-600 dark:text-amber-400">￥{{ detail.plan?.need_money ?? 0 }}</span>
+                        </div>
+                        <div v-if="detail.plan?.have_money != null" class="text-xs text-gray-500 dark:text-gray-400">
+                          已攒：￥{{ detail.plan.have_money }}
+                        </div>
+                        <div v-if="detail.plan?.end_time" class="text-xs text-gray-500 dark:text-gray-400">
+                          尾款时间：{{ formatDate(detail.plan.end_time) }}
+                        </div>
+                        <!-- 子计划列表 -->
+                        <div
+                          v-if="detail.plan?.plan_list && detail.plan.plan_list.length > 0"
+                          class="ml-2 pl-2 border-l-2 border-amber-200/60 dark:border-amber-600/40 space-y-1 mt-2"
+                        >
+                          <div
+                            v-for="(child, idx) in detail.plan.plan_list"
+                            :key="child.list_id ?? idx"
+                            class="flex items-center justify-between gap-2 text-xs"
+                          >
+                            <span class="text-gray-600 dark:text-gray-400 flex-1 truncate">{{ child.plan_note || `阶段 ${idx + 1}` }}</span>
+                            <span class="text-amber-600 dark:text-amber-400 font-medium flex-shrink-0">￥{{ child.need_money ?? 0 }}</span>
+                            <button
+                              v-if="isOwner && child.is_complete !== 1"
+                              type="button"
+                              class="px-2 py-0.5 text-[10px] bg-qhx-primary hover:bg-qhx-primary/80 text-white rounded flex-shrink-0"
+                              @click="confirmCompleteChildPlan(child)"
+                            >
+                              完成
+                            </button>
+                            <span v-else-if="child.is_complete === 1" class="text-gray-400 text-[10px] flex-shrink-0">已完成</span>
+                          </div>
+                        </div>
+                        <NuxtLink
+                          v-if="detail.plan?.list_id"
+                          :to="`/user/plan`"
+                          class="inline-flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400 hover:underline"
+                        >
+                          查看计划详情
+                          <UIcon name="i-heroicons-arrow-right" class="text-xs" />
+                        </NuxtLink>
+                      </div>
+                    </div>
+                    <!-- 无计划时显示添加按钮 -->
+                    <div v-else-if="isOwner" class="border-t pt-3 mt-3">
+                      <div class="flex items-center gap-2 mb-2">
+                        <UIcon name="material-symbols:savings-rounded" class="text-amber-500 dark:text-amber-400 text-lg" />
+                        <span class="text-sm font-semibold text-amber-700 dark:text-amber-300">尾款计划</span>
+                      </div>
+                      <UButton
+                        type="button"
+                        size="sm"
+                        class="bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white"
+                        @click="showAddPlan"
+                      >
+                        <UIcon name="i-heroicons-plus" class="mr-1" />
+                        添加尾款计划
+                      </UButton>
                     </div>
 
                     <!-- 图鉴信息 -->
@@ -903,6 +1222,38 @@ const togglePhysicsDrop = () => {
                     <div v-if="route.query.needBack === '1'" class="text-center mt-4">
                       <UButton color="primary" @click="jumpToWardrobe">查看该衣柜</UButton>
                     </div>
+
+                    <!-- 是否共享 -->
+                    <div class="border-t pt-3 mt-3">
+                      <div class="flex items-center justify-between gap-3">
+                        <span class="text-sm text-gray-600 dark:text-gray-400">是否共享</span>
+                        <UToggle
+                          v-if="isOwner"
+                          :model-value="isShared"
+                          :disabled="sharedLoading"
+                          @update:model-value="setShared($event ? 1 : 0)"
+                        />
+                        <span v-else class="text-sm font-medium" :class="isShared ? 'text-qhx-primary' : 'text-gray-500'">
+                          {{ isShared ? '已共享' : '未共享' }}
+                        </span>
+                      </div>
+                      <p v-if="isShared" class="mt-2 text-xs text-amber-600 dark:text-amber-400">
+                        当前为共享状态，服饰数据公开，其他用户可以直接导入
+                      </p>
+                      <p v-else class="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                        开启后可以向其他用户共享该服饰数据！
+                      </p>
+                      <div v-if="isShared" class="flex items-center gap-6 mt-3 pt-3 border-t border-gray-100 dark:border-gray-700">
+                        <span class="inline-flex items-center gap-1.5 text-sm text-gray-600 dark:text-gray-400">
+                          <UIcon name="i-heroicons-heart" class="text-red-500" />
+                          赞数 {{ displayGoodCount }}
+                        </span>
+                        <span class="inline-flex items-center gap-1.5 text-sm text-gray-600 dark:text-gray-400">
+                          <UIcon name="i-heroicons-link" class="text-qhx-primary" />
+                          引用数 {{ displayCitationCount }}
+                        </span>
+                      </div>
+                    </div>
                   </div>
                 </div>
               </template>
@@ -922,6 +1273,7 @@ const togglePhysicsDrop = () => {
           </QhxTabs>
         </div>
       </QhxBottomDrawer>
+      </Transition>
     </template>
 
     <!-- 没有场景ID时的原有布局 -->
@@ -936,57 +1288,69 @@ const togglePhysicsDrop = () => {
                 <!-- 图片区域 -->
                 <div class="flex max-md:block gap-4 mb-4">
                   <!-- 主图 -->
-                  <div class="flex-1">
-                    <div v-if="detail.include && detail.include.length > 0" class="mb-4">
-                      <div class="grid grid-cols-3 gap-2">
-                        <div class="col-span-2">
+                  <div class="flex-1 min-w-0">
+                    <div v-if="detail.include && detail.include.length > 0"
+                      class="mb-4 overflow-hidden w-full">
+                      <!-- 主图 float 左，占 2/3 宽，比例 2:3（高度为附图 3 倍） -->
+                      <div class="w-2/3 aspect-[2/3] float-left p-1">
+                        <div class="h-full rounded-xl overflow-hidden shadow-md ring-1 ring-black/5 transition-all duration-200 hover:shadow-lg hover:ring-qhx-primary/20">
                           <QhxPreviewImage :list="[{ src: detail.clothes_img, alt: detail.clothes_note || '' }]"
-                            :preview="[detail.clothes_img]" className="w-full aspect-[3/4] object-cover rounded-lg" />
+                            :preview="[detail.clothes_img]" className="w-full h-full object-cover" />
                         </div>
-                        <div class="space-y-2">
-                          <div v-for="(item, index) in detail.include" :key="item.clothes_id" class="relative">
-                            <QhxPreviewImage :list="[{ src: item.clothes_img, alt: item.clothes_note || '' }]"
-                              :preview="[item.clothes_img]" className="w-full aspect-square object-cover rounded-lg" />
-                            <div v-if="isOwner && sortMode"
-                              class="absolute top-1 right-1 bg-red-500 text-white rounded-full w-6 h-6 flex items-center justify-center cursor-pointer"
-                              @click.stop="selectedClothes = item; showDeleteLinkModal = true">
-                              <UIcon name="i-heroicons-x-mark" class="text-xs" />
-                            </div>
-                            <div v-if="isOwner && sortMode && index < detail.include.length - 1"
-                              class="absolute top-1/2 -right-1 -translate-y-1/2 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center cursor-pointer"
-                              @click.stop="downItem(index)">
-                              <UIcon name="i-heroicons-arrow-right" class="text-xs" />
-                            </div>
-                            <div v-if="isOwner && sortMode && index !== 0"
-                              class="absolute top-1/2 -left-1 -translate-y-1/2 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center cursor-pointer"
-                              @click.stop="upItem(index)">
-                              <UIcon name="i-heroicons-arrow-left" class="text-xs" />
-                            </div>
-                            <div class="text-xs text-center mt-1 cursor-pointer" @click="jumpToClothes(item)">
-                              {{ item.clothes_note || item.library?.name || '' }}
-                            </div>
+                      </div>
+                      <!-- 附图 float 右，占 1/3 宽，超过 3 张往下排列 -->
+                      <div v-for="(item, index) in detail.include" :key="item.clothes_id"
+                        class="w-1/3 aspect-[1/1] float-left p-1">
+                        <div class="relative w-full h-full rounded-xl overflow-hidden shadow-md ring-1 ring-black/5 transition-all duration-200 hover:shadow-lg hover:ring-2 hover:ring-qhx-primary/40 group">
+                          <QhxPreviewImage :list="[{ src: item.clothes_img, alt: item.clothes_note || '' }]"
+                            :preview="[item.clothes_img]" className="w-full h-full object-cover transition-transform duration-200 group-hover:scale-105" />
+                          <div v-if="isOwner && sortMode"
+                            class="absolute top-1.5 right-1.5 w-6 h-6 rounded-full bg-red-500/90 backdrop-blur-sm text-white flex items-center justify-center cursor-pointer z-10 shadow-lg transition-all hover:scale-110 hover:bg-red-500"
+                            @click.stop="selectedClothes = item; showDeleteLinkModal = true">
+                            <UIcon name="i-heroicons-x-mark" class="text-xs font-bold" />
+                          </div>
+                          <div v-if="isOwner && sortMode && index < detail.include.length - 1"
+                            class="absolute top-1/2 -right-0.5 -translate-y-1/2 w-6 h-6 rounded-full bg-white/95 dark:bg-gray-800/95 backdrop-blur-sm text-qhx-primary flex items-center justify-center cursor-pointer z-10 shadow-md ring-1 ring-black/5 transition-all hover:scale-110 hover:shadow-lg"
+                            @click.stop="downItem(index)">
+                            <UIcon name="i-heroicons-chevron-right" class="text-sm font-bold" />
+                          </div>
+                          <div v-if="isOwner && sortMode && index !== 0"
+                            class="absolute top-1/2 -left-0.5 -translate-y-1/2 w-6 h-6 rounded-full bg-white/95 dark:bg-gray-800/95 backdrop-blur-sm text-qhx-primary flex items-center justify-center cursor-pointer z-10 shadow-md ring-1 ring-black/5 transition-all hover:scale-110 hover:shadow-lg"
+                            @click.stop="upItem(index)">
+                            <UIcon name="i-heroicons-chevron-left" class="text-sm font-bold" />
+                          </div>
+                          <div
+                            class="absolute bottom-0 left-0 right-0 py-2 px-2 text-xs text-white text-center truncate cursor-pointer bg-gradient-to-t from-black/80 via-black/50 to-transparent backdrop-blur-[1px] transition-opacity hover:from-black/90"
+                            @click="jumpToClothes(item)">
+                            {{ item.clothes_note || item.library?.name || '' }}
                           </div>
                         </div>
                       </div>
+                      <div class="clear-both"></div>
                     </div>
                     <div
                       v-else-if="detail.clothes_part && detail.clothes_part.split(',').length > 1 && detail.detail_image_list && detail.detail_image_list.length > 0"
-                      class="mb-4">
-                      <div class="grid grid-cols-3 gap-2">
-                        <div class="col-span-2">
+                      class="mb-4 overflow-hidden w-full">
+                      <!-- 主图 float 左，占 2/3 宽，比例 2:3（高度为附图 3 倍） -->
+                      <div class="w-2/3 aspect-[2/3] float-left p-1">
+                        <div class="rounded-xl overflow-hidden shadow-md ring-1 ring-black/5 transition-shadow hover:shadow-lg">
                           <QhxPreviewImage :list="[{ src: detail.clothes_img, alt: detail.clothes_note || '' }]"
-                            :preview="[detail.clothes_img]" className="w-full aspect-[3/4] object-cover rounded-lg" />
-                        </div>
-                        <div class="space-y-2">
-                          <QhxPreviewImage v-for="(img, index) in detail.detail_image_list" :key="index"
-                            :list="[{ src: img, alt: detail.clothes_note || '' }]" :preview="[img]"
-                            className="w-full aspect-square object-cover rounded-lg" />
+                            :preview="[detail.clothes_img]" className="w-full h-full object-cover" />
                         </div>
                       </div>
+                      <!-- 附图 float 右，占 1/3 宽，超过 3 张往下排列 -->
+                      <div v-for="(img, index) in detail.detail_image_list" :key="index"
+                        class="w-1/3 aspect-[1/1] float-left p-1">
+                        <div class="relative w-full h-full rounded-xl overflow-hidden shadow-md ring-1 ring-black/5 transition-all duration-200 hover:shadow-lg hover:ring-2 hover:ring-qhx-primary/30">
+                          <QhxPreviewImage :list="[{ src: img, alt: detail.clothes_note || '' }]"
+                            :preview="detail.detail_image_list" className="w-full h-full object-cover transition-transform duration-200 hover:scale-105" />
+                        </div>
+                      </div>
+                      <div class="clear-both"></div>
                     </div>
-                    <div v-else>
+                    <div v-else class="rounded-xl overflow-hidden shadow-md ring-1 ring-black/5 transition-shadow hover:shadow-lg">
                       <QhxPreviewImage :list="[{ src: detail.clothes_img, alt: detail.clothes_note || '' }]"
-                        :preview="[detail.clothes_img]" className="w-full aspect-[3/4] object-cover rounded-lg" />
+                        :preview="[detail.clothes_img]" className="w-full aspect-[3/4] object-cover" />
                     </div>
                   </div>
 
@@ -998,49 +1362,62 @@ const togglePhysicsDrop = () => {
                         {{ detail.clothes_note || '暂无名称' }}
                       </h2>
                       <div v-if="isOwner" class="flex justify-end gap-2 ml-2">
-                        <!-- <QhxJellyButton>
-                          <div
-                            class="my-[5px] mx-auto text-white rounded-[50%] h-[30px] w-[30px] bg-qhx-primary flex items-center justify-center cursor-pointer"
-                            :class="sortMode ? 'bg-red-500' : 'bg-qhx-primary'" @click="sortMode = !sortMode">
-                            <UIcon name="i-heroicons-bars-3-bottom-left" class="text-[22px] text-[#ffffff]" />
-                          </div>
-                        </QhxJellyButton> -->
-                        <QhxJellyButton>
-                          <div class="h-[60px] text-center px-[1px  cursor-pointer">
+                        <QhxJellyButton v-if="detail.include && detail.include.length > 0">
+                          <div class="h-[60px] text-center px-1 cursor-pointer">
                             <div
-                              class="my-[5px] mx-auto text-white rounded-[50%] h-[30px] w-[30px] bg-qhx-primary flex items-center justify-center cursor-pointer"
-                              :class="sortMode ? 'bg-red-500' : 'bg-qhx-primary'" @click="(e: MouseEvent) => showChooseScene(e)">
-                              <UIcon name="material-symbols:view-3d-rounded" class="text-[22px] text-[#ffffff]" />
+                              class="my-[5px] mx-auto text-white rounded-full h-[30px] w-[30px] flex items-center justify-center cursor-pointer transition-all duration-200 hover:scale-110"
+                              :class="sortMode ? 'bg-red-500 shadow-lg shadow-red-500/30' : 'bg-qhx-primary'"
+                              @click="sortMode = !sortMode">
+                              <UIcon name="fluent:arrow-sort-28-filled" class="text-[20px] text-[#ffffff]" />
                             </div>
-                            <div class=" text-[12px]">关联3D场景</div>
+                            <div class="text-[12px] font-medium" :class="sortMode ? 'text-red-500' : ''">排序模式</div>
                           </div>
                         </QhxJellyButton>
                         <QhxJellyButton>
-                          <div class="h-[60px] text-center px-[1px  cursor-pointer">
+                          <div class="h-[60px] text-center px-1 cursor-pointer">
                             <div
-                              class="my-[5px] mx-auto text-white rounded-[50%] h-[30px] w-[30px] bg-qhx-primary flex items-center justify-center cursor-pointer"
-                              :class="sortMode ? 'bg-red-500' : 'bg-qhx-primary'" @click="copyClothes">
+                              class="my-[5px] mx-auto text-white rounded-full h-[30px] w-[30px] flex items-center justify-center cursor-pointer transition-all duration-200 hover:scale-110 bg-qhx-primary"
+                              @click="(e: MouseEvent) => showChooseScene(e)">
+                              <UIcon name="garden:box-3d-fill-12" class="text-[22px] text-[#ffffff]" />
+                            </div>
+                            <div class=" text-[12px]">关联3D</div>
+                          </div>
+                        </QhxJellyButton>
+                        <QhxJellyButton>
+                          <div class="h-[60px] text-center px-1 cursor-pointer">
+                            <div
+                              class="my-[5px] mx-auto text-white rounded-full h-[30px] w-[30px] flex items-center justify-center cursor-pointer transition-all duration-200 hover:scale-110 bg-qhx-primary"
+                              @click="copyClothes">
                               <UIcon name="i-heroicons-document-duplicate" class="text-[22px] text-[#ffffff]" />
                             </div>
                             <div class=" text-[12px]">复制</div>
                           </div>
                         </QhxJellyButton>
                         <QhxJellyButton>
-                          <div class="h-[60px] text-center px-[1px  cursor-pointer">
+                          <div class="h-[60px] text-center px-1 cursor-pointer">
                             <div
-                              class="my-[5px] mx-auto text-white rounded-[50%] h-[30px] w-[30px] bg-qhx-primary flex items-center justify-center cursor-pointer"
-                              :class="sortMode ? 'bg-red-500' : 'bg-qhx-primary'" @click="editClothes">
+                              class="my-[5px] mx-auto text-white rounded-full h-[30px] w-[30px] flex items-center justify-center cursor-pointer transition-all duration-200 hover:scale-110 bg-qhx-primary"
+                              @click="editClothes">
                               <UIcon name="i-heroicons-pencil-square" class="text-[22px] text-[#ffffff]" />
                             </div>
                             <div class=" text-[12px]">编辑</div>
                           </div>
                         </QhxJellyButton>
-                        
                         <QhxJellyButton>
-                          <div class="h-[60px] text-center px-[1px  cursor-pointer">
+                          <div class="h-[60px] text-center px-1 cursor-pointer">
                             <div
-                              class="my-[5px] mx-auto text-white rounded-[50%] h-[30px] w-[30px] bg-qhx-primary flex items-center justify-center cursor-pointer"
-                              :class="sortMode ? 'bg-red-500' : 'bg-qhx-primary'" @click="showDeleteModal = true">
+                              :class="['my-[5px] mx-auto text-white rounded-full h-[30px] w-[30px] flex items-center justify-center cursor-pointer transition-all duration-200 hover:scale-110 disabled:hover:scale-100 bg-qhx-primary', linkClothesLoading ? 'opacity-70' : '']"
+                              @click="openLinkClothesChoose">
+                              <UIcon name="i-heroicons-link" class="text-[22px] text-[#ffffff]" />
+                            </div>
+                            <div class=" text-[12px]">关联服饰</div>
+                          </div>
+                        </QhxJellyButton>
+                        <QhxJellyButton>
+                          <div class="h-[60px] text-center px-1 cursor-pointer">
+                            <div
+                              class="my-[5px] mx-auto text-white rounded-full h-[30px] w-[30px] bg-qhx-primary flex items-center justify-center cursor-pointer transition-all duration-200 hover:scale-110"
+                              @click="showDeleteModal = true">
                               <UIcon name="i-heroicons-trash" class="text-[22px] text-[#ffffff]" />
                             </div>
                             <div class=" text-[12px]">删除</div>
@@ -1103,48 +1480,6 @@ const togglePhysicsDrop = () => {
                     <!-- 价格 -->
                     <div v-if="detail.price" class="text-sm">
                       价格：￥{{ detail.price }}
-                    </div>
-
-                    <!-- 尾款计划 -->
-                    <div v-if="detail.plan_id || detail.plan" class="border-t pt-3 mt-3">
-                      <div class="flex items-center gap-2 mb-2">
-                        <UIcon name="material-symbols:savings-rounded" class="text-amber-500 dark:text-amber-400 text-lg" />
-                        <span class="text-sm font-semibold text-amber-700 dark:text-amber-300">尾款计划</span>
-                      </div>
-                      <div class="p-3 rounded-xl bg-amber-50/80 dark:bg-amber-900/20 border border-amber-200/60 dark:border-amber-700/50 space-y-2">
-                        <div class="flex items-center justify-between">
-                          <span class="text-sm text-gray-600 dark:text-gray-400">{{ detail.plan?.plan_name || '尾款计划' }}</span>
-                          <span class="text-base font-bold text-amber-600 dark:text-amber-400">￥{{ detail.plan?.need_money ?? 0 }}</span>
-                        </div>
-                        <div v-if="detail.plan?.have_money != null" class="text-xs text-gray-500 dark:text-gray-400">
-                          已攒：￥{{ detail.plan.have_money }}
-                        </div>
-                        <div v-if="detail.plan?.end_time" class="text-xs text-gray-500 dark:text-gray-400">
-                          尾款时间：{{ formatDate(detail.plan.end_time) }}
-                        </div>
-                        <!-- 子计划列表 -->
-                        <div
-                          v-if="detail.plan?.plan_list && detail.plan.plan_list.length > 0"
-                          class="ml-2 pl-2 border-l-2 border-amber-200/60 dark:border-amber-600/40 space-y-1 mt-2"
-                        >
-                          <div
-                            v-for="(child, idx) in detail.plan.plan_list"
-                            :key="child.list_id ?? idx"
-                            class="flex items-center justify-between text-xs"
-                          >
-                            <span class="text-gray-600 dark:text-gray-400">{{ child.plan_name || `阶段 ${idx + 1}` }}</span>
-                            <span class="text-amber-600 dark:text-amber-400 font-medium">￥{{ child.need_money ?? 0 }}</span>
-                          </div>
-                        </div>
-                        <NuxtLink
-                          v-if="detail.plan?.list_id"
-                          :to="`/user/plan`"
-                          class="inline-flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400 hover:underline"
-                        >
-                          查看计划详情
-                          <UIcon name="i-heroicons-arrow-right" class="text-xs" />
-                        </NuxtLink>
-                      </div>
                     </div>
 
                     <!-- 尺码 -->
@@ -1220,6 +1555,161 @@ const togglePhysicsDrop = () => {
                     <!-- 来源 -->
                     <div v-if="!detail.library && !detail.origin_shop && detail.origin" class="text-sm">
                       来源：{{ detail.origin }}
+                    </div>
+                    <!-- 关联服饰 -->
+                    <div v-if="detail.include && detail.include.length > 0" class="border-t pt-3 mt-3">
+                      <div class="flex items-center justify-between mb-2">
+                        <h3 class="text-sm font-semibold text-gray-700 dark:text-gray-300">关联服饰</h3>
+                        <button
+                          v-if="isOwner"
+                          type="button"
+                          class="text-xs px-2 py-1 rounded transition-colors"
+                          :class="sortMode ? 'bg-red-500 text-white' : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600'"
+                          @click="sortMode = !sortMode">
+                          {{ sortMode ? '退出排序' : '排序模式' }}
+                        </button>
+                      </div>
+                      <ul class="space-y-2">
+                        <li
+                          v-for="(item, index) in detail.include"
+                          :key="item.clothes_id"
+                          class="flex items-center gap-3 p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800/50 transition-colors"
+                          :class="{ 'cursor-pointer': !sortMode }"
+                          @click="!sortMode && jumpToClothes(item)">
+                          <img
+                            :src="`${BASE_IMG}${item.clothes_img || ''}${config.config?.image_params || ''}`"
+                            class="w-10 h-10 rounded-lg object-cover flex-shrink-0"
+                            :alt="item.clothes_note" />
+                          <span class="text-sm truncate flex-1">{{ item.clothes_note || item.library?.name || '未命名' }}</span>
+                          <template v-if="isOwner && sortMode">
+                            <div class="flex items-center gap-1 flex-shrink-0">
+                              <button
+                                v-if="index !== 0"
+                                type="button"
+                                class="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700"
+                                @click.stop="upItem(index)">
+                                <UIcon name="i-heroicons-chevron-up" class="w-4 h-4" />
+                              </button>
+                              <button
+                                v-if="index < detail.include.length - 1"
+                                type="button"
+                                class="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700"
+                                @click.stop="downItem(index)">
+                                <UIcon name="i-heroicons-chevron-down" class="w-4 h-4" />
+                              </button>
+                              <button
+                                type="button"
+                                class="p-1 rounded hover:bg-red-100 dark:hover:bg-red-900/30 text-red-500"
+                                @click.stop="selectedClothes = item; showDeleteLinkModal = true">
+                                <UIcon name="i-heroicons-x-mark" class="w-4 h-4" />
+                              </button>
+                            </div>
+                          </template>
+                          <UIcon v-else name="i-heroicons-chevron-right" class="w-4 h-4 text-gray-400 flex-shrink-0" />
+                        </li>
+                      </ul>
+                    </div>
+                    <!-- 尾款计划 -->
+                    <div v-if="detail.plan_id || detail.plan" class="border-t pt-3 mt-3">
+                      <div class="flex items-center gap-2 mb-2">
+                        <UIcon name="material-symbols:savings-rounded" class="text-amber-500 dark:text-amber-400 text-lg" />
+                        <span class="text-sm font-semibold text-amber-700 dark:text-amber-300">尾款计划</span>
+                        <!-- 计划操作按钮（仅所有者） -->
+                        <div v-if="isOwner" class="flex items-center gap-1 ml-auto">
+                          <template v-if="detail.plan?.is_complete !== 1">
+                            <button
+                              type="button"
+                              class="px-2 py-0.5 text-xs bg-qhx-primary hover:bg-qhx-primary/80 text-white rounded"
+                              @click="confirmCompletePlan"
+                            >
+                              完成
+                            </button>
+                            <button
+                              type="button"
+                              class="p-1 rounded text-amber-600 hover:bg-amber-100 dark:hover:bg-amber-900/30"
+                              title="编辑"
+                              @click="showEditPlan"
+                            >
+                              <UIcon name="i-heroicons-pencil" class="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              class="p-1 rounded text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20"
+                              title="移除"
+                              @click="confirmRemovePlan"
+                            >
+                              <UIcon name="i-heroicons-x-mark" class="w-3.5 h-3.5" />
+                            </button>
+                          </template>
+                          <button
+                            type="button"
+                            class="p-1 rounded text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20"
+                            title="删除计划"
+                            @click="confirmDeletePlan"
+                          >
+                            <UIcon name="i-heroicons-trash" class="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                      <div class="p-3 rounded-xl bg-amber-50/80 dark:bg-amber-900/20 border border-amber-200/60 dark:border-amber-700/50 space-y-2">
+                        <div class="flex items-center justify-between">
+                          <span class="text-sm text-gray-600 dark:text-gray-400">{{ detail.plan?.plan_name || '尾款计划' }}</span>
+                          <span class="text-base font-bold text-amber-600 dark:text-amber-400">￥{{ detail.plan?.need_money ?? 0 }}</span>
+                        </div>
+                        <div v-if="detail.plan?.have_money != null" class="text-xs text-gray-500 dark:text-gray-400">
+                          已攒：￥{{ detail.plan.have_money }}
+                        </div>
+                        <div v-if="detail.plan?.end_time" class="text-xs text-gray-500 dark:text-gray-400">
+                          尾款时间：{{ formatDate(detail.plan.end_time) }}
+                        </div>
+                        <!-- 子计划列表 -->
+                        <div
+                          v-if="detail.plan?.plan_list && detail.plan.plan_list.length > 0"
+                          class="ml-2 pl-2 border-l-2 border-amber-200/60 dark:border-amber-600/40 space-y-1 mt-2"
+                        >
+                          <div
+                            v-for="(child, idx) in detail.plan.plan_list"
+                            :key="child.list_id ?? idx"
+                            class="flex items-center justify-between gap-2 text-xs"
+                          >
+                            <span class="text-gray-600 dark:text-gray-400 flex-1 truncate">{{ child.plan_note || child.plan_name || `阶段 ${idx + 1}` }}</span>
+                            <span class="text-amber-600 dark:text-amber-400 font-medium flex-shrink-0">￥{{ child.need_money ?? 0 }}</span>
+                            <button
+                              v-if="isOwner && child.is_complete !== 1"
+                              type="button"
+                              class="px-2 py-0.5 text-[10px] bg-qhx-primary hover:bg-qhx-primary/80 text-white rounded flex-shrink-0"
+                              @click="confirmCompleteChildPlan(child)"
+                            >
+                              完成
+                            </button>
+                            <span v-else-if="child.is_complete === 1" class="text-gray-400 text-[10px] flex-shrink-0">已完成</span>
+                          </div>
+                        </div>
+                        <NuxtLink
+                          v-if="detail.plan?.list_id"
+                          :to="`/user/plan`"
+                          class="inline-flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400 hover:underline"
+                        >
+                          查看计划详情
+                          <UIcon name="i-heroicons-arrow-right" class="text-xs" />
+                        </NuxtLink>
+                      </div>
+                    </div>
+                    <!-- 无计划时显示添加按钮 -->
+                    <div v-else-if="isOwner" class="border-t pt-3 mt-3">
+                      <div class="flex items-center gap-2 mb-2">
+                        <UIcon name="material-symbols:savings-rounded" class="text-amber-500 dark:text-amber-400 text-lg" />
+                        <span class="text-sm font-semibold text-amber-700 dark:text-amber-300">尾款计划</span>
+                      </div>
+                      <UButton
+                        type="button"
+                        size="sm"
+                        class="bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white"
+                        @click="showAddPlan"
+                      >
+                        <UIcon name="i-heroicons-plus" class="mr-1" />
+                        添加尾款计划
+                      </UButton>
                     </div>
 
                     <!-- 图鉴信息 -->
@@ -1303,6 +1793,38 @@ const togglePhysicsDrop = () => {
                   <QhxPreviewImage v-for="(img, index) in detail.detail_image_list" :key="index"
                     :list="[{ src: img, alt: detail.clothes_note || '' }]" :preview="detail.detail_image_list"
                     className="w-full rounded-lg" />
+                </div>
+
+                <!-- 是否共享 -->
+                <div class="border-t pt-3 mt-3">
+                  <div class="flex items-center justify-between gap-3">
+                    <span class="text-sm text-gray-600 dark:text-gray-400">是否共享</span>
+                    <UToggle
+                      v-if="isOwner"
+                      :model-value="isShared"
+                      :disabled="sharedLoading"
+                      @update:model-value="setShared($event ? 1 : 0)"
+                    />
+                        <span v-else class="text-sm font-medium" :class="isShared ? 'text-qhx-primary' : 'text-gray-500'">
+                          {{ isShared ? '已共享' : '未共享' }}
+                        </span>
+                      </div>
+                      <p v-if="isShared" class="mt-2 text-xs text-amber-600 dark:text-amber-400">
+                        当前为共享状态，服饰数据公开，其他用户可以直接导入衣柜
+                      </p>
+                      <p v-else class="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                        开启可以与其他用户共享数据
+                      </p>
+                      <div v-if="isShared" class="flex items-center gap-6 mt-3 pt-3 border-t border-gray-100 dark:border-gray-700">
+                    <span class="inline-flex items-center gap-1.5 text-sm text-gray-600 dark:text-gray-400">
+                      <UIcon name="i-heroicons-heart" class="text-red-500" />
+                      赞数 {{ displayGoodCount }}
+                    </span>
+                    <span class="inline-flex items-center gap-1.5 text-sm text-gray-600 dark:text-gray-400">
+                      <UIcon name="i-heroicons-link" class="text-qhx-primary" />
+                      引用数 {{ displayCitationCount }}
+                    </span>
+                  </div>
                 </div>
               </div>
             </template>
@@ -1419,6 +1941,39 @@ const togglePhysicsDrop = () => {
         </div>
       </UModal>
 
+      <!-- 完成计划确认弹窗 -->
+      <UModal v-model="showCompletePlanModal" title="操作确认">
+        <div class="p-4">
+          <p class="mb-4">确定要完成该计划吗？</p>
+          <div class="flex justify-end gap-2">
+            <UButton color="gray" @click="showCompletePlanModal = false; completePlanListId = null">取消</UButton>
+            <UButton color="primary" @click="handleCompletePlan" :loading="planCompleteLoading">确认完成</UButton>
+          </div>
+        </div>
+      </UModal>
+
+      <!-- 移除计划确认弹窗 -->
+      <UModal v-model="showRemovePlanModal" title="操作确认">
+        <div class="p-4">
+          <p class="mb-4">确定要移除该计划与服饰的关联吗？计划仍将保留在计划列表中。</p>
+          <div class="flex justify-end gap-2">
+            <UButton color="gray" @click="showRemovePlanModal = false">取消</UButton>
+            <UButton color="primary" @click="handleRemovePlan" :loading="planRemoveLoading">确认移除</UButton>
+          </div>
+        </div>
+      </UModal>
+
+      <!-- 删除计划确认弹窗 -->
+      <UModal v-model="showDeletePlanModal" title="操作确认">
+        <div class="p-4">
+          <p class="mb-4">确定要删除该计划吗？删除后将无法恢复。</p>
+          <div class="flex justify-end gap-2">
+            <UButton color="gray" @click="showDeletePlanModal = false">取消</UButton>
+            <UButton color="red" @click="handleDeletePlan" :loading="planDeleteLoading">确认删除</UButton>
+          </div>
+        </div>
+      </UModal>
+
       <!-- 删除关联确认弹窗 -->
       <UModal v-model="showDeleteLinkModal" title="操作确认">
         <div class="p-4">
@@ -1431,16 +1986,16 @@ const togglePhysicsDrop = () => {
       </UModal>
     
     <!-- 物理掉落组件 - 只在没有 sence_id 时显示 -->
-    <ClientOnly>
+    <!-- <ClientOnly>
       <PhysicsDrop 
         v-if="!detail?.sence_id && isPhysicsDropVisible && physicsDropModels.length > 0"
         :models="physicsDropModels"
         @object-click="handleObjectClick"
       />
-    </ClientOnly>
+    </ClientOnly> -->
     
     <!-- 悬浮开关按钮 - 只在没有 sence_id 且有模型时显示 -->
-    <div 
+    <!-- <div 
       class="fixed bottom-8 left-8 z-50 pointer-events-none" 
       v-if="!detail?.sence_id && detail && physicsDropModels.length > 0"
     >
@@ -1454,6 +2009,6 @@ const togglePhysicsDrop = () => {
         />
         <span class="text-sm font-semibold">{{ isPhysicsDropVisible ? '关闭掉落' : '开启掉落' }}</span>
       </button>
-    </div>
+    </div> -->
   </div>
 </template>

@@ -1,6 +1,6 @@
 import type { BaseResponse, PaginationParams, PaginationResponse, Comment } from '@/types/api';
 interface SearchParams extends PaginationParams {
-  id?: number
+  id?: number | number[]
   type?: string
   comment_id?: number
 }

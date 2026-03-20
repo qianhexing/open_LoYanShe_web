@@ -8,7 +8,7 @@ import UserInfo from '@/components/user/UserInfo.vue';
 
 interface Props {
   type: string;
-  id?: number;
+  id?: number | number[];
   width?: string;
   height?: string;
   pageSize?: number;
@@ -36,6 +36,7 @@ const isVisible = ref(true); // 控制弹幕显示隐藏
 const selectedDanmaku = shallowRef<Danmaku | null>(null); // 当前选中的弹幕（shallowRef 避免深度响应化 Danmaku 内含的 cacheCanvas 等导致卡死）
 const isPaused = ref(false); // 动画是否暂停
 const showSendDialog = ref(false); // 显示发送弹幕对话框
+const showMessageBoard = ref(false); // 显示留言板
 const DANMAKU_CONTROLS_KEY = 'danmaku-controls-expanded';
 const controlsExpanded = ref(true); // 默认展开，onMounted 时从 localStorage 恢复
 const sendContent = ref(''); // 发送内容
@@ -410,20 +411,9 @@ const handleCanvasClick = (e: MouseEvent) => {
     const d = activeDanmakus[i];
     if (clickX >= d.x && clickX <= d.x + d.width &&
         clickY >= d.y && clickY <= d.y + d.height) {
-      // 判断是否点击在头像区域（头像在弹幕左侧）
-      const hasAvatar = !!d.userFace;
-      const avatarRight = d.x + config.padding + (hasAvatar ? config.avatarSize : 0);
-      if (hasAvatar && clickX >= d.x && clickX <= avatarRight) {
-        // 点头像 -> 跳转用户空间
-        const uid = d.comment?.user?.user_id;
-        if (uid) {
-          jumpToUserSpace(uid);
-        }
-      } else {
-        // 点文字等其他区域 -> 显示弹窗
-        selectedDanmaku.value = d;
-        isPaused.value = true;
-      }
+      // 点击弹幕任意区域 -> 显示弹窗
+      selectedDanmaku.value = d;
+      isPaused.value = true;
       return;
     }
   }
@@ -514,22 +504,62 @@ const closeSendDialog = () => {
   sendContent.value = '';
 };
 
+// 打开/关闭留言板
+const toggleMessageBoard = () => {
+  showMessageBoard.value = !showMessageBoard.value;
+};
+
+const closeMessageBoard = () => {
+  showMessageBoard.value = false;
+};
+
+// 格式化留言内容用于列表展示
+const formatCommentContent = (content: string) => {
+  if (!content) return '...';
+  try {
+    const richRes = formatRich(content);
+    const text = richRes.text || content;
+    const plainText = text.replace(/<[^>]*>/g, '').trim();
+    return plainText.length > 100 ? `${plainText.substring(0, 100)}...` : plainText;
+  } catch {
+    return content.replace(/<[^>]*>/g, '').trim().substring(0, 100);
+  }
+};
+
+// 留言板中点击某条留言 -> 显示用户弹窗
+const openCommentPopup = (comment: Comment) => {
+  const d = new Danmaku(comment, 0, 0, latestSentCommentId.value === comment.comment_id);
+  selectedDanmaku.value = d;
+  isPaused.value = true;
+  closeMessageBoard();
+};
+
 // 发送弹幕
 const sendDanmaku = async () => {
   if (!sendContent.value.trim() || isSending.value) return;
   
   isSending.value = true;
   try {
+    const targetId = Array.isArray(props.id) ? props.id[props.id.length - 1] : props.id;
     const response = await insertComment({
       page: 1,
       pageSize: 1,
       type: props.type,
-      id: props.id,
+      id: targetId,
       comment_content: sendContent.value.trim(),
     });
     
     if (response) {
-      const newComment = response;
+      const newComment = { ...response };
+      // 若接口未返回用户信息，用当前登录用户补全
+      if ((!newComment.user || !newComment.user.user_id) && user.user) {
+        newComment.user = {
+          user_id: user.user.user_id,
+          user_name: user.user.user_name,
+          user_face: user.user.user_face,
+          ...user.user,
+        };
+      }
       // 添加到弹幕列表
       danmakuList.value.unshift(newComment);
       // 记录最新发送的评论ID
@@ -740,19 +770,19 @@ watch(controlsExpanded, (v) => {
     <div
       class="danmaku-controls flex flex-col rounded-l-xl bg-white/95 dark:bg-gray-800/95 shadow-lg backdrop-blur-sm border border-gray-200/50 dark:border-gray-600/50 overflow-hidden transition-all duration-300 ease-out"
       :class="controlsExpanded
-        ? 'bottom-5 right-0 max-h-[50vh] w-[140px] sm:w-[160px]'
-        : 'bottom-5 right-0 w-[44px] sm:w-[52px]'"
+        ? 'bottom-5 right-0 max-h-[50vh] w-[110px] sm:w-[120px]'
+        : 'bottom-5 right-0 w-[36px] sm:w-[40px]'"
     >
       <button
         type="button"
-        class="flex items-center justify-center gap-1.5 py-2.5 px-2 shrink-0 text-qhx-primary hover:bg-purple-50 dark:hover:bg-gray-700/50 transition-colors"
-        :class="controlsExpanded ? 'border-b border-gray-100 dark:border-gray-600' : 'min-h-[48px]'"
+        class="flex items-center justify-center gap-1 py-2 px-1.5 shrink-0 text-qhx-primary hover:bg-purple-50 dark:hover:bg-gray-700/50 transition-colors"
+        :class="controlsExpanded ? 'border-b border-gray-100 dark:border-gray-600' : 'min-h-[40px]'"
         :title="controlsExpanded ? '收起' : '展开'"
         @click="controlsExpanded = !controlsExpanded"
       >
         <UIcon
           :name="controlsExpanded ? 'material-symbols:chevron-right' : 'material-symbols:chat-bubble-outline'"
-          class="text-xl sm:text-2xl transition-transform"
+          class="text-lg sm:text-xl transition-transform"
         />
         <span v-if="controlsExpanded" class="text-xs font-medium hidden sm:inline">弹幕</span>
       </button>
@@ -760,30 +790,77 @@ watch(controlsExpanded, (v) => {
         class="danmaku-controls-content flex flex-col gap-2 min-h-0 overflow-hidden"
         :class="controlsExpanded ? 'expanded' : 'collapsed'"
       >
-        <div class="p-2 pt-0 flex flex-col gap-2">
+        <div class="p-1.5 pt-0 flex flex-col gap-1">
           <button
             type="button"
-            class="flex items-center gap-2 py-2 px-3 rounded-lg hover:bg-purple-50 dark:hover:bg-gray-700/50 transition-colors text-left text-gray-700 dark:text-gray-200"
+            class="danmaku-control-btn flex items-center gap-1.5 py-1.5 px-2 rounded-md hover:bg-purple-50 dark:hover:bg-gray-700/50 transition-colors text-left text-gray-700 dark:text-gray-200"
             :title="isVisible ? '隐藏弹幕' : '显示弹幕'"
             @click="toggleVisibility"
           >
-            <div class="w-8 h-8 rounded-full bg-qhx-primary flex items-center justify-center shrink-0">
-              <UIcon v-if="isVisible" name="i-heroicons-eye" class="text-base text-white" />
-              <UIcon v-else name="i-heroicons-eye-slash" class="text-base text-white" />
+            <div class="w-6 h-6 rounded-full bg-qhx-primary flex items-center justify-center shrink-0">
+              <UIcon v-if="isVisible" name="i-heroicons-eye" class="text-xs text-white" />
+              <UIcon v-else name="i-heroicons-eye-slash" class="text-xs text-white" />
             </div>
-            <span class="text-sm font-medium min-w-[3em]">{{ isVisible ? '隐藏' : '显示' }}</span>
+            <span class="text-xs font-medium">{{ isVisible ? '隐藏' : '显示' }}</span>
           </button>
           <button
             type="button"
-            class="flex items-center gap-2 py-2 px-3 rounded-lg hover:bg-purple-50 dark:hover:bg-gray-700/50 transition-colors text-left text-gray-700 dark:text-gray-200"
+            class="danmaku-control-btn flex items-center gap-1.5 py-1.5 px-2 rounded-md hover:bg-purple-50 dark:hover:bg-gray-700/50 transition-colors text-left text-gray-700 dark:text-gray-200"
+            title="留言板"
+            @click="toggleMessageBoard"
+          >
+            <div class="w-6 h-6 rounded-full bg-qhx-primary flex items-center justify-center shrink-0">
+              <UIcon name="i-heroicons-clipboard-document-list" class="text-xs text-white" />
+            </div>
+            <span class="text-xs font-medium">留言板</span>
+          </button>
+          <button
+            type="button"
+            class="danmaku-control-btn flex items-center gap-1.5 py-1.5 px-2 rounded-md hover:bg-purple-50 dark:hover:bg-gray-700/50 transition-colors text-left text-gray-700 dark:text-gray-200"
             title="发送弹幕"
             @click="openSendDialog"
           >
-            <div class="w-8 h-8 rounded-full bg-qhx-primary flex items-center justify-center shrink-0">
-              <UIcon name="i-heroicons-paper-airplane" class="text-base text-white" />
+            <div class="w-6 h-6 rounded-full bg-qhx-primary flex items-center justify-center shrink-0">
+              <UIcon name="i-heroicons-paper-airplane" class="text-xs text-white" />
             </div>
-            <span class="text-sm font-medium min-w-[3em]">发弹幕</span>
+            <span class="text-xs font-medium">发弹幕</span>
           </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 留言板弹窗 -->
+    <div v-if="showMessageBoard" class="message-board-overlay" @click="closeMessageBoard">
+      <div class="message-board" @click.stop>
+        <div class="message-board-header">
+          <span class="message-board-title">留言板</span>
+          <span class="message-board-count">共 {{ danmakuList.length }} 条</span>
+          <button class="close-btn" @click="closeMessageBoard">&times;</button>
+        </div>
+        <div class="message-board-list">
+          <div
+            v-for="c in danmakuList"
+            :key="c.comment_id"
+            class="message-board-item"
+            @click="openCommentPopup(c)"
+          >
+            <img
+              v-if="c.user?.user_face"
+              :src="`${BASE_IMG}${c.user.user_face}`"
+              class="message-board-avatar"
+              alt=""
+            />
+            <div v-else class="message-board-avatar message-board-avatar-placeholder">
+              <UIcon name="i-heroicons-user" class="text-gray-400" />
+            </div>
+            <div class="message-board-content">
+              <div class="message-board-user">{{ c.user?.user_name || '匿名' }}</div>
+              <div class="message-board-text">{{ formatCommentContent(c.comment_content) }}</div>
+            </div>
+          </div>
+          <div v-if="!isLoading && danmakuList.length === 0" class="message-board-empty">
+            暂无留言
+          </div>
         </div>
       </div>
     </div>
@@ -853,7 +930,7 @@ watch(controlsExpanded, (v) => {
   pointer-events: none;
 }
 .danmaku-controls-content.expanded {
-  max-height: 140px;
+  max-height: 160px;
   opacity: 1;
 }
 
@@ -1033,5 +1110,118 @@ watch(controlsExpanded, (v) => {
 .send-btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+/* 留言板弹窗 */
+.message-board-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 150;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: auto;
+}
+
+.message-board {
+  background: rgba(30, 30, 30, 0.95);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  padding: 0;
+  width: 90%;
+  max-width: 420px;
+  max-height: 70vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+  animation: popup-enter 0.3s cubic-bezier(0.18, 0.89, 0.32, 1.28);
+}
+
+.message-board-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  flex-shrink: 0;
+}
+
+.message-board-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #fff;
+}
+
+.message-board-count {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.message-board-header .close-btn {
+  margin-left: auto;
+}
+
+.message-board-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 0;
+}
+
+.message-board-item {
+  display: flex;
+  gap: 12px;
+  padding: 12px 16px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.message-board-item:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.message-board-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.message-board-avatar-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.message-board-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.message-board-user {
+  font-size: 13px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.9);
+  margin-bottom: 4px;
+}
+
+.message-board-text {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.75);
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+.message-board-empty {
+  padding: 32px 16px;
+  text-align: center;
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 14px;
 }
 </style>

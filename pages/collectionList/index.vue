@@ -133,11 +133,13 @@ const handleLibraryChoose = async (list: Library[]) => {
 const keywords = ref('')
 const value = ref('')
 const onlyUncompleted = ref(false)
+const totalCount = ref(0)
 
 // 过滤条件 - 视频投稿
 const keywordsVideo = ref('')
 const valueVideo = ref('')
 const onlyUncompletedVideo = ref(false)
+const totalCountVideo = ref(0)
 
 // 评论弹框
 const showCommentModal = ref(false)
@@ -376,6 +378,7 @@ definePageMeta({
                 />
               </div>
               <div class="flex items-center justify-end gap-3 px-4 max-md:col-span-2">
+                <span class="text-sm text-gray-500 dark:text-gray-400">共 {{ totalCount }} 条</span>
                 <label class="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300">
                   <UCheckbox v-model="onlyUncompleted" @change="handleOnlyUncompletedChange" />
                   只看未采集
@@ -403,12 +406,14 @@ definePageMeta({
                     is_completed: onlyUncompleted ? 0 : undefined,
                     keywords: keywordValue || undefined
                   })
+                  totalCount = response.count
                   return {
                     rows: response.rows,
                     count: response.count
                   }
                 } catch (error) {
                   console.error('获取采集清单失败:', error)
+                  totalCount = 0
                   return {
                     rows: [],
                     count: 0
@@ -543,6 +548,7 @@ definePageMeta({
                 />
               </div>
               <div class="flex items-center justify-end gap-3 px-4 max-md:col-span-2">
+                <span class="text-sm text-gray-500 dark:text-gray-400">共 {{ totalCountVideo }} 条</span>
                 <label class="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300">
                   <UCheckbox v-model="onlyUncompletedVideo" @change="handleOnlyUncompletedChangeVideo" />
                   只看未处理
@@ -583,12 +589,14 @@ definePageMeta({
                     is_completed: onlyUncompletedVideo ? 0 : undefined,
                     keywords: keywordValue || undefined
                   })
+                  totalCountVideo.value = response.count
                   return {
                     rows: response.rows,
                     count: response.count
                   }
                 } catch (error) {
                   console.error('获取采集清单失败:', error)
+                  totalCountVideo.value = 0
                   return {
                     rows: [],
                     count: 0

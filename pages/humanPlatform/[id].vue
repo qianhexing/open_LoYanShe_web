@@ -14,7 +14,7 @@ interface ModelItem {
     options?: Record<string, unknown>
 }
 import { getLibraryVideoById, getLibraryVideo } from '@/api/library'
-import type { LibraryVideo } from '@/types/api'
+import type { LibraryVideo, LaxianItem } from '@/types/api'
 import { useConfigStore } from '@/stores/config'
 import { BASE_IMG } from '@/utils/ipConfig'
 
@@ -33,6 +33,9 @@ const layoutReady = inject('layoutReady') as Ref<boolean>
 const route = useRoute()
 const router = useRouter()
 const id = computed(() => (route.params.id as string) ?? '')
+
+// 编辑模式：通过地址栏 edit=1 开启
+const isEditMode = computed(() => route.query.edit ? true : false)
 
 // library_id 来自 query 参数，用于获取同图鉴下的所有人台图列表
 const libraryId = computed(() => {
@@ -94,6 +97,11 @@ const initVideoAndList = async () => {
 watch(layoutReady, (newVal) => {
     if (newVal) initVideoAndList()
 })
+watch(isEditMode, (val) => {
+    if (val && laxianListFromVideo.value.length > 0) {
+        editableLaxianList.value = laxianListFromVideo.value.map((item) => ({ ...item }))
+    }
+})
 watch(libraryId, (val) => {
     if (val && layoutReady.value) loadLibraryVideoList()
 }, { immediate: true })
@@ -105,6 +113,11 @@ const error = ref<string | null>(null)
 
 // 模型列表
 const modelList = ref<ModelItem[]>([])
+
+// 拉线列表（从 video.json_data.laxian_list 加载）
+const laxianListFromVideo = ref<LaxianItem[]>([])
+// 编辑模式下的可编辑拉线列表（本地修改）
+const editableLaxianList = ref<LaxianItem[]>([])
 
 // 加载视频数据（可选传入 videoId，用于 id=0 时加载第一个场景）
 const loadVideoData = async (videoIdOverride?: number) => {
@@ -121,6 +134,12 @@ const loadVideoData = async (videoIdOverride?: number) => {
         
         // 检查是否是点云类型
         if (libraryVideo.value.pk_type === 2 && libraryVideo.value.addr) {
+            // 从 json_data 加载拉线（先设置拉线，再设置模型，确保 watch 时数据完整）
+            const list = libraryVideo.value.json_data?.laxian_list
+            laxianListFromVideo.value = Array.isArray(list) ? list : []
+            if (isEditMode.value) {
+                editableLaxianList.value = (Array.isArray(list) ? list : []).map((item) => ({ ...item }))
+            }
             // 解析模型地址
             const modelUrls = libraryVideo.value.addr.split(',').filter(url => url.trim())
             modelList.value = modelUrls.map((url, index) => ({
@@ -133,6 +152,7 @@ const loadVideoData = async (videoIdOverride?: number) => {
                 }
             }))
         } else {
+            laxianListFromVideo.value = []
             error.value = '该视频不是点云类型或缺少模型地址'
         }
     } catch (err) {
@@ -153,6 +173,11 @@ const handleFeedback = () => {
     // TODO: 打开吐槽/反馈入口
 }
 
+// 传给查看器的拉线列表（编辑模式用可编辑列表）
+const laxianListForViewer = computed(() =>
+    isEditMode.value ? editableLaxianList.value : laxianListFromVideo.value
+)
+
 // 拉线点列表（从 SPZModelViewerContent 暴露）
 const viewerRef = ref<InstanceType<typeof SPZModelViewerContent> | null>(null)
 const laxianList = computed<LaxianInterface[]>(() => {
@@ -160,6 +185,83 @@ const laxianList = computed<LaxianInterface[]>(() => {
     if (!raw) return []
     return (raw as { value?: LaxianInterface[] }).value ?? (Array.isArray(raw) ? raw : [])
 })
+
+// ===== 编辑模式：拉线数据制作 =====
+const addLaxianPoint = () => {
+    const core = viewerRef.value?.getThreeCore?.()
+    if (!core?.controls?.target) return
+    const t = core.controls.target
+    const pos: [number, number, number] = [t.x, t.y, t.z]
+    const laxianId = `edit_${Date.now()}`
+    const newItem: LaxianItem = {
+        position: pos,
+        title: '新拉线点',
+        laxian_id: laxianId,
+        type: 0
+    }
+    editableLaxianList.value = [...editableLaxianList.value, newItem]
+    core.addLaxianToScene?.({
+        position: pos,
+        title: newItem.title,
+        laxian_id: newItem.laxian_id,
+        type: newItem.type,
+        camera: newItem.camera
+    })
+}
+
+const saveCameraForLaxian = (item: LaxianItem) => {
+    const core = viewerRef.value?.getThreeCore?.()
+    if (!core?.camera || !core?.controls?.target) return
+    const cam = core.camera as { position: { x: number; y: number; z: number } }
+    const target = core.controls.target
+    const cameraState = {
+        position: [cam.position.x, cam.position.y, cam.position.z] as [number, number, number],
+        target: [target.x, target.y, target.z] as [number, number, number]
+    }
+    const list = editableLaxianList.value
+    const idx = list.findIndex((l) => l.laxian_id === item.laxian_id)
+    if (idx >= 0) {
+        list[idx] = { ...list[idx], camera: cameraState }
+        editableLaxianList.value = [...list]
+    }
+    core.updateLaxianById?.(item.laxian_id, { camera: cameraState })
+}
+
+const removeLaxian = (item: LaxianItem) => {
+    const core = viewerRef.value?.getThreeCore?.()
+    core?.removeLaxianById?.(item.laxian_id)
+    editableLaxianList.value = editableLaxianList.value.filter((l) => l.laxian_id !== item.laxian_id)
+}
+
+const updateLaxianItem = (item: LaxianItem, updates: Partial<Pick<LaxianItem, 'title' | 'type'>>) => {
+    const list = editableLaxianList.value
+    const idx = list.findIndex((l) => l.laxian_id === item.laxian_id)
+    if (idx >= 0) {
+        list[idx] = { ...list[idx], ...updates }
+        editableLaxianList.value = [...list]
+    }
+    const core = viewerRef.value?.getThreeCore?.()
+    if ((updates.title !== undefined || updates.type !== undefined) && core) {
+        core?.updateLaxianById?.(item.laxian_id, {
+            title: updates.title ?? list[idx]?.title,
+            type: updates.type ?? list[idx]?.type
+        })
+    }
+}
+
+const copyLaxianJson = async () => {
+    const json = JSON.stringify(
+        { laxian_list: editableLaxianList.value },
+        null,
+        2
+    )
+    try {
+        await navigator.clipboard.writeText(json)
+        useToast().add({ title: '已复制到剪贴板', color: 'green' })
+    } catch {
+        useToast().add({ title: '复制失败', color: 'red' })
+    }
+}
 
 // 拉线类型显示开关：0 设计元素，1 柄图元素
 const showType0 = ref(true)
@@ -449,7 +551,9 @@ onUnmounted(() => {
             <SPZModelViewerContent
                 ref="viewerRef"
                 :model-list="modelList"
+                :laxian-list="laxianListForViewer"
                 :auto-rotate="autoRotateEnabled"
+                :edit-mode="isEditMode"
             />
             <!-- 功能栏 -->
             <div
@@ -485,6 +589,7 @@ onUnmounted(() => {
                     <UIcon name="material-symbols:chat-bubble-outline" class="text-lg" />
                     <span class="text-[10px] font-medium leading-tight">吐槽</span>
                 </button>
+                {{ isEditMode }}
             </div>
             <!-- 悬浮人台图列表：有 library_id 时显示，可收缩展开 -->
             <div
@@ -535,7 +640,7 @@ onUnmounted(() => {
                                     <UIcon name="i-heroicons-cube" class="w-5 h-5 text-gray-400" />
                                 </div>
                             </div>
-                            <div class="flex-1 min-w-0 hidden sm:block">
+                            <div class="flex-1 min-w-0 block">
                                 <span class="text-xs font-medium text-gray-800 dark:text-gray-200 line-clamp-2">{{ item.title || '3D' }}</span>
                             </div>
                         </button>
@@ -568,6 +673,60 @@ onUnmounted(() => {
                 </div>
             </div>
             <!-- 拉线设置弹窗 -->
+            <!-- 编辑模式：拉线数据制作面板 -->
+            <div
+                v-if="isEditMode && !loading && !error"
+                class="fixed bottom-4 left-1/2 -translate-x-1/2 z-40 max-w-lg w-[calc(100vw-2rem)] rounded-2xl bg-white/95 dark:bg-gray-800/95 shadow-xl border border-gray-200/50 dark:border-gray-600/50 p-4 backdrop-blur-sm"
+            >
+                <div class="flex items-center justify-between mb-3">
+                    <h3 class="text-sm font-semibold text-gray-800 dark:text-gray-100">拉线数据编辑</h3>
+                    <div class="flex items-center gap-2">
+                        <UButton size="xs" color="primary" @click="addLaxianPoint">
+                            <UIcon name="material-symbols:add" class="mr-1" />
+                            添加拉线点
+                        </UButton>
+                        <UButton size="xs" color="gray" variant="soft" @click="copyLaxianJson">
+                            <UIcon name="material-symbols:content-copy" class="mr-1" />
+                            复制 JSON
+                        </UButton>
+                    </div>
+                </div>
+                <p class="text-xs text-gray-500 dark:text-gray-400 mb-3">
+                    旋转视角至目标位置后点击「添加拉线点」，可在列表中编辑标题、类型，点击「保存镜头」记录当前视角
+                </p>
+                <div class="max-h-48 overflow-y-auto space-y-2">
+                    <div
+                        v-for="(item, i) in editableLaxianList"
+                        :key="item.laxian_id ?? i"
+                        class="flex items-center gap-2 p-2 rounded-lg bg-gray-50 dark:bg-gray-700/50"
+                    >
+                        <input
+                            v-model="item.title"
+                            type="text"
+                            class="flex-1 min-w-0 px-2 py-1 text-sm rounded border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800"
+                            placeholder="标题"
+                            @blur="updateLaxianItem(item, { title: item.title })"
+                        />
+                        <select
+                            :value="item.type ?? 0"
+                            class="px-2 py-1 text-sm rounded border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800"
+                            @change="(e) => updateLaxianItem(item, { type: Number((e.target as HTMLSelectElement).value) as 0 | 1 })"
+                        >
+                            <option :value="0">设计元素</option>
+                            <option :value="1">柄图元素</option>
+                        </select>
+                        <UButton size="xs" color="gray" variant="ghost" title="保存当前镜头到此点" @click="saveCameraForLaxian(item)">
+                            <UIcon name="material-symbols:photo-camera" />
+                        </UButton>
+                        <UButton size="xs" color="red" variant="ghost" title="删除" @click="removeLaxian(item)">
+                            <UIcon name="material-symbols:delete-outline" />
+                        </UButton>
+                    </div>
+                    <div v-if="editableLaxianList.length === 0" class="text-center py-4 text-sm text-gray-400">
+                        暂无拉线点，点击「添加拉线点」开始制作
+                    </div>
+                </div>
+            </div>
             <QhxModal v-model="showLaxianModal" :trigger-position="laxianModalPosition" @close="showLaxianModal = false">
                 <div class="p-6 w-[240px] bg-white dark:bg-gray-800 rounded-2xl shadow-xl border border-gray-200/50 dark:border-gray-700/50">
                     <h3 class="text-sm font-semibold text-gray-800 dark:text-gray-100 mb-4">拉线显示</h3>

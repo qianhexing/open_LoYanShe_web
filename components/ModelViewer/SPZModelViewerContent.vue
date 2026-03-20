@@ -23,10 +23,13 @@ interface Props {
     laxianList?: LaxianItem[]
     /** 是否开启自动旋转 */
     autoRotate?: boolean
+    /** 编辑模式：拉线列表变更时不触发全量重载，由外部调用 addLaxianToScene 等 */
+    editMode?: boolean
 }
 
 const props = withDefaults(defineProps<Props>(), {
     autoRotate: false,
+    editMode: false,
     laxianList: () => [
         {
             position: [0, 1, 0] as [number, number, number],
@@ -51,7 +54,7 @@ const props = withDefaults(defineProps<Props>(), {
         }
     ] as LaxianItem[]
 })
-
+console.log(props.laxianList, '默认拉线点')
 // 场景相关状态
 const sceneLoading = ref(false)
 const sceneLoadProgress = ref({ current: 0, total: 0 })
@@ -74,15 +77,22 @@ watch([() => props.autoRotate, () => threeCore.value], ([autoRotate, core]) => {
     (core.controls as { autoRotate: boolean }).autoRotate = !!autoRotate
 }, { immediate: true })
 
-// 监听模型列表和拉线点变化，自动加载
-watch([() => props.modelList, () => props.laxianList], async ([newList, newLaxian]) => {
-    const hasModels = newList && newList.length > 0
-    const hasLaxian = newLaxian && newLaxian.length > 0
-    if (hasModels || hasLaxian) {
-        await nextTick()
-        await initThreejs()
-    }
-}, { immediate: true })
+// 监听模型列表和拉线点变化，自动加载（编辑模式下不因 laxianList 变化重载，避免覆盖动态添加）
+watch(
+    [
+        () => props.modelList,
+        () => (props.editMode ? null : props.laxianList)
+    ],
+    async ([newList, newLaxian]) => {
+        const hasModels = newList && newList.length > 0
+        const hasLaxian = newLaxian && newLaxian.length > 0
+        if (hasModels || hasLaxian) {
+            await nextTick()
+            await initThreejs()
+        }
+    },
+    { immediate: true }
+)
 
 // 初始化场景
 const initThreejs = async () => {
@@ -93,9 +103,9 @@ const initThreejs = async () => {
         sceneLoading.value = true
         sceneLoadError.value = null
 
-        // 初始化场景
+        // 初始化场景（编辑模式下启用点可视化）
         await initScene(sceneElement, '0', {
-            editMode: false,
+            editMode: props.editMode,
             baseUrl: BASE_IMG,
             sceneData: null
         })
@@ -186,10 +196,10 @@ const FOCUS_DURATION = 800
 const adjustCamera = (animate = true) => {
     if (!threeCore.value) return
 
-    // 计算所有模型的包围盒
+    // 计算所有模型的包围盒（不包含拉线点）
     const box = new THREE.Box3()
     threeCore.value.scene.traverse((child) => {
-        if (child.userData.type === 'splat' || child.userData.type === 'model' || child.userData.type === 'laxian') {
+        if (child.userData.type === 'splat' || child.userData.type === 'model') {
             if (child instanceof THREE.Mesh || child instanceof THREE.Group) {
                 const childBox = new THREE.Box3().setFromObject(child)
                 box.union(childBox)
@@ -202,11 +212,12 @@ const adjustCamera = (animate = true) => {
     const center = box.getCenter(new THREE.Vector3())
     const size = box.getSize(new THREE.Vector3())
     const maxDim = Math.max(size.x, size.y, size.z)
-    const distance = maxDim * 2
+    const distance = maxDim * 3.2 // 拉远镜头，确保模型整体可见
 
+    // 平视：相机与模型中心同高，从正前方观察
     const targetPosition = new THREE.Vector3(
         center.x,
-        center.y + distance * 0.5,
+        center.y,
         center.z + distance
     )
 
@@ -258,14 +269,17 @@ onUnmounted(() => {
     }
 })
 
-// 暴露加载进度和状态
+// 暴露加载进度和状态（含 getThreeCore 供编辑模式使用）
+const getThreeCore = () => threeCore.value
+
 defineExpose({
     sceneLoading,
     sceneLoadProgress,
     sceneLoadError,
     modelCount: computed(() => props.modelList.length),
     laxianList,
-    focusLaxianCamera
+    focusLaxianCamera,
+    getThreeCore
 })
 </script>
 

@@ -7,7 +7,7 @@
         v-show="currentTab === 0"
         ref="danmakuRef"
         type="library_pipe"
-        :id="dateId"
+        :id="dateIds"
         width="100%"
         height="100vh"
         :pageSize="50"
@@ -1277,17 +1277,26 @@ const formatted = computed(() => {
   return `${y}-${m}-${day}`
 })
 
-// 计算日期ID（YYMMDD格式，例如：251224 表示 2025-12-24）
-const dateId = computed(() => {
-  const d = picked.value ?? new Date()
+// 将日期转为 YYMMDD 格式的 ID
+function dateToId(d: Date) {
   const yy = String(d.getFullYear()).slice(-2)
   const mm = String(d.getMonth() + 1).padStart(2, '0')
   const dd = String(d.getDate()).padStart(2, '0')
   return Number.parseInt(`${yy}${mm}${dd}`, 10)
+}
+
+// 选择日期往前7天的日期ID数组（含选择日，共7天）
+const dateIds = computed(() => {
+  const base = picked.value ?? new Date()
+  return Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(base)
+    d.setDate(d.getDate() - (6 - i))
+    return dateToId(d)
+  })
 })
 
-// 监听日期ID变化，自动重新加载弹幕
-watch(dateId, () => {
+// 监听日期ID数组变化，自动重新加载弹幕
+watch(dateIds, () => {
   if (currentTab.value === 0 && danmakuRef.value) {
     nextTick(() => {
       danmakuRef.value?.reload()

@@ -107,6 +107,18 @@ const isMobile = computed(() => {
   return window.innerWidth < 768
 })
 
+// 衣柜状态标签背景颜色映射，便于扩展新状态
+const WARDROBE_STATUS_BG_MAP: Record<string, string> = {
+  待补款: 'bg-amber-500',
+  已拥有: 'bg-emerald-500',
+  // 可在此扩展: 已出: 'bg-gray-500', 等等
+}
+
+function getWardrobeStatusBgClass(status: string | null | undefined): string {
+  if (!status) return 'bg-qhx-primary'
+  return WARDROBE_STATUS_BG_MAP[status] ?? 'bg-qhx-primary'
+}
+
 // 衣柜状态选项
 const wardrobeStatusOptions = computed(() => {
   if (!wardrobeStore.config?.wardrobe_status) return []
@@ -134,9 +146,9 @@ const filterCount = computed(() => {
 const hasActiveFilter = computed(() => {
   return filterCount.value > 0
 })
-const showAddWardrobe = () => {
+const showAddWardrobe = (e?: MouseEvent) => {
   if (addEditWardrobeRef.value) {
-    addEditWardrobeRef.value.showModel()
+    addEditWardrobeRef.value.showModel(null, e)
   }
 }
 const openWardrobeSearch = () => {
@@ -144,9 +156,9 @@ const openWardrobeSearch = () => {
     wardrobeSearchRef.value.showModel()
   }
 }
-const showEditWardrobe = (item: Wardrobe) => {
+const showEditWardrobe = (item: Wardrobe, e?: MouseEvent) => {
   if (addEditWardrobeRef.value) {
-    addEditWardrobeRef.value.showModel(item)
+    addEditWardrobeRef.value.showModel(item, e)
   }
 }
 const fetchWardrobeList = async () => {
@@ -166,6 +178,7 @@ const checkPassword = (wardrobe_id: number) => {
     .then((res) => {
       if (record.value) {
         currentWardrobe.value = record.value
+        console.log(currentWardrobe.value, 'currentWardrobe.value')
         isLoading.value = true
         page.value = 1
         fetchClothesList()
@@ -641,50 +654,25 @@ const confirmDeleteWardrobe = async () => {
   }
 }
 // 衣柜列表拖拽排序
-let oldWardrobeList: { wardrobe_id: number; sort: number }[] = [];
 const isWardrobeSorting = ref(false)
-const onWardrobeDragStart = () => {
-  oldWardrobeList = wardrobeList.value.map((item, index) => ({ 
-    wardrobe_id: item.wardrobe_id || 0, 
-    sort: item.sort || index 
-  }));
-};
 const onWardrobeDragEnd = async () => {
   if (isWardrobeSorting.value) return; // 防止重复提交
   isWardrobeSorting.value = true;
 
   try {
-    // 找出变化的元素
-    const changed: { wardrobe_id: number; sort: number }[] = [];
+    const params = {
+      sort: wardrobeList.value.map((item, index) => ({
+        wardrobe_id: item.wardrobe_id || 0,
+        sort: index,
+      })),
+    };
 
-    wardrobeList.value.forEach((item, newIndex) => {
-      const oldItem = oldWardrobeList[newIndex];
-
-      // 如果当前位置的 id 不一样，说明发生了位置变化
-      if (!oldItem || item.wardrobe_id !== oldItem.wardrobe_id) {
-        changed.push({
-          wardrobe_id: item.wardrobe_id || 0,
-          // 取 "变化前同一位置的 sort"
-          sort: oldItem?.sort ?? item.sort ?? newIndex,
-        });
-      }
-    });
-
-    if (changed.length > 0) {
-      const params = {
-        sort: changed.map((item) => ({
-          wardrobe_id: item.wardrobe_id,
-          sort: item.sort,
-        })),
-      };
-
-      await sortWardrobe(params);
-      toast.add({
-        title: '排序已更新',
-        icon: 'i-heroicons-check-circle',
-        color: 'green'
-      })
-    }
+    await sortWardrobe(params);
+    toast.add({
+      title: '排序已更新',
+      icon: 'i-heroicons-check-circle',
+      color: 'green'
+    })
   } catch (error) {
     console.error("排序更新失败:", error);
     toast.add({
@@ -897,8 +885,9 @@ onMounted(async () => {
       }
       if (route.query.password) {
         password.value = route.query.password as string
+        
       }
-
+      console.log( password.value, 'password')
       if (user.user?.user_id === Number.parseInt(id)) {
         changeWardrobe(wardrobe || wardrobeList.value[0])
       } else {
@@ -1190,7 +1179,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
         
         <div v-if="user.user?.user_id === Number.parseInt(id)" class="flex flex-col items-center py-2 gap-1.5">
           <QhxJellyButton>
-            <div class="h-[46px] text-center px-0.5  cursor-pointer" @click="showAddWardrobe()">
+            <div class="h-[46px] text-center px-0.5  cursor-pointer" @click="showAddWardrobe($event)">
               <div class="my-[3px] mx-auto text-white rounded-[50%] h-[24px] w-[24px] bg-qhx-primary flex items-center justify-center">
                 <UIcon name="material-symbols:add-2" class="text-[16px] text-[#ffffff]" />
               </div>
@@ -1215,7 +1204,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
           </QhxJellyButton>
         </div>
         <Draggable :forceFallback="true" :delay="150" :disabled="!sortMode" v-model="wardrobeList" item-key="wardrobe_id" animation="250" ghost-class="drag-ghost"
-          chosen-class="drag-chosen" drag-class="dragging" @start="onWardrobeDragStart" @end="onWardrobeDragEnd">
+          chosen-class="drag-chosen" drag-class="dragging" @end="onWardrobeDragEnd">
           <template #item="{ element }">
             <transition-group tag="div" name="list">
               <div class="relative group-item">
@@ -1285,7 +1274,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
                 <QhxJellyButton v-if="isWardrobeOwner">
                   <div class="h-[46px] text-center px-0.5  cursor-pointer">
                     <div
-                      @click="showEditWardrobe(currentWardrobe || info)"
+                      @click="showEditWardrobe(info, $event)"
                       class=" m-[3px] text-white rounded-[50%] h-[24px] w-[24px] bg-qhx-primary flex items-center justify-center">
                       <UIcon name="i-heroicons-pencil-square" class="text-[16px] text-[#ffffff]" />
                     </div>
@@ -1465,7 +1454,8 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
                   @click="selectMode ? toggleClothesSelection(element) : jumpToClothes(element)">
                   <div class="w-full aspect-[1/1] relative shadow-xl">
                     <div
-                      class=" absolute bg-qhx-primary text-qhx-inverted left-0 top-0 text-[12px] rounded-tl-[10px] px-1 py-[2px]"
+                      class="absolute left-0 top-0 text-[10px] rounded-tl-[6px] rounded-br-[6px] px-1 py-[1px] text-white"
+                      :class="getWardrobeStatusBgClass(element.wardrobe_status)"
                       v-if="element.wardrobe_status">
                       {{ element.wardrobe_status }}
                     </div>

@@ -86,17 +86,25 @@ export const useSceneCore = () => {
             if (laxianOcclusionCache.size === 0) {
                 updateLaxianOcclusionCache()
             }
-            // screenPositionFromObject 使用 window 坐标，中线划分左右
+            // screenPositionFromObject 使用 window 坐标，不以中线划分、偏移 10px 避免中心区域反复偏移
             const centerX = window.innerWidth / 2
+            const centerY = window.innerHeight / 2
+            const CENTER_OFFSET = 10
             const leftEdge = 12
             const rightEdge = window.innerWidth - 12
             // biome-ignore lint/complexity/noForEach: <explanation>
             threeCore.value.loadedLaxian.forEach((laxian) => {
                 if (!laxian.object) return
                 const core = threeCore.value!
-                const position = core.screenPositionFromObject(laxian.object)
+                const rawPos = core.screenPositionFromObject(laxian.object)
+                // 镜头与点位重叠时投影可能返回 NaN/Infinity，使用屏幕中心作为 fallback
+                const position = {
+                    x: Number.isFinite(rawPos.x) ? rawPos.x : centerX,
+                    y: Number.isFinite(rawPos.y) ? rawPos.y : centerY
+                }
                 const occluded = laxianOcclusionCache.get(laxian.object.uuid) ?? false
-                const isLeft = position.x < centerX
+                // 中线±10px 区域归为右侧，避免中心附近反复左右切换
+                const isLeft = position.x < centerX - CENTER_OFFSET
                 const edgePosition = {
                     x: isLeft ? leftEdge : rightEdge,
                     y: position.y

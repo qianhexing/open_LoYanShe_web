@@ -16,7 +16,7 @@
           <div class="flex items-center gap-2">
             <QhxTag v-if="library.parent_id">
               {{ library.parent_id.name }}
-              <UIcon v-if="!isReviewMode" name="i-heroicons-x-mark" class="ml-1 text-sm cursor-pointer"
+              <UIcon v-if="!isReviewMode" name="ant-design:close-outlined" class="ml-1 text-sm cursor-pointer"
                 @click="library.parent_id = undefined" />
             </QhxTag>
             <UButton v-if="!isReviewMode" color="primary" size="sm" @click="showSelectLibrary()">{{
@@ -57,6 +57,35 @@
               <span class="font-semibold">{{ t('addLibrary.original_value') }}</span>{{ getOriginalValueText('shop_id')
                 || t('addLibrary.empty') }}
             </div>
+            <!-- 该店铺中名字包含「未命名」的图鉴 -->
+            <div v-if="unnamedLibraryList.length > 0" class="mt-3">
+              <div class="text-sm text-gray-600 dark:text-gray-400 mb-2">该店铺中名字包含「未命名」的图鉴</div>
+              <div class="overflow-x-auto">
+                <div class="flex gap-4 pb-4" :style="{ width: `${unnamedLibraryList.length * 120}px` }">
+                  <div
+                    v-for="item in unnamedLibraryList"
+                    :key="item.library_id"
+                    @click="jumpToLibrary(item.library_id)"
+                    class="flex-shrink-0 w-[100px] cursor-pointer"
+                  >
+                    <div class="w-full h-[100px] rounded-lg overflow-hidden mb-2 shadow-md hover:shadow-lg transition-shadow">
+                      <img
+                        :src="getImageUrl(item.cover)"
+                        :alt="item.name"
+                        class="w-full h-full object-cover"
+                        loading="lazy"
+                      />
+                    </div>
+                    <div class="text-xs text-center line-clamp-1 text-gray-700 dark:text-gray-300">
+                      {{ item.name }}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div v-else-if="loadingUnnamedLibrary && library.shop_id" class="mt-3 text-sm text-gray-500">
+              加载中...
+            </div>
           </UFormGroup>
         </clientOnly>
         <!-- 图鉴名称 -->
@@ -88,7 +117,7 @@
             <div v-if="library.library_type" class="mb-2">
               <QhxTag>
                 {{ library.library_type }}
-                <UIcon name="i-heroicons-x-mark" class="ml-1 text-sm cursor-pointer"
+                <UIcon name="ant-design:close-outlined" class="ml-1 text-sm cursor-pointer"
                   @click="library.library_type = undefined" />
               </QhxTag>
             </div>
@@ -118,7 +147,7 @@
             <div v-if="library.state" class="mb-2">
               <QhxTag>
                 {{ library.state }}
-                <UIcon name="i-heroicons-x-mark" class="ml-1 text-sm cursor-pointer"
+                <UIcon name="ant-design:close-outlined" class="ml-1 text-sm cursor-pointer"
                   @click="library.state = undefined" />
               </QhxTag>
             </div>
@@ -197,14 +226,14 @@
           <div class="flex items-center m-1" v-if="library.main_style && library.main_style.length > 0">
             <QhxTag v-for="(item, index) in library.main_style" :key="item">
               {{main_style_options.find((child) => { return child.value === item })?.label}}
-              <UIcon v-if="!isReviewMode" name="i-heroicons-x-mark" class="ml-1 text-sm cursor-pointer"
+              <UIcon v-if="!isReviewMode" name="ant-design:close-outlined" class="ml-1 text-sm cursor-pointer"
                 @click="library.main_style.splice(index, 1)" />
             </QhxTag>
           </div>
           <!-- <div class="flex items-center m-1" v-if="library.theme && library.theme.length > 0">
             <QhxTag v-for="(item, index) in library.theme" :key="item.wiki_id">
               {{ item.wiki_name }}
-              <UIcon v-if="!isReviewMode" name="i-heroicons-x-mark" class="ml-1 text-sm cursor-pointer"
+              <UIcon v-if="!isReviewMode" name="ant-design:close-outlined" class="ml-1 text-sm cursor-pointer"
                 @click="library.theme.splice(index, 1)" />
             </QhxTag>
           </div> -->
@@ -258,7 +287,7 @@
           <div class="flex items-center m-1" v-if="library.theme && library.theme.length > 0">
             <QhxTag v-for="(item, index) in library.theme" :key="item.wiki_id">
               {{ item.wiki_name }}
-              <UIcon v-if="!isReviewMode" name="i-heroicons-x-mark" class="ml-1 text-sm cursor-pointer"
+              <UIcon v-if="!isReviewMode" name="ant-design:close-outlined" class="ml-1 text-sm cursor-pointer"
                 @click="library.theme.splice(index, 1)" />
             </QhxTag>
           </div>
@@ -293,7 +322,7 @@
           <div class="flex items-center m-1" v-if="library.library_pattern && library.library_pattern.length > 0">
             <QhxTag v-for="(item, index) in library.library_pattern" :key="item.wiki_id">
               {{ item.wiki_name }}
-              <UIcon v-if="!isReviewMode" name="i-heroicons-x-mark" class="ml-1 text-sm cursor-pointer"
+              <UIcon v-if="!isReviewMode" name="ant-design:close-outlined" class="ml-1 text-sm cursor-pointer"
                 @click="library.library_pattern.splice(index, 1)" />
             </QhxTag>
           </div>
@@ -311,7 +340,7 @@
           <div class="flex items-center m-1" v-if="library.color && library.color.length > 0">
             <QhxTag v-for="(item, index) in library.color" :key="item.wiki_id">
               {{ item.wiki_name }}
-              <UIcon v-if="!isReviewMode" name="i-heroicons-x-mark" class="ml-1 text-sm cursor-pointer"
+              <UIcon v-if="!isReviewMode" name="ant-design:close-outlined" class="ml-1 text-sm cursor-pointer"
                 @click="library.color.splice(index, 1)" />
             </QhxTag>
           </div>
@@ -349,7 +378,7 @@
           <div class="flex items-center m-1" v-if="library.pattern_elements && library.pattern_elements.length > 0">
             <QhxTag v-for="(item, index) in library.pattern_elements" :key="item.wiki_id">
               {{ item.wiki_name }}
-              <UIcon v-if="!isReviewMode" name="i-heroicons-x-mark" class="ml-1 text-sm cursor-pointer"
+              <UIcon v-if="!isReviewMode" name="ant-design:close-outlined" class="ml-1 text-sm cursor-pointer"
                 @click="library.pattern_elements.splice(index, 1)" />
             </QhxTag>
           </div>
@@ -385,7 +414,7 @@
           <div class="flex items-center m-1" v-if="library.design_elements && library.design_elements.length > 0">
             <QhxTag v-for="(item, index) in library.design_elements" :key="item.wiki_id">
               {{ item.wiki_name }}
-              <UIcon v-if="!isReviewMode" name="i-heroicons-x-mark" class="ml-1 text-sm cursor-pointer"
+              <UIcon v-if="!isReviewMode" name="ant-design:close-outlined" class="ml-1 text-sm cursor-pointer"
                 @click="library.design_elements.splice(index, 1)" />
             </QhxTag>
           </div>
@@ -404,7 +433,7 @@
           <div class="flex flex-wrap gap-2 mb-2">
             <QhxTag v-for="(item, index) in library.fabric_composition" :key="index">
               {{ item.value + '%' + item.name.label }}
-              <UIcon v-if="!isReviewMode" name="i-heroicons-x-mark" class="ml-1 text-sm cursor-pointer"
+              <UIcon v-if="!isReviewMode" name="ant-design:close-outlined" class="ml-1 text-sm cursor-pointer"
                 @click="library.fabric_composition.splice(index, 1)" />
             </QhxTag>
           </div>
@@ -423,7 +452,7 @@
           <div class="flex items-center m-1" v-if="library.cloth_elements && library.cloth_elements.length > 0">
             <QhxTag v-for="(item, index) in library.cloth_elements" :key="item.wiki_id">
               {{ item.wiki_name }}
-              <UIcon v-if="!isReviewMode" name="i-heroicons-x-mark" class="ml-1 text-sm cursor-pointer"
+              <UIcon v-if="!isReviewMode" name="ant-design:close-outlined" class="ml-1 text-sm cursor-pointer"
                 @click="library.cloth_elements.splice(index, 1)" />
             </QhxTag>
           </div>
@@ -442,7 +471,7 @@
           <div class="flex items-center m-1" v-if="library.secondary_cloth && library.secondary_cloth.length > 0">
             <QhxTag v-for="(item, index) in library.secondary_cloth" :key="item.wiki_id">
               {{ item.wiki_name }}
-              <UIcon v-if="!isReviewMode" name="i-heroicons-x-mark" class="ml-1 text-sm cursor-pointer"
+              <UIcon v-if="!isReviewMode" name="ant-design:close-outlined" class="ml-1 text-sm cursor-pointer"
                 @click="library.secondary_cloth.splice(index, 1)" />
             </QhxTag>
           </div>
@@ -725,7 +754,7 @@ import type { Library, Shop, Wiki } from '~/types/api'
 // 导入API函数（需要您自己实现）
 // import { getShopOptionsByKeywords } from '@/api/shop'
 import { getWikiOptions, getWikiOptionsByKeywords } from '@/api/wiki'
-import { insertLibrary, type InsertParams, getLibraryById, type LibraryHistoryNew, updateLibrary, getLibraryReviewData, type ReviewData, submitLibraryReview, cheackLibraryName } from '@/api/library'
+import { insertLibrary, type InsertParams, getLibraryById, type LibraryHistoryNew, updateLibrary, getLibraryReviewData, type ReviewData, submitLibraryReview, cheackLibraryName, getLibraryList } from '@/api/library'
 // updateLibrary, 
 // import compressImage from '@/utils/compressImage'
 // import uploadImage from '@/utils/uploadImage'
@@ -802,6 +831,7 @@ const size_image = ref<FileItem[]>([])
 const disabled = ref(false)
 const configStore = useConfigStore()
 const config = computed(() => configStore.config)
+const port = computed(() => configStore.getPort())
 const wikiOptionsChooseRef = ref()
 const wiki_type = ref<string | null>(null)
 const layoutReady = ref(false)
@@ -1189,6 +1219,69 @@ const chooseWiki = (wiki_list: Wiki[]) => {
   })
 }
 const shop_options_loading = ref(false)
+const unnamedLibraryList = ref<Library[]>([])
+const loadingUnnamedLibrary = ref(false)
+
+// 查询该店铺中名字包含「未命名」的图鉴
+const fetchUnnamedLibraries = async () => {
+  const shop = library.value.shop_id
+  const shopId = shop && typeof shop === 'object' && 'shop_id' in shop ? (shop as Shop).shop_id : null
+  if (!shopId) {
+    unnamedLibraryList.value = []
+    return
+  }
+  loadingUnnamedLibrary.value = true
+  try {
+    const response = await getLibraryList({
+      page: 1,
+      pageSize: 50,
+      filter_list: [
+        { field: 'shop_id', op: 'and', value: shopId },
+        { field: 'name', op: 'and', value: '未命名' }
+      ]
+    })
+    unnamedLibraryList.value = response.rows || []
+  } catch (error) {
+    console.error('查询未命名图鉴失败:', error)
+    unnamedLibraryList.value = []
+  } finally {
+    loadingUnnamedLibrary.value = false
+  }
+}
+
+// 跳转到图鉴详情
+const jumpToLibrary = (libraryId: number) => {
+  const isInUniApp =
+    typeof window !== 'undefined' &&
+    navigator.userAgent.includes('Html5Plus')
+  if (isInUniApp && typeof uni !== 'undefined' && uni.navigateTo) {
+    uni.navigateTo({
+      url: `/pages/library/detail/${libraryId}`
+    })
+  } else if (port.value) {
+    port.value.postMessage(JSON.stringify({
+      type: 'jump',
+      path: 'LibraryDetail',
+      params: { id: libraryId }
+    }))
+  } else {
+    window.open(`/library/detail/${libraryId}`, '_blank')
+  }
+}
+
+const getImageUrl = (path?: string | null): string => {
+  if (!path) return ''
+  return BASE_IMG + path
+}
+
+watch(() => library.value.shop_id, (newVal) => {
+  if (newVal) {
+    fetchUnnamedLibraries()
+  } else {
+    unnamedLibraryList.value = []
+  }
+}, { immediate: true })
+
 const fetchShopOptiosns = async (keywords: string) => {
   const params: any = {}
   if (keywords !== '') {

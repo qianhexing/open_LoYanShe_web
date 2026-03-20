@@ -21,13 +21,24 @@ const handleJump = (ele: Study) => {
   if (item.study_type === 2) {
     window.open(item.study_url)
   } else if (item.study_type === 1) {
-    const toast = useToast()
-    toast.add({
-      title: '错误',
-      description:  '暂时只支持APP端',
-      icon: 'i-heroicons-exclamation-circle',
-      color: 'red'
-    })
+    // APP 端路径到 Web 路由的映射（可扩展）
+    const urlMappings: Array<{ pattern: RegExp; getRoute: (m: RegExpMatchArray) => string }> = [
+      { pattern: /pages\/study\/studyMore\?id=(\d+)/, getRoute: m => `/study/more/${m[1]}` },
+      { pattern: /pages\/wiki\/wikiDetail\/wikiDetail\?id=(\d+)/, getRoute: m => `/lolitaWiki/detail/${m[1]}` },
+    ]
+    const mapping = urlMappings.find(m => item.study_url?.match(m.pattern))
+    const routeMatch = mapping ? item.study_url?.match(mapping.pattern) : null
+    if (mapping && routeMatch) {
+      router.push(mapping.getRoute(routeMatch))
+    } else {
+      const toast = useToast()
+      toast.add({
+        title: '错误',
+        description:  '暂时只支持APP端',
+        icon: 'i-heroicons-exclamation-circle',
+        color: 'red'
+      })
+    }
   } else {
     // window.open(`/study/detail/${item.study_id}`, '_blank')
     router.push(`/study/detail/${item.study_id}`)

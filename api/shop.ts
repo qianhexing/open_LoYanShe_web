@@ -80,6 +80,12 @@ export async function getShopById(params: { shop_id: number }): Promise<Shop> {
   return response.data;
 }
 
+/** 检查店名是否已存在 */
+export async function cheackShopName(params: { shop_name: string }): Promise<boolean> {
+  const response = await use$Post<BaseResponse<boolean>>('/shop/cheackName', params)
+  return response.data
+}
+
 // 获取所有实体店
 export async function getAllPhysicalShops(): Promise<PhysicalShop[]> {
   const response = await use$Post<BaseResponse<PhysicalShop[]>>(

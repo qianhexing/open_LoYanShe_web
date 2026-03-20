@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { ref, nextTick } from 'vue'
+import { ref, nextTick, watch, computed, onMounted, onUnmounted } from 'vue'
 import type { Library, Shop, Wardrobe, Scene, PlanList } from '~/types/api'
 import { getShopOptiosns } from '@/api/shop'
-import { insertClothes, updateClothes } from '@/api/wardrobe'
+import { insertClothes, updateClothes, getClothesSharedList, getClothesDetail, addClothesCitation } from '@/api/wardrobe'
+import { debounce } from '@/utils/public'
 import { getPlanList } from '@/api/plan'
 import type LibraryChoose from '@/components/library/LibraryChoose.vue'
 const LibraryChooseRef = ref<InstanceType<typeof LibraryChoose> | null>(null)
@@ -12,6 +13,8 @@ import type PlanAddEdit from '@/components/Plan/PlanAddEdit.vue'
 const PlanAddEditRef = ref<InstanceType<typeof PlanAddEdit> | null>(null)
 import type QhxImagePicker from '@/components/Qhx/ImagePicker.vue'
 const wardrobeCoverRef = ref<InstanceType<typeof QhxImagePicker> | null>(null)
+import WikiOptionsChoose from '@/components/wiki/wikiOptionsChoose.vue'
+import type { Wiki } from '@/types/api'
 import type QhxColorPicker from '@/components/Qhx/ColorPicker.vue'
 const ColorPickerRef = ref<InstanceType<typeof QhxColorPicker> | null>(null)
 import type { default as QhxSelect, optionsInterface } from '@/components/Qhx/Select.vue'
@@ -37,41 +40,10 @@ const emit = defineEmits(['success'])
 
 
 const qhxSelectRef = ref<InstanceType<typeof QhxSelect>>()
-const mainStyleRef = ref<InstanceType<typeof QhxSelect>>()
+const wikiOptionsChooseRef = ref<InstanceType<typeof WikiOptionsChoose> | null>(null)
 const clothesPartRef = ref<InstanceType<typeof QhxSelect>>()
 const tagRef = ref<InstanceType<typeof customInput>>()
-  
-const openPicker = (e: MouseEvent) => {
-    qhxSelectRef.value?.showPicker(e)
-}
-const openMainStyle = (e: MouseEvent) => {
-  mainStyleRef.value?.showPicker(e)
-}
-const openClothesPart = (e: MouseEvent) => {
-  clothesPartRef.value?.showPicker(e)
-}
-const openTag = (e: MouseEvent) => {
-  tagRef.value?.showModel(e)
-}
-
-const wardrobe = ref<Wardrobe | null>(null) // 衣柜信息
-const wardrobeStore = useWardrobeStore()
-const configStore = useConfigStore()
-console.log(wardrobeStore, '衣柜配置')
-const wardrobe_status_options = ref<optionsInterface[]>([])
-const main_style_options = ref<optionsInterface[]>([])
-const clothes_part_options = ref<optionsInterface[]>([])
-const season_options = [{ value: '春', label: '春' }, { value: '夏', label: '夏' }, { value: '秋', label: '秋' }, { value: '冬', label: '冬' }]
-const show = ref(false)
-const loading = ref(false)
-const type = ref(0) // 0 添加 1 编辑
-const clickPosition = ref({ x: 0, y: 0 })
-const showSceneChooseModal = ref(false)
-const sceneChooseClickPosition = ref({ x: 0, y: 0 })
-const plan = ref<PlanList | null>(null)
-const planAddEditClickPosition = ref({ x: 0, y: 0 })
-
-const form = ref<{
+  const form = ref<{
   wardrobe_id: number | null
   clothes_id: number | null
   clothes_note: string
@@ -91,6 +63,7 @@ const form = ref<{
   main_style: optionsInterface[]
   plan_id: number | null
   times: number
+  is_shared: number
 }>({
   wardrobe_id: null,
   clothes_id: null,
@@ -110,8 +83,335 @@ const form = ref<{
   position: '',
   main_style: [],
   plan_id: null,
-  times: 0
+  times: 0,
+  is_shared: 0
 })
+  
+const openPicker = (e: MouseEvent) => {
+    qhxSelectRef.value?.showPicker(e)
+}
+const showChooseMainStyle = (e: MouseEvent) => {
+  wikiOptionsChooseRef.value?.showModel({ type_id: 4 }, e)
+}
+const chooseMainStyleWiki = (wikiList: Wiki[]) => {
+  for (const item of wikiList) {
+    const exists = form.value.main_style.some((child) => child.value === Number(item.wiki_id))
+    if (!exists) {
+      form.value.main_style.push({
+        value: Number(item.wiki_id),
+        label: item.wiki_name
+      })
+    }
+  }
+}
+const openClothesPart = (e: MouseEvent) => {
+  clothesPartRef.value?.showPicker(e)
+}
+const openTag = (e: MouseEvent) => {
+  tagRef.value?.showModel(e)
+}
+
+const wardrobe = ref<Wardrobe | null>(null) // 衣柜信息
+const wardrobeStore = useWardrobeStore()
+const configStore = useConfigStore()
+console.log(wardrobeStore, '衣柜配置')
+const wardrobe_status_defaults: optionsInterface[] = [
+  { value: '已拥有', label: '已拥有' },
+  { value: '待补款', label: '待补款' },
+  { value: '已出', label: '已出' },
+]
+const wardrobe_status_options = ref<optionsInterface[]>([...wardrobe_status_defaults])
+const main_style_options = ref<optionsInterface[]>([])
+const clothes_part_options = ref<optionsInterface[]>([])
+const season_options = [{ value: '春', label: '春' }, { value: '夏', label: '夏' }, { value: '秋', label: '秋' }, { value: '冬', label: '冬' }]
+const show = ref(false)
+const loading = ref(false)
+const type = ref(0) // 0 添加 1 编辑
+const clickPosition = ref({ x: 0, y: 0 })
+const showSceneChooseModal = ref(false)
+const sceneChooseClickPosition = ref({ x: 0, y: 0 })
+const plan = ref<PlanList | null>(null)
+const planAddEditClickPosition = ref({ x: 0, y: 0 })
+
+// 新增服饰时，名称输入框聚焦时显示共享服饰列表
+const contentScrollRef = ref<HTMLElement | null>(null)
+// 名称表单区域（输入框 + 弹窗）的包裹元素，用于 scrollIntoView 与点击区域外判断
+const clothesNoteFormRef = ref<HTMLElement | null>(null)
+const showClothesSharedPopover = ref(false)
+const sharedClothesList = ref<WardrobeClothes[]>([])
+const sharedClothesLoading = ref(false)
+const selectedSharedClothes = ref<WardrobeClothes | null>(null)
+/** 确认选择后，在下方单独列出的服饰（完整详情，含 include 子服饰） */
+const confirmedSharedClothesList = ref<WardrobeClothes[]>([])
+const confirmDetailLoading = ref(false)
+/** 二级确认弹框：代入会覆盖信息 */
+const showConfirmOverwriteModal = ref(false)
+
+const fetchSharedClothesList = async () => {
+  if (type.value !== 0) return
+  sharedClothesLoading.value = true
+  try {
+    const keywords = form.value.clothes_note?.trim() || undefined
+    const res = await getClothesSharedList({
+      page: 1,
+      pageSize: 20,
+      ...(keywords ? { keywords } : {})
+    })
+    sharedClothesList.value = res?.rows ?? []
+  } catch {
+    sharedClothesList.value = []
+  } finally {
+    sharedClothesLoading.value = false
+  }
+}
+
+const debouncedFetchSharedClothesList = debounce(fetchSharedClothesList, 300)
+
+const sharedPopoverRef = ref<HTMLElement | null>(null)
+
+// 点击区域外隐藏；点击输入框或弹窗内不隐藏（弹窗在 wrapper 内）
+const handleClickOutside = (e: MouseEvent) => {
+  const target = e.target as Node
+  const wrapper = clothesNoteFormRef.value
+  if (wrapper?.contains(target)) return
+  showClothesSharedPopover.value = false
+}
+
+const onClothesNoteFocus = () => {
+  if (type.value !== 0) return
+  showClothesSharedPopover.value = true
+  selectedSharedClothes.value = null
+  fetchSharedClothesList()
+  // 聚焦时滚动弹框内容区，让名称输入框到可视区顶部；手机端键盘弹出会顶起输入框，跳过避免冲突
+  // if (configStore.isMobile) return
+  // nextTick(() => {
+  //   requestAnimationFrame(() => {
+  //     const el = clothesNoteFormRef.value
+  //     if (el instanceof HTMLElement) {
+  //       el.scrollIntoView({ block: 'start', behavior: 'smooth' })
+  //     }
+  //   })
+  // })
+}
+
+// 弹窗显示时监听点击外部，隐藏时移除（仅在客户端执行，避免 SSR 报错）
+const safeRemoveClickListener = () => {
+  try {
+    document?.removeEventListener?.('mousedown', handleClickOutside, true)
+  } catch {
+    // 忽略 SSR 或已卸载等异常场景
+  }
+}
+
+watch(showClothesSharedPopover, (visible) => {
+  if (typeof document === 'undefined') return
+  if (visible) {
+    nextTick(() => {
+      try {
+        document.addEventListener('mousedown', handleClickOutside, true)
+      } catch {
+        // 忽略
+      }
+    })
+  } else {
+    safeRemoveClickListener()
+  }
+}, { immediate: true })
+
+onUnmounted(safeRemoveClickListener)
+
+const onSelectSharedClothes = (item: WardrobeClothes) => {
+  selectedSharedClothes.value = item
+}
+
+/** 点击「确认选择」时先弹出二级确认 */
+const onRequestConfirmSharedClothes = () => {
+  const item = selectedSharedClothes.value
+  if (!item?.clothes_id) return
+  const exists = confirmedSharedClothesList.value.some(
+    (c) => c.clothes_id === item.clothes_id
+  )
+  if (exists) {
+    selectedSharedClothes.value = null
+    showClothesSharedPopover.value = false
+    return
+  }
+  showConfirmOverwriteModal.value = true
+}
+
+/** 将共享服饰详情代入表单（覆盖当前已填信息） */
+function fillFormFromSharedDetail(detail: WardrobeClothes) {
+  form.value.clothes_note = detail.clothes_note || ''
+  form.value.note = detail.note || ''
+  form.value.price = detail.price || 0
+  form.value.size = detail.size || ''
+  form.value.position = detail.position || ''
+  form.value.times = detail.times || 0
+  form.value.sum_price = detail.sum_price !== undefined ? detail.sum_price : 1
+  form.value.is_have = detail.is_have !== undefined ? detail.is_have : true
+  form.value.wardrobe_status = detail.wardrobe_status || null
+  form.value.origin = detail.origin || null
+  form.value.add_time = detail.add_time || null
+  if (detail.color) {
+    form.value.color = typeof detail.color === 'string'
+      ? detail.color.split(',').filter((c: string) => c.trim() !== '')
+      : Array.isArray(detail.color) ? [...detail.color] : []
+  } else {
+    form.value.color = []
+  }
+  if (detail.tags) {
+    form.value.tags = typeof detail.tags === 'string'
+      ? detail.tags.split(',').filter((t: string) => t.trim() !== '')
+      : Array.isArray(detail.tags) ? [...detail.tags] : []
+  } else {
+    form.value.tags = []
+  }
+  if (detail.season) {
+    form.value.season = typeof detail.season === 'string'
+      ? detail.season.split(',').filter((s: string) => s.trim() !== '')
+      : Array.isArray(detail.season) ? [...detail.season] : []
+  } else {
+    form.value.season = []
+  }
+  if (detail.clothes_part) {
+    if (typeof detail.clothes_part === 'string') {
+      const parts = detail.clothes_part.split(',').filter((p: string) => p.trim() !== '')
+      form.value.clothes_part = parts.map((part: string): optionsInterface => ({ value: part, label: part }))
+    } else if (Array.isArray(detail.clothes_part)) {
+      form.value.clothes_part = (detail.clothes_part as (string | optionsInterface)[]).map((p: string | optionsInterface): optionsInterface =>
+        typeof p === 'string' ? { value: p, label: p } : p
+      )
+    } else {
+      form.value.clothes_part = []
+    }
+  } else {
+    form.value.clothes_part = []
+  }
+  if ((detail as ExtendedClothesItem).main_style_list && Array.isArray((detail as ExtendedClothesItem).main_style_list)) {
+    form.value.main_style = (detail as ExtendedClothesItem).main_style_list!.map((s: { label: string; value: number }) => ({ value: s.value, label: s.label }))
+  } else if (detail.main_style) {
+    const styles = typeof detail.main_style === 'string' ? detail.main_style.split(',').filter((s: string) => s.trim() !== '') : []
+    form.value.main_style = styles.map((styleValue: string) => {
+      const styleNum = Number.parseInt(styleValue, 10)
+      const styleOption = main_style_options.value.find(opt => opt.value === styleNum)
+      return styleOption || { value: styleNum, label: styleValue }
+    })
+  } else {
+    form.value.main_style = []
+  }
+  if ((detail as ExtendedClothesItem).library) library.value = (detail as ExtendedClothesItem).library!
+  else library.value = null
+  if ((detail as ExtendedClothesItem).scene) scene.value = (detail as ExtendedClothesItem).scene!
+  else scene.value = null
+  if ((detail as ExtendedClothesItem).origin_shop) origin_shop.value = (detail as ExtendedClothesItem).origin_shop
+  else origin_shop.value = undefined
+  setTimeout(() => {
+    if (wardrobeCoverRef.value && detail.clothes_img) {
+      wardrobeCoverRef.value.previewImages = [{
+        id: `img_${Date.now()}_${Math.random()}`,
+        file: undefined as unknown as File,
+        url: BASE_IMG + detail.clothes_img
+      }]
+    }
+    if (detailImageRef.value && detail.detail_image_list && Array.isArray(detail.detail_image_list) && detail.detail_image_list.length > 0) {
+      detailImageRef.value.previewImages = detail.detail_image_list.map((img: string) => ({
+        id: `img_${Date.now()}_${Math.random()}`,
+        file: undefined as unknown as File,
+        url: BASE_IMG + img
+      }))
+    } else if (detailImageRef.value && detail.detail_image && typeof detail.detail_image === 'string') {
+      const imgs = detail.detail_image.split(',').filter((img: string) => img.trim() !== '')
+      detailImageRef.value.previewImages = imgs.map((img: string) => ({
+        id: `img_${Date.now()}_${Math.random()}`,
+        file: undefined as unknown as File,
+        url: BASE_IMG + img
+      }))
+    }
+  })
+}
+
+/** 二级确认弹框内点击确认：拉取详情、代入表单、替换已选（单选）、关闭弹窗 */
+const onConfirmOverwrite = async () => {
+  const item = selectedSharedClothes.value
+  if (!item?.clothes_id) {
+    showConfirmOverwriteModal.value = false
+    return
+  }
+  confirmDetailLoading.value = true
+  try {
+    const detail = await getClothesDetail({ clothes_id: item.clothes_id })
+    fillFormFromSharedDetail(detail)
+    selectedIncludeIds.value.clear()
+    confirmedSharedClothesList.value = [detail]
+    // 用户引用他人共享服饰，增加被引用服饰的 citation_count
+    await addClothesCitation({ clothes_id: item.clothes_id }).catch(() => {})
+  } catch {
+    fillFormFromSharedDetail(item)
+    selectedIncludeIds.value.clear()
+    confirmedSharedClothesList.value = [item]
+    await addClothesCitation({ clothes_id: item.clothes_id }).catch(() => {})
+  } finally {
+    confirmDetailLoading.value = false
+  }
+  showConfirmOverwriteModal.value = false
+  selectedSharedClothes.value = null
+  showClothesSharedPopover.value = false
+}
+
+const onRemoveConfirmedSharedClothes = (item: WardrobeClothes) => {
+  const mainItem = confirmedSharedClothesList.value.find((c) => c.clothes_id === item.clothes_id)
+  if (mainItem?.include?.length) {
+    mainItem.include.forEach((child) => selectedIncludeIds.value.delete(child.clothes_id!))
+  }
+  confirmedSharedClothesList.value = confirmedSharedClothesList.value.filter(
+    (c) => c.clothes_id !== item.clothes_id
+  )
+}
+
+/** 已选中的关联子服饰 ID 集合（多选） */
+const selectedIncludeIds = ref<Set<number>>(new Set())
+
+const isIncludeChildSelected = (child: WardrobeClothes) =>
+  child.clothes_id != null && selectedIncludeIds.value.has(child.clothes_id)
+
+const onToggleIncludeChild = (child: WardrobeClothes) => {
+  if (child.clothes_id == null) return
+  const next = new Set(selectedIncludeIds.value)
+  if (next.has(child.clothes_id)) {
+    next.delete(child.clothes_id)
+  } else {
+    next.add(child.clothes_id)
+  }
+  selectedIncludeIds.value = next
+}
+
+const onCancelSharedClothes = () => {
+  showClothesSharedPopover.value = false
+}
+
+/** 已点选的关联服饰列表（用于底部展示及传参） */
+const selectedIncludeItems = computed(() => {
+  const items: WardrobeClothes[] = []
+  const ids = selectedIncludeIds.value
+  for (const main of confirmedSharedClothesList.value) {
+    if (!main.include?.length) continue
+    for (const child of main.include) {
+      if (child.clothes_id != null && ids.has(child.clothes_id)) {
+        items.push(child)
+      }
+    }
+  }
+  return items
+})
+
+// 弹窗打开时，输入框内容变化触发搜索（聚焦时由 onClothesNoteFocus 直接请求，避免重复）
+watch(
+  () => form.value.clothes_note,
+  () => {
+    if (showClothesSharedPopover.value) debouncedFetchSharedClothesList()
+  }
+)
+
 const shop_options_loading = ref(false)
 const shop_options = ref<Shop[]>([])
 const origin_shop = ref<Shop | undefined>(undefined)
@@ -192,12 +492,14 @@ const showModel = async (item: ExtendedClothesItem | null, isCopy = false, event
   // 初始化配置选项
   const config = configStore.config
   if (wardrobeStore.config) {
-    wardrobe_status_options.value = wardrobeStore.config?.wardrobe_status.map((child) => {
-      return {
-        value: child,
-        label: child
-      }
-    })
+    const fromConfig = wardrobeStore.config?.wardrobe_status?.map((child) => ({
+      value: child,
+      label: child
+    })) ?? []
+    wardrobe_status_options.value = [
+      ...wardrobe_status_defaults,
+      ...fromConfig.filter((o) => !wardrobe_status_defaults.some((d) => d.label === o.label))
+    ]
     clothes_part_options.value = wardrobeStore.config?.clothes_part.map((child) => {
       return {
         value: child,
@@ -233,6 +535,7 @@ const showModel = async (item: ExtendedClothesItem | null, isCopy = false, event
     form.value.is_have = item.is_have !== undefined ? item.is_have : true
     form.value.wardrobe_status = item.wardrobe_status || null
     form.value.plan_id = item.plan_id || null
+    form.value.is_shared = item.is_shared !== undefined ? item.is_shared : 0
     // 修改时代入 plan，支持从 item.plan 或按 plan_id 拉取
     if (item.plan && (item.plan as PlanList).list_id) {
       plan.value = item.plan as PlanList
@@ -575,7 +878,8 @@ const initData = () => {
 				plan_id: null,
         wardrobe_id: null,
         clothes_id: null,
-        times: 0
+        times: 0,
+        is_shared: 0
 			}
 			// this.plan = null
 			library.value = null
@@ -584,7 +888,12 @@ const initData = () => {
 			wardrobeName.value = ''
 			origin_shop.value = undefined
 			plan.value = null
-			
+			showClothesSharedPopover.value = false
+			selectedSharedClothes.value = null
+			sharedClothesList.value = []
+			confirmedSharedClothesList.value = []
+			selectedIncludeIds.value.clear()
+
 			// 清空图片选择器
 			if (wardrobeCoverRef.value) {
 				wardrobeCoverRef.value.previewImages = []
@@ -636,7 +945,8 @@ const insert = async () => {
   const params: any = {
     wardrobe_id,
     wardrobe_status,
-    sum_price
+    sum_price,
+    is_shared: form.value.is_shared ?? 0
   }
   if (size !== '') {
     params.size = size
@@ -679,6 +989,14 @@ const insert = async () => {
   }
 
   params.plan_id = form.value.plan_id
+  params.is_shared = form.value.is_shared ?? 0
+
+  // 点选的关联服饰，通过 include_clothes 传参（逗号分隔 clothes_id）
+  if (selectedIncludeIds.value.size > 0) {
+    params.include_clothes = Array.from(selectedIncludeIds.value).join(',')
+  } else {
+    params.include_clothes = null
+  }
 
   if (color && color.length > 0) {
     params.color = color.join()
@@ -758,6 +1076,12 @@ const insert = async () => {
   } else {
     params.detail_image = null
   }
+  // 点选的关联服饰，通过 include_clothes 传参（逗号分隔 clothes_id）
+  if (selectedIncludeIds.value.size > 0) {
+    params.include_clothes = Array.from(selectedIncludeIds.value).join(',')
+  } else {
+    params.include_clothes = null
+  }
   if (type.value === 0) {
       insertClothes(params)
         .then((res) => {
@@ -794,7 +1118,7 @@ const addTimeInput = computed({
     }
     return String(form.value.add_time)
   },
-  set: (value: string) => {
+  set: (value: string | null) => {
     form.value.add_time = value || null
   }
 })
@@ -822,7 +1146,7 @@ defineExpose({
       </div>
 
       <!-- 内容区域 -->
-      <div class="flex-1 overflow-y-auto p-6 space-y-6 scrollbar-thin scrollbar-thumb-gray-300 dark:scrollbar-thumb-gray-600 scrollbar-track-transparent">
+      <div ref="contentScrollRef" class="flex-1 overflow-y-auto p-6 space-y-6 scrollbar-thin scrollbar-thumb-gray-300 dark:scrollbar-thumb-gray-600 scrollbar-track-transparent">
 
         <!-- 衣柜名称 -->
         <div class="grid grid-cols-12 gap-4 items-center p-4 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-gray-700/50 dark:to-gray-700/30 rounded-xl border border-blue-100 dark:border-gray-600">
@@ -901,7 +1225,8 @@ defineExpose({
           </UFormGroup>
 
           <!-- 名称 -->
-          <UFormGroup label="名称">
+          <div ref="clothesNoteFormRef">
+          <UFormGroup label="名称" class="relative">
             <UInput
                 v-model="form.clothes_note"
                 placeholder="名称(原笔记)"
@@ -916,8 +1241,132 @@ defineExpose({
                     }
                   }
                 }"
+                @focus="onClothesNoteFocus"
               />
+            <!-- 新增服饰时，聚焦显示共享服饰列表 -->
+            <div
+              ref="sharedPopoverRef"
+              v-if="type === 0 && showClothesSharedPopover"
+              class="absolute left-0 right-0 top-full z-50 mt-2 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 shadow-xl max-h-64 overflow-hidden flex flex-col"
+            >
+              <div class="px-3 py-2 border-b border-gray-200 dark:border-gray-600 flex-shrink-0">
+                <span class="text-xs text-gray-500 dark:text-gray-400">此处为用户共享服饰，可不选</span>
+              </div>
+              <div class="flex-1 overflow-y-auto p-2 min-h-0">
+                <div v-if="sharedClothesLoading" class="flex justify-center py-6">
+                  <UIcon name="i-heroicons-arrow-path" class="animate-spin text-xl text-qhx-primary" />
+                </div>
+                <div v-else-if="sharedClothesList.length === 0" class="py-6 text-center text-gray-500 dark:text-gray-400 text-sm">
+                  暂无匹配的共享服饰
+                </div>
+                <div
+                  v-else
+                  v-for="item in sharedClothesList"
+                  :key="item.clothes_id"
+                  class="flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer transition-colors"
+                  :class="selectedSharedClothes?.clothes_id === item.clothes_id
+                    ? 'bg-qhx-primary/25 dark:bg-qhx-primary/35 ring-2 ring-qhx-primary ring-inset'
+                    : 'hover:bg-gray-100 dark:hover:bg-gray-700'"
+                  @click="onSelectSharedClothes(item)"
+                >
+                  <img
+                    v-if="item.clothes_img"
+                    :src="BASE_IMG + item.clothes_img"
+                    class="w-10 h-10 rounded object-cover flex-shrink-0"
+                    alt=""
+                  />
+                  <div v-else class="w-10 h-10 rounded bg-gray-200 dark:bg-gray-600 flex-shrink-0 flex items-center justify-center">
+                    <UIcon name="i-heroicons-photo" class="text-gray-400 text-lg" />
+                  </div>
+                  <span class="flex-1 truncate text-sm">{{ item.clothes_note || '未命名' }}</span>
+                </div>
+              </div>
+              <div class="flex justify-end gap-2 p-2 border-t border-gray-200 dark:border-gray-600 flex-shrink-0">
+                <UButton size="xs" variant="ghost" @click="onCancelSharedClothes">取消</UButton>
+                <UButton size="xs" color="primary" :disabled="!selectedSharedClothes || confirmDetailLoading" :loading="confirmDetailLoading" @click="onRequestConfirmSharedClothes">
+                  确认选择
+                </UButton>
+              </div>
+            </div>
           </UFormGroup>
+          <!-- 已选择的共享服饰（完整主服饰回显 + 子服饰列表） -->
+          <div
+            v-if="type === 0 && confirmedSharedClothesList.length > 0"
+            class="mt-3 space-y-3"
+          >
+            <span class="text-sm text-gray-500 dark:text-gray-400">已选择：</span>
+            <div class="space-y-3">
+              <div
+                v-for="mainItem in confirmedSharedClothesList"
+                :key="mainItem.clothes_id"
+                class="rounded-xl border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-800/50 overflow-hidden"
+              >
+                <!-- 主服饰 -->
+                <div class="flex items-start gap-3 p-3">
+                  <img
+                    v-if="mainItem.clothes_img"
+                    :src="BASE_IMG + mainItem.clothes_img"
+                    class="w-14 h-14 rounded-lg object-cover flex-shrink-0"
+                    alt=""
+                  />
+                  <div v-else class="w-14 h-14 rounded-lg bg-gray-200 dark:bg-gray-600 flex-shrink-0 flex items-center justify-center">
+                    <UIcon name="i-heroicons-photo" class="text-gray-400 text-xl" />
+                  </div>
+                  <div class="flex-1 min-w-0">
+                    <div class="font-medium text-gray-900 dark:text-gray-100">{{ mainItem.clothes_note || '未命名' }}</div>
+                    <div class="flex flex-wrap gap-x-3 gap-y-0.5 mt-1 text-xs text-gray-500 dark:text-gray-400">
+                      <span v-if="mainItem.price">¥{{ mainItem.price }}</span>
+                      <span v-if="mainItem.origin">{{ mainItem.origin }}</span>
+                      <span v-if="mainItem.clothes_part">{{ mainItem.clothes_part }}</span>
+                      <span v-if="mainItem.color">{{ mainItem.color }}</span>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    class="p-1.5 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors flex-shrink-0"
+                    @click="onRemoveConfirmedSharedClothes(mainItem)"
+                  >
+                    <UIcon name="i-heroicons-x-mark" class="text-base text-gray-500" />
+                  </button>
+                </div>
+                <!-- 关联子服饰列表 -->
+                <div
+                  v-if="mainItem.include && mainItem.include.length > 0"
+                  class="border-t border-gray-200 dark:border-gray-600 px-3 py-2 bg-white/50 dark:bg-gray-900/30"
+                >
+                  <div class="flex items-center justify-between mb-2">
+                    <span class="text-xs text-gray-500 dark:text-gray-400">关联服饰</span>
+                    <span class="text-xs text-amber-600 dark:text-amber-400">（点击可多选）</span>
+                  </div>
+                  <div class="flex flex-wrap gap-2">
+                    <div
+                      v-for="child in mainItem.include"
+                      :key="child.clothes_id"
+                      role="button"
+                      tabindex="0"
+                      class="inline-flex items-center gap-2 px-2 py-1 rounded-lg cursor-pointer transition-colors border"
+                      :class="isIncludeChildSelected(child)
+                        ? 'bg-qhx-primary/25 dark:bg-qhx-primary/35 ring-2 ring-qhx-primary ring-inset border-qhx-primary/50'
+                        : 'bg-gray-100 dark:bg-gray-700 border-gray-200 dark:border-gray-600 hover:bg-gray-200 dark:hover:bg-gray-600'"
+                      @click="onToggleIncludeChild(child)"
+                    >
+                      <img
+                        v-if="child.clothes_img"
+                        :src="BASE_IMG + child.clothes_img"
+                        class="w-6 h-6 rounded object-cover flex-shrink-0"
+                        alt=""
+                      />
+                      <div v-else class="w-6 h-6 rounded bg-gray-200 dark:bg-gray-600 flex-shrink-0 flex items-center justify-center">
+                        <UIcon name="i-heroicons-photo" class="text-gray-400 text-xs" />
+                      </div>
+                      <span class="text-xs truncate max-w-[100px]">{{ child.clothes_note || '未命名' }}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          </div>
         </div>
 
         <!-- 基础信息板块 -->
@@ -1053,21 +1502,10 @@ defineExpose({
         </UFormGroup>
         <!-- 计入总价 -->
         <UFormGroup label="计入总价">
-          <URadioGroup v-model="form.sum_price"
-            class=" ring-qhx-primary text-qhx-primary"
-            :ui="{
-              // 外层容器样式
-              wrapper: 'p-2',
-            }"
-            :uiRadio="{
-                wrapper: 'p-2',
-                border: 'text-qhx-primary cursor-pointer',
-                color: 'qhx-primary',
-            }"
-           :options="[
-            { value: 1, label: '是' },
-            { value: 0, label: '否' }
-          ]" />
+          <UToggle
+            :model-value="form.sum_price === 1"
+            @update:model-value="form.sum_price = $event ? 1 : 0"
+          />
         </UFormGroup>
         </div>
 
@@ -1133,10 +1571,8 @@ defineExpose({
           />
         </UFormGroup>
         <UFormGroup label="主要风格">
-          <div v-if="form.main_style.length > 0">
-            <QhxTag
-              v-for="(tag, index) in form.main_style"
-            >
+          <div class="flex items-center m-1" v-if="form.main_style && form.main_style.length > 0">
+            <QhxTag v-for="(tag, index) in form.main_style" :key="tag.value">
               <div class="flex">
                 <QhxJellyButton class="cursor-pointer flex items-center mr-[5px] text-white rounded-[50%] w-[18px] h-[18px] justify-center bg-qhx-primary" @click="form.main_style.splice(index, 1)">
                   <UIcon name="ant-design:close-outlined" class="text-[14px] text-[#ffffff]" />
@@ -1146,24 +1582,14 @@ defineExpose({
             </QhxTag>
           </div>
           <UButton 
-            type="submit" 
+            type="button" 
             size="xs"
             class="bg-qhx-primary text-qhx-inverted hover:bg-qhx-primaryHover mt-2"
-            :loading="loading"
-            @click="(e: MouseEvent) => { openMainStyle(e) }"
+            @click="(e: MouseEvent) => { showChooseMainStyle(e) }"
           >
             选择风格
           </UButton>
-          <QhxSelect 
-            ref="mainStyleRef"
-            :options="main_style_options"
-            :default-value="main_style_options[0]"
-            @select="(select) => { 
-              if (form.main_style.findIndex((child) => { return select.label === child.label }) === -1) {
-                form.main_style.push(select)
-              }
-             } "
-          />
+          <WikiOptionsChoose ref="wikiOptionsChooseRef" @choose="chooseMainStyleWiki" />
         </UFormGroup>
         <UFormGroup label="版型部位">
           <div v-if="form.clothes_part.length > 0">
@@ -1321,27 +1747,31 @@ defineExpose({
            placeholder="收纳位置" />
         </UFormGroup>
         <UFormGroup label="购入时间">
-          <UInput
+          <QhxDateTimePicker
             v-model="addTimeInput"
-            type="date"
+            mode="date"
+            :enable-time-picker="false"
+            format="YYYY-MM-DD"
             placeholder="选择购入时间"
-            class="flex-1 focus:ring-0"
-            :ui="{
-              base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
-              rounded: 'rounded-full',
-              padding: { xs: 'px-4 py-2' },
-              color: {
-                white: {
-                  outline: 'bg-gray-50 dark:bg-gray-800 ring-1 ring-gray-300 dark:ring-gray-600 focus:ring-2 focus:ring-qhx-primary'
-                }
-              }
-            }"
           />
         </UFormGroup>
         <UFormGroup label="详情图" class="space-y-2">
           <div class=" bg-gray-50 dark:bg-gray-700/30 rounded-xl border border-gray-200 dark:border-gray-600">
             <QhxImagePicker :multiple="true" @update:files="onUpdateFiles" ref="detailImageRef" />
           </div>
+        </UFormGroup>
+        <!-- 是否分享（表单底部） -->
+        <UFormGroup label="是否共享" class="space-y-2">
+          <UToggle
+            :model-value="form.is_shared === 1"
+            @update:model-value="form.is_shared = $event ? 1 : 0"
+          />
+          <p v-if="form.is_shared === 1" class="text-xs text-amber-600 dark:text-amber-400">
+            注意：当前为共享状态，服饰数据公开，其他用户可以直接导入衣柜
+          </p>
+          <p v-else class="text-xs text-amber-600 dark:text-amber-400">
+            当前为私有状态
+          </p>
         </UFormGroup>
         </div>
       </div>
@@ -1428,6 +1858,21 @@ defineExpose({
             </div>
             <UIcon name="i-heroicons-chevron-right" class="text-gray-400 group-hover:text-blue-500 transition-colors" />
           </div>
+        </div>
+      </div>
+    </QhxModal>
+    <!-- 二级确认：代入会覆盖信息 -->
+    <QhxModal v-model="showConfirmOverwriteModal" :trigger-position="clickPosition" @close="showConfirmOverwriteModal = false">
+      <div class="w-[90vw] max-w-md bg-white dark:bg-gray-800 rounded-2xl shadow-2xl overflow-hidden border border-gray-200/50 dark:border-gray-700/50">
+        <div class="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
+          <h3 class="text-lg font-semibold text-gray-900 dark:text-gray-100">操作确认</h3>
+        </div>
+        <div class="px-6 py-4">
+          <p class="text-gray-600 dark:text-gray-400">代入会覆盖当前已填写信息，是否确认？</p>
+        </div>
+        <div class="flex justify-end gap-2 px-6 py-4 border-t border-gray-200 dark:border-gray-700">
+          <UButton color="gray" variant="outline" @click="showConfirmOverwriteModal = false">取消</UButton>
+          <UButton color="primary" :loading="confirmDetailLoading" @click="onConfirmOverwrite">确认</UButton>
         </div>
       </div>
     </QhxModal>

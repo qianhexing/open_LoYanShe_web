@@ -201,3 +201,36 @@ export async function getClothesSearch(
   const response = await use$Post<BaseResponse<ClothesSearchResponse>>('/clothes/search', params);
   return response.data;
 }
+
+/** 共享服饰列表（筛选 is_shared=1, is_enable=0，按 good_count-bad_count 降序） */
+export interface ClothesSharedListParams extends PaginationParams {
+  keywords?: string // 支持空格、英文逗号、中文逗号分隔多条件
+}
+
+interface ClothesSharedListResponse {
+  rows: WardrobeClothes[]
+  count: number
+}
+
+export async function getClothesSharedList(
+  params: ClothesSharedListParams
+): Promise<ClothesSharedListResponse> {
+  const { page = 1, pageSize = 10, keywords } = params;
+  const response = await use$Post<BaseResponse<ClothesSharedListResponse>>('/clothes/shared/list', {
+    page,
+    pageSize,
+    ...(keywords ? { keywords } : {})
+  });
+  return response.data;
+}
+
+/** 增加服饰引用次数（当用户通过 include_clothes 或选择共享服饰引用他人服饰时调用） */
+export interface ClothesCitationAddResponse {
+  clothes_id: number
+  citation_count: number
+}
+
+export async function addClothesCitation(params: { clothes_id: number }): Promise<ClothesCitationAddResponse> {
+  const response = await use$Post<BaseResponse<ClothesCitationAddResponse>>('/clothes/citation/add', params)
+  return response.data
+}

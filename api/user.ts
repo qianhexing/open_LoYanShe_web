@@ -189,3 +189,40 @@ export async function bindEmail(
   );
   return response.data;
 }
+
+// 用户徽章相关
+export interface UserDecoBadgeItem {
+  deco_id: number
+  title?: string
+  cover?: string
+  url?: string
+  type: number
+  is_free?: number
+  price_type?: number
+  user_deco_id?: number
+  create_time?: string
+  is_displayed: number
+}
+
+export interface UserDecoBadgesResponse {
+  rows: UserDecoBadgeItem[]
+  display_badge: string
+}
+
+/** 获取用户已拥有的徽章列表及展示状态。不传 user_id 时为当前用户 */
+export async function getUserDecoBadges(params?: { user_id?: number }): Promise<UserDecoBadgesResponse> {
+  const response = await use$Post<BaseResponse<UserDecoBadgesResponse>>(
+    '/user/deco/badges',
+    params ?? {}
+  );
+  return response.data;
+}
+
+/** 修改用户展示的徽章 */
+export async function updateUserDisplayBadges(params: { badge_ids: number[] }): Promise<{ display_badge: string }> {
+  const response = await use$Post<BaseResponse<{ display_badge: string }>>(
+    '/user/deco/display/update',
+    params
+  );
+  return response.data;
+}

@@ -224,8 +224,113 @@ export function parseRichText(html: string): RichNode[] {
   const rootNodes = Array.from(doc.body.childNodes)
     .map(parseNode)
     .filter((n): n is RichNode => n !== null)
-  console.log(rootNodes)
   return rootNodes
+}
+
+/** 自闭合标签，无需闭合 */
+const VOID_TAGS = new Set(['img', 'br', 'hr', 'input', 'source'])
+
+/** 转义 HTML 实体 */
+function escapeHtml(text: string): string {
+  const map: Record<string, string> = {
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;'
+  }
+  return text.replace(/[&<>"']/g, (c) => map[c] ?? c)
+}
+
+/** 根据 emoji id 解析图片 URL 的回调，用于还原 emoji img 标签 */
+export type GetEmojiUrlFn = (id: number) => string
+
+/**
+ * 将 RichNode 归一化为编辑器格式（如 span+data-emoji-id -> emoji），并补充 emoji img 显示表情
+ */
+function normalizeToEditorNode(node: RichNode, getEmojiUrl?: GetEmojiUrlFn): RichNode {
+  const normalized: RichNode = {
+    ...node,
+    attrs: { ...node.attrs },
+    children: node.children.map((c) => normalizeToEditorNode(c, getEmojiUrl))
+  }
+  // SafeRichText 将 emoji 渲染为 span，若存的是 span 含 data-emoji-id，还原为 emoji 以便编辑器解析
+  if (
+    normalized.name === 'span' &&
+    (normalized.attrs['data-emoji-id'] || normalized.attrs['data-type'] === 'emoji' || normalized.attrs['class']?.includes('rich-text-emoji'))
+  ) {
+    normalized.name = 'emoji'
+    if (!normalized.attrs['data-emoji-id'] && normalized.attrs['href']) {
+      normalized.attrs['data-emoji-id'] = normalized.attrs['href'].replace(/^#emoji\/?/, '')
+    }
+  }
+  // emoji 节点：若无 img 子节点，根据 id 用 getEmojiUrl 还原 img 标签以显示表情
+  if (normalized.name === 'emoji') {
+    const emojiId = normalized.attrs['data-emoji-id'] || normalized.attrs['href']?.replace(/^#emoji\/?/, '')
+    const hasImg = normalized.children.some((c) => c.name === 'img')
+    if (emojiId && !hasImg && getEmojiUrl) {
+      const idNum = Number.parseInt(String(emojiId), 10)
+      if (!Number.isNaN(idNum)) {
+        const src = getEmojiUrl(idNum)
+        if (src) {
+          normalized.children = [
+            { name: 'img', text: '', children: [], attrs: { src, alt: normalized.attrs['alt'] || '' } }
+          ]
+        }
+      }
+    }
+  }
+  return normalized
+}
+
+/** 将 RichNode 序列化为 HTML 字符串 */
+function richNodeToHtml(node: RichNode, getEmojiUrl?: GetEmojiUrlFn): string {
+  const n = normalizeToEditorNode(node, getEmojiUrl)
+  if (n.name === 'text') {
+    return escapeHtml(n.text)
+  }
+  const attrsStr = Object.entries(n.attrs)
+    .map(([k, v]) => `${k}="${escapeHtml(String(v))}"`)
+    .join(' ')
+  const attrs = attrsStr ? ` ${attrsStr}` : ''
+  if (VOID_TAGS.has(n.name)) {
+    return `<${n.name}${attrs}>`
+  }
+  const childrenHtml = n.children.map((c) => richNodeToHtml(c, getEmojiUrl)).join('')
+  return `<${n.name}${attrs}>${childrenHtml || n.text}</${n.name}>`
+}
+
+export interface ContentToEditorFormatOptions {
+  /** 根据 emoji id 返回图片完整 URL，用于还原 emoji img 标签显示表情 */
+  getEmojiUrl?: GetEmojiUrlFn
+}
+
+/**
+ * 将 RichNode[] 转换为富文本编辑器可编辑的 HTML 格式
+ * 参考 SafeRichText 的解析逻辑，确保 emoji、topic 等自定义标签格式正确
+ */
+export function richNodesToEditorHtml(nodes: RichNode[], options?: ContentToEditorFormatOptions): string {
+  return nodes.map((n) => richNodeToHtml(n, options?.getEmojiUrl)).join('')
+}
+
+/**
+ * 将内容还原为富文本编辑器可编辑的格式
+ * @param content HTML 字符串 或 RichNode[]（如 SafeRichText 的 nodes）
+ * @param options.getEmojiUrl 根据 emoji id 返回图片 URL，用于还原 emoji img 标签显示表情
+ * @returns 编辑器可解析的 HTML 字符串
+ */
+export function contentToEditorFormat(
+  content: string | RichNode[],
+  options?: ContentToEditorFormatOptions
+): string {
+  if (Array.isArray(content)) {
+    return richNodesToEditorHtml(content, options)
+  }
+  if (!content || typeof content !== 'string') {
+    return ''
+  }
+  const nodes = parseRichText(content)
+  return richNodesToEditorHtml(nodes, options)
 }
 
 // 获取店铺主体类型

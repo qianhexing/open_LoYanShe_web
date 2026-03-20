@@ -294,6 +294,10 @@ export interface WardrobeClothes {
   sence_id?: number
   model_list?: MaterialForeign[]
   plan?: PlanList | null
+  is_shared?: number
+  good_count?: number
+  bad_count?: number
+  citation_count?: number
 }
 export interface MaterialForeign {
   foreign_id?: number
@@ -429,6 +433,19 @@ export interface Community {
   collect?: Collect
   community_hide?: CommunityHide
   sence_id?: number
+}
+
+export interface UserDeco {
+  deco_id?: number
+  pk_type?: number
+  pk_id?: number
+  create_time?: string
+  user_id?: number
+  note?: string
+  foreign?: {
+    cover?: string
+    name?: string
+  }
 }
 
 export interface User {
@@ -614,6 +631,7 @@ export interface Album {
   parent_id?: number
   create_time?: Date
   sort?: number
+  album_foreign?: AblumForeign
 }
 
 export interface DisplayCabinet {
@@ -736,5 +754,25 @@ export interface Journal {
   wardrobe_clothes?: WardrobeClothes
   matching_list?: MatchingListItem
   library?: Library
+  plan?: PlanList
+}
+
+
+export interface AblumForeign {
+  foreign_id?: number
+  album_id?: number
+  cover?: string
+  user_id?: number
+  create_time?: Date
+  update_time?: Date
+  note?: string
+  pk_type?: number
+  pk_id?: number
+  album?: Album
+  user?: User
+  wardrobe_clothes?: WardrobeClothes
+  community?: Community
+  library?: Library
+  matching_list?: MatchingListItem
   plan?: PlanList
 }

@@ -866,16 +866,16 @@ const togglePhysicsDrop = () => {
     <WardrobeAddLibrary ref="wardrobeAddLibraryRef" @change="handleWardrobeChange" />
     
     <!-- 物理掉落组件 -->
-    <ClientOnly>
+    <!-- <ClientOnly>
       <PhysicsDrop 
         v-if="isPhysicsDropVisible && physicsDropModels.length > 0"
         :models="physicsDropModels"
         @object-click="handleObjectClick"
       />
-    </ClientOnly>
+    </ClientOnly> -->
     
     <!-- 悬浮开关按钮 -->
-    <div class="fixed bottom-8 left-8 z-50 pointer-events-none" v-if="library && physicsDropModels.length > 0">
+    <!-- <div class="fixed bottom-8 left-8 z-50 pointer-events-none" v-if="library && physicsDropModels.length > 0">
       <button
         @click="togglePhysicsDrop"
         class="pointer-events-auto bg-gray-900/80 dark:bg-white/80 backdrop-blur-md text-white dark:text-gray-900 px-4 py-2 rounded-full shadow-2xl flex items-center gap-1.5 transform transition-all duration-300 hover:scale-105 active:scale-95 group"
@@ -886,7 +886,7 @@ const togglePhysicsDrop = () => {
         />
         <span class="text-sm font-semibold">{{ isPhysicsDropVisible ? '关闭掉落' : '开启掉落' }}</span>
       </button>
-    </div>
+    </div> -->
   </div>
 </template>
 

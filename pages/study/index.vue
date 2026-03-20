@@ -149,7 +149,11 @@ const handleSearch = () => {
           <div class="grid grid-cols-2 gap-2 w-full max-md:grid-cols-3 p-3">
             <div v-for="(child, index) in study.child">
               <StudyItem :item="child" v-if="index < 11"></StudyItem>
-              <div v-else class="text-center">
+              <div
+                v-else
+                class="text-center cursor-pointer"
+                @click="router.push(`/study/more/${study.study_id}`)"
+              >
                 <div>
                   <img :src="`${BASE_IMG}${child.study_cover || 'static/plan_cover/default.jpg'}`"
                     :alt="child.study_title"

@@ -21,7 +21,7 @@ interface Props {
   className?: string,
   needJump?: boolean // 是否需要跳转
   loadTemplate?: boolean
-  panelType?: 'material' | 'template' | 'effect' | 'clothing' | null // 面板类型
+  panelType?: 'material' | 'template' | 'effect' | 'clothing' | 'scene' | null // 面板类型
 }
 const addImage = () => {
   imageType.value = 0
@@ -54,7 +54,7 @@ const props = withDefaults(defineProps<Props>(), {
 })
 const { loadTemplate, panelType } = toRefs(props)
 // 记录已访问的面板类型，懒加载：首次访问才挂载，切换时保持挂载不重新加载
-const visitedTypes = ref<Set<'material' | 'clothing' | 'template' | 'effect'>>(new Set())
+const visitedTypes = ref<Set<'material' | 'clothing' | 'template' | 'effect' | 'scene'>>(new Set())
 watch(panelType, (val) => {
     if (val && !visitedTypes.value.has(val)) {
         visitedTypes.value = new Set([...visitedTypes.value, val])
@@ -292,6 +292,11 @@ defineExpose({
     <!-- 服饰列表 -->
     <div v-if="panelType === 'clothing'" class="w-full">
       <MateriaList @choose="chooseMaterial" :compact="true" :pk-type="3"></MateriaList>
+    </div>
+
+    <!-- 场景列表 -->
+    <div v-if="panelType === 'scene'" class="w-full">
+      <MateriaList @choose="chooseMaterial" :compact="true" :pk-type="4"></MateriaList>
     </div>
     
     <!-- 模版列表 -->

@@ -1,15 +1,14 @@
 <template>
-  <UModal v-model="show" :ui="{ width: 'max-w-3xl' }" prevent-close>
-    <UCard>
-      <template #header>
-        <div class="flex justify-between items-center">
-          <h2 class="text-lg font-semibold">
-            {{ type === 0 ? '新增衣柜' : '编辑衣柜' }}
-          </h2>
-          <UButton color="gray" variant="ghost" icon="i-heroicons-x-mark" @click="closeModel" />
-        </div>
-      </template>
-      <div class="space-y-6 max-h-[60vh] overflow-y-auto p-2">
+  <QhxModal v-model="show" :trigger-position="clickPosition" @close="handleClose">
+    <div class="w-[95vw] max-w-3xl max-h-[90vh] bg-white dark:bg-gray-800 rounded-2xl shadow-2xl overflow-hidden flex flex-col backdrop-blur-xl border border-gray-200/50 dark:border-gray-700/50">
+      <!-- 头部 -->
+      <div class="flex justify-between items-center px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
+        <h2 class="text-lg font-semibold">
+          {{ type === 0 ? '新增衣柜' : '编辑衣柜' }}
+        </h2>
+        <UButton color="gray" variant="ghost" icon="i-heroicons-x-mark" @click="closeModel" />
+      </div>
+      <div class="space-y-6 max-h-[60vh] overflow-y-auto p-6 flex-1">
         <!-- 衣柜名称 -->
         <UFormGroup label="衣柜名称">
           <UInput v-model="form.wardrobe_name" placeholder="请输入衣柜名称" class="flex-1 focus:ring-0" :ui="{
@@ -63,7 +62,7 @@
 
         <!-- 访问密码 -->
         <UFormGroup label="访问密码" v-if="form.is_private === 1">
-          <UInput v-model="form.password" type="password" placeholder="设置密码后需要密码才能访问" class="flex-1 focus:ring-0" :ui="{
+          <UInput v-model="form.password" type="text" placeholder="设置密码后需要密码才能访问" class="flex-1 focus:ring-0" :ui="{
             base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
             rounded: 'rounded-[10px]',
             padding: { xs: 'px-4 py-2' },
@@ -251,17 +250,16 @@
           }" />
         </UFormGroup>
       </div>
-      <template #footer>
-        <div class="flex justify-end gap-2">
-          <UButton color="gray" @click="closeModel">取消</UButton>
-          <UButton :loading="loading" size="xs" class="bg-qhx-primary text-qhx-inverted hover:bg-qhx-primaryHover"
-            @click="insert">
-            {{ type === 1 ? '确认修改' : '确认添加' }}
-          </UButton>
-        </div>
-      </template>
-    </UCard>
-  </UModal>
+      <!-- 底部 -->
+      <div class="flex justify-end gap-2 px-6 py-4 border-t border-gray-200 dark:border-gray-700 flex-shrink-0">
+        <UButton color="gray" @click="closeModel">取消</UButton>
+        <UButton :loading="loading" size="xs" class="bg-qhx-primary text-qhx-inverted hover:bg-qhx-primaryHover"
+          @click="insert">
+          {{ type === 1 ? '确认修改' : '确认添加' }}
+        </UButton>
+      </div>
+    </div>
+  </QhxModal>
 </template>
 
 
@@ -275,6 +273,7 @@ import { useToast } from '#imports'
 import { BASE_IMG } from '@/utils/ipConfig'
 
 const show = ref<boolean>(false)
+const clickPosition = ref({ x: 0, y: 0 })
 const emit = defineEmits(['success'])
 const toast = useToast()
 const wardrobe_id = ref<number | null>(null)
@@ -334,8 +333,25 @@ const form = ref<{
   }
 })
 
+// 关闭回调
+const handleClose = () => {
+  closeModel()
+}
+
 // 显示模型
-const showModel = (item: Wardrobe | null = null) => {
+const showModel = (item: Wardrobe | null = null, event?: MouseEvent) => {
+  // 记录触发位置（用于 QhxModal 动画）
+  if (event) {
+    clickPosition.value = {
+      x: event.clientX,
+      y: event.clientY
+    }
+  } else {
+    clickPosition.value = {
+      x: typeof window !== 'undefined' ? window.innerWidth / 2 : 0,
+      y: typeof window !== 'undefined' ? window.innerHeight / 2 : 0
+    }
+  }
   if (item) {
     type.value = 1
     form.value.wardrobe_name = item.wardrobe_name || ''
@@ -343,7 +359,8 @@ const showModel = (item: Wardrobe | null = null) => {
     form.value.is_private = item.is_private ?? 0
     form.value.sort_type = item.sort_type ?? 0
     form.value.show_price = item.show_price ?? 1
-    form.value.password = item.password || ''
+    console.log(item.password, 'item.password')
+    form.value.password = item.password ?? ''
     form.value.background = item.background || ''
     form.value.config.open_danmu = item.config?.open_danmu ?? 0
     

@@ -25,10 +25,27 @@ export async function getWikiList (params: WikiSearchParams): Promise<Pagination
   const response = await use$Post<BaseResponse<PaginationResponse<Wiki>>>('/wiki/list', params);
   return response.data;
 }
-// 新增wiki片段
-export async function insertWikiSection (data: Wiki): Promise<Wiki> {
-  const response = await use$Post<BaseResponse<Wiki>>('/wikiSection/insert', data);
-  return response.data;
+// 新增 wiki 段落
+export interface InsertWikiSectionParams {
+  wiki_id: number
+  section_title: string
+  section_content?: string
+  sort?: number
+}
+export async function insertWikiSectionApi (params: InsertWikiSectionParams): Promise<WikiSection> {
+  const response = await use$Post<BaseResponse<WikiSection>>('/wikiSection/insert', params)
+  return response.data
+}
+
+// 更新 wiki 段落
+export interface UpdateWikiSectionParams {
+  section_id: number
+  section_title: string
+  section_content?: string
+}
+export async function updateWikiSection (params: UpdateWikiSectionParams): Promise<WikiSection> {
+  const response = await use$Post<BaseResponse<WikiSection>>('/wikiSection/update', params)
+  return response.data
 }
 
 
@@ -177,6 +194,29 @@ export interface DeleteWikiParams {
 export async function deleteWiki (params: DeleteWikiParams): Promise<boolean> {
   const response = await use$Post<BaseResponse<boolean>>('/wiki/delete', params);
   return response.data;
+}
+
+// 新增wiki
+export interface InsertWikiParams {
+  wiki_name: string
+  type_id: number
+  other_name?: string
+  wiki_describe?: string
+  wiki_illustration?: string
+  cover?: string
+}
+export async function insertWiki (params: InsertWikiParams): Promise<WikiDetail> {
+  const response = await use$Post<BaseResponse<WikiDetail>>('/wiki/insert', params)
+  return response.data
+}
+
+// 更新wiki
+export interface UpdateWikiParams extends Partial<InsertWikiParams> {
+  wiki_id: number
+}
+export async function updateWiki (params: UpdateWikiParams): Promise<WikiDetail> {
+  const response = await use$Post<BaseResponse<WikiDetail>>('/wiki/update', params)
+  return response.data
 }
 
 // 关联wiki

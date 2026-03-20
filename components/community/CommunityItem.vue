@@ -65,6 +65,17 @@ const emit = defineEmits(['load'])
 const load = () => {
   emit('load')
 }
+
+/** 将 HTML 中的 iframe 替换为「进入详情页查看」占位符 */
+function filterIframePlaceholder(html: string): string {
+  if (!html) return ''
+  const placeholder = '<span class="community-iframe-placeholder inline-block px-2 py-1 rounded bg-pink-100 dark:bg-gray-700 text-pink-600 dark:text-pink-400 text-sm cursor-pointer my-1">进入详情页查看</span>'
+  // 匹配 <iframe>...</iframe> 或自闭合 <iframe ... />
+  return html
+    .replace(/<iframe[\s\S]*?<\/iframe>/gi, placeholder)
+    .replace(/<iframe[^>]*\/?>/gi, placeholder)
+    .replace('60vh', '500px')
+}
 </script>
 <template>
   <div :class="props.className ? props.className :'bg-qhx-bg-card polaroid-card cursor-pointer shadow-lg p-2 m-2 rounded'">
@@ -74,7 +85,7 @@ const load = () => {
         <h3 class="text-base font-semibold text-gray-900 truncate w-full transition-colors duration-300" @click="handleJump(item.community_id)">
           {{ item.title }}
         </h3>
-        <div v-html="text.replace('60vh', '500px')" class="community-content m-1" @click="handleJump(item.community_id)"></div>
+        <div v-html="filterIframePlaceholder(text)" class="community-content m-1" @click="handleJump(item.community_id)"></div>
         <div class="flex flex-wrap w-full">
           <QhxPreviewImage @load="load" :list="image.map((img) => { return { src: img.replace('https://www.lolitalibrary.com/ali/', '') + '?x-oss-process=image/quality,q_100/resize,w_200,h_200', alt: item.title || 'Lo研社' }})"
             :preview="image.map((img) => { return img.replace('https://www.lolitalibrary.com/ali/', '') })"

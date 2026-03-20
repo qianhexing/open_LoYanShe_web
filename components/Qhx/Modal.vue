@@ -52,38 +52,27 @@ const modalBox = ref<HTMLElement | null>(null)
 const modalContainer = ref<HTMLElement | null>(null)
 const modalStyle = ref<Record<string, string>>({})
 
-// 保存原始滚动位置和样式
-let scrollY = 0
+// 保存原始样式
 let originalBodyOverflow = ''
-let originalBodyPosition = ''
-let originalBodyTop = ''
+let originalHtmlOverflow = ''
 
-// 禁用页面滚动
+// 禁用页面滚动（使用 overflow 而非 position:fixed，避免打开弹窗时页面回弹到顶部）
 const disableBodyScroll = () => {
   if (!isClient) return
-  
-  scrollY = window.scrollY
+
   originalBodyOverflow = document.body.style.overflow
-  originalBodyPosition = document.body.style.position
-  originalBodyTop = document.body.style.top
+  originalHtmlOverflow = document.documentElement.style.overflow
 
   document.body.style.overflow = 'hidden'
-  document.body.style.position = 'fixed'
-  document.body.style.top = `-${scrollY}px`
-  document.body.style.width = '100%'
+  document.documentElement.style.overflow = 'hidden'
 }
 
 // 恢复页面滚动
 const enableBodyScroll = () => {
   if (!isClient) return
-  
-  document.body.style.overflow = originalBodyOverflow
-  document.body.style.position = originalBodyPosition
-  document.body.style.top = originalBodyTop
-  document.body.style.width = ''
 
-  // 恢复滚动位置
-  window.scrollTo(0, scrollY)
+  document.body.style.overflow = originalBodyOverflow
+  document.documentElement.style.overflow = originalHtmlOverflow
 }
 
 // 检查事件目标是否在模态框内容区域内

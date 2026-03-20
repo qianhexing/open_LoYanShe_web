@@ -40,6 +40,9 @@
                 }
               }"
             />
+            <div v-if="shopNameMaybeExists && !shopId" class="mt-2 text-sm text-red-500">
+              请注意该店名可能已经存在
+            </div>
           </UFormGroup>
 
           <!-- 店铺LOGO -->
@@ -392,7 +395,7 @@
 
 <script setup lang="ts">
 import { getWikiOptionsByKeywords } from '@/api/wiki'
-import { insertShop, getShopById, updateShop } from '@/api/shop'
+import { insertShop, getShopById, updateShop, cheackShopName } from '@/api/shop'
 import { uploadImageOSS } from '@/utils/ossUpload'
 import { BASE_IMG } from '@/utils/ipConfig'
 import type QhxImagePicker from '@/components/Qhx/ImagePicker.vue'
@@ -473,6 +476,31 @@ const showShopStyleSelect = ref(false)
 const showShopStateSelect = ref(false)
 const showMainTypeSelect = ref(false)
 
+// 店名是否可能已存在
+const shopNameMaybeExists = ref(false)
+const checkingShopName = ref(false)
+
+// 检查店名是否已存在
+watch(
+  () => form.shop_name,
+  async (shopName) => {
+    if (!shopName || shopName.trim() === '' || shopId.value) {
+      shopNameMaybeExists.value = false
+      return
+    }
+
+    try {
+      checkingShopName.value = true
+      const exists = await cheackShopName({ shop_name: shopName.trim() })
+      shopNameMaybeExists.value = exists
+    } catch (error) {
+      console.error('检查店名是否已存在失败:', error)
+      shopNameMaybeExists.value = false
+    } finally {
+      checkingShopName.value = false
+    }
+  }
+)
 
 // 初始化选项数据
 const initOptions = async () => {

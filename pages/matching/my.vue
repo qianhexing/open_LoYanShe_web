@@ -7,20 +7,19 @@ import {
 } from '@/api/matching_list'
 import type { WardrobeClothes } from '@/types/api'
 import type MatchingAddEdit from '@/components/matching/MatchingAddEdit.vue'
+import type QhxWaterList from '@/components/Qhx/WaterList.vue'
 import { BASE_IMG } from '@/utils/ipConfig'
 // biome-ignore lint/suspicious/noExplicitAny: uni-webview-js 类型声明缺失
 let uni: any
+const layoutReady = inject('layoutReady') as Ref<boolean>
 const userStore = useUserStore()
 const configStore = useConfigStore()
 const port = computed(() => configStore.getPort())
 const toast = useToast()
 const keyword = ref('')
 const value = ref('')
-const list = ref<MatchingListItem[]>([])
-const total = ref(0)
-const page = ref(1)
+const waterList = ref<InstanceType<typeof QhxWaterList> | null>(null)
 const pageSize = 10
-const loading = ref(false)
 const matchingAddEditRef = ref<InstanceType<typeof MatchingAddEdit> | null>(null)
 const showDeleteModal = ref(false)
 const deletingItem = ref<MatchingListItem | null>(null)
@@ -52,7 +51,6 @@ onMounted(async () => {
   uni = await import('@dcloudio/uni-webview-js').catch((err: unknown) => {
     console.error('Failed to load uni-webview-js:', err)
   })
-  fetchData()
 })
 
 definePageMeta({
@@ -62,8 +60,8 @@ definePageMeta({
 
 // 搜索
 const handleSearch = () => {
-  page.value = 1
-  fetchData()
+  keyword.value = value.value.trim()
+  waterList.value?.refresh()
 }
 
 // 获取服饰列表（合并 clothes_list 和 library_list）
@@ -84,35 +82,27 @@ const getClothesDisplayList = (item: MatchingListItem) => {
   return result
 }
 
-// 获取数据
-const fetchData = async () => {
-  if (!userStore.user?.user_id) return
-  loading.value = true
+// 获取搭配数据（供 QhxWaterList 使用）
+const fetchMatchingData = async (page: number, pageSize: number) => {
+  if (!userStore.user?.user_id) {
+    return { rows: [], count: 0 }
+  }
   try {
     const params: Parameters<typeof getMatchingListList>[0] = {
-      page: page.value,
+      page,
       pageSize,
       keyword: keyword.value.trim() || '',
       filter_list: filterList.value.length ? (filterList.value as unknown as Record<string, unknown>) : undefined
     }
     const res = await getMatchingListList(params)
-    if (page.value === 1) {
-      list.value = res.rows ?? []
-    } else {
-      list.value = [...list.value, ...(res.rows ?? [])]
+    return {
+      rows: res.rows ?? [],
+      count: res.count ?? 0
     }
-    total.value = res.count ?? 0
   } catch {
     toast.add({ title: '加载失败', icon: 'i-heroicons-exclamation-circle', color: 'red' })
-  } finally {
-    loading.value = false
+    return { rows: [], count: 0 }
   }
-}
-
-const loadMore = () => {
-  if (loading.value || page.value >= Math.ceil(total.value / pageSize)) return
-  page.value += 1
-  fetchData()
 }
 
 // 跳转到搭配详情
@@ -201,9 +191,7 @@ const confirmDelete = async () => {
   try {
     await deleteMatchingList({ matching_id: item.matching_id })
     toast.add({ title: '删除成功', icon: 'i-heroicons-check-circle', color: 'green' })
-    const idx = list.value.findIndex((t) => t.matching_id === item.matching_id)
-    if (idx >= 0) list.value.splice(idx, 1)
-    total.value = Math.max(0, total.value - 1)
+    waterList.value?.refresh()
   } catch {
     toast.add({ title: '删除失败', icon: 'i-heroicons-exclamation-circle', color: 'red' })
   } finally {
@@ -214,8 +202,7 @@ const confirmDelete = async () => {
 
 // 编辑成功回调
 const onEditSuccess = () => {
-  page.value = 1
-  fetchData()
+  waterList.value?.refresh()
 }
 </script>
 
@@ -264,58 +251,60 @@ const onEditSuccess = () => {
       <p>请先登录后查看我的搭配</p>
     </div>
 
-    <!-- 列表：一排一个搭配 -->
-    <div v-else class="space-y-4">
-      <div
-        v-for="item in list"
-        :key="item.matching_id"
-        class="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-600 shadow-sm overflow-hidden"
-      >
-        <!-- 搭配头部：封面 + 标题 + 操作按钮 -->
-        <div class="flex gap-4 p-4">
-          <!-- 封面缩略图 -->
+    <!-- 瀑布流列表 -->
+    <QhxWaterList
+      v-else-if="layoutReady"
+      ref="waterList"
+      :fetch-data="fetchMatchingData"
+      :page-size="pageSize"
+      :columns="5"
+      :item-key="2"
+      :columns-768="2"
+      :enable-waterfall="true"
+      :enable-load-more="true"
+    >
+      <template #default="{ item, debouncedApplyLayout }">
+        <div
+          class="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-600 shadow-sm overflow-hidden mx-1 mb-2 cursor-pointer"
+          @click="jumpToMatchingDetail(item)"
+        >
+          <!-- 封面图 -->
           <div
-            class="w-20 h-20 flex-shrink-0 rounded-lg overflow-hidden bg-gray-100 dark:bg-gray-700 cursor-pointer"
-            @click="jumpToMatchingDetail(item)"
+            class="w-full overflow-hidden rounded-t-xl bg-gray-100 dark:bg-gray-700"
+            style="aspect-ratio: 1 / 1"
           >
             <img
               v-if="item.cover"
-              :src="`${BASE_IMG}${item.cover}?x-oss-process=image/quality,q_80/resize,w_160`"
+              :src="`${BASE_IMG}${item.cover}?x-oss-process=image/quality,q_80/resize,w_200`"
               :alt="item.note || '搭配'"
               class="w-full h-full object-cover"
               loading="lazy"
+              @load="debouncedApplyLayout"
             />
-            <div
+            <img
               v-else-if="getClothesDisplayList(item).length > 0"
-              class="w-full h-full flex items-center justify-center"
-            >
-              <img
-                :src="`${BASE_IMG}${getClothesDisplayList(item)[0].clothes_img}?x-oss-process=image/quality,q_80/resize,w_160`"
-                alt=""
-                class="w-full h-full object-cover"
-                loading="lazy"
-              />
-            </div>
+              :src="`${BASE_IMG}${getClothesDisplayList(item)[0].clothes_img}?x-oss-process=image/quality,q_80/resize,w_200`"
+              alt=""
+              class="w-full h-full object-cover"
+              loading="lazy"
+              @load="debouncedApplyLayout"
+            />
             <div v-else class="w-full h-full flex items-center justify-center text-gray-400">
               <UIcon name="material-symbols:style" class="text-3xl" />
             </div>
           </div>
-
           <!-- 标题 + 风格 + 操作 -->
-          <div class="flex-1 min-w-0">
-            <div
-              class="text-base font-medium text-gray-800 dark:text-gray-200 cursor-pointer hover:text-qhx-primary"
-              @click="jumpToMatchingDetail(item)"
-            >
+          <div class="p-2">
+            <div class="text-sm font-medium text-gray-800 dark:text-gray-200 line-clamp-1">
               {{ item.note || '未命名搭配' }}
             </div>
             <div
               v-if="item.main_style"
-              class="text-xs text-red-500 mt-1 line-clamp-1"
+              class="text-xs text-red-500 mt-0.5 line-clamp-1"
             >
               ★ {{ item.main_style }}
             </div>
-            <div class="flex gap-2 mt-3">
+            <div class="flex gap-2 mt-2">
               <UButton
                 size="xs"
                 color="gray"
@@ -337,49 +326,14 @@ const onEditSuccess = () => {
             </div>
           </div>
         </div>
-
-        <!-- 服饰列表：flex 一排 5 个 -->
-        <div
-          v-if="getClothesDisplayList(item).length > 0"
-          class="px-4 pb-4"
-        >
-          <div class="grid grid-cols-5 gap-2">
-            <div
-              v-for="(c, idx) in getClothesDisplayList(item)"
-              :key="idx"
-              class="relative w-full overflow-hidden rounded-lg bg-gray-100 dark:bg-gray-700 cursor-pointer"
-              style="aspect-ratio: 1 / 1"
-              @click="jumpToMatchingDetail(item)"
-            >
-              <img
-                :src="`${BASE_IMG}${c.clothes_img}?x-oss-process=image/quality,q_80/resize,w_200`"
-                alt=""
-                class="absolute inset-0 w-full h-full object-cover"
-                loading="lazy"
-              />
-            </div>
-          </div>
+      </template>
+      <template #empty>
+        <div class="py-12 text-center text-gray-500 dark:text-gray-400">
+          <UIcon name="material-symbols:style" class="text-4xl mb-3" />
+          <p>暂无搭配，去衣柜创建吧</p>
         </div>
-      </div>
-
-      <!-- 加载更多 -->
-      <QhxLoading
-        :loading="loading"
-        :page="page"
-        :total="total"
-        :page-size="pageSize"
-        @load-more="loadMore"
-      />
-    </div>
-
-    <!-- 空状态 -->
-    <div
-      v-if="!loading && list.length === 0 && userStore.user?.user_id"
-      class="py-12 text-center text-gray-500 dark:text-gray-400"
-    >
-      <UIcon name="material-symbols:style" class="text-4xl mb-3" />
-      <p>暂无搭配，去衣柜创建吧</p>
-    </div>
+      </template>
+    </QhxWaterList>
   </div>
 
   <!-- 编辑弹窗 -->

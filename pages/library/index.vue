@@ -62,6 +62,7 @@ const filterForm = reactive({
   design_elements: [] as Array<{ label: string; value: number; type?: string }>,
   pattern_elements: [] as Array<{ label: string; value: number; type?: string }>,
   cloth_elements: [] as Array<{ label: string; value: number; type?: string }>,
+  fabric_composition: [] as Array<{ label: string; value: number; type?: string }>,
   price: {
     start: '',
     end: ''
@@ -247,6 +248,8 @@ const chooseWiki = (type: string) => {
     typeId = 2
   } else if (type === 'cloth_elements') {
     typeId = 5
+  } else if (type === 'fabric_composition') {
+    typeId = 15
   } else if (type === 'theme') {
     typeId = 14
   } else if (type === 'library_pattern') {
@@ -292,6 +295,9 @@ const stateSelectRef = ref<InstanceType<typeof QhxSelect> | null>(null)
 const saleTimeStartSelectRef = ref<InstanceType<typeof QhxSelect> | null>(null)
 const saleTimeEndSelectRef = ref<InstanceType<typeof QhxSelect> | null>(null)
 const sortSelectRef = ref<InstanceType<typeof QhxSelect> | null>(null)
+
+// 列表总数（从 WaterList 暴露的 total 获取）
+const totalCount = computed(() => waterList.value?.total ?? 0)
 
 // 排序模式
 const sortMode = ref<number>(0) // 默认时间倒序
@@ -740,6 +746,39 @@ const applyFilter = () => {
     }
   }
 
+  // 成分
+  if (filterForm.fabric_composition.length > 0) {
+    const fabricCompositionValueAnd: string[] = []
+    const fabricCompositionValueOr: string[] = []
+    for (const v of filterForm.fabric_composition) {
+      if (v.type === 'and') {
+        fabricCompositionValueAnd.push(v.label)
+      } else if (v.type === 'or') {
+        fabricCompositionValueOr.push(v.label)
+      } else {
+        temp.push({
+          field: 'fabric_composition',
+          op: 'not',
+          value: v.label
+        })
+      }
+    }
+    if (fabricCompositionValueAnd.length > 0) {
+      temp.push({
+        field: 'fabric_composition',
+        op: 'and',
+        value: fabricCompositionValueAnd.join(',')
+      })
+    }
+    if (fabricCompositionValueOr.length > 0) {
+      temp.push({
+        field: 'fabric_composition',
+        op: 'or',
+        value: fabricCompositionValueOr.join(',')
+      })
+    }
+  }
+
   filterList.value = temp
   keyword.value = ''
 
@@ -763,6 +802,7 @@ const fieldNameMap = computed(() => ({
   design_elements: t('library.field_design_elements'),
   pattern_elements: t('library.field_pattern_elements'),
   cloth_elements: t('library.field_cloth_elements'),
+  fabric_composition: t('library.field_fabric_composition'),
   library_price: t('library.field_library_price'),
   sale_time_start: t('library.field_sale_time_start'),
   sale_time_end: t('library.field_sale_time_end')
@@ -868,6 +908,7 @@ const clearFilter = () => {
   filterForm.design_elements = []
   filterForm.pattern_elements = []
   filterForm.cloth_elements = []
+  filterForm.fabric_composition = []
   filterForm.price = { start: '', end: '' }
   filterForm.sale_time_start = null
   filterForm.sale_time_end = null
@@ -1140,10 +1181,6 @@ onMounted(async () => {
       </div>
 
     </div>
-    <!-- 提示信息 -->
-    <div v-if="!showFilterList" class="text-sm text-gray-500 dark:text-gray-400">
-      {{ t('library.hide_sub_library_tip') }}
-    </div>
     <!-- 精确搜索表单 -->
     <div v-if="showFilterList" class="px-4 pb-4 space-y-4 md:grid md:grid-cols-2 md:gap-4 md:space-y-0">
       <!-- 图鉴名称 -->
@@ -1354,6 +1391,24 @@ onMounted(async () => {
         </div>
       </div>
 
+      <!-- 成分 -->
+      <div class="flex items-start gap-2">
+        <span class="text-sm font-medium min-w-[80px] pt-2">{{ t('library.fabric_composition') }}：</span>
+        <div class="flex-1 flex flex-wrap gap-2">
+          <QhxTag v-for="(item, index) in filterForm.fabric_composition" :key="index" :active="true" class="cursor-pointer"
+            :backgroundColor="item.type === 'and' ? '#317e10' : item.type === 'or' ? '#0788dc' : '#e11031'">
+            <div class="flex items-center gap-1">
+              <span @click="changeFilterType(index, 'fabric_composition')">{{ item.label }}</span>
+              <UIcon name="i-heroicons-x-mark" class="text-xs cursor-pointer"
+                @click="deleteArrayItem(filterForm.fabric_composition, index)" />
+            </div>
+          </QhxTag>
+          <QhxTag class="cursor-pointer" @click="chooseWiki('fabric_composition')">
+            {{ t('library.select_fabric_composition') }}
+          </QhxTag>
+        </div>
+      </div>
+
       <!-- 价格区间 -->
       <div class="flex items-center gap-2">
         <span class="text-sm font-medium min-w-[80px]">{{ t('library.price_range') }}：</span>
@@ -1441,6 +1496,11 @@ onMounted(async () => {
           {{ t('library.clear') }}
         </UButton>
       </div>
+    </div>
+    <!-- 提示信息 + 总数（左右布局） -->
+    <div class="flex items-center justify-between text-sm text-gray-500 dark:text-gray-400 px-4 pb-2">
+      <span v-if="!showFilterList">{{ t('library.hide_sub_library_tip') }}</span>
+      <span v-if="layoutReady" class="whitespace-nowrap ml-auto">{{ t('library.total', { count: totalCount }) }}</span>
     </div>
     <!-- 空状态 -->
     <QhxWaterList ref="waterList" v-if="layoutReady" :fetch-data="async (page, pageSize) => {
