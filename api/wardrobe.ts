@@ -86,6 +86,21 @@ export async function changeWardrobeClothes (data: {
   return response.data;
 }
 
+/** 批量移动服饰到指定衣柜，ids 为逗号分割字符串，如 "1,2,3" */
+export async function changeWardrobeClothesBatch(data: {
+  ids: string
+  wardrobe_id: number
+}): Promise<boolean> {
+  const response = await use$Post<BaseResponse<boolean>>('/clothes/update/wardrobe', data);
+  return response.data;
+}
+
+/** 批量删除服饰，ids 为逗号分割字符串，如 "1,2,3" */
+export async function deleteClothesByIds(params: { ids: string }): Promise<boolean> {
+  const response = await use$Post<BaseResponse<boolean>>('/clothes/delete/ids', params);
+  return response.data;
+}
+
 export async function deteleClothes(
   params: {
     clothes_id: number
@@ -167,4 +182,55 @@ export async function getWardrobeVisualization(
 ): Promise<WardrobeVisualizationData> {
   const response = await use$Post<BaseResponse<WardrobeVisualizationData>>('/visualization/wardrobe', params);
   return response.data;
+}
+
+// 全局搜索衣柜服饰
+export interface ClothesSearchParams extends PaginationParams {
+  filter_list?: Array<{ field: string; op: string; value: string | number }>
+  wardrobe_id?: number[]
+}
+
+interface ClothesSearchResponse {
+  rows: WardrobeClothes[];
+  count: number;
+}
+
+export async function getClothesSearch(
+  params: ClothesSearchParams
+): Promise<ClothesSearchResponse> {
+  const response = await use$Post<BaseResponse<ClothesSearchResponse>>('/clothes/search', params);
+  return response.data;
+}
+
+/** 共享服饰列表（筛选 is_shared=1, is_enable=0，按 good_count-bad_count 降序） */
+export interface ClothesSharedListParams extends PaginationParams {
+  keywords?: string // 支持空格、英文逗号、中文逗号分隔多条件
+}
+
+interface ClothesSharedListResponse {
+  rows: WardrobeClothes[]
+  count: number
+}
+
+export async function getClothesSharedList(
+  params: ClothesSharedListParams
+): Promise<ClothesSharedListResponse> {
+  const { page = 1, pageSize = 10, keywords } = params;
+  const response = await use$Post<BaseResponse<ClothesSharedListResponse>>('/clothes/shared/list', {
+    page,
+    pageSize,
+    ...(keywords ? { keywords } : {})
+  });
+  return response.data;
+}
+
+/** 增加服饰引用次数（当用户通过 include_clothes 或选择共享服饰引用他人服饰时调用） */
+export interface ClothesCitationAddResponse {
+  clothes_id: number
+  citation_count: number
+}
+
+export async function addClothesCitation(params: { clothes_id: number }): Promise<ClothesCitationAddResponse> {
+  const response = await use$Post<BaseResponse<ClothesCitationAddResponse>>('/clothes/citation/add', params)
+  return response.data
 }

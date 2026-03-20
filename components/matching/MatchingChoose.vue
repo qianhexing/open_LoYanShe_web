@@ -1,110 +1,146 @@
 <!-- 选择搭配组件 -->
 <template>
-  <UModal v-model="show" :overlay="true" :ui="{ width: 'max-w-3xl' }">
-    <!-- 头部 -->
-    <div class="flex items-center justify-between border-b px-4 py-3">
-      <h3 class="text-lg font-semibold">选择搭配</h3>
-      <UButton color="gray" variant="ghost" icon="i-heroicons-x-mark" @click="closeModel" />
-    </div>
-
-    <div class="p-4 space-y-4">
-      <!-- 搜索框 -->
-      <UInput
-        v-model="keywords"
-        placeholder="搜索搭配 多条件空格分割."
-        class="flex-1 focus:ring-0"
-        :autofocus="false"
-        @keyup.enter="search"
-        :ui="{
-          base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
-          rounded: 'rounded-full',
-          padding: { xs: 'px-4 py-2' },
-          color: {
-            white: {
-              outline: 'bg-gray-50 dark:bg-gray-800 ring-1 ring-gray-300 dark:ring-gray-600 focus:ring-2 focus:ring-qhx-primary'
-            }
-          }
-        }"
-      />
-
-      <!-- 筛选栏 -->
-      <div class="flex justify-between items-center">
-        <div v-show="choose_item">已选择 1</div>
-        <UButton color="primary" @click="confirmChoose">确认选择</UButton>
+  <QhxModal v-model="show" :trigger-position="clickPosition" @close="handleClose">
+    <div class="w-[95vw] max-w-3xl h-[90vh] bg-white dark:bg-gray-800 rounded-2xl shadow-2xl overflow-hidden flex flex-col backdrop-blur-xl border border-gray-200/50 dark:border-gray-700/50">
+      <!-- 头部 -->
+      <div class="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-700 bg-gradient-to-r from-pink-50 to-purple-50 dark:from-gray-800 dark:to-gray-800 flex-shrink-0">
+        <div class="text-lg font-semibold text-gray-800 dark:text-gray-100">
+          选择搭配
+        </div>
+        <button
+          @click="closeModel"
+          class="w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors group"
+        >
+          <UIcon name="i-heroicons-x-mark" class="text-gray-500 dark:text-gray-400 group-hover:text-gray-700 dark:group-hover:text-gray-200 transition-colors" />
+        </button>
       </div>
-      <div class="space-y-6 max-h-[60vh] overflow-y-auto">
-        <!-- 已选列表 -->
-        <div v-if="choose_item" class="space-y-2">
-          <div class="bg-qhx-primary flex items-center p-2 rounded-lg">
-            <img
-              v-if="choose_item.cover"
-              :src="`${BASE_IMG}${choose_item.cover}?x-oss-process=image/quality,q_100/resize,w_100`"
-              :alt="choose_item.note || '搭配图片'"
-              class="w-20 h-20 object-cover rounded-lg"
-            />
-            <div class="ml-3 flex-1">
-              <div class="font-semibold text-sm">{{ choose_item.note || '未命名搭配' }}</div>
-              <div class="text-xs text-gray-500 mt-1">{{ choose_item.user_name }}</div>
-            </div>
-            <QhxJellyButton>
-              <div class="h-[30px] text-center px-1 cursor-pointer" @click="choose_item = null">
-                <div
-                  class="m-[5px] mx-auto text-white rounded-[50%] h-[30px] w-[30px] bg-qhx-primary flex items-center justify-center"
-                  style="font-size: 22px">
-                  <UIcon name="ant-design:close-outlined" class="text-[22px] text-[#ffffff]" />
+
+      <!-- 内容区域 -->
+      <div class="flex-1 overflow-hidden flex flex-col">
+        <div class="p-6 space-y-4 flex-shrink-0">
+          <!-- 搜索框 -->
+          <div class="relative">
+            <UInput
+              v-model="keywords"
+              placeholder="搜索搭配..."
+              class="flex-1 focus:ring-0"
+              :autofocus="false"
+              @keyup.enter="search"
+              :ui="{
+                base: 'focus:ring-2 focus:ring-blue-500 focus:border-blue-500',
+                rounded: 'rounded-full',
+                padding: { xs: 'px-4 py-2' },
+                color: {
+                  white: {
+                    outline: 'bg-gray-50 dark:bg-gray-800 ring-1 ring-gray-300 dark:ring-gray-600 focus:ring-2 focus:ring-blue-500'
+                  }
+                }
+              }"
+            >
+              <template #leading>
+                <UIcon name="i-heroicons-magnifying-glass" class="text-gray-400" />
+              </template>
+            </UInput>
+          </div>
+
+          <!-- 确认选择 -->
+          <div v-if="choose_item" class="flex justify-between items-center p-3 bg-pink-50 dark:bg-pink-900/20 rounded-xl border-2 border-qhx-primary">
+            <div class="flex items-center gap-2 flex-1 min-w-0">
+              <div class="w-10 h-10 rounded-lg overflow-hidden flex-shrink-0 bg-gray-100 dark:bg-gray-600">
+                <img
+                  v-if="choose_item.cover"
+                  :src="`${BASE_IMG}${choose_item.cover}${getImageParams()}`"
+                  :alt="choose_item.note || '搭配'"
+                  class="w-full h-full object-cover"
+                  loading="lazy"
+                />
+                <div v-else class="w-full h-full flex items-center justify-center">
+                  <UIcon name="material-symbols:style-rounded" class="text-lg text-gray-400" />
                 </div>
               </div>
-            </QhxJellyButton>
+              <span class="text-sm font-medium text-gray-800 dark:text-gray-200 truncate">{{ choose_item.note || '未命名搭配' }}</span>
+            </div>
+            <UButton
+              class="bg-qhx-primary text-white"
+              @click="confirmChoose"
+            >
+              确认选择
+            </UButton>
           </div>
         </div>
 
-        <!-- 可选列表 -->
-        <div v-if="listData.length" class="space-y-2">
+        <!-- 列表区域 -->
+        <div class="flex-1 overflow-y-auto px-6 pb-6 space-y-4 scrollbar-thin scrollbar-thumb-gray-300 dark:scrollbar-thumb-gray-600 scrollbar-track-transparent">
           <div
             v-for="item in listData"
             :key="item.matching_id"
-            v-show="!choose_item || choose_item.matching_id !== item.matching_id"
-            class="flex items-center p-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer transition-colors"
             @click="chooseMatching(item)"
+            class="bg-white dark:bg-gray-700/50 rounded-xl p-2 cursor-pointer transition-all duration-200 hover:shadow-lg hover:scale-[1.01] min-w-0 overflow-hidden border-2 border-transparent"
+            :class="{ 'ring-2 ring-qhx-primary border-qhx-primary': choose_item?.matching_id === item.matching_id }"
           >
-            <img
-              v-if="item.cover"
-              :src="`${BASE_IMG}${item.cover}?x-oss-process=image/quality,q_100/resize,w_100`"
-              :alt="item.note || '搭配图片'"
-              class="w-20 h-20 object-cover rounded-lg"
-            />
-            <div class="ml-3 flex-1">
-              <div class="font-semibold text-sm">{{ item.note || '未命名搭配' }}</div>
-              <div class="text-xs text-gray-500 mt-1">{{ item.user_name }}</div>
+            <div class="flex gap-3">
+              <div class="w-16 h-16 rounded-lg overflow-hidden flex-shrink-0 bg-gray-100 dark:bg-gray-600">
+                <img
+                  v-if="item.cover"
+                  :src="`${BASE_IMG}${item.cover}${getImageParams()}`"
+                  :alt="item.note || '搭配'"
+                  class="w-full h-full object-cover"
+                  loading="lazy"
+                />
+                <div v-else class="w-full h-full flex items-center justify-center">
+                  <UIcon name="material-symbols:style-rounded" class="text-2xl text-gray-400" />
+                </div>
+              </div>
+              <div class="flex-1 min-w-0">
+                <div class="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
+                  {{ item.note || '未命名搭配' }}
+                </div>
+                <div v-if="item.user_name" class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                  {{ item.user_name }}
+                </div>
+                <div v-if="item.main_style" class="text-xs text-gray-500 dark:text-gray-400">
+                  风格：{{ item.main_style }}
+                </div>
+              </div>
             </div>
           </div>
-        </div>
 
-        <!-- 空状态 -->
-        <div v-if="!listData.length && !loading" class="text-center text-gray-400 py-6">
-          暂无数据
-        </div>
-        <div class="py-3">
-          <QhxLoading :loading="loading" :page="page" :total="total" :page-size="pageSize" @load-more="loadMore"></QhxLoading>
+          <!-- 空状态 -->
+          <div v-if="!listData.length && !loading" class="text-center py-12">
+            <div class="flex flex-col items-center gap-3">
+              <UIcon name="material-symbols:style-rounded" class="text-6xl text-gray-300 dark:text-gray-600" />
+              <p class="text-gray-400 dark:text-gray-500">暂无搭配数据</p>
+            </div>
+          </div>
+
+          <!-- 加载更多 -->
+          <div class="py-3">
+            <QhxLoading :loading="loading" :page="page" :total="total" :page-size="pageSize" @load-more="loadMore" />
+          </div>
         </div>
       </div>
     </div>
-  </UModal>
+  </QhxModal>
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
 import { getMatchingListList } from '@/api/matching_list'
 import type { MatchingListItem } from '@/api/matching_list'
 import { BASE_IMG } from '@/utils/ipConfig'
+import { useConfigStore } from '@/stores/config'
 
 const props = defineProps({
   needStatus: { type: Boolean, default: true },
-  filter_list: { type: Array as () => any[], default: () => [] },
+  filter_list: { type: Array as () => unknown[], default: () => [] },
   needExamin: { type: Boolean, default: true }
 })
-const emit = defineEmits(['choose'])
 
+const emit = defineEmits<{
+  choose: [item: MatchingListItem]
+}>()
+
+const configStore = useConfigStore()
 const show = ref(false)
 const keywords = ref('')
 const page = ref(1)
@@ -113,30 +149,38 @@ const loading = ref(false)
 const total = ref(0)
 const listData = ref<MatchingListItem[]>([])
 const choose_item = ref<MatchingListItem | null>(null)
-const toast = useToast()
+const clickPosition = ref({ x: 0, y: 0 })
+
+const getImageParams = () => configStore.config?.image_params || ''
 
 const closeModel = () => {
   show.value = false
   init()
 }
-const showModel = () => {
+
+const handleClose = () => {
+  closeModel()
+}
+
+const showModel = (event?: MouseEvent) => {
+  if (event) {
+    clickPosition.value = { x: event.clientX, y: event.clientY }
+  } else {
+    clickPosition.value = { x: window.innerWidth / 2, y: window.innerHeight / 2 }
+  }
   show.value = true
 }
 
 const loadMore = async () => {
-  if (loading.value) {
-    return
-  }
-  // 加载更多数据
-  if (page.value < Math.ceil(total.value / pageSize.value)) {
-    page.value += 1
-    try {
-      await getMatchingList()
-    } catch (error) {
-      page.value -= 1
-    }
+  if (loading.value || page.value >= Math.ceil(total.value / pageSize.value)) return
+  page.value += 1
+  try {
+    await getMatchingList()
+  } catch {
+    page.value -= 1
   }
 }
+
 const search = () => {
   page.value = 1
   getMatchingList()
@@ -147,14 +191,7 @@ function chooseMatching(item: MatchingListItem) {
 }
 
 function confirmChoose() {
-  if (!choose_item.value) {
-    toast.add({
-      title: '请选择搭配',
-      icon: 'i-heroicons-exclamation-circle',
-      color: 'red'
-    })
-    return
-  }
+  if (!choose_item.value) return
   emit('choose', choose_item.value)
   closeModel()
 }
@@ -163,26 +200,25 @@ function init() {
   keywords.value = ''
   choose_item.value = null
   page.value = 1
+  listData.value = []
 }
 
-const getMatchingList = async (initPage: number | undefined = undefined, initPageSize: number | undefined = undefined) => {
+const getMatchingList = async () => {
   if (loading.value) return
   loading.value = true
-  let params: any = {
-    page: initPage || page.value,
-    pageSize: initPageSize || pageSize.value,
-    keyword: keywords.value,
-    filter_list: props.filter_list
-  }
-
   try {
-    const res = await getMatchingListList(params)
+    const res = await getMatchingListList({
+      page: page.value,
+      pageSize: pageSize.value,
+      keyword: keywords.value,
+      filter_list: props.filter_list.length ? (props.filter_list as Array<{ field: string; op: string; value: string | number }>) : undefined
+    })
+    total.value = res.count
     if (page.value === 1) {
       listData.value = res.rows
     } else {
-      listData.value = [...listData.value, ...res.rows]
+      listData.value.push(...res.rows)
     }
-    total.value = res.count
   } catch (error) {
     console.error('获取搭配列表失败:', error)
   } finally {
@@ -190,21 +226,15 @@ const getMatchingList = async (initPage: number | undefined = undefined, initPag
   }
 }
 
+watch(show, (val) => {
+  if (val) {
+    init()
+    getMatchingList()
+  }
+})
+
 defineExpose({
-  showModel,
-  closeModel
-})
-
-onMounted(() => {
-  if (show.value) {
-    getMatchingList()
-  }
-})
-
-watch(show, (newVal) => {
-  if (newVal) {
-    getMatchingList()
-  }
+  showModel
 })
 </script>
 

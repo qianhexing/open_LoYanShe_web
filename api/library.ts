@@ -49,6 +49,32 @@ export async function getLibraryVideo(
   return response.data;
 }
 
+/** libraryVideo/list 接口参数 */
+export interface LibraryVideoListParams extends PaginationParams {
+  keywords?: string
+  create_time?: string
+  pk_type?: number
+}
+
+export async function getLibraryVideoList(
+  params: LibraryVideoListParams
+): Promise<PaginationResponse<LibraryVideo>> {
+  const response = await use$Post<BaseResponse<PaginationResponse<LibraryVideo>>>(
+    '/libraryVideo/list',
+    params
+  )
+  return response.data
+}
+
+export async function getLibraryVideoById(
+  params: { video_id: number }
+): Promise<LibraryVideo> {
+  const response = await use$Post<BaseResponse<LibraryVideo>>(
+    '/libraryVideo/id',
+    params
+  );
+  return response.data;
+}
 
 export async function insertLibraryVideo(params: LibraryVideo): Promise<LibraryVideo> {
   const response = await use$Post<BaseResponse<LibraryVideo>>('/libraryVideo/insert', params)
@@ -108,6 +134,7 @@ export interface InsertParams {
   detail_image?: string | null
   quality_test?: string | null
   size_image?: string | null
+  complete?: 0 | 1
 }
 export async function insertLibrary(params: InsertParams): Promise<Library> {
   const response = await use$Post<BaseResponse<Library>>('/library/insert', params)
@@ -197,6 +224,7 @@ interface PipeParams extends PaginationParams {
   examin?: number
   sort?: number
   filter_list?: FilterList[]
+  create_time?: string
 }
 export async function getLibraryPipeList(params: PipeParams): Promise<PaginationResponse<LibraryPipe>> {
   const response = await use$Post<BaseResponse<PaginationResponse<LibraryPipe>>>('/library/pipe/list', params)
@@ -234,5 +262,10 @@ export interface LibraryHistoryParams {
 }
 export async function getLibraryHistory(params: LibraryHistoryParams): Promise<LibraryHistoryNew[]> {
   const response = await use$Post<BaseResponse<LibraryHistoryNew[]>>('/library/histroy/all', params)
+  return response.data
+}
+
+export async function cheackLibraryName(params: { name: string, shop_id?: number | null }): Promise<boolean> {
+  const response = await use$Post<BaseResponse<boolean>>('/library/cheackName', params)
   return response.data
 }

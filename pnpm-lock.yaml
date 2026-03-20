@@ -68,6 +68,9 @@ importers:
       ali-oss:
         specifier: ^6.23.0
         version: 6.23.0
+      ammo.js:
+        specifier: ^0.0.10
+        version: 0.0.10
       dayjs:
         specifier: ^1.11.18
         version: 1.11.18
@@ -2287,6 +2290,9 @@ packages:
   ali-oss@6.23.0:
     resolution: {integrity: sha512-FipRmyd16Pr/tEey/YaaQ/24Pc3HEpLM9S1DRakEuXlSLXNIJnu1oJtHM53eVYpvW3dXapSjrip3xylZUTIZVQ==}
     engines: {node: '>=8'}
+
+  ammo.js@0.0.10:
+    resolution: {integrity: sha512-jOv977u71jrDUzHfmQ99YaW90/y8YLn/3HFTmtLLzf5wJynAfG+/a1Ie5gbn0fE0uSAHxXVsFk4Bzq8qRPWqAA==}
 
   ansi-colors@4.1.3:
     resolution: {integrity: sha512-/6w/C21Pm1A7aZitlI5Ni/2J6FFQN8i1Cvz3kHABAAbw93v/NlvKdVOqz7CCWz/3iv/JplRSEEZ83XION15ovw==}
@@ -8638,6 +8644,8 @@ snapshots:
     transitivePeerDependencies:
       - proxy-agent
       - supports-color
+
+  ammo.js@0.0.10: {}
 
   ansi-colors@4.1.3: {}
 

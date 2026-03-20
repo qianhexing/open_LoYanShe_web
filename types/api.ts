@@ -1,5 +1,6 @@
 // types/api.ts
 import type { SceneJSON } from '@/utils/threeCore'
+import type { MatchingListItem } from '@/api/matching_list'
 /** 基础响应类型 */
 export interface BaseResponse<T = any> {
   code: number;
@@ -110,6 +111,9 @@ export interface Compilations {
   good_number?: number
   brows_times?: number
   pk_type?: number // 0是图鉴合集 1是搭配合集
+  is_enable?: number
+  is_open?: number // 是否开放编辑
+  is_official?: number // 是否官方合集
 }
 
 
@@ -134,9 +138,20 @@ export interface Shop {
 export interface PhysicalShop {
 	physical_id?: number
   physical_name?: string
-  latitude?: number
-  longitude?: number
+  latitude?: string | number
+  longitude?: string | number
   physical_logo?: string
+  address?: string
+  area?: string
+  city?: string
+  province?: string
+  create_time?: string
+  shop_id?: number
+  shop?: {
+    shop_id: number
+    shop_name?: string
+    shop_url?: string | null
+  }
 }
 export interface Wiki {
   wiki_id: number | string
@@ -210,7 +225,13 @@ export interface Library {
   is_collect?: number;
   is_wardrobe?: number;
   examin?: number;
+  complete?: boolean;
 }
+/** 衣柜配置 */
+export interface WardrobeConfig {
+  open_danmu?: number
+}
+
 /** 衣柜 */
 export interface Wardrobe {
   wardrobe_id?: number
@@ -233,6 +254,7 @@ export interface Wardrobe {
   total_community?: number
   total_price?: number
   total_count?: number
+  config?: WardrobeConfig
 }
 /** 服饰 */
 export interface WardrobeClothes {
@@ -270,6 +292,21 @@ export interface WardrobeClothes {
   num?: number
   last_dress?: Date
   sence_id?: number
+  model_list?: MaterialForeign[]
+  plan?: PlanList | null
+  is_shared?: number
+  good_count?: number
+  bad_count?: number
+  citation_count?: number
+}
+export interface MaterialForeign {
+  foreign_id?: number
+  pk_type?: number
+  pk_id?: number
+  materia_id?: number
+  create_time?: string
+  is_enable?: number
+  material_box?: Material
 }
 /** 研习类型 */
 export interface Study {
@@ -329,6 +366,8 @@ export interface CollectionList {
   /** 是否完成：0/1 等 */
   is_completed?: number
   comment?: Comment
+  note?: string
+  url?: string
 }
 
 export interface CommunityForeign {
@@ -396,6 +435,19 @@ export interface Community {
   sence_id?: number
 }
 
+export interface UserDeco {
+  deco_id?: number
+  pk_type?: number
+  pk_id?: number
+  create_time?: string
+  user_id?: number
+  note?: string
+  foreign?: {
+    cover?: string
+    name?: string
+  }
+}
+
 export interface User {
   user_id?: number,
   user_face?: string
@@ -414,6 +466,7 @@ export interface User {
   exp?: number
   level?: number
   star_coin?: number
+  access_level?: number
 }
 export interface Avatar {
   frame_id: number,
@@ -437,6 +490,7 @@ export interface CommunityHide {
 export interface LibraryVideo {
   addr?: string
   create_time?: string
+  user_id?: number | null
   is_enable?: number
   is_show?: number
   pk_id?: number
@@ -444,7 +498,35 @@ export interface LibraryVideo {
   sort?: number
   title?: string
   video_id?: number
+  cover?: string
+  library?: Library
+  json_data?: {
+    laxian_list?: LaxianItem[]
+  }
 }
+
+/** 拉线镜头聚焦参数（可选） */
+export interface LaxianCameraState {
+  position: [number, number, number]
+  target: [number, number, number]
+}
+
+/** 拉线类型：0 设计元素，1 柄图元素 */
+export type LaxianType = 0 | 1
+
+// 拉线点项接口
+export interface LaxianItem {
+  position?: [number, number, number]
+  rotation?: [number, number, number]
+  scale?: [number, number, number]
+  title?: string
+  laxian_id?: string
+  /** 拉线类型：0 设计元素，1 柄图元素，默认 0 */
+  type?: LaxianType
+  /** 镜头聚焦参数（可选），点击拉线时若有则聚焦至该机位 */
+  camera?: LaxianCameraState
+}
+
 
 export interface Scene {
   addr?: string
@@ -549,6 +631,7 @@ export interface Album {
   parent_id?: number
   create_time?: Date
   sort?: number
+  album_foreign?: AblumForeign
 }
 
 export interface DisplayCabinet {
@@ -576,4 +659,120 @@ export interface NoticeMessage {
   type?: number // 0全体 1个人
   is_enable?: number
   user_id: number // 如果是1时才有
+}
+
+/** 茶会 */
+export interface Teaparty {
+  tea_id?: number
+  tea_title?: string
+  tea_desc?: string
+  tea_cover?: string
+  create_time?: Date
+  start_time?: Date
+  end_time?: Date
+  limit_number?: number
+  current_number?: number
+  admin_user?: number
+  address?: string
+  province?: string
+  city?: string
+  area?: string
+  tea_type?: number
+  join_way?: number
+  detail_image?: string
+  user?: User
+  latitude?: number
+  longitude?: number
+}
+
+/** 茶会参与者 */
+export interface TeapartyAttend {
+  attend_id?: number
+  tea_id?: number
+  user_id?: number
+  is_approval?: number // 0待审批 1已通过 2已拒绝
+  note?: string
+  create_time?: Date
+  user?: User
+}
+/** 经验获取记录 */
+export interface ExpRecord {
+  record_id: number
+  create_time: string
+  user_id: number
+  type: number
+  num: number
+  note: string
+  pk_type: number
+}
+
+/** 父计划摘要（子计划时的关联信息） */
+export interface ParentPlanSummary {
+  list_id?: number
+  plan_name?: string
+  need_money?: number
+  have_money?: number
+  parent_id?: number
+  plan_cover?: string
+  end_time?: string | Date
+}
+
+export interface PlanList {
+  list_id?: number
+  create_user?: number
+  plan_member?: string
+  plan_name?: string
+  need_money?: number
+  have_money?: number
+  plan_cover?: string
+  plan_note?: string
+  is_complete?  : number
+  is_enable?: number
+  create_time?: Date
+  end_time?: Date
+  parent_id?: number
+  clothes_id?: number
+  is_email?: number
+  plan_list?: PlanList[]
+  wardrobe_clothes?: WardrobeClothes
+  parent_plan?: ParentPlanSummary
+}
+
+/** 手账 */
+export interface Journal {
+  journal_id: number
+  pk_type: number // 0=评论(签到) 1=帖子 2=服饰 3=搭配 4=图鉴 5=计划
+  pk_id: number
+  journal_time: string // YYYY-MM-DD
+  create_time?: string
+  is_enable?: number
+  note?: string
+  json_data?: Record<string, unknown>
+  /** 根据 pk_type 返回关联数据 */
+  community?: Community
+  comment?: Comment
+  wardrobe_clothes?: WardrobeClothes
+  matching_list?: MatchingListItem
+  library?: Library
+  plan?: PlanList
+}
+
+
+export interface AblumForeign {
+  foreign_id?: number
+  album_id?: number
+  cover?: string
+  user_id?: number
+  create_time?: Date
+  update_time?: Date
+  note?: string
+  pk_type?: number
+  pk_id?: number
+  album?: Album
+  user?: User
+  wardrobe_clothes?: WardrobeClothes
+  community?: Community
+  library?: Library
+  matching_list?: MatchingListItem
+  plan?: PlanList
 }

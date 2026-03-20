@@ -5,7 +5,7 @@ import * as THREE from 'three';
 import { getLibraryList, getLibraryById } from '@/api/library';
 import type { Shop, Library } from '@/types/api';
 import { useRouter } from 'vue-router';
-import { BASE_IMG } from '@/utils/ipConfig';
+import { BASE_IMG_MODEL as BASE_IMG } from '@/utils/ipConfig';
 import { useCopyCurrentUrl } from '@/composables/useCopyCurrentUrl';
 let uni: any;
 const configStore = useConfigStore()

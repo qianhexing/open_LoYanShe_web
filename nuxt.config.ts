@@ -19,7 +19,7 @@ export default defineNuxtConfig({
 			// 	proxy: 'http://192.168.1.23:3002/**'
 			// },
 			'/ali/**': {
-				proxy: 'https://lolitalibrary.com/ali/**'
+				proxy: 'http://image.lolitalibrary.com/**'
 			},
 			'/pc/**': {
 				proxy: 'https://lolitalibrary.com/pc/**'

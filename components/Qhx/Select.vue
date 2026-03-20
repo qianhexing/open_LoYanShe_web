@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, defineProps, withDefaults, defineEmits, defineExpose, nextTick } from 'vue'
+import { ref, onMounted, watch, defineProps, withDefaults, defineEmits, defineExpose, nextTick } from 'vue'
 
 interface Props {
   options: optionsInterface[]
@@ -13,19 +13,19 @@ export interface optionsInterface {
 }
 
 const props = withDefaults(defineProps<Props>(), {
-  options: [],
+  options: () => [] as optionsInterface[],
   defaultValue: null,
   canCustomize: false,
   maxLength: 8
 })
-const listRef = ref<HTMLElement | null>(null)
 const customize = ref('') // 自定义词条
 const show = ref(false)
 const clickPosition = ref({ x: 0, y: 0 })
 const selectedIndex = ref(0)
 const selected = ref(props.defaultValue || (props.options.length ? props.options[0] : ''))
 const isDrag = ref(false) // 判断是点击还是拖拽
-const banScorll = ref(false)
+const banScroll = ref(false)
+const isDragging = ref(false)
 const emit = defineEmits(['change', 'open', 'select'])
 
 const showPicker = (e: MouseEvent) => {
@@ -42,45 +42,44 @@ const showPicker = (e: MouseEvent) => {
 
 defineExpose({ showPicker })
 
-// 滚动相关
+// 滚动相关：使用 padding 使选中项居中
 const pickerRef = ref<HTMLDivElement>()
 const itemHeight = 40
 const visibleCount = 10
+const paddingTop = (itemHeight * visibleCount) / 2 - itemHeight / 2
 
 const scrollToSelected = () => {
   if (!pickerRef.value) return
-  banScorll.value = true
-  // const scrollTop = selectedIndex.value * itemHeight
-  // pickerRef.value.scrollTop = scrollTop - Math.floor(visibleCount/2) * itemHeight
+  banScroll.value = true
   scrollToIndex(selectedIndex.value)
   setTimeout(() => {
-    banScorll.value = false
-  }, 200);
+    banScroll.value = false
+  }, 250)
 }
 
 const onScroll = () => {
-  if (!listRef.value) return
-  if (banScorll.value) return
-  const scrollTop = listRef.value.scrollTop
-  const index = Math.round(scrollTop / itemHeight)
+  if (!pickerRef.value) return
+  if (banScroll.value) return
+  const scrollTop = pickerRef.value.scrollTop
+  const viewportCenter = scrollTop + (itemHeight * visibleCount) / 2
+  const index = Math.round((viewportCenter - paddingTop - itemHeight / 2) / itemHeight)
   const clampedIndex = Math.min(props.options.length - 1, Math.max(0, index))
+  selectedIndex.value = clampedIndex
   selected.value = props.options[clampedIndex]
-  updateSelected()
-  emit('change', selected.value) // 这里实时触发 change
+  emit('change', selected.value)
 }
-
 
 const updateSelected = () => {
   if (!pickerRef.value) return
   const scrollTop = pickerRef.value.scrollTop
-  const index = Math.round(scrollTop / itemHeight)
+  const viewportCenter = scrollTop + (itemHeight * visibleCount) / 2
+  const index = Math.round((viewportCenter - paddingTop - itemHeight / 2) / itemHeight)
   selectedIndex.value = Math.min(Math.max(index, 0), props.options.length - 1)
   selected.value = props.options[selectedIndex.value]
   emit('change', selected.value)
 }
 
 // 拖拽惯性滚动（鼠标+触摸）
-let isDragging = false
 let startY = 0
 let lastY = 0
 let velocity = 0
@@ -88,7 +87,7 @@ let animationFrame: number
 
 const startDrag = (y: number) => {
   if (!pickerRef.value) return
-  isDragging = true
+  isDragging.value = true
   isDrag.value = true
   startY = y
   lastY = y
@@ -97,7 +96,7 @@ const startDrag = (y: number) => {
 
 const moveDrag = (y: number) => {
   isDrag.value = false
-  if (!isDragging || !pickerRef.value) return
+  if (!isDragging.value || !pickerRef.value) return
   const delta = y - lastY
   pickerRef.value.scrollTop -= delta
   velocity = delta
@@ -106,16 +105,17 @@ const moveDrag = (y: number) => {
 }
 
 const endDrag = () => {
-  isDragging = false
-  const deceleration = 0.95
-
+  isDragging.value = false
+  const deceleration = 0.92
   const step = () => {
     if (!pickerRef.value) return
     velocity *= deceleration
-    if (Math.abs(velocity) < 0.1) {
-      const index = Math.round(pickerRef.value.scrollTop / itemHeight)
-      const target = index * itemHeight
-      smoothScroll(pickerRef.value.scrollTop, target, 200)
+    if (Math.abs(velocity) < 0.5) {
+      const viewportCenter = pickerRef.value.scrollTop + (itemHeight * visibleCount) / 2
+      const index = Math.round((viewportCenter - paddingTop - itemHeight / 2) / itemHeight)
+      const clampedIndex = Math.min(props.options.length - 1, Math.max(0, index))
+      const target = paddingTop + clampedIndex * itemHeight + itemHeight / 2 - (itemHeight * visibleCount) / 2
+      smoothScroll(pickerRef.value.scrollTop, target, 220)
       return
     }
     pickerRef.value.scrollTop -= velocity
@@ -124,12 +124,12 @@ const endDrag = () => {
   animationFrame = requestAnimationFrame(step)
 }
 
-// 缓动滚动到目标
+// easeOutCubic 缓动
 const smoothScroll = (from: number, to: number, duration: number) => {
   const startTime = performance.now()
   const animate = (time: number) => {
     const t = Math.min((time - startTime) / duration, 1)
-    const eased = t*(2-t) // easeOutQuad
+    const eased = 1 - (1 - t) ** 3
     if (!pickerRef.value) return
     pickerRef.value.scrollTop = from + (to - from) * eased
     if (t < 1) requestAnimationFrame(animate)
@@ -138,16 +138,15 @@ const smoothScroll = (from: number, to: number, duration: number) => {
 }
 
 const scrollToIndex = (index: number) => {
-  if (!listRef.value) return
   if (!pickerRef.value) return
-  if (!isDrag.value) return
-  const itemHeight = 40 // 和滚动处理函数里一致
-  listRef.value.scrollTop = index * itemHeight
-  selected.value = props.options[index]
-  // updateSelected()
-  const target = index * itemHeight
-	smoothScroll(pickerRef.value.scrollTop, target, 200)
+  const clampedIndex = Math.min(props.options.length - 1, Math.max(0, index))
+  const target = paddingTop + clampedIndex * itemHeight + itemHeight / 2 - (itemHeight * visibleCount) / 2
+  banScroll.value = true
+  selectedIndex.value = clampedIndex
+  selected.value = props.options[clampedIndex]
+  smoothScroll(pickerRef.value.scrollTop, target, 220)
   emit('change', selected.value)
+  setTimeout(() => { banScroll.value = false }, 250)
 }
 
 // 鼠标事件
@@ -174,49 +173,90 @@ const onTouchEnd = () => endDrag()
 
 const confirm = () => {
   if (customize.value !== '') {
-    emit('select', { value: customize.value, label: customize.value})
+    emit('select', { value: customize.value, label: customize.value })
   } else {
     emit('select', selected.value)
   }
   customize.value = ''
   show.value = false
-  
 }
+
+// 初始化 selectedIndex
+const initSelectedIndex = () => {
+  const idx = props.options.findIndex(
+    opt => opt?.value === (selected.value as optionsInterface)?.value
+  )
+  selectedIndex.value = idx >= 0 ? idx : 0
+  selected.value = props.options[selectedIndex.value] || selected.value
+}
+
+watch(
+  () => [props.defaultValue, props.options],
+  () => {
+    if (props.defaultValue) {
+      selected.value = props.defaultValue
+    } else if (props.options.length) {
+      selected.value = props.options[0]
+    }
+    initSelectedIndex()
+    if (show.value) nextTick(() => scrollToSelected())
+  },
+  { immediate: false }
+)
+
+watch(show, (isOpen) => {
+  if (isOpen) {
+    initSelectedIndex()
+    nextTick(() => scrollToSelected())
+  }
+})
+
 onMounted(() => {
-  scrollToSelected()
+  initSelectedIndex()
+  nextTick(() => scrollToSelected())
 })
 </script>
 
 <template>
   <QhxModal v-model="show" :trigger-position="clickPosition">
-    <div class=" w-[95vw] max-w-2xl bg-white rounded-[10px] overflow-hidden py-4 flex flex-col items-center">
-      <div class="text-xm mb-4">请选择</div>
-      <div 
-        ref="pickerRef" 
-        class="w-[400px] max-md:w-[100vw] overflow-y-scroll relative border-gray-200 rounded cursor-grab"
-        :style="{ height: itemHeight * visibleCount + 'px' }"
-        @mousedown.prevent="onMouseDown"
-        @touchstart.prevent="onTouchStart"
-        @touchmove.prevent="onTouchMove"
-        @touchend.prevent="onTouchEnd"
-        @scroll="onScroll"
-      >
-        <div style="height: calc(50% - 20px)"></div>
+    <div class="w-[95vw] max-w-2xl bg-white dark:bg-gray-800 rounded-[12px] overflow-hidden py-4 flex flex-col items-center shadow-xl transition-all duration-200">
+      <div class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-4">请选择</div>
+      <div class="relative w-[400px] max-md:w-[100vw]">
         <div 
-          ref="listRef" 
+          ref="pickerRef" 
+          class="select-picker overflow-y-auto relative rounded-lg bg-gray-50 dark:bg-gray-700/50 transition-shadow duration-200"
+          :class="[isDragging ? 'cursor-grabbing shadow-inner' : 'cursor-grab active:cursor-grabbing']"
+          :style="{ height: itemHeight * visibleCount + 'px' }"
+          @mousedown.prevent="onMouseDown"
+          @touchstart.prevent="onTouchStart"
+          @touchmove.prevent="onTouchMove"
+          @touchend.prevent="onTouchEnd"
+          @scroll="onScroll"
         >
-          <div v-for="(opt, i) in props.options" :key="i"
-              :class="['text-center', selectedIndex === i ? 'font-bold text-black text-lg' : 'text-gray-500']"
+          <div :style="{ height: paddingTop + 'px' }" />
+          <div>
+            <div
+              v-for="(opt, i) in props.options"
+              :key="i"
+              :class="[
+                'select-option text-center select-none transition-all duration-200 ease-out',
+                selectedIndex === i
+                  ? 'font-semibold text-qhx-primary scale-105'
+                  : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
+              ]"
               :style="{ height: itemHeight + 'px', lineHeight: itemHeight + 'px' }"
-               @click="scrollToIndex(i)"
-          >
-            {{ opt.label }}
+              @click="scrollToIndex(i)"
+            >
+              {{ opt.label }}
+            </div>
           </div>
+          <div :style="{ height: paddingTop + 'px' }" />
         </div>
-        <div style="height: calc(50% - 20px)"></div>
+        <div
+          class="select-highlight pointer-events-none absolute left-0 right-0 border-t-2 border-b-2 border-qhx-primary rounded transition-opacity duration-200"
+          :style="{ top: '50%', transform: 'translateY(-50%)', height: itemHeight + 'px' }"
+        />
       </div>
-      <div class="absolute top-[calc(50%-8px)] left-0 w-full border-t-2 border-b-2 border-qhx-primary pointer-events-none"
-            :style="{ transform: 'translateY(-50%)', height: itemHeight + 'px' }"></div>
       <div class="mt-4 flex items-center w-full justify-between">
         <div class="ml-2">
           <UInput
@@ -239,7 +279,7 @@ onMounted(() => {
         </div>
         <UButton 
           type="submit"
-          class="bg-qhx-primary text-qhx-inverted hover:bg-qhx-primaryHover mx-2"
+          class="bg-qhx-primary text-qhx-inverted hover:bg-qhx-primaryHover mx-2 transition-colors duration-200 active:scale-[0.98]"
           @click="confirm"
         >
           确认选择
@@ -250,7 +290,17 @@ onMounted(() => {
 </template>
 
 <style scoped>
-div::-webkit-scrollbar {
+.select-picker {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  -webkit-overflow-scrolling: touch;
+}
+.select-picker::-webkit-scrollbar {
   display: none;
+}
+
+.select-option {
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
 }
 </style>

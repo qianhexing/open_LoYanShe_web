@@ -83,7 +83,12 @@ const applyWaterfallLayout = () => {
   if (!container) return
   
   const items = container.querySelectorAll(`.waterfall-item${props.itemKey === 0 ? '' : props.itemKey}`)
-  if (items.length === 0) return
+  
+  // 空数据时也要触发布局计算，重置容器高度
+  if (items.length === 0) {
+    ;(container as HTMLElement).style.height = '0px'
+    return
+  }
   
   // 重置所有项目位置
   // biome-ignore lint/complexity/noForEach: <explanation>
@@ -109,7 +114,7 @@ const applyWaterfallLayout = () => {
   })
   
   // 设置容器高度
-  container.style.height = `${Math.max(...columnHeights)}px`
+  ;(container as HTMLElement).style.height = `${Math.max(...columnHeights)}px`
 }
 
 // 加载更多

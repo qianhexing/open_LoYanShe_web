@@ -48,25 +48,16 @@
               <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                 内容 <span class="text-red-500">*</span>
               </label>
-              <div class="bg-white dark:bg-gray-700 rounded-2xl border border-gray-200 dark:border-gray-600 overflow-hidden">
-                <!-- 工具栏 -->
-                <div :id="`toolbar-${editorId}`" class="bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-600 p-2">
-                  <!-- <button type="button" class="ql-bold" title="粗体"></button>
-                  <button type="button" class="ql-italic" title="斜体"></button>
-                  <button type="button" class="ql-underline" title="下划线"></button>
-                  <button type="button" class="ql-strike" title="删除线"></button>
-                  <button type="button" class="ql-blockquote" title="引用"></button>
-                  <button type="button" class="ql-code-block" title="代码块"></button>
-                  <button type="button" class="ql-header" value="1" title="标题1"></button>
-                  <button type="button" class="ql-header" value="2" title="标题2"></button>
-                  <button type="button" class="ql-list" value="ordered" title="有序列表"></button>
-                  <button type="button" class="ql-list" value="bullet" title="无序列表"></button>
-                  <button type="button" class="ql-link" title="链接"></button>
-                  <button type="button" class="ql-image" title="图片"></button> -->
-                </div>
-                <!-- 编辑器容器 -->
-                <div :id="`editor-${editorId}`" class="min-h-[300px] max-h-[400px] overflow-y-auto"></div>
-              </div>
+              <QhxRichTextEditor
+                v-model="formData.content"
+                placeholder="请输入内容..."
+                :min-height="300"
+                :max-height="400"
+                :enable-topic="true"
+                :enable-emoji="true"
+                :enable-mention="true"
+                ref="richTextEditorRef"
+              />
             </div>
 
             <!-- 图片选择 -->
@@ -108,15 +99,15 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, onMounted, onUnmounted, nextTick } from 'vue'
-import Quill from 'quill'
-import 'quill/dist/quill.snow.css'
+import { ref } from 'vue'
+// QhxRichTextEditor 在模板中使用，需要作为值导入
+// eslint-disable-next-line @typescript-eslint/consistent-type-imports
+import QhxRichTextEditor from '@/components/Qhx/RichTextEditor.vue'
 import { insertCommunity, type CommunityInterface } from '@/api/community'
 import { useUserStore } from '@/stores/user'
 import type { Community } from '@/types/api'
 import type QhxImagePicker from '@/components/Qhx/ImagePicker.vue'
-import { uploadFileToOSS, uploadImageOSS } from '@/utils/ossUpload'
-import { BASE_IMG } from '@/utils/ipConfig'
+import { uploadImageOSS } from '@/utils/ossUpload'
 interface Props {
   modelValue: boolean
   userId?: number
@@ -137,54 +128,14 @@ const emit = defineEmits<{
 
 const toast = useToast()
 const userStore = useUserStore()
-const editorId = ref(`editor-${Date.now()}`)
-const quill = ref<Quill | null>(null)
 const submitting = ref(false)
 const imagePickerRef = ref<InstanceType<typeof QhxImagePicker> | null>(null)
+const richTextEditorRef = ref<InstanceType<typeof QhxRichTextEditor> | null>(null)
 
 const formData = ref({
   title: '',
   content: ''
 })
-
-// 初始化编辑器
-const initEditor = async () => {
-  await nextTick()
-  const editorContainer = document.getElementById(`editor-${editorId.value}`)
-  const toolbarContainer = document.getElementById(`toolbar-${editorId.value}`)
-  
-  if (!editorContainer || !toolbarContainer) return
-
-  quill.value = new Quill(editorContainer, {
-    modules: {
-      toolbar: toolbarContainer
-    },
-    placeholder: '请输入内容...',
-    theme: 'snow'
-  })
-
-  // 监听内容变化
-  quill.value.on('text-change', () => {
-    if (quill.value) {
-      formData.value.content = quill.value.root.innerHTML
-    }
-  })
-}
-
-// 清理编辑器
-const destroyEditor = () => {
-  if (quill.value) {
-    const editorContainer = document.getElementById(`editor-${editorId.value}`)
-    const toolbarContainer = document.getElementById(`toolbar-${editorId.value}`)
-    if (editorContainer) {
-      editorContainer.innerHTML = ''
-    }
-    if (toolbarContainer) {
-      toolbarContainer.innerHTML = ''
-    }
-    quill.value = null
-  }
-}
 
 // 图片上传处理函数
 const fetchUpload = async (file: { file?: File; url: string }): Promise<string> => {
@@ -220,24 +171,13 @@ const handleClose = () => {
     title: '',
     content: ''
   }
-  // 安全地清空编辑器内容
-  try {
-    if (quill.value) {
-      const editorContainer = document.getElementById(`editor-${editorId.value}`)
-      if (editorContainer) {
-        quill.value.setText('')
-      }
-    }
-  } catch (error) {
-    console.warn('清空编辑器内容时出错:', error)
+  // 清空编辑器内容
+  if (richTextEditorRef.value) {
+    richTextEditorRef.value.clearContent()
   }
   // 清空图片
   if (imagePickerRef.value) {
-    try {
-      imagePickerRef.value.clear()
-    } catch (error) {
-      console.warn('清空图片时出错:', error)
-    }
+    imagePickerRef.value.clear()
   }
 }
 
@@ -252,7 +192,7 @@ const handleSubmit = async () => {
     return
   }
 
-  if (!quill.value) {
+  if (!richTextEditorRef.value) {
     toast.add({
       title: '编辑器未初始化',
       icon: 'i-heroicons-exclamation-circle',
@@ -261,38 +201,15 @@ const handleSubmit = async () => {
     return
   }
 
-  // 安全地获取编辑器内容
-  let content = ''
-  try {
-    const editorContainer = document.getElementById(`editor-${editorId.value}`)
-    if (!editorContainer || !quill.value.root) {
-      toast.add({
-        title: '编辑器DOM元素不存在',
-        icon: 'i-heroicons-exclamation-circle',
-        color: 'red'
-      })
-      return
-    }
-    content = quill.value.root.innerHTML
-  } catch (error) {
-    console.error('获取编辑器内容失败:', error)
-    toast.add({
-      title: '获取编辑器内容失败',
-      description: '请刷新页面后重试',
-      icon: 'i-heroicons-exclamation-circle',
-      color: 'red'
-    })
-    submitting.value = false
-    return
-  }
+  // 获取编辑器内容
+  const content = richTextEditorRef.value.getContent()
 
-  if (!content || content.trim() === '<p><br></p>') {
+  if (!content || content.trim() === '<p></p>' || content.trim() === '<p><br></p>') {
     toast.add({
       title: '请输入内容',
       icon: 'i-heroicons-exclamation-circle',
       color: 'orange'
     })
-    submitting.value = false
     return
   }
 
@@ -327,7 +244,9 @@ const handleSubmit = async () => {
     let imgList: string[] = []
     if (imagePickerRef.value && imagePickerRef.value.previewImages.length > 0) {
       try {
-        const uploadPromises = imagePickerRef.value.previewImages.map(img => fetchUpload(img))
+        const uploadPromises = imagePickerRef.value.previewImages
+          .filter((img): img is { file?: File; url: string } => typeof img === 'object' && 'url' in img && typeof img.url === 'string')
+          .map(img => fetchUpload(img))
         imgList = await Promise.all(uploadPromises)
       } catch (error) {
         console.error('图片上传失败:', error)
@@ -385,56 +304,21 @@ const handleSubmit = async () => {
       color: 'red'
     })
   } finally {
-    // 确保 submitting 状态被重置，但不访问可能已销毁的 Quill 实例
     submitting.value = false
   }
 }
-
-// 监听弹窗显示状态
-watch(() => props.modelValue, async (newVal) => {
-  if (newVal) {
-    await initEditor()
-  } else {
-    destroyEditor()
-  }
-})
-
-onMounted(() => {
-  if (props.modelValue) {
-    initEditor()
-  }
-})
-
-onUnmounted(() => {
-  destroyEditor()
-})
 </script>
 
 <style scoped>
-/* Quill 编辑器样式调整 */
-:deep(.ql-container) {
-  font-size: 14px;
-  font-family: inherit;
+/* Modal Transition */
+.modal-fade-enter-active,
+.modal-fade-leave-active {
+  transition: opacity 0.3s ease;
 }
 
-:deep(.ql-editor) {
-  min-height: 300px;
-  max-height: 400px;
-}
-
-:deep(.ql-toolbar) {
-  border-top-left-radius: 1rem;
-  border-top-right-radius: 1rem;
-}
-
-:deep(.ql-container) {
-  border-bottom-left-radius: 1rem;
-  border-bottom-right-radius: 1rem;
-}
-
-:deep(.ql-editor.ql-blank::before) {
-  color: #9ca3af;
-  font-style: normal;
+.modal-fade-enter-from,
+.modal-fade-leave-to {
+  opacity: 0;
 }
 </style>
 

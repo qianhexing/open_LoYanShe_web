@@ -55,12 +55,13 @@ const jumpToWardrobe = (userId: number) => {
   
   if (isInUniApp && typeof uni !== 'undefined' && uni.navigateTo) {
     // UniApp WebView 环境
-    uni.navigateTo({
-      url: `/pages/wardrobe/wardrobe?user_id=${userId}`,
-      fail: () => {
-        console.log('跳转错误')
-      }
-    })
+    router.push(wardrobeUrl)
+    // uni.navigateTo({
+    //   url: `/pages/wardrobe/wardrobe?user_id=${userId}`,
+    //   fail: () => {
+    //     console.log('跳转错误')
+    //   }
+    // })
   } else {
     if (port.value) {
       // 鸿蒙系统

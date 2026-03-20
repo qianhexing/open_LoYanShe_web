@@ -14,16 +14,26 @@
       >
         Lo研社因你们的奉献而更美好
       </div>
+      <div 
+        v-else-if="type === 'exp'" 
+        class="inline-block px-4 py-2 bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200 rounded-full text-sm md:text-base"
+      >
+        等级排行榜
+      </div>
     </div>
     <!-- 排行榜列表 -->
     <RankLibraryRankingList 
       v-if="type === 'good' || type === 'collect'" 
-      :list="list" 
+      :list="list as RankItem[]" 
       :type="type"
     />
     <RankContributeRankingList 
       v-else-if="type === 'contribute' || type === 'contribute7'" 
-      :list="list" 
+      :list="list as RankItem[]" 
+    />
+    <RankUserRankingList 
+      v-else-if="type === 'exp'" 
+      :list="list as User[]" 
     />
 
     <!-- 加载更多 -->
@@ -45,19 +55,20 @@
 
 <script setup lang="ts">
 import type { RankItem } from '@/api/rank'
+import type { User } from '@/types/api'
 import { getRankList } from '@/api/rank'
 import { BASE_IMG } from '@/utils/ipConfig'
 import useScrollBottom from '@/composables/useScrollBottom'
 
 interface Props {
-  type: 'good' | 'collect' | 'contribute' | 'contribute7'
+  type: 'good' | 'collect' | 'contribute' | 'contribute7' | 'exp'
 }
 
 const props = defineProps<Props>()
 
 const pageSize = 10
 const page = ref(1)
-const list = ref<RankItem[]>([])
+const list = ref<(RankItem | User)[]>([])
 const total = ref(0)
 const isLoading = ref(false)
 
@@ -75,19 +86,28 @@ const fetchRankList = async () => {
     
     // 处理图片地址
     const processedData = response.rows.map((item) => {
-      return {
-        ...item,
-        cover: item.cover ? BASE_IMG + item.cover : null,
-        square_cover: item.square_cover ? BASE_IMG + item.square_cover : null,
-        shop_logo: item.shop_logo ? BASE_IMG + item.shop_logo : null,
-        user_face: item.user_face ? BASE_IMG + item.user_face : null
+      if (props.type === 'exp') {
+        // 用户类型，只处理用户头像
+        return {
+          ...item,
+          user_face: (item as User).user_face ? BASE_IMG + (item as User).user_face : null
+        }
+      } else {
+        // 其他类型，处理所有图片字段
+        return {
+          ...item,
+          cover: (item as RankItem).cover ? BASE_IMG + (item as RankItem).cover : null,
+          square_cover: (item as RankItem).square_cover ? BASE_IMG + (item as RankItem).square_cover : null,
+          shop_logo: (item as RankItem).shop_logo ? BASE_IMG + (item as RankItem).shop_logo : null,
+          user_face: (item as RankItem).user_face ? BASE_IMG + (item as RankItem).user_face : null
+        }
       }
     })
     
     if (page.value === 1) {
-      list.value = processedData as RankItem[]
+      list.value = processedData as (RankItem | User)[]
     } else {
-      list.value = [...list.value, ...processedData as RankItem[]]
+      list.value = [...list.value, ...processedData as (RankItem | User)[]]
     }
     
     total.value = response.count

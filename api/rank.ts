@@ -1,8 +1,8 @@
-import type { BaseResponse, PaginationParams, PaginationResponse } from '@/types/api';
+import type { BaseResponse, PaginationParams, PaginationResponse, User } from '@/types/api';
 import { use$Post } from '@/composables/httpCore';
 
 interface RankListParams extends PaginationParams {
-  type: 'good' | 'collect' | 'contribute' | 'contribute7'
+  type: 'good' | 'collect' | 'contribute' | 'contribute7' | 'exp'
 }
 
 export interface RankItem {
@@ -20,8 +20,8 @@ export interface RankItem {
 
 export async function getRankList(
   params: RankListParams
-): Promise<PaginationResponse<RankItem>> {
-  const response = await use$Post<BaseResponse<PaginationResponse<RankItem>>>(
+): Promise<PaginationResponse<RankItem | User>> {
+  const response = await use$Post<BaseResponse<PaginationResponse<RankItem | User>>>(
     '/rank/list',
     params
   );

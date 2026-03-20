@@ -53,7 +53,7 @@
 import * as THREE from 'three'
 import gsap from 'gsap'
 import ThreeCore from '@/utils/threeCore'
-import { BASE_IMG } from '@/utils/ipConfig'
+import { BASE_IMG_MODEL as BASE_IMG } from '@/utils/ipConfig'
 
 // --- Props ---
 const props = withDefaults(defineProps<{

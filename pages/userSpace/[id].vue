@@ -9,98 +9,210 @@
     </div>
 
     <!-- 加载状态 -->
-    <div v-if="loading" class="relative z-10 flex flex-col items-center justify-center min-h-screen">
-      <div class="relative">
-        <div class="w-16 h-16 border-4 border-pink-100 rounded-full"></div>
-        <div class="absolute top-0 left-0 w-16 h-16 border-4 border-pink-400 rounded-full border-t-transparent animate-spin"></div>
+    <template v-if="loading">
+      <div class="relative z-10 flex flex-col items-center justify-center min-h-screen">
+        <div class="relative">
+          <div class="w-16 h-16 border-4 border-pink-100 rounded-full"></div>
+          <div class="absolute top-0 left-0 w-16 h-16 border-4 border-pink-400 rounded-full border-t-transparent animate-spin"></div>
+        </div>
+        <p class="mt-4 text-pink-400 dark:text-pink-300 tracking-widest text-sm uppercase">加载中...</p>
       </div>
-      <p class="mt-4 text-pink-400 dark:text-pink-300 tracking-widest text-sm uppercase">加载中...</p>
-    </div>
+    </template>
+    <template v-else-if="userInfo">
+      <div class="relative z-10 pb-32">
+      <!-- 徽章区（有徽章时缩小）+ 用户信息（始终完整显示在下方） -->
+      <div class="max-w-4xl mx-auto px-1 md:px-8 pt-2 flex flex-col gap-2">
+        <!-- 徽章物理展示：有徽章时显示（缩小区域） -->
+        <div
+          v-if="hasDisplayBadges"
+          class="badge-showcase badge-showcase--has-badges rounded-2xl overflow-hidden relative"
+        >
+          <AchievementBadgePhysics :key="displayBadgesKey" :badges="displayBadges" :badge-size="40" :spawn-interval="400" />
+          <!-- 悬浮在徽章区右上角的配置按钮 -->
+          <button
+            v-if="isCurrentUser"
+            type="button"
+            class="absolute top-2 right-2 z-10 flex items-center gap-1.5 rounded-full pl-2 pr-3 py-1.5 bg-white/80 dark:bg-gray-800/80 shadow-md border border-gray-200/60 dark:border-gray-600/60 text-pink-500 hover:bg-pink-50 dark:hover:bg-gray-700/80 transition-colors backdrop-blur-sm"
+            @click="openDecoConfig"
+          >
+            <UIcon name="i-heroicons-cog-6-tooth" class="w-5 h-5 flex-shrink-0" />
+            <span class="text-sm font-medium">配置徽章</span>
+          </button>
+        </div>
 
-    <!-- 主要内容 -->
-    <div v-else-if="userInfo" class="relative z-10 pb-32">
-
-      <!-- 用户信息卡片 -->
-      <div class="max-w-4xl mx-auto px-4 md:px-8 pt-2">
-        <div class="bg-white/70 dark:bg-gray-800/70 backdrop-blur-md rounded-[2rem] p-8 shadow-xl border border-white/50 dark:border-gray-700">
-          <!-- 用户头像和基本信息 -->
-          <div class="flex flex-col md:flex-row items-center md:items-start gap-6 mb-8">
-            <!-- 头像 -->
-            <UserFace :user="userInfo" />
-
-            <!-- 用户信息 -->
-            <div class="flex-1 text-center md:text-left">
-              <h1 class="text-xl flex items-center justify-between md:text-2xl font-bold text-gray-800 dark:text-gray-100 mb-2">
-                <div>
+        <!-- 用户信息卡片：始终完整显示（参考下方帖子卡片样式） -->
+        <div class="user-info-card rounded-2xl overflow-hidden backdrop-blur-md shadow-lg border border-white/50 dark:border-gray-700 bg-white/45 dark:bg-gray-800/45 flex flex-col px-4 py-4 md:px-6 md:py-5">
+          <div class="flex items-center gap-4 md:gap-5">
+            <UserFace :user="userInfo" size="mini" class="flex-shrink-0 scale-125" />
+            <div class="flex-1 min-w-0">
+              <div class="flex items-center justify-between gap-2 mb-1">
+                <h1 class="text-lg md:text-xl font-bold text-gray-800 dark:text-gray-100 truncate">
                   {{ userInfo.user_name || '未设置昵称' }}
+                </h1>
+                <div v-if="isCurrentUser" class="flex items-center gap-2 flex-shrink-0">
+                  <button
+                    v-if="!hasDisplayBadges"
+                    type="button"
+                    class="flex items-center gap-1 rounded-full px-2 py-1.5 text-sm hover:bg-pink-100 dark:hover:bg-gray-600 transition-colors"
+                    @click="openDecoConfig"
+                  >
+                    <UIcon name="i-heroicons-cog-6-tooth" class="w-4 h-4 text-pink-500 dark:text-pink-400" />
+                    <span>配置徽章</span>
+                  </button>
+                  <button
+                    class="flex items-center gap-1 rounded-full px-2 py-1.5 text-sm hover:bg-pink-100 dark:hover:bg-gray-600 transition-colors"
+                    @click="handleEdit"
+                  >
+                    <span class="text-base">✏️</span>
+                    <span>编辑</span>
+                  </button>
                 </div>
-                <button
-                  v-if="isCurrentUser"
-                  @click="handleEdit"
-                  class="bg-white/90 dark:bg-gray-800/90 backdrop-blur-md rounded-full px-4 py-2 shadow-lg border border-white/50 dark:border-gray-700 flex items-center gap-2 hover:bg-pink-50 dark:hover:bg-gray-700 transition-colors"
-                >
-                  <span class="text-xl">✏️</span>
-                  <span class="text-sm font-medium text-gray-700 dark:text-gray-200">编辑</span>
-                </button>
-              </h1>
-              <!-- 个人签名 -->
-              <p v-if="userInfo.signature" class="text-gray-600 dark:text-gray-300 text-lg mb-4 italic">
-                "{{ userInfo.signature }}"
-              </p>
-              <p v-else class="text-gray-400 dark:text-gray-500 text-sm mb-4">
-                这个人很懒，还没有留下签名
-              </p>
-
-              <!-- 风格标签 -->
-              <div v-if="userInfo.main_style?.length" class="flex flex-wrap items-center justify-center md:justify-start gap-2 mb-4">
-                <QhxTag 
-                  v-for="(style, idx) in userInfo.main_style" 
-                  :key="idx"
-                >
-                  # {{ style.label }}
-                </QhxTag>
               </div>
-              <div v-else class="text-gray-400 dark:text-gray-500 text-sm mb-4">
-                还没有设置风格标签
-              </div>
-            </div>
-          </div>
-
-          <!-- 详细信息 -->
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-6 pt-6 border-t border-gray-200 dark:border-gray-700">
-            <!-- 地址信息 -->
-            <div v-if="userInfo.show_area && (userInfo.province || userInfo.city || userInfo.area)" class="flex items-start gap-3">
-              <span class="text-2xl">📍</span>
-              <div>
-                <p class="text-sm text-gray-500 dark:text-gray-400 mb-1">所在地</p>
-                <p class="text-gray-800 dark:text-gray-200 font-medium">
-                  {{ [userInfo.province, userInfo.city].filter(Boolean).join(' ') || '未设置' }}
-                </p>
-              </div>
-            </div>
-            <div v-else-if="isCurrentUser" class="flex items-start gap-3">
-              <span class="text-2xl">📍</span>
-              <div>
-                <p class="text-sm text-gray-500 dark:text-gray-400 mb-1">所在地</p>
-                <p class="text-gray-400 dark:text-gray-500 text-sm">未设置（可在编辑中设置）</p>
+                  <div v-if="userInfo.signature" class="signature-preview">
+                    <div
+                      class="text-gray-600 dark:text-gray-300 text-sm italic line-clamp-3 cursor-pointer hover:bg-white/20 dark:hover:bg-gray-700/20 rounded px-1 -mx-1 py-0.5 -my-0.5 transition-colors"
+                      @click="showSignatureModal = true"
+                    >
+                      <SafeRichText :nodes="signatureNodes" />
+                    </div>
+                  </div>
+                  <p v-else class="text-gray-400 dark:text-gray-500 text-xs">
+                    暂无签名
+                  </p>
+                  <!-- 主风格标签 -->
+                  <div v-if="userInfo.main_style?.length" class="flex flex-nowrap gap-2 mt-2 overflow-x-auto min-w-0 scrollbar-thin">
+                    <QhxTag v-for="(style, idx) in userInfo.main_style" :key="idx" class="text-xs flex-shrink-0"># {{ getStyleLabel(style) }}</QhxTag>
+                  </div>
+                  <!-- 位置 -->
+                  <div v-if="(userInfo.show_area && (userInfo.province || userInfo.city)) || (isCurrentUser && !userInfo.main_style?.length)" class="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                    <span v-if="userInfo.show_area && (userInfo.province || userInfo.city)">📍 {{ [userInfo.province, userInfo.city].filter(Boolean).join(' ') }}</span>
+                    <span v-else-if="isCurrentUser">未设置</span>
+                  </div>
+                </div>
               </div>
             </div>
 
-            <!-- 成就展示 -->
-            <!-- <div v-if="userInfo.is_achieve" class="flex items-start gap-3">
-              <span class="text-2xl">🏆</span>
-              <div>
-                <p class="text-sm text-gray-500 dark:text-gray-400 mb-1">成就</p>
-                <p class="text-gray-800 dark:text-gray-200 font-medium">已开启成就展示</p>
-              </div>
-            </div> -->
-          </div>
+        <!-- Tab 栏 -->
+        <div class="mt-2">
+          <QhxTabs :tabs="['帖子', '衣柜']" :need_swipe="false" class="bg-transparent">
+            <QhxTabPanel :index="0">
+              <template #default="{ isActive }">
+                <!-- 帖子列表 -->
+                <div v-show="isActive" class="mt-4 space-y-4">
+                  <div v-if="postsLoading" class="flex justify-center py-12">
+                    <div class="w-8 h-8 border-2 border-pink-200 border-t-pink-500 rounded-full animate-spin"></div>
+                  </div>
+                  <div v-else-if="postList.length > 0" class="space-y-4">
+                    <div
+                      v-for="post in postList"
+                      :key="post.community_id"
+                      class="bg-white/70 dark:bg-gray-800/70 backdrop-blur-md rounded-2xl overflow-hidden shadow-lg border border-white/50 dark:border-gray-700"
+                    >
+                      <CommunityItem :item="post" :size="'big'" />
+                    </div>
+                    <div v-if="hasMorePosts" class="flex justify-center py-4">
+                      <button
+                        @click="loadMorePosts"
+                        :disabled="postsLoadingMore"
+                        class="px-6 py-2 rounded-full bg-pink-100 dark:bg-gray-700 text-pink-600 dark:text-pink-300 text-sm font-medium hover:bg-pink-200 dark:hover:bg-gray-600 transition-colors disabled:opacity-50"
+                      >
+                        {{ postsLoadingMore ? '加载中...' : '加载更多' }}
+                      </button>
+                    </div>
+                  </div>
+                  <div v-else class="text-center py-16 text-gray-500 dark:text-gray-400">
+                    <div class="text-5xl mb-4">📝</div>
+                    <p>暂无帖子</p>
+                  </div>
+                </div>
+              </template>
+            </QhxTabPanel>
+            <QhxTabPanel :index="1">
+              <template #default="{ isActive }">
+                <!-- 衣柜列表 -->
+                <div v-show="isActive" class="mt-4">
+                  <QhxWaterList
+                    v-if="layoutReady && isActive"
+                    :fetch-data="async (page, pageSize) => {
+                      const userId = spaceUserId
+                      if (!userId) {
+                        return { rows: [], count: 0 }
+                      }
+                      try {
+                        const res = await getWardrobeList({
+                          user_id: userId,
+                          page,
+                          pageSize,
+                        })
+                        const rows = (res.rows ?? []).map((w) => ({ ...w, user_id: w.user_id ?? userId }))
+                        return { rows, count: res.count ?? 0 }
+                      } catch (error) {
+                        console.error('获取衣柜列表失败:', error)
+                        toast.add({
+                          title: '获取衣柜失败',
+                          description: getErrorMessage(error),
+                          icon: 'i-heroicons-x-circle',
+                          color: 'red',
+                        })
+                        return { rows: [], count: 0 }
+                      }
+                    }"
+                    :columns="4"
+                    :item-key="1"
+                    :columns_768="2"
+                    :enable-waterfall="true"
+                    :enable-load-more="true"
+                  >
+                    <template #default="{ item }">
+                      <div class="px-2 pb-4">
+                        <div class="relative bg-white/70 dark:bg-gray-800/70 backdrop-blur-md rounded-2xl overflow-hidden shadow-lg border border-white/50 dark:border-gray-700 p-2">
+                          <template v-if="!isCurrentUser && (item.is_private === 1 || item.password)">
+                            <!-- 隐私衣柜：点击弹出密码弹窗 -->
+                            <div
+                              class="relative cursor-pointer"
+                              @click="openWardrobePasswordModal(item, $event)"
+                            >
+                              <img
+                                :src="`${BASE_IMG}${item.wardrobe_cover || 'static/plan_cover/default.jpg'}`"
+                                :alt="item.wardrobe_name"
+                                class="w-full rounded-[10px] border border-gray-200 dark:border-gray-600 my-2 opacity-60"
+                                loading="lazy"
+                              />
+                              <div class="absolute inset-0 flex flex-col items-center justify-center bg-gray-900/50 dark:bg-gray-900/60 rounded-[10px]">
+                                <UIcon name="i-heroicons-lock-closed" class="w-10 h-10 text-white/95 mb-1" />
+                                <span class="text-xs text-white/95">隐私衣柜</span>
+                              </div>
+                              <h3 class="text-base font-semibold text-gray-900 dark:text-gray-100 truncate w-full">
+                                {{ item.wardrobe_name }}
+                              </h3>
+                            </div>
+                          </template>
+                          <WardrobeItem
+                            v-else
+                            :item="item"
+                            :size="'big'"
+                            :need-jump="true"
+                          />
+                        </div>
+                      </div>
+                    </template>
+                    <template #empty>
+                      <div class="text-center py-16 text-gray-500 dark:text-gray-400">
+                        <div class="text-5xl mb-4">👗</div>
+                        <p>暂无衣柜</p>
+                      </div>
+                    </template>
+                  </QhxWaterList>
+                </div>
+              </template>
+            </QhxTabPanel>
+          </QhxTabs>
         </div>
       </div>
     </div>
-
-    <!-- 未找到用户 -->
-    <div v-else class="relative z-10 flex flex-col items-center justify-center min-h-screen p-4 text-center">
+    </template>
+    <template v-else-if="!loading && !userInfo">
+    <div class="relative z-10 flex flex-col items-center justify-center min-h-screen p-4 text-center">
       <div class="bg-white/80 dark:bg-gray-800/80 backdrop-blur-md p-8 rounded-[2rem] shadow-xl border border-white/50 dark:border-gray-700 max-w-md w-full">
         <div class="text-6xl mb-6">😕</div>
         <h2 class="text-2xl font-bold text-gray-800 dark:text-gray-100 mb-4">用户不存在</h2>
@@ -113,15 +225,167 @@
         </button>
       </div>
     </div>
+    </template>
+    <!-- 配置徽章弹窗 -->
+    <AchievementDecoConfigModal
+      v-if="isCurrentUser"
+      v-model="decoConfigModalOpen"
+      :trigger-position="decoModalPosition"
+      :initial-selected-ids="decoInitialSelectedIds"
+      @saved="onDecoSaved"
+    />
+
+    <!-- 签名完整内容弹窗 -->
+    <QhxModal v-model="showSignatureModal" @close="showSignatureModal = false">
+      <div class="w-[95vw] max-w-md max-h-[70vh] bg-white dark:bg-gray-800 rounded-2xl shadow-2xl overflow-hidden flex flex-col backdrop-blur-xl border border-gray-200/50 dark:border-gray-700/50">
+        <!-- 头部 -->
+        <div class="flex items-center justify-between px-5 py-4 border-b border-gray-200 dark:border-gray-700 bg-gradient-to-r from-pink-50 to-purple-50 dark:from-gray-800 dark:to-gray-800 flex-shrink-0">
+          <h3 class="text-lg font-semibold text-gray-800 dark:text-gray-100 flex items-center gap-2">
+            <span class="text-pink-500">✍️</span>
+            个人签名
+          </h3>
+          <button
+            type="button"
+            @click="showSignatureModal = false"
+            class="w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+          >
+            <UIcon name="i-heroicons-x-mark" class="w-5 h-5 text-gray-500 dark:text-gray-400" />
+          </button>
+        </div>
+        <!-- 内容区 -->
+        <div class="flex-1 overflow-y-auto p-5">
+          <div v-if="signatureNodes.length" class="text-gray-600 dark:text-gray-300 text-sm italic leading-relaxed">
+            <SafeRichText :nodes="signatureNodes" />
+          </div>
+          <p v-else class="text-gray-400 dark:text-gray-500 text-sm">暂无签名</p>
+
+          <!-- 标签与地区完整展示：分两行 -->
+          <div v-if="userInfo && (userInfo.main_style?.length || (userInfo.show_area && (userInfo.province || userInfo.city)) || (isCurrentUser && !(userInfo.show_area && (userInfo.province || userInfo.city))))" class="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700 space-y-2">
+            <!-- 主风格标签 -->
+            <div v-if="userInfo.main_style?.length" class="flex flex-wrap gap-2">
+              <QhxTag v-for="(style, idx) in userInfo.main_style" :key="idx" class="text-xs"># {{ getStyleLabel(style) }}</QhxTag>
+            </div>
+            <!-- 位置 -->
+            <div v-if="(userInfo.show_area && (userInfo.province || userInfo.city)) || (isCurrentUser && !(userInfo.show_area && (userInfo.province || userInfo.city)))" class="text-xs text-gray-500 dark:text-gray-400">
+              <span v-if="userInfo.show_area && (userInfo.province || userInfo.city)">📍 {{ [userInfo.province, userInfo.city].filter(Boolean).join(' ') }}</span>
+              <span v-else-if="isCurrentUser">未设置</span>
+            </div>
+          </div>
+        </div>
+        <!-- 底部 -->
+        <!-- <div class="flex-shrink-0 px-5 py-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-800/50">
+          <UButton class="w-full" color="gray" variant="soft" size="sm" @click="showSignatureModal = false">
+            关闭
+          </UButton>
+        </div> -->
+      </div>
+    </QhxModal>
+
+    <!-- 隐私衣柜密码弹窗 -->
+    <QhxModal
+      v-model="showWardrobePasswordModal"
+      :trigger-position="wardrobePasswordModalPosition"
+      @close="onWardrobePasswordModalClose"
+    >
+      <div class="p-6 w-[400px] bg-white dark:bg-gray-800 rounded-[10px] max-h-[50vh] overflow-y-auto">
+        <h3 class="text-base font-bold mb-4 text-gray-800 dark:text-gray-200">请输入衣柜密码</h3>
+        <p v-if="pendingWardrobe" class="text-sm text-gray-500 dark:text-gray-400 mb-3">
+          {{ pendingWardrobe.wardrobe_name }}
+        </p>
+        <UInput
+          v-model="wardrobePassword"
+          type="password"
+          placeholder="请输入密码"
+          class="flex-1 focus:ring-0 mb-4"
+          :ui="{
+            base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
+            rounded: 'rounded-[10px]',
+            padding: { xs: 'px-4 py-2' },
+            color: {
+              white: {
+                outline: 'bg-gray-50 dark:bg-gray-800 ring-1 ring-gray-300 dark:ring-gray-600 focus:ring-2 focus:ring-qhx-primary'
+              }
+            }
+          }"
+          @keyup.enter="confirmWardrobePassword"
+        />
+        <UButton
+          type="button"
+          block
+          class="bg-qhx-primary text-qhx-inverted hover:bg-qhx-primaryHover"
+          :loading="wardrobePasswordChecking"
+          :disabled="!wardrobePassword.trim()"
+          @click="confirmWardrobePassword"
+        >
+          确定
+        </UButton>
+      </div>
+    </QhxModal>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, onMounted, computed, watch } from 'vue'
-import { getUserSpace } from '@/api/user'
+import { getUserSpace, getUserDecoBadges } from '@/api/user'
+import type { UserDecoBadgeItem } from '@/api/user'
+import { getCommunityList } from '@/api/community'
+import { getWardrobeList, checkWadrobePassword } from '@/api/wardrobe'
+import { parseRichText } from '@/utils/public'
+import SafeRichText from '@/components/SafeRichText.vue'
+import QhxModal from '@/components/Qhx/Modal.vue'
 import { BASE_IMG } from '@/utils/ipConfig'
 import { useUserStore } from '@/stores/user'
-import type { User } from '@/types/api'
+import type { User, Community, UserDeco, Wardrobe } from '@/types/api'
+import WardrobeItem from '@/components/Wardrobe/WardrobeItem.vue'
+
+/** 将 UserDecoBadgeItem 转为 UserDeco */
+function badgeToUserDeco(item: UserDecoBadgeItem): UserDeco {
+  const cover = item.cover || item.url || 'static/plan_cover/default.jpg'
+  const name = item.title ?? `徽章${item.deco_id}`
+  return {
+    deco_id: item.deco_id,
+    pk_type: 1,
+    pk_id: item.deco_id,
+    foreign: { cover, name },
+  }
+}
+
+// 用户空间徽章数据
+const userBadges = ref<UserDecoBadgeItem[]>([])
+const userBadgesLoading = ref(false)
+const displayBadgeStr = ref('')
+
+const fetchUserBadges = async () => {
+  const userId = spaceUserId.value
+  if (!userId) {
+    userBadges.value = []
+    displayBadgeStr.value = ''
+    return
+  }
+  userBadgesLoading.value = true
+  try {
+    const res = await getUserDecoBadges({ user_id: userId })
+    userBadges.value = res.rows ?? []
+    displayBadgeStr.value = res.display_badge ?? ''
+  } catch (e) {
+    console.error('获取用户徽章失败:', e)
+    userBadges.value = []
+    displayBadgeStr.value = ''
+  } finally {
+    userBadgesLoading.value = false
+  }
+}
+
+// 展示的徽章：从用户数据中取 is_displayed=1 的，转为 UserDeco
+const displayBadges = computed<UserDeco[]>(() => {
+  const list = userBadges.value
+  const displayed = list.filter((d) => d.is_displayed === 1)
+  return displayed.map(badgeToUserDeco)
+})
+
+const hasDisplayBadges = computed(() => displayBadges.value.length > 0)
+const displayBadgesKey = computed(() => displayBadgeStr.value || (displayBadges.value.length ? displayBadges.value.map((b) => b.deco_id).join(',') : 'empty'))
+const badgesLoaded = computed(() => !userBadgesLoading.value)
 
 const route = useRoute()
 const router = useRouter()
@@ -139,11 +403,27 @@ const userInfo = ref<(User & {
   is_achieve?: number | boolean
 }) | null>(null)
 
+// 个人签名富文本节点
+const signatureNodes = computed(() => {
+  const sig = userInfo.value?.signature
+  if (!sig) return []
+  try {
+    return parseRichText((sig || '').replace(/\n/g, '<br>'))
+  } catch {
+    return []
+  }
+})
+
+// 签名弹窗
+const showSignatureModal = ref(false)
+const openSignatureModal = () => {
+  if (userInfo.value?.signature) showSignatureModal.value = true
+}
+
 // 判断是否是当前用户
 const isCurrentUser = computed(() => {
   const userId = route.params.id ? Number.parseInt(route.params.id as string) : null
   const currentUserId = userStore.user?.user_id
-  console.log(currentUserId, '当前用户ID',  userId && currentUserId && userId === currentUserId)
   return userId && currentUserId && userId === currentUserId
 })
 
@@ -152,9 +432,87 @@ const formatImg = (url: string) => {
   return `${BASE_IMG}${url.replace(BASE_IMG, '')}`
 }
 
+// 主风格标签展示：支持 { label, value } 或 string
+const getStyleLabel = (s: unknown) =>
+  typeof s === 'object' && s && 'label' in s ? (s as { label: string }).label : String(s ?? '')
+
 // 编辑按钮点击事件
 const handleEdit = () => {
   router.push('/user/edit')
+}
+
+// 配置徽章弹窗
+const decoConfigModalOpen = ref(false)
+const decoModalPosition = ref({ x: 0, y: 0 })
+const decoInitialSelectedIds = computed(() =>
+  displayBadgeStr.value
+    ? displayBadgeStr.value.split(',').map((s) => Number(s.trim())).filter((n) => !Number.isNaN(n))
+    : []
+)
+const openDecoConfig = (e?: MouseEvent) => {
+  if (e) decoModalPosition.value = { x: e.clientX, y: e.clientY }
+  else if (typeof window !== 'undefined') decoModalPosition.value = { x: window.innerWidth / 2, y: window.innerHeight / 2 }
+  decoConfigModalOpen.value = true
+}
+const onDecoSaved = () => fetchUserBadges()
+
+// 隐私衣柜密码弹窗
+const showWardrobePasswordModal = ref(false)
+const wardrobePassword = ref('')
+const pendingWardrobe = ref<Wardrobe | null>(null)
+const wardrobePasswordModalPosition = ref({ x: 0, y: 0 })
+const wardrobePasswordChecking = ref(false)
+
+const openWardrobePasswordModal = (wardrobe: Wardrobe, e: MouseEvent) => {
+  if (!wardrobe?.wardrobe_id || !wardrobe?.user_id) return
+  pendingWardrobe.value = wardrobe
+  wardrobePassword.value = ''
+  wardrobePasswordModalPosition.value = { x: e.clientX, y: e.clientY }
+  showWardrobePasswordModal.value = true
+}
+
+const onWardrobePasswordModalClose = () => {
+  wardrobePassword.value = ''
+  pendingWardrobe.value = null
+}
+
+const confirmWardrobePassword = async () => {
+  const w = pendingWardrobe.value
+  const pwd = wardrobePassword.value.trim()
+  if (!w?.wardrobe_id || !w?.user_id || !pwd) return
+
+  wardrobePasswordChecking.value = true
+  try {
+    const ok = await checkWadrobePassword({
+      wardrobe_id: w.wardrobe_id,
+      password: pwd,
+    })
+    if (ok) {
+      showWardrobePasswordModal.value = false
+      onWardrobePasswordModalClose()
+      router.push({
+        path: `/wardrobe/detail/${w.user_id}`,
+        query: { wardrobe_id: String(w.wardrobe_id), password: pwd },
+      })
+    } else {
+      toast.add({
+        title: '密码错误',
+        description: '请输入正确的衣柜密码',
+        icon: 'i-heroicons-x-circle',
+        color: 'red',
+      })
+    }
+  } catch (error) {
+    console.error('校验衣柜密码失败:', error)
+    toast.add({
+      title: '校验失败',
+      description: getErrorMessage(error),
+      icon: 'i-heroicons-x-circle',
+      color: 'red',
+    })
+  } finally {
+    wardrobePasswordChecking.value = false
+  }
 }
 
 // 加载用户信息
@@ -202,6 +560,81 @@ const getErrorMessage = (error: unknown): string => {
   return '操作失败，请稍后重试'
 }
 
+// 帖子列表相关
+const postList = ref<Community[]>([])
+const postsLoading = ref(false)
+const postsLoadingMore = ref(false)
+const postsPage = ref(1)
+const postsPageSize = 10
+const postsTotal = ref(0)
+
+const spaceUserId = computed(() => {
+  const id = route.params.id ? Number.parseInt(route.params.id as string) : null
+  return id && !Number.isNaN(id) ? id : null
+})
+
+const hasMorePosts = computed(() => postList.value.length < postsTotal.value)
+
+// 加载帖子列表
+const loadPosts = async (isLoadMore = false) => {
+  const userId = spaceUserId.value
+  if (!userId) return
+
+  if (isLoadMore) {
+    if (postsLoadingMore.value || !hasMorePosts.value) return
+    postsLoadingMore.value = true
+  } else {
+    postsLoading.value = true
+    postsPage.value = 1
+    postList.value = []
+  }
+
+  try {
+    const res = await getCommunityList({
+      user_id: userId,
+      page: postsPage.value,
+      pageSize: postsPageSize,
+    })
+    postsTotal.value = res.count ?? 0
+    const rows = res.rows ?? []
+    if (isLoadMore) {
+      postList.value.push(...rows)
+    } else {
+      postList.value = rows
+    }
+  } catch (error) {
+    console.error('获取帖子列表失败:', error)
+    toast.add({
+      title: '获取帖子失败',
+      description: getErrorMessage(error),
+      icon: 'i-heroicons-x-circle',
+      color: 'red',
+    })
+  } finally {
+    postsLoading.value = false
+    postsLoadingMore.value = false
+  }
+}
+
+// 加载更多帖子
+const loadMorePosts = async () => {
+  postsPage.value += 1
+  await loadPosts(true)
+}
+
+// 用户信息加载完成后加载帖子和徽章（衣柜由 QhxWaterList 按需加载）
+watch(userInfo, (info) => {
+  if (info?.user_id) {
+    loadPosts()
+    fetchUserBadges()
+  } else {
+    postList.value = []
+    postsTotal.value = 0
+    userBadges.value = []
+    displayBadgeStr.value = ''
+  }
+}, { immediate: true })
+
 onMounted(() => {
   if (layoutReady.value) {
     loadUserInfo()
@@ -244,5 +677,34 @@ useHead({
 }
 .animation-delay-4000 {
   animation-delay: 4s;
+}
+
+/* 徽章展示区 - 用户信息悬浮其上，缩减高度 */
+.badge-showcase {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  min-height: 140px;
+  background: linear-gradient(180deg, rgba(255, 248, 248, 0.95) 0%, rgba(254, 242, 242, 0.85) 50%, rgba(255, 250, 250, 0.95) 100%);
+  overflow: hidden;
+}
+/* 签名预览：预留 3 行以上空间，内层 div 已有 line-clamp-3 */
+.signature-preview {
+  min-height: 4.5rem;
+}
+
+.dark .badge-showcase {
+  background: linear-gradient(180deg, rgba(30, 30, 30, 0.95) 0%, rgba(40, 35, 40, 0.85) 50%, rgba(35, 30, 35, 0.95) 100%);
+}
+
+/* 有徽章时：缩小徽章展示区域 */
+.badge-showcase--has-badges {
+  aspect-ratio: 4 / 1;
+  min-height: 100px;
+}
+
+/* 有徽章时：缩小徽章展示区域 */
+.badge-showcase--has-badges {
+  aspect-ratio: 16 / 6;
+  min-height: 100px;
 }
 </style>

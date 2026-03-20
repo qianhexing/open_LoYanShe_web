@@ -47,3 +47,20 @@ export async function updateAlbumForeign(
   );
   return response.data;
 }
+
+/** 成就统计返回数据 */
+export interface AlbumAchievementStats {
+  user_id: number;
+  points: number;
+  achieved_count: number;
+  total_count: number;
+  progress: number;
+}
+
+export async function getAlbumAchievementStats(params?: { user_id?: number }): Promise<AlbumAchievementStats> {
+  const response = await use$Post<BaseResponse<AlbumAchievementStats>>(
+    '/album/achievement/stats',
+    params ?? {}
+  );
+  return response.data;
+}

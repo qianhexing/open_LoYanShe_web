@@ -1,23 +1,23 @@
 <template>
-
-	<UModal v-model="show" @close="closeModel" :ui="{ width: 'max-w-3xl'  }">
-		<UCard>
-      <template #header>
-        <div>
-					<div class="flex justify-between items-center">
-						<h2 class="text-lg font-semibold">
-							选择词条
-						</h2>
-						<UButton
-							color="gray"
-							variant="ghost"
-							icon="i-heroicons-x-mark"
-							@click="closeModel()"
-						/>
-					</div>
+	<QhxModal v-model="show" :trigger-position="clickPosition" @close="handleClose">
+		<div class="w-[95vw] max-w-3xl h-[60vh] bg-white dark:bg-gray-800 rounded-2xl shadow-2xl overflow-hidden flex flex-col backdrop-blur-xl border border-gray-200/50 dark:border-gray-700/50">
+			<!-- 头部 -->
+			<div class="flex-shrink-0 px-6 py-4 border-b border-gray-200 dark:border-gray-700 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-gray-800 dark:to-gray-800">
+				<div class="flex justify-between items-center mb-4">
+					<h2 class="text-lg font-semibold text-gray-900 dark:text-gray-100">
+						选择词条
+					</h2>
+					<button
+						@click="closeModel"
+						class="w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors group"
+					>
+						<UIcon name="i-heroicons-x-mark" class="text-gray-500 dark:text-gray-400 group-hover:text-gray-700 dark:group-hover:text-gray-200 transition-colors" />
+					</button>
+				</div>
+				<div class="flex items-center gap-2 mb-4">
 					<UInput
 						v-model="keywords"
-						placeholder="搜索图鉴 多条件空格分割."
+						placeholder="搜索词条"
 						class="flex-1 focus:ring-0"
 						:autofocus="false"
 						@keyup.enter="search"
@@ -32,51 +32,65 @@
 							}
 						}"
 					/>
-          <div class="flex justify-end">
-            <div class="flex-1 flex overflow-x-auto"  ref="tagsContainer">
-              <div class="flex scrollbar-hide">
-                <div v-if="!type_id">
-                  <QhxTag style="white-space: nowrap !important;"  @click="show_control.wiki_type = true" v-if="!choose_wiki_type" class="cursor-pointer">
-                    选择大类
-                  </QhxTag>
-                  <QhxTag style="white-space: nowrap !important;"  @click="show_control.wiki_type = true" v-else class="cursor-pointer">
-                    {{ choose_wiki_type.label }}
-                  </QhxTag>
-                </div>
-                <QhxTag v-for="(tags) in default_options"
-                style="white-space: nowrap !important" 
-                class="cursor-pointer"
-                :active="parent_id === tags.wiki_id ? true : false" @click="chooseParentId(tags)">
-                  {{ tags.wiki_name }}
-                </QhxTag>
-              </div>
-            </div>
-            <UButton color="primary" @click="multipleChoose" class="mt-1">确认选择</UButton>
-          </div>
+					<button
+						v-if="keywords"
+						@click="clearKeywords"
+						class="w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors group flex-shrink-0"
+					>
+						<UIcon name="i-heroicons-x-mark" class="text-gray-500 dark:text-gray-400 group-hover:text-gray-700 dark:group-hover:text-gray-200 transition-colors" />
+					</button>
 				</div>
-      </template>
-			<div class="max-h-[60vh] overflow-y-auto p-1">
-        <div v-if="choose_list.length" class="flex flex-wrap">
-          <div v-for="item in choose_list">
-            <QhxTag :active="true">
-              <div class="flex items-center">
-                <UIcon name="ant-design:close-outlined" class="text-[16px] cursor-pointer" @click="deleteList(item.wiki_id)" />
-                <div class="ml-1">{{ item.wiki_name }}</div>
-              </div>
-            </QhxTag>
-          </div>
-        </div>
-				<view>
+				<div class="flex justify-end items-center gap-2">
+					<div class="flex-1 flex overflow-x-auto" ref="tagsContainer">
+						<div class="flex scrollbar-hide">
+							<div v-if="!type_id">
+								<QhxTag style="white-space: nowrap !important;" @click="show_control.wiki_type = true" v-if="!choose_wiki_type" class="cursor-pointer">
+									选择大类
+								</QhxTag>
+								<QhxTag style="white-space: nowrap !important;" @click="show_control.wiki_type = true" v-else class="cursor-pointer">
+									{{ choose_wiki_type.label }}
+								</QhxTag>
+							</div>
+							<QhxTag v-for="(tags) in default_options"
+								style="white-space: nowrap !important" 
+								class="cursor-pointer"
+								:active="parent_id === tags.wiki_id ? true : false" @click="chooseParentId(tags)">
+								{{ tags.wiki_name }}
+							</QhxTag>
+						</div>
+					</div>
+					<UButton 
+						color="primary" 
+						@click="multipleChoose" 
+						class="bg-gradient-to-r from-pink-500 to-purple-500 hover:from-pink-600 hover:to-purple-600 text-white shadow-md shadow-pink-500/30 transition-all duration-200"
+					>
+						确认选择
+					</UButton>
+				</div>
+			</div>
+			<!-- 内容区域 -->
+			<div class="flex-1 overflow-y-auto p-6 min-h-0 scrollbar-thin scrollbar-thumb-gray-300 dark:scrollbar-thumb-gray-600 scrollbar-track-transparent">
+				<div v-if="choose_list.length" class="flex flex-wrap gap-2 mb-4">
+					<div v-for="item in choose_list" :key="item.wiki_id">
+						<QhxTag :active="true">
+							<div class="flex items-center">
+								<UIcon name="ant-design:close-outlined" class="text-[16px] cursor-pointer" @click="deleteList(item.wiki_id)" />
+								<div class="ml-1">{{ item.wiki_name }}</div>
+							</div>
+						</QhxTag>
+					</div>
+				</div>
+				<div class="flex flex-wrap gap-2">
 					<template v-for="(listItem, index) in list" :key="listItem.wiki_id">
 						<QhxTag @click="choose(listItem)" class="cursor-pointer"
 							v-if="choose_list.length === 0 || !choose_list.some((item: Wiki) => { return item.wiki_id === listItem.wiki_id })">
 							{{ (where && where.type_id && where.type_id.length > 1) ? `${listItem.type_id}·` : '' }}{{listItem.wiki_name}}
 						</QhxTag>
 					</template>
-				</view>	
+				</div>	
 			</div>
-		</UCard>
-	</UModal>
+		</div>
+	</QhxModal>
 </template>
 
 <script setup lang="ts">
@@ -128,6 +142,7 @@ const where = ref<Record<string, any>>({})
 const choose_list = ref<Wiki[]>([])
 const options = ref<FilterOption[]>([])
 const default_options = ref<Wiki[]>([]) // 默认选项
+const clickPosition = ref({ x: 0, y: 0 })
 
 type QhxSelectExpose = { showPicker: (e: MouseEvent) => void } | null
 const selectRef = ref<QhxSelectExpose>(null)
@@ -196,7 +211,21 @@ const fetchWikiFilterOptions = async (type_id_param: number) => {
   }
 }
 
-const showModel = (item: { type_id?: string; parent_id?: number }) => {
+const showModel = (item: { type_id?: string; parent_id?: number }, event?: MouseEvent) => {
+  // 记录触发位置（如果有事件对象）
+  if (event) {
+    clickPosition.value = {
+      x: event.clientX,
+      y: event.clientY
+    }
+  } else {
+    // 默认位置：屏幕中心
+    clickPosition.value = {
+      x: window.innerWidth / 2,
+      y: window.innerHeight / 2
+    }
+  }
+  
   if (item.type_id) {
 		where.value.type_id = item.type_id
     type_id.value = Number.parseInt(item.type_id)
@@ -209,10 +238,6 @@ const showModel = (item: { type_id?: string; parent_id?: number }) => {
   }
   console.log(item.parent_id, '父级')
   show.value = true
-  if (props.needHiddenTabbar) {
-    // @ts-ignore
-    uni?.hideTabBar()
-  }
   getWikiListData()
 }
 
@@ -235,6 +260,12 @@ const search = () => {
   getWikiListData()
 }
 
+const clearKeywords = () => {
+  keywords.value = ''
+  page.value = 0
+  getWikiListData()
+}
+
 const init = () => {
   choose_list.value = []
   keywords.value = ''
@@ -245,6 +276,10 @@ const init = () => {
   }
   default_options.value = []
   parent_id.value = null
+}
+
+const handleClose = () => {
+  closeModel()
 }
 
 const closeModel = () => {

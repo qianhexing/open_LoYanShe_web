@@ -1,4 +1,15 @@
 import { defineStore } from 'pinia'
+
+/** hex 转 RGB 元组，供 Tailwind 色板使用 */
+function hexToRgb(hex: string): [number, number, number] {
+  const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex)
+  return result ? [
+    Number.parseInt(result[1], 16),
+    Number.parseInt(result[2], 16),
+    Number.parseInt(result[3], 16)
+  ] : [255, 158, 181] // 默认樱花粉
+}
+
 interface ThemeColors {
   // 主色调（低饱和度粉色/紫色系）
   primary: string // 主色 链接颜色

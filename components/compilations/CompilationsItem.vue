@@ -5,12 +5,18 @@ interface Props {
   className?: string,
   size?: string  // 尺寸 mini small mid big
   needJump?: boolean // 是否需要跳转
+  showEdit?: boolean // 是否显示编辑按钮
 }
 const props = withDefaults(defineProps<Props>(), {
   size: 'mini',
-  needJump: true
+  needJump: true,
+  showEdit: false
 })
-const { size, needJump } = props
+const emit = defineEmits<{
+  edit: [event: MouseEvent]
+  delete: [event: MouseEvent]
+}>()
+const { size, needJump, showEdit } = props
 const item = props.item
 const handleJump = (id: number) => {
   if (!needJump) {
@@ -18,6 +24,14 @@ const handleJump = (id: number) => {
   }
   window.open(`/compilations/detail/${id}`, '_blank')
   // navigateTo(`/compilations/detail/${id}`)
+}
+const handleEdit = (event: MouseEvent) => {
+  event.stopPropagation()
+  emit('edit', event)
+}
+const handleDelete = (event: MouseEvent) => {
+  event.stopPropagation()
+  emit('delete', event)
 }
 </script>
 <template>
@@ -43,11 +57,28 @@ const handleJump = (id: number) => {
     </div>
     <!-- 大尺寸 -->
     <div v-else-if="size === 'big'">
-      <div class="w-full flex justify-center items-center pt-4 px-4 pb-2 bg-white"
+      <div class="w-full flex justify-center items-center pt-4 px-4 pb-2 bg-white relative"
         @click="handleJump(item.comp_id)">
         <img :src="`https://lolitalibrary.com/ali/${item.comp_cover || 'static/plan_cover/default.jpg'}`" :alt="item.comp_name || 'lolita合集'"
           class="object-cover w-full aspect-[16/9] rounded-[10px] border border-gray-200 dark:border-gray-800 shadow-sm bg-white"
           loading="lazy" />
+        <!-- 编辑和删除按钮 -->
+        <div v-if="showEdit" class="absolute top-6 right-6 flex items-center gap-2 z-10">
+          <button
+            @click="handleEdit"
+            class="w-10 h-10 bg-white/90 dark:bg-gray-800/90 backdrop-blur-sm rounded-full flex items-center justify-center shadow-lg hover:bg-white dark:hover:bg-gray-800 transition-all duration-200 hover:scale-110"
+            title="编辑合集"
+          >
+            <UIcon name="i-heroicons-pencil" class="w-5 h-5 text-gray-700 dark:text-gray-300" />
+          </button>
+          <button
+            @click="handleDelete"
+            class="w-10 h-10 bg-red-500/90 dark:bg-red-600/90 backdrop-blur-sm rounded-full flex items-center justify-center shadow-lg hover:bg-red-500 dark:hover:bg-red-600 transition-all duration-200 hover:scale-110"
+            title="删除合集"
+          >
+            <UIcon name="i-heroicons-trash" class="w-5 h-5 text-white" />
+          </button>
+        </div>
       </div>
       <div class="w-full flex flex-col items-center justify-between px-3 pb-4 pt-2 min-h-[70px] relative">
         <h3

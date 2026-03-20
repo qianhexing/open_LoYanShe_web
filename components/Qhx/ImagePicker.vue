@@ -1,26 +1,17 @@
 <template>
   <div class="space-y-4">
     <!-- 上传按钮 -->
-    <UButton v-if="!props.disabled" size="xs" class="bg-qhx-primary text-qhx-inverted hover:bg-qhx-primaryHover mt-2" icon="i-heroicons-photo" @click="triggerInput" color="primary">
+    <UButton v-if="!props.disabled" size="xs" class="bg-qhx-primary text-qhx-inverted hover:bg-qhx-primaryHover mt-2"
+      icon="i-heroicons-photo" @click="triggerInput" color="primary">
       选择图片
     </UButton>
 
-    <input
-      ref="fileInput"
-      type="file"
-      accept="image/*"
-      :multiple="multiple"
-      class="hidden"
-      @change="handleFiles"
-    />
+    <input ref="fileInput" type="file" accept="image/*" :multiple="multiple" class="hidden" @change="handleFiles" />
 
     <!-- 拖拽上传区 -->
-    <div
-      v-if="!props.disabled && !isMobile"
-      class="w-full border-2 border-dashed border-gray-300 p-4 text-center rounded-lg"
-      @dragover.prevent
-      @drop.prevent="handleDrop"
-    >
+    <div v-if="!props.disabled && !isMobile"
+      class="w-full border-2 border-dashed border-gray-300 p-4 text-center rounded-lg" @dragover.prevent
+      @drop.prevent="handleDrop">
       拖拽图片到这里上传
     </div>
 
@@ -44,24 +35,46 @@
           @click="removeImage(index)"
         />
       </div> -->
-      <Draggable :disabled="!props.multiple || props.disabled" v-model="previewImages" item-key="id" animation="250" ghost-class="drag-ghost"
-          chosen-class="drag-chosen" drag-class="dragging"
-          class="grid grid-cols-3 gap-4">
-          <template #item="{ element, index }">
-            <div class="relative group">
-              <img :src="element.url" alt="预览图" class="w-full aspect-square object-cover rounded" />
-              <UButton
-                v-if="!props.disabled"
-                icon="i-heroicons-x-mark"
-                color="red"
-                size="2xs"
-                variant="soft"
-                class="absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition"
-                @click="removeImage(index)"
-              />
+
+      <Draggable :scroll="true" :scroll-sensitivity="150" :scroll-speed="15" :fallback-tolerance="0"
+        :forceFallback="true" :delay="150" :disabled="!props.multiple || props.disabled"
+        item-key="id" animation="300"
+        v-model="previewImages"
+        ghost-class="drag-ghost" chosen-class="drag-chosen" drag-class="dragging" class=" flex flex-wrap">
+        <template #item="{ element, index }">
+          <transition-group tag="div"
+            class="[@media(min-width:1920px)]:w-[calc(100%/10)] xl:w-1/4 md:w-1/4 max-md:w-1/3" name="list">
+            <div
+              class="group drag-handle flex flex-col items-center transition-transform duration-300 ease-out hover:scale-105 py-[10px] px-[15px] max-md:px-[5px]">
+              <div class="w-full aspect-[1/1] relative shadow-xl">
+                <img :src="element.url" draggable="false"
+                  class="object-cover w-full aspect-[1/1] max-md:aspect-[1/1] rounded-xl border border-gray-200 cursor-grab active:cursor-grabbing"
+                  style="-webkit-touch-callout: none; -webkit-user-select: none; user-select: none;"
+                  loading="lazy">
+                </img>
+                <UButton v-if="!props.disabled" icon="i-heroicons-x-mark" color="red" size="2xs" variant="soft"
+                  class="absolute top-1 right-1 z-10" @click="removeImage(index)" />
+                <!-- 透明遮罩层，防止移动端长按事件 -->
+                <div class="absolute z-[1] w-full h-full inset-0 rounded-xl" 
+                  style="background: transparent;">
+                </div>
+              </div>
             </div>
-          </template>
-        </Draggable>
+          </transition-group>
+        </template>
+      </Draggable>
+      <!-- <Draggable :forceFallback="true" :disabled="!props.multiple || props.disabled" :delay="150"
+        v-model="previewImages" item-key="id" animation="250" ghost-class="drag-ghost" chosen-class="drag-chosen"
+        drag-class="dragging" class="grid grid-cols-3 gap-4">
+        <template #item="{ element, index }">
+
+          <div class="relative group aspect-square">
+            <img :src="element.url" alt="预览图" class="w-full h-full aspect-square object-cover rounded no-long-press" />
+            <UButton v-if="!props.disabled" icon="i-heroicons-x-mark" color="red" size="2xs" variant="soft"
+              class="absolute top-1 right-1 z-10" @click="removeImage(index)" />
+          </div>
+        </template>
+      </Draggable> -->
     </div>
   </div>
 </template>
@@ -101,9 +114,81 @@ function handleFiles(event: Event) {
   }
 }
 
-function handleDrop(event: DragEvent) {
-  if (!props.disabled && event.dataTransfer?.files) {
-    addFiles(Array.from(event.dataTransfer.files))
+async function handleDrop(event: DragEvent) {
+  if (props.disabled) return
+  const dt = event.dataTransfer
+  if (!dt) return
+
+  let filesToAdd: File[] = []
+  let needSafeConvert = false
+
+  // 1. 优先从 dataTransfer.files 获取（本地/网页图片拖入）
+  if (dt.files?.length) {
+    filesToAdd = Array.from(dt.files)
+    needSafeConvert = true
+  }
+  // 2. 从 dataTransfer.items 获取（网页拖入时有些浏览器只在这里提供）
+  else if (dt.items?.length) {
+    const fromFiles: File[] = []
+    const urlPromises: Promise<File | null>[] = []
+    for (let i = 0; i < dt.items.length; i++) {
+      const item = dt.items[i]
+      if (item.kind === 'file') {
+        const file = item.getAsFile()
+        if (file) fromFiles.push(file)
+      } else if (item.kind === 'string' && item.type === 'text/uri-list') {
+        urlPromises.push(
+          new Promise((resolve) => {
+            item.getAsString((url) => resolve(fetchImageAsFile(url)))
+          })
+        )
+      }
+    }
+    if (fromFiles.length) {
+      filesToAdd = fromFiles
+      needSafeConvert = true
+    } else if (urlPromises.length) {
+      const fetched = await Promise.all(urlPromises)
+      filesToAdd = fetched.filter((f): f is File => f != null)
+      // fetchImageAsFile 已创建新 File，无需再转换
+    }
+  }
+
+  if (filesToAdd.length) {
+    const safe = needSafeConvert
+      ? await Promise.all(filesToAdd.map(toSafeUploadFile))
+      : filesToAdd
+    addFiles(safe)
+  }
+}
+
+/** 从 URL 拉取图片并转为 File（网页拖入时可能只有 URL） */
+async function fetchImageAsFile(url: string): Promise<File | null> {
+  try {
+    const res = await fetch(url, { mode: 'cors' })
+    if (!res.ok) return null
+    const blob = await res.blob()
+    if (!blob.type.startsWith('image/')) return null
+    const name = url.split('/').pop()?.split('?')[0] || 'image.png'
+    return new File([blob], name, { type: blob.type })
+  } catch {
+    return null
+  }
+}
+
+/**
+ * 将 File 转为可安全上传的副本。
+ * 从其他网页拖拽过来的 File 可能带跨域/引用限制，直接上传易触发 CORS 或 500，转为本地 Blob 副本可规避。
+ */
+async function toSafeUploadFile(file: File): Promise<File> {
+  if (file.size === 0) return file
+  try {
+    const blob = await file.arrayBuffer()
+    const type = file.type?.startsWith('image/') ? file.type : 'image/jpeg'
+    const name = file.name || 'image.jpg'
+    return new File([blob], name, { type })
+  } catch {
+    return file
   }
 }
 
@@ -137,6 +222,14 @@ const addFiles = (newFiles: File[]) => {
 }
 
 const removeImage = (index: number) => {
+  // 删除弹出提示
+  console.log(index)
+  const toast = useToast()
+  toast.add({
+    title: '删除图片',
+    icon: 'i-heroicons-exclamation-circle',
+    color: 'orange'
+  })
   if (props.disabled) return
   if (previewImages.value[index].url) {
     URL.revokeObjectURL(previewImages.value[index].url)
@@ -154,3 +247,16 @@ defineExpose({
   triggerInput, clear, previewImages
 })
 </script>
+
+<style scoped>
+/* 禁止手机浏览器的长按事件 */
+.no-long-press {
+  /* -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
+  pointer-events: none;
+  touch-action: manipulation; */
+}
+</style>

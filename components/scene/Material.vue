@@ -21,7 +21,7 @@ interface Props {
   className?: string,
   needJump?: boolean // 是否需要跳转
   loadTemplate?: boolean
-  panelType?: 'material' | 'template' | 'effect' | null // 面板类型
+  panelType?: 'material' | 'template' | 'effect' | 'clothing' | 'scene' | null // 面板类型
 }
 const addImage = () => {
   imageType.value = 0
@@ -53,6 +53,13 @@ const props = withDefaults(defineProps<Props>(), {
   panelType: null
 })
 const { loadTemplate, panelType } = toRefs(props)
+// 记录已访问的面板类型，懒加载：首次访问才挂载，切换时保持挂载不重新加载
+const visitedTypes = ref<Set<'material' | 'clothing' | 'template' | 'effect' | 'scene'>>(new Set())
+watch(panelType, (val) => {
+    if (val && !visitedTypes.value.has(val)) {
+        visitedTypes.value = new Set([...visitedTypes.value, val])
+    }
+}, { immediate: true })
 const emit = defineEmits(['addImage', 'saveScene', 'addDiary', 'chooseTemplate', 'chooseEffect', 'clearTemplate', 'recordCamera', 'addBackgroun', 'chooseMaterial', 'addText'])
 
 const saveScene = () => {
@@ -244,7 +251,7 @@ defineExpose({
       <QhxTabPanel :index="0">
         <template #default="{ isActive }">
           <div class="bg-white h-[370px] md:h-[calc(100vh-130px)] overflow-y-auto">
-            <MateriaList @choose="chooseMaterial"></MateriaList>
+            <MateriaList @choose="chooseMaterial" :pk-type="[0, 1, 2]"></MateriaList>
           </div>
         </template>
       </QhxTabPanel>
@@ -279,7 +286,17 @@ defineExpose({
   <div v-else class="w-full">
     <!-- 素材列表 -->
     <div v-if="panelType === 'material'" class="w-full">
-      <MateriaList @choose="chooseMaterial" :compact="true"></MateriaList>
+      <MateriaList @choose="chooseMaterial" :compact="true" :pk-type="[0, 1, 2]"></MateriaList>
+    </div>
+    
+    <!-- 服饰列表 -->
+    <div v-if="panelType === 'clothing'" class="w-full">
+      <MateriaList @choose="chooseMaterial" :compact="true" :pk-type="3"></MateriaList>
+    </div>
+
+    <!-- 场景列表 -->
+    <div v-if="panelType === 'scene'" class="w-full">
+      <MateriaList @choose="chooseMaterial" :compact="true" :pk-type="4"></MateriaList>
     </div>
     
     <!-- 模版列表 -->

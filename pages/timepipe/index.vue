@@ -7,7 +7,7 @@
         v-show="currentTab === 0"
         ref="danmakuRef"
         type="library_pipe"
-        :id="dateId"
+        :id="dateIds"
         width="100%"
         height="100vh"
         :pageSize="50"
@@ -37,9 +37,9 @@
             <div class="flex justify-between items-center p-2">
               <div class="text-sm text-gray-600">当前选择：{{ dayjs(formatted).format('YY-MM-DD') }}</div>
               <div class="flex items-center gap-2">
-                <UButton color="primary" size="sm" @click="layout = layout === '0' ? '1' : '0'"> {{ layout === '0' ?
-                  '列表:大图' :
-                  '列表:简洁' }} </UButton>
+                <UButton color="primary" size="sm" @click="layout = layout === '0' ? '1' : layout === '1' ? '2' : '0'"> {{
+                  layout === '0' ? '列表:大图' :
+                  layout === '1' ? '列表:简洁' : '列表:纯文本' }} </UButton>
                 <UButton color="primary" size="sm" @click="showLibraryPipeAdd()" v-if="userStore.token">自主投稿上新</UButton>
               </div>
             </div>
@@ -76,7 +76,7 @@
                 <!-- 塞选状态 -->
                 <UButton type="submit" size="xs" class="bg-qhx-primary text-qhx-inverted hover:bg-qhx-primaryHover"
                   @click="(e: MouseEvent) => { openPicker(e) }">
-                  {{`筛选状态:${filterStateOptions.find(item => item.value === filterState)?.label}` || '筛选状态'}}
+                  {{`${filterStateOptions.find(item => item.value === filterState)?.label}` || '筛选状态'}}
                 </UButton>
                 <UButton type="submit" size="xs" class="bg-qhx-primary text-qhx-inverted hover:bg-qhx-primaryHover"
                   @click="showFilterModal = true">
@@ -86,6 +86,14 @@
                   @click="clearFilter">
                   重置
                 </UButton>
+                <div class="flex items-center gap-2">
+                  <UToggle
+                    v-model="onlyNewToday"
+                    color="primary"
+                    @update:model-value="waterList?.refresh()"
+                  />
+                  <span class="text-xs text-gray-600">只看新增</span>
+                </div>
                 <QhxSelect ref="qhxSelectRef" :options="filterStateOptions" :default-value="filterStateOptions[1]"
                   :canCustomize="false" @select="(select) => {
                     filterState = select.value
@@ -116,31 +124,38 @@
                 state: filterState === -1 ? undefined : filterState, 
                 examin: 0, 
                 sort: sortMode === 0 ? undefined : sortMode,
-                filter_list: filterList.length > 0 ? filterList : undefined
+                filter_list: filterList.length > 0 ? filterList : undefined,
+                create_time: onlyNewToday ? formatted : undefined
               })
               return {
                 rows: response.rows,
                 count: response.count
               }
-            }" :columns="columns" :itemKey="0" :columns_768="layout === '0' ? 2 : 1" :enableWaterfall="true" :enableLoadMore="isActive ? true : false">
+            }" :columns="columns" :itemKey="0" :columns_768="layout === '0' ? 2 : 1" :enableLoadMore="isActive ? true : false">
               <template #default="{ item, debouncedApplyLayout }">
                 <!-- 自定义内容 -->
                 <div class="custom-item mr-[1px] mb-1" :key="item.pipe_id">
                   <div class="polaroid-card">
-                    <div class="flex justify-between items-center px-2">
-                      <QhxTag :active="true" :backgroundColor="getStateColor(item.state)"> <div class="text-xs">{{ formateState(item.state) }}</div> </QhxTag>
-                      <div class="p-0 flex items-center">
-                        <!-- <h3 class="p-2">起止时间</h3> -->
-                        <QhxTag :active="true" v-show="layout !== '0'">{{ dayjs(item.start_time).format('YY-MM-DD') }}</QhxTag> -
-                        <QhxTag :active="true" v-show="layout !== '0'">{{ dayjs(item.end_time).format('YY-MM-DD') }}</QhxTag>
-                        <h3 class="p-0 text-xs text-gray-600">截止: {{ dayjs(item.end_time).diff(dayjs(), 'day') }}天</h3>
-                      </div>
+                    <div class="flex items-center px-2" :class="layout === '2' ? 'text-sm text-gray-600 gap-2 flex-wrap' : 'justify-between'">
+                      <template v-if="layout === '2'">
+                        <span>{{ formateState(item.state) }}</span>
+                        <span>{{ dayjs(item.start_time).format('YY-MM-DD') }}~{{ dayjs(item.end_time).format('YY-MM-DD') }}</span>
+                        <span>截止{{ dayjs(item.end_time).diff(dayjs(), 'day') }}天</span>
+                      </template>
+                      <template v-else>
+                        <QhxTag :active="true" :backgroundColor="getStateColor(item.state)"> <div class="text-xs">{{ formateState(item.state) }}</div> </QhxTag>
+                        <div class="p-0 flex items-center">
+                          <QhxTag :active="true" v-show="layout !== '0'">{{ dayjs(item.start_time).format('YY-MM-DD') }}</QhxTag> -
+                          <QhxTag :active="true" v-show="layout !== '0'">{{ dayjs(item.end_time).format('YY-MM-DD') }}</QhxTag>
+                          <h3 class="p-0 text-xs text-gray-600">截止: {{ dayjs(item.end_time).diff(dayjs(), 'day') }}天</h3>
+                        </div>
+                      </template>
                     </div>
                     <div class="px-2 text-sm text-gray-600" v-if="item.note">
                       备注: {{ item.note }}
                     </div>
                     <div v-if="item.item">
-                      <LibraryItem :style="layout === '0' ? { marginTop: '-10px' } : { }" :className="'p-1'" :size="layout === '0' ? 'big' : 'mini-list'" :item="item.item"
+                      <LibraryItem :style="layout === '0' ? { marginTop: '-10px' } : { }" :className="'p-1'" :size="layout === '0' ? 'big' : layout === '1' ? 'mini-list' : 'text-only'" :item="item.item"
                         @image-load="debouncedApplyLayout">
                         <template #tagInfo v-if="layout !== '0'">
                           <div v-if="item.library_list && item.library_list.length > 0">
@@ -153,7 +168,7 @@
                           </div>
                         </template>
                       </LibraryItem>
-                      <div class="flex justify-center">
+                      <div class="flex justify-center" v-show="layout !== '2'">
                         <div class=" flex-1 text-center" :style="{ transform: 'scale(0.7)' }">
                           <UserGoodBtn :pk_type="2" :pk_id="item.item.library_id" :is_good="item.is_good === 1 ? true : false" :good_count="item.item.good_count" :need_judge="false">
                           </UserGoodBtn>
@@ -208,7 +223,7 @@
               <template #default="{ item, debouncedApplyLayout }">
                 <!-- 自定义内容 -->
                 <div class="custom-item m-2" :key="item.cabinet_id">
-                  <div class="polaroid-card">
+                  <div class="polaroid-card rounded-[5px]">
                     <div class="flex justify-center items-center cursor-pointer" @click="jumpToShop(item.item?.shop)">
                       <img :src="`${BASE_IMG}${item.item?.shop?.shop_logo || 'static/plan_cover/default.jpg'}`" alt="cover" class="w-[60px] h-[60px] object-cover rounded-full m-2"></img>
                       <div class="flex-1 items-center justify-center">
@@ -515,7 +530,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, onMounted, onBeforeUnmount, reactive } from 'vue'
+import { computed, ref, watch, nextTick, onMounted, onBeforeUnmount, reactive } from 'vue'
 import HorizontalDatePicker from '@/components/Qhx/HorizontalDatePicker.vue'
 import { getLibraryPipeList } from '@/api/library'
 import type QhxWaterList from '@/components/Qhx/WaterList.vue'
@@ -546,7 +561,9 @@ const token = ref<string | null>(null) // 传入的token
 // 窗口宽度响应式变量
 const windowWidth = ref(typeof window !== 'undefined' ? window.innerWidth : 1920)
 const columns = computed(() => {
-  return layout.value === '0' ? (windowWidth.value > 768 && windowWidth.value < 1920 ? 4 : 5) : 3
+  if (layout.value === '0') return windowWidth.value > 768 && windowWidth.value < 1920 ? 4 : 5
+  if (layout.value === '2') return 1 // 纯文本单列
+  return 3
 })
 // 根据窗口宽度计算弹幕速度
 // 速度值越小，弹幕移动越快。窗口越宽，需要的时间应该相应增加
@@ -614,6 +631,13 @@ const addWardrobeToDisplay = async () => {
   opear_item.value = []
 }
 const layout = ref('0')
+watch(layout, (val) => {
+  if (val === '2') {
+    nextTick(() => {
+      waterList.value?.debouncedApplyLayout()
+    })
+  }
+})
 const todayVisit = ref(0)
 const filterState = ref(0)
 const sortMode = ref(2)
@@ -625,6 +649,7 @@ const getSubscribeNewsInitialValue = () => {
   return false
 }
 const subscribeNews = ref(getSubscribeNewsInitialValue())
+const onlyNewToday = ref(false)
 const filterStateOptions = [
   { label: '全部', value: -1 },
   { label: '预约中', value: 0 },
@@ -1252,17 +1277,26 @@ const formatted = computed(() => {
   return `${y}-${m}-${day}`
 })
 
-// 计算日期ID（YYMMDD格式，例如：251224 表示 2025-12-24）
-const dateId = computed(() => {
-  const d = picked.value ?? new Date()
+// 将日期转为 YYMMDD 格式的 ID
+function dateToId(d: Date) {
   const yy = String(d.getFullYear()).slice(-2)
   const mm = String(d.getMonth() + 1).padStart(2, '0')
   const dd = String(d.getDate()).padStart(2, '0')
   return Number.parseInt(`${yy}${mm}${dd}`, 10)
+}
+
+// 选择日期往前7天的日期ID数组（含选择日，共7天）
+const dateIds = computed(() => {
+  const base = picked.value ?? new Date()
+  return Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(base)
+    d.setDate(d.getDate() - (6 - i))
+    return dateToId(d)
+  })
 })
 
-// 监听日期ID变化，自动重新加载弹幕
-watch(dateId, () => {
+// 监听日期ID数组变化，自动重新加载弹幕
+watch(dateIds, () => {
   if (currentTab.value === 0 && danmakuRef.value) {
     nextTick(() => {
       danmakuRef.value?.reload()

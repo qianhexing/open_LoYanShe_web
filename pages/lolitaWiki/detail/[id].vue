@@ -65,10 +65,12 @@ const showChildWiki = ref(false)
 const chooseList = ref<WikiDetail[]>([])
 
 // 组件引用
+const wikiAddEditRef = ref<{ showModel: (item: WikiDetail | null, defaultTypeId?: number, event?: MouseEvent) => void } | null>(null)
 const chooseWikiRef = ref<{ showModel: (params: { type_id?: number | number[] }) => void } | null>(null)
 const chooseWikiRelatedRef = ref<{ showModel: (params: { type_id?: number | null }) => void } | null>(null)
 const chooseWikiChildRef = ref<{ showModel: (params: { type_id?: number | null }) => void } | null>(null)
 const manageSubAndSupRef = ref<{ showModel: (params: { parent_list: WikiForeign[]; child_list: WikiForeign[] }) => void } | null>(null)
+const wikiSectionAddEditRef = ref<{ showModel: (item: WikiSection | null, parentWikiId: number, event?: MouseEvent) => void } | null>(null)
 
 // 获取wiki详情
 const fetchWikiDetail = async () => {
@@ -250,6 +252,23 @@ const showManage = () => {
   }
 }
 
+// 显示编辑wiki弹窗
+const showEditWiki = (event?: MouseEvent) => {
+  if (wikiAddEditRef.value && wiki.value) {
+    wikiAddEditRef.value.showModel(wiki.value, undefined, event)
+  }
+}
+
+// 显示新增wiki弹窗（同级词条）
+const showAddWiki = (event?: MouseEvent) => {
+  if (wikiAddEditRef.value) {
+    const typeId = wiki.value
+      ? (typeof wiki.value.type_id === 'string' ? Number.parseInt(wiki.value.type_id) : wiki.value.type_id)
+      : undefined
+    wikiAddEditRef.value.showModel(null, typeId, event)
+  }
+}
+
 // 显示选择合并wiki
 const showChooseWiki = () => {
   if (!wiki.value) return
@@ -270,8 +289,19 @@ const showChooseWiki = () => {
 }
 
 // 新增段落
-const insertWikiSection = () => {
-  router.push(`/lolitaWiki/insertWikiSection?id=${id}`)
+const showAddSection = (event?: MouseEvent) => {
+  if (wiki.value && wikiSectionAddEditRef.value) {
+    const wikiId = typeof wiki.value.wiki_id === 'number' ? wiki.value.wiki_id : Number.parseInt(String(wiki.value.wiki_id))
+    wikiSectionAddEditRef.value.showModel(null, wikiId, event)
+  }
+}
+
+// 编辑段落
+const showEditSection = (item: WikiSection, event?: MouseEvent) => {
+  if (wiki.value && wikiSectionAddEditRef.value) {
+    const wikiId = typeof wiki.value.wiki_id === 'number' ? wiki.value.wiki_id : Number.parseInt(String(wiki.value.wiki_id))
+    wikiSectionAddEditRef.value.showModel(item, wikiId, event)
+  }
 }
 
 // 确认合并wiki
@@ -520,13 +550,20 @@ useHead({
             合并wiki
           </UButton>
           <UButton
-            v-if="hasPermi('wiki:admin:merge')"
             size="sm"
             color="primary"
             variant="outline"
-            @click="insertWikiSection"
+            @click="(e: MouseEvent) => showAddSection(e)"
           >
             新增段落
+          </UButton>
+          <UButton
+            size="sm"
+            color="primary"
+            variant="outline"
+            @click="showEditWiki"
+          >
+            编辑词条
           </UButton>
           <UButton
             size="sm"
@@ -635,7 +672,16 @@ useHead({
           >
             <div class="flex items-center justify-between mb-3">
               <h3 class="text-lg font-semibold flex-1">{{ item.section_title }}</h3>
-              <div v-if="hasPermi('wiki:admin:merge')" class="flex gap-2">
+              <div class="flex gap-2">
+                <UButton
+                  size="xs"
+                  color="primary"
+                  variant="outline"
+                  icon="i-heroicons-pencil-square"
+                  @click="(e: MouseEvent) => showEditSection(item, e)"
+                >
+                  编辑
+                </UButton>
                 <UButton
                   :disabled="index === 0"
                   :style="{ opacity: index === 0 ? 0 : 1, pointerEvents: index === 0 ? 'none' : '' }"
@@ -731,11 +777,17 @@ useHead({
       </UCard>
     </UModal>
     
+    <!-- Wiki新增编辑弹窗 -->
+    <WikiAddEdit ref="wikiAddEditRef" @success="fetchWikiDetail" />
+
+    <!-- Wiki段落新增编辑弹窗 -->
+    <WikiSectionAddEdit ref="wikiSectionAddEditRef" @success="fetchWikiSectionList" />
+
     <!-- Wiki选择组件 -->
     <WikiOptionsChoose ref="chooseWikiRef" @choose="chooseWiki" />
     <WikiOptionsChoose ref="chooseWikiRelatedRef" @choose="chooseWikiRelated" />
     <WikiOptionsChoose ref="chooseWikiChildRef" @choose="chooseWikiChild" />
-    
+
     <!-- 管理关联组件（暂时注释，等组件完善后再启用） -->
     <!-- <ManageSubAndSup ref="manageSubAndSupRef" /> -->
   </div>
@@ -764,5 +816,9 @@ useHead({
 
 .overflow-x-auto::-webkit-scrollbar-thumb:hover {
   background: #555;
+}
+:deep(.prose img) {
+  margin-top: 0;
+  margin-bottom: 0;
 }
 </style>

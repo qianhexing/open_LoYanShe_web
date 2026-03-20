@@ -18,6 +18,17 @@ logs
 .fleet
 .idea
 
+# AI agent skills & assistant metadata (local only; see Cursor docs: .agents/skills, .cursor/skills, .claude/skills, .codex/skills)
+.agent/
+.agents/
+.claude/
+.codex/
+.cursor/skills/
+.gemini/
+.skills/
+.trae/
+skills-lock.json
+
 # Local env files
 .env
 .env.*

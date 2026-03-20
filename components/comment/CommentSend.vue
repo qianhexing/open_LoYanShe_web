@@ -19,6 +19,5 @@ const user = useUserStore()
   <div :class="props.className ? props.className :'w-full'">v>
   </div>
 </template>
-
 <style scoped>
 </style>

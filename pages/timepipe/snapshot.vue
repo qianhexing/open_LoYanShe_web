@@ -178,7 +178,8 @@ const fetchData = async () => {
       page: 1,
       pageSize: 999,
       sort: 2,
-      time: formattedDate.value
+      time: formattedDate.value,
+      state: 0
     })
     list.value = res.rows || []
   } catch (error) {

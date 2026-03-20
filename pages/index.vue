@@ -7,7 +7,11 @@
 			<br>
 			BOOM！！！服务器爆炸啦,新版本正在重建，敬请期待哦。
 		</h1> -->
-		<div style="height: 100%; width: 100%;position: absolute; left: 0; top: 0; overflow: hidden; " id="three-container"></div>
+		<!-- 手机端：中间内容作为正常DOM显示 -->
+		<div v-if="isMobile" class="mobile-content-wrapper mt-[10px]">
+			<middleContent />
+		</div>
+		<div :style="{ height: '100%', width: '100%', position: 'absolute', left: 0, top: 0, overflow: 'hidden', zIndex: isMobile ? 1 : 'auto' }" id="three-container"></div>
 	</div>
 </template>
 <script setup lang="ts">
@@ -18,8 +22,11 @@ let threeCore: qhxCore
 const theme = useThemeStore()
 const UIGroup = ref<THREE.Group | null>(null)
 const Scene1Group = ref<THREE.Group | null>(null)
+const configStore = useConfigStore()
+const isMobile = computed(() => configStore.isMobile)
 import leftContent from '@/components/home/leftContent.vue'
 import rightContent from '@/components/home/rightContent.vue'
+import middleContent from '@/components/home/middleContent.vue'
 import type { App, Component } from 'vue';
 import { createApp  } from 'vue'
 useHead({
@@ -58,32 +65,29 @@ const createUIDom = () => {
     UIGroup.value.clear();
     UIGroup.value = null;
   }
-	const Group = new THREE.Group()
-	const left = creatDomUi('left-box', leftContent)
-	left.position.x = -pxToThreeJSX(window.innerWidth * 1.005)
-	// left.position.z = -0.1
-	console.log('左侧', left)
-	// left.rotateY(5 * (Math.PI / 180))
-	// left.rotateZ(-4 * (Math.PI / 180))
-	left.rotateX(-0.675)
-	Group.add(left)
-
-	const rigth = creatDomUi('right-box', rightContent)
-	rigth.position.x = pxToThreeJSX(window.innerWidth * 0.94)
-	// rigth.position.z = -0.25
-	// rigth.rotateY(-5 * (Math.PI / 180))
-	// rigth.rotateZ( * (Math.PI / 180))
-	rigth.rotateX(-0.675)
-	Group.add(rigth)
-
-	UIGroup.value = Group
+	
+	// 手机端：不在3D场景中添加UI，使用正常DOM
 	if (isPc) {
+		const Group = new THREE.Group()
+		// PC端：左右两个box
+		const left = creatDomUi('left-box', leftContent)
+		left.position.x = -pxToThreeJSX(window.innerWidth * 1.005)
+		left.rotateX(-0.675)
+		Group.add(left)
+
+		const rigth = creatDomUi('right-box', rightContent)
+		rigth.position.x = pxToThreeJSX(window.innerWidth * 0.94)
+		rigth.rotateX(-0.675)
+		Group.add(rigth)
+
+		UIGroup.value = Group
 		threeCore.scene.add(Group)
 	}
+	// 手机端：不创建3D UI，使用模板中的正常DOM
 }
 const loadLibrary = async () => {
 	const Group = new THREE.Group()
-	const model = await threeCore.loadModel(`${BASE_IMG}/sence/tuxiong3.glb?12211333322`, { useDracoLoader: true, dracoDecoderPath: '/draco/gltf/' })
+	const model = await threeCore.loadModel(`${BASE_IMG_MODEL}/sence/tuxiong3.glb?12211333322`, { useDracoLoader: true, dracoDecoderPath: '/draco/gltf/' })
 	model.scale.set(1,1,1)
 	model.rotateY(150* (Math.PI / 180))
 	model.position.set(0,0,0)
@@ -94,12 +98,11 @@ const loadLibrary = async () => {
 	console.log('模型', model)
 }
 const initThreejs = () => {
-	const configStore = useConfigStore()
 	// 先初始化移动端检测（与 scene/detail/[id].vue 保持一致）
 	configStore.initMobileDetection()
 
 	threeCore = new qhxCore({
-		enableCSS3DRenderer: true,
+		enableCSS3DRenderer: !configStore.isMobile, // 手机端不需要CSS3D渲染器
 		alpha: true
 	})
 
@@ -213,5 +216,19 @@ onMounted(() => {
 	height: 100vh;
 	width: 30vw;
 	/* background: #000; */
+}
+.mobile-content-wrapper {
+	position: relative;
+	z-index: 2;
+	/* top: 0;
+	left: 0;
+	width: 100vw;
+	height: 100vh;
+	z-index: 10;
+	display: flex;
+	justify-content: center;
+	align-items: flex-start;
+	overflow: hidden;
+	background: #ffddf2; */
 }
 </style>

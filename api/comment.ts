@@ -1,6 +1,6 @@
 import type { BaseResponse, PaginationParams, PaginationResponse, Comment } from '@/types/api';
 interface SearchParams extends PaginationParams {
-  id?: number
+  id?: number | number[]
   type?: string
   comment_id?: number
 }
@@ -40,4 +40,12 @@ export async function insertComment(
     params
   );
   return response.data;
+}
+
+export async function deleteComment(params: { comment_id: number }): Promise<boolean> {
+  const response = await use$Post<BaseResponse<boolean>>(
+    '/comment/delete',
+    params
+  );
+  return response.data ?? false;
 }

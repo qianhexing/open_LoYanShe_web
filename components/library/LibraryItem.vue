@@ -299,6 +299,22 @@ const handleJump = (id: number) => {
         </h3>
       </div>
     </div>
+    <div v-else-if="size === 'text-only'" :to="`/library/detail/${item.library_id}`" @click="handleJump(item.library_id)">
+      <div class="flex-1 overflow-hidden">
+        <h3 class="text-base truncate w-full transition-colors duration-300">
+          {{ item.name }}
+        </h3>
+        <!-- <div class="flex flex-wrap">
+          <QhxTag v-if="item.library_price" :active="true">参考价￥ {{ item.library_price }} {{ formatLabel(item.shop_country || item.shop?.shop_country || 0, config?.money_type) }}</QhxTag>
+          <QhxTag v-if="item.library_pattern">{{ item.library_pattern }}</QhxTag>
+          <QhxTag v-if="item.library_type">{{ item.library_type }}</QhxTag>
+          <QhxTag v-if="item.pattern_elements">{{ item.pattern_elements }}</QhxTag>
+          <QhxTag v-if="item.design_elements">{{ item.design_elements }}</QhxTag>
+        </div> -->
+        <slot name="tagInfo"></slot>
+      </div>
+      <slot name="extra"></slot>
+    </div>
     <div v-else-if="size === 'mini-list'" :to="`/library/detail/${item.library_id}`" @click="handleJump(item.library_id)" >
       <div class="flex items-center">
         <img @load="imageLoad" :src="`${BASE_IMG}${item.cover}?x-oss-process=image/quality,q_100/resize,w_300`"
