@@ -7,10 +7,10 @@
         @click.self="handleClose"
       >
         <!-- 背景遮罩 -->
-        <div class="absolute inset-0 bg-black/40 backdrop-blur-sm"></div>
-        
+        <div class="absolute inset-0 bg-black/25"></div>
+
         <!-- 弹窗内容 -->
-        <div class="relative bg-white/90 dark:bg-gray-800/90 backdrop-blur-md rounded-[2rem] p-8 shadow-2xl border border-white/50 dark:border-gray-700 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+        <div class="relative bg-white dark:bg-gray-800 rounded-[2rem] p-2 shadow-2xl border border-gray-200 dark:border-gray-700 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
           <!-- 关闭按钮 -->
           <button
             @click="handleClose"
@@ -20,35 +20,34 @@
           </button>
 
           <!-- 标题 -->
-          <div class="text-center mb-6">
-            <div class="text-5xl mb-4">💬</div>
-            <h2 class="text-2xl font-bold text-gray-800 dark:text-gray-100 mb-2">
+          <div class="mb-2 ml-2">
+            <!-- <div class="text-5xl mb-4">💬</div> -->
+            <div class="text-sm mt-[14px] text-gray-800 dark:text-gray-100 mb-2">
               {{ replyToName ? `回复 ${replyToName}` : '发表评论' }}
-            </h2>
-            <p class="text-sm text-gray-500 dark:text-gray-400">分享您的想法</p>
+          </div>
+            <!-- <p class="text-sm text-gray-500 dark:text-gray-400">分享您的想法</p> -->
           </div>
 
           <!-- 表单 -->
-          <form @submit.prevent="handleSubmit" class="space-y-6">
+          <form @submit.prevent="handleSubmit" class="space-y-2">
             <!-- 富文本编辑器 -->
             <div>
-              <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              <!-- <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                 内容 <span class="text-red-500">*</span>
-              </label>
+              </label> -->
               <QhxRichTextEditor
                 v-model="editorContent"
                 placeholder="请输入评论内容..."
                 :min-height="200"
                 :max-height="300"
+                :toolbar="commentEditorToolbar"
                 ref="richTextEditorRef"
               />
             </div>
 
             <!-- 图片选择 -->
             <div>
-              <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                图片 <span class="text-gray-500 text-xs">(最多9张，支持拖拽排序)</span>
-              </label>
+              <span class="text-gray-500 text-xs ml-2">(最多9张，支持拖拽排序)</span>
               <QhxImagePicker 
                 :multiple="true" 
                 :max="9"
@@ -85,14 +84,14 @@
 
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
-// QhxRichTextEditor 在模板中使用，需要作为值导入
-// eslint-disable-next-line @typescript-eslint/consistent-type-imports
-import QhxRichTextEditor from '@/components/Qhx/RichTextEditor.vue'
+// QhxRichTextEditor 在模板中使用；RichTextToolbarItem 为类型导出
+// biome-ignore lint/style/useImportType: Vue SFC 供 template 与 InstanceType
+import QhxRichTextEditor, { type RichTextToolbarItem } from '@/components/Qhx/RichTextEditor.vue'
 
 import { insertComment } from '@/api/comment'
 import { useUserStore } from '@/stores/user'
 import { useConfigStore } from '@/stores/config'
-import type { Comment } from '@/types/api'
+import type { Comment, User } from '@/types/api'
 import type QhxImagePicker from '@/components/Qhx/ImagePicker.vue'
 import { uploadImageOSS } from '@/utils/ossUpload'
 
@@ -103,15 +102,24 @@ interface Props {
 interface ShowModalParams {
   id: number | string
   type: string
+  /** 被回复用户 user_id（子评回复时常用） */
   reply_to?: number
   reply_to_name?: string
+  /** 被回复用户完整信息（展示等） */
+  reply_to_user?: User
+  /** 回复子评时：拉子列表用的主楼 comment_id（与 id 被回复条目可能不同） */
+  threadRootCommentId?: number
 }
 
 const props = defineProps<Props>()
 
+/** 评论框工具栏：仅站内链接 + 表情（排版与附件走下方图片选择） */
+const commentEditorToolbar: RichTextToolbarItem[] = ['internalLink', 'emoji']
+
 const emit = defineEmits<{
   'update:modelValue': [value: boolean]
-  'success': [value: Comment]
+  /** 二级回复成功时带 parentCommentId，便于只刷新该楼子评论 */
+  'success': [value: Comment, meta?: { parentCommentId: number }]
 }>()
 
 const toast = useToast()
@@ -127,6 +135,8 @@ const commentId = ref<number | string | null>(null)
 const commentType = ref<string>('')
 const replyTo = ref<number | undefined>(undefined)
 const replyToName = ref<string>('')
+/** 成功回调里刷新子列表用：主楼 id */
+const threadRootCommentId = ref<number | undefined>(undefined)
 
 // 编辑器内容
 const editorContent = ref('')
@@ -175,6 +185,7 @@ const showModel = async (e: ShowModalParams) => {
   commentType.value = e.type
   replyTo.value = e.reply_to
   replyToName.value = e.reply_to_name || ''
+  threadRootCommentId.value = e.threadRootCommentId
   
   console.log(replyTo.value, '回复对象')
 
@@ -291,11 +302,11 @@ const handleSubmit = async () => {
 
     const comment = await insertComment(params)
 
-    toast.add({
-      title: '评论成功',
-      icon: 'i-heroicons-check-circle',
-      color: 'green'
-    })
+    // toast.add({
+    //   title: '评论成功',
+    //   icon: 'i-heroicons-check-circle',
+    //   color: 'green'
+    // })
 
     // 清空内容
     if (richTextEditorRef.value) {
@@ -308,7 +319,15 @@ const handleSubmit = async () => {
       cachedImages.value = []
     }
 
-    emit('success', comment)
+    if (commentType.value === 'reply' && commentId.value != null) {
+      const refreshThreadId =
+        threadRootCommentId.value ?? Number.parseInt(commentId.value.toString(), 10)
+      emit('success', comment, {
+        parentCommentId: refreshThreadId,
+      })
+    } else {
+      emit('success', comment)
+    }
     handleClose()
   } catch (error: unknown) {
     console.error('评论失败:', error)

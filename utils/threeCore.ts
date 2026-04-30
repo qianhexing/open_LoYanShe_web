@@ -85,6 +85,8 @@ export interface SceneObjectJSON {
 		| 'box'
 		| 'sphere'
 		| 'model'
+		/** 带 CharacterType 的 glTF 角色，与 model 同存 url / options 等，options.characterType 为控制器配置 */
+		| 'character'
 		| 'image'
 		| 'diary'
 		| 'longtext'
@@ -354,6 +356,8 @@ class ThreeCore {
 	public options: ThreeCoreOptions
 	public container?: HTMLElement | null
 	private resizeObserver?: ResizeObserver
+	/** 从正交切回透视时恢复视野角 */
+	private lastPerspectiveFov = 45
 	public loadedModelURLs: Set<string> // 已加载过的模型地址集合
 	public loadedModels: {
 		model: THREE.Object3D
@@ -375,6 +379,16 @@ class ThreeCore {
 	public allMat: THREE.Material[]
 
 	public loadTemplate: THREE.Group[] // 加载成功的模型数组
+	/**
+	 * 从 loadSceneFromJSON 解析出的、需在页面层挂载 CharacterTypeController 的条目
+	 * 由 takePendingCharacterRehydrations 取出并清空
+	 */
+	public pendingCharacterRehydrations: Array<{
+		mesh: THREE.Object3D
+		/** 与 loadModel 使用的完整 URL（含 BASE_IMG） */
+		modelUrl: string
+		config: Record<string, unknown>
+	}> = []
 	public cameraList: CameraState[]
 	public clock: THREE.Clock
 	public picker: GPUPicker | null
@@ -1305,10 +1319,19 @@ class ThreeCore {
 		splatCam.position.copy(cam.position)
 		splatCam.quaternion.copy(cam.quaternion)
 
-		splatCam.fov = cam.fov
-		splatCam.near = cam.near
-		splatCam.far = cam.far
-		splatCam.aspect = cam.aspect
+		if (cam instanceof THREE.PerspectiveCamera) {
+			splatCam.fov = cam.fov
+			splatCam.aspect = cam.aspect
+			splatCam.near = cam.near
+			splatCam.far = cam.far
+		} else if (cam instanceof THREE.OrthographicCamera) {
+			// 泼溅内部仍为透视相机，用近似 FOV / 宽高比保持可见范围接近
+			splatCam.fov = 50
+			const aspect = (cam.right - cam.left) / (cam.top - cam.bottom)
+			splatCam.aspect = Number.isFinite(aspect) ? aspect : 1
+			splatCam.near = cam.near
+			splatCam.far = cam.far
+		}
 
 		splatCam.updateProjectionMatrix()
 		// 2️⃣ 关键：同步 controls target（平移的本体）
@@ -1995,13 +2018,18 @@ class ThreeCore {
 			loader.setDRACOLoader(dracoLoader)
 		}
 		return new Promise((resolve, reject) => {
+			const skipDefaultAnimations = options.skipDefaultAnimations === true
 			const existing = this.loadedModels.find(
 				obj => obj.model.userData.url === url
 			)
 			if (this.loadedModelURLs.has(url) && existing) {
 				const model = existing.model.clone(true)
 				this.copyMaterial(model)
-				if (existing.animations && existing.animations.length > 0) {
+				if (
+					!skipDefaultAnimations &&
+					existing.animations &&
+					existing.animations.length > 0
+				) {
 					const mixer = new AnimationMixer(model)
 					existing.animations.forEach(animation => {
 						mixer.clipAction(animation).play()
@@ -2013,6 +2041,7 @@ class ThreeCore {
 				loader.load(
 					url,
 					async gltf => {
+						const skipDefaultAnimations = options.skipDefaultAnimations === true
 						console.log(gltf, 'gltf模型')
 						const model = gltf.scene
 						model.userData.url = url
@@ -2086,8 +2115,12 @@ class ThreeCore {
 							animations: gltf.animations
 						})
 
-						// 动画处理
-						if (gltf.animations && gltf.animations.length > 0) {
+						// 动画处理（角色控制器等可 skip，自行管理 AnimationMixer）
+						if (
+							!skipDefaultAnimations &&
+							gltf.animations &&
+							gltf.animations.length > 0
+						) {
 							const mixer = new AnimationMixer(model)
 							// biome-ignore lint/complexity/noForEach: <explanation>
 							gltf.animations.forEach(clip => {
@@ -2109,6 +2142,58 @@ class ThreeCore {
 				)
 			}
 		})
+	}
+
+	/**
+	 * 从已缓存的 glTF 资源获取动画列表（与 {@link loadModel} 使用同一 url）
+	 */
+	public getLoadedAnimationClips(url: string): THREE.AnimationClip[] | null {
+		const existing = this.loadedModels.find(
+			obj => obj.model.userData.url === url
+		)
+		if (!existing?.animations?.length) {
+			return null
+		}
+		return existing.animations
+	}
+
+	/**
+	 * 当场景中已无任何 `userData.url === url` 的节点时，移除 {@link loadModel} 的内存缓存
+	 * 便于删除角色后再次从同一路径重新加载、重新挂接 CharacterTypeController
+	 */
+	public evictModelCacheIfOrphaned(url: string): void {
+		if (!this.scene) {
+			return
+		}
+		let count = 0
+		this.scene.traverse((obj) => {
+			if (obj.userData?.url === url) {
+				count++
+			}
+		})
+		if (count > 0) {
+			return
+		}
+		this.loadedModelURLs.delete(url)
+		const i = this.loadedModels.findIndex(
+			e => e.model.userData.url === url
+		)
+		if (i >= 0) {
+			this.loadedModels.splice(i, 1)
+		}
+	}
+
+	/**
+	 * 取出并清空 {@link pendingCharacterRehydrations}，供页面挂载 CharacterTypeController
+	 */
+	public takePendingCharacterRehydrations(): Array<{
+		mesh: THREE.Object3D
+		modelUrl: string
+		config: Record<string, unknown>
+	}> {
+		const list = [...this.pendingCharacterRehydrations]
+		this.pendingCharacterRehydrations = []
+		return list
 	}
 
 	/**
@@ -2705,19 +2790,27 @@ class ThreeCore {
 			return current
 		}
 
+		const clientCoords = (() => {
+			if ('touches' in ev && ev.touches.length > 0) {
+				const t = ev.touches[0]
+				return { clientX: t.clientX, clientY: t.clientY }
+			}
+			if (
+				'changedTouches' in ev &&
+				(ev as TouchEvent).changedTouches.length > 0
+			) {
+				const t = (ev as TouchEvent).changedTouches[0]
+				return { clientX: t.clientX, clientY: t.clientY }
+			}
+			const me = ev as MouseEvent
+			return { clientX: me.clientX, clientY: me.clientY }
+		})()
+
 		// 如果启用了射线检测，使用射线检测
 		if (this.options.enableRaycaster && this.raycaster) {
 			// 获取坐标
-			let clientX: number
-			let clientY: number
+			const { clientX, clientY } = clientCoords
 			console.log('使用了射线点击')
-			if ('touches' in ev) {
-				clientX = ev.touches[0].clientX
-				clientY = ev.touches[0].clientY
-			} else {
-				clientX = ev.clientX
-				clientY = ev.clientY
-			}
 
 			// 获取渲染器 DOM 元素的边界
 			const rect = this.renderer.domElement.getBoundingClientRect()
@@ -2751,30 +2844,18 @@ class ThreeCore {
 			return null
 		}
 
-		// 否则使用 GPU 拾取
-		const inversePixelRatio = 1.0 / (window.devicePixelRatio || 1)
+		// 否则使用 GPU 拾取：pick 的 x/y 必须是相对 canvas 的绘制缓冲区像素（和 domElement.width/height 一致）
+		const { clientX, clientY } = clientCoords
+		const canvas = this.renderer.domElement
+		const rect = canvas.getBoundingClientRect()
+		const bw = canvas.width
+		const bh = canvas.height
+		const px = ((clientX - rect.left) / rect.width) * bw
+		const py = ((clientY - rect.top) / rect.height) * bh
+		const bx = Math.max(0, Math.min(bw - 1, Math.floor(px)))
+		const by = Math.max(0, Math.min(bh - 1, Math.floor(py)))
 
-		let clientX: number
-		let clientY: number
-
-		if ('touches' in ev) {
-			clientX = ev.touches[0].clientX
-			clientY = ev.touches[0].clientY
-		} else {
-			clientX = ev.clientX
-			clientY = ev.clientY
-		}
-
-		let sub = 0
-		if (this.container) {
-			sub = this.container.getBoundingClientRect().left
-		}
-
-		const objId = this.picker.pick(
-			clientX * window.devicePixelRatio - sub * inversePixelRatio,
-			clientY * window.devicePixelRatio,
-			shouldPickObject
-		)
+		const objId = this.picker.pick(bx, by, shouldPickObject)
 
 		const pickedObject = this.scene.getObjectById(objId)
 
@@ -2891,6 +2972,118 @@ class ThreeCore {
 		// 执行注册的回调
 		// biome-ignore lint/complexity/noForEach: <explanation>
 		this.resizeCallbacks.forEach(callback => callback(width, height))
+	}
+
+	/**
+	 * 运行时切换透视 / 正交相机，保留当前位姿、朝向与轨道目标。
+	 */
+	public setCameraType(type: 'perspective' | 'orthographic') {
+		if (!this.camera || !this.renderer) return
+
+		const already =
+			type === 'perspective'
+				? this.camera instanceof THREE.PerspectiveCamera
+				: this.camera instanceof THREE.OrthographicCamera
+		if (already && this.options.cameraType === type) return
+
+		const position = this.camera.position.clone()
+		const quaternion = this.camera.quaternion.clone()
+		const up = this.camera.up.clone()
+		const near = this.camera.near
+		const far = this.camera.far
+
+		let savedTarget = new THREE.Vector3(0, 0, 0)
+		let minAzimuth = Number.NEGATIVE_INFINITY
+		let maxAzimuth = Number.POSITIVE_INFINITY
+		let minPolar = 0
+		let maxPolar = Math.PI
+		let enableDamping = true
+		let dampingFactor = 0.05
+
+		if (this.controls) {
+			if ('target' in this.controls && this.controls.target) {
+				savedTarget = this.controls.target.clone()
+			}
+			if ('minAzimuthAngle' in this.controls) {
+				minAzimuth = this.controls.minAzimuthAngle ?? Number.NEGATIVE_INFINITY
+				maxAzimuth = this.controls.maxAzimuthAngle ?? Number.POSITIVE_INFINITY
+				minPolar = this.controls.minPolarAngle ?? 0
+				maxPolar = this.controls.maxPolarAngle ?? Math.PI
+			}
+			if ('enableDamping' in this.controls) {
+				enableDamping = this.controls.enableDamping
+				dampingFactor = this.controls.dampingFactor
+			}
+			if (typeof this.controls.dispose === 'function') {
+				this.controls.dispose()
+			}
+		}
+
+		if (this.camera instanceof THREE.PerspectiveCamera) {
+			this.lastPerspectiveFov = this.camera.fov
+		}
+		const fov =
+			this.camera instanceof THREE.PerspectiveCamera
+				? this.camera.fov
+				: this.lastPerspectiveFov
+
+		const width = this.container?.clientWidth ?? window.innerWidth
+		const height = this.container?.clientHeight ?? window.innerHeight
+		const aspect = width / Math.max(height, 1)
+
+		if (type === 'orthographic') {
+			const frustumSize = 5
+			this.camera = new THREE.OrthographicCamera(
+				(-frustumSize * aspect) / 2,
+				(frustumSize * aspect) / 2,
+				frustumSize / 2,
+				-frustumSize / 2,
+				Math.max(0.01, near),
+				far
+			)
+		} else {
+			this.camera = new THREE.PerspectiveCamera(fov, aspect, near, far)
+		}
+
+		this.camera.position.copy(position)
+		this.camera.quaternion.copy(quaternion)
+		this.camera.up.copy(up)
+		this.camera.updateProjectionMatrix()
+		this.options.cameraType = type
+
+		this.initOrbitControls()
+		if (this.controls) {
+			this.controls.target.copy(savedTarget)
+			if ('minAzimuthAngle' in this.controls) {
+				this.controls.minAzimuthAngle = minAzimuth
+				this.controls.maxAzimuthAngle = maxAzimuth
+				this.controls.minPolarAngle = minPolar
+				this.controls.maxPolarAngle = maxPolar
+			}
+			if ('enableDamping' in this.controls) {
+				this.controls.enableDamping = enableDamping
+				this.controls.dampingFactor = dampingFactor
+			}
+			this.controls.update()
+		}
+
+		if (this.transformControls) {
+			this.transformControls.camera = this.camera
+		}
+
+		const syncComposerCamera = (composer: EffectComposer) => {
+			for (let i = 0; i < composer.passes.length; i++) {
+				const p = composer.passes[i]
+				if (p instanceof RenderPass) {
+					p.camera = this.camera
+				}
+			}
+		}
+		if (this.bloomComposer) syncComposerCamera(this.bloomComposer)
+		if (this.finalComposer) syncComposerCamera(this.finalComposer)
+
+		this.initPicker()
+		this.onContainerResize()
 	}
 
 	// 修改startAnimationLoop方法以支持CSS3D渲染器
@@ -3857,6 +4050,18 @@ class ThreeCore {
 				return
 			const typeGuess = (() => {
 				if (obj.userData.url) {
+					if (obj.userData.type === 'character') {
+						return 'character'
+					}
+					const charOpt = obj.userData.options?.characterType as
+						| { stand?: { primary?: string } }
+						| undefined
+					if (
+						obj.userData.type === 'model' &&
+						charOpt?.stand?.primary
+					) {
+						return 'character'
+					}
 					if (obj.userData.type === 'model') {
 						return 'model'
 					}
@@ -3970,7 +4175,7 @@ class ThreeCore {
 			if (obj.userData.follow) {
 				jsonObj.follow = obj.userData.follow
 			}
-			if (typeGuess === 'model') {
+			if (typeGuess === 'model' || typeGuess === 'character') {
 				jsonObj.url = obj.userData.url.replace(BASE_IMG, '')
 				if (obj.userData.useDracoLoader) {
 					jsonObj.useDracoLoader = obj.userData.useDracoLoader
@@ -4751,6 +4956,7 @@ class ThreeCore {
 			group = new THREE.Group()
 			group.userData.ignorePick = true
 		} else {
+			this.pendingCharacterRehydrations = []
 			if (json.cameraList) {
 				this.cameraList = json.cameraList
 			}
@@ -4819,7 +5025,58 @@ class ThreeCore {
 				mesh.userData.type = 'sphere'
 			}
 
-			if (obj.type === 'model' && obj.url) {
+			const chCfg = obj.options?.characterType as
+				| { stand?: { primary?: string } }
+				| undefined
+			const isRoleObject = Boolean(
+				obj.url
+				&& (obj.type === 'character' || (obj.type === 'model' && chCfg?.stand?.primary))
+			)
+			if (isRoleObject) {
+				try {
+					const modelUrl = `${BASE_IMG}${obj.url as string}`
+					const model = await this.loadModel(modelUrl, {
+						useDracoLoader: obj.useDracoLoader ?? false,
+						dracoDecoderPath: '/draco/gltf/',
+						skipDefaultAnimations: true
+					})
+					mesh = model
+					model.userData.type = 'character'
+					if (obj.options) {
+						this.setOptionsModel(mesh, obj.options)
+					}
+					if (obj.effect) {
+						this.setEffectModel(mesh, obj.effect)
+					}
+					if (obj.material) {
+						this.setMaterialModel(mesh, obj.material)
+					}
+					if (obj.plugin && obj.plugin.length > 0) {
+						// biome-ignore lint/complexity/noForEach: <explanation>
+						obj.plugin.forEach(async plugin => {
+							const pluginObj = await this.applyRemoteShaderPlugin(
+								model,
+								plugin.url
+							)
+							this.activePlugins.push(pluginObj)
+						})
+					}
+					if (chCfg?.stand?.primary && !renturGroup) {
+						const ch = obj.options?.characterType as
+							| Record<string, unknown>
+							| undefined
+						if (ch) {
+							this.pendingCharacterRehydrations.push({
+								mesh: model,
+								modelUrl,
+								config: ch
+							})
+						}
+					}
+				} catch (e) {
+					console.warn(`角色/模型加载失败：${obj.url}`, e)
+				}
+			} else if (obj.type === 'model' && obj.url) {
 				try {
 					const model = await this.loadModel(BASE_IMG + obj.url, {
 						useDracoLoader: obj.useDracoLoader ?? false,
@@ -5129,6 +5386,7 @@ class ThreeCore {
 
 	// 修改dispose方法以清理CSS3D渲染器
 	dispose() {
+		this.pendingCharacterRehydrations = []
 		// 清理事件监听
 		window.removeEventListener('resize', () => this.onContainerResize())
 		if (this.resizeObserver) {

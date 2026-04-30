@@ -45,10 +45,14 @@ const boundDebugLines: THREE.LineSegments[] = []
 
 const raycaster = new THREE.Raycaster()
 const mouse = new THREE.Vector2()
+/** 每帧将模型局部包围盒中心旋到世界系，避免与刚体原点错位导致底部被裁切 */
+const tmpMeshWorldCenter = new THREE.Vector3()
 const PLANE_Z = 0
 const intersectPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), -PLANE_Z)
 const intersectPoint = new THREE.Vector3()
 
+/** 在展示区按下后持续用全局 move/up 驱动拖拽，直至释放 */
+let physicsPointerSession = false
 let lastPointerX = 0
 let lastPointerY = 0
 let hasPointerPos = false
@@ -61,6 +65,8 @@ const BADGE_DEPTH = 0.18
 
 const GRAVITY = -6
 const BOUND_SCALE = 0.9
+/** 地板顶略高于视口底，抵消接触求解/无 margin 时的微量穿透，避免前景层底部少数字被 `overflow:hidden` 吃掉 */
+const FLOOR_CONTACT_EPSILON = 0.06
 const RANDOM_FORCE = 2.5
 const PUSH_FORCE = 15
 const DRAG_FORCE = 0.8
@@ -183,7 +189,7 @@ function createBounds(){
   const wall=0.5
   const height=viewHeight * BOUND_SCALE
   const viewBottomY = viewCenterY - viewHeight / 2
-  const floorTopY = viewBottomY
+  const floorTopY = viewBottomY + FLOOR_CONTACT_EPSILON
   const floorCenterY = floorTopY - wall / 2
   const wallBottomY = floorTopY
   const wallCenterY = wallBottomY + height / 2
@@ -233,6 +239,7 @@ function initScene(){
   renderer.setPixelRatio(Math.min(window.devicePixelRatio,2))
 
   containerRef.value!.appendChild(renderer.domElement)
+  renderer.domElement.style.display = "block"
 
   // const light=new THREE.DirectionalLight(0xffffff,1)
   // light.position.set(10,20,10)
@@ -389,7 +396,7 @@ function loadGlbModel(url: string): Promise<{ mesh: THREE.Object3D; size: THREE.
         mesh.traverse((child)=>{
           if (child instanceof THREE.Mesh) {
             if (child.material && !Array.isArray(child.material)) {
-              (child.material as THREE.MeshStandardMaterial).color?.setHex(0xffffff)
+              // (child.material as THREE.MeshStandardMaterial).color?.setHex(0xffffff)
             }
           }
         })
@@ -406,14 +413,6 @@ function loadGlbModel(url: string): Promise<{ mesh: THREE.Object3D; size: THREE.
       (err)=>{ console.error("[BadgePhysics] 加载模型失败:", url, err); resolve(null) }
     )
   })
-}
-
-function getBadgeIndexFromHit(obj: THREE.Object3D): number {
-  let o: THREE.Object3D | null = obj
-  while (o?.parent && o.parent !== scene) o = o.parent as THREE.Object3D
-  if (!o) return -1
-  const idx = (o as THREE.Object3D & { userData?: { badgeIndex?: number } }).userData?.badgeIndex
-  return idx !== undefined ? idx : meshes.indexOf(o)
 }
 
 async function createBadge(deco:UserDeco){
@@ -441,14 +440,15 @@ async function createBadge(deco:UserDeco){
     mesh.scale.setScalar(modelScale)
     centerOffset.copy(loaded.center)
     const halfExt = loaded.size.clone().multiplyScalar(0.5).multiplyScalar(modelScale)
-    mesh.position.set(
+    mesh.rotation.set(Math.random() * 0.4, Math.random() * 0.4, Math.random() * 0.4)
+    const rc = centerOffset.clone().applyQuaternion(mesh.quaternion)
+    const spawnCenter = new THREE.Vector3(
       (Math.random() - 0.5) * boundX * 1.5,
       6 + Math.random() * 4,
       PLANE_Z
     )
-    mesh.position.sub(centerOffset)
-    mesh.rotation.set(Math.random() * 0.4, Math.random() * 0.4, Math.random() * 0.4)
-    const bodyPos = mesh.position.clone().add(centerOffset)
+    mesh.position.copy(spawnCenter).sub(rc)
+    const bodyPos = spawnCenter
     scene.add(mesh)
     meshes.push(mesh)
     meshCenterOffsets.push(centerOffset.clone())
@@ -477,20 +477,46 @@ async function createBadge(deco:UserDeco){
   ud.deco = deco
 }
 
-function getWorldPointFromPointer(clientX: number, clientY: number): THREE.Vector3 | null{
+function getBadgeIndexFromHit(obj: THREE.Object3D): number {
+  let o: THREE.Object3D | null = obj
+  while (o?.parent && o.parent !== scene) o = o.parent as THREE.Object3D
+  if (!o) return -1
+  const idx = (o as THREE.Object3D & { userData?: { badgeIndex?: number } }).userData?.badgeIndex
+  return idx !== undefined ? idx : meshes.indexOf(o)
+}
+
+function isPointOverContainer(clientX: number, clientY: number): boolean {
+  const el = containerRef.value
+  if (!el) return false
+  const r = el.getBoundingClientRect()
+  return clientX >= r.left && clientX <= r.right && clientY >= r.top && clientY <= r.bottom
+}
+
+/** 避免与展示区叠放的按钮、链接等抢点时误触发冲量 */
+function isInteractiveUiTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof Element)) return false
+  return Boolean(
+    target.closest(
+      'button, a[href], input, textarea, select, [role="button"]'
+    )
+  )
+}
+
+function getWorldPointFromPointer(clientX: number, clientY: number): THREE.Vector3 | null {
   const canvas = renderer.domElement
   const rect = canvas.getBoundingClientRect()
+  if (rect.width <= 0 || rect.height <= 0) return null
   mouse.x = ((clientX - rect.left) / rect.width) * 2 - 1
   mouse.y = -((clientY - rect.top) / rect.height) * 2 + 1
   raycaster.setFromCamera(mouse, camera)
   return raycaster.ray.intersectPlane(intersectPlane, intersectPoint) ? intersectPoint.clone() : null
 }
 
-function applyForceFromPointer(clientX: number, clientY: number, forceX: number, forceY: number){
+function applyForceFromPointer(clientX: number, clientY: number, forceX: number, forceY: number) {
   const worldPt = getWorldPointFromPointer(clientX, clientY)
-  if(!worldPt || !AmmoLib || !tempVec3) return
+  if (!worldPt || !AmmoLib || !tempVec3) return
   const radius = boundX * 0.6
-  for(let i = 0; i < bodies.length; i++){
+  for (let i = 0; i < bodies.length; i++) {
     const body = bodies[i]
     const trans = body.getWorldTransform()
     const ox = trans.getOrigin().x()
@@ -498,8 +524,7 @@ function applyForceFromPointer(clientX: number, clientY: number, forceX: number,
     const dx = ox - worldPt.x
     const dy = oy - worldPt.y
     const distSq = dx * dx + dy * dy
-    if(distSq < radius * radius){
-      const body = bodies[i]
+    if (distSq < radius * radius) {
       body.activate()
       const f = 1 - Math.sqrt(distSq) / radius
       const vec = new AmmoLib.btVector3(forceX * f, forceY * f, 0)
@@ -509,40 +534,42 @@ function applyForceFromPointer(clientX: number, clientY: number, forceX: number,
   }
 }
 
-function onPointerDown(e: PointerEvent){
-  e.preventDefault()
- ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
+function onGlobalPointerDown(e: PointerEvent) {
+  if (!isPointOverContainer(e.clientX, e.clientY) || !AmmoLib || !camera || !renderer) return
+  if (isInteractiveUiTarget(e.target)) return
+
+  physicsPointerSession = true
   lastPointerX = e.clientX
   lastPointerY = e.clientY
   hasPointerPos = true
+
   const worldPt = getWorldPointFromPointer(e.clientX, e.clientY)
-  if(!worldPt || !AmmoLib || !tempVec3) return
+  if (!worldPt || !tempVec3) return
+
   raycaster.setFromCamera(mouse, camera)
   const intersects = raycaster.intersectObjects(meshes, true)
-  for(const hit of intersects){
+  for (const hit of intersects) {
     const idx = getBadgeIndexFromHit(hit.object as THREE.Object3D)
-    if(idx >= 0){
-      const deco = (meshes[idx]?.userData as { deco?: UserDeco })?.deco ?? props.badges[idx]
-      console.log("[BadgePhysics] 点击物体:", { index: idx, hitPoint: hit.point, deco })
+    if (idx >= 0) {
       const body = bodies[idx]
       const dx = hit.point.x - worldPt.x
       const dy = hit.point.y - worldPt.y
-      const len = Math.sqrt(dx*dx + dy*dy) || 1
+      const len = Math.sqrt(dx * dx + dy * dy) || 1
       body.activate()
-      const imp = new AmmoLib.btVector3((dx/len) * PUSH_FORCE, (dy/len) * PUSH_FORCE + 3, 0)
+      const imp = new AmmoLib.btVector3((dx / len) * PUSH_FORCE, (dy / len) * PUSH_FORCE + 3, 0)
       body.applyCentralImpulse(imp)
       AmmoLib.destroy(imp)
     }
   }
-  if(intersects.length === 0){
+  if (intersects.length === 0) {
     const radius = boundX * 0.5
-    for(let i = 0; i < bodies.length; i++){
+    for (let i = 0; i < bodies.length; i++) {
       const trans = bodies[i].getWorldTransform()
       const dx = trans.getOrigin().x() - worldPt.x
       const dy = trans.getOrigin().y() - worldPt.y
-      if(dx*dx + dy*dy < radius*radius){
+      if (dx * dx + dy * dy < radius * radius) {
         bodies[i].activate()
-        const imp = new AmmoLib.btVector3((Math.random()-0.5)*PUSH_FORCE, PUSH_FORCE * 0.5, 0)
+        const imp = new AmmoLib.btVector3((Math.random() - 0.5) * PUSH_FORCE, PUSH_FORCE * 0.5, 0)
         bodies[i].applyCentralImpulse(imp)
         AmmoLib.destroy(imp)
       }
@@ -550,15 +577,15 @@ function onPointerDown(e: PointerEvent){
   }
 }
 
-function onPointerUp(e: PointerEvent){
-  e.preventDefault()
-  try {
-    ;(e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId)
-  } catch (_) {}
+function onGlobalPointerUp() {
+  physicsPointerSession = false
+  hasPointerPos = false
 }
 
-function onPointerMove(e: PointerEvent){
-  if(!hasPointerPos){
+function onGlobalPointerMove(e: PointerEvent) {
+  if (!physicsPointerSession || !AmmoLib || !tempVec3) return
+
+  if (!hasPointerPos) {
     lastPointerX = e.clientX
     lastPointerY = e.clientY
     hasPointerPos = true
@@ -568,7 +595,7 @@ function onPointerMove(e: PointerEvent){
   const dy = (e.clientY - lastPointerY) * DRAG_FORCE
   lastPointerX = e.clientX
   lastPointerY = e.clientY
-  if(Math.abs(dx) > 0.5 || Math.abs(dy) > 0.5){
+  if (Math.abs(dx) > 0.5 || Math.abs(dy) > 0.5) {
     applyForceFromPointer(e.clientX, e.clientY, dx, -dy)
   }
 }
@@ -623,19 +650,19 @@ function updatePhysics(){
       body.setLinearVelocity(tempVec3)
     }
 
-    const offset = meshCenterOffsets[i]
-    mesh.position.set(
-      px - (offset?.x ?? 0),
-      py - (offset?.y ?? 0),
-      pz - (offset?.z ?? 0)
-    )
+    mesh.quaternion.set(rot.x(), rot.y(), rot.z(), rot.w())
 
-    mesh.quaternion.set(
-      rot.x(),
-      rot.y(),
-      rot.z(),
-      rot.w()
-    )
+    const offset = meshCenterOffsets[i]
+    if (offset && (offset.x !== 0 || offset.y !== 0 || offset.z !== 0)) {
+      tmpMeshWorldCenter.copy(offset).applyQuaternion(mesh.quaternion)
+      mesh.position.set(
+        px - tmpMeshWorldCenter.x,
+        py - tmpMeshWorldCenter.y,
+        pz - tmpMeshWorldCenter.z
+      )
+    } else {
+      mesh.position.set(px, py, pz)
+    }
   }
 }
 
@@ -649,7 +676,7 @@ function animate(){
 }
 
 const MOCK_BADGE: UserDeco = {
-  foreign: { cover: "/scene/6.glb", name: "测试模型" }
+  foreign: { cover: "/material/524af6c3386c5060d621cd36ff32943d.glb", name: "测试模型" }
 }
 
 async function spawnBadges(){
@@ -679,26 +706,23 @@ onMounted(async()=>{
   const el = containerRef.value
   if(el) resizeObserver.observe(el)
 
-  const canvas = renderer.domElement
-  canvas.addEventListener("pointerdown", onPointerDown, { passive: false })
-  canvas.addEventListener("pointermove", onPointerMove, { passive: false })
-  canvas.addEventListener("pointerup", onPointerUp, { passive: false })
-  canvas.addEventListener("pointercancel", onPointerUp, { passive: false })
-  canvas.style.cursor = "grab"
+  /** 捕获阶段：先根据展示区坐标算冲量，但不阻止默认行为，下层按钮仍可响应点击 */
+  document.addEventListener("pointerdown", onGlobalPointerDown, true)
+  document.addEventListener("pointermove", onGlobalPointerMove, true)
+  document.addEventListener("pointerup", onGlobalPointerUp, true)
+  document.addEventListener("pointercancel", onGlobalPointerUp, true)
 })
 
 onBeforeUnmount(()=>{
 
+  document.removeEventListener("pointerdown", onGlobalPointerDown, true)
+  document.removeEventListener("pointermove", onGlobalPointerMove, true)
+  document.removeEventListener("pointerup", onGlobalPointerUp, true)
+  document.removeEventListener("pointercancel", onGlobalPointerUp, true)
+
   if(AmmoLib && tempVec3){ AmmoLib.destroy(tempVec3); tempVec3 = null }
   if(AmmoLib && zeroVec3){ AmmoLib.destroy(zeroVec3); zeroVec3 = null }
 
-  const canvas = renderer?.domElement
-  if(canvas){
-    canvas.removeEventListener("pointerdown", onPointerDown)
-    canvas.removeEventListener("pointermove", onPointerMove)
-    canvas.removeEventListener("pointerup", onPointerUp)
-    canvas.removeEventListener("pointercancel", onPointerUp)
-  }
   resizeObserver?.disconnect()
   resizeObserver = null
   cancelAnimationFrame(animationId)
@@ -709,15 +733,20 @@ onBeforeUnmount(()=>{
 </script>
 
 <style scoped>
-.badge-3d-container{
-width:100%;
-height:100%;
-overflow:hidden;
-touch-action:none;
-user-select:none;
-pointer-events:auto;
+.badge-3d-container {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  box-sizing: border-box;
+  pointer-events: none;
+  user-select: none;
 }
-.badge-3d-container canvas{
-pointer-events:auto;
+.badge-3d-container :deep(canvas) {
+  display: block;
+  pointer-events: none;
 }
 </style>

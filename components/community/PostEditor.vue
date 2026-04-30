@@ -2,11 +2,11 @@
   <div class="min-h-screen bg-gray-50 dark:bg-gray-900 py-8 px-4">
     <div class="max-w-2xl mx-auto">
       <!-- 标题 -->
-      <div class="text-center mb-8">
+      <!-- <div class="text-center mb-8">
         <div class="text-5xl mb-4">📝</div>
-        <h1 class="text-3xl font-bold text-gray-800 dark:text-gray-100 mb-2">发帖分享</h1>
-        <p class="text-sm text-gray-500 dark:text-gray-400">分享您的想法到社区</p>
-      </div>
+        <h1 class="text-3xl font-bold text-gray-800 dark:text-gray-100 mb-2">{{ isEditMode ? '编辑帖子' : '发帖分享' }}</h1>
+        <p class="text-sm text-gray-500 dark:text-gray-400">{{ isEditMode ? '修改标题、正文与图片' : '分享您的想法到社区' }}</p>
+      </div> -->
 
       <!-- 表单 -->
       <div class="bg-white dark:bg-gray-800 rounded-2xl p-8 shadow-lg border border-gray-200 dark:border-gray-700">
@@ -36,6 +36,7 @@
                 placeholder="请输入内容..."
                 :min-height="300"
                 :max-height="400"
+                :enable-image-upload="true"
                 :enable-topic="true"
                 :enable-emoji="true"
                 :enable-mention="true"
@@ -46,11 +47,12 @@
           <!-- 图片选择 -->
           <div>
             <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              图片 <span class="text-gray-500 text-xs">(最多9张，支持拖拽排序)</span>
+              图片 <span class="text-gray-500 text-xs">(最多20张，支持拖拽排序)</span>
             </label>
             <QhxImagePicker 
               :multiple="true" 
-              :max="9"
+              :max="20"
+              :initial-image-paths="initialImagePaths"
               @update:files="onUpdateFiles" 
               ref="imagePickerRef" 
             />
@@ -71,7 +73,7 @@
               class="flex-1 px-6 py-3 bg-qhx-primary hover:bg-qhx-primaryHover text-white rounded-full font-bold transition-colors shadow-lg shadow-qhx-primary/30 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
             >
               <span v-if="submitting" class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
-              <span>{{ submitting ? '发布中...' : '发布' }}</span>
+              <span>{{ submitting ? (isEditMode ? '保存中...' : '发布中...') : (isEditMode ? '保存' : '发布') }}</span>
             </button>
           </div>
         </form>
@@ -82,12 +84,12 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
-// QhxRichTextEditor 在模板中使用，需要作为值导入
-// eslint-disable-next-line @typescript-eslint/consistent-type-imports
+import { ref, computed, watch } from 'vue'
+// QhxRichTextEditor 在模板中注册为组件，需值导入；biome 无法识别 SFC 模板用法
+// biome-ignore lint/style/useImportType: Vue SFC 组件供模板与 InstanceType 使用
 import QhxRichTextEditor from '@/components/Qhx/RichTextEditor.vue'
 
-import { insertCommunity, type CommunityInterface } from '@/api/community'
+import { insertCommunity, updateCommunity, type CommunityInterface, type UpdateCommunityParams } from '@/api/community'
 import { useUserStore } from '@/stores/user'
 import type { Community } from '@/types/api'
 import type QhxImagePicker from '@/components/Qhx/ImagePicker.vue'
@@ -96,11 +98,30 @@ import { uploadImageOSS } from '@/utils/ossUpload'
 interface Props {
   userId?: number
   skipSummaryLink?: boolean
+  /** 有值时为编辑已有帖子 */
+  communityId?: number
+  initialTitle?: string
+  initialContent?: string
+  initialImgList?: string | null
+  /** 原帖 type，更新时回传 */
+  initialType?: string
 }
 
 const props = withDefaults(defineProps<Props>(), {
   userId: undefined,
-  skipSummaryLink: false
+  skipSummaryLink: false,
+  communityId: undefined,
+  initialTitle: '',
+  initialContent: '',
+  initialImgList: null,
+  initialType: '日常交流'
+})
+
+const isEditMode = computed(() => props.communityId != null && props.communityId > 0)
+
+const initialImagePaths = computed(() => {
+  if (!props.initialImgList?.trim()) return undefined
+  return props.initialImgList.split(',').map((s) => s.trim()).filter(Boolean)
 })
 
 const emit = defineEmits<{
@@ -116,9 +137,19 @@ const imagePickerRef = ref<InstanceType<typeof QhxImagePicker> | null>(null)
 const richTextEditorRef = ref<InstanceType<typeof QhxRichTextEditor> | null>(null)
 
 const formData = ref({
-  title: '',
-  content: ''
+  title: props.initialTitle,
+  content: props.initialContent
 })
+
+watch(
+  () => [props.communityId, props.initialTitle, props.initialContent] as const,
+  () => {
+    if (!isEditMode.value) return
+    formData.value.title = props.initialTitle
+    formData.value.content = props.initialContent
+  },
+  { immediate: true }
+)
 
 // Upload & Submit Logic (Similar to before)
 const fetchUpload = async (file: { file?: File; url: string }): Promise<string> => {
@@ -207,25 +238,39 @@ const handleSubmit = async () => {
     const params: CommunityInterface = {
       title: formData.value.title,
       content: finalContent,
-      type: '日常交流',
+      type: props.initialType || '日常交流',
       img_list: imgList.length > 0 ? imgList.join() : null
     }
 
-    const community = await insertCommunity(params)
-
-    toast.add({
-      title: '发布成功',
-      icon: 'i-heroicons-check-circle',
-      color: 'green'
-    })
-
-    emit('success', community)
-    router.push('/community')
+    let community: Community
+    if (isEditMode.value && props.communityId) {
+      const updateParams: UpdateCommunityParams = {
+        ...params,
+        community_id: props.communityId
+      }
+      community = await updateCommunity(updateParams)
+      toast.add({
+        title: '保存成功',
+        icon: 'i-heroicons-check-circle',
+        color: 'green'
+      })
+      emit('success', community)
+      router.push(`/community/detail/${props.communityId}`)
+    } else {
+      community = await insertCommunity(params)
+      toast.add({
+        title: '发布成功',
+        icon: 'i-heroicons-check-circle',
+        color: 'green'
+      })
+      emit('success', community)
+      router.push('/community')
+    }
   } catch (error: unknown) {
-    console.error('发布失败:', error)
+    console.error(isEditMode.value ? '保存失败:' : '发布失败:', error)
     const errorMessage = error instanceof Error ? error.message : '请稍后重试'
     toast.add({
-      title: '发布失败',
+      title: isEditMode.value ? '保存失败' : '发布失败',
       description: errorMessage,
       icon: 'i-heroicons-x-circle',
       color: 'red'

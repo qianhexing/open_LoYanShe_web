@@ -1,6 +1,7 @@
 <script setup lang="ts">
-  const router = useRouter()
-import type { Study } from '@/types/api';
+import { STUDY_INTERNAL_URL_ROUTE_MAPPINGS, STUDY_TYPE_EXTERNAL, STUDY_TYPE_INTERNAL } from '@/utils/studyTypes'
+import type { Study } from '@/types/api'
+const router = useRouter()
 interface Props {
   item: Study,
   className?: string,
@@ -18,15 +19,10 @@ const handleJump = (ele: Study) => {
     return
   }
   console.log(item, '点击到的板块')
-  if (item.study_type === 2) {
+  if (item.study_type === STUDY_TYPE_EXTERNAL) {
     window.open(item.study_url)
-  } else if (item.study_type === 1) {
-    // APP 端路径到 Web 路由的映射（可扩展）
-    const urlMappings: Array<{ pattern: RegExp; getRoute: (m: RegExpMatchArray) => string }> = [
-      { pattern: /pages\/study\/studyMore\?id=(\d+)/, getRoute: m => `/study/more/${m[1]}` },
-      { pattern: /pages\/wiki\/wikiDetail\/wikiDetail\?id=(\d+)/, getRoute: m => `/lolitaWiki/detail/${m[1]}` },
-    ]
-    const mapping = urlMappings.find(m => item.study_url?.match(m.pattern))
+  } else if (item.study_type === STUDY_TYPE_INTERNAL) {
+    const mapping = STUDY_INTERNAL_URL_ROUTE_MAPPINGS.find(m => item.study_url?.match(m.pattern))
     const routeMatch = mapping ? item.study_url?.match(mapping.pattern) : null
     if (mapping && routeMatch) {
       router.push(mapping.getRoute(routeMatch))

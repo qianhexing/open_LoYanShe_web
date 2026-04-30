@@ -16,10 +16,23 @@ export async function getWardrobeList(
   const response = await use$Get<BaseResponse<PaginationResponse<Wardrobe>>>('/wardrobe/list/visitor', params);
   return response.data;
 }
+/**
+ * POST `/clothes/list` 可选排序（与衣柜 `sort_type` 二选一由后端约定；建议传 `sort_list` 时忽略衣柜默认排序）。
+ *
+ * - `add_time_asc`：按加入该衣柜的时间从早到晚（时间轴阅读顺序）
+ * - `add_time_desc`：按加入时间从晚到早（最新在前）
+ *
+ * 后端需在查询中 `ORDER BY` 关联表里「服饰加入衣柜」的时间字段（如 `wardrobe_clothes.add_time`），
+ * 且分页结果须为该全局排序下的连续切片。
+ */
+export type ClothesListSortList = 'add_time_asc' | 'add_time_desc'
+
 export interface ClothesParams extends PaginationParams {
   wardrobe_id: number
   filter_list?: Record<string, any>
   password?: string
+  /** 按加入衣柜时间排序；不传则沿用衣柜 `sort_type` */
+  sort_list?: ClothesListSortList
 }
 interface ClothesResponse<T = any> {
   rows: T[];
@@ -232,5 +245,53 @@ export interface ClothesCitationAddResponse {
 
 export async function addClothesCitation(params: { clothes_id: number }): Promise<ClothesCitationAddResponse> {
   const response = await use$Post<BaseResponse<ClothesCitationAddResponse>>('/clothes/citation/add', params)
+  return response.data
+}
+
+/** 衣柜统计接口（与 APP 一致）；visitor 场景可传 user_id */
+export interface WardrobeStatisticsPartRow {
+  type_count: number
+  clothes_part?: string | null
+}
+
+export interface WardrobeStatisticsStatusRow {
+  total: number
+  title?: string | null
+}
+
+export interface WardrobeStatisticsParams {
+  wardrobe_id?: number[]
+  /** 浏览他人衣柜时与 `/wardrobe/list/visitor` 一致 */
+  user_id?: number
+}
+
+/** 衣柜统计中联动的店铺来源（图鉴 shop + 自定义店名等） */
+export interface WardrobeStatisticsShopRow {
+  shop_id: number | null
+  shop_name: string
+  shop_logo: string | null
+  clothes_count: number
+  is_custom: boolean
+  /** 数字店：library 内该 shop_id 且 is_enable=0 的图鉴条数；纯文字自定义店通常无此字段 */
+  total_library_count?: number
+}
+
+export interface WardrobeStatisticsData {
+  clothes_part?: WardrobeStatisticsPartRow[]
+  wardrobe_status?: WardrobeStatisticsStatusRow[]
+  wardrobe?: Wardrobe[]
+  shops?: WardrobeStatisticsShopRow[]
+  library?: Array<WardrobeClothes & {
+    design_elements?: string
+    pattern_elements?: string
+    theme?: string
+    clothes_main_style?: string
+  }>
+}
+
+export async function getWardrobeStatistics(
+  params: WardrobeStatisticsParams
+): Promise<WardrobeStatisticsData> {
+  const response = await use$Post<BaseResponse<WardrobeStatisticsData>>('/wardrobe/statistics', params)
   return response.data
 }

@@ -17,6 +17,13 @@ import WikiOptionsChoose from '@/components/wiki/wikiOptionsChoose.vue'
 import type { Wiki } from '@/types/api'
 import type QhxColorPicker from '@/components/Qhx/ColorPicker.vue'
 const ColorPickerRef = ref<InstanceType<typeof QhxColorPicker> | null>(null)
+
+const showCoverImageColorPicker = ref(false)
+const imageColorPickerClickPosition = ref({ x: 0, y: 0 })
+/** 服饰封面首张预览图，用于 canvas 取色 */
+const coverPreviewUrl = computed(
+  () => wardrobeCoverRef.value?.previewImages?.[0]?.url?.trim() ?? ''
+)
 import type { default as QhxSelect, optionsInterface } from '@/components/Qhx/Select.vue'
 import customInput from './customInput.vue'
 const detailImageRef = ref<InstanceType<typeof QhxImagePicker> | null>(null)
@@ -146,6 +153,8 @@ const confirmedSharedClothesList = ref<WardrobeClothes[]>([])
 const confirmDetailLoading = ref(false)
 /** 二级确认弹框：代入会覆盖信息 */
 const showConfirmOverwriteModal = ref(false)
+/** 共享服饰点赞：good 表 pk_type（与后端约定） */
+const PK_TYPE_SHARED_CLOTHES_GOOD = 8
 
 const fetchSharedClothesList = async () => {
   if (type.value !== 0) return
@@ -558,6 +567,7 @@ const showModel = async (item: ExtendedClothesItem | null, isCopy = false, event
       plan.value = null
     }
     form.value.add_time = item.add_time || null
+    console.log(item.origin, '来源字段')
     form.value.origin = item.origin || null
     setTimeout(() => {
       if (item.detail_image_list && Array.isArray(item.detail_image_list) && item.detail_image_list.length > 0 && detailImageRef.value) {
@@ -690,7 +700,14 @@ const showModel = async (item: ExtendedClothesItem | null, isCopy = false, event
     } else {
       // 如果 origin 存在但不是 origin_shop，暂时设为 undefined
       // 后续可以通过 origin 字段查找店铺
-      origin_shop.value = undefined
+      if (item.origin) {
+        origin_shop.value = {
+          // shop_id: 0,
+          shop_name: item.origin.toString()
+        }
+      } else {
+        origin_shop.value = undefined
+      }
     }
 
     // 处理衣柜名称
@@ -742,6 +759,19 @@ const showColorPicker = () => {
   if (ColorPickerRef.value) {
     ColorPickerRef.value.showModel()
   }
+}
+
+const openCoverImageColorPicker = (e?: MouseEvent) => {
+  if (!coverPreviewUrl.value) return
+  if (e) {
+    imageColorPickerClickPosition.value = { x: e.clientX, y: e.clientY }
+  } else if (typeof window !== 'undefined') {
+    imageColorPickerClickPosition.value = {
+      x: window.innerWidth / 2,
+      y: window.innerHeight / 2
+    }
+  }
+  showCoverImageColorPicker.value = true
 }
 const wardrobeName = ref('')
 const library = ref<Library | null>(null)
@@ -968,11 +998,14 @@ const insert = async () => {
   } else {
     params.note = null
   }
+  console.log(origin_shop.value, '来源字段')
   if (origin_shop.value) {
     if (origin_shop.value.shop_id) {
       params.origin = origin_shop.value.shop_id
-    } else {
+    } else if (origin_shop.value.shop_name) {
       params.origin = origin_shop.value.shop_name
+    } else {
+      params.origin = origin_shop.value
     }
   } else {
     params.origin = null
@@ -1130,7 +1163,7 @@ defineExpose({
 
 <template>
   <!-- Popup -->
-  <QhxModal v-model="show" :trigger-position="clickPosition" @close="handleClose">
+  <QhxModal v-model="show" :trigger-position="clickPosition" :close-on-backdrop="false" @close="handleClose">
     <div class="w-[95vw] max-w-3xl max-h-[90vh] bg-white dark:bg-gray-800 rounded-2xl shadow-2xl overflow-hidden flex flex-col backdrop-blur-xl border border-gray-200/50 dark:border-gray-700/50">
       <!-- 头部 -->
       <div class="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-700 bg-gradient-to-r from-pink-50 to-purple-50 dark:from-gray-800 dark:to-gray-800 flex-shrink-0">
@@ -1263,7 +1296,7 @@ defineExpose({
                   v-else
                   v-for="item in sharedClothesList"
                   :key="item.clothes_id"
-                  class="flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer transition-colors"
+                  class="flex items-center gap-2 px-2 py-1.5 rounded-lg cursor-pointer transition-colors"
                   :class="selectedSharedClothes?.clothes_id === item.clothes_id
                     ? 'bg-qhx-primary/25 dark:bg-qhx-primary/35 ring-2 ring-qhx-primary ring-inset'
                     : 'hover:bg-gray-100 dark:hover:bg-gray-700'"
@@ -1272,13 +1305,38 @@ defineExpose({
                   <img
                     v-if="item.clothes_img"
                     :src="BASE_IMG + item.clothes_img"
-                    class="w-10 h-10 rounded object-cover flex-shrink-0"
+                    class="w-9 h-9 rounded object-cover flex-shrink-0"
                     alt=""
                   />
-                  <div v-else class="w-10 h-10 rounded bg-gray-200 dark:bg-gray-600 flex-shrink-0 flex items-center justify-center">
-                    <UIcon name="i-heroicons-photo" class="text-gray-400 text-lg" />
+                  <div v-else class="w-9 h-9 rounded bg-gray-200 dark:bg-gray-600 flex-shrink-0 flex items-center justify-center">
+                    <UIcon name="i-heroicons-photo" class="text-gray-400 text-sm" />
                   </div>
-                  <span class="flex-1 truncate text-sm">{{ item.clothes_note || '未命名' }}</span>
+                  <div class="flex-1 min-w-0">
+                    <div class="truncate text-sm leading-snug">{{ item.clothes_note || '未命名' }}</div>
+                    <div class="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-0 text-[10px] leading-tight text-gray-500 dark:text-gray-400">
+                      <span class="inline-flex items-center gap-0.5 shrink-0 text-qhx-primary/80 dark:text-qhx-primary/90">
+                        <UIcon name="i-heroicons-hand-thumb-up" class="w-3 h-3 flex-shrink-0" />
+                        {{ item.good_count ?? 0 }}
+                      </span>
+                      <span class="text-gray-300 dark:text-gray-600" aria-hidden="true">·</span>
+                      <span class="inline-flex items-center gap-0.5 shrink-0" title="引用数">
+                        <UIcon name="i-heroicons-link" class="w-3 h-3 flex-shrink-0 opacity-80" />
+                        {{ item.citation_count ?? 0 }}
+                      </span>
+                      <template v-if="item.price != null">
+                        <span class="text-gray-300 dark:text-gray-600" aria-hidden="true">·</span>
+                        <span class="truncate">¥{{ item.price }}</span>
+                      </template>
+                      <template v-if="item.origin">
+                        <span class="text-gray-300 dark:text-gray-600" aria-hidden="true">·</span>
+                        <span class="truncate max-w-[4.5rem]" :title="item.origin">{{ item.origin }}</span>
+                      </template>
+                      <template v-if="item.color">
+                        <span class="text-gray-300 dark:text-gray-600" aria-hidden="true">·</span>
+                        <span class="truncate max-w-[3rem]" :title="item.color">{{ item.color }}</span>
+                      </template>
+                    </div>
+                  </div>
                 </div>
               </div>
               <div class="flex justify-end gap-2 p-2 border-t border-gray-200 dark:border-gray-600 flex-shrink-0">
@@ -1294,7 +1352,10 @@ defineExpose({
             v-if="type === 0 && confirmedSharedClothesList.length > 0"
             class="mt-3 space-y-3"
           >
-            <span class="text-sm text-gray-500 dark:text-gray-400">已选择：</span>
+            <div class="space-y-1">
+              <span class="text-sm text-gray-500 dark:text-gray-400">已选择：</span>
+              <p class="text-xs text-gray-400 dark:text-gray-500">如果有帮助可以点个赞哦</p>
+            </div>
             <div class="space-y-3">
               <div
                 v-for="mainItem in confirmedSharedClothesList"
@@ -1321,13 +1382,28 @@ defineExpose({
                       <span v-if="mainItem.color">{{ mainItem.color }}</span>
                     </div>
                   </div>
-                  <button
-                    type="button"
-                    class="p-1.5 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors flex-shrink-0"
-                    @click="onRemoveConfirmedSharedClothes(mainItem)"
-                  >
-                    <UIcon name="i-heroicons-x-mark" class="text-base text-gray-500" />
-                  </button>
+                  <div class="flex flex-col items-end gap-1 flex-shrink-0 self-start">
+                    <div
+                      v-if="mainItem.clothes_id != null"
+                      class="inline-block origin-top-right scale-[0.82] leading-none"
+                      title="为共享源点赞"
+                    >
+                      <UserGoodBtn
+                        :pk_id="mainItem.clothes_id"
+                        :pk_type="PK_TYPE_SHARED_CLOTHES_GOOD"
+                        :good_count="mainItem.good_count ?? 0"
+                        :need_judge="true"
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      class="p-1.5 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+                      title="移除"
+                      @click="onRemoveConfirmedSharedClothes(mainItem)"
+                    >
+                      <UIcon name="i-heroicons-x-mark" class="text-base text-gray-500" />
+                    </button>
+                  </div>
                 </div>
                 <!-- 关联子服饰列表 -->
                 <div
@@ -1516,6 +1592,13 @@ defineExpose({
           <div class="gap-2">
             <ClientOnly>
               <QhxColorPicker @choose="chooseColor" ref="ColorPickerRef"></QhxColorPicker>
+              <QhxImageCanvasColorPicker
+                v-model="showCoverImageColorPicker"
+                :image-src="coverPreviewUrl"
+                :trigger-position="imageColorPickerClickPosition"
+                title="从封面图取色"
+                @confirm="chooseColor"
+              />
             </ClientOnly>
             <div v-if="form.color.length > 0">
               <QhxTag
@@ -1530,14 +1613,26 @@ defineExpose({
                 </div>
               </QhxTag>
             </div>
-            <UButton
-              size="xs"
-              color="primary"
-              class="bg-qhx-primary text-qhx-inverted hover:bg-qhx-primaryHover mt-2"
-              @click="showColorPicker"
-            >
-              选择颜色
-            </UButton>
+            <div class="flex flex-wrap gap-2 mt-2">
+              <UButton
+                size="xs"
+                color="primary"
+                class="bg-qhx-primary text-qhx-inverted hover:bg-qhx-primaryHover"
+                @click="showColorPicker"
+              >
+                选择颜色
+              </UButton>
+              <UButton
+                v-if="coverPreviewUrl"
+                size="xs"
+                variant="outline"
+                class="ring-1 ring-gray-200 dark:ring-gray-600 text-gray-800 dark:text-gray-200"
+                @click="(e: MouseEvent) => openCoverImageColorPicker(e)"
+              >
+                <UIcon name="i-heroicons-swatch-20-solid" class="size-4 mr-0.5" />
+                从封面取色
+              </UButton>
+            </div>
           </div>
         </UFormGroup>
         <UFormGroup label="拥有状态">
@@ -1806,7 +1901,7 @@ defineExpose({
     />
     
     <!-- 场景选择对话框 -->
-    <QhxModal v-model="showSceneChooseModal" :trigger-position="sceneChooseClickPosition" @close="handleSceneChooseClose">
+    <QhxModal v-model="showSceneChooseModal" :trigger-position="sceneChooseClickPosition" :close-on-backdrop="false" @close="handleSceneChooseClose">
       <div class="w-[90vw] max-w-md bg-white dark:bg-gray-800 rounded-2xl shadow-2xl overflow-hidden flex flex-col backdrop-blur-xl border border-gray-200/50 dark:border-gray-700/50">
         <!-- 头部 -->
         <div class="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-700 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-gray-800 dark:to-gray-800 flex-shrink-0">
@@ -1862,7 +1957,7 @@ defineExpose({
       </div>
     </QhxModal>
     <!-- 二级确认：代入会覆盖信息 -->
-    <QhxModal v-model="showConfirmOverwriteModal" :trigger-position="clickPosition" @close="showConfirmOverwriteModal = false">
+    <QhxModal v-model="showConfirmOverwriteModal" :trigger-position="clickPosition" :close-on-backdrop="false" @close="showConfirmOverwriteModal = false">
       <div class="w-[90vw] max-w-md bg-white dark:bg-gray-800 rounded-2xl shadow-2xl overflow-hidden border border-gray-200/50 dark:border-gray-700/50">
         <div class="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
           <h3 class="text-lg font-semibold text-gray-900 dark:text-gray-100">操作确认</h3>

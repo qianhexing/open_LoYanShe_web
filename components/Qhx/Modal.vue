@@ -18,7 +18,7 @@
           <!-- Backdrop -->
           <div
             class="absolute inset-0 bg-black/10 transition-opacity duration-300"
-            @click="close"
+            @click="onBackdropClick"
           ></div>
 
           <!-- Modal -->
@@ -41,10 +41,17 @@ import { ref, nextTick, watch, onUnmounted } from 'vue'
 // 客户端检查
 const isClient = process.client
 
-const props = defineProps<{
-  modelValue: boolean
-  triggerPosition?: { x: number; y: number }
-}>()
+const props = withDefaults(
+  defineProps<{
+    modelValue: boolean
+    triggerPosition?: { x: number; y: number }
+    /** 点击遮罩是否关闭，默认 true */
+    closeOnBackdrop?: boolean
+  }>(),
+  {
+    closeOnBackdrop: true
+  }
+)
 
 const emit = defineEmits(['update:modelValue', 'close'])
 
@@ -143,6 +150,10 @@ const close = () => {
   enableBodyScroll()
   emit('update:modelValue', false)
   emit('close')
+}
+
+const onBackdropClick = () => {
+  if (props.closeOnBackdrop) close()
 }
 
 // 进入前设置初始位置和缩放

@@ -53,6 +53,7 @@
                 placeholder="请输入内容..."
                 :min-height="300"
                 :max-height="400"
+                :enable-image-upload="true"
                 :enable-topic="true"
                 :enable-emoji="true"
                 :enable-mention="true"
@@ -63,11 +64,11 @@
             <!-- 图片选择 -->
             <div>
               <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                图片 <span class="text-gray-500 text-xs">(最多9张，支持拖拽排序)</span>
+                图片 <span class="text-gray-500 text-xs">(最多20张，支持拖拽排序)</span>
               </label>
               <QhxImagePicker 
                 :multiple="true" 
-                :max="9"
+                :max="20"
                 @update:files="onUpdateFiles" 
                 ref="imagePickerRef" 
               />
@@ -99,213 +100,269 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
-// QhxRichTextEditor 在模板中使用，需要作为值导入
-// eslint-disable-next-line @typescript-eslint/consistent-type-imports
+import { type CommunityInterface, insertCommunity } from '@/api/community'
+// biome-ignore lint/style/useImportType: Vue SFC 供 template 与 InstanceType
+import QhxImagePicker from '@/components/Qhx/ImagePicker.vue'
+// biome-ignore lint/style/useImportType: Vue SFC 供 template 与 InstanceType
 import QhxRichTextEditor from '@/components/Qhx/RichTextEditor.vue'
-import { insertCommunity, type CommunityInterface } from '@/api/community'
 import { useUserStore } from '@/stores/user'
 import type { Community } from '@/types/api'
-import type QhxImagePicker from '@/components/Qhx/ImagePicker.vue'
+import { BASE_IMG } from '@/utils/ipConfig'
 import { uploadImageOSS } from '@/utils/ossUpload'
+import { nextTick, ref, watch } from 'vue'
+
+/** 站内图片路径归一（去域名前缀与 query），用于比较与去重 */
+function normalizeSceneImgPath(p: string): string {
+	return p
+		.replace(BASE_IMG, '')
+		.replace(/^https?:\/\/[^/]+\//, '')
+		.split('?')[0]
+		.trim()
+}
+
 interface Props {
-  modelValue: boolean
-  userId?: number
-  skipSummaryLink?: boolean // 是否跳过添加年终总结链接
-  senceId?: number // 场景ID，如果提供则发场景帖子
+	modelValue: boolean
+	userId?: number
+	skipSummaryLink?: boolean // 是否跳过添加年终总结链接
+	senceId?: number // 场景ID，如果提供则发场景帖子
+	/** 场景封面相对路径（与详情页 sence_cover 一致）；发帖时默认作为第一张图且提交时始终在首位 */
+	sceneCoverRelativePath?: string
 }
 
 const props = withDefaults(defineProps<Props>(), {
-  userId: undefined,
-  skipSummaryLink: false,
-  senceId: undefined
+	userId: undefined,
+	skipSummaryLink: false,
+	senceId: undefined,
+	sceneCoverRelativePath: undefined
 })
 
 const emit = defineEmits<{
-  'update:modelValue': [value: boolean]
-  'success': [value: Community]
+	'update:modelValue': [value: boolean]
+	success: [value: Community]
 }>()
 
 const toast = useToast()
 const userStore = useUserStore()
 const submitting = ref(false)
 const imagePickerRef = ref<InstanceType<typeof QhxImagePicker> | null>(null)
-const richTextEditorRef = ref<InstanceType<typeof QhxRichTextEditor> | null>(null)
+const richTextEditorRef = ref<InstanceType<typeof QhxRichTextEditor> | null>(
+	null
+)
 
 const formData = ref({
-  title: '',
-  content: ''
+	title: '',
+	content: ''
 })
 
 // 图片上传处理函数
-const fetchUpload = async (file: { file?: File; url: string }): Promise<string> => {
-  try {
-    const res = await uploadImageOSS(file)
-    const url = res
-    return url
-  } catch (error) {
-    console.error('图片上传失败:', error)
-    throw error
-  }
+const fetchUpload = async (file: {
+	file?: File
+	url: string
+}): Promise<string> => {
+	try {
+		const res = await uploadImageOSS(file)
+		const url = res
+		return url
+	} catch (error) {
+		console.error('图片上传失败:', error)
+		throw error
+	}
 }
 
 // 处理图片文件更新
-const onUpdateFiles = (files: File[]) => {
-  // 检查是否超过最大数量限制
-  if (imagePickerRef.value && imagePickerRef.value.previewImages.length > 9) {
-    toast.add({
-      title: '最多只能上传9张图片',
-      icon: 'i-heroicons-exclamation-circle',
-      color: 'orange'
-    })
-    // 移除超出限制的图片
-    imagePickerRef.value.previewImages = imagePickerRef.value.previewImages.slice(0, 9)
-  }
+const onUpdateFiles = (_files: File[]) => {
+	// 检查是否超过最大数量限制
+	if (imagePickerRef.value && imagePickerRef.value.previewImages.length > 20) {
+		toast.add({
+			title: '最多只能上传20张图片',
+			icon: 'i-heroicons-exclamation-circle',
+			color: 'orange'
+		})
+		// 移除超出限制的图片
+			imagePickerRef.value.previewImages =
+			imagePickerRef.value.previewImages.slice(0, 20)
+	}
 }
+
+// 场景发帖：弹窗打开时预填封面为第一张（自选图仅追加在后，提交时仍保证封面在 img_list 首位）
+watch(
+	() => props.modelValue,
+	async open => {
+		if (!open || !props.senceId) return
+		const path = props.sceneCoverRelativePath?.trim()
+		if (!path) return
+		await nextTick()
+		const picker = imagePickerRef.value
+		picker?.clear()
+		await nextTick()
+		picker?.seedFromPaths?.([path])
+	}
+)
 
 // 关闭弹窗
 const handleClose = () => {
-  emit('update:modelValue', false)
-  // 重置表单
-  formData.value = {
-    title: '',
-    content: ''
-  }
-  // 清空编辑器内容
-  if (richTextEditorRef.value) {
-    richTextEditorRef.value.clearContent()
-  }
-  // 清空图片
-  if (imagePickerRef.value) {
-    imagePickerRef.value.clear()
-  }
+	emit('update:modelValue', false)
+	// 重置表单
+	formData.value = {
+		title: '',
+		content: ''
+	}
+	// 清空编辑器内容
+	if (richTextEditorRef.value) {
+		richTextEditorRef.value.clearContent()
+	}
+	// 清空图片
+	if (imagePickerRef.value) {
+		imagePickerRef.value.clear()
+	}
 }
 
 // 提交表单
 const handleSubmit = async () => {
-  if (!formData.value.title.trim()) {
-    toast.add({
-      title: '请输入标题',
-      icon: 'i-heroicons-exclamation-circle',
-      color: 'orange'
-    })
-    return
-  }
+	if (!formData.value.title.trim()) {
+		toast.add({
+			title: '请输入标题',
+			icon: 'i-heroicons-exclamation-circle',
+			color: 'orange'
+		})
+		return
+	}
 
-  if (!richTextEditorRef.value) {
-    toast.add({
-      title: '编辑器未初始化',
-      icon: 'i-heroicons-exclamation-circle',
-      color: 'red'
-    })
-    return
-  }
+	if (!richTextEditorRef.value) {
+		toast.add({
+			title: '编辑器未初始化',
+			icon: 'i-heroicons-exclamation-circle',
+			color: 'red'
+		})
+		return
+	}
 
-  // 获取编辑器内容
-  const content = richTextEditorRef.value.getContent()
+	// 获取编辑器内容
+	const content = richTextEditorRef.value.getContent()
 
-  if (!content || content.trim() === '<p></p>' || content.trim() === '<p><br></p>') {
-    toast.add({
-      title: '请输入内容',
-      icon: 'i-heroicons-exclamation-circle',
-      color: 'orange'
-    })
-    return
-  }
+	if (
+		!content ||
+		content.trim() === '<p></p>' ||
+		content.trim() === '<p><br></p>'
+	) {
+		toast.add({
+			title: '请输入内容',
+			icon: 'i-heroicons-exclamation-circle',
+			color: 'orange'
+		})
+		return
+	}
 
-  submitting.value = true
+	submitting.value = true
 
-  try {
-    // 获取当前用户ID
-    const currentUserId = props.userId || userStore.user?.user_id
-    if (!currentUserId) {
-      toast.add({
-        title: '请先登录',
-        icon: 'i-heroicons-exclamation-circle',
-        color: 'red'
-      })
-      return
-    }
+	try {
+		// 获取当前用户ID
+		const currentUserId = props.userId || userStore.user?.user_id
+		if (!currentUserId) {
+			toast.add({
+				title: '请先登录',
+				icon: 'i-heroicons-exclamation-circle',
+				color: 'red'
+			})
+			return
+		}
 
-    // 在内容头部拼接链接或场景iframe
-    let finalContent = content
-    if (props.senceId) {
-      // 场景发帖：添加场景iframe
-      const sceneUrl = `https://lolitalibrary.com/scene/detail/${props.senceId}`
-      const sceneIframe = `<p><iframe style="width:100%; height:60vh" frameborder="0" allowfullscreen mozallowfullscreen="true" webkitallowfullscreen="true" allow="autoplay; fullscreen; xr-spatial-tracking" xr-spatial-tracking execution-while-out-of-viewport execution-while-not-rendered web-share src="${sceneUrl}"> </iframe></p>`
-      finalContent = `${sceneIframe}<br><br>${content}`
-    } else if (!props.skipSummaryLink) {
-      // 年度总结发帖：添加年度总结链接
-      const summaryLink = `<a href="lolitalibrary.com/yearlySummary?user_id=${currentUserId}">#2025年终总结</a>`
-      finalContent = `${summaryLink}<br><br>${content}`
-    }
+		// 在内容头部拼接链接或场景iframe
+		let finalContent = content
+		if (props.senceId) {
+			// 场景发帖：添加场景iframe
+			const sceneUrl = `https://lolitalibrary.com/scene/detail/${props.senceId}`
+			const sceneIframe = `<p><iframe style="width:100%; height:60vh" frameborder="0" allowfullscreen mozallowfullscreen="true" webkitallowfullscreen="true" allow="autoplay; fullscreen; xr-spatial-tracking" xr-spatial-tracking execution-while-out-of-viewport execution-while-not-rendered web-share src="${sceneUrl}"> </iframe></p>`
+			finalContent = `${sceneIframe}<br><br>${content}`
+		} else if (!props.skipSummaryLink) {
+			// 年度总结发帖：添加年度总结链接
+			const summaryLink = `<a href="lolitalibrary.com/yearlySummary?user_id=${currentUserId}">#2025年终总结</a>`
+			finalContent = `${summaryLink}<br><br>${content}`
+		}
 
-    // 处理图片上传
-    let imgList: string[] = []
-    if (imagePickerRef.value && imagePickerRef.value.previewImages.length > 0) {
-      try {
-        const uploadPromises = imagePickerRef.value.previewImages
-          .filter((img): img is { file?: File; url: string } => typeof img === 'object' && 'url' in img && typeof img.url === 'string')
-          .map(img => fetchUpload(img))
-        imgList = await Promise.all(uploadPromises)
-      } catch (error) {
-        console.error('图片上传失败:', error)
-        toast.add({
-          title: '图片上传失败',
-          description: '请检查图片后重试',
-          icon: 'i-heroicons-x-circle',
-          color: 'red'
-        })
-        submitting.value = false
-        return
-      }
-    }
+		// 处理图片上传
+		let imgList: string[] = []
+		if (imagePickerRef.value && imagePickerRef.value.previewImages.length > 0) {
+			try {
+				const uploadPromises = imagePickerRef.value.previewImages
+					.filter(
+						(img): img is { file?: File; url: string } =>
+							typeof img === 'object' &&
+							'url' in img &&
+							typeof img.url === 'string'
+					)
+					.map(img => fetchUpload(img))
+				const uploaded = await Promise.all(uploadPromises)
+				const coverTrim =
+					props.senceId && props.sceneCoverRelativePath?.trim()
+						? normalizeSceneImgPath(props.sceneCoverRelativePath.trim())
+						: ''
+				if (coverTrim) {
+					const rest = uploaded.filter(
+						u => normalizeSceneImgPath(u) !== coverTrim
+					)
+					imgList = [coverTrim, ...rest].slice(0, 20)
+				} else {
+					imgList = uploaded.slice(0, 20)
+				}
+			} catch (error) {
+				console.error('图片上传失败:', error)
+				toast.add({
+					title: '图片上传失败',
+					description: '请检查图片后重试',
+					icon: 'i-heroicons-x-circle',
+					color: 'red'
+				})
+				submitting.value = false
+				return
+			}
+		}
 
-    // 调用API发帖
-    const params: CommunityInterface & { sence_id?: number } = {
-      title: formData.value.title,
-      content: finalContent,
-      type: props.senceId ? '3D' : '日常交流', // 场景帖子类型为3D，年度总结为日常交流
-      img_list: imgList.length > 0 ? imgList.join() : null,
-      ...(props.senceId ? { sence_id: props.senceId } : {})
-    }
+		// 调用API发帖
+		const params: CommunityInterface & { sence_id?: number } = {
+			title: formData.value.title,
+			content: finalContent,
+			type: props.senceId ? '3D' : '日常交流', // 场景帖子类型为3D，年度总结为日常交流
+			img_list: imgList.length > 0 ? imgList.join() : null,
+			...(props.senceId ? { sence_id: props.senceId } : {})
+		}
 
-    const community = await insertCommunity(params as CommunityInterface)
+		const community = await insertCommunity(params as CommunityInterface)
 
-    toast.add({
-      title: '发布成功',
-      icon: 'i-heroicons-check-circle',
-      color: 'green'
-    })
+		toast.add({
+			title: '发布成功',
+			icon: 'i-heroicons-check-circle',
+			color: 'green'
+		})
 
-    emit('success' , community)
-    handleClose()
-  } catch (error: unknown) {
-    console.error('发布失败:', error)
-    // 安全地提取错误信息，避免访问可能为 null 的对象
-    let errorMessage = '请稍后重试'
-    try {
-      if (error instanceof Error) {
-        errorMessage = error.message || '请稍后重试'
-      } else if (typeof error === 'object' && error !== null) {
-        const err = error as Record<string, unknown>
-        if (err.message && typeof err.message === 'string') {
-          errorMessage = err.message
-        }
-      }
-    } catch (e) {
-      // 如果提取错误信息时出错，使用默认消息
-      console.error('提取错误信息失败:', e)
-    }
-    toast.add({
-      title: '发布失败',
-      description: errorMessage,
-      icon: 'i-heroicons-x-circle',
-      color: 'red'
-    })
-  } finally {
-    submitting.value = false
-  }
+		emit('success', community)
+		handleClose()
+	} catch (error: unknown) {
+		console.error('发布失败:', error)
+		// 安全地提取错误信息，避免访问可能为 null 的对象
+		let errorMessage = '请稍后重试'
+		try {
+			if (error instanceof Error) {
+				errorMessage = error.message || '请稍后重试'
+			} else if (typeof error === 'object' && error !== null) {
+				const err = error as Record<string, unknown>
+				if (err.message && typeof err.message === 'string') {
+					errorMessage = err.message
+				}
+			}
+		} catch (e) {
+			// 如果提取错误信息时出错，使用默认消息
+			console.error('提取错误信息失败:', e)
+		}
+		toast.add({
+			title: '发布失败',
+			description: errorMessage,
+			icon: 'i-heroicons-x-circle',
+			color: 'red'
+		})
+	} finally {
+		submitting.value = false
+	}
 }
 </script>
 

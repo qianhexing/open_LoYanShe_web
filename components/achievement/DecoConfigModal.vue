@@ -2,6 +2,8 @@
 import { getDecoList } from '@/api/deco';
 import type { DecoItem } from '@/api/deco';
 import { updateUserDisplayBadges } from '@/api/user';
+import { updateCommunityDisplayBadge } from '@/api/community';
+import { updateWardrobe } from '@/api/wardrobe';
 import { BASE_IMG } from '@/utils/ipConfig';
 import QhxModal from '@/components/Qhx/Modal.vue';
 
@@ -11,13 +13,22 @@ const props = withDefaults(
     triggerPosition?: { x: number; y: number };
     /** 打开弹窗时预填的已选徽章 ID */
     initialSelectedIds?: number[];
+    /** 若传入，则保存为该衣柜的 display_badge（逗号分隔 deco_id），不调用用户展示接口 */
+    wardrobeId?: number | null;
+    /** 若传入，则 POST /community/update/display_badge 仅更新帖子展示徽章 */
+    communityId?: number | null;
   }>(),
-  { initialSelectedIds: () => [] }
+  {
+    initialSelectedIds: () => [],
+    wardrobeId: null,
+    communityId: null,
+  }
 );
 
 const emit = defineEmits<{
   (e: 'update:modelValue', v: boolean): void;
-  (e: 'saved'): void;
+  /** 用户配置时不带参数；衣柜/帖子配置时带 display_badge（清空时可为 null） */
+  (e: 'saved', payload?: { display_badge: string | null }): void;
 }>();
 
 const decoList = ref<DecoItem[]>([]);
@@ -109,8 +120,35 @@ const save = async () => {
   if (!userStore.token) return;
   decoSaveLoading.value = true;
   try {
-    await updateUserDisplayBadges({ badge_ids: selectedDecoIds.value });
-    emit('saved');
+    const wid = props.wardrobeId;
+    const cid = props.communityId;
+    if (wid != null && wid > 0) {
+      const displayBadge = selectedDecoIds.value.join(',');
+      const updated = await updateWardrobe({
+        wardrobe_id: wid,
+        display_badge: displayBadge,
+      });
+      emit('saved', {
+        display_badge: updated?.display_badge ?? displayBadge,
+      });
+    } else if (cid != null && cid > 0) {
+      const joined = selectedDecoIds.value.join(',');
+      const trimmed = joined.trim();
+      const displayBadgeBody: string | null =
+        trimmed === '' ? null : trimmed;
+      const updated = await updateCommunityDisplayBadge({
+        community_id: cid,
+        display_badge: displayBadgeBody,
+      });
+      const next = updated?.display_badge;
+      emit('saved', {
+        display_badge:
+          next == null || String(next).trim() === '' ? null : String(next).trim(),
+      });
+    } else {
+      await updateUserDisplayBadges({ badge_ids: selectedDecoIds.value });
+      emit('saved');
+    }
     emit('update:modelValue', false);
   } catch (e) {
     console.error('保存徽章配置失败:', e);

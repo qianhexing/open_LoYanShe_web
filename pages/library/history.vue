@@ -514,9 +514,9 @@ useHead({
                 </div>
               </div>
 
-              <!-- 父图鉴ID -->
+              <!-- 母图鉴ID -->
               <div v-if="hasValue(history.params.parent_id) && history.params.parent_id !== 0" class="flex items-start gap-2">
-                <span class="text-sm text-gray-500 dark:text-gray-400 min-w-[100px]">父图鉴ID：</span>
+                <span class="text-sm text-gray-500 dark:text-gray-400 min-w-[100px]">母图鉴ID：</span>
                 <span>{{ history.params.parent_id }}</span>
               </div>
             </div>

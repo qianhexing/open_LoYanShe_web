@@ -244,7 +244,7 @@ const clearVideoFile = () => {
   }
 }
 
-// 暴露方法供父组件调用
+// 暴露方法供母组件调用
 defineExpose({
   clear: clearVideoFile,
   selectFile: () => {

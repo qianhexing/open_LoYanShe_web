@@ -1,11 +1,5 @@
 <template>
   <div class="space-y-4">
-    <!-- 上传按钮 -->
-    <UButton v-if="!props.disabled" size="xs" class="bg-qhx-primary text-qhx-inverted hover:bg-qhx-primaryHover mt-2"
-      icon="i-heroicons-photo" @click="triggerInput" color="primary">
-      选择图片
-    </UButton>
-
     <input ref="fileInput" type="file" accept="image/*" :multiple="multiple" class="hidden" @change="handleFiles" />
 
     <!-- 拖拽上传区 -->
@@ -41,6 +35,25 @@
         item-key="id" animation="300"
         v-model="previewImages"
         ghost-class="drag-ghost" chosen-class="drag-chosen" drag-class="dragging" class=" flex flex-wrap">
+        <template #header>
+          <div
+            v-if="!props.disabled"
+            class="[@media(min-width:1920px)]:w-[calc(100%/10)] xl:w-1/4 md:w-1/4 max-md:w-1/3"
+          >
+            <div
+              class="flex flex-col items-center transition-transform duration-300 ease-out hover:scale-105 py-[10px] px-[15px] max-md:px-[5px]"
+            >
+              <button
+                type="button"
+                class="w-full aspect-[1/1] relative shadow-xl rounded-xl border border-gray-200 bg-gray-50/90 flex flex-col items-center justify-center gap-1.5 text-gray-500 hover:text-qhx-primary hover:bg-qhx-primary/5 hover:border-qhx-primary/35 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-qhx-primary/50 focus-visible:ring-offset-2"
+                @click="triggerInput"
+              >
+                <UIcon class="size-9 text-qhx-primary/80" name="i-heroicons-photo" />
+                <span class="text-xs font-medium px-1 text-center leading-tight">选择图片</span>
+              </button>
+            </div>
+          </div>
+        </template>
         <template #item="{ element, index }">
           <transition-group tag="div"
             class="[@media(min-width:1920px)]:w-[calc(100%/10)] xl:w-1/4 md:w-1/4 max-md:w-1/3" name="list">
@@ -54,15 +67,27 @@
                 </img>
                 <UButton v-if="!props.disabled" icon="i-heroicons-x-mark" color="red" size="2xs" variant="soft"
                   class="absolute top-1 right-1 z-10" @click="removeImage(index)" />
-                <!-- 透明遮罩层，防止移动端长按事件 -->
-                <div class="absolute z-[1] w-full h-full inset-0 rounded-xl" 
-                  style="background: transparent;">
-                </div>
+                <!-- 透明遮罩：避免移动端误触长按；单击打开大图预览 -->
+                <div
+                  class="absolute z-[1] w-full h-full inset-0 rounded-xl cursor-zoom-in"
+                  style="background: transparent;"
+                  @click.stop="openLightbox(index)"
+                />
               </div>
             </div>
           </transition-group>
         </template>
       </Draggable>
+      <vue-easy-lightbox
+        :visible="lightboxVisible"
+        :imgs="lightboxImgs"
+        :index="lightboxIndex"
+        append-to-body
+        :teleport="'body'"
+        :zoomScale="0.4"
+        :maxZoom="5"
+        @hide="lightboxVisible = false"
+      />
       <!-- <Draggable :forceFallback="true" :disabled="!props.multiple || props.disabled" :delay="150"
         v-model="previewImages" item-key="id" animation="250" ghost-class="drag-ghost" chosen-class="drag-chosen"
         drag-class="dragging" class="grid grid-cols-3 gap-4">
@@ -81,12 +106,16 @@
 
 <script setup lang="ts">
 import Draggable from "vuedraggable"
+import VueEasyLightbox from 'vue-easy-lightbox'
+import { BASE_IMG } from '@/utils/ipConfig'
 const emit = defineEmits<(e: 'update:files', value: File[]) => void>()
 
 const props = defineProps<{
   multiple?: boolean
   max?: number  // 最大图片数量
   disabled?: boolean  // 是否禁用
+  /** 已有图片相对路径（不含域名），用于编辑回显 */
+  initialImagePaths?: string[]
 }>()
 
 // 移动端检测
@@ -96,6 +125,18 @@ const isMobile = computed(() => configStore.isMobile)
 const fileInput = ref<HTMLInputElement | null>(null)
 const files = ref<File[]>([])
 const previewImages = ref<{ id?: string; file?: File; url?: string }[]>([])
+
+const lightboxVisible = ref(false)
+const lightboxIndex = ref(0)
+const lightboxImgs = computed(() =>
+  previewImages.value.map((el) => ({ src: el.url || '' }))
+)
+
+const openLightbox = (index: number) => {
+  if (!previewImages.value[index]?.url) return
+  lightboxIndex.value = index
+  lightboxVisible.value = true
+}
 
 let idCounter = 0
 const generateId = () => `img_${Date.now()}_${++idCounter}`
@@ -243,8 +284,26 @@ const clear = () => {
   previewImages.value = []
 }
 
+const seedFromPaths = (paths: string[]) => {
+  if (!paths.length) return
+  previewImages.value = paths.map((p) => {
+    const t = p.trim()
+    return {
+      id: generateId(),
+      url: t.startsWith('http') ? t : `${BASE_IMG}${t}`
+    }
+  })
+}
+
+onMounted(() => {
+  if (props.initialImagePaths?.length) {
+    seedFromPaths(props.initialImagePaths)
+  }
+})
+
 defineExpose({
-  triggerInput, clear, previewImages
+  triggerInput, clear, previewImages,
+  seedFromPaths,
 })
 </script>
 

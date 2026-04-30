@@ -1,5 +1,5 @@
 <template>
-  <QhxModal v-model="show" :trigger-position="clickPosition" @close="handleClose">
+  <QhxModal v-model="show" :trigger-position="clickPosition" :close-on-backdrop="false" @close="handleClose">
     <div class="w-[95vw] max-w-3xl max-h-[90vh] bg-white dark:bg-gray-800 rounded-2xl shadow-2xl overflow-hidden flex flex-col backdrop-blur-xl border border-gray-200/50 dark:border-gray-700/50">
       <!-- 头部 -->
       <div class="flex justify-between items-center px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex-shrink-0">

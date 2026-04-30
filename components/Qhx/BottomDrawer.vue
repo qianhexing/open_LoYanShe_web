@@ -1,32 +1,36 @@
 <!-- 可拖拽半模态框组件，支持四个方向 -->
 <template>
   <div
-    class="fixed z-50 bg-qhx-bg-card shadow-2xl"
+    class="fixed z-50 overflow-hidden bg-qhx-bg-card drawer-neu"
     :class="[
       drawerClasses,
+      drawerFlexLayout,
       { 'drawer-dragging': isDragging, 'drawer-transition': !isDragging }
     ]"
     :style="drawerStyle"
   >
-    <!-- 拖拽手柄 -->
+    <!-- 拖拽手柄：通过 flex 顺序保证始终贴在「朝向屏幕中心」的一侧 -->
     <div
-      class="drawer-handle cursor-grab active:cursor-grabbing"
+      class="drawer-handle shrink-0 cursor-grab touch-none select-none active:cursor-grabbing"
       :class="handleClasses"
       @mousedown="handleDragStart"
       @touchstart="handleDragStart"
     >
-      <div :class="handleBarClasses"></div>
+      <div class="handle-bar-neu" :class="handleBarClasses"></div>
     </div>
 
-    <!-- 内容区域 -->
-    <div class="drawer-content overflow-auto px-4 pb-4" :class="contentClasses" :style="contentStyle">
+    <!-- 内容区域：flex-1 + min-*-0 避免与手柄争抢高度/宽度 -->
+    <div
+      class="drawer-content min-h-0 min-w-0 flex-1 overflow-auto"
+      :class="[contentClasses, props.contentPadding ? 'px-4 pb-4' : 'p-0']"
+    >
       <slot />
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 
 type DrawerDirection = 'top' | 'bottom' | 'left' | 'right'
 
@@ -39,13 +43,16 @@ interface Props {
   minSize?: number
   /** 安全区域（像素），用于计算最大尺寸 */
   safeArea?: number
+  /** 是否为内容区保留默认左右/底部内边距（px-4 pb-4）；false 时贴边，由插槽自控间距 */
+  contentPadding?: boolean
 }
 
 const props = withDefaults(defineProps<Props>(), {
   direction: 'bottom',
   defaultSize: 400,
   minSize: 100,
-  safeArea: 50
+  safeArea: 50,
+  contentPadding: true
 })
 
 // 判断是否为垂直方向
@@ -82,11 +89,11 @@ const updateSize = (newSize: number) => {
 // 禁用所有 iframe 的交互（防止 iframe 拦截鼠标事件）
 const disableIframes = () => {
   const iframes = document.querySelectorAll('iframe')
-  iframes.forEach((iframe) => {
+  for (const iframe of iframes) {
     const originalStyle = iframe.style.pointerEvents
     iframeStyles.value.set(iframe, originalStyle)
     iframe.style.pointerEvents = 'none'
-  })
+  }
 }
 
 // 恢复所有 iframe 的交互
@@ -117,7 +124,6 @@ const handleDragStart = (e: MouseEvent | TouchEvent) => {
 
 // 拖拽移动
 const handleDragMove = (e: MouseEvent | TouchEvent) => {
-  console.log('拖拽', isDragging.value)
   if (!isDragging.value) return
   
   const isTouch = 'touches' in e
@@ -164,6 +170,22 @@ const handleDragEnd = () => {
   }
 }
 
+/** 按当前方向用视口高或宽计算 max，并夹住 drawerSize（direction 从 right↔bottom 切换时必须立刻执行，否则会沿用另一轴的 max，出现「只能半屏」） */
+const applyViewportBoundsSync = () => {
+  if (typeof window === 'undefined') return
+  if (isVertical.value) {
+    maxDrawerSize.value = window.innerHeight - props.safeArea
+  } else {
+    maxDrawerSize.value = window.innerWidth - props.safeArea
+  }
+  if (drawerSize.value > maxDrawerSize.value) {
+    drawerSize.value = maxDrawerSize.value
+  }
+  if (drawerSize.value < minDrawerSize) {
+    drawerSize.value = minDrawerSize
+  }
+}
+
 // 更新最大尺寸（使用防抖优化）
 let resizeTimer: ReturnType<typeof setTimeout> | null = null
 const updateMaxSize = () => {
@@ -171,17 +193,17 @@ const updateMaxSize = () => {
     clearTimeout(resizeTimer)
   }
   resizeTimer = setTimeout(() => {
-    if (isVertical.value) {
-      maxDrawerSize.value = window.innerHeight - props.safeArea
-    } else {
-      maxDrawerSize.value = window.innerWidth - props.safeArea
-    }
-    if (drawerSize.value > maxDrawerSize.value) {
-      drawerSize.value = maxDrawerSize.value
-    }
+    applyViewportBoundsSync()
     resizeTimer = null
   }, 150) // 150ms 防抖延迟
 }
+
+watch(
+  () => props.direction,
+  () => {
+    applyViewportBoundsSync()
+  }
+)
 
 // 事件处理函数引用（使用箭头函数保持 this 绑定）
 const handleMouseMove = (e: MouseEvent) => handleDragMove(e)
@@ -190,17 +212,29 @@ const handleTouchMove = (e: TouchEvent) => handleDragMove(e)
 const handleTouchEnd = () => handleDragEnd()
 
 // 计算样式类
+/** 贴边定位；左右全屏边栏不使用圆角，与屏幕边缘贴合 */
 const drawerClasses = computed(() => {
   if (props.direction === 'bottom') {
-    return 'bottom-0 left-0 right-0 rounded-t-3xl'
-  } else if (props.direction === 'top') {
-    return 'top-0 left-0 right-0 rounded-b-3xl'
-  } else if (props.direction === 'left') {
-    return 'left-0 top-0 bottom-0 rounded-r-3xl'
-  } else if (props.direction === 'right') {
-    return 'right-0 top-0 bottom-0 rounded-l-3xl'
+    return 'bottom-0 left-0 right-0 rounded-t-[1.75rem]'
+  }
+  if (props.direction === 'top') {
+    return 'top-0 left-0 right-0 rounded-b-[1.75rem]'
+  }
+  if (props.direction === 'left') {
+    return 'left-0 top-0 bottom-0 rounded-none'
+  }
+  if (props.direction === 'right') {
+    return 'right-0 top-0 bottom-0 rounded-none'
   }
   return ''
+})
+
+/** 主轴布局：保证手柄在「内边」一侧（靠视口中心），内容与手柄相邻无错位 */
+const drawerFlexLayout = computed(() => {
+  if (props.direction === 'bottom') return 'flex flex-col'
+  if (props.direction === 'top') return 'flex flex-col-reverse'
+  if (props.direction === 'left') return 'flex flex-row-reverse'
+  return 'flex flex-row'
 })
 
 // 计算样式
@@ -209,60 +243,37 @@ const drawerStyle = computed(() => {
     return {
       height: `${drawerSize.value}px`
     }
-  } else {
-    return {
-      width: `${drawerSize.value}px`
-    }
+  }
+  return {
+    width: `${drawerSize.value}px`
   }
 })
 
-// 手柄样式类
+// 手柄触控条区域（固定厚度；左右方向略窄以少占内容宽度）
 const handleClasses = computed(() => {
   if (isVertical.value) {
-    return 'flex justify-center pt-3 pb-2'
-  } else {
-    return 'flex items-center pl-2 pr-3'
+    return 'flex w-full items-center justify-center py-1.5'
   }
+  return 'flex h-full w-7 flex-col items-center justify-center'
 })
 
-// 手柄条样式类
 const handleBarClasses = computed(() => {
   if (isVertical.value) {
-    return 'w-12 h-1.5 bg-gray-300 dark:bg-gray-600 rounded-full'
-  } else {
-    return 'h-12 w-1.5 bg-gray-300 dark:bg-gray-600 rounded-full'
+    return 'h-1 w-12 rounded-full'
   }
+  return 'h-10 w-1 rounded-full'
 })
 
 // 内容区域样式类
 const contentClasses = computed(() => {
   if (isVertical.value) {
     return 'overflow-y-auto'
-  } else {
-    return 'overflow-x-auto'
   }
-})
-
-// 内容区域样式
-const contentStyle = computed(() => {
-  if (isVertical.value) {
-    return {
-      height: `calc(100% - 3rem)`
-    }
-  } else {
-    return {
-      width: `calc(100% - 3rem)`
-    }
-  }
+  return 'overflow-x-auto'
 })
 
 onMounted(() => {
-  // 设置最大尺寸
-  if (isVertical.value) {
-    maxDrawerSize.value = window.innerHeight - props.safeArea
-  } else {
-    maxDrawerSize.value = window.innerWidth - props.safeArea
-  }
+  applyViewportBoundsSync()
   // 设置默认尺寸（不超过最大尺寸）
   drawerSize.value = Math.min(props.defaultSize, maxDrawerSize.value * 0.6)
 
@@ -298,6 +309,40 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+/* 拟态外壳：柔和凸面 + 与主题的轻微镶边 */
+.drawer-neu {
+  border: 1px solid rgb(255 255 255 / 0.45);
+  box-shadow:
+    10px 12px 28px rgb(15 23 42 / 0.12),
+    -6px -6px 18px rgb(255 255 255 / 0.75),
+    inset 0 1px 0 rgb(255 255 255 / 0.65);
+}
+
+:root.dark .drawer-neu,
+.dark .drawer-neu {
+  border-color: rgb(255 255 255 / 0.08);
+  box-shadow:
+    12px 14px 32px rgb(0 0 0 / 0.55),
+    -4px -4px 14px rgb(255 255 255 / 0.04),
+    inset 0 1px 0 rgb(255 255 255 / 0.06);
+}
+
+/* 手柄凹槽条 */
+.handle-bar-neu {
+  background: rgb(0 0 0 / 0.06);
+  box-shadow:
+    inset 2px 2px 4px rgb(15 23 42 / 0.12),
+    inset -2px -2px 5px rgb(255 255 255 / 0.7);
+}
+
+:root.dark .handle-bar-neu,
+.dark .handle-bar-neu {
+  background: rgb(255 255 255 / 0.08);
+  box-shadow:
+    inset 2px 2px 5px rgb(0 0 0 / 0.45),
+    inset -1px -1px 3px rgb(255 255 255 / 0.08);
+}
+
 /* 半模态框样式 */
 .drawer-content {
   -webkit-overflow-scrolling: touch;
@@ -308,6 +353,7 @@ onUnmounted(() => {
 .drawer-handle {
   user-select: none;
   -webkit-user-select: none;
+  touch-action: none;
 }
 
 /* 防止拖拽时选中文本 */

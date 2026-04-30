@@ -22,6 +22,9 @@
       <div class="relative z-10 pb-32">
       <!-- 徽章区（有徽章时缩小）+ 用户信息（始终完整显示在下方） -->
       <div class="max-w-4xl mx-auto px-1 md:px-8 pt-2 flex flex-col gap-2">
+        <div
+          v-if="configStore.statusBarHeight > 0":style="{ height: `${configStore.statusBarHeight}px` }"
+        />
         <!-- 徽章物理展示：有徽章时显示（缩小区域） -->
         <div
           v-if="hasDisplayBadges"
@@ -46,25 +49,39 @@
             <UserFace :user="userInfo" size="mini" class="flex-shrink-0 scale-125" />
             <div class="flex-1 min-w-0">
               <div class="flex items-center justify-between gap-2 mb-1">
-                <h1 class="text-lg md:text-xl font-bold text-gray-800 dark:text-gray-100 truncate">
-                  {{ userInfo.user_name || '未设置昵称' }}
-                </h1>
-                <div v-if="isCurrentUser" class="flex items-center gap-2 flex-shrink-0">
+                <div class="flex items-center gap-2 min-w-0 flex-1">
+                  <h1 class="text-lg md:text-xl font-bold text-gray-800 dark:text-gray-100 truncate">
+                    {{ userInfo.user_name || '未设置昵称' }}
+                  </h1>
+                  <QhxTag
+                    :active="isFormalResident"
+                    class="text-xs flex-shrink-0 whitespace-nowrap"
+                  >
+                    {{ isFormalResident ? '正式居民' : '临时居民' }}
+                  </QhxTag>
+                </div>
+                <div
+                  v-if="showUserSpaceHeaderActions"
+                  class="flex items-center gap-2 flex-shrink-0"
+                >
+                  <div v-if="!isCurrentUser && spaceUserId">
+                    <UserCollectBtn
+                      variant="follow"
+                      :pk_type="PK_TYPE_USER_COLLECT"
+                      :pk_id="spaceUserId"
+                      :collect_count="userInfo.collect_count ?? 0"
+                      :is_collect="userCollectIsCollect"
+                      :need_judge="true"
+                    />
+                  </div>
                   <button
-                    v-if="!hasDisplayBadges"
+                    v-if="userSpaceMoreMenuItems.length"
                     type="button"
-                    class="flex items-center gap-1 rounded-full px-2 py-1.5 text-sm hover:bg-pink-100 dark:hover:bg-gray-600 transition-colors"
-                    @click="openDecoConfig"
+                    class="flex items-center gap-1 rounded-full px-2 py-1.5 text-sm hover:bg-pink-100 dark:hover:bg-gray-600 transition-colors text-gray-800 dark:text-gray-100"
+                    @click="openUserSpaceMoreMenu"
                   >
-                    <UIcon name="i-heroicons-cog-6-tooth" class="w-4 h-4 text-pink-500 dark:text-pink-400" />
-                    <span>配置徽章</span>
-                  </button>
-                  <button
-                    class="flex items-center gap-1 rounded-full px-2 py-1.5 text-sm hover:bg-pink-100 dark:hover:bg-gray-600 transition-colors"
-                    @click="handleEdit"
-                  >
-                    <span class="text-base">✏️</span>
-                    <span>编辑</span>
+                    <UIcon name="i-heroicons-ellipsis-vertical" class="w-4 h-4 text-pink-500 dark:text-pink-400" />
+                    <span>更多</span>
                   </button>
                 </div>
               </div>
@@ -163,11 +180,11 @@
                     :enable-waterfall="true"
                     :enable-load-more="true"
                   >
-                    <template #default="{ item }">
+                    <template #default="{ item, debouncedApplyLayout }">
                       <div class="px-2 pb-4">
                         <div class="relative bg-white/70 dark:bg-gray-800/70 backdrop-blur-md rounded-2xl overflow-hidden shadow-lg border border-white/50 dark:border-gray-700 p-2">
                           <template v-if="!isCurrentUser && (item.is_private === 1 || item.password)">
-                            <!-- 隐私衣柜：点击弹出密码弹窗 -->
+                            <!-- 隐私衣柜：点击弹出密码弹窗；封面加载后触发瀑布流重算（WaterList 内已 debounce） -->
                             <div
                               class="relative cursor-pointer"
                               @click="openWardrobePasswordModal(item, $event)"
@@ -177,6 +194,7 @@
                                 :alt="item.wardrobe_name"
                                 class="w-full rounded-[10px] border border-gray-200 dark:border-gray-600 my-2 opacity-60"
                                 loading="lazy"
+                                @load="debouncedApplyLayout"
                               />
                               <div class="absolute inset-0 flex flex-col items-center justify-center bg-gray-900/50 dark:bg-gray-900/60 rounded-[10px]">
                                 <UIcon name="i-heroicons-lock-closed" class="w-10 h-10 text-white/95 mb-1" />
@@ -192,6 +210,7 @@
                             :item="item"
                             :size="'big'"
                             :need-jump="true"
+                            @image-load="debouncedApplyLayout"
                           />
                         </div>
                       </div>
@@ -321,12 +340,39 @@
         </UButton>
       </div>
     </QhxModal>
+
+    <!-- 更多选项（与衣柜详情页 QhxModal 样式一致） -->
+    <QhxModal v-model="showUserSpaceMoreMenu" :trigger-position="userSpaceMoreMenuPosition">
+      <div class="p-4 w-[200px] bg-white dark:bg-gray-800 rounded-[10px] shadow-lg">
+        <h3 class="text-sm font-bold mb-3 text-gray-800 dark:text-gray-200">更多选项</h3>
+
+        <button
+          v-for="(item, index) in userSpaceMoreMenuItems"
+          :key="item.key"
+          type="button"
+          class="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors text-left group"
+          :class="index > 0 ? 'mt-2' : ''"
+          @click="onUserSpaceMoreItemClick(item, $event)"
+        >
+          <div
+            class="w-8 h-8 rounded-lg flex items-center justify-center group-hover:scale-110 transition-transform bg-gradient-to-br"
+            :class="item.iconBgClass"
+          >
+            <UIcon :name="item.icon" class="text-base text-white" />
+          </div>
+          <div class="flex-1 min-w-0">
+            <div class="text-sm font-medium text-gray-800 dark:text-gray-200">{{ item.label }}</div>
+            <div class="text-xs text-gray-500 dark:text-gray-400">{{ item.desc }}</div>
+          </div>
+        </button>
+      </div>
+    </QhxModal>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, computed, watch } from 'vue'
-import { getUserSpace, getUserDecoBadges } from '@/api/user'
+import { ref, onMounted, computed, watch, inject, type Ref } from 'vue'
+import { getUserSpace, getUserDecoBadges, adminUpgradeUserFormalResident } from '@/api/user'
 import type { UserDecoBadgeItem } from '@/api/user'
 import { getCommunityList } from '@/api/community'
 import { getWardrobeList, checkWadrobePassword } from '@/api/wardrobe'
@@ -337,6 +383,10 @@ import { BASE_IMG } from '@/utils/ipConfig'
 import { useUserStore } from '@/stores/user'
 import type { User, Community, UserDeco, Wardrobe } from '@/types/api'
 import WardrobeItem from '@/components/Wardrobe/WardrobeItem.vue'
+import UserCollectBtn from '@/components/user/CollectBtn.vue'
+
+/** 收藏/关注用户：与后端 collect 表 pk_type 约定为 0 */
+const PK_TYPE_USER_COLLECT = 0
 
 /** 将 UserDecoBadgeItem 转为 UserDeco */
 function badgeToUserDeco(item: UserDecoBadgeItem): UserDeco {
@@ -391,7 +441,7 @@ const route = useRoute()
 const router = useRouter()
 const userStore = useUserStore()
 const toast = useToast()
-
+const configStore = useConfigStore()
 const loading = ref(true)
 const userInfo = ref<(User & {
   signature?: string
@@ -401,6 +451,8 @@ const userInfo = ref<(User & {
   area?: string
   show_area?: number | boolean
   is_achieve?: number | boolean
+  collect_count?: number
+  is_collect?: number | boolean
 }) | null>(null)
 
 // 个人签名富文本节点
@@ -426,6 +478,135 @@ const isCurrentUser = computed(() => {
   const currentUserId = userStore.user?.user_id
   return userId && currentUserId && userId === currentUserId
 })
+
+/** 个人空间标题栏：他人页显示关注；本人或管理员菜单显示「更多」 */
+const showUserSpaceHeaderActions = computed(
+  () =>
+    Boolean(
+      (!isCurrentUser.value && spaceUserId.value) ||
+        userSpaceMoreMenuItems.value.length,
+    ),
+)
+
+/** 用户空间接口若返回 is_collect（0/1），供收藏按钮初始态；need_judge 仍会拉取最新状态 */
+const userCollectIsCollect = computed(() => {
+  const v = userInfo.value?.is_collect
+  return v === true || v === 1
+})
+
+/** 与后端约定：拥有此项权限才可执行「升级为正式居民」 */
+const USER_SPACE_PERM_UPGRADE_FORMAL = 'admin:user:upgrade'
+
+const spaceUserNeedsFormalUpgrade = computed(() => {
+  const level = userInfo.value?.access_level ?? 0
+  return level < 1
+})
+
+/** 与升级菜单同一判定：access_level >= 1 为正式居民 */
+const isFormalResident = computed(() => !spaceUserNeedsFormalUpgrade.value)
+
+type UserSpaceMoreMenuItem = {
+  key: string
+  label: string
+  desc: string
+  icon: string
+  /** Tailwind gradient 色向，与 `bg-gradient-to-br` 组合 */
+  iconBgClass: string
+  run: (e?: MouseEvent) => void
+}
+
+const showUserSpaceMoreMenu = ref(false)
+const userSpaceMoreMenuPosition = ref({ x: 0, y: 0 })
+
+const openUserSpaceMoreMenu = (e: MouseEvent) => {
+  userSpaceMoreMenuPosition.value = {
+    x: e.clientX + 50,
+    y: e.clientY,
+  }
+  showUserSpaceMoreMenu.value = true
+}
+
+/** 个人空间右上角「更多」动态菜单：本人操作时含编辑/配置徽章；管理员在满足条件时含升级正式居民（含代他人升级） */
+const userSpaceMoreMenuItems = computed((): UserSpaceMoreMenuItem[] => {
+  if (!userInfo.value) return []
+  const uid = spaceUserId.value
+  if (!uid) return []
+
+  const items: UserSpaceMoreMenuItem[] = []
+
+  if (isCurrentUser.value) {
+    if (!hasDisplayBadges.value) {
+      items.push({
+        key: 'deco',
+        label: '配置徽章',
+        desc: '选择要展示的成就徽章',
+        icon: 'i-heroicons-cog-6-tooth',
+        iconBgClass: 'from-purple-500 to-pink-500',
+        run: (e) => openDecoConfig(e),
+      })
+    }
+    items.push({
+      key: 'edit',
+      label: '编辑',
+      desc: '修改昵称、签名与个人资料',
+      icon: 'i-heroicons-pencil-square',
+      iconBgClass: 'from-amber-500 to-orange-500',
+      run: () => handleEdit(),
+    })
+  }
+
+  if (
+    userStore.hasPermi(USER_SPACE_PERM_UPGRADE_FORMAL) &&
+    spaceUserNeedsFormalUpgrade.value
+  ) {
+    items.push({
+      key: 'upgradeFormal',
+      label: '升级为正式居民',
+      desc: '为该用户开通正式居民权限',
+      icon: 'i-heroicons-arrow-trending-up',
+      iconBgClass: 'from-blue-500 to-cyan-500',
+      run: () => void handleUpgradeFormalResident(),
+    })
+  }
+
+  return items
+})
+
+const onUserSpaceMoreItemClick = (item: UserSpaceMoreMenuItem, e: MouseEvent) => {
+  showUserSpaceMoreMenu.value = false
+  item.run(e)
+}
+
+const upgradeFormalLoading = ref(false)
+
+const handleUpgradeFormalResident = async () => {
+  const uid = spaceUserId.value
+  if (!uid || upgradeFormalLoading.value) return
+  if (typeof window !== 'undefined' && !window.confirm('确认为该用户升级为正式居民？')) return
+  upgradeFormalLoading.value = true
+  try {
+    await adminUpgradeUserFormalResident({ user_id: uid })
+    toast.add({
+      title: '已升级为正式居民',
+      icon: 'i-heroicons-check-circle',
+      color: 'green',
+    })
+    await loadUserInfo()
+    if (isCurrentUser.value) {
+      await userStore.fetchUserInfo()
+    }
+  } catch (error) {
+    console.error('升级正式居民失败:', error)
+    toast.add({
+      title: '操作失败',
+      description: getErrorMessage(error),
+      icon: 'i-heroicons-x-circle',
+      color: 'red',
+    })
+  } finally {
+    upgradeFormalLoading.value = false
+  }
+}
 
 const formatImg = (url: string) => {
   if (!url) return ''

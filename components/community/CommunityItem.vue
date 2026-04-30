@@ -40,7 +40,8 @@ const handleJump = (id: number) => {
 	if (isInUniApp && typeof uni !== 'undefined' && uni.navigateTo) {
 		// UniApp WebView 环境
 		uni.navigateTo({
-			url: `/pages/community/detail/${id}`,
+			// url: `/pages/community/detail/${id}`,
+      url: `/pages/common/outerLink2?url=https://lolitalibrary.com/community/detail/${id}`,
 			fail: () => {
 				console.log('跳转错误')
 			}

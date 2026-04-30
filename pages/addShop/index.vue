@@ -21,6 +21,20 @@
         </template>
       </UAlert>
 
+      <UAlert
+        color="red"
+        variant="soft"
+        icon="i-heroicons-exclamation-circle"
+        class="mb-6"
+      >
+        <template #title>
+          {{ t('addShop.restrict_notice_title') }}
+        </template>
+        <template #description>
+          {{ t('addShop.restrict_notice_desc') }}
+        </template>
+      </UAlert>
+
       <!-- 权限检查 -->
       <div v-if="user && user.access_level >= (config?.min_add_library || 0)">
         <UForm ref="formRef" :state="form" class="space-y-6 bg-white dark:bg-gray-800 rounded-lg p-6 shadow-sm">

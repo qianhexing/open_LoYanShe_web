@@ -130,11 +130,11 @@ const createPointCloud = () => {
     });
   });
 
-  // 2. 计算每个图鉴的位置 (需要先计算所有位置，因为子图鉴依赖父图鉴位置)
+  // 2. 计算每个图鉴的位置 (需要先计算所有位置，因为子图鉴依赖母图鉴位置)
   // 为了简单，我们先计算所有关联了店铺的父级图鉴位置，以及店铺位置。
   // 然后对于有 parent_id 的图鉴，我们在其 parent 周围分布。
   // 注意：如果层级很深，或者顺序不对，可能找不到 parent 位置。
-  // 简便方法：所有顶层图鉴(parent_id=0)围绕店铺分布。子图鉴(parent_id!=0)围绕父图鉴分布。
+  // 简便方法：所有顶层图鉴(parent_id=0)围绕店铺分布。子图鉴(parent_id!=0)围绕母图鉴分布。
   // 我们需要一个 Map 来存储已计算出的图鉴位置。
 
   const libPosMap = new Map<number, { x: number, y: number, z: number }>();
@@ -162,14 +162,14 @@ const createPointCloud = () => {
       if (lib.parent_id && lib.parent_id !== 0 && !libPosMap.has(lib.library_id)) {
         const parentPos = libPosMap.get(lib.parent_id);
         if (parentPos) {
-          // 围绕父图鉴分布，范围更小，体现聚合
+          // 围绕母图鉴分布，范围更小，体现聚合
           const offset = 8;
           const x = parentPos.x + (Math.random() - 0.5) * offset;
           const y = parentPos.y + (Math.random() - 0.5) * offset;
           const z = parentPos.z + (Math.random() - 0.5) * offset;
           libPosMap.set(lib.library_id, { x, y, z });
         } else {
-          // 如果找不到父图鉴位置（可能父图鉴数据没加载），暂时按店铺分布
+          // 如果找不到母图鉴位置（可能母图鉴数据没加载），暂时按店铺分布
           const shopId = lib.shop_id!;
           const center = shopClusters.get(shopId) || { cx: 0, cy: 0, cz: 0 };
           const offset = 25;
@@ -223,7 +223,7 @@ const createPointCloud = () => {
     // Target (Parent Lib or Shop Center)
     let targetPoint: THREE.Vector3;
     if (lib.parent_id && lib.parent_id !== 0 && libPosMap.has(lib.parent_id)) {
-      // 连接到父图鉴
+      // 连接到母图鉴
       const pPos = libPosMap.get(lib.parent_id)!;
       targetPoint = new THREE.Vector3(pPos.x, pPos.y, pPos.z);
     } else {

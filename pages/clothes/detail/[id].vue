@@ -11,6 +11,7 @@ interface ExtendedWardrobeClothes extends WardrobeClothes {
   image_list?: string[]
 }
 import { getClothesDetail, updateClothes, deteleClothes, addClothesCitation } from '@/api/wardrobe'
+import { getCommunityForeignList } from '@/api/community'
 import { planComplete, deletePlanList } from '@/api/plan'
 import type ClothesAdd from '@/components/Clothes/ClothesAdd.vue'
 import PlanAddEdit from '@/components/Plan/PlanAddEdit.vue'
@@ -32,12 +33,13 @@ onMounted(async () => {
 const route = useRoute()
 const router = useRouter()
 const config = useConfigStore()
+const wardrobeStore = useWardrobeStore()
 const user = useUserStore()
 const toast = useToast()
 const id = route.params.id as string
 
 const detail = ref<ExtendedWardrobeClothes | null>(null)
-const currentTab = ref(0)
+const showMemoryListModal = ref(false)
 const sortMode = ref(false)
 const showDeleteModal = ref(false)
 const showDeleteLinkModal = ref(false)
@@ -468,9 +470,26 @@ const onEditSuccess = () => {
   fetchClothesDetail()
 }
 
-// 记忆数量更新
+// 记忆数量更新（弹窗内列表加载时同步）
 const onMemoryCountChange = (count: number) => {
   memoryCount.value = count
+}
+
+/** 直接请求记忆列表总数（用于角标，不依赖弹窗是否打开） */
+const fetchMemoryListCount = async () => {
+  const clothesId = Number.parseInt(id, 10)
+  if (Number.isNaN(clothesId)) return
+  try {
+    const res = await getCommunityForeignList({
+      page: 1,
+      pageSize: 1,
+      pk_id: clothesId,
+      pk_type: 2
+    })
+    memoryCount.value = res.count ?? 0
+  } catch {
+    /* 保持原数量 */
+  }
 }
 
 // 搭配数量更新
@@ -479,9 +498,28 @@ const onMatchingCountChange = (count: number) => {
 }
 
 onMounted(async () => {
+  const isInUniApp =
+    typeof window !== 'undefined' &&
+    navigator.userAgent.includes('Html5Plus')
+  if (isInUniApp || port.value) {
+    void wardrobeStore.getWardrobeConfig()
+  }
+  void fetchMemoryListCount()
   setTimeout(async () => {
     await fetchClothesDetail()
   })
+})
+
+watch(
+  () => route.params.id,
+  () => {
+    memoryCount.value = 0
+    void fetchMemoryListCount()
+  }
+)
+
+watch(showMemoryListModal, (open) => {
+  if (!open) void fetchMemoryListCount()
 })
 
 useHead({
@@ -768,6 +806,53 @@ const showEditPlan = (e?: MouseEvent) => {
 
 <template>
   <div>
+    <button
+      v-if="detail"
+      type="button"
+      class="fixed top-20 right-3 max-md:top-16 max-md:right-2 z-[60] rounded-full bg-qhx-primary text-white shadow-md shadow-qhx-primary/20 pl-2 pr-2.5 py-1.5 text-xs font-medium ring-1 ring-white/20 transition hover:brightness-110 active:scale-[0.98]"
+      @click="showMemoryListModal = true"
+    >
+      <span class="relative inline-flex items-center gap-1">
+        <UIcon name="i-heroicons-sparkles" class="w-4 h-4 shrink-0" />
+        记忆
+        <span
+          v-if="memoryCount > 0"
+          class="absolute -top-2.5 -right-3 z-10 flex min-h-4 min-w-4 translate-x-px -translate-y-px items-center justify-center rounded-full bg-red-500 px-0.5 text-[9px] font-bold leading-none text-white shadow-sm ring-1 ring-white dark:ring-gray-900"
+        >{{ memoryCount > 99 ? '99+' : memoryCount }}</span>
+      </span>
+    </button>
+
+    <QhxModal v-model="showMemoryListModal">
+      <div
+        class="w-[92vw] max-w-lg max-h-[85vh] bg-white dark:bg-gray-800 rounded-2xl shadow-2xl overflow-hidden flex flex-col border border-gray-200/50 dark:border-gray-700/50"
+      >
+        <div
+          class="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-700 flex-shrink-0"
+        >
+          <h3 class="text-base font-semibold text-gray-900 dark:text-gray-100">记忆</h3>
+          <button
+            type="button"
+            class="w-9 h-9 flex items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500"
+            aria-label="关闭"
+            @click="showMemoryListModal = false"
+          >
+            <UIcon name="i-heroicons-x-mark" class="w-5 h-5" />
+          </button>
+        </div>
+        <div class="p-4 overflow-y-auto flex-1 min-h-0">
+          <p class="text-sm text-gray-500 dark:text-gray-400 text-center mb-4">
+            发帖记录你与小裙子之间的美好记忆
+          </p>
+          <CommunityForeignList
+            v-if="showMemoryListModal"
+            :pk_type="2"
+            :pk_id="Number.parseInt(id, 10)"
+            @count-change="onMemoryCountChange"
+          />
+        </div>
+      </div>
+    </QhxModal>
+
     <clothes-add ref="addEditClothesRef" @success="onEditSuccess"></clothes-add>
     <PlanAddEdit
       ref="planAddEditRef"
@@ -790,12 +875,7 @@ const showEditPlan = (e?: MouseEvent) => {
       <Transition :name="`drawer-${isMobile ? 'bottom' : 'right'}`">
         <QhxBottomDrawer v-if="detail" :direction="isMobile ? 'bottom' : 'right'">
         <div v-if="detail" class="bg-qhx-bg-card">
-          <!-- 标签页 -->
-          <QhxTabs :tabs="['基本信息', '记忆']" @change="(index) => currentTab = index">
-            <!-- 基本信息标签页 -->
-            <QhxTabPanel :index="0">
-              <template #default="{ isActive }">
-                <div v-show="isActive" class="py-2">
+          <div class="py-2">
                   <!-- 标题和操作按钮 -->
                   <div class="items-center justify-between mb-4">
                     <h2 class="text-xl font-bold flex-1">
@@ -1256,35 +1336,22 @@ const showEditPlan = (e?: MouseEvent) => {
                     </div>
                   </div>
                 </div>
-              </template>
-            </QhxTabPanel>
-
-            <!-- 记忆标签页 -->
-            <QhxTabPanel :index="1">
-              <template #default="{ isActive }">
-                <div v-if="isActive" class="py-2">
-                  <div class="text-sm text-gray-500 text-center mb-4">
-                    发帖记录你与小裙子之间的美好记忆
-                  </div>
-                  <CommunityForeignList :pk_type="2" :pk_id="Number.parseInt(id, 10)" />
-                </div>
-              </template>
-            </QhxTabPanel>
-          </QhxTabs>
         </div>
       </QhxBottomDrawer>
       </Transition>
     </template>
 
-    <!-- 没有场景ID时的原有布局 -->
-    <div v-else class="container mx-auto p-4 max-md:p-2">
+    <!-- 没有场景ID时的原有布局（状态栏 / 安全区顶适配，与 album 等页一致） -->
+    <div
+      v-else
+      class="container mx-auto px-4 pb-4 max-md:px-2 max-md:pb-2 pt-[calc(1rem+env(safe-area-inset-top,0px))] max-md:pt-[calc(0.5rem+env(safe-area-inset-top,0px))]"
+    >
+      <!-- <div
+        v-if="configStore.statusBarHeight > 0"
+        :style="{ height: `${configStore.statusBarHeight}px` }"
+      /> -->
       <div v-if="detail" class="bg-qhx-bg-card rounded-lg shadow-lg">
-        <!-- 标签页 -->
-        <QhxTabs :tabs="['基本信息', '记忆']" @change="(index) => currentTab = index">
-          <!-- 基本信息标签页 -->
-          <QhxTabPanel :index="0">
-            <template #default="{ isActive }">
-              <div v-show="isActive" class="p-4 max-md:p-2">
+        <div class="p-4 max-md:p-2">
                 <!-- 图片区域 -->
                 <div class="flex max-md:block gap-4 mb-4">
                   <!-- 主图 -->
@@ -1551,9 +1618,8 @@ const showEditPlan = (e?: MouseEvent) => {
                     <div v-if="detail.add_time" class="text-sm">
                       购入：{{ formatDate(detail.add_time) }}
                     </div>
-
                     <!-- 来源 -->
-                    <div v-if="!detail.library && !detail.origin_shop && detail.origin" class="text-sm">
+                    <div v-if="!detail.origin_shop && detail.origin" class="text-sm">
                       来源：{{ detail.origin }}
                     </div>
                     <!-- 关联服饰 -->
@@ -1827,38 +1893,7 @@ const showEditPlan = (e?: MouseEvent) => {
                   </div>
                 </div>
               </div>
-            </template>
-          </QhxTabPanel>
-
-          <!-- 记忆标签页 -->
-          <QhxTabPanel :index="1">
-            <template #default="{ isActive }">
-              <div v-if="isActive" class="p-4 max-md:p-2">
-                <!-- <div v-if="isOwner" class="mb-4">
-                <UButton icon="i-heroicons-plus" color="primary" @click="showAddMemoryModal = true">
-                  添加记忆
-                </UButton>
-              </div> -->
-                <div class="text-sm text-gray-500 text-center mb-4">
-                  发帖记录你与小裙子之间的美好记忆
-                </div>
-                <CommunityForeignList :pk_type="2" :pk_id="Number.parseInt(id, 10)" />
-              </div>
-            </template>
-          </QhxTabPanel>
-
-          <!-- 搭配标签页 -->
-          <!-- <QhxTabPanel :index="2">
-          <template #default="{ isActive }">
-            <div v-if="isActive" class="p-4 max-md:p-2">
-              <div class="text-sm text-gray-500 mb-4">
-                这里显示与该服饰相关的搭配记录
-              </div>
-            </div>
-          </template>
-        </QhxTabPanel> -->
-        </QhxTabs>
-      </div>
+        </div>
       <!-- 场景选择组件 -->
       <SceneChoose ref="SceneChooseRef" @choose="chooseScene"></SceneChoose>
       
