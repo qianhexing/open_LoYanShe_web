@@ -16,10 +16,23 @@ export async function getWardrobeList(
   const response = await use$Get<BaseResponse<PaginationResponse<Wardrobe>>>('/wardrobe/list/visitor', params);
   return response.data;
 }
+/**
+ * POST `/clothes/list` 可选排序（与衣柜 `sort_type` 二选一由后端约定；建议传 `sort_list` 时忽略衣柜默认排序）。
+ *
+ * - `add_time_asc`：按加入该衣柜的时间从早到晚（时间轴阅读顺序）
+ * - `add_time_desc`：按加入时间从晚到早（最新在前）
+ *
+ * 后端需在查询中 `ORDER BY` 关联表里「服饰加入衣柜」的时间字段（如 `wardrobe_clothes.add_time`），
+ * 且分页结果须为该全局排序下的连续切片。
+ */
+export type ClothesListSortList = 'add_time_asc' | 'add_time_desc'
+
 export interface ClothesParams extends PaginationParams {
   wardrobe_id: number
   filter_list?: Record<string, any>
   password?: string
+  /** 按加入衣柜时间排序；不传则沿用衣柜 `sort_type` */
+  sort_list?: ClothesListSortList
 }
 interface ClothesResponse<T = any> {
   rows: T[];
@@ -32,6 +45,73 @@ export async function getClothesList(
 ): Promise<ClothesResponse<WardrobeClothes>> {
   const response = await use$Post<BaseResponse<ClothesResponse<WardrobeClothes>>>('/clothes/list', params);
   return response.data;
+}
+
+/** 单次拉取某衣柜下全部服饰（与列表排序一致由后端保证） */
+export interface ClothesAllParams {
+  wardrobe_id: number
+  password?: string
+  filter_list?: Record<string, unknown>
+}
+
+/** `/clothes/all` 可能返回仅含 clothes_id / wardrobe_id 的精简项，或 clothes_id 为字符串 */
+export type ClothesAllRow = Partial<WardrobeClothes> & { clothes_id?: number | string }
+
+export function normalizeClothesAllPayload(payload: unknown): ClothesAllRow[] {
+  if (payload == null) return []
+  if (Array.isArray(payload)) return payload as ClothesAllRow[]
+  if (typeof payload === 'object') {
+    const o = payload as Record<string, unknown>
+    const nested = o.rows ?? o.list ?? o.clothes
+    if (Array.isArray(nested)) return nested as ClothesAllRow[]
+    const inner = o.data
+    if (Array.isArray(inner)) return inner as ClothesAllRow[]
+  }
+  return []
+}
+
+/** 从列表项中解析有效服饰 id（兼容 number / string） */
+export function parseClothesIdsFromRows(rows: readonly { clothes_id?: unknown }[]): number[] {
+  const ids: number[] = []
+  for (const r of rows) {
+    const raw = r?.clothes_id as unknown
+    const n = typeof raw === 'number' ? raw : Number(raw)
+    if (Number.isFinite(n) && n > 0) ids.push(n)
+  }
+  return ids
+}
+
+export async function getClothesAll(params: ClothesAllParams): Promise<WardrobeClothes[]> {
+  const response = await use$Post<BaseResponse<unknown>>('/clothes/all', params)
+  const rows = normalizeClothesAllPayload(response?.data)
+  return rows as WardrobeClothes[]
+}
+
+/** 优先 `/clothes/all`，失败时分页 `/clothes/list` 兜底拼齐 */
+export async function getClothesListAllFallback(params: ClothesAllParams): Promise<WardrobeClothes[]> {
+  try {
+    const rows = await getClothesAll(params)
+    return Array.isArray(rows) ? rows : []
+  } catch {
+    const out: WardrobeClothes[] = []
+    let page = 1
+    const pageSize = 500
+    while (true) {
+      const res = await getClothesList({
+        wardrobe_id: params.wardrobe_id,
+        page,
+        pageSize,
+        password: params.password,
+        filter_list: params.filter_list as Record<string, unknown> | undefined
+      })
+      const chunk = res.rows ?? []
+      out.push(...chunk)
+      const total = res.count ?? 0
+      if (chunk.length < pageSize || out.length >= total) break
+      page++
+    }
+    return out
+  }
 }
 interface sortParams {
   sort: Array<{ clothes_id: number, sort: number}>
@@ -232,5 +312,53 @@ export interface ClothesCitationAddResponse {
 
 export async function addClothesCitation(params: { clothes_id: number }): Promise<ClothesCitationAddResponse> {
   const response = await use$Post<BaseResponse<ClothesCitationAddResponse>>('/clothes/citation/add', params)
+  return response.data
+}
+
+/** 衣柜统计接口（与 APP 一致）；visitor 场景可传 user_id */
+export interface WardrobeStatisticsPartRow {
+  type_count: number
+  clothes_part?: string | null
+}
+
+export interface WardrobeStatisticsStatusRow {
+  total: number
+  title?: string | null
+}
+
+export interface WardrobeStatisticsParams {
+  wardrobe_id?: number[]
+  /** 浏览他人衣柜时与 `/wardrobe/list/visitor` 一致 */
+  user_id?: number
+}
+
+/** 衣柜统计中联动的店铺来源（图鉴 shop + 自定义店名等） */
+export interface WardrobeStatisticsShopRow {
+  shop_id: number | null
+  shop_name: string
+  shop_logo: string | null
+  clothes_count: number
+  is_custom: boolean
+  /** 数字店：library 内该 shop_id 且 is_enable=0 的图鉴条数；纯文字自定义店通常无此字段 */
+  total_library_count?: number
+}
+
+export interface WardrobeStatisticsData {
+  clothes_part?: WardrobeStatisticsPartRow[]
+  wardrobe_status?: WardrobeStatisticsStatusRow[]
+  wardrobe?: Wardrobe[]
+  shops?: WardrobeStatisticsShopRow[]
+  library?: Array<WardrobeClothes & {
+    design_elements?: string
+    pattern_elements?: string
+    theme?: string
+    clothes_main_style?: string
+  }>
+}
+
+export async function getWardrobeStatistics(
+  params: WardrobeStatisticsParams
+): Promise<WardrobeStatisticsData> {
+  const response = await use$Post<BaseResponse<WardrobeStatisticsData>>('/wardrobe/statistics', params)
   return response.data
 }

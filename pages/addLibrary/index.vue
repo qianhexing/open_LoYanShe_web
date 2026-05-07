@@ -65,18 +65,24 @@
                   <div
                     v-for="item in unnamedLibraryList"
                     :key="item.library_id"
-                    @click="jumpToLibrary(item.library_id)"
                     class="flex-shrink-0 w-[100px] cursor-pointer"
                   >
                     <div class="w-full h-[100px] rounded-lg overflow-hidden mb-2 shadow-md hover:shadow-lg transition-shadow">
-                      <img
-                        :src="getImageUrl(item.cover)"
-                        :alt="item.name"
-                        class="w-full h-full object-cover"
-                        loading="lazy"
-                      />
+                      <div class="w-full h-full" @click.stop>
+                        <QhxPreviewImage
+                          :list="[{
+                            src: libraryImageThumbSrc(item.cover?.trim() || 'static/plan_cover/default.jpg'),
+                            alt: item.name
+                          }]"
+                          :preview="[item.cover?.trim() || 'static/plan_cover/default.jpg']"
+                          className="w-full h-full object-cover cursor-zoom-in"
+                        />
+                      </div>
                     </div>
-                    <div class="text-xs text-center line-clamp-1 text-gray-700 dark:text-gray-300">
+                    <div
+                      class="text-xs text-center line-clamp-1 text-gray-700 dark:text-gray-300"
+                      @click="jumpToLibrary(item.library_id)"
+                    >
                       {{ item.name }}
                     </div>
                   </div>
@@ -209,8 +215,11 @@
             </div>
             <div class="flex gap-2 flex-wrap">
               <div v-for="(img, index) in getOriginalImages('cover')" :key="index" class="relative">
-                <img :src="BASE_IMG + img" :alt="t('addLibrary.original_cover')"
-                  class="w-20 h-20 object-cover rounded border border-gray-300 dark:border-gray-600" />
+                <QhxPreviewImage
+                  :list="[{ src: libraryImageThumbSrc(img), alt: t('addLibrary.original_cover') }]"
+                  :preview="[img.trim()]"
+                  className="w-20 h-20 object-cover rounded border border-gray-300 dark:border-gray-600 cursor-zoom-in"
+                />
               </div>
               <div v-if="getOriginalImages('cover').length === 0" class="text-sm text-gray-500 dark:text-gray-400">
                 {{ t('addLibrary.empty') }}
@@ -362,8 +371,11 @@
             </div>
             <div class="flex gap-2 flex-wrap">
               <div v-for="(img, index) in getOriginalImages('size_image')" :key="index" class="relative">
-                <img :src="BASE_IMG + img" :alt="t('addLibrary.original_size')"
-                  class="w-20 h-20 object-cover rounded border border-gray-300 dark:border-gray-600" />
+                <QhxPreviewImage
+                  :list="[{ src: libraryImageThumbSrc(img), alt: t('addLibrary.original_size') }]"
+                  :preview="[img.trim()]"
+                  className="w-20 h-20 object-cover rounded border border-gray-300 dark:border-gray-600 cursor-zoom-in"
+                />
               </div>
               <div v-if="getOriginalImages('size_image').length === 0" class="text-sm text-gray-500 dark:text-gray-400">
                 {{ t('addLibrary.empty') }}
@@ -565,8 +577,11 @@
             </div>
             <div class="flex gap-2 flex-wrap">
               <div v-for="(img, index) in getOriginalImages('detail_image')" :key="index" class="relative">
-                <img :src="BASE_IMG + img" :alt="t('addLibrary.original_detail')"
-                  class="w-20 h-20 object-cover rounded border border-gray-300 dark:border-gray-600" />
+                <QhxPreviewImage
+                  :list="[{ src: libraryImageThumbSrc(img), alt: t('addLibrary.original_detail') }]"
+                  :preview="[img.trim()]"
+                  className="w-20 h-20 object-cover rounded border border-gray-300 dark:border-gray-600 cursor-zoom-in"
+                />
               </div>
               <div v-if="getOriginalImages('detail_image').length === 0"
                 class="text-sm text-gray-500 dark:text-gray-400">
@@ -586,8 +601,11 @@
             </div>
             <div class="flex gap-2 flex-wrap">
               <div v-for="(img, index) in getOriginalImages('quality_test')" :key="index" class="relative">
-                <img :src="BASE_IMG + img" :alt="t('addLibrary.original_quality')"
-                  class="w-20 h-20 object-cover rounded border border-gray-300 dark:border-gray-600" />
+                <QhxPreviewImage
+                  :list="[{ src: libraryImageThumbSrc(img), alt: t('addLibrary.original_quality') }]"
+                  :preview="[img.trim()]"
+                  className="w-20 h-20 object-cover rounded border border-gray-300 dark:border-gray-600 cursor-zoom-in"
+                />
               </div>
               <div v-if="getOriginalImages('quality_test').length === 0"
                 class="text-sm text-gray-500 dark:text-gray-400">
@@ -850,12 +868,20 @@ const changedFields = ref<Set<string>>(new Set()) // 被修改的字段集合
 // 检查字段是否应该显示（审核模式下只显示被修改的字段）
 const shouldShowField = (fieldName: string) => {
   if (!isReviewMode.value) return true
+  // 方图与封面同一区块展示，仅改 square_cover 时也要显示封面区域
+  if (fieldName === 'cover') {
+    return changedFields.value.has('cover') || changedFields.value.has('square_cover')
+  }
   return changedFields.value.has(fieldName)
 }
 
 // 检查字段是否被修改（用于高亮显示）
 const isFieldChanged = (fieldName: string) => {
-  return isReviewMode.value && changedFields.value.has(fieldName)
+  if (!isReviewMode.value) return false
+  if (fieldName === 'cover') {
+    return changedFields.value.has('cover') || changedFields.value.has('square_cover')
+  }
+  return changedFields.value.has(fieldName)
 }
 
 // 获取高亮样式类
@@ -933,8 +959,13 @@ const getOriginalImages = (fieldName: string): string[] => {
   const original = originalLibrary.value
 
   switch (fieldName) {
-    case 'cover':
-      return original.cover ? [original.cover] : []
+    case 'cover': {
+      const paths = new Set<string>()
+      if (original.cover) paths.add(original.cover.trim())
+      const sq = (original as Library & { square_cover?: string | null }).square_cover
+      if (sq) paths.add(String(sq).trim())
+      return [...paths]
+    }
     case 'size_image':
       return original.size_image ? original.size_image.split(',') : []
     case 'detail_image':
@@ -969,7 +1000,7 @@ const library = ref({
   theme: [] as Wiki[],
   library_pattern: [] as Wiki[],
   fabric_composition: [] as FabricComposition[], // 成分
-  complete: false as boolean // 是否完成，1完成0未完成
+  complete: true as boolean // 是否完成，1完成0未完成；新增默认已完成
 })
 
 // 检查图鉴名称是否可能已收录
@@ -1078,11 +1109,31 @@ const openPatternElementsCustomInput = (e: MouseEvent) => {
 const route = useRoute()
 const toast = useToast()
 
+/** 提交成功后放行路由/关闭页，无需再次 confirm */
+const bypassLeaveGuard = ref(false)
+
+function onWindowBeforeUnload(e: BeforeUnloadEvent) {
+  if (bypassLeaveGuard.value) return
+  e.preventDefault()
+  e.returnValue = ''
+}
+
+onBeforeRouteLeave(() => {
+  if (bypassLeaveGuard.value) {
+    bypassLeaveGuard.value = false
+    return true
+  }
+  return window.confirm(t('addLibrary.leave_unsaved_confirm'))
+})
+
 // 生命周期
 onMounted(async () => {
   uni = await import('@dcloudio/uni-webview-js').catch((err) => {
     console.error('Failed to load uni-webview-js:', err);
   });
+  if (process.client) {
+    window.addEventListener('beforeunload', onWindowBeforeUnload)
+  }
   // 检测审核模式
   if (route.query?.library_id && route.query?.review) {
     isReviewMode.value = true
@@ -1091,7 +1142,7 @@ onMounted(async () => {
     await fetchReviewData()
   } else if (route.query?.library_id) {
     library_id.value = Number.parseInt(route.query.library_id as string)
-    fetchLibraryById()
+    await fetchLibraryById()
   }
 
   // 如果有 shop_id 和 shop_name 参数，默认选择该店铺（仅新增时生效）
@@ -1109,8 +1160,36 @@ onMounted(async () => {
     }
   }
 
+  // 如果有 parent_id 参数：拉取母级图鉴并把可复制字段直接代入表单（与「确认复制」一致）
+  const urlParentIdRaw = route.query?.parent_id
+  const urlParentName = route.query?.parent_name
+  if (urlParentIdRaw != null && String(urlParentIdRaw).trim() !== '' && !library_id.value) {
+    const pid = Number.parseInt(String(urlParentIdRaw), 10)
+    if (!Number.isNaN(pid) && pid > 0) {
+      try {
+        const parentLib = await getLibraryById({ library_id: pid })
+        library.value.parent_id = parentLib
+        applyFieldsFromParentLibrary(parentLib, { preserveShop: Boolean(urlShopId) })
+      } catch {
+        if (urlParentName != null && String(urlParentName).trim() !== '') {
+          library.value.parent_id = {
+            library_id: pid,
+            name: String(urlParentName),
+            cover: ''
+          }
+        }
+      }
+    }
+  }
+
   getLibraryType()
   getMainStyle()
+})
+
+onUnmounted(() => {
+  if (process.client) {
+    window.removeEventListener('beforeunload', onWindowBeforeUnload)
+  }
 })
 const showChooseWiki = (type: string) => {
   let type_id = 0
@@ -1269,9 +1348,18 @@ const jumpToLibrary = (libraryId: number) => {
   }
 }
 
-const getImageUrl = (path?: string | null): string => {
-  if (!path) return ''
-  return BASE_IMG + path
+/** 审核/图鉴接口可能返回相对路径或已带域名的完整 URL，统一成可直接用于 <img src> 的地址 */
+const libraryImageFullUrl = (path: string | null | undefined) => {
+  if (path == null || String(path).trim() === '') return ''
+  const t = String(path).trim()
+  if (t.startsWith('http://') || t.startsWith('https://') || t.startsWith('//')) return t
+  return `${BASE_IMG}${t.replace(/^\//, '')}`
+}
+
+/** 列表缩略图（相对路径，不含域名），与 QhxPreviewImage.list 的 src 一致 */
+const libraryImageThumbSrc = (relativePath: string) => {
+  const p = relativePath.trim().split('?')[0]
+  return `${p}?x-oss-process=image/quality,q_80/resize,w_200,h_200`
 }
 
 watch(() => library.value.shop_id, (newVal) => {
@@ -1445,21 +1533,21 @@ const fetchLibraryById = async () => {
     }
 
     if (cover && coverRef.value) {
-      coverRef.value.previewImages = [{ file: undefined, url: BASE_IMG + cover }]
+      coverRef.value.previewImages = [{ id: 'library_cover', file: undefined, url: libraryImageFullUrl(cover) }]
     }
     if (size_image && sizeImageRef.value) {
-      sizeImageRef.value.previewImages = size_image.split(',').map((item: string) => {
-        return { file: undefined, url: BASE_IMG + item }
+      sizeImageRef.value.previewImages = size_image.split(',').map((item: string, i: number) => {
+        return { id: `library_size_${i}`, file: undefined, url: libraryImageFullUrl(item) }
       })
     }
     if (detail_image && detailImageRef.value) {
-      detailImageRef.value.previewImages = detail_image.split(',').map((item: string) => {
-        return { file: undefined, url: BASE_IMG + item }
+      detailImageRef.value.previewImages = detail_image.split(',').map((item: string, i: number) => {
+        return { id: `library_detail_${i}`, file: undefined, url: libraryImageFullUrl(item) }
       })
     }
     if (quality_test && qualityImageRef.value) {
-      qualityImageRef.value.previewImages = quality_test.split(',').map((item: string) => {
-        return { file: undefined, url: BASE_IMG + item }
+      qualityImageRef.value.previewImages = quality_test.split(',').map((item: string, i: number) => {
+        return { id: `library_quality_${i}`, file: undefined, url: libraryImageFullUrl(item) }
       })
     }
   } catch (error) {
@@ -1681,25 +1769,35 @@ const applyReviewData = async () => {
   if (changedFields.value.has('main_style') && review.main_style) {
     library.value.main_style = review.main_style.split(',').map((item: string) => Number(item))
   }
-  if (changedFields.value.has('cover') && review.cover && coverRef.value) {
-    coverRef.value.previewImages = [{ file: undefined, url: BASE_IMG + review.cover }]
+  const reviewExt = review as Library & { square_cover?: string | null }
+  if ((changedFields.value.has('cover') || changedFields.value.has('square_cover')) && coverRef.value) {
+    const path = (review.cover && String(review.cover).trim())
+      || (reviewExt.square_cover && String(reviewExt.square_cover).trim())
+      || ''
+    const full = libraryImageFullUrl(path)
+    if (full) {
+      coverRef.value.previewImages = [{ id: 'review_cover', file: undefined, url: full }]
+    }
   }
   if (changedFields.value.has('size_image') && review.size_image && sizeImageRef.value) {
-    sizeImageRef.value.previewImages = review.size_image.split(',').map((item: string) => ({
+    sizeImageRef.value.previewImages = review.size_image.split(',').map((item: string, i: number) => ({
+      id: `review_size_${i}`,
       file: undefined,
-      url: BASE_IMG + item
+      url: libraryImageFullUrl(item)
     }))
   }
   if (changedFields.value.has('detail_image') && review.detail_image && detailImageRef.value) {
-    detailImageRef.value.previewImages = review.detail_image.split(',').map((item: string) => ({
+    detailImageRef.value.previewImages = review.detail_image.split(',').map((item: string, i: number) => ({
+      id: `review_detail_${i}`,
       file: undefined,
-      url: BASE_IMG + item
+      url: libraryImageFullUrl(item)
     }))
   }
   if (changedFields.value.has('quality_test') && review.quality_test && qualityImageRef.value) {
-    qualityImageRef.value.previewImages = review.quality_test.split(',').map((item: string) => ({
+    qualityImageRef.value.previewImages = review.quality_test.split(',').map((item: string, i: number) => ({
+      id: `review_quality_${i}`,
       file: undefined,
-      url: BASE_IMG + item
+      url: libraryImageFullUrl(item)
     }))
   }
 }
@@ -1709,78 +1807,78 @@ const chooseLibrary = (item: Library[]) => {
   library.value.parent_id = item[0]
   showConfirmLibrary.value = true
 }
-const copyLibraryInfo = () => {
-  if (!library.value.parent_id) {
-    toast.add({
-      title: t('addLibrary.warning'),
-      description: t('addLibrary.select_library_warning'),
-      color: 'orange'
-    })
-    return false
-  }
-  console.log(library.value.parent_id, '图鉴信息')
 
-  const item: Library = library.value.parent_id
-  showConfirmLibrary.value = false
+/** 将母级图鉴的可复制字段写入表单（与弹窗「确认复制」逻辑一致） */
+const applyFieldsFromParentLibrary = (item: Library, opts?: { preserveShop?: boolean }) => {
   library.value.name = `${item.name} ${library.value.library_type ? library.value.library_type : ''}`
-  if (item.shop) {
+  if (item.shop && !opts?.preserveShop) {
     library.value.shop_id = item.shop
   }
-  if (item.theme) {
-    library.value.theme = item.theme.split(',').map((item: string) => {
+  library.value.library_price = item.library_price ?? undefined
+  if (item.fabric_composition) {
+    library.value.fabric_composition = item.fabric_composition.split(',').map((part: string): FabricComposition => {
+      const child = part.split('%')
+      if (child.length > 1) {
+        return {
+          name: {
+            label: child[1],
+            value: Number(child[0])
+          },
+          value: Number(child[0])
+        }
+      }
       return {
-        wiki_name: item,
-        wiki_id: item
+        name: {
+          label: child[0],
+          value: 0
+        },
+        value: 0
       }
     })
+  } else {
+    library.value.fabric_composition = []
+  }
+  if (item.theme) {
+    library.value.theme = item.theme.split(',').map((s: string) => ({
+      wiki_name: s,
+      wiki_id: s
+    }))
   }
   if (item.library_pattern) {
-    library.value.library_pattern = item.library_pattern.split(',').map((item: string) => {
-      return {
-        wiki_name: item,
-        wiki_id: item
-      }
-    })
+    library.value.library_pattern = item.library_pattern.split(',').map((s: string) => ({
+      wiki_name: s,
+      wiki_id: s
+    }))
   }
   if (item.color) {
-    library.value.color = item.color.split(',').map((item: string) => {
-      return {
-        wiki_name: item,
-        wiki_id: item
-      }
-    })
+    library.value.color = item.color.split(',').map((s: string) => ({
+      wiki_name: s,
+      wiki_id: s
+    }))
   }
   if (item.pattern_elements) {
-    library.value.pattern_elements = item.pattern_elements.split(',').map((item: string) => {
-      return {
-        wiki_name: item,
-        wiki_id: item
-      }
-    })
+    library.value.pattern_elements = item.pattern_elements.split(',').map((s: string) => ({
+      wiki_name: s,
+      wiki_id: s
+    }))
   }
   if (item.design_elements) {
-    library.value.design_elements = item.design_elements.split(',').map((item: string) => {
-      return {
-        wiki_name: item,
-        wiki_id: item
-      }
-    })
+    library.value.design_elements = item.design_elements.split(',').map((s: string) => ({
+      wiki_name: s,
+      wiki_id: s
+    }))
   }
   if (item.cloth_elements) {
-    library.value.cloth_elements = item.cloth_elements.split(',').map((item: string) => {
-      return {
-        wiki_name: item,
-        wiki_id: item
-      }
-    })
+    library.value.cloth_elements = item.cloth_elements.split(',').map((s: string) => ({
+      wiki_name: s,
+      wiki_id: s
+    }))
   }
   if (item.secondary_cloth) {
-    library.value.secondary_cloth = item.secondary_cloth.split(',').map((item: string) => {
-      return {
-        wiki_name: item,
-        wiki_id: item
-      }
-    })
+    library.value.secondary_cloth = item.secondary_cloth.split(',').map((s: string) => ({
+      wiki_name: s,
+      wiki_id: s
+    }))
   }
   if (item.sale_time) {
     library.value.sale_time = {
@@ -1797,6 +1895,23 @@ const copyLibraryInfo = () => {
   if (item.link) {
     library.value.link = item.link
   }
+}
+
+const copyLibraryInfo = () => {
+  if (!library.value.parent_id) {
+    toast.add({
+      title: t('addLibrary.warning'),
+      description: t('addLibrary.select_library_warning'),
+      color: 'orange'
+    })
+    return false
+  }
+  console.log(library.value.parent_id, '图鉴信息')
+
+  const item: Library = library.value.parent_id
+  showConfirmLibrary.value = false
+  applyFieldsFromParentLibrary(item)
+  return true
 }
 const showSelectLibrary = () => {
   chooseLibraryRef.value?.showModel()
@@ -1830,7 +1945,7 @@ const init = () => {
     theme: [],
     library_pattern: [],
     fabric_composition: [],
-    complete: false
+    complete: true
   }
 }
 const getShopOptions = async (query: string) => {
@@ -2375,6 +2490,7 @@ const add = async () => {
       if (isInUniApp && typeof uni !== 'undefined' && typeof uni.postMessage === 'function') {
         uni.postMessage({ data: { type: 'reloadLibrary' } })
       } else {
+        bypassLeaveGuard.value = true
         await navigateTo(`/library/detail/${library_id.value}`)
       }
     } else {
@@ -2429,6 +2545,7 @@ const submitReview = async () => {
     }
 
     await submitLibraryReview(params)
+    bypassLeaveGuard.value = true
     const isInUniApp =
       typeof window !== 'undefined' &&
       navigator.userAgent.includes('Html5Plus');

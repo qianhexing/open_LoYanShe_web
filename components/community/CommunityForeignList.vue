@@ -18,6 +18,7 @@ const props = withDefaults(defineProps<Props>(), {
   need_water: true,
   can_load: true
 })
+const emit = defineEmits<{ 'count-change': [count: number] }>()
 const { can_load, pk_type, pk_id, water_class, size, needJump, need_water } = props
 const user = useUserStore()
 // 分页参数
@@ -89,6 +90,13 @@ watch(data, () => {
   }
 })
 const total = computed(() => data.value?.count ?? 0)
+watch(
+  total,
+  (c) => {
+    emit('count-change', c)
+  },
+  { immediate: true }
+)
 const refreshList = async () => {
   isLoading.value = true
   try {

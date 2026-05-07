@@ -1,8 +1,10 @@
 
 <script setup lang="ts">
+import { useLayoutStyle } from '~/composables/useLayoutStyle'
 import { getUserMy } from '~/api/user'
 import { useNotification } from '~/composables/useNotification'
 import { hasNotice } from '@/api/message_center'
+import type { UniWebviewJsModule } from '@/stores/config'
 const themeStore = useThemeStore()
 const userStore = useUserStore()
 const configStore = useConfigStore()
@@ -24,8 +26,11 @@ const jumpToLoyanshe = () => {
   }
 }
 
-const layout_style = ref(0) // 0是带上下栏的 1 是空白页面
-const blank_list = ['/userSpace/', '/humanPlatform/', '/user/plan', '/user/center', '/post/', '/distributedMaps', '/visualization/wardrobe', '/visualization/shop-cloud', '/rank', '/yearlySummary', '/user/changePassword','/matching/detail','/album/detail', '/album', 'clothes/detail', 'scene/detail', 'wardrobe/detail', 'register', 'lighting-debug', 'timepipe', 'user/edit', '/journal']
+const { layoutStyle, setLayoutStyle } = useLayoutStyle() // 0 带上下栏；1 空白。页面可调用 setLayoutStyle 覆盖
+const blank_list = [
+  'matching/my',
+  '/userSpace/', 
+  '/humanPlatform/', '/user/plan', '/user/center', '/post/', '/distributedMaps', '/visualization/wardrobe', '/visualization/shop-cloud', '/rank', '/yearlySummary', '/user/changePassword','/matching/detail','/album/detail', '/album', 'clothes/detail', 'scene/detail', 'wardrobe/detail', 'wardrobe/statistics', 'register', 'lighting-debug', 'timepipe', 'user/edit', '/journal']
 const route = useRoute()
 if (route.query?.token) {
   useUserStore().setToken(route.query.token.toString())
@@ -71,11 +76,11 @@ const judgeIsHome = () => {
     return route.path.includes(path)
   })
   if (is_blank && route.path !== '/') {
-    layout_style.value = 1
+    layoutStyle.value = 1
   } else {
-    layout_style.value = 0
+    layoutStyle.value = 0
   }
-  console.log(layout_style.value, '当前分割')
+  console.log(layoutStyle.value, '当前分割')
   if (route.path === '/') {
     isHome.value = true
   } else {
@@ -148,9 +153,18 @@ const initNotificationSystem = () => {
 // 组件会自动导入
 onMounted(async () => {
   colorMode.value = 'light'
+  const isInUniApp =
+    process.client &&
+    typeof window !== 'undefined' &&
+    navigator.userAgent.includes('Html5Plus')
   uni = await import('@dcloudio/uni-webview-js').catch((err) => {
     console.error('Failed to load uni-webview-js:', err);
-  });
+  })
+  if (isInUniApp && uni) {
+    configStore.setUniWebviewJs(uni as UniWebviewJsModule)
+  } else {
+    configStore.setUniWebviewJs(null)
+  }
   console.log(colorMode.value, '颜色模式')
   if (process.client && typeof window !== 'undefined' && window.localStorage) {
     // 用户信息已在 SSR 阶段加载，这里只需要初始化通知系统（uniapp 环境不连接 websocket）
@@ -160,10 +174,7 @@ onMounted(async () => {
     
     configStore.setIsPc(isPC())
     configStore.getConfig()
-    const isInUniApp =
-      typeof window !== 'undefined' &&
-      navigator.userAgent.includes('Html5Plus');
-    if (isInUniApp && uni ) {
+    if (isInUniApp && uni) {
       isFromMobie.value = true
     }
   }
@@ -212,14 +223,14 @@ onBeforeUnmount(() => {
 <template>
   <div class="min-h-screen background transition-colors duration-300">
     <UNotifications position="top-0 right-0" />
-    <Header v-show="layout_style === 0 && !isFromMobie" />
-    <div v-show="layout_style === 0 && !isFromMobie" class="h-[80px]"></div>
+    <Header v-show="layoutStyle === 0 && !isFromMobie" />
+    <div v-show="layoutStyle === 0 && !isFromMobie" class="h-[80px]"></div>
     <div v-if="HarmonyOS" class="w-full h-full absolute top-0 left-0 z-50 bg-white/80 dark:bg-gray-900/80 backdrop-blur-sm border-t border-gray-200 dark:border-gray-700 bottom-0">
       <div class="container mx-auto px-4 py-6">
         <p>鸿蒙消息：{{ HarmonyOS }}</p>
       </div>
     </div>
-    <main :class="layout_style === 0 && !isFromMobie ? 'container mx-auto pb-4  pt-1 min-h-screen' : ''">
+    <main :class="layoutStyle === 0 && !isFromMobie ? 'container mx-auto pb-4  pt-1 min-h-screen' : ''">
       <slot />
     </main>
     <!-- <KeepAlive :include="cachedPages" :max="5">
@@ -232,7 +243,7 @@ onBeforeUnmount(() => {
       <slot name="screen"/>
     </main> -->
     <!-- Footer -->
-    <footer v-show="layout_style === 0 && !isFromMobie"" class="bg-white/80 dark:bg-gray-900/80 backdrop-blur-sm border-t border-gray-200 dark:border-gray-700 mt-8 left-0 bottom-0 w-full z-50" :class="isHome ? 'fixed' : ''">
+    <footer v-show="layoutStyle === 0 && !isFromMobie" class="bg-white/80 dark:bg-gray-900/80 backdrop-blur-sm border-t border-gray-200 dark:border-gray-700 mt-8 left-0 bottom-0 w-full z-50" :class="isHome ? 'fixed' : ''">
       <div class="container mx-auto px-4 py-6">
         <!-- 备案信息 -->
         <div class="flex justify-center items-center mb-4">

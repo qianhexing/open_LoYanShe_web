@@ -1,6 +1,9 @@
 <script setup lang="ts">
-import type { Wardrobe, PaginationResponse, WardrobeClothes } from '@/types/api';
+import type { Wardrobe, PaginationResponse, WardrobeClothes, UserDeco } from '@/types/api';
+import { getUserDecoBadges } from '@/api/user'
+import type { UserDecoBadgeItem } from '@/api/user'
 import { getWardrobeList, getClothesList, sortClothee, changeWardrobeClothes, changeWardrobeClothesBatch, deleteClothesByIds, checkWadrobePassword, sortWardrobe, updateWardrobe, deleteWardrobe } from '@/api/wardrobe'
+import { getPlanListWardrobe, planComplete } from '@/api/plan'
 import type { ClothesParams } from '@/api/wardrobe'
 import Draggable from "vuedraggable"
 import { useCopyCurrentUrl } from '~/composables/useCopyCurrentUrl';
@@ -19,6 +22,8 @@ const wardrobeList = ref<Wardrobe[]>([])
 const wardrobeCount = ref<number>(0)
 const currentWardrobe = ref<Wardrobe | null>(null)
 const pageSize = 40
+/** 时间轴模式：一次拉取近全量，便于统计与完整时间线 */
+const TIMELINE_PAGE_SIZE = 999
 const page = ref(1)
 const list = ref<WardrobeClothes[]>([])
 const total = ref(0)
@@ -31,6 +36,8 @@ const sortMode = ref(false)
 const matchingMode = ref(false)
 // 多选模式：与排序、搭配互斥，开启后服饰卡片右上角显示选择框，可批量操作
 const selectMode = ref(false)
+/** 时间轴全屏视图：列表按加入衣柜时间排序 */
+const timelineMode = ref(false)
 const selectedClothesIds = ref<Set<number>>(new Set())
 const showMatchingDrawer = ref(false)
 const info = ref<Wardrobe | null>(null)
@@ -80,12 +87,13 @@ const hexColor = (color: string, opacity: number) => {
 const opearClothesId = ref<number | null>(null)
 let oldList: { clothes_id: number; sort: number }[] = [];
 const record = ref<Wardrobe | null>(null)
+import WardrobeClothesLongShare from '@/components/Wardrobe/WardrobeClothesLongShare.vue'
 import type ClothesAdd from '@/components/Clothes/ClothesAdd.vue'
 import type WardrobeAddEdit from '@/components/Wardrobe/WardrobeAddEdit.vue'
 import type WardrobeSearch from '@/components/Wardrobe/WardrobeSearch.vue'
 import type WardrobeChoose from '@/components/Wardrobe/WardrobeChoose.vue'
 import type MatchingAddEdit from '@/components/matching/MatchingAddEdit.vue'
-import dayjs from 'dayjs';
+import dayjs from 'dayjs'
 const addEditClothesRef = ref<InstanceType<typeof ClothesAdd> | null>(null)
 const toast = useToast()
 const filter_list =  ref({
@@ -94,6 +102,206 @@ const filter_list =  ref({
   clothes_note: '' as string
 }) 
 const showFilterDrawer = ref(false)
+
+/** 当前衣柜攒钱计划时间线抽屉 */
+interface PlanWardrobeTimelineRow {
+  list_id: number
+  create_time?: string | null
+  /** 尾款 / 计划截止时间 */
+  end_time?: string | Date | null
+  clothes_note?: string | null
+  clothes_img?: string | null
+  need_money?: number
+  have_money?: number
+  is_complete?: number
+  plan_note?: string | null
+  clothes_id?: number | null
+  parent_id?: number | null
+  [key: string]: unknown
+}
+
+interface PlanRowBalanceUi {
+  text: string
+  urgent: boolean
+  muted: boolean
+}
+
+/** 未完成时：距尾款（end_time）剩余或已超期文案 */
+function planRowBalanceUi(row: PlanWardrobeTimelineRow): PlanRowBalanceUi | null {
+  if (Number(row.is_complete) === 1) return null
+  const raw = row.end_time
+  if (raw == null || raw === '') {
+    return { text: '未设置尾款截止日', urgent: false, muted: true }
+  }
+  const endD = dayjs(raw as string | Date)
+  if (!endD.isValid()) {
+    return { text: '尾款日期无效', urgent: false, muted: true }
+  }
+  const now = dayjs()
+  if (!endD.isAfter(now)) {
+    const days = now.diff(endD, 'day')
+    if (days >= 1) {
+      return { text: `尾款已开始 ${days} 天`, urgent: true, muted: false }
+    }
+    const hours = now.diff(endD, 'hour')
+    if (hours >= 1) {
+      return { text: `尾款已开始 ${hours} 小时`, urgent: true, muted: false }
+    }
+    const mins = now.diff(endD, 'minute')
+    return {
+      text: mins < 1 ? '已开始' : `已开始 ${mins} 分钟`,
+      urgent: true,
+      muted: false,
+    }
+  }
+  const days = endD.diff(now, 'day')
+  if (days >= 1) {
+    return { text: `距尾款 ${days} 天`, urgent: days <= 3, muted: false }
+  }
+  const hours = endD.diff(now, 'hour')
+  if (hours >= 1) {
+    return { text: `距尾款 ${hours} 小时`, urgent: true, muted: false }
+  }
+  const mins = Math.max(1, endD.diff(now, 'minute'))
+  return { text: `距尾款 ${mins} 分钟`, urgent: true, muted: false }
+}
+
+/** 与 PlanListItem 一致：子计划或已攒满方可点完成 */
+function planRowCanShowComplete(row: PlanWardrobeTimelineRow): boolean {
+  if (Number(row.is_complete) === 1) return false
+  const pid = row.parent_id
+  const isChildPlan = pid != null && Number(pid) > 0
+  const have = Number(row.have_money ?? 0)
+  const need = Number(row.need_money ?? 0)
+  return isChildPlan || have >= need
+}
+
+/** 未完成且创建时间已到（或缺失）：视为计划已开始，用于红字强调 */
+function planRowHasStarted(row: PlanWardrobeTimelineRow): boolean {
+  if (Number(row.is_complete) === 1) return false
+  const c = row.create_time
+  if (c == null || c === '') return true
+  const d = dayjs(c as string | Date)
+  if (!d.isValid()) return true
+  return !d.isAfter(dayjs())
+}
+
+interface PlanWardrobeTimelineSummary {
+  have_money?: number
+  need_money?: number
+  is_complete?: string | number
+  total_plan?: number
+}
+const showPlanTimelineDrawer = ref(false)
+const planTimelineWardrobeId = ref<number | null>(null)
+const planTimelineRows = ref<PlanWardrobeTimelineRow[]>([])
+const planTimelineCount = ref(0)
+const planTimelineSummary = ref<PlanWardrobeTimelineSummary | null>(null)
+const planTimelinePage = ref(1)
+const PLAN_TIMELINE_PAGE_SIZE = 20
+const planTimelineLoading = ref(false)
+const planTimelineHasMore = computed(
+  () => planTimelineRows.value.length < planTimelineCount.value
+)
+
+const planTimelineRowsDisplay = computed(() =>
+  [...planTimelineRows.value].sort(
+    (a, b) => dayjs(b.create_time || 0).valueOf() - dayjs(a.create_time || 0).valueOf()
+  )
+)
+
+const planTimelineEntries = computed(() =>
+  planTimelineRowsDisplay.value.map((row, idx) => ({
+    row,
+    idx,
+    balance: planRowBalanceUi(row),
+    started: planRowHasStarted(row),
+  }))
+)
+
+const loadPlanTimeline = async (reset: boolean) => {
+  const wid = planTimelineWardrobeId.value
+  if (wid == null) return
+  if (reset) {
+    planTimelinePage.value = 1
+    planTimelineRows.value = []
+  }
+  planTimelineLoading.value = true
+  try {
+    const data = await getPlanListWardrobe({
+      wardrobe_id: wid,
+      page: planTimelinePage.value,
+      pageSize: PLAN_TIMELINE_PAGE_SIZE,
+    })
+    const rows = (data?.rows ?? []) as PlanWardrobeTimelineRow[]
+    planTimelineCount.value = data?.count ?? 0
+    planTimelineSummary.value = {
+      have_money: data?.have_money,
+      need_money: data?.need_money,
+      is_complete: data?.is_complete,
+      total_plan: data?.total_plan,
+    }
+    if (reset) {
+      planTimelineRows.value = rows
+    } else {
+      planTimelineRows.value = [...planTimelineRows.value, ...rows]
+    }
+  } catch {
+    /* toast 已在 http 层处理 */
+  } finally {
+    planTimelineLoading.value = false
+  }
+}
+
+const openPlanTimelineDrawer = (wardrobeId: number) => {
+  planTimelineWardrobeId.value = wardrobeId
+  showPlanTimelineDrawer.value = true
+  void loadPlanTimeline(true)
+}
+
+const closePlanTimelineDrawer = () => {
+  showPlanTimelineDrawer.value = false
+}
+
+const loadMorePlanTimeline = () => {
+  if (!planTimelineHasMore.value || planTimelineLoading.value) return
+  planTimelinePage.value += 1
+  void loadPlanTimeline(false)
+}
+
+const planCompleteModal = ref(false)
+const planCompleteListId = ref<number | null>(null)
+const planCompleteLoading = ref(false)
+
+const confirmPlanTimelineComplete = (listId: number) => {
+  planCompleteListId.value = listId
+  planCompleteModal.value = true
+}
+
+const handlePlanTimelineComplete = async () => {
+  if (planCompleteListId.value == null) return
+  planCompleteLoading.value = true
+  try {
+    await planComplete({ list_id: planCompleteListId.value })
+    toast.add({
+      title: '计划完成',
+      icon: 'i-heroicons-check-circle',
+      color: 'green',
+    })
+    planCompleteModal.value = false
+    planCompleteListId.value = null
+    await loadPlanTimeline(true)
+  } catch {
+    toast.add({
+      title: '完成失败',
+      icon: 'i-heroicons-exclamation-circle',
+      color: 'red',
+    })
+  } finally {
+    planCompleteLoading.value = false
+  }
+}
+
 const addEditWardrobeRef = ref<InstanceType<typeof WardrobeAddEdit> | null>(null)
 const wardrobeSearchRef = ref<InstanceType<typeof WardrobeSearch> | null>(null)
 const wardrobeChooseRef = ref<InstanceType<typeof WardrobeChoose> | null>(null)
@@ -105,6 +313,11 @@ const { flyToTarget } = useFlyToButton()
 const isMobile = computed(() => {
   if (typeof window === 'undefined') return false
   return window.innerWidth < 768
+})
+
+const planTimelineDrawerDefaultSize = computed(() => {
+  if (typeof window === 'undefined') return 400
+  return isMobile.value ? Math.min(360, window.innerWidth - 24) : 400
 })
 
 // 衣柜状态标签背景颜色映射，便于扩展新状态
@@ -204,6 +417,15 @@ const initFilter = () => {
     clothes_note: ''
   }
 }
+/** 侧栏衣柜项：点的若是当前衣柜则打开攒钱计划抽屉，否则切换衣柜（与原「点我」同一大块热区） */
+const onWardrobeListItemClick = (item: Wardrobe) => {
+  if (currentWardrobe.value?.wardrobe_id === item.wardrobe_id) {
+    openPlanTimelineDrawer(item.wardrobe_id)
+    return
+  }
+  changeWardrobe(item)
+}
+
 const changeWardrobe = (item: Wardrobe) => {
   console.log(item, 'item')
   if (currentWardrobe.value?.wardrobe_id === item.wardrobe_id) return
@@ -230,29 +452,82 @@ const changeWardrobe = (item: Wardrobe) => {
     force: true
   })
 }
+
+/** 解析加入时间戳（毫秒），缺失或非法为 0 */
+const clothesAddTimeMs = (item: WardrobeClothes): number => {
+  const t = item.add_time
+  if (t == null) return 0
+  const d = t instanceof Date ? t : new Date(typeof t === 'string' || typeof t === 'number' ? t : String(t))
+  const ms = d.getTime()
+  return Number.isNaN(ms) ? 0 : ms
+}
+
+/**
+ * 时间轴单卡日均价：价格 / 自入柜日至今日（含首尾）自然日数，至少按 1 天计。
+ * 无入柜时间或无有效价格时返回 null。
+ */
+const timelineItemDailyAvgPrice = (item: WardrobeClothes): number | null => {
+  const ms = clothesAddTimeMs(item)
+  if (ms <= 0) return null
+  const p = Number(item.price)
+  if (!Number.isFinite(p) || p <= 0) return null
+  const days = Math.max(
+    1,
+    dayjs().startOf('day').diff(dayjs(ms).startOf('day'), 'day') + 1
+  )
+  return p / days
+}
+
+const formatTimelineItemDailyAvg = (item: WardrobeClothes): string | null => {
+  const v = timelineItemDailyAvgPrice(item)
+  return v === null ? null : v.toFixed(2)
+}
+
+/** 客户端兜底：与 `sort_list: add_time_asc` 一致（后端未实现时仍有序） */
+const sortListByAddTimeAsc = (rows: WardrobeClothes[]) =>
+  [...rows].sort((a, b) => clothesAddTimeMs(a) - clothesAddTimeMs(b))
+
 const fetchClothesList = async (Ipage: number | null = null, IpageSize: number | null = null) => {
   if (!currentWardrobe.value || !currentWardrobe.value.wardrobe_id) return
   isLoading.value = true
+  const resolvedPageSize =
+    IpageSize != null && IpageSize > 0
+      ? IpageSize
+      : timelineMode.value
+        ? TIMELINE_PAGE_SIZE
+        : pageSize
   const params: ClothesParams = {
     page: Ipage || page.value,
-    pageSize: IpageSize || pageSize,
+    pageSize: resolvedPageSize,
     wardrobe_id: currentWardrobe.value.wardrobe_id,
     filter_list: filter_list.value
+  }
+  if (timelineMode.value) {
+    params.sort_list = 'add_time_asc'
   }
   if (password.value) {
     params.password = password.value
   }
   try {
     const response = await getClothesList(params)
+    const rawRows = response.rows ?? []
+    const merged =
+      params.page === 1
+        ? rawRows
+        : [...list.value, ...rawRows]
+    if (timelineMode.value) {
+      list.value = sortListByAddTimeAsc(merged)
+    } else if (params.page === 1) {
+      list.value = rawRows
+    } else {
+      list.value = merged
+    }
     if (params.page === 1) {
-      list.value = response.rows ?? []
       if (response.tags_list) {
         tagList.value = response.tags_list
       } else {
         tagList.value = []
       }
-    } else {
-      list.value = [...list.value, ...(response.rows ?? [])]
     }
     total.value = response.count
     if (response.info) {
@@ -394,6 +669,7 @@ const onDragEnd = async (e: any) => {
   }
 };
 const loadMore = () => {
+  if (timelineMode.value) return
   console.log('是否在加载', isLoading.value)
   if (isLoading.value) {
     return
@@ -412,7 +688,8 @@ const handlePageChange = async (current: number) => {
   }
 }
 const reload = async () => {
-  fetchClothesList(1, pageSize * page.value)
+  const sz = timelineMode.value ? TIMELINE_PAGE_SIZE : pageSize * page.value
+  fetchClothesList(1, sz)
 }
 const reloadWardrobe = () => {
   reload()
@@ -535,6 +812,81 @@ const isWardrobeOwner = computed(() => {
   return user.user?.user_id === Number.parseInt(id) && currentWardrobe.value?.user_id === user.user?.user_id
 })
 
+/** 衣柜主人已拥有徽章（用于解析 display_badge 展示物理徽章，与 userSpace 一致） */
+function badgeToUserDeco(item: UserDecoBadgeItem): UserDeco {
+  const cover = item.cover || item.url || 'static/plan_cover/default.jpg'
+  const name = item.title ?? `徽章${item.deco_id}`
+  return {
+    deco_id: item.deco_id,
+    pk_type: 1,
+    pk_id: item.deco_id,
+    foreign: { cover, name },
+  }
+}
+const ownerBadges = ref<UserDecoBadgeItem[]>([])
+const fetchOwnerBadges = async () => {
+  const uid = Number.parseInt(id, 10)
+  if (!uid || Number.isNaN(uid)) {
+    ownerBadges.value = []
+    return
+  }
+  try {
+    const res = await getUserDecoBadges({ user_id: uid })
+    ownerBadges.value = res.rows ?? []
+  } catch (e) {
+    console.error('获取衣柜主人徽章失败:', e)
+    ownerBadges.value = []
+  }
+}
+const wardrobeDisplayBadgeStr = computed(
+  () => info.value?.display_badge ?? currentWardrobe.value?.display_badge ?? ''
+)
+const wardrobeDisplayBadges = computed<UserDeco[]>(() => {
+  const ids = wardrobeDisplayBadgeStr.value
+    .split(',')
+    .map((s) => Number(s.trim()))
+    .filter((n) => !Number.isNaN(n))
+  if (!ids.length) return []
+  const byId = new Map(ownerBadges.value.map((b) => [b.deco_id, b]))
+  const out: UserDeco[] = []
+  for (const decoId of ids) {
+    const item = byId.get(decoId)
+    if (item) out.push(badgeToUserDeco(item))
+  }
+  return out
+})
+const hasWardrobeDisplayBadges = computed(() => wardrobeDisplayBadges.value.length > 0)
+const wardrobeDisplayBadgesKey = computed(
+  () =>
+    wardrobeDisplayBadgeStr.value ||
+    (wardrobeDisplayBadges.value.length
+      ? wardrobeDisplayBadges.value.map((b) => b.deco_id).join(',')
+      : 'empty')
+)
+const wardrobeDecoModalOpen = ref(false)
+const wardrobeDecoModalPosition = ref({ x: 0, y: 0 })
+const wardrobeDecoInitialSelectedIds = computed(() =>
+  wardrobeDisplayBadgeStr.value
+    ? wardrobeDisplayBadgeStr.value.split(',').map((s) => Number(s.trim())).filter((n) => !Number.isNaN(n))
+    : []
+)
+const openWardrobeDecoConfig = (e?: MouseEvent) => {
+  if (e) wardrobeDecoModalPosition.value = { x: e.clientX, y: e.clientY }
+  else if (typeof window !== 'undefined')
+    wardrobeDecoModalPosition.value = { x: window.innerWidth / 2, y: window.innerHeight / 2 }
+  wardrobeDecoModalOpen.value = true
+}
+const onWardrobeDecoSaved = (payload?: { display_badge?: string }) => {
+  const s = payload?.display_badge ?? ''
+  if (info.value) info.value.display_badge = s
+  if (currentWardrobe.value) currentWardrobe.value.display_badge = s
+  const wid = currentWardrobe.value?.wardrobe_id
+  if (wid != null) {
+    const idx = wardrobeList.value.findIndex((w) => w.wardrobe_id === wid)
+    if (idx !== -1 && wardrobeList.value[idx]) wardrobeList.value[idx].display_badge = s
+  }
+}
+
 // 是否开放弹幕（config.open_danmu === 1 时显示弹幕组件）
 const isDanmakuEnabled = computed(() => {
   const cfg = info.value?.config ?? currentWardrobe.value?.config
@@ -602,14 +954,18 @@ const textStyle = computed(() => {
   }
 })
 
-// 按钮样式
-const buttonStyle = computed(() => {
-  if (!hasCustomStyle.value || !customStyle.value) return {}
-  return {
-    backgroundColor: customStyle.value.btnColor,
-    color: customStyle.value.btnFontColor
-  }
+// 自定义主题按钮：有 btnColor / btnFontColor 时用内联样式覆盖默认主色
+const customBtnStyle = computed(() => {
+  if (!customStyle.value) return {}
+  const s: Record<string, string> = {}
+  if (customStyle.value.btnColor) s.backgroundColor = customStyle.value.btnColor
+  if (customStyle.value.btnFontColor) s.color = customStyle.value.btnFontColor
+  return s
 })
+const hasCustomBtnBg = computed(() => Boolean(customStyle.value?.btnColor))
+const hasCustomBtnFont = computed(() => Boolean(customStyle.value?.btnFontColor))
+/** 弹窗等 UButton 在存在自定义色时套用样式；切换类按钮仅激活态用 customBtnStyle */
+const hasAnyCustomBtnTheme = computed(() => hasCustomBtnBg.value || hasCustomBtnFont.value)
 // 删除衣柜
 const confirmDeleteWardrobe = async () => {
   if (!currentWardrobe.value?.wardrobe_id) return
@@ -726,14 +1082,13 @@ const jumpToClothes = (item: WardrobeClothes) => {
   if (sortMode.value) return
   if (matchingMode.value) return
   if (selectMode.value) return
-  console.log('走到这里了')
   const isInUniApp =
 		typeof window !== 'undefined' &&
 		navigator.userAgent.includes('Html5Plus');
 	if (isInUniApp && typeof uni !== 'undefined' && uni.navigateTo) {
 		// UniApp WebView 环境
 		uni.navigateTo({
-			url: `/pages/common/outerLink?url=https://lolitalibrary.com/clothes/detail/${item.clothes_id}`,
+			url: `/pages/common/outerLink2?url=https://lolitalibrary.com/clothes/detail/${item.clothes_id}`,
 			fail: () => {
 				console.log('跳转错误')
 			}
@@ -865,6 +1220,7 @@ const jumpToPlan = () => {
   }
 }
 onMounted(async () => {
+  void fetchOwnerBadges()
   if (typeof window !== 'undefined') {
     window.addEventListener('message', handleUniRefreshMessage)
   }
@@ -940,6 +1296,329 @@ const collapseState = ref(0)
 const toggleCollapse = () => {
   collapseState.value = (collapseState.value + 1) % 3
 }
+
+const toggleTimelineMode = async () => {
+  const next = !timelineMode.value
+  if (next) {
+    sortMode.value = false
+    matchingMode.value = false
+    selectMode.value = false
+    selectedClothesIds.value = new Set()
+  }
+  timelineMode.value = next
+  page.value = 1
+  await fetchClothesList(1, TIMELINE_PAGE_SIZE)
+}
+
+/** 衣柜统计：App（UniApp WebView）走原生页；网页端进入 ECharts 统计页 */
+const openWardrobeStatistics = () => {
+  const isInUniApp =
+    typeof window !== 'undefined' &&
+    navigator.userAgent.includes('Html5Plus')
+
+  if (isInUniApp && typeof uni !== 'undefined' && uni.navigateTo) {
+    uni.navigateTo({
+      url: `/pages/common/outerLink2?url=https://lolitalibrary.com/wardrobe/statistics/${id}`,
+      fail: () => {
+        console.log('跳转衣柜统计失败')
+      },
+    })
+    return
+  }
+
+  router.push(`/wardrobe/statistics/${id}`)
+}
+
+const exitTimelineMode = async () => {
+  timelineExpandedDeckKey.value = null
+  timelineMode.value = false
+  page.value = 1
+  await fetchClothesList(1, pageSize)
+}
+
+const TIMELINE_DECK_MAX = 3
+
+function chunkTimelineItems<T>(arr: T[], size: number): T[][] {
+  const out: T[][] = []
+  for (let i = 0; i < arr.length; i += size) {
+    out.push(arr.slice(i, i + size))
+  }
+  return out
+}
+
+/** 时间轴：按「日」为历史节点；同日多件按最多 3 张一组拆成多副扇形卡组 */
+const timelineNodes = computed(() => {
+  const sorted = sortListByAddTimeAsc(list.value)
+  const map = new Map<string, WardrobeClothes[]>()
+  for (const item of sorted) {
+    const ms = clothesAddTimeMs(item)
+    const key = ms ? dayjs(ms).format('YYYY-MM-DD') : '__unknown__'
+    if (!map.has(key)) map.set(key, [])
+    const bucket = map.get(key)
+    if (bucket) bucket.push(item)
+  }
+  const keys = [...map.keys()].sort((a, b) => {
+    if (a === '__unknown__') return 1
+    if (b === '__unknown__') return -1
+    return a.localeCompare(b)
+  })
+  return keys.map((key) => {
+    const items = map.get(key) ?? []
+    const dayTotal = items.reduce((s, it) => s + (Number(it.price) || 0), 0)
+    let daysInCabinetText = ''
+    if (key !== '__unknown__') {
+      const d = dayjs().startOf('day').diff(dayjs(key).startOf('day'), 'day')
+      daysInCabinetText = d <= 0 ? '今日入柜' : `已入柜 ${d} 天`
+    }
+    return {
+      key,
+      dateLabel: key === '__unknown__' ? '日期待完善' : dayjs(key).format('YY-MM-DD'),
+      daysInCabinetText,
+      dayTotal,
+      items,
+      /** 每组最多 3 张 */
+      decks: chunkTimelineItems(items, TIMELINE_DECK_MAX),
+    }
+  })
+})
+
+/**
+ * 时间轴顶部统计：总条数、总价、日均成本（仅含有效入柜时间的金额，按首末入柜日自然日跨度均摊）
+ */
+const timelineStats = computed(() => {
+  const rows = list.value
+  const count = rows.length
+  let totalPrice = 0
+  const dated: WardrobeClothes[] = []
+  for (const r of rows) {
+    totalPrice += Number(r.price) || 0
+    if (clothesAddTimeMs(r) > 0) dated.push(r)
+  }
+  let sumDated = 0
+  let minMs = Number.POSITIVE_INFINITY
+  let maxMs = Number.NEGATIVE_INFINITY
+  for (const r of dated) {
+    sumDated += Number(r.price) || 0
+    const ms = clothesAddTimeMs(r)
+    if (ms < minMs) minMs = ms
+    if (ms > maxMs) maxMs = ms
+  }
+  let daySpan = 1
+  if (dated.length >= 2 && Number.isFinite(minMs) && Number.isFinite(maxMs)) {
+    const a = dayjs(minMs).startOf('day')
+    const b = dayjs(maxMs).startOf('day')
+    daySpan = Math.max(1, b.diff(a, 'day') + 1)
+  }
+  const dailyAvg = dated.length === 0 ? null : sumDated / daySpan
+  return {
+    count,
+    totalPrice,
+    datedCount: dated.length,
+    daySpan,
+    dailyAvg,
+  }
+})
+
+/**
+ * 卡组：圆心为左下角（transform-origin），并叠加微量平移形成错落层次
+ */
+const timelineDeckCardStyle = (idx: number, total: number) => {
+  const origin = 'left bottom'
+  if (total <= 1) {
+    return {
+      zIndex: 32,
+      transform: 'translate(0px, 0px) rotate(0deg)',
+      transformOrigin: origin,
+      transitionDelay: '0s',
+    }
+  }
+  const stagger: [number, number][] =
+    total === 2
+      ? [
+          [0, 0],
+          [7, -8],
+        ]
+      : [
+          [0, 0],
+          [6, -7],
+          [12, -14],
+        ]
+  const [tx, ty] = stagger[idx] ?? [0, 0]
+  let deg = 0
+  if (idx === 1) deg = total === 2 ? 12 : 10
+  else if (idx === 2) deg = 19
+  return {
+    zIndex: 32 - idx,
+    transform: `translate(${tx}px, ${ty}px) rotate(${deg}deg)`,
+    transformOrigin: origin,
+    transitionDelay: '0s',
+  }
+}
+
+/**
+ * 扇形展开（塔罗选牌）：自下沿左角枢轴甩开，幅度偏大、中间牌更突出
+ */
+const timelineDeckFanStyle = (idx: number, total: number) => {
+  const origin = 'left bottom'
+  const delay = `${idx * 0.05}s`
+  if (total === 2) {
+    const rows = [
+      { z: 46, tf: 'translate(-12px, -18px) rotate(-24deg) scale(1.06)' },
+      { z: 48, tf: 'translate(44px, -38px) rotate(26deg) scale(1.06)' },
+    ]
+    const r = rows[idx] ?? rows[0]
+    return { zIndex: r.z, transform: r.tf, transformOrigin: origin, transitionDelay: delay }
+  }
+  const rows = [
+    { z: 44, tf: 'translate(-16px, -18px) rotate(-24deg) scale(1.06)' },
+    { z: 52, tf: 'translate(22px, -52px) rotate(0deg) scale(1.14)' },
+    { z: 46, tf: 'translate(58px, -22px) rotate(30deg) scale(1.06)' },
+  ]
+  const r = rows[idx] ?? rows[0]
+  return { zIndex: r.z, transform: r.tf, transformOrigin: origin, transitionDelay: delay }
+}
+
+/** 时间轴卡组扇形展开；@@ 避免与日期 key 中的下划线冲突 */
+const timelineExpandedDeckKey = ref<string | null>(null)
+const timelineDeckKey = (nodeKey: string, dIdx: number) => `${nodeKey}@@${dIdx}`
+
+const isTimelineDeckExpanded = (nodeKey: string, dIdx: number) =>
+  timelineExpandedDeckKey.value === timelineDeckKey(nodeKey, dIdx)
+
+/** 该日期节点是否有卡组扇形展开：抬高整条 article，避免被后续节点/卡组盖住 */
+const isTimelineNodeFanExpanded = (nodeKey: string) => {
+  const k = timelineExpandedDeckKey.value
+  if (!k) return false
+  const i = k.indexOf('@@')
+  if (i === -1) return false
+  return k.slice(0, i) === nodeKey
+}
+
+const timelineDeckCardTransform = (
+  nodeKey: string,
+  dIdx: number,
+  idx: number,
+  total: number,
+) => {
+  if (isTimelineDeckExpanded(nodeKey, dIdx)) return timelineDeckFanStyle(idx, total)
+  return timelineDeckCardStyle(idx, total)
+}
+
+const toggleTimelineDeckExpand = (nodeKey: string, dIdx: number) => {
+  const k = timelineDeckKey(nodeKey, dIdx)
+  timelineExpandedDeckKey.value = timelineExpandedDeckKey.value === k ? null : k
+}
+
+/** 扇形展开：用 fixed 浮层 + 占位，避免容器撑高导致整页重排卡顿 */
+const timelineDeckOverlayRect = ref<{
+  top: number
+  left: number
+  width: number
+  height: number
+} | null>(null)
+
+/**
+ * 相对 timeline-deck-wrap 定位（不用 fixed）：祖先含 transform（如 max-md:scale-[0.9]）时，
+ * fixed 会相对该祖先解析，与 getBoundingClientRect 视口坐标不一致导致偏移；absolute + 差值与叠卡原位一致。
+ * 始终用 #timeline-deck 测量（不用 spacer），避免占位与 deck 亚像素差导致二次 rect 更新、轻微抖动。
+ */
+function roundDeckOverlayRect(r: {
+  top: number
+  left: number
+  width: number
+  height: number
+}) {
+  return {
+    top: Math.round(r.top),
+    left: Math.round(r.left),
+    width: Math.max(1, Math.round(r.width)),
+    height: Math.max(1, Math.round(r.height)),
+  }
+}
+
+function syncTimelineDeckFixedPosition() {
+  if (typeof document === 'undefined') return
+  const k = timelineExpandedDeckKey.value
+  if (!k) return
+  const wrap = document.getElementById(`timeline-deck-wrap-${k}`)
+  const deck = document.getElementById(`timeline-deck-${k}`)
+  if (!wrap || !deck) return
+  const wr = wrap.getBoundingClientRect()
+  const dr = deck.getBoundingClientRect()
+  timelineDeckOverlayRect.value = roundDeckOverlayRect({
+    top: dr.top - wr.top,
+    left: dr.left - wr.left,
+    width: dr.width,
+    height: dr.height,
+  })
+}
+
+let timelineDeckResizeTimer: ReturnType<typeof setTimeout> | null = null
+function onTimelineDeckResizeDebounced() {
+  if (!timelineExpandedDeckKey.value) return
+  if (timelineDeckResizeTimer) clearTimeout(timelineDeckResizeTimer)
+  timelineDeckResizeTimer = setTimeout(() => {
+    timelineDeckResizeTimer = null
+    requestAnimationFrame(() => {
+      syncTimelineDeckFixedPosition()
+    })
+  }, 80)
+}
+
+function timelineDeckFixedStyle(nodeKey: string, dIdx: number): Record<string, string> {
+  const k = timelineDeckKey(nodeKey, dIdx)
+  if (timelineExpandedDeckKey.value !== k || !timelineDeckOverlayRect.value) return {}
+  const r = timelineDeckOverlayRect.value
+  return {
+    position: 'absolute',
+    top: `${r.top}px`,
+    left: `${r.left}px`,
+    width: `${r.width}px`,
+    height: `${r.height}px`,
+    margin: '0',
+    zIndex: '500',
+  }
+}
+
+watch(
+  timelineExpandedDeckKey,
+  async (k) => {
+    if (!k) {
+      timelineDeckOverlayRect.value = null
+      return
+    }
+    await nextTick()
+    // 双 rAF：等 ring / 缩放布局稳定后再量一次，避免连续两次 sync 造成 rect 跳变
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        syncTimelineDeckFixedPosition()
+      })
+    })
+  },
+  { flush: 'post' },
+)
+
+function onTimelineDeckEscape(e: KeyboardEvent) {
+  if (e.key === 'Escape' && timelineExpandedDeckKey.value) {
+    timelineExpandedDeckKey.value = null
+  }
+}
+
+onMounted(() => {
+  if (typeof window === 'undefined') return
+  window.addEventListener('keydown', onTimelineDeckEscape)
+  window.addEventListener('resize', onTimelineDeckResizeDebounced, { passive: true })
+})
+onUnmounted(() => {
+  if (typeof window === 'undefined') return
+  window.removeEventListener('keydown', onTimelineDeckEscape)
+  window.removeEventListener('resize', onTimelineDeckResizeDebounced)
+  if (timelineDeckResizeTimer) clearTimeout(timelineDeckResizeTimer)
+})
+
+watch(timelineMode, (on) => {
+  if (!on) timelineExpandedDeckKey.value = null
+})
 
 // 搭配模式、排序、多选互斥
 const toggleMatchingMode = () => {
@@ -1037,6 +1716,16 @@ const confirmBatchDelete = async () => {
   }
 }
 
+const showLongShareModal = ref(false)
+
+function openLongShareModal() {
+  if (!currentWardrobe.value?.wardrobe_id || !info.value) {
+    toast.add({ title: '请先选择衣柜', color: 'amber', icon: 'i-heroicons-information-circle' })
+    return
+  }
+  showLongShareModal.value = true
+}
+
 const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
   const id = item.clothes_id
   if (id == null) return
@@ -1058,7 +1747,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
 </script>
 <template>
 
-  <div class="wardrobe-wrap text-qhx-text" :style="{ 
+  <div class="wardrobe-wrap wardrobe-page-neu text-qhx-text" :style="{ 
     background: customStyle?.background,
     backgroundPosition: 'center',
     color: customStyle?.fontColor || 'inherit',
@@ -1069,9 +1758,9 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
     <div v-if="isLoading && page === 1" class="absolute inset-0 bg-white/50 flex z-10 items-center justify-center">
       <span class="text-gray-600">加载中……</span>
     </div>
-    <!-- 弹幕组件：仅当开放弹幕时显示 -->
+    <!-- 弹幕组件：仅当开放弹幕时显示（时间轴空白模式下隐藏） -->
     <div
-      v-if="isDanmakuEnabled && currentWardrobe?.wardrobe_id"
+      v-if="isDanmakuEnabled && currentWardrobe?.wardrobe_id && !timelineMode"
       class="fixed inset-0 w-full h-full pointer-events-none z-40"
     >
       <CommentDanmakuComment
@@ -1087,7 +1776,45 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
     </div>
     <clothes-add ref="addEditClothesRef" @success="reloadWardrobe"></clothes-add>
     <wardrobe-add-edit ref="addEditWardrobeRef" @success="onWardrobeEditSuccess"></wardrobe-add-edit>
+    <AchievementDecoConfigModal
+      v-if="isWardrobeOwner && currentWardrobe?.wardrobe_id"
+      v-model="wardrobeDecoModalOpen"
+      :trigger-position="wardrobeDecoModalPosition"
+      :initial-selected-ids="wardrobeDecoInitialSelectedIds"
+      :wardrobe-id="currentWardrobe.wardrobe_id"
+      @saved="onWardrobeDecoSaved"
+    />
     <matching-add-edit ref="matchingAddEditRef" @success="matchingDraftStore.clear" />
+    <QhxModal v-model="showLongShareModal">
+      <div
+        class="flex max-h-[90vh] w-[min(94vw,440px)] flex-col overflow-hidden rounded-2xl bg-[#ebe3e8] shadow-2xl dark:bg-[#241d26]"
+      >
+        <div
+          class="flex shrink-0 items-center justify-between gap-2 border-b border-pink-200/40 px-4 py-3 dark:border-pink-900/35"
+        >
+          <span class="text-sm font-semibold text-[#4a2f3d] dark:text-pink-50">衣柜长图分享</span>
+          <button
+            type="button"
+            class="flex h-9 w-9 items-center justify-center rounded-xl text-[#8a6f7d] outline-none transition hover:bg-black/5 dark:text-pink-300/85 dark:hover:bg-white/10"
+            aria-label="关闭"
+            @click="showLongShareModal = false"
+          >
+            <UIcon name="i-heroicons-x-mark-20-solid" class="h-5 w-5" />
+          </button>
+        </div>
+        <div class="min-h-0 flex-1 overflow-y-auto overscroll-contain p-3 sm:p-4">
+          <WardrobeClothesLongShare
+            v-if="currentWardrobe?.wardrobe_id && info"
+            :wardrobe-id="currentWardrobe.wardrobe_id"
+            :info="info"
+            :filter-list="filter_list"
+            :password="password"
+            :timeline-mode="timelineMode"
+          />
+        </div>
+      </div>
+    </QhxModal>
+
     <QhxModal @close="password = ''" v-model="showPassword" :trigger-position="clickPosition">
       <div class="p-6 w-[400px] bg-white rounded-[10px] max-h-[50vh] overflow-y-auto">
         <UInput v-model="password" :placeholder="'请输入密码'" class="flex-1 focus:ring-0" :ui="{
@@ -1101,7 +1828,12 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
           }
         }" />
         <UButton v-if="record && record.wardrobe_id" type="submit" block
-          class="bg-qhx-primary text-qhx-inverted hover:bg-qhx-primaryHover mt-6"
+          :class="[
+            'mt-6',
+            !customStyle?.btnColor && 'bg-qhx-primary text-qhx-inverted hover:bg-qhx-primaryHover',
+            customStyle?.btnColor && 'hover:opacity-90',
+          ]"
+          :style="customBtnStyle"
           @click="checkPassword(record.wardrobe_id)">
           确定
         </UButton>
@@ -1111,8 +1843,22 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
       <div class="p-6">
         <p class="text-gray-700 dark:text-gray-300 mb-4">确定要删除这个衣柜吗？删除后将无法恢复。</p>
         <div class="flex justify-end gap-2">
-          <UButton color="gray" @click="showDeleteModal = false">取消</UButton>
-          <UButton color="red" @click="confirmDeleteWardrobe">确定删除</UButton>
+          <UButton
+            color="gray"
+            :class="hasAnyCustomBtnTheme && hasCustomBtnBg ? 'hover:opacity-90' : ''"
+            :style="customBtnStyle"
+            @click="showDeleteModal = false"
+          >
+            取消
+          </UButton>
+          <UButton
+            color="red"
+            :class="hasAnyCustomBtnTheme && hasCustomBtnBg ? 'hover:opacity-90' : ''"
+            :style="customBtnStyle"
+            @click="confirmDeleteWardrobe"
+          >
+            确定删除
+          </UButton>
         </div>
       </div>
     </UModal>
@@ -1120,8 +1866,46 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
       <div class="p-6">
         <p class="text-gray-700 dark:text-gray-300 mb-4">确定要删除选中的 {{ selectedClothesIds.size }} 件服饰吗？删除后将无法恢复。</p>
         <div class="flex justify-end gap-2">
-          <UButton color="gray" @click="showBatchDeleteModal = false">取消</UButton>
-          <UButton color="red" @click="confirmBatchDelete">确定删除</UButton>
+          <UButton
+            color="gray"
+            :class="hasAnyCustomBtnTheme && hasCustomBtnBg ? 'hover:opacity-90' : ''"
+            :style="customBtnStyle"
+            @click="showBatchDeleteModal = false"
+          >
+            取消
+          </UButton>
+          <UButton
+            color="red"
+            :class="hasAnyCustomBtnTheme && hasCustomBtnBg ? 'hover:opacity-90' : ''"
+            :style="customBtnStyle"
+            @click="confirmBatchDelete"
+          >
+            确定删除
+          </UButton>
+        </div>
+      </div>
+    </UModal>
+    <UModal v-model="planCompleteModal" title="操作确认">
+      <div class="p-6">
+        <p class="text-gray-700 dark:text-gray-300 mb-4">确定要完成该计划吗？</p>
+        <div class="flex justify-end gap-2">
+          <UButton
+            color="gray"
+            :class="hasAnyCustomBtnTheme && hasCustomBtnBg ? 'hover:opacity-90' : ''"
+            :style="customBtnStyle"
+            @click="planCompleteModal = false"
+          >
+            取消
+          </UButton>
+          <UButton
+            color="primary"
+            :class="hasAnyCustomBtnTheme && hasCustomBtnBg ? 'hover:opacity-90' : ''"
+            :style="customBtnStyle"
+            :loading="planCompleteLoading"
+            @click="handlePlanTimelineComplete"
+          >
+            确认完成
+          </UButton>
         </div>
       </div>
     </UModal>
@@ -1133,8 +1917,11 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
         <button @click="jumpToVisualization"
           class="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors text-left group">
           <div
-            class="w-8 h-8 bg-gradient-to-br from-purple-500 to-pink-500 rounded-lg flex items-center justify-center group-hover:scale-110 transition-transform">
-            <UIcon name="material-symbols:auto-awesome" class="text-base text-white" />
+            class="w-8 h-8 rounded-lg flex items-center justify-center group-hover:scale-110 transition-transform"
+            :class="!hasCustomBtnBg && 'bg-gradient-to-br from-purple-500 to-pink-500'"
+            :style="customBtnStyle"
+          >
+            <UIcon name="material-symbols:auto-awesome" class="text-base" :class="!hasCustomBtnFont && 'text-white'" />
           </div>
           <div class="flex-1">
             <div class="text-sm font-medium text-gray-800 dark:text-gray-200">星系</div>
@@ -1146,8 +1933,11 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
         <button @click="jumpToMatchingList"
           class="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors text-left group mt-2">
           <div
-            class="w-8 h-8 bg-gradient-to-br from-amber-500 to-orange-500 rounded-lg flex items-center justify-center group-hover:scale-110 transition-transform">
-            <UIcon name="material-symbols:style" class="text-base text-white" />
+            class="w-8 h-8 rounded-lg flex items-center justify-center group-hover:scale-110 transition-transform"
+            :class="!hasCustomBtnBg && 'bg-gradient-to-br from-amber-500 to-orange-500'"
+            :style="customBtnStyle"
+          >
+            <UIcon name="material-symbols:style" class="text-base" :class="!hasCustomBtnFont && 'text-white'" />
           </div>
           <div class="flex-1">
             <div class="text-sm font-medium text-gray-800 dark:text-gray-200">搭配清单</div>
@@ -1159,8 +1949,11 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
         <button @click="jumpToPlan"
           class="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors text-left group mt-2">
           <div
-            class="w-8 h-8 bg-gradient-to-br from-blue-500 to-cyan-500 rounded-lg flex items-center justify-center group-hover:scale-110 transition-transform">
-            <UIcon name="material-symbols:calendar-month" class="text-base text-white" />
+            class="w-8 h-8 rounded-lg flex items-center justify-center group-hover:scale-110 transition-transform"
+            :class="!hasCustomBtnBg && 'bg-gradient-to-br from-blue-500 to-cyan-500'"
+            :style="customBtnStyle"
+          >
+            <UIcon name="material-symbols:calendar-month" class="text-base" :class="!hasCustomBtnFont && 'text-white'" />
           </div>
           <div class="flex-1">
             <div class="text-sm font-medium text-gray-800 dark:text-gray-200">定制计划</div>
@@ -1170,9 +1963,42 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
       </div>
     </QhxModal>
 
+    <Transition
+      enter-active-class="transition duration-300 ease-[cubic-bezier(0.4,0,0.2,1)]"
+      enter-from-class="opacity-0 -translate-x-3"
+      enter-to-class="opacity-100 translate-x-0"
+      leave-active-class="transition duration-200 ease-[cubic-bezier(0.4,0,0.2,1)]"
+      leave-from-class="opacity-100 translate-x-0"
+      leave-to-class="opacity-0 -translate-x-3"
+    >
+      <button
+        v-if="timelineMode && user.user?.user_id === Number.parseInt(id)"
+        type="button"
+        class="fixed left-3 z-[55] flex items-center gap-1.5 rounded-full px-3 py-2 text-sm shadow-lg backdrop-blur-md"
+        :class="[
+          !customStyle?.btnColor && 'bg-black/55 hover:bg-black/65 dark:bg-white/20 dark:hover:bg-white/30',
+          !customStyle?.btnFontColor && 'text-white',
+        ]"
+        :style="{
+          top: `${(configStore.statusBarHeight || 0) + 10}px`,
+          ...customBtnStyle,
+        }"
+        @click="exitTimelineMode"
+      >
+        <UIcon name="material-symbols:close" class="text-[18px]" />
+        退出时间轴
+      </button>
+    </Transition>
+
+    <div class="relative w-full min-h-[100dvh]">
+      <div
+        class="grid w-full transition-[grid-template-rows] duration-350 ease-[cubic-bezier(0.4,0,0.2,1)] overflow-hidden"
+        :style="{ gridTemplateRows: timelineMode ? '0fr' : '1fr' }"
+      >
+        <div class="min-h-0 overflow-hidden">
     <div class="rounded-2xl flex">
       <div
-        class="wardrobe-list wardrobe-list-height shadow-xl rounded-[10px] flex-shrink-0 transition-all duration-350 ease-[cubic-bezier(0.4,0,0.2,1)]"
+        class="wardrobe-list wardrobe-neu-sidebar wardrobe-list-height rounded-[10px] flex-shrink-0 transition-all duration-350 ease-[cubic-bezier(0.4,0,0.2,1)]"
         :class="collapseState >= 1 ? 'w-0 min-w-0 overflow-hidden' : 'w-[180px] max-md:w-[20vw] overflow-y-auto'">
         <!-- 状态栏高度占位 -->
         <div v-if="configStore.statusBarHeight > 0" :style="{ height: `${configStore.statusBarHeight}px` }"></div>
@@ -1180,26 +2006,69 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
         <div v-if="user.user?.user_id === Number.parseInt(id)" class="flex flex-col items-center py-2 gap-1.5">
           <QhxJellyButton>
             <div class="h-[46px] text-center px-0.5  cursor-pointer" @click="showAddWardrobe($event)">
-              <div class="my-[3px] mx-auto text-white rounded-[50%] h-[24px] w-[24px] bg-qhx-primary flex items-center justify-center">
-                <UIcon name="material-symbols:add-2" class="text-[16px] text-[#ffffff]" />
+              <div
+                class="wardrobe-neu-tool-orb my-[3px] mx-auto rounded-[50%] h-[24px] w-[24px] flex items-center justify-center"
+                :class="[!hasCustomBtnBg && 'bg-qhx-primary', !hasCustomBtnFont && 'text-white']"
+                :style="customBtnStyle"
+              >
+                <UIcon name="material-symbols:add-2" class="text-[16px]" />
               </div>
               <div class="text-xs text-qhx-text">新建衣柜</div>
             </div>
           </QhxJellyButton>
           <QhxJellyButton>
             <div class="h-[46px] text-center px-0.5 cursor-pointer" @click="openWardrobeSearch()">
-              <div class="my-[3px] mx-auto text-white rounded-[50%] h-[24px] w-[24px] bg-qhx-primary flex items-center justify-center">
-                <UIcon name="i-heroicons-magnifying-glass" class="text-[16px] text-[#ffffff]" />
+              <div
+                class="wardrobe-neu-tool-orb my-[3px] mx-auto rounded-[50%] h-[24px] w-[24px] flex items-center justify-center"
+                :class="[!hasCustomBtnBg && 'bg-qhx-primary', !hasCustomBtnFont && 'text-white']"
+                :style="customBtnStyle"
+              >
+                <UIcon name="i-heroicons-magnifying-glass" class="text-[16px]" />
               </div>
               <div class="text-xs text-qhx-text">搜索</div>
             </div>
           </QhxJellyButton>
           <QhxJellyButton>
             <div class="h-[46px] text-center px-0.5 cursor-pointer" @click="openMoreMenu($event)">
-              <div class="my-[3px] mx-auto text-white rounded-[50%] h-[24px] w-[24px] bg-qhx-primary flex items-center justify-center">
-                <UIcon name="material-symbols:more-horiz" class="text-[16px] text-[#ffffff]" />
+              <div
+                class="wardrobe-neu-tool-orb my-[3px] mx-auto rounded-[50%] h-[24px] w-[24px] flex items-center justify-center"
+                :class="[!hasCustomBtnBg && 'bg-qhx-primary', !hasCustomBtnFont && 'text-white']"
+                :style="customBtnStyle"
+              >
+                <UIcon name="material-symbols:more-horiz" class="text-[16px]" />
               </div>
               <div class="text-xs text-qhx-text">更多</div>
+            </div>
+          </QhxJellyButton>
+          <QhxJellyButton>
+            <div class="h-[46px] text-center px-0.5 cursor-pointer" @click="toggleTimelineMode">
+              <div
+                class="wardrobe-neu-tool-orb my-[3px] mx-auto rounded-[50%] h-[24px] w-[24px] flex items-center justify-center transition-colors duration-300"
+                :class="[
+                  timelineMode
+                    ? [
+                        !hasCustomBtnBg && 'bg-qhx-primary ring-2 ring-qhx-primary/40 ring-offset-1 ring-offset-transparent',
+                        !hasCustomBtnFont && 'text-white',
+                      ]
+                    : [!hasCustomBtnBg && 'bg-qhx-info', !hasCustomBtnFont && 'text-white'],
+                ]"
+                :style="timelineMode ? customBtnStyle : {}"
+              >
+                <UIcon name="material-symbols:view-timeline" class="text-[16px]" />
+              </div>
+              <div class="text-xs text-qhx-text">时间轴</div>
+            </div>
+          </QhxJellyButton>
+          <QhxJellyButton>
+            <div class="h-[46px] text-center px-0.5 cursor-pointer" @click="openWardrobeStatistics">
+              <div
+                class="wardrobe-neu-tool-orb my-[3px] mx-auto rounded-[50%] h-[24px] w-[24px] flex items-center justify-center"
+                :class="[!hasCustomBtnBg && 'bg-qhx-primary', !hasCustomBtnFont && 'text-white']"
+                :style="customBtnStyle"
+              >
+                <UIcon name="material-symbols:bar-chart-4-bars" class="text-[16px]" />
+              </div>
+              <div class="text-xs text-qhx-text">统计</div>
             </div>
           </QhxJellyButton>
         </div>
@@ -1208,17 +2077,35 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
           <template #item="{ element }">
             <transition-group tag="div" name="list">
               <div class="relative group-item">
-                <div @click="changeWardrobe(element)"
-                  class="group w-[90%] mx-auto flex flex-col items-center transition-transform duration-300 ease-out  rounded-[10px]"
-                  :class="currentWardrobe?.wardrobe_id === element.wardrobe_id ? 'bg-qhx-primary text-qhx-inverted' : ''">
+                <div
+                  @click="onWardrobeListItemClick(element)"
+                  class="group w-[90%] mx-auto flex flex-col items-center transition-transform duration-300 ease-out rounded-[10px] cursor-pointer"
+                  :class="[
+                    currentWardrobe?.wardrobe_id === element.wardrobe_id && !customStyle?.btnColor ? 'bg-qhx-primary' : '',
+                    currentWardrobe?.wardrobe_id === element.wardrobe_id && !customStyle?.btnFontColor ? 'text-qhx-inverted' : '',
+                  ]"
+                  :style="currentWardrobe?.wardrobe_id === element.wardrobe_id ? customBtnStyle : {}"
+                >
                   <!-- <img :src="`https://lolitalibrary.com/ali/${element.wardrobe_cover || 'static/plan_cover/default.jpg'}`"
                     :alt="element.wardrobe_name"
                     draggable="false"
                     class="object-cover w-[120px] h-[120px] max-md:w-[50px] max-md:h-[50px] rounded-xl border border-gray-200 shadow-md bg-white cursor-grab active:cursor-grabbing"
                     loading="lazy" /> -->
-                  <div class="wardrobe-name py-4 text-sm font-medium text-center w-[full] max-md:w-[auto] cursor-pointer"
-                  :data-wardrobe-id="element.wardrobe_id">
-                    {{ element.wardrobe_name }}
+                  <div class="flex flex-col items-center w-full">
+                    <div
+                      class="wardrobe-name text-sm font-medium text-center w-[full] max-md:w-[auto] py-4"
+                      :class="currentWardrobe?.wardrobe_id === element.wardrobe_id ? '!pb-1' : ''"
+                      :data-wardrobe-id="element.wardrobe_id"
+                    >
+                      {{ element.wardrobe_name }}
+                    </div>
+                    <span
+                      v-if="currentWardrobe?.wardrobe_id === element.wardrobe_id"
+                      class="plan-timeline-hint mb-3 text-[11px] font-medium tracking-wide opacity-90 hover:opacity-100 transition-opacity underline-offset-2 hover:underline select-none"
+                      aria-hidden="true"
+                    >
+                      点我
+                    </span>
                   </div>
                 </div>
                 <!-- 编辑按钮（仅对当前用户显示） -->
@@ -1238,7 +2125,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
           </template>
         </Draggable>
       </div>
-      <div class="flex-1 content-area-height overflow-y-auto pr-3 overflow-x-hidden">
+      <div class="flex-1 content-area-height overflow-y-auto overflow-x-hidden">
         <!-- 状态栏高度占位 -->
         <div v-if="configStore.statusBarHeight > 0" :style="{ height: `${configStore.statusBarHeight}px` }"></div>
         <div
@@ -1246,27 +2133,36 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
           class="grid transition-[grid-template-rows] duration-350 ease-[cubic-bezier(0.4,0,0.2,1)] mb-3 overflow-hidden"
           :style="{ gridTemplateRows: collapseState >= 2 ? '0fr' : '1fr' }"
         >
-        <div class="relative w-full rounded-2xl overflow-hidden shadow-lg min-h-0">
+        <div class="relative w-full rounded-2xl overflow-hidden min-h-0">
           <!-- 半透明遮罩层 -->
           <!-- :style="currentWardrobe?.wardrobe_cover? { backgroundImage: `url(${BASE_IMG + currentWardrobe?.wardrobe_cover})`} : {}" -->
           <div class="absolute inset-0 bg-cover bg-center"></div>
           <div class="relative z-10 p-6 text-left space-y-4 max-md:p-2 mt-2">
-            <div class="flex items-center space-x-3">
-              <div>
-                <p class="text-xs">创建于 {{ dayjs(info.create_date).format('YYYY-MM-DD') }}</p>
-              </div>
-            </div>
-
-            <!-- 衣柜标题 -->
-            <h2 class="text-xl font-bold flex items-center">
-              <div class="flex-1">{{ info.wardrobe_name }}</div>
-              <div class="flex items-center gap-1">
+            <div class="flex flex-col gap-2">
+              <!-- 功能按钮 -->
+              <div class="flex items-center justify-end gap-1 flex-wrap">
+                <QhxJellyButton v-if="isWardrobeOwner">
+                  <div class="h-[46px] text-center px-0.5 cursor-pointer">
+                    <div
+                      @click="openWardrobeDecoConfig"
+                      class="wardrobe-neu-tool-orb m-[3px] rounded-[50%] h-[24px] w-[24px] flex items-center justify-center"
+                      :class="[!hasCustomBtnBg && 'bg-qhx-primary', !hasCustomBtnFont && 'text-white']"
+                      :style="customBtnStyle"
+                    >
+                      <UIcon name="i-heroicons-cog-6-tooth" class="text-[16px]" />
+                    </div>
+                    <div class="text-xs">徽章</div>
+                  </div>
+                </QhxJellyButton>
                 <QhxJellyButton>
                   <div class="h-[46px] text-center px-0.5  cursor-pointer">
                     <div
                       @click="copyUrl()"
-                      class=" m-[3px] text-white rounded-[50%] h-[24px] w-[24px] bg-qhx-primary flex items-center justify-center">
-                      <UIcon name="ic:round-share" class="text-[16px] text-[#ffffff]" />
+                      class="wardrobe-neu-tool-orb m-[3px] rounded-[50%] h-[24px] w-[24px] flex items-center justify-center"
+                      :class="[!hasCustomBtnBg && 'bg-qhx-primary', !hasCustomBtnFont && 'text-white']"
+                      :style="customBtnStyle"
+                    >
+                      <UIcon name="ic:round-share" class="text-[16px]" />
                     </div>
                     <div class="text-xs">分享</div>
                   </div>
@@ -1275,8 +2171,11 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
                   <div class="h-[46px] text-center px-0.5  cursor-pointer">
                     <div
                       @click="showEditWardrobe(info, $event)"
-                      class=" m-[3px] text-white rounded-[50%] h-[24px] w-[24px] bg-qhx-primary flex items-center justify-center">
-                      <UIcon name="i-heroicons-pencil-square" class="text-[16px] text-[#ffffff]" />
+                      class="wardrobe-neu-tool-orb m-[3px] rounded-[50%] h-[24px] w-[24px] flex items-center justify-center"
+                      :class="[!hasCustomBtnBg && 'bg-qhx-primary', !hasCustomBtnFont && 'text-white']"
+                      :style="customBtnStyle"
+                    >
+                      <UIcon name="i-heroicons-pencil-square" class="text-[16px]" />
                     </div>
                     <div class="text-xs">编辑</div>
                   </div>
@@ -1285,14 +2184,21 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
                   <div class="h-[46px] text-center px-0.5  cursor-pointer">
                     <div
                       @click="showDeleteModal = true"
-                      class=" m-[3px] text-white rounded-[50%] h-[24px] w-[24px] bg-red-500 flex items-center justify-center">
-                      <UIcon name="i-heroicons-trash" class="text-[16px] text-[#ffffff]" />
+                      class="wardrobe-neu-tool-orb m-[3px] rounded-[50%] h-[24px] w-[24px] flex items-center justify-center"
+                      :class="[!hasCustomBtnBg && 'bg-red-500', !hasCustomBtnFont && 'text-white']"
+                      :style="customBtnStyle"
+                    >
+                      <UIcon name="i-heroicons-trash" class="text-[16px]" />
                     </div>
                     <div class="text-xs">删除</div>
                   </div>
                 </QhxJellyButton>
               </div>
-            </h2>
+              <!-- 衣柜标题 -->
+              <h2 class="text-xl font-bold">
+                {{ info.wardrobe_name }}
+              </h2>
+            </div>
             <p class="text-sm">
               {{ info.wardrobe_desc }}
             </p>
@@ -1305,8 +2211,11 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
               <span v-if="isWardrobeOwner" class="flex items-center ml-2 cursor-pointer" @click="showChoosePrice">
                 <QhxJellyButton v-if="isWardrobeOwner" @click="showChoosePrice">
                   <div
-                    class="cursor-pointer m-[3px] text-white rounded-[50%] h-[24px] w-[24px] flex items-center justify-center bg-qhx-primary" >
-                    <UIcon name="i-heroicons-cog-6-tooth" class="text-[16px] text-[#ffffff]" />
+                    class="wardrobe-neu-tool-orb cursor-pointer m-[3px] rounded-[50%] h-[24px] w-[24px] flex items-center justify-center"
+                    :class="[!hasCustomBtnBg && 'bg-qhx-primary', !hasCustomBtnFont && 'text-white']"
+                    :style="customBtnStyle"
+                  >
+                    <UIcon name="i-heroicons-cog-6-tooth" class="text-[16px]" />
                   </div>
                 </QhxJellyButton>
                 <span class="text-xs ml-1 text-qhx-text">
@@ -1342,8 +2251,11 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
               <span>排序模式: {{ formatSortType(info.sort_type) }}</span>
               <QhxJellyButton v-if="isWardrobeOwner" @click="showChooseSort">
                 <div
-                  class="cursor-pointer m-[3px] text-white rounded-[50%] h-[24px] w-[24px] flex items-center justify-center bg-qhx-primary" >
-                  <UIcon name="i-heroicons-arrows-up-down" class="text-[16px] text-[#ffffff]" />
+                  class="wardrobe-neu-tool-orb cursor-pointer m-[3px] rounded-[50%] h-[24px] w-[24px] flex items-center justify-center"
+                  :class="[!hasCustomBtnBg && 'bg-qhx-primary', !hasCustomBtnFont && 'text-white']"
+                  :style="customBtnStyle"
+                >
+                  <UIcon name="i-heroicons-arrows-up-down" class="text-[16px]" />
                 </div>
               </QhxJellyButton>
             </p>
@@ -1363,6 +2275,12 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
               :default-value="sortTypeOptions.find(opt => opt.value === (info?.sort_type ?? 0)) || sortTypeOptions[0]"
               @select="onSortTypeChange"
             />
+
+            <div class="flex items-center space-x-3">
+              <div>
+                <p class="text-xs">创建于 {{ dayjs(info.create_date).format('YYYY-MM-DD') }}</p>
+              </div>
+            </div>
           </div>
         </div>
         </div>
@@ -1374,51 +2292,90 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
           <div class="flex flex-wrap gap-1">
             <QhxJellyButton>
               <div class="h-[46px] flex flex-col items-center justify-center px-0.5 cursor-pointer" @click="showAddClothes()">
-                <div class="m-[3px] text-white rounded-[50%] h-[24px] w-[24px] flex items-center justify-center bg-qhx-primary">
-                  <UIcon name="material-symbols:add-2" class="text-[16px] text-[#ffffff]" />
+                <div
+                  class="wardrobe-neu-tool-orb m-[3px] rounded-[50%] h-[24px] w-[24px] flex items-center justify-center"
+                  :class="[!hasCustomBtnBg && 'bg-qhx-primary', !hasCustomBtnFont && 'text-white']"
+                  :style="customBtnStyle"
+                >
+                  <UIcon name="material-symbols:add-2" class="text-[16px]" />
                 </div>
                 <div class="text-xs text-qhx-text">添加</div>
               </div>
             </QhxJellyButton>
             <QhxJellyButton>
               <div class="h-[46px] flex flex-col items-center justify-center px-0.5 cursor-pointer" @click="toggleSortMode">
-                <div class="m-[3px] text-white rounded-[50%] h-[24px] w-[24px] flex items-center justify-center" :class="sortMode ? 'bg-qhx-primary' : 'bg-qhx-info'">
-                  <UIcon name="icon-park-outline:sort-two" class="text-[16px] text-[#ffffff]" />
+                <div
+                  class="wardrobe-neu-tool-orb m-[3px] rounded-[50%] h-[24px] w-[24px] flex items-center justify-center"
+                  :class="sortMode ? [!hasCustomBtnBg && 'bg-qhx-primary', !hasCustomBtnFont && 'text-white'] : [!hasCustomBtnBg && 'bg-qhx-info', !hasCustomBtnFont && 'text-white']"
+                  :style="sortMode ? customBtnStyle : {}"
+                >
+                  <UIcon name="icon-park-outline:sort-two" class="text-[16px]" />
                 </div>
                 <div class="text-xs text-qhx-text">排序</div>
               </div>
             </QhxJellyButton>
             <QhxJellyButton>
               <div class="h-[46px] flex flex-col items-center justify-center px-0.5 cursor-pointer" @click="toggleMatchingMode">
-                <div class="m-[3px] text-white rounded-[50%] h-[24px] w-[24px] flex items-center justify-center" :class="matchingMode ? 'bg-qhx-primary' : 'bg-qhx-info'">
-                  <UIcon name="material-symbols:style" class="text-[16px] text-[#ffffff]" />
+                <div
+                  class="wardrobe-neu-tool-orb m-[3px] rounded-[50%] h-[24px] w-[24px] flex items-center justify-center"
+                  :class="matchingMode ? [!hasCustomBtnBg && 'bg-qhx-primary', !hasCustomBtnFont && 'text-white'] : [!hasCustomBtnBg && 'bg-qhx-info', !hasCustomBtnFont && 'text-white']"
+                  :style="matchingMode ? customBtnStyle : {}"
+                >
+                  <UIcon name="material-symbols:add-shopping-cart-rounded" class="text-[16px]" />
                 </div>
                 <div class="text-xs text-qhx-text">搭配模式</div>
               </div>
             </QhxJellyButton>
             <QhxJellyButton>
               <div class="h-[46px] flex flex-col items-center justify-center px-0.5 cursor-pointer" @click="toggleSelectMode">
-                <div class="m-[3px] text-white rounded-[50%] h-[24px] w-[24px] flex items-center justify-center" :class="selectMode ? 'bg-qhx-primary' : 'bg-qhx-info'">
-                  <UIcon name="material-symbols:checklist" class="text-[16px] text-[#ffffff]" />
+                <div
+                  class="wardrobe-neu-tool-orb m-[3px] rounded-[50%] h-[24px] w-[24px] flex items-center justify-center"
+                  :class="selectMode ? [!hasCustomBtnBg && 'bg-qhx-primary', !hasCustomBtnFont && 'text-white'] : [!hasCustomBtnBg && 'bg-qhx-info', !hasCustomBtnFont && 'text-white']"
+                  :style="selectMode ? customBtnStyle : {}"
+                >
+                  <UIcon name="material-symbols:checklist" class="text-[16px]" />
                 </div>
                 <div class="text-xs text-qhx-text">多选</div>
+              </div>
+            </QhxJellyButton>
+            <QhxJellyButton>
+              <div class="h-[46px] flex flex-col items-center justify-center px-0.5 cursor-pointer" @click="openLongShareModal">
+                <div
+                  class="wardrobe-neu-tool-orb m-[3px] rounded-[50%] h-[24px] w-[24px] flex items-center justify-center"
+                  :class="[!hasCustomBtnBg && 'bg-qhx-info', !hasCustomBtnFont && 'text-white']"
+                >
+                  <UIcon name="i-heroicons-photo-20-solid" class="text-[16px]" />
+                </div>
+                <div class="text-xs text-qhx-text">截长图</div>
               </div>
             </QhxJellyButton>
           </div>
           <div class="flex flex-wrap gap-1">
             <QhxJellyButton>
               <div class="h-[46px] flex flex-col items-center justify-center px-0.5 cursor-pointer" @click="toggleCollapse">
-                <div class="m-[3px] text-white rounded-[50%] h-[24px] w-[24px] flex items-center justify-center bg-qhx-info">
-                  <UIcon :name="collapseState === 2 ? 'material-symbols:open-in-full' : 'material-symbols:collapse-content'" class="text-[16px] text-[#ffffff] transition-transform duration-300" />
+                <div
+                  class="wardrobe-neu-tool-orb m-[3px] rounded-[50%] h-[24px] w-[24px] flex items-center justify-center"
+                  :class="[!hasCustomBtnBg && 'bg-qhx-info', !hasCustomBtnFont && 'text-white']"
+                >
+                  <UIcon :name="collapseState === 2 ? 'material-symbols:open-in-full' : 'material-symbols:collapse-content'" class="text-[16px] transition-transform duration-300" />
                 </div>
                 <div class="text-xs text-qhx-text">{{ collapseState === 2 ? '展开' : '收起' }}</div>
               </div>
             </QhxJellyButton>
             <QhxJellyButton>
               <div class="h-[46px] flex flex-col items-center justify-center px-0.5 cursor-pointer" @click="showFilterDrawer = true">
-                <div class="relative m-[3px] text-white rounded-[50%] h-[24px] w-[24px] flex items-center justify-center" :class="hasActiveFilter ? 'bg-qhx-primary' : 'bg-qhx-info'">
-                  <UIcon name="material-symbols:filter-list" class="text-[16px] text-[#ffffff]" />
-                  <span v-if="filterCount > 0" class="absolute -top-0.5 -right-0.5 min-w-[14px] h-[14px] px-0.5 flex items-center justify-center bg-red-500 text-white text-[9px] font-bold rounded-full">
+                <div
+                  class="wardrobe-neu-tool-orb relative m-[3px] rounded-[50%] h-[24px] w-[24px] flex items-center justify-center"
+                  :class="hasActiveFilter ? [!hasCustomBtnBg && 'bg-qhx-primary', !hasCustomBtnFont && 'text-white'] : [!hasCustomBtnBg && 'bg-qhx-info', !hasCustomBtnFont && 'text-white']"
+                  :style="hasActiveFilter ? customBtnStyle : {}"
+                >
+                  <UIcon name="material-symbols:filter-list" class="text-[16px]" />
+                  <span
+                    v-if="filterCount > 0"
+                    class="wardrobe-neu-tool-badge absolute -top-0.5 -right-0.5 min-w-[14px] h-[14px] px-0.5 flex items-center justify-center text-[9px] font-bold rounded-full"
+                    :class="[!hasCustomBtnBg && 'bg-red-500', !hasCustomBtnFont && 'text-white']"
+                    :style="customBtnStyle"
+                  >
                     {{ filterCount > 99 ? '99+' : filterCount }}
                   </span>
                 </div>
@@ -1452,9 +2409,9 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
                   @mousedown="opearClothesId = element.clothes_id"
                   @touchstart="opearClothesId = element.clothes_id"
                   @click="selectMode ? toggleClothesSelection(element) : jumpToClothes(element)">
-                  <div class="w-full aspect-[1/1] relative shadow-xl">
+                  <div class="wardrobe-neu-item w-full aspect-[1/1] relative">
                     <div
-                      class="absolute left-0 top-0 text-[10px] rounded-tl-[6px] rounded-br-[6px] px-1 py-[1px] text-white"
+                      class="absolute left-0 top-0 text-[10px] rounded-tl-[6px] z-10 rounded-br-[6px] px-1 py-[1px] text-white"
                       :class="getWardrobeStatusBgClass(element.wardrobe_status)"
                       v-if="element.wardrobe_status">
                       {{ element.wardrobe_status }}
@@ -1462,35 +2419,37 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
                     <!-- 多选模式：右上角选择框，点击选择/取消选择 -->
                     <div
                       v-if="selectMode && element.clothes_id"
-                      class="absolute top-0 right-0 h-[32px] w-[32px] flex items-center justify-center cursor-pointer transition-all duration-200"
+                      class="absolute top-0 right-0 z-10  h-[32px] w-[32px] flex items-center justify-center cursor-pointer transition-all duration-200"
                       @click.stop="toggleClothesSelection(element)"
                     >
                       <div
-                        class="w-6 h-6 rounded-md border-2 flex items-center justify-center transition-all duration-200"
-                        :class="isClothesSelected(element.clothes_id) ? 'bg-qhx-primary border-qhx-primary' : 'border-gray-400 bg-white/80 dark:bg-gray-700/80'"
+                        class="wardrobe-neu-clothes-check w-6 h-6 rounded-md border-2 flex items-center justify-center transition-all duration-200"
+                        :class="isClothesSelected(element.clothes_id) ? (hasCustomBtnBg ? 'border-transparent' : 'bg-qhx-primary border-qhx-primary') : 'border-gray-400 bg-white/80 dark:bg-gray-700/80'"
+                        :style="isClothesSelected(element.clothes_id) && hasCustomBtnBg ? { ...customBtnStyle, borderColor: customStyle?.btnColor } : {}"
                       >
-                        <UIcon v-if="isClothesSelected(element.clothes_id)" name="i-heroicons-check" class="text-white text-sm" />
+                        <UIcon v-if="isClothesSelected(element.clothes_id)" name="i-heroicons-check" class="text-sm" :class="!hasCustomBtnFont && 'text-white'" />
                       </div>
                     </div>
                     <!-- 搭配模式：加号添加/删除图标，样式参考操作按钮；非搭配模式：有尾款计划时显示储蓄 icon -->
                     <div
                       v-else-if="matchingMode && element.clothes_id"
-                      class="absolute top-0 right-0 h-[32px] w-[32px] flex items-center justify-center cursor-pointer"
+                      class="absolute top-0 right-0 z-10 h-[32px] w-[32px] flex items-center justify-center cursor-pointer"
                       @click.stop="handleMatchingDraftToggle(element, $event)"
                     >
                       <div
-                        class="m-[3px] text-white rounded-[50%] h-[24px] w-[24px] flex items-center justify-center"
-                        :class="matchingDraftStore.hasClothes(element.clothes_id) ? 'bg-red-500' : 'bg-qhx-primary'"
+                        class="wardrobe-neu-tool-orb m-[3px] rounded-[50%] h-[24px] w-[24px] flex items-center justify-center"
+                        :class="matchingDraftStore.hasClothes(element.clothes_id) ? [!hasCustomBtnBg && 'bg-red-500', !hasCustomBtnFont && 'text-white'] : [!hasCustomBtnBg && 'bg-qhx-primary', !hasCustomBtnFont && 'text-white']"
+                        :style="matchingDraftStore.hasClothes(element.clothes_id) ? {} : customBtnStyle"
                       >
                         <UIcon
                           :name="matchingDraftStore.hasClothes(element.clothes_id) ? 'i-heroicons-trash' : 'material-symbols:add-2'"
-                          class="text-[16px] text-[#ffffff]"
+                          class="text-[16px]"
                         />
                       </div>
                     </div>
                     <div
                       v-else-if="(element.plan_id || element.plan) && element.wardrobe_status !== '已拥有'"
-                      class="absolute top-0 right-0 w-6 h-6 rounded-full flex items-center justify-center text-[#D4AF37] dark:text-[#F0D050]"
+                      class="wardrobe-neu-savings-chip absolute z-10 top-0 right-0 w-6 h-6 rounded-full flex items-center justify-center text-[#D4AF37] dark:text-[#F0D050]"
                       @click.stop="jumpToClothes(element)"
                     >
                       <UIcon name="material-symbols:savings-rounded" class="text-base" />
@@ -1507,11 +2466,21 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
                         :style="{ backgroundColor: c.trim() }"
                       />
                     </div>
-                    <img :src="`${BASE_IMG}${element.clothes_img}`"
-                      draggable="false"
-                      class="object-cover w-full aspect-[1/1.5] max-md:aspect-[1/1] rounded-xl border border-gray-200 cursor-grab active:cursor-grabbing"
-                      loading="lazy">
-                    </img>
+                    <div class="wardrobe-neu-photo relative w-full overflow-hidden rounded-xl border border-gray-200">
+                      <img
+                        :src="`${BASE_IMG}${element.clothes_img}`"
+                        draggable="false"
+                        class="wardrobe-detail-img block w-full cursor-grab object-cover aspect-[1/1.5] max-md:aspect-[1/1] active:cursor-grabbing"
+                        loading="lazy"
+                        @contextmenu.prevent
+                      />
+                      <div
+                        class="wardrobe-img-touch-shield"
+                        :class="{ 'wardrobe-img-touch-shield--sorting': sortMode }"
+                        aria-hidden="true"
+                        @contextmenu.prevent
+                      />
+                    </div>
                   </div>
                   <div class="mt-2 mx-[2px] line-clamp-2 overflow-hidden text-sm font-medium text-center">
                     {{ element.clothes_note }}
@@ -1530,6 +2499,351 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
         <div class="pb-[40px]"></div>
       </div>
     </div>
+        </div>
+      </div>
+      <!-- 时间轴：历史纵轴 + 塔罗牌风卡片；同日多件为扇形卡组 -->
+      <!-- v-if：非时间轴时必须卸载整层。仅用 opacity-0 + 父级 pointer-events-none 时，子元素 .wardrobe-img-touch-shield 的 pointer-events:auto 仍会参与命中，导致误点 -->
+      <div
+        v-if="timelineMode"
+        class="absolute inset-0 z-[25] flex min-h-[100dvh] flex-col overflow-x-hidden bg-gradient-to-b from-neutral-50/98 via-white/95 to-neutral-100/90 backdrop-blur-sm transition-opacity duration-350 ease-[cubic-bezier(0.4,0,0.2,1)] dark:from-neutral-950 dark:via-neutral-950 dark:to-black/95"
+      >
+        <div
+          class="flex min-h-0 flex-1 flex-col overflow-hidden"
+          :style="{ paddingTop: `${(configStore.statusBarHeight || 0) + 52}px` }"
+        >
+          <div
+            class="timeline-scroll relative min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-contain px-2 pb-8 pt-3 text-left md:px-5"
+          >
+            <Transition name="timeline-deck-backdrop">
+              <div
+                v-if="timelineExpandedDeckKey"
+                class="pointer-events-auto absolute inset-x-0 top-0 bottom-0 z-[1] bg-black/16 backdrop-blur-[0.5px] dark:bg-black/42"
+                aria-hidden="true"
+                @click="timelineExpandedDeckKey = null"
+              />
+            </Transition>
+            <div class="relative z-[2]">
+            <!-- 时间轴汇总：总条数、总价、日均（有入柜时间的金额 / 首末入柜日天数） -->
+            <div
+              v-if="timelineMode"
+              class="timeline-summary mb-4 max-w-3xl rounded-xl border border-neutral-200/85 bg-white/75 px-3 py-3 shadow-sm dark:border-neutral-700/85 dark:bg-neutral-900/55"
+            >
+              <div
+                v-if="isLoading && list.length === 0"
+                class="text-center text-sm text-neutral-500 dark:text-neutral-400"
+              >
+                统计与列表加载中…
+              </div>
+              <div
+                v-else
+                class="grid grid-cols-3 gap-2 text-center sm:gap-4 sm:text-left"
+              >
+                <div>
+                  <p class="text-[10px] font-medium text-neutral-500 dark:text-neutral-400">总条数</p>
+                  <p class="mt-0.5 font-mono text-base font-semibold tabular-nums text-neutral-900 dark:text-neutral-100">
+                    {{ timelineStats.count }}
+                  </p>
+                </div>
+                <div>
+                  <p class="text-[10px] font-medium text-neutral-500 dark:text-neutral-400">总价</p>
+                  <p class="mt-0.5 font-mono text-base font-semibold tabular-nums text-neutral-900 dark:text-neutral-100">
+                    ￥ {{ info?.show_price === 1 ? Math.round(timelineStats.totalPrice) : '***' }}
+                  </p>
+                </div>
+                <div>
+                  <p class="text-[10px] font-medium text-neutral-500 dark:text-neutral-400">日均成本</p>
+                  <p
+                    v-if="timelineStats.datedCount > 0"
+                    class="mt-0.5 text-[9px] leading-tight text-neutral-500/90 dark:text-neutral-500"
+                  >
+                    有入柜 {{ timelineStats.datedCount }} 件 · {{ timelineStats.daySpan }} 天
+                  </p>
+                  <p class="mt-0.5 font-mono text-base font-semibold tabular-nums text-neutral-900 dark:text-neutral-100">
+                    <template v-if="info?.show_price !== 1">***</template>
+                    <template v-else-if="timelineStats.dailyAvg === null">—</template>
+                    <template v-else>￥ {{ timelineStats.dailyAvg.toFixed(2) }}</template>
+                  </p>
+                </div>
+              </div>
+            </div>
+            <div
+              v-if="isLoading && list.length === 0"
+              class="flex min-h-[40vh] items-center justify-center font-serif text-neutral-500"
+            >
+              <span class="text-sm">卷轴展开中…</span>
+            </div>
+            <div
+              v-else-if="!isLoading && list.length === 0"
+              class="flex min-h-[40vh] flex-col items-center justify-center gap-2 text-center text-neutral-500"
+            >
+              <UIcon name="material-symbols:auto-stories-outline" class="text-4xl opacity-40" />
+              <p class="text-sm font-serif">暂无记录</p>
+            </div>
+            <template v-else>
+              <div class="timeline-history relative w-full max-w-3xl pl-4 md:pl-5">
+                <div
+                  class="timeline-spine pointer-events-none absolute bottom-4 left-[7px] top-0 w-[0.5px] bg-gradient-to-b from-neutral-300/90 via-neutral-400/70 to-neutral-300/40 dark:from-neutral-600/50 dark:via-neutral-500/40 dark:to-neutral-700/30 md:left-[9px]"
+                  aria-hidden="true"
+                />
+                <article
+                  v-for="node in timelineNodes"
+                  :key="node.key"
+                  class="timeline-node relative pb-8 pl-3 md:pb-10 md:pl-5"
+                  :class="isTimelineNodeFanExpanded(node.key) ? 'z-[90] isolate' : ''"
+                >
+                  <div
+                    class="timeline-node-dot absolute left-[5px] top-1 z-[2] h-1.5 w-1.5 rounded-full border border-neutral-800 bg-white shadow-sm dark:border-neutral-300 dark:bg-neutral-800 md:left-[6px] md:h-2 md:w-2"
+                    aria-hidden="true"
+                  />
+                  <div class="mb-3 flex flex-col gap-1 pr-0.5">
+                    <header class="flex flex-row flex-wrap items-baseline justify-between gap-x-2 gap-y-0.5">
+                      <time
+                        class="font-mono text-xs font-semibold tabular-nums tracking-tight text-neutral-900 dark:text-neutral-100 md:text-sm"
+                        :datetime="node.key === '__unknown__' ? undefined : node.key"
+                      >
+                        {{ node.dateLabel }}
+                      </time>
+                      <span
+                        v-if="node.daysInCabinetText"
+                        class="shrink-0 text-[10px] leading-none text-neutral-500 dark:text-neutral-400"
+                      >
+                        {{ node.daysInCabinetText }}
+                      </span>
+                    </header>
+                    <p class="text-[10px] leading-snug text-neutral-500 dark:text-neutral-500">
+                      当日总价
+                      <span class="ml-1 font-mono text-neutral-700 dark:text-neutral-300">
+                        ￥ {{ info?.show_price === 1 ? (node.dayTotal || 0) : '***' }}
+                      </span>
+                    </p>
+                  </div>
+
+                  <!-- 单日仅 1 件：小塔罗单卡 -->
+                  <div
+                    v-if="node.items.length === 1 && node.items[0]"
+                    class="inline-flex w-fit max-w-full justify-start pl-0 md:pl-2"
+                  >
+                    <div
+                      class="timeline-tarot timeline-tarot--sm group text-left"
+                    >
+                      <div class="timeline-tarot-frame">
+                        <div class="timeline-tarot-inner">
+                          <div class="timeline-tarot-image-wrap">
+                            <img
+                              v-if="node.items[0].clothes_img"
+                              :src="`${BASE_IMG}${node.items[0].clothes_img}`"
+                              class="timeline-tarot-img"
+                              draggable="false"
+                              loading="lazy"
+                              alt=""
+                              @contextmenu.prevent
+                            />
+                            <div v-else class="flex h-full w-full items-center justify-center bg-neutral-200/40 text-neutral-400 dark:bg-neutral-800/50 dark:text-neutral-500">
+                              <UIcon name="material-symbols:dresser-outline" class="text-2xl opacity-70" />
+                            </div>
+                            <div class="timeline-tarot-vignette" />
+                            <div
+                              class="wardrobe-img-touch-shield"
+                              aria-hidden="true"
+                              @contextmenu.prevent
+                            />
+                          </div>
+                          <div class="timeline-tarot-caption">
+                            <p class="line-clamp-2 font-serif text-[10px] font-medium leading-snug text-neutral-900 dark:text-neutral-100">
+                              {{ node.items[0].clothes_note || '未命名' }}
+                            </p>
+                            <p
+                              v-if="node.items[0].price"
+                              class="mt-0.5 font-mono text-[9px] text-neutral-700 dark:text-neutral-300"
+                            >
+                              ￥ {{ info?.show_price === 2 ? '***' : (node.items[0].price || 0) }}
+                            </p>
+                            <p
+                              v-if="formatTimelineItemDailyAvg(node.items[0]) !== null"
+                              class="mt-0.5 font-mono text-[9px] leading-tight text-neutral-600 dark:text-neutral-400"
+                            >
+                              日均 ￥ {{ info?.show_price === 2 ? '***' : formatTimelineItemDailyAvg(node.items[0]) }}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- 同日多件：手机端每行 3 组；PC 横向 flex；多卡扇形展开见 timelineDeckFanStyle -->
+                  <div
+                    v-else
+                    :id="`timeline-node-decks-${node.key}`"
+                    class="timeline-node-decks relative w-full overflow-visible pl-0 md:pl-2"
+                  >
+                  <div
+                    class="grid grid-cols-3 gap-x-1.5 gap-y-6 items-end justify-items-start pl-0 md:flex md:flex-row md:flex-wrap md:content-start md:items-end md:justify-start md:gap-x-5 md:gap-y-8 md:pl-0"
+                  >
+                    <template
+                      v-for="(deck, dIdx) in node.decks"
+                      :key="`${node.key}-deck-${dIdx}`"
+                    >
+                      <!-- 副内仅 1 张（如第 4 件单独成副） -->
+                      <div
+                        v-if="deck.length === 1 && deck[0]"
+                        class="inline-flex w-fit max-w-full min-w-0 shrink-0 justify-start"
+                      >
+                        <div
+                          class="timeline-tarot timeline-tarot--sm group text-left"
+                        >
+                          <div class="timeline-tarot-frame">
+                            <div class="timeline-tarot-inner">
+                              <div class="timeline-tarot-image-wrap">
+                                <img
+                                  v-if="deck[0].clothes_img"
+                                  :src="`${BASE_IMG}${deck[0].clothes_img}`"
+                                  class="timeline-tarot-img"
+                                  draggable="false"
+                                  loading="lazy"
+                                  alt=""
+                                  @contextmenu.prevent
+                                />
+                                <div v-else class="flex h-full w-full items-center justify-center bg-neutral-200/40 text-neutral-400 dark:bg-neutral-800/50 dark:text-neutral-500">
+                                  <UIcon name="material-symbols:dresser-outline" class="text-2xl opacity-70" />
+                                </div>
+                                <div class="timeline-tarot-vignette" />
+                                <div
+                                  class="wardrobe-img-touch-shield"
+                                  aria-hidden="true"
+                                  @contextmenu.prevent
+                                />
+                              </div>
+                              <div class="timeline-tarot-caption">
+                                <p class="line-clamp-2 font-serif text-[10px] font-medium leading-snug text-neutral-900 dark:text-neutral-100">
+                                  {{ deck[0].clothes_note || '未命名' }}
+                                </p>
+                                <p
+                                  v-if="deck[0].price"
+                                  class="mt-0.5 font-mono text-[9px] text-neutral-700 dark:text-neutral-300"
+                                >
+                                  ￥ {{ info?.show_price === 2 ? '***' : (deck[0].price || 0) }}
+                                </p>
+                                <p
+                                  v-if="formatTimelineItemDailyAvg(deck[0]) !== null"
+                                  class="mt-0.5 font-mono text-[9px] leading-tight text-neutral-600 dark:text-neutral-400"
+                                >
+                                  日均 ￥ {{ info?.show_price === 2 ? '***' : formatTimelineItemDailyAvg(deck[0]) }}
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                      <!-- 副内 2～3 张：左下叠放；点击原地扇形展开（塔罗选牌） -->
+                      <div
+                        v-else
+                        class="relative border-none min-w-0 shrink-0 origin-bottom-left py-1 max-md:scale-[0.9] md:w-auto md:scale-100"
+                        :class="isTimelineDeckExpanded(node.key, dIdx) ? 'z-[120] isolate' : ''"
+                      >
+                        <div
+                          class="timeline-deck-wrap relative"
+                          :id="`timeline-deck-wrap-${timelineDeckKey(node.key, dIdx)}`"
+                          :class="isTimelineDeckExpanded(node.key, dIdx) ? 'z-[130]' : 'z-10'"
+                        >
+                          <div
+                            class="cursor-pointer rounded-lg outline-none transition-[transform,box-shadow] duration-300 ease-out focus-visible:ring-2 focus-visible:ring-neutral-400/80 dark:focus-visible:ring-neutral-500"
+                            :class="isTimelineDeckExpanded(node.key, dIdx) ? 'ring-2 ring-amber-400/35 ring-offset-2 ring-offset-neutral-50 dark:ring-amber-300/25 dark:ring-offset-neutral-950' : ''"
+                            role="button"
+                            tabindex="0"
+                            @click="toggleTimelineDeckExpand(node.key, dIdx)"
+                            @keydown.enter.prevent="toggleTimelineDeckExpand(node.key, dIdx)"
+                          >
+                            <div
+                              v-if="isTimelineDeckExpanded(node.key, dIdx) && timelineDeckOverlayRect"
+                              class="pointer-events-none shrink-0"
+                              :id="`timeline-deck-spacer-${timelineDeckKey(node.key, dIdx)}`"
+                              :style="{
+                                width: `${timelineDeckOverlayRect.width}px`,
+                                height: `${timelineDeckOverlayRect.height}px`,
+                              }"
+                              aria-hidden="true"
+                            />
+                            <div
+                              class="timeline-deck relative overflow-visible pr-1"
+                              :id="`timeline-deck-${timelineDeckKey(node.key, dIdx)}`"
+                              :style="timelineDeckFixedStyle(node.key, dIdx)"
+                              :class="[
+                                deck.length >= 3 ? 'min-h-[158px] min-w-[118px]' : 'min-h-[182px] min-w-[108px]',
+                                'max-md:min-w-0 max-md:w-full',
+                                isTimelineDeckExpanded(node.key, dIdx) ? 'timeline-deck--fanning' : '',
+                              ]"
+                            >
+                              <div
+                                v-for="(item, idx) in deck"
+                                :key="`${node.key}-d${dIdx}-${item.clothes_id ?? idx}`"
+                                class="timeline-tarot timeline-tarot--sm timeline-deck-card absolute bottom-0 left-0 text-left"
+                                :class="isTimelineDeckExpanded(node.key, dIdx) ? 'timeline-deck-card--fan' : 'transition-[transform,filter] duration-200 ease-out'"
+                                :style="timelineDeckCardTransform(node.key, dIdx, idx, deck.length)"
+                              >
+                                <div class="timeline-tarot-frame timeline-tarot-frame--deck">
+                                  <div class="timeline-tarot-inner">
+                                    <div class="timeline-tarot-image-wrap">
+                                      <img
+                                        v-if="item.clothes_img"
+                                        :src="`${BASE_IMG}${item.clothes_img}`"
+                                        class="timeline-tarot-img"
+                                        draggable="false"
+                                        loading="lazy"
+                                        alt=""
+                                        @contextmenu.prevent
+                                      />
+                                      <div v-else class="flex h-full w-full items-center justify-center bg-neutral-200/40 text-neutral-400 dark:bg-neutral-800/50 dark:text-neutral-500">
+                                        <UIcon name="material-symbols:dresser-outline" class="text-lg opacity-70" />
+                                      </div>
+                                      <div class="timeline-tarot-vignette" />
+                                      <div
+                                        class="wardrobe-img-touch-shield"
+                                        aria-hidden="true"
+                                        @contextmenu.prevent
+                                      />
+                                    </div>
+                                    <div class="timeline-tarot-caption timeline-tarot-caption--deck">
+                                      <p class="line-clamp-2 font-serif text-[10px] font-medium leading-snug text-neutral-900 dark:text-neutral-100">
+                                        {{ item.clothes_note || '未命名' }}
+                                      </p>
+                                      <p
+                                        v-if="item.price"
+                                        class="mt-0.5 font-mono text-[9px] text-neutral-700 dark:text-neutral-300"
+                                      >
+                                        ￥ {{ info?.show_price === 2 ? '***' : (item.price || 0) }}
+                                      </p>
+                                      <p
+                                        v-if="formatTimelineItemDailyAvg(item) !== null"
+                                        class="mt-0.5 font-mono text-[9px] leading-tight text-neutral-600 dark:text-neutral-400"
+                                      >
+                                        日均 ￥ {{ info?.show_price === 2 ? '***' : formatTimelineItemDailyAvg(item) }}
+                                      </p>
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </template>
+                  </div>
+                  </div>
+                </article>
+              </div>
+            </template>
+            <QhxLoading
+              :loading="isLoading"
+              :page="page"
+              :total="total"
+              :page-size="timelineMode ? TIMELINE_PAGE_SIZE : pageSize"
+              @load-more="loadMore"
+            />
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
     <!-- 筛选抽屉 -->
     <Transition :name="`drawer-${isMobile ? 'bottom' : 'right'}`">
       <QhxBottomDrawer v-if="showFilterDrawer" :direction="isMobile ? 'bottom' : 'right'" :default-size="isMobile ? 500 : 450">
@@ -1538,10 +2852,17 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
         <div class="flex items-center justify-between mb-2 px-4 pt-2 flex-shrink-0">
           <h3 class="text-base font-bold text-gray-800 dark:text-gray-200">筛选</h3>
           <button
+            type="button"
             @click="closeFilterDrawer"
-            class="w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors group"
+            class="w-8 h-8 flex items-center justify-center rounded-full transition-colors group"
+            :class="!hasCustomBtnBg && 'hover:bg-gray-100 dark:hover:bg-gray-700'"
+            :style="customBtnStyle"
           >
-            <UIcon name="i-heroicons-x-mark" class="text-gray-500 dark:text-gray-400 group-hover:text-gray-700 dark:group-hover:text-gray-200 transition-colors" />
+            <UIcon
+              name="i-heroicons-x-mark"
+              class="transition-colors"
+              :class="!hasCustomBtnFont && 'text-gray-500 dark:text-gray-400 group-hover:text-gray-700 dark:group-hover:text-gray-200'"
+            />
           </button>
         </div>
         
@@ -1588,10 +2909,21 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
         
         <!-- 固定在底部的按钮 -->
         <div class="flex justify-end gap-2 px-4 pb-4 pt-2 border-t border-gray-200 dark:border-gray-700 flex-shrink-0">
-          <UButton color="gray" variant="outline" @click="resetFilter">
+          <UButton
+            color="gray"
+            variant="outline"
+            :class="hasAnyCustomBtnTheme && hasCustomBtnBg ? 'hover:opacity-90' : ''"
+            :style="customBtnStyle"
+            @click="resetFilter"
+          >
             重置
           </UButton>
-          <UButton color="primary" @click="confirmFilter">
+          <UButton
+            color="primary"
+            :class="customStyle?.btnColor ? 'hover:opacity-90' : ''"
+            :style="customBtnStyle"
+            @click="confirmFilter"
+          >
             确认筛选
           </UButton>
         </div>
@@ -1599,11 +2931,190 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
     </QhxBottomDrawer>
     </Transition>
 
-    <!-- 搭配草稿悬浮按钮 + 抽屉，初始左下角；matchingBtnRef 用于飞入动画目标定位 -->
-    <QhxFloatingButton v-if="matchingDraftStore.count > 0" initial-position="bottom-left">
-      <div ref="matchingBtnRef" class="relative w-12 h-12 rounded-full bg-qhx-primary flex items-center justify-center shadow-lg cursor-pointer" @click="showMatchingDrawer = true">
-        <UIcon name="material-symbols:style" class="text-white text-2xl" />
-        <span class="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 flex items-center justify-center bg-red-500 text-white text-[10px] font-bold rounded-full">
+    <!-- 攒钱计划时间线（拟态）：自左侧抽屉 -->
+    <Teleport to="body">
+      <Transition name="fade">
+        <div
+          v-if="showPlanTimelineDrawer"
+          class="fixed inset-0 z-[45] bg-black/35 backdrop-blur-[1px]"
+          aria-hidden="true"
+          @click="closePlanTimelineDrawer"
+        />
+      </Transition>
+    </Teleport>
+    <Transition name="drawer-left">
+      <QhxBottomDrawer
+        v-if="showPlanTimelineDrawer"
+        direction="left"
+        :default-size="planTimelineDrawerDefaultSize"
+        :min-size="220"
+        :content-padding="false"
+      >
+        <div class="plan-neu-drawer flex flex-col h-full min-h-0 text-qhx-text">
+          <div
+            class="flex-shrink-0 w-full"
+            aria-hidden="true"
+            :style="{
+              height: `calc(${(configStore.statusBarHeight || 0)}px + env(safe-area-inset-top, 0px))`,
+            }"
+          />
+          <div class="plan-neu-header flex items-center justify-between gap-2 flex-shrink-0">
+            <h3 class="text-sm font-bold plan-neu-title tracking-tight">攒钱计划</h3>
+            <button
+              type="button"
+              class="plan-neu-icon-btn"
+              aria-label="关闭"
+              @click="closePlanTimelineDrawer"
+            >
+              <UIcon name="i-heroicons-x-mark" class="w-4 h-4" />
+            </button>
+          </div>
+          <div
+            v-if="planTimelineSummary && (planTimelineSummary.total_plan != null || planTimelineSummary.need_money != null)"
+            class="plan-neu-stats grid grid-cols-2 gap-1.5 mb-2 flex-shrink-0"
+          >
+            <div class="plan-neu-stat">
+              <div class="plan-neu-stat-label">计划</div>
+              <div class="plan-neu-stat-value">{{ planTimelineSummary.total_plan ?? '—' }}</div>
+            </div>
+            <div class="plan-neu-stat">
+              <div class="plan-neu-stat-label">完成</div>
+              <div class="plan-neu-stat-value">{{ planTimelineSummary.is_complete ?? '—' }}</div>
+            </div>
+            <div class="plan-neu-stat col-span-2">
+              <div class="plan-neu-stat-label">目标（需攒）</div>
+              <div class="plan-neu-stat-value plan-neu-stat-mono">
+                ￥{{ planTimelineSummary.need_money ?? 0 }}
+              </div>
+            </div>
+          </div>
+          <div class="flex-1 overflow-y-auto min-h-0 plan-neu-scroll">
+            <div v-if="planTimelineLoading && planTimelineRows.length === 0" class="text-center py-8 text-xs opacity-55">
+              加载中…
+            </div>
+            <div v-else-if="planTimelineRowsDisplay.length === 0" class="text-center py-8 text-xs opacity-55">
+              暂无计划记录
+            </div>
+            <div v-else class="relative plan-neu-timeline">
+              <div class="plan-neu-rail" aria-hidden="true" />
+              <div class="plan-neu-list flex flex-col gap-1.5">
+                <div
+                  v-for="{ row, idx, balance, started } in planTimelineEntries"
+                  :key="`${row.list_id}-${idx}`"
+                  class="plan-neu-row relative flex gap-0 min-w-0"
+                >
+                  <div class="plan-neu-node-col flex flex-col items-center flex-shrink-0">
+                    <div
+                      class="plan-neu-node"
+                      :class="Number(row.is_complete) === 1 ? 'plan-neu-node--done' : ''"
+                    />
+                  </div>
+                  <div class="flex-1 min-w-0 plan-neu-card">
+                    <div class="flex-1 min-w-0 py-0.5">
+                        <div class="flex items-center gap-1.5 min-w-0">
+                          <div
+                            v-if="row.clothes_img"
+                            class="plan-neu-thumb plan-neu-thumb--round flex-shrink-0 overflow-hidden w-7 h-7"
+                          >
+                            <img
+                              :src="`${BASE_IMG}${row.clothes_img}`"
+                              alt=""
+                              class="w-full h-full object-cover"
+                              draggable="false"
+                              loading="lazy"
+                            />
+                          </div>
+                          <span
+                            class="text-xs font-semibold leading-tight line-clamp-1 flex-1 min-w-0"
+                            :class="started ? 'plan-neu-started-text' : ''"
+                          >
+                            {{ row.clothes_note || row.plan_note || '计划项' }}
+                          </span>
+                          <span
+                            v-if="Number(row.is_complete) === 1"
+                            class="plan-neu-badge flex-shrink-0"
+                          >达成</span>
+                        </div>
+                        <div
+                          v-if="balance"
+                          class="plan-neu-balance"
+                          :class="{
+                            'plan-neu-balance--urgent': balance.urgent,
+                            'plan-neu-balance--muted': balance.muted,
+                          }"
+                        >
+                          <UIcon name="i-heroicons-clock" class="plan-neu-balance-icon shrink-0" />
+                          <span class="plan-neu-balance-text">{{ balance.text }}</span>
+                          <span
+                            v-if="row.end_time && !balance.muted"
+                            class="plan-neu-balance-date shrink-0"
+                            :class="started ? 'plan-neu-started-text' : ''"
+                          >{{ dayjs(row.end_time).format('MM-DD') }}</span>
+                        </div>
+                        <div class="flex items-baseline justify-between gap-2 mt-0.5">
+                          <p
+                            class="text-[10px] font-mono tabular-nums leading-none"
+                            :class="started ? 'plan-neu-started-text' : 'opacity-55'"
+                          >
+                            {{ row.create_time ? dayjs(row.create_time).format('MM-DD HH:mm') : '—' }}
+                          </p>
+                          <p class="text-[10px] font-mono tabular-nums opacity-75 leading-none whitespace-nowrap">
+                            需 ￥{{ row.need_money ?? 0 }}
+                          </p>
+                        </div>
+                        <div
+                          v-if="planRowCanShowComplete(row)"
+                          class="mt-1.5 flex justify-end"
+                        >
+                          <button
+                            type="button"
+                            class="px-1.5 py-0.5 text-[10px] font-medium rounded bg-qhx-primary text-white hover:opacity-90 active:opacity-95 transition-opacity"
+                            @click.stop="confirmPlanTimelineComplete(row.list_id)"
+                          >
+                            完成
+                          </button>
+                        </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div v-if="planTimelineHasMore" class="flex justify-center pt-2 pb-1">
+              <button
+                type="button"
+                class="plan-neu-loadmore"
+                :disabled="planTimelineLoading"
+                @click="loadMorePlanTimeline"
+              >
+                {{ planTimelineLoading ? '加载中…' : '更多' }}
+              </button>
+            </div>
+            <div v-else-if="planTimelineRowsDisplay.length > 0" class="text-center text-[10px] opacity-45 pt-1 pb-0.5">
+              共 {{ planTimelineCount }} 条
+            </div>
+          </div>
+        </div>
+      </QhxBottomDrawer>
+    </Transition>
+
+    <!-- 搭配草稿悬浮按钮：需先打开搭配模式；matchingBtnRef 用于飞入动画目标定位 -->
+    <QhxFloatingButton
+      v-show="matchingMode && matchingDraftStore.count > 0 && !timelineMode"
+      initial-position="bottom-left"
+    >
+      <div
+        ref="matchingBtnRef"
+        class="relative w-12 h-12 rounded-full flex items-center justify-center shadow-lg cursor-pointer"
+        :class="[!hasCustomBtnBg && 'bg-qhx-primary', !hasCustomBtnFont && 'text-white']"
+        :style="customBtnStyle"
+        @click="showMatchingDrawer = true"
+      >
+        <UIcon name="material-symbols:add-shopping-cart-rounded" class="text-2xl" />
+        <span
+          class="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 flex items-center justify-center text-[10px] font-bold rounded-full"
+          :class="[!hasCustomBtnBg && 'bg-red-500', !hasCustomBtnFont && 'text-white']"
+          :style="customBtnStyle"
+        >
           {{ matchingDraftStore.count > 99 ? '99+' : matchingDraftStore.count }}
         </span>
       </div>
@@ -1614,10 +3125,13 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
           <div class="flex items-center justify-between mb-2 px-4 pt-2 flex-shrink-0">
             <h3 class="text-base font-bold text-gray-800 dark:text-gray-200">搭配草稿 ({{ matchingDraftStore.count }})</h3>
             <button
+              type="button"
               @click="showMatchingDrawer = false"
-              class="w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+              class="w-8 h-8 flex items-center justify-center rounded-full transition-colors"
+              :class="!hasCustomBtnBg && 'hover:bg-gray-100 dark:hover:bg-gray-700'"
+              :style="customBtnStyle"
             >
-              <UIcon name="i-heroicons-x-mark" class="text-gray-500" />
+              <UIcon name="i-heroicons-x-mark" :class="!hasCustomBtnFont && 'text-gray-500'" />
             </button>
           </div>
           <div class="flex-1 overflow-y-auto px-4 pb-4">
@@ -1630,11 +3144,18 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
                 :key="item.clothes_id"
                 class="flex items-center gap-3 p-2 rounded-xl bg-gray-50 dark:bg-gray-800/50 hover:bg-gray-100 dark:hover:bg-gray-700/50 transition-colors"
               >
-                <div class="w-14 h-14 flex-shrink-0 rounded-lg overflow-hidden bg-gray-200 dark:bg-gray-700">
+                <div class="relative w-14 h-14 flex-shrink-0 overflow-hidden rounded-lg bg-gray-200 dark:bg-gray-700">
                   <img
                     :src="`${BASE_IMG}${item.clothes_img}`"
-                    class="w-full h-full object-cover"
+                    class="wardrobe-detail-img h-full w-full object-cover"
+                    draggable="false"
                     loading="lazy"
+                    @contextmenu.prevent
+                  />
+                  <div
+                    class="wardrobe-img-touch-shield"
+                    aria-hidden="true"
+                    @contextmenu.prevent
                   />
                 </div>
                 <div class="flex-1 min-w-0">
@@ -1642,7 +3163,10 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
                   <div v-if="item.price" class="text-xs text-qhx-primary mt-0.5">￥{{ item.price }}</div>
                 </div>
                 <button
-                  class="w-8 h-8 flex-shrink-0 rounded-full bg-red-500/90 text-white flex items-center justify-center hover:bg-red-500 transition-colors"
+                  type="button"
+                  class="w-8 h-8 flex-shrink-0 rounded-full flex items-center justify-center transition-colors"
+                  :class="[!hasCustomBtnBg && 'bg-red-500/90 hover:bg-red-500', !hasCustomBtnFont && 'text-white']"
+                  :style="customBtnStyle"
                   @click="matchingDraftStore.remove(item.clothes_id!)"
                 >
                   <UIcon name="i-heroicons-trash" class="text-sm" />
@@ -1653,7 +3177,11 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
           <div class="flex justify-center px-4 pb-4 pt-2 border-t border-gray-200 dark:border-gray-700 flex-shrink-0">
             <UButton
               block
-              class="bg-qhx-primary text-qhx-inverted hover:bg-qhx-primaryHover"
+              :class="[
+                !customStyle?.btnColor && 'bg-qhx-primary text-qhx-inverted hover:bg-qhx-primaryHover',
+                customStyle?.btnColor && 'hover:opacity-90',
+              ]"
+              :style="customBtnStyle"
               @click="openMatchingAddEdit"
             >
               创建搭配
@@ -1681,13 +3209,16 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
     <!-- 多选模式底部悬浮功能栏 -->
     <Transition name="select-bar">
       <div
-        v-if="selectMode"
-        class="fixed bottom-0 left-0 right-0 z-50 flex items-center justify-center gap-2 px-4 py-3 bg-white/95 dark:bg-gray-900/95 backdrop-blur-md shadow-[0_-4px_20px_rgba(0,0,0,0.08)] safe-area-pb"
+        v-if="selectMode && !timelineMode"
+        class="wardrobe-neu-select-bar fixed bottom-0 left-0 right-0 z-50 flex items-center justify-center gap-2 px-4 py-3 bg-white/95 dark:bg-gray-900/95 backdrop-blur-md safe-area-pb"
       >
         <QhxJellyButton>
           <div class="h-[46px] text-center px-0.5 cursor-pointer" @click="onSelectModeSwitchWardrobe">
-            <div class="m-[3px] text-white rounded-[50%] h-[24px] w-[24px] flex items-center justify-center mx-auto bg-qhx-info">
-              <UIcon name="material-symbols:swap-horiz" class="text-[16px] text-[#ffffff]" />
+            <div
+              class="wardrobe-neu-tool-orb m-[3px] rounded-[50%] h-[24px] w-[24px] flex items-center justify-center mx-auto"
+              :class="[!hasCustomBtnBg && 'bg-qhx-info', !hasCustomBtnFont && 'text-white']"
+            >
+              <UIcon name="material-symbols:swap-horiz" class="text-[16px]" />
             </div>
             <div class="text-xs text-qhx-text">切换衣柜</div>
           </div>
@@ -1699,10 +3230,11 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
             @click="selectedClothesIds.size > 0 && onSelectModeBatchDelete()"
           >
             <div
-              class="m-[3px] text-white rounded-[50%] h-[24px] w-[24px] flex items-center justify-center mx-auto"
-              :class="selectedClothesIds.size > 0 ? 'bg-red-500' : 'bg-qhx-info'"
+              class="wardrobe-neu-tool-orb m-[3px] rounded-[50%] h-[24px] w-[24px] flex items-center justify-center mx-auto"
+              :class="selectedClothesIds.size > 0 ? [!hasCustomBtnBg && 'bg-red-500', !hasCustomBtnFont && 'text-white'] : [!hasCustomBtnBg && 'bg-qhx-info', !hasCustomBtnFont && 'text-white']"
+              :style="selectedClothesIds.size > 0 ? customBtnStyle : {}"
             >
-              <UIcon name="i-heroicons-trash" class="text-[16px] text-[#ffffff]" />
+              <UIcon name="i-heroicons-trash" class="text-[16px]" />
             </div>
             <div class="text-xs text-qhx-text">
               批量删除
@@ -1712,6 +3244,26 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
         </QhxJellyButton>
       </div>
     </Transition>
+
+    <!-- 全屏徽章装饰：与 community/detail 一致，pointer-events-none 不拦截主页面点击 -->
+    <div
+      v-if="hasWardrobeDisplayBadges"
+      class="pointer-events-none fixed inset-x-0 top-0 z-[110] overflow-hidden"
+      :class="
+        selectMode && !timelineMode
+          ? 'bottom-[calc(4.5rem+env(safe-area-inset-bottom,0px)+10px)]'
+          : 'bottom-[10px]'
+      "
+      aria-hidden="true"
+    >
+      <ClientOnly>
+        <AchievementBadgePhysics
+          :key="wardrobeDisplayBadgesKey"
+          class="h-full w-full"
+          :badges="wardrobeDisplayBadges"
+        />
+      </ClientOnly>
+    </div>
   </div>
 </template>
 
@@ -1736,33 +3288,193 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
   /* 类似回弹效果 */
 }
 
+/* 衣柜侧栏列表：隐藏滚动条，仍可滚动 */
+.wardrobe-list {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
 .wardrobe-list::-webkit-scrollbar {
-  width: 1px;
-  height: 0px;
-  /* 垂直滚动条宽度 */
-}
-
-/* 滚动条轨道 */
-.wardrobe-list::-webkit-scrollbar-track {
-  background: transparent;
-  border-radius: 10px;
-}
-
-/* 滚动条滑块 */
-.wardrobe-list::-webkit-scrollbar-thumb {
-  background: #bbbbbb;
-  border-radius: 10px;
-}
-
-/* 滚动条滑块悬停状态 */
-.wardrobe-list::-webkit-scrollbar-thumb:hover {
-  background: #ccc;
+  display: none;
+  width: 0;
+  height: 0;
 }
 .wardrobe-wrap{
+  position: relative;
   user-select: none;
   -webkit-user-select: none;
   -moz-user-select: none;
   -ms-user-select: none;
+}
+
+/* 拟态：左侧栏 / 服饰卡 / 工具圆钮；仅用阴影与高光，不改配色与布局 */
+
+.wardrobe-page-neu {
+  --ward-neu-soft: rgba(255, 255, 255, 0.62);
+  --ward-neu-deep: rgba(0, 0, 0, 0.14);
+  --ward-neu-inset: rgba(255, 255, 255, 0.4);
+}
+
+.dark .wardrobe-page-neu {
+  --ward-neu-soft: rgba(255, 255, 255, 0.07);
+  --ward-neu-deep: rgba(0, 0, 0, 0.5);
+  --ward-neu-inset: rgba(255, 255, 255, 0.06);
+}
+
+/* —— 左侧整栏：带右缘层次的软面板 —— */
+.wardrobe-page-neu .wardrobe-neu-sidebar {
+  box-shadow:
+    8px 6px 20px var(--ward-neu-deep),
+    -5px -4px 14px var(--ward-neu-soft),
+    inset 0 1px 0 var(--ward-neu-inset),
+    inset 1px 0 0 rgba(255, 255, 255, 0.28),
+    inset -2px 0 4px rgba(0, 0, 0, 0.05);
+}
+
+.dark .wardrobe-page-neu .wardrobe-neu-sidebar {
+  box-shadow:
+    8px 8px 24px var(--ward-neu-deep),
+    -4px -3px 12px var(--ward-neu-soft),
+    inset 0 1px 0 var(--ward-neu-inset),
+    inset 1px 0 0 rgba(255, 255, 255, 0.04),
+    inset -2px 0 4px rgba(0, 0, 0, 0.38);
+}
+
+/* —— 服饰封面：整体浮起 + 相框内凹 —— */
+.wardrobe-page-neu .wardrobe-neu-item {
+  filter:
+    drop-shadow(8px 11px 22px var(--ward-neu-deep)) drop-shadow(-6px -7px 18px var(--ward-neu-soft));
+  transition: filter 0.28s cubic-bezier(0.22, 1, 0.36, 1), transform 0.3s ease;
+}
+
+.wardrobe-page-neu .group:hover .wardrobe-neu-item {
+  filter:
+    drop-shadow(11px 14px 28px var(--ward-neu-deep)) drop-shadow(-7px -8px 20px var(--ward-neu-soft));
+}
+
+.wardrobe-page-neu .wardrobe-neu-photo {
+  box-shadow:
+    6px 7px 18px rgba(0, 0, 0, 0.13),
+    -4px -5px 14px rgba(255, 255, 255, 0.58),
+    inset 2px 2px 9px rgba(0, 0, 0, 0.09),
+    inset -2px -2px 8px rgba(255, 255, 255, 0.34);
+  transition: box-shadow 0.28s ease;
+}
+
+.dark .wardrobe-page-neu .wardrobe-neu-photo {
+  box-shadow:
+    6px 8px 22px rgba(0, 0, 0, 0.55),
+    -3px -4px 12px rgba(255, 255, 255, 0.04),
+    inset 2px 2px 10px rgba(0, 0, 0, 0.4),
+    inset -1px -1px 5px rgba(255, 255, 255, 0.06);
+}
+
+.wardrobe-page-neu .group:hover .wardrobe-neu-photo {
+  box-shadow:
+    7px 9px 22px rgba(0, 0, 0, 0.15),
+    -5px -6px 16px rgba(255, 255, 255, 0.62),
+    inset 2px 2px 9px rgba(0, 0, 0, 0.09),
+    inset -2px -2px 8px rgba(255, 255, 255, 0.38);
+}
+
+.dark .wardrobe-page-neu .group:hover .wardrobe-neu-photo {
+  box-shadow:
+    7px 10px 26px rgba(0, 0, 0, 0.58),
+    -4px -4px 14px rgba(255, 255, 255, 0.05),
+    inset 2px 2px 11px rgba(0, 0, 0, 0.42),
+    inset -1px -1px 5px rgba(255, 255, 255, 0.07);
+}
+
+/* 多选方块：凸起 / 选中略压实 */
+.wardrobe-page-neu .wardrobe-neu-clothes-check {
+  box-shadow:
+    3px 3px 8px rgba(0, 0, 0, 0.12),
+    -2px -2px 7px rgba(255, 255, 255, 0.88),
+    inset 0 1px 0 rgba(255, 255, 255, 0.95);
+}
+
+.dark .wardrobe-page-neu .wardrobe-neu-clothes-check {
+  box-shadow:
+    3px 4px 10px rgba(0, 0, 0, 0.45),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+
+.wardrobe-page-neu .wardrobe-neu-clothes-check.bg-qhx-primary {
+  box-shadow:
+    3px 4px 10px rgba(0, 0, 0, 0.2),
+    -1px -1px 4px rgba(255, 255, 255, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.22),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.08);
+}
+
+/* 尾款储蓄角标：轻微凸起 */
+.wardrobe-page-neu .wardrobe-neu-savings-chip {
+  box-shadow:
+    2px 3px 8px rgba(212, 175, 55, 0.22),
+    -1px -2px 6px rgba(255, 255, 255, 0.45),
+    inset 0 1px 0 rgba(255, 255, 255, 0.4);
+}
+
+.dark .wardrobe-page-neu .wardrobe-neu-savings-chip {
+  box-shadow:
+    2px 3px 10px rgba(0, 0, 0, 0.4),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+
+/* —— 工具条 / 标题区 / 卡片角标：圆形软钮 —— */
+.wardrobe-page-neu .wardrobe-neu-tool-orb {
+  box-shadow:
+    4px 5px 11px rgba(0, 0, 0, 0.2),
+    -2px -3px 9px rgba(255, 255, 255, 0.42),
+    inset 0 1.5px 0 rgba(255, 255, 255, 0.38),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.08);
+  transition: box-shadow 0.2s ease, transform 0.18s ease;
+}
+
+.dark .wardrobe-page-neu .wardrobe-neu-tool-orb {
+  box-shadow:
+    4px 5px 14px rgba(0, 0, 0, 0.52),
+    -2px -2px 7px rgba(255, 255, 255, 0.06),
+    inset 0 1.5px 0 rgba(255, 255, 255, 0.12),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.28);
+}
+
+.wardrobe-page-neu .wardrobe-neu-tool-orb:active {
+  box-shadow:
+    inset 3px 3px 9px rgba(0, 0, 0, 0.24),
+    inset -2px -2px 7px rgba(255, 255, 255, 0.12);
+  transform: scale(0.94);
+}
+
+.dark .wardrobe-page-neu .wardrobe-neu-tool-orb:active {
+  box-shadow:
+    inset 3px 3px 11px rgba(0, 0, 0, 0.48),
+    inset -1px -1px 4px rgba(255, 255, 255, 0.06);
+}
+
+.wardrobe-page-neu .wardrobe-neu-tool-badge {
+  box-shadow:
+    2px 2px 6px rgba(0, 0, 0, 0.22),
+    inset 0 1px 0 rgba(255, 255, 255, 0.35);
+}
+
+.dark .wardrobe-page-neu .wardrobe-neu-tool-badge {
+  box-shadow:
+    2px 3px 8px rgba(0, 0, 0, 0.45),
+    inset 0 1px 0 rgba(255, 255, 255, 0.12);
+}
+
+/* 多选底栏：轻量顶高光即可 */
+.wardrobe-page-neu .wardrobe-neu-select-bar {
+  box-shadow:
+    0 -8px 22px rgba(0, 0, 0, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.5);
+}
+
+.dark .wardrobe-page-neu .wardrobe-neu-select-bar {
+  box-shadow:
+    0 -10px 26px rgba(0, 0, 0, 0.42),
+    inset 0 1px 0 rgba(255, 255, 255, 0.07);
 }
 
 /* iOS 浏览器 100vh 滚动条修复：使用 dvh 和 -webkit-fill-available */
@@ -1778,6 +3490,12 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
   height: 100dvh;
   min-height: 100vh;
   min-height: 100dvh;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.content-area-height::-webkit-scrollbar {
+  display: none;
 }
 
 @supports (-webkit-touch-callout: none) {
@@ -1802,4 +3520,630 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
 .safe-area-pb {
   padding-bottom: max(12px, env(safe-area-inset-bottom));
 }
+
+/* —— 衣橱时间轴：黑白灰 + 左下叠卡 —— */
+.timeline-scroll {
+  background-image:
+    radial-gradient(ellipse 100% 45% at 50% -8%, rgba(0, 0, 0, 0.04), transparent 52%),
+    radial-gradient(ellipse 70% 35% at 85% 55%, rgba(0, 0, 0, 0.025), transparent 42%);
+}
+
+.dark .timeline-scroll {
+  background-image:
+    radial-gradient(ellipse 100% 45% at 50% -8%, rgba(255, 255, 255, 0.03), transparent 52%),
+    radial-gradient(ellipse 70% 35% at 85% 55%, rgba(255, 255, 255, 0.02), transparent 42%);
+}
+
+/* 固定 3:4 画幅，整体略缩小更精致 */
+.timeline-tarot--sm {
+  width: 84px;
+  max-width: min(23vw, 92px);
+}
+
+@media (min-width: 640px) {
+  .timeline-tarot--sm {
+    width: 92px;
+    max-width: 92px;
+  }
+}
+
+.timeline-tarot-frame {
+  border-radius: 7px;
+  border: 1.5px solid #000000;
+  background: #ffffff;
+  padding: 0;
+  box-shadow:
+    5px 6px 14px rgba(0, 0, 0, 0.12),
+    -4px -4px 11px rgba(255, 255, 255, 0.65),
+    0 3px 8px rgba(0, 0, 0, 0.06),
+    inset 0 1px 0 rgba(255, 255, 255, 0.45);
+}
+
+.dark .timeline-tarot-frame {
+  border-color: #ffffff;
+  border-width: 1.5px;
+  background: #171717;
+  box-shadow:
+    5px 6px 16px rgba(0, 0, 0, 0.55),
+    -3px -3px 10px rgba(255, 255, 255, 0.04),
+    inset 0 1px 0 rgba(255, 255, 255, 0.07);
+}
+
+/* 卡组：多层外阴影 + 轻微内缘高光，叠放时更有厚度 */
+.timeline-tarot-frame--deck {
+  transition: box-shadow 0.22s ease;
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.12),
+    0 4px 10px rgba(0, 0, 0, 0.1),
+    0 10px 24px rgba(0, 0, 0, 0.12),
+    0 0 0 1px rgba(0, 0, 0, 0.04) inset;
+}
+
+.dark .timeline-tarot-frame--deck {
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.55),
+    0 6px 18px rgba(0, 0, 0, 0.55),
+    0 14px 36px rgba(0, 0, 0, 0.45),
+    0 0 0 1px rgba(255, 255, 255, 0.06) inset;
+}
+
+.timeline-tarot-inner {
+  overflow: hidden;
+  border-radius: 5px;
+  background: #ffffff;
+}
+
+.dark .timeline-tarot-inner {
+  background: #171717;
+}
+
+.timeline-tarot-image-wrap {
+  position: relative;
+  aspect-ratio: 3 / 4;
+  overflow: hidden;
+}
+
+/* 透明遮罩盖在图片上拦截触摸，避免长按命中 <img> 触发系统菜单；配合 CSS 与 @contextmenu.prevent */
+.wardrobe-img-touch-shield {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  background: rgba(255, 255, 255, 0.001);
+  pointer-events: auto;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+  touch-action: manipulation;
+}
+
+/* 排序模式：遮罩参与命中会导致 vuedraggable(forceFallback) 拖拽错位，改为穿透到下层由 .drag-handle 承接 */
+.wardrobe-img-touch-shield--sorting {
+  pointer-events: none !important;
+  touch-action: auto;
+}
+
+.wardrobe-detail-img {
+  -webkit-touch-callout: none;
+  -webkit-user-drag: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.timeline-tarot-img {
+  height: 100%;
+  width: 100%;
+  object-fit: cover;
+  transition: transform 0.4s cubic-bezier(0.22, 1, 0.36, 1);
+  -webkit-touch-callout: none;
+  -webkit-user-drag: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.timeline-tarot:hover .timeline-tarot-img {
+  transform: scale(1.03);
+}
+
+.timeline-tarot-vignette {
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.18);
+}
+
+.dark .timeline-tarot-vignette {
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.2);
+}
+
+.timeline-tarot-caption {
+  border-top: 1px solid #000000;
+  padding: 4px 5px 5px;
+  background: #fafafa;
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.04);
+}
+
+.dark .timeline-tarot-caption {
+  border-top-color: #ffffff;
+  background: #262626;
+  box-shadow: inset 0 2px 5px rgba(0, 0, 0, 0.25);
+}
+
+.timeline-tarot-caption--deck {
+  padding: 3px 4px 4px;
+}
+
+.timeline-deck-card {
+  transform-origin: left bottom;
+}
+
+.timeline-deck-card:hover {
+  z-index: 50 !important;
+  filter: brightness(1.04);
+}
+
+.timeline-deck-card:hover .timeline-tarot-frame--deck {
+  box-shadow:
+    0 2px 4px rgba(0, 0, 0, 0.14),
+    0 8px 18px rgba(0, 0, 0, 0.14),
+    0 16px 36px rgba(0, 0, 0, 0.16),
+    0 0 0 1px rgba(0, 0, 0, 0.05) inset;
+}
+
+.dark .timeline-deck-card:hover .timeline-tarot-frame--deck {
+  box-shadow:
+    0 2px 4px rgba(0, 0, 0, 0.65),
+    0 10px 28px rgba(0, 0, 0, 0.65),
+    0 22px 48px rgba(0, 0, 0, 0.5),
+    0 0 0 1px rgba(255, 255, 255, 0.08) inset;
+}
+
+/* 扇形展开：尺寸固定，扇形由 transform 溢出；展开层用 fixed + 占位，不再在此处放大容器 */
+
+.timeline-deck-card--fan {
+  transition:
+    transform 0.55s cubic-bezier(0.22, 1, 0.36, 1),
+    filter 0.35s ease,
+    box-shadow 0.35s ease;
+}
+
+/* 时间轴：扇形展开时卷轴内暗角遮罩 */
+.timeline-deck-backdrop-enter-active,
+.timeline-deck-backdrop-leave-active {
+  transition: opacity 0.32s ease-out;
+}
+
+.timeline-deck-backdrop-enter-from,
+.timeline-deck-backdrop-leave-to {
+  opacity: 0;
+}
+
+/* 攒钱计划抽屉：遮罩淡入淡出 */
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.28s ease;
+}
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+}
+
+/* 拟态时间线：贴边、紧凑、柔渐变 + 双阴影层次 */
+.plan-neu-drawer {
+  --plan-neu-bg: #e4e9f0;
+  --plan-neu-bg-mid: #dde4ee;
+  --plan-neu-bg-deep: #cbd4e2;
+  --plan-neu-highlight: rgba(255, 255, 255, 0.72);
+  --plan-neu-text: rgb(55 65 81);
+  --plan-neu-accent: #10b981;
+  padding: 0;
+  margin: 0;
+  border-radius: 0;
+  background:
+    linear-gradient(165deg, var(--plan-neu-bg) 0%, var(--plan-neu-bg-mid) 48%, var(--plan-neu-bg) 100%),
+    var(--plan-neu-bg);
+  box-shadow:
+    inset 1px 0 0 var(--plan-neu-highlight),
+    inset 0 1px 0 rgba(255, 255, 255, 0.35);
+  color: var(--plan-neu-text);
+}
+
+.dark .plan-neu-drawer {
+  --plan-neu-bg: #262d3a;
+  --plan-neu-bg-mid: #222933;
+  --plan-neu-bg-deep: #181d26;
+  --plan-neu-highlight: rgba(255, 255, 255, 0.06);
+  --plan-neu-text: rgb(229 231 235);
+  box-shadow:
+    inset 1px 0 0 rgba(255, 255, 255, 0.05),
+    inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  color: var(--plan-neu-text);
+}
+
+.plan-neu-header {
+  padding: 6px 6px 4px;
+  margin: 0;
+  background: transparent;
+}
+
+.plan-neu-title {
+  color: var(--plan-neu-text);
+  letter-spacing: -0.02em;
+}
+
+.plan-neu-stats {
+  padding: 0 4px;
+}
+
+.plan-neu-scroll {
+  -webkit-overflow-scrolling: touch;
+  padding: 0 4px 4px;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.plan-neu-scroll::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+.plan-neu-stat {
+  background: linear-gradient(145deg, var(--plan-neu-bg), var(--plan-neu-bg-mid));
+  border-radius: 10px;
+  padding: 6px 8px;
+  box-shadow:
+    3px 3px 8px rgba(163, 177, 198, 0.38),
+    -2px -2px 7px rgba(255, 255, 255, 0.75),
+    inset 0 1px 0 rgba(255, 255, 255, 0.55);
+}
+
+.dark .plan-neu-stat {
+  background: linear-gradient(145deg, var(--plan-neu-bg), var(--plan-neu-bg-mid));
+  box-shadow:
+    3px 3px 10px rgba(0, 0, 0, 0.32),
+    -2px -2px 6px rgba(255, 255, 255, 0.03),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+.plan-neu-stat-label {
+  font-size: 9px;
+  letter-spacing: 0.05em;
+  opacity: 0.52;
+  margin-bottom: 2px;
+}
+
+.plan-neu-stat-value {
+  font-size: 0.92rem;
+  font-weight: 700;
+  line-height: 1.15;
+  color: var(--plan-neu-text);
+}
+
+.plan-neu-stat-mono {
+  font-size: 0.78rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.plan-neu-stat-sep {
+  opacity: 0.42;
+  margin: 0 2px;
+}
+
+.plan-neu-timeline {
+  padding: 2px 0 2px 0;
+  min-height: 0;
+}
+
+.plan-neu-list {
+  padding-left: 0;
+}
+
+.plan-neu-rail {
+  position: absolute;
+  left: 9px;
+  top: 6px;
+  bottom: 6px;
+  width: 3px;
+  border-radius: 999px;
+  background: var(--plan-neu-bg-deep);
+  box-shadow:
+    inset 1.5px 1.5px 4px rgba(0, 0, 0, 0.14),
+    inset -1px -1px 3px rgba(255, 255, 255, 0.28);
+}
+
+.dark .plan-neu-rail {
+  box-shadow:
+    inset 1.5px 1.5px 5px rgba(0, 0, 0, 0.5),
+    inset -1px -1px 3px rgba(255, 255, 255, 0.05);
+}
+
+.plan-neu-node-col {
+  width: 20px;
+  min-width: 20px;
+  padding-top: 10px;
+}
+
+.plan-neu-node {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 30% 30%, var(--plan-neu-highlight), var(--plan-neu-bg));
+  box-shadow:
+    2px 2px 5px rgba(163, 177, 198, 0.42),
+    -1.5px -1.5px 4px rgba(255, 255, 255, 0.85);
+  z-index: 1;
+  flex-shrink: 0;
+}
+
+.dark .plan-neu-node {
+  background: radial-gradient(circle at 30% 30%, rgba(255, 255, 255, 0.08), var(--plan-neu-bg));
+  box-shadow:
+    2px 2px 6px rgba(0, 0, 0, 0.38),
+    -1.5px -1.5px 4px rgba(255, 255, 255, 0.04);
+}
+
+.plan-neu-node--done {
+  background: linear-gradient(145deg, #3ee8b3, var(--plan-neu-accent));
+  box-shadow:
+    2px 2px 5px rgba(16, 185, 129, 0.35),
+    -1px -1px 3px rgba(255, 255, 255, 0.2);
+}
+
+.plan-neu-card {
+  border-radius: 11px;
+  padding: 6px 8px;
+  background: linear-gradient(160deg, var(--plan-neu-bg) 0%, var(--plan-neu-bg-mid) 100%);
+  box-shadow:
+    3px 3px 9px rgba(163, 177, 198, 0.4),
+    -2px -2px 8px rgba(255, 255, 255, 0.78),
+    inset 0 1px 0 rgba(255, 255, 255, 0.48);
+  transition: box-shadow 0.2s ease, transform 0.2s ease;
+}
+
+.plan-neu-card:hover {
+  box-shadow:
+    4px 4px 11px rgba(163, 177, 198, 0.45),
+    -3px -3px 9px rgba(255, 255, 255, 0.82),
+    inset 0 1px 0 rgba(255, 255, 255, 0.55);
+}
+
+.dark .plan-neu-card {
+  box-shadow:
+    3px 3px 11px rgba(0, 0, 0, 0.32),
+    -2px -2px 7px rgba(255, 255, 255, 0.03),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+.dark .plan-neu-card:hover {
+  box-shadow:
+    4px 4px 14px rgba(0, 0, 0, 0.38),
+    -2px -2px 8px rgba(255, 255, 255, 0.04),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+.plan-neu-thumb {
+  border-radius: 8px;
+  box-shadow:
+    inset 1.5px 1.5px 4px rgba(0, 0, 0, 0.14),
+    inset -1px -1px 3px rgba(255, 255, 255, 0.22);
+}
+
+.plan-neu-thumb--round {
+  border-radius: 50%;
+  flex-shrink: 0;
+  aspect-ratio: 1;
+}
+
+/* 已开始（创建时间已到）：标题红字 */
+/* 已开始：标题与时间（红字，与 planRowHasStarted 一致） */
+.plan-neu-started-text {
+  color: #dc2626 !important;
+}
+
+.dark .plan-neu-started-text {
+  color: #f87171 !important;
+}
+
+/* 未完成：尾款倒计时条（拟态凹槽 + 紧迫色） */
+.plan-neu-balance {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 6px;
+  padding: 5px 8px;
+  border-radius: 9px;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.25;
+  letter-spacing: -0.01em;
+  color: #1d4ed8;
+  background: linear-gradient(
+    165deg,
+    rgba(219, 234, 254, 0.65),
+    rgba(191, 219, 254, 0.35)
+  );
+  box-shadow:
+    inset 2px 2px 5px rgba(163, 177, 198, 0.45),
+    inset -1px -1px 4px rgba(255, 255, 255, 0.65),
+    0 1px 0 rgba(255, 255, 255, 0.35);
+}
+
+.plan-neu-balance-icon {
+  width: 14px;
+  height: 14px;
+  opacity: 0.88;
+}
+
+.plan-neu-balance-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.plan-neu-balance-date {
+  font-size: 10px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.75;
+  padding: 1px 5px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.45);
+  box-shadow:
+    inset 1px 1px 2px rgba(0, 0, 0, 0.06),
+    0 1px 0 rgba(255, 255, 255, 0.5);
+}
+
+.plan-neu-balance--urgent {
+  color: #b45309;
+  background: linear-gradient(
+    165deg,
+    rgba(254, 243, 199, 0.85),
+    rgba(253, 230, 138, 0.45)
+  );
+  box-shadow:
+    inset 2px 2px 6px rgba(180, 83, 9, 0.12),
+    inset -1px -1px 4px rgba(255, 255, 255, 0.55),
+    0 0 0 1px rgba(245, 158, 11, 0.22);
+}
+
+.plan-neu-balance--urgent .plan-neu-balance-date {
+  background: rgba(255, 247, 237, 0.7);
+  color: #9a3412;
+}
+
+.plan-neu-balance--muted {
+  font-weight: 600;
+  color: var(--plan-neu-text);
+  opacity: 0.72;
+  background: var(--plan-neu-bg-deep);
+  box-shadow:
+    inset 2px 2px 5px rgba(0, 0, 0, 0.08),
+    inset -1px -1px 3px rgba(255, 255, 255, 0.25);
+}
+
+.dark .plan-neu-balance {
+  color: #93c5fd;
+  background: linear-gradient(
+    165deg,
+    rgba(30, 58, 138, 0.35),
+    rgba(37, 99, 235, 0.15)
+  );
+  box-shadow:
+    inset 2px 2px 8px rgba(0, 0, 0, 0.35),
+    inset -1px -1px 3px rgba(255, 255, 255, 0.05);
+}
+
+.dark .plan-neu-balance--urgent {
+  color: #fcd34d;
+  background: linear-gradient(
+    165deg,
+    rgba(120, 53, 15, 0.45),
+    rgba(180, 83, 9, 0.22)
+  );
+  box-shadow:
+    inset 2px 2px 8px rgba(0, 0, 0, 0.4),
+    0 0 0 1px rgba(245, 158, 11, 0.18);
+}
+
+.dark .plan-neu-balance--muted {
+  opacity: 0.65;
+  color: var(--plan-neu-text);
+}
+
+.dark .plan-neu-balance-date {
+  background: rgba(0, 0, 0, 0.2);
+  box-shadow:
+    inset 1px 1px 2px rgba(0, 0, 0, 0.25),
+    0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+.plan-neu-badge {
+  font-size: 9px;
+  font-weight: 700;
+  padding: 1px 5px;
+  line-height: 1.3;
+  border-radius: 999px;
+  color: #047857;
+  background: linear-gradient(145deg, rgba(209, 250, 229, 0.55), var(--plan-neu-bg-deep));
+  box-shadow:
+    inset 1px 1px 2px rgba(0, 0, 0, 0.06),
+    1px 1px 2px rgba(255, 255, 255, 0.2);
+}
+
+.dark .plan-neu-badge {
+  color: #6ee7b7;
+  background: linear-gradient(145deg, rgba(16, 185, 129, 0.2), var(--plan-neu-bg-deep));
+}
+
+.plan-neu-loadmore {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 7px 16px;
+  border-radius: 999px;
+  background: linear-gradient(145deg, var(--plan-neu-bg), var(--plan-neu-bg-mid));
+  color: var(--plan-neu-text);
+  box-shadow:
+    3px 3px 8px rgba(163, 177, 198, 0.38),
+    -2px -2px 7px rgba(255, 255, 255, 0.75);
+  transition: box-shadow 0.15s ease, transform 0.15s ease;
+}
+
+.plan-neu-loadmore:active:not(:disabled) {
+  box-shadow:
+    inset 2px 2px 5px rgba(163, 177, 198, 0.45),
+    inset -1px -1px 3px rgba(255, 255, 255, 0.5);
+  transform: scale(0.98);
+}
+
+.plan-neu-loadmore:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.dark .plan-neu-loadmore {
+  box-shadow:
+    3px 3px 10px rgba(0, 0, 0, 0.32),
+    -2px -2px 6px rgba(255, 255, 255, 0.03);
+}
+
+.dark .plan-neu-loadmore:active:not(:disabled) {
+  box-shadow:
+    inset 2px 2px 6px rgba(0, 0, 0, 0.45),
+    inset -1px -1px 3px rgba(255, 255, 255, 0.04);
+}
+
+.plan-neu-icon-btn {
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9px;
+  flex-shrink: 0;
+  background: linear-gradient(145deg, var(--plan-neu-bg), var(--plan-neu-bg-mid));
+  color: var(--plan-neu-text);
+  box-shadow:
+    3px 3px 8px rgba(163, 177, 198, 0.38),
+    -2px -2px 7px rgba(255, 255, 255, 0.78);
+  transition: box-shadow 0.15s ease;
+}
+
+.plan-neu-icon-btn:active {
+  box-shadow:
+    inset 2px 2px 5px rgba(163, 177, 198, 0.42),
+    inset -1px -1px 3px rgba(255, 255, 255, 0.45);
+}
+
+.dark .plan-neu-icon-btn {
+  box-shadow:
+    3px 3px 10px rgba(0, 0, 0, 0.32),
+    -2px -2px 6px rgba(255, 255, 255, 0.03);
+}
+
+.dark .plan-neu-icon-btn:active {
+  box-shadow:
+    inset 2px 2px 6px rgba(0, 0, 0, 0.45),
+    inset -1px -1px 3px rgba(255, 255, 255, 0.04);
+}
+
 </style>

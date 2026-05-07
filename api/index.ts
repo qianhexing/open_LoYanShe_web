@@ -24,6 +24,15 @@ export async function uploadImage(file: File): Promise<FileInterface> {
   const response = await use$Post<BaseResponse<FileInterface>>('/qhxUpload', formData);
   return response.data;
 }
+
+/** 上传到服务器 temp 目录（与 /qhxUpload 约定传 path=temp，若后端字段名不同请改此处） */
+export async function uploadImageToTemp(file: File): Promise<FileInterface> {
+  const formData = new FormData()
+  formData.append('file', file)
+  formData.append('path', 'temp')
+  const response = await use$Post<BaseResponse<FileInterface>>('/qhxUpload', formData)
+  return response.data
+}
 interface fontParams{
   charset: string  // 可选字段
 }

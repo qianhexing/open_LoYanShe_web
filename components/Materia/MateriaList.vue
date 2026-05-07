@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import type { Material, PaginationResponse } from '@/types/api';
-import { getMaterialctList } from '@/api/material'
+import { deleteMaterial, getMaterialctList } from '@/api/material'
 const router = useRouter()
 const route = useRoute()
+const toast = useToast()
 // 分页参数
 const pageSize = 20
 // const total = ref(0)
@@ -15,7 +16,7 @@ const isLoading = ref(true)
 const getList = async () => {
   isLoading.value = true
   try {
-    const params: any = {
+    const params: { page: number; pageSize: number; pk_type?: number | number[] } = {
       page: page.value,
       pageSize: pageSize
     }
@@ -73,15 +74,48 @@ const handlePageChange = async (current: number) => {
 interface Props {
   compact?: boolean // 紧凑模式
   pkType?: number | number[] // pk_type 参数，可以是单个数字或数组
+  /** 列表项不显示标题；但 GLB/GLTF 模型仍会显示标题 */
+  hideItemTitle?: boolean
+  allowDelete?: boolean // 列表项显示删除（会调接口并刷新）
+  /** GLB/GLTF 显示修改（仅标题/封面），需由父级接 @edit-gltf 打开弹窗 */
+  allowGltfEdit?: boolean
 }
 const props = withDefaults(defineProps<Props>(), {
   compact: false,
-  pkType: undefined
+  pkType: undefined,
+  hideItemTitle: false,
+  allowDelete: false,
+  allowGltfEdit: false
 })
 
-const emit = defineEmits(['choose'])
+const emit = defineEmits<{
+  choose: [item: Material]
+  'edit-gltf': [item: Material]
+}>()
 const choose = (item: Material) => {
   emit('choose', item)
+}
+
+const handleItemDelete = async (item: Material) => {
+  if (!props.allowDelete) return
+  if (typeof window !== 'undefined' && !window.confirm('确定删除该素材？')) return
+  try {
+    await deleteMaterial(item.materia_id)
+    toast.add({
+      title: '已删除',
+      icon: 'i-heroicons-check-circle',
+      color: 'green'
+    })
+    page.value = 1
+    await getList()
+  } catch (error) {
+    console.error('删除素材失败:', error)
+    toast.add({
+      title: '删除失败',
+      icon: 'i-heroicons-x-circle',
+      color: 'red'
+    })
+  }
 }
 // 统一处理搜索逻辑
 const handleSearch = () => {
@@ -100,7 +134,16 @@ onMounted(() => {
   <div :class="compact ? 'p-1 pb-4' : 'container mx-auto p-4 pb-20'">
     <div :class="compact ? 'space-y-1' : 'grid grid-cols-3'" v-if="total > 0">
       <div v-for="list in list">
-        <MateriaItem @choose="choose" :item="list" :compact="compact"></MateriaItem>
+        <MateriaItem
+          @choose="choose"
+          @delete="handleItemDelete"
+          @edit-gltf="emit('edit-gltf', $event)"
+          :item="list"
+          :compact="compact"
+          :hide-title="hideItemTitle"
+          :deletable="allowDelete"
+          :allow-gltf-edit="allowGltfEdit"
+        />
       </div>
     </div>
     <div v-else class="text-center text-gray-500 py-4 text-xs">

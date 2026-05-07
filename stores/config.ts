@@ -4,6 +4,11 @@ import { getConfig } from '@/api/index'
 import type { Config } from '@/types/api'
 import { useCookie } from '#app'
 
+/** layout 中 import('@dcloudio/uni-webview-js') 后缓存，避免各处重复动态 import */
+export interface UniWebviewJsModule {
+  navigateTo?: (options: { url: string; fail?: (err?: unknown) => void }) => void
+}
+
 interface configState {
   isPc: boolean
   config?: Config | null
@@ -12,6 +17,8 @@ interface configState {
   isMobile: boolean
   windowWidth: number
   statusBarHeight: number
+  /** 仅在 Html5Plus 环境下由 layout 注入，普通浏览器为 null */
+  uniWebviewJs: UniWebviewJsModule | null
 }
 export const useConfigStore = defineStore('config', {
   state: ():configState => ({
@@ -21,7 +28,8 @@ export const useConfigStore = defineStore('config', {
     port: null as MessagePort | null, // 鸿蒙 WebView 的 MessagePort
     isMobile: false,
     windowWidth: typeof window !== 'undefined' ? window.innerWidth : 1024,
-    statusBarHeight: 0
+    statusBarHeight: 0,
+    uniWebviewJs: null
   }),
   
   getters: {
@@ -73,6 +81,9 @@ export const useConfigStore = defineStore('config', {
     },
     getStatusBarHeight() {
       return this.statusBarHeight
+    },
+    setUniWebviewJs(mod: UniWebviewJsModule | null) {
+      this.uniWebviewJs = mod
     },
     async getConfig(forceRefresh = false) {
       // 已有缓存且不强制刷新

@@ -3,11 +3,15 @@ interface SearchParams extends PaginationParams {
   id?: number | number[]
   type?: string
   comment_id?: number
+  pinned?: number
+}
+interface CommentPaginationResponse extends PaginationResponse<Comment> {
+  pinned?: Comment | null
 }
 export async function getCommentList(
   params: SearchParams
-): Promise<PaginationResponse<Comment>> {
-  const response = await use$Post<BaseResponse<PaginationResponse<Comment>>>(
+): Promise<CommentPaginationResponse> {
+  const response = await use$Post<BaseResponse<CommentPaginationResponse>>(
     '/comment/list',
     params
   );

@@ -312,7 +312,8 @@ useHead({
 
 <template>
   <div class="min-h-screen bg-gray-50 dark:bg-gray-900">
-    <div v-if="detail" class="container mx-auto px-1 py-3">
+    <div v-if="config.statusBarHeight > 0" :style="{ height: `${config.statusBarHeight}px` }"></div>
+    <div v-if="detail" class="compilations-detail-inner container mx-auto px-1 pb-3">
       <!-- 封面 -->
       <div class="w-full md:flex">
         <div  v-if="(detail as any).sence_id || detail.comp_cover" class="w-full md:w-[700px] mb-4 p-2 rounded-lg overflow-hidden">
@@ -675,6 +676,11 @@ useHead({
 </template>
 
 <style scoped>
+/* 顶部 = 原 py-3 上半段 + 安全区 */
+.compilations-detail-inner {
+  padding-top: calc(0.75rem + env(safe-area-inset-top, 0px));
+}
+
 .line-clamp-1 {
   display: -webkit-box;
   -webkit-line-clamp: 1;

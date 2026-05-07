@@ -1,9 +1,10 @@
 <template>
-  <div class="container mx-auto p-2 pb-20 max-w-4xl">
+  <div class="journal-page neu-page relative min-h-screen w-full overflow-x-hidden">
+    <div class="container mx-auto p-2 pb-20 max-w-4xl">
     <!-- 功能栏：登录用户显示，新增按钮仅自己手账显示 -->
     <div
       v-if="layoutReady && userStore.user"
-      class="flex justify-between items-center sticky top-[10px] z-10 mb-4"
+      class="journal-neu-toolbar flex justify-between items-center sticky top-[10px] z-10 mb-4 rounded-2xl px-2 py-2"
     >
       <div class="flex flex-wrap items-center gap-2">
         <QhxJellyButton v-if="isOwnJournal">
@@ -12,26 +13,34 @@
             @click="(e: MouseEvent) => openAddJournal(e)"
           >
             <div
-              class="m-[5px] text-white rounded-[50%] h-[30px] w-[30px] flex items-center justify-center bg-qhx-primary"
+              class="journal-fab-add m-[5px] text-white rounded-full h-[30px] w-[30px] flex items-center justify-center bg-qhx-primary"
             >
               <UIcon name="material-symbols:add-2" class="text-[22px] text-[#ffffff]" />
             </div>
           </div>
         </QhxJellyButton>
         <!-- 按月/按日切换 -->
-        <div class="flex rounded-lg border border-gray-300 dark:border-gray-600 overflow-hidden">
+        <div class="journal-tab-rail flex rounded-xl p-0.5">
           <button
             type="button"
-            class="px-2.5 py-1.5 text-xs font-medium transition-colors"
-            :class="viewMode === 'month' ? 'bg-qhx-primary text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600'"
+            class="journal-tab-btn flex-1 rounded-lg px-2.5 py-1.5 text-xs font-medium outline-none transition-all duration-200 focus-visible:ring-2 focus-visible:ring-qhx-primary/45"
+            :class="
+              viewMode === 'month'
+                ? 'journal-tab-btn--active text-[#3d2833] dark:text-pink-50'
+                : 'journal-tab-btn--idle text-[#6b4f5f] hover:text-[#4a2f3d] active:scale-[0.99] dark:text-pink-200/80 dark:hover:text-pink-50'
+            "
             @click="viewMode = 'month'; fetchYearMonthData()"
           >
             按月
           </button>
           <button
             type="button"
-            class="px-2.5 py-1.5 text-xs font-medium transition-colors"
-            :class="viewMode === 'day' ? 'bg-qhx-primary text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600'"
+            class="journal-tab-btn flex-1 rounded-lg px-2.5 py-1.5 text-xs font-medium outline-none transition-all duration-200 focus-visible:ring-2 focus-visible:ring-qhx-primary/45"
+            :class="
+              viewMode === 'day'
+                ? 'journal-tab-btn--active text-[#3d2833] dark:text-pink-50'
+                : 'journal-tab-btn--idle text-[#6b4f5f] hover:text-[#4a2f3d] active:scale-[0.99] dark:text-pink-200/80 dark:hover:text-pink-50'
+            "
             @click="viewMode = 'day'; fetchMonthData()"
           >
             按日
@@ -46,27 +55,32 @@
       <div class="flex items-center gap-2 mb-3 px-1">
         <button
           type="button"
-          class="w-8 h-8 flex items-center justify-center rounded-lg bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600"
+          class="journal-neu-icon-btn w-8 h-8 flex items-center justify-center rounded-xl text-[#6b4f5f] dark:text-pink-200/85"
           @click="yearSelect = yearSelect - 1; fetchYearMonthData()"
         >
-          <UIcon name="i-heroicons-chevron-left" class="w-4 h-4 text-gray-600 dark:text-gray-400" />
+          <UIcon name="i-heroicons-chevron-left" class="w-4 h-4" />
         </button>
-        <span class="text-sm font-semibold text-gray-800 dark:text-gray-200 min-w-[60px] text-center">{{ yearSelect }}年</span>
+        <span class="text-sm font-semibold text-[#4a2f3d] dark:text-pink-50 min-w-[60px] text-center">{{ yearSelect }}年</span>
         <button
           type="button"
-          class="w-8 h-8 flex items-center justify-center rounded-lg bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600"
+          class="journal-neu-icon-btn w-8 h-8 flex items-center justify-center rounded-xl text-[#6b4f5f] dark:text-pink-200/85"
           @click="yearSelect = yearSelect + 1; fetchYearMonthData()"
         >
-          <UIcon name="i-heroicons-chevron-right" class="w-4 h-4 text-gray-600 dark:text-gray-400" />
+          <UIcon name="i-heroicons-chevron-right" class="w-4 h-4" />
         </button>
       </div>
-      <div v-if="monthViewLoading" class="text-center py-8 text-gray-400 dark:text-gray-500 text-sm">加载中...</div>
+      <div
+        v-if="monthViewLoading"
+        class="journal-neu-well text-center py-8 rounded-3xl text-sm text-[#7a5f6f] dark:text-pink-300/85"
+      >
+        加载中...
+      </div>
       <div v-else class="grid grid-cols-4 gap-2">
         <button
           v-for="m in all12Months"
           :key="m.month"
           type="button"
-          class="relative aspect-[1/1] cursor-pointer overflow-hidden rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700/50 active:scale-[0.98] transition-all text-center min-w-0 min-h-[48px]"
+          class="journal-neu-tile relative aspect-[1/1] cursor-pointer overflow-hidden rounded-xl text-center min-w-0 min-h-[48px] transition-transform active:scale-[0.98]"
           @click="goToMonth(m.month)"
         >
           <img
@@ -85,7 +99,7 @@
           </span>
           <span
             v-if="m.count > 0"
-            class="absolute top-[-2px] right-[-2px] min-w-[18px] h-[18px] flex items-center justify-center rounded-full bg-qhx-primary text-white text-[10px] font-semibold px-1 leading-none z-[1]"
+            class="journal-neu-badge absolute top-[-2px] right-[-2px] min-w-[18px] h-[18px] flex items-center justify-center rounded-full bg-qhx-primary text-white text-[10px] font-semibold px-1 leading-none z-[1]"
           >
             {{ m.count > 99 ? '99+' : m.count }}
           </span>
@@ -100,45 +114,48 @@
         <div class="flex items-center gap-1">
           <button
             type="button"
-            class="w-8 h-8 flex items-center justify-center rounded-lg bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600"
+            class="journal-neu-icon-btn w-8 h-8 flex items-center justify-center rounded-xl text-[#6b4f5f] dark:text-pink-200/85"
             @click="prevYear"
           >
-            <UIcon name="i-heroicons-chevron-left" class="w-4 h-4 text-gray-600 dark:text-gray-400" />
+            <UIcon name="i-heroicons-chevron-left" class="w-4 h-4" />
           </button>
-          <span class="text-sm font-semibold text-gray-800 dark:text-gray-200 min-w-[50px] text-center">
+          <span class="text-sm font-semibold text-[#4a2f3d] dark:text-pink-50 min-w-[50px] text-center">
             {{ yearSelect }}年
           </span>
           <button
             type="button"
-            class="w-8 h-8 flex items-center justify-center rounded-lg bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600"
+            class="journal-neu-icon-btn w-8 h-8 flex items-center justify-center rounded-xl text-[#6b4f5f] dark:text-pink-200/85"
             @click="nextYear"
           >
-            <UIcon name="i-heroicons-chevron-right" class="w-4 h-4 text-gray-600 dark:text-gray-400" />
+            <UIcon name="i-heroicons-chevron-right" class="w-4 h-4" />
           </button>
         </div>
         <div class="flex items-center gap-1">
           <button
             type="button"
-            class="w-8 h-8 flex items-center justify-center rounded-lg bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600"
+            class="journal-neu-icon-btn w-8 h-8 flex items-center justify-center rounded-xl text-[#6b4f5f] dark:text-pink-200/85"
             @click="prevMonth"
           >
-            <UIcon name="i-heroicons-chevron-left" class="w-4 h-4 text-gray-600 dark:text-gray-400" />
+            <UIcon name="i-heroicons-chevron-left" class="w-4 h-4" />
           </button>
-          <span class="text-sm font-semibold text-gray-800 dark:text-gray-200 min-w-[40px] text-center">
+          <span class="text-sm font-semibold text-[#4a2f3d] dark:text-pink-50 min-w-[40px] text-center">
             {{ monthSelect }}月
           </span>
           <button
             type="button"
-            class="w-8 h-8 flex items-center justify-center rounded-lg bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600"
+            class="journal-neu-icon-btn w-8 h-8 flex items-center justify-center rounded-xl text-[#6b4f5f] dark:text-pink-200/85"
             @click="nextMonth"
           >
-            <UIcon name="i-heroicons-chevron-right" class="w-4 h-4 text-gray-600 dark:text-gray-400" />
+            <UIcon name="i-heroicons-chevron-right" class="w-4 h-4" />
           </button>
         </div>
       </div>
 
       <!-- 日块：4列网格，一排4个 -->
-      <div v-if="dayCountLoading" class="text-center py-8 text-gray-400 dark:text-gray-500 text-sm">
+      <div
+        v-if="dayCountLoading"
+        class="journal-neu-well text-center py-8 rounded-3xl text-sm text-[#7a5f6f] dark:text-pink-300/85"
+      >
         加载中...
       </div>
       <div v-else class="space-y-2">
@@ -146,9 +163,9 @@
           <div
             v-for="d in allDaysInMonth"
             :key="d.day"
-            class="relative aspect-[1/1] cursor-pointer overflow-hidden rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700/50 active:scale-[0.98] transition-all text-center min-w-0 min-h-[48px]"
+            class="journal-neu-tile relative aspect-[1/1] cursor-pointer overflow-hidden rounded-xl text-center min-w-0 min-h-[48px] transition-all active:scale-[0.98]"
             :class="{
-              'ring-2 ring-qhx-primary border-qhx-primary':
+              'ring-2 ring-qhx-primary/90 ring-offset-2 ring-offset-[var(--neu-base)] dark:ring-qhx-primary':
                 expandedDay === d.day || collapsingDay === d.day
             }"
             @click="toggleDayExpand(d.day)"
@@ -171,7 +188,7 @@
             <!-- 角标：右上角显示条数 -->
             <span
               v-if="d.count > 0"
-              class="absolute top-[-2px] right-[-2px] min-w-[18px] h-[18px] flex items-center justify-center rounded-full bg-qhx-primary text-white text-[10px] font-semibold px-1 leading-none z-[1]"
+              class="journal-neu-badge absolute top-[-2px] right-[-2px] min-w-[18px] h-[18px] flex items-center justify-center rounded-full bg-qhx-primary text-white text-[10px] font-semibold px-1 leading-none z-[1]"
             >
               {{ d.count > 99 ? '99+' : d.count }}
             </span>
@@ -187,10 +204,10 @@
           <div class="min-h-0 overflow-hidden">
             <div
               v-if="displayDay !== null"
-              class="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700"
+              class="journal-neu-panel rounded-2xl overflow-hidden"
             >
               <div
-                class="px-3 py-2 border-b border-gray-200 dark:border-gray-700 text-sm font-medium text-gray-800 dark:text-gray-200"
+                class="journal-neu-panel-head px-3 py-2 text-sm font-semibold text-[#4a2f3d] dark:text-pink-50"
               >
                 {{ yearSelect }}年{{ monthSelect }}月{{ displayDay }}日 手账记录
                 <div v-if="isOwnJournal" class="mt-1">
@@ -204,10 +221,10 @@
                   </UButton>
                 </div>
               </div>
-              <div class="px-3 py-2">
+              <div class="journal-neu-panel-body px-3 py-2">
                 <div
                   v-if="journalListForDay.length === 0"
-                  class="text-center py-6 text-gray-400 text-xs"
+                  class="text-center py-6 text-[#9d8090] dark:text-pink-300/65 text-xs"
                 >
                   暂无记录
                 </div>
@@ -215,11 +232,11 @@
                   <div
                     v-for="j in journalListForDay"
                     :key="j.journal_id"
-                    class="rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 overflow-hidden"
+                    class="journal-neu-entry rounded-2xl overflow-hidden"
                   >
                     <!-- 手账信息：类型、时间、操作 -->
-                    <div class="flex items-center justify-between px-3 py-2 border-b border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-700/50">
-                      <div class="text-xs text-gray-500 dark:text-gray-400">
+                    <div class="journal-neu-entry-head flex items-center justify-between px-3 py-2">
+                      <div class="text-xs text-[#8a6f7d] dark:text-pink-300/85">
                         {{ getPkTypeLabel(j.pk_type) }}
                         <span v-if="j.create_time" class="ml-1">{{ formatTime(j.create_time) }}</span>
                       </div>
@@ -253,7 +270,7 @@
                       <p v-else-if="j.pk_type === 1" class="text-sm text-amber-600 dark:text-amber-400">关联已失效</p>
                       <!-- pk_type 2: 服饰 → 参考 WardrobeClothesChoose 的列表项结构（无独立组件） -->
                       <div v-else-if="j.pk_type === 2 && j.wardrobe_clothes" class="flex gap-3">
-                        <div class="w-16 h-16 rounded-lg overflow-hidden flex-shrink-0 border border-gray-200 dark:border-gray-600">
+                        <div class="journal-neu-thumb w-16 h-16 rounded-xl overflow-hidden flex-shrink-0">
                           <img
                             :src="`${BASE_IMG}${j.wardrobe_clothes.clothes_img || ''}${getImageParams()}`"
                             :alt="j.wardrobe_clothes.clothes_note"
@@ -262,13 +279,13 @@
                           />
                         </div>
                         <div class="flex-1 min-w-0">
-                          <div class="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
+                          <div class="text-sm font-medium text-[#3d2833] dark:text-pink-50 truncate">
                             {{ j.wardrobe_clothes.clothes_note || '暂无笔记' }}
                           </div>
-                          <div v-if="j.wardrobe_clothes.wardrobe_status" class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                          <div v-if="j.wardrobe_clothes.wardrobe_status" class="text-xs text-[#8a6f7d] dark:text-pink-200/70 mt-0.5">
                             状态：{{ j.wardrobe_clothes.wardrobe_status }}
                           </div>
-                          <div v-if="j.wardrobe_clothes.clothes_part" class="text-xs text-gray-500 dark:text-gray-400">
+                          <div v-if="j.wardrobe_clothes.clothes_part" class="text-xs text-[#8a6f7d] dark:text-pink-200/70">
                             部位：{{ j.wardrobe_clothes.clothes_part }}
                           </div>
                           <UButton size="xs" color="primary" variant="soft" class="mt-2" @click="jumpToClothes(j.wardrobe_clothes!)">
@@ -281,7 +298,7 @@
                       <div v-else-if="j.pk_type === 3 && j.matching_list" class="flex gap-3">
                         <div
                           v-if="j.matching_list.cover"
-                          class="w-16 h-16 rounded-lg overflow-hidden flex-shrink-0 border border-gray-200 dark:border-gray-600"
+                          class="journal-neu-thumb w-16 h-16 rounded-xl overflow-hidden flex-shrink-0"
                         >
                           <img
                             :src="`${BASE_IMG}${j.matching_list.cover}${getImageParams()}`"
@@ -291,10 +308,10 @@
                           />
                         </div>
                         <div class="flex-1 min-w-0">
-                          <div class="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
+                          <div class="text-sm font-medium text-[#3d2833] dark:text-pink-50 truncate">
                             {{ j.matching_list.note || '未命名搭配' }}
                           </div>
-                          <div v-if="j.matching_list.main_style" class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                          <div v-if="j.matching_list.main_style" class="text-xs text-[#8a6f7d] dark:text-pink-200/70 mt-0.5">
                             风格：{{ j.matching_list.main_style }}
                           </div>
                           <UButton size="xs" color="primary" variant="soft" class="mt-2" @click="jumpToMatching(j.matching_list!)">
@@ -313,7 +330,7 @@
                       <p v-else-if="j.pk_type === 4" class="text-sm text-amber-600 dark:text-amber-400">关联已失效</p>
                       <!-- pk_type 5: 计划 -->
                       <div v-else-if="j.pk_type === 5 && j.plan" class="flex gap-3">
-                        <div class="w-16 h-16 rounded-lg overflow-hidden flex-shrink-0 bg-gray-100 dark:bg-gray-600">
+                        <div class="journal-neu-thumb w-16 h-16 rounded-xl overflow-hidden flex-shrink-0 bg-[var(--neu-dent)]">
                           <img
                             :src="getPlanCoverSrc(j.plan)"
                             :alt="j.plan.plan_name || '计划'"
@@ -322,20 +339,20 @@
                           />
                         </div>
                         <div class="flex-1 min-w-0">
-                          <div class="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
+                          <div class="text-sm font-medium text-[#3d2833] dark:text-pink-50 truncate">
                             {{ j.plan.plan_name || '未命名计划' }}
                           </div>
-                          <div v-if="j.plan.plan_note" class="text-xs text-gray-500 dark:text-gray-400 mt-0.5 truncate">
+                          <div v-if="j.plan.plan_note" class="text-xs text-[#8a6f7d] dark:text-pink-200/70 mt-0.5 truncate">
                             {{ j.plan.plan_note }}
                           </div>
-                          <div class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                          <div class="text-xs text-[#8a6f7d] dark:text-pink-200/70 mt-0.5">
                             ￥{{ formatPlanMoney(j.plan.have_money) }}/￥{{ formatPlanMoney(j.plan.need_money) }}
                           </div>
                           <div class="flex items-center gap-2 mt-1">
-                            <div class="flex-1 bg-gray-200 dark:bg-gray-700 rounded-full h-1.5 max-w-24">
-                              <div class="bg-qhx-primary h-1.5 rounded-full" :style="{ width: `${getPlanProgress(j.plan)}%` }"></div>
+                            <div class="journal-neu-progress-track flex-1 rounded-full h-1.5 max-w-24">
+                              <div class="bg-qhx-primary h-1.5 rounded-full shadow-sm" :style="{ width: `${getPlanProgress(j.plan)}%` }"></div>
                             </div>
-                            <span class="text-[10px] text-gray-500">{{ Math.ceil(getPlanProgress(j.plan)) }}%</span>
+                            <span class="text-[10px] text-[#8a6f7d] dark:text-pink-300/80">{{ Math.ceil(getPlanProgress(j.plan)) }}%</span>
                           </div>
                           <UButton size="xs" color="primary" variant="soft" class="mt-2" @click="jumpToPlan(j.plan!)">
                             查看详情
@@ -344,13 +361,13 @@
                       </div>
                       <p v-else-if="j.pk_type === 5" class="text-sm text-amber-600 dark:text-amber-400">关联已失效</p>
                       <!-- 无关联数据：仅显示笔记 -->
-                      <p v-else class="text-sm text-gray-800 dark:text-gray-200">
+                      <p v-else class="text-sm text-[#4a2f3d] dark:text-pink-100/90">
                         {{ j.note || '无笔记' }}
                       </p>
                     </div>
                     <!-- 手账笔记（独立于关联内容） -->
                     <div v-if="j.note && (j.community || j.comment || j.wardrobe_clothes || j.matching_list || j.library || j.plan)" class="px-3 pb-3 pt-0">
-                      <div class="text-xs text-gray-500 dark:text-gray-400 bg-amber-50/50 dark:bg-amber-900/10 rounded-lg px-2 py-1.5 border border-amber-200/50 dark:border-amber-800/30">
+                      <div class="journal-neu-note text-xs text-[#7a5f6a] dark:text-pink-200/75 rounded-xl px-2 py-1.5">
                         <span class="font-medium text-amber-700 dark:text-amber-400"></span>
                         {{ j.note }}
                       </div>
@@ -367,29 +384,29 @@
     <!-- 未登录或无效用户ID -->
     <div
       v-if="layoutReady && (!userStore.user || !userId)"
-      class="text-center py-12"
+      class="journal-neu-well text-center py-12 rounded-3xl"
     >
-      <div class="text-gray-400 dark:text-gray-500">
+      <div class="text-[#8a6f7d] dark:text-pink-300/75">
         {{ !userStore.user ? '请先登录后使用手账功能' : '无效的手账页' }}
       </div>
     </div>
 
     <!-- 添加/编辑手账弹窗（参考 ClothesAdd 使用 QhxModal） -->
     <QhxModal v-model="addEditModal" :trigger-position="addEditClickPosition" @close="addEditModal = false">
-      <div class="w-[95vw] max-w-md max-h-[90vh] bg-white dark:bg-gray-800 rounded-2xl shadow-2xl overflow-hidden flex flex-col backdrop-blur-xl border border-gray-200/50 dark:border-gray-700/50">
+      <div class="journal-neu-modal w-[95vw] max-w-md max-h-[90vh] rounded-2xl overflow-hidden flex flex-col">
         <!-- 头部 -->
-        <div class="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-700 bg-gradient-to-r from-pink-50 to-purple-50 dark:from-gray-800 dark:to-gray-800 flex-shrink-0">
-          <h3 class="text-lg font-semibold text-gray-800 dark:text-gray-100">{{ editingJournal ? '编辑手账' : '新增手账' }}</h3>
+        <div class="journal-neu-modal-head flex items-center justify-between px-6 py-4 flex-shrink-0">
+          <h3 class="text-lg font-semibold text-[#4a2f3d] dark:text-pink-50">{{ editingJournal ? '编辑手账' : '新增手账' }}</h3>
           <button
             type="button"
             @click="addEditModal = false"
-            class="w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors group"
+            class="journal-neu-icon-btn w-8 h-8 flex items-center justify-center rounded-full group"
           >
-            <UIcon name="i-heroicons-x-mark" class="text-gray-500 dark:text-gray-400 group-hover:text-gray-700 dark:group-hover:text-gray-200 transition-colors" />
+            <UIcon name="i-heroicons-x-mark" class="text-[#7a5f6f] dark:text-pink-300/80 group-hover:text-[#4a2f3d] dark:group-hover:text-pink-100 transition-colors" />
           </button>
         </div>
         <!-- 内容区域 -->
-        <div class="flex-1 overflow-y-auto p-6 space-y-4 scrollbar-thin scrollbar-thumb-gray-300 dark:scrollbar-thumb-gray-600 scrollbar-track-transparent">
+        <div class="journal-neu-modal-body flex-1 overflow-y-auto p-6 space-y-4 scrollbar-thin scrollbar-thumb-[#c4b8c0] dark:scrollbar-thumb-[#5c4a55] scrollbar-track-transparent">
           <div>
             <label class="block text-sm font-medium mb-1 text-gray-700 dark:text-gray-300">
               日期
@@ -574,7 +591,7 @@
           </div>
         </div>
         <!-- 底部按钮 -->
-        <div class="flex-shrink-0 px-6 py-4 border-t border-gray-200 dark:border-gray-700 flex gap-2 justify-end">
+        <div class="journal-neu-modal-foot flex-shrink-0 px-6 py-4 flex gap-2 justify-end">
           <UButton color="gray" variant="outline" @click="addEditModal = false">
             取消
           </UButton>
@@ -591,13 +608,13 @@
 
     <!-- 类型选择弹框（参考 scene detail 样式，选择后直接弹出对应选择器） -->
     <QhxModal v-model="typeModalShow" :trigger-position="typeModalPosition" @close="typeModalShow = false">
-      <div class="p-4 w-[220px] bg-white dark:bg-gray-800 rounded-[10px] shadow-lg">
-        <h3 class="text-sm font-bold mb-3 text-gray-800 dark:text-gray-200">选择类型</h3>
+      <div class="journal-neu-type-pop p-4 w-[220px] rounded-2xl">
+        <h3 class="text-sm font-bold mb-3 text-[#4a2f3d] dark:text-pink-50">选择类型</h3>
 
         <!-- 帖子选项 -->
         <button
           type="button"
-          class="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors text-left group"
+          class="journal-neu-type-row w-full flex items-center gap-3 p-3 rounded-xl text-left group transition-transform active:scale-[0.99]"
           @click="selectTypeAndOpenChooser(1)"
         >
           <div
@@ -606,15 +623,15 @@
             <UIcon name="material-symbols:article-rounded" class="text-base text-white" />
           </div>
           <div class="flex-1">
-            <div class="text-sm font-medium text-gray-800 dark:text-gray-200">帖子</div>
-            <div class="text-xs text-gray-500 dark:text-gray-400">添加帖子记录</div>
+            <div class="text-sm font-medium text-[#3d2833] dark:text-pink-50">帖子</div>
+            <div class="text-xs text-[#8a6f7d] dark:text-pink-300/75">添加帖子记录</div>
           </div>
         </button>
 
         <!-- 服饰选项 -->
         <button
           type="button"
-          class="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors text-left group mt-2"
+          class="journal-neu-type-row w-full flex items-center gap-3 p-3 rounded-xl text-left group mt-2 transition-transform active:scale-[0.99]"
           @click="selectTypeAndOpenChooser(2)"
         >
           <div
@@ -623,15 +640,15 @@
             <UIcon name="material-symbols:checkroom-rounded" class="text-base text-white" />
           </div>
           <div class="flex-1">
-            <div class="text-sm font-medium text-gray-800 dark:text-gray-200">服饰</div>
-            <div class="text-xs text-gray-500 dark:text-gray-400">添加服饰记录</div>
+            <div class="text-sm font-medium text-[#3d2833] dark:text-pink-50">服饰</div>
+            <div class="text-xs text-[#8a6f7d] dark:text-pink-300/75">添加服饰记录</div>
           </div>
         </button>
 
         <!-- 搭配选项 -->
         <button
           type="button"
-          class="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors text-left group mt-2"
+          class="journal-neu-type-row w-full flex items-center gap-3 p-3 rounded-xl text-left group mt-2 transition-transform active:scale-[0.99]"
           @click="selectTypeAndOpenChooser(3)"
         >
           <div
@@ -640,15 +657,15 @@
             <UIcon name="material-symbols:style-rounded" class="text-base text-white" />
           </div>
           <div class="flex-1">
-            <div class="text-sm font-medium text-gray-800 dark:text-gray-200">搭配</div>
-            <div class="text-xs text-gray-500 dark:text-gray-400">添加搭配记录</div>
+            <div class="text-sm font-medium text-[#3d2833] dark:text-pink-50">搭配</div>
+            <div class="text-xs text-[#8a6f7d] dark:text-pink-300/75">添加搭配记录</div>
           </div>
         </button>
 
         <!-- 图鉴选项 -->
         <button
           type="button"
-          class="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors text-left group mt-2"
+          class="journal-neu-type-row w-full flex items-center gap-3 p-3 rounded-xl text-left group mt-2 transition-transform active:scale-[0.99]"
           @click="selectTypeAndOpenChooser(4)"
         >
           <div
@@ -657,8 +674,8 @@
             <UIcon name="material-symbols:menu-book-rounded" class="text-base text-white" />
           </div>
           <div class="flex-1">
-            <div class="text-sm font-medium text-gray-800 dark:text-gray-200">图鉴</div>
-            <div class="text-xs text-gray-500 dark:text-gray-400">添加图鉴记录</div>
+            <div class="text-sm font-medium text-[#3d2833] dark:text-pink-50">图鉴</div>
+            <div class="text-xs text-[#8a6f7d] dark:text-pink-300/75">添加图鉴记录</div>
           </div>
         </button>
       </div>
@@ -706,6 +723,7 @@
         </template>
       </UCard>
     </UModal>
+    </div>
   </div>
 </template>
 
@@ -1424,5 +1442,290 @@ useHead({
 
 .month-slot {
   transition: grid-template-rows 0.35s cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+/* 拟态主题变量（与 wardrobe/statistics 对齐） */
+.journal-page.neu-page {
+  --neu-base: #e5dce2;
+  --neu-raised: #ebe3e8;
+  --neu-dent: #e4d9e0;
+  --neu-shadow-d: rgba(150, 110, 130, 0.24);
+  --neu-shadow-l: rgba(255, 252, 254, 0.94);
+  --neu-inset-hi: rgba(255, 255, 255, 0.62);
+  background: var(--neu-base);
+}
+
+.dark .journal-page.neu-page {
+  --neu-base: #19141a;
+  --neu-raised: #241d26;
+  --neu-dent: #18141a;
+  --neu-shadow-d: rgba(0, 0, 0, 0.5);
+  --neu-shadow-l: rgba(100, 70, 90, 0.1);
+  --neu-inset-hi: rgba(255, 210, 230, 0.05);
+}
+
+.journal-neu-toolbar {
+  background: var(--neu-base);
+  box-shadow:
+    0 6px 16px -6px var(--neu-shadow-d),
+    inset 0 1px 0 var(--neu-inset-hi);
+}
+
+.journal-tab-rail {
+  background: var(--neu-dent);
+  box-shadow:
+    inset 4px 4px 10px var(--neu-shadow-d),
+    inset -3px -3px 9px var(--neu-inset-hi);
+}
+
+.journal-tab-btn {
+  border: none;
+  background: transparent;
+}
+
+.journal-tab-btn--idle {
+  box-shadow: none;
+}
+
+.journal-tab-btn--active {
+  font-weight: 600;
+  background: var(--neu-raised);
+  box-shadow:
+    3px 3px 8px var(--neu-shadow-d),
+    -2px -2px 8px var(--neu-shadow-l),
+    inset 0 1px 0 rgba(255, 255, 255, 0.75);
+}
+
+.dark .journal-tab-btn--active {
+  background: #2e252c;
+  box-shadow:
+    4px 4px 12px rgba(0, 0, 0, 0.5),
+    -2px -2px 8px rgba(130, 90, 110, 0.08),
+    inset 0 1px 0 var(--neu-inset-hi);
+}
+
+.journal-neu-icon-btn {
+  border: none;
+  background: var(--neu-raised);
+  box-shadow:
+    3px 3px 8px var(--neu-shadow-d),
+    -2px -2px 8px var(--neu-shadow-l),
+    inset 0 1px 0 rgba(255, 255, 255, 0.55);
+}
+
+.dark .journal-neu-icon-btn {
+  box-shadow:
+    3px 3px 10px rgba(0, 0, 0, 0.35),
+    -2px -2px 8px var(--neu-shadow-l),
+    inset 0 1px 0 var(--neu-inset-hi);
+}
+
+.journal-neu-icon-btn:active {
+  box-shadow:
+    inset 2px 2px 6px var(--neu-shadow-d),
+    inset -1px -1px 4px var(--neu-shadow-l);
+}
+
+.journal-fab-add {
+  box-shadow:
+    3px 4px 10px var(--neu-shadow-d),
+    -2px -2px 8px var(--neu-shadow-l);
+}
+
+.journal-neu-well {
+  background: var(--neu-dent);
+  box-shadow:
+    inset 6px 6px 14px var(--neu-shadow-d),
+    inset -4px -4px 12px var(--neu-inset-hi);
+}
+
+.journal-neu-tile {
+  background: var(--neu-raised);
+  border: none;
+  box-shadow:
+    4px 4px 10px var(--neu-shadow-d),
+    -3px -3px 10px var(--neu-shadow-l),
+    inset 0 1px 0 rgba(255, 255, 255, 0.52);
+}
+
+.dark .journal-neu-tile {
+  box-shadow:
+    4px 4px 12px var(--neu-shadow-d),
+    -2px -2px 8px var(--neu-shadow-l),
+    inset 0 1px 0 var(--neu-inset-hi);
+}
+
+.journal-neu-badge {
+  box-shadow:
+    2px 2px 6px var(--neu-shadow-d),
+    -1px -1px 4px var(--neu-shadow-l);
+}
+
+.journal-neu-panel {
+  background: var(--neu-raised);
+  box-shadow:
+    8px 8px 20px var(--neu-shadow-d),
+    -8px -8px 20px var(--neu-shadow-l),
+    inset 1px 1px 0 rgba(255, 255, 255, 0.5);
+}
+
+.dark .journal-neu-panel {
+  box-shadow:
+    8px 8px 18px var(--neu-shadow-d),
+    -6px -6px 16px var(--neu-shadow-l),
+    inset 1px 1px 0 var(--neu-inset-hi);
+}
+
+.journal-neu-panel-head {
+  background: var(--neu-raised);
+  box-shadow: inset 0 -3px 6px var(--neu-inset-hi);
+}
+
+.dark .journal-neu-panel-head {
+  box-shadow: inset 0 -1px 0 var(--neu-inset-hi);
+}
+
+.journal-neu-panel-body {
+  background: var(--neu-raised);
+}
+
+.journal-neu-entry {
+  background: var(--neu-raised);
+  box-shadow:
+    5px 5px 14px var(--neu-shadow-d),
+    -4px -4px 14px var(--neu-shadow-l),
+    inset 0 1px 0 rgba(255, 255, 255, 0.45);
+}
+
+.dark .journal-neu-entry {
+  box-shadow:
+    5px 5px 14px var(--neu-shadow-d),
+    -4px -4px 12px var(--neu-shadow-l),
+    inset 1px 1px 0 var(--neu-inset-hi);
+}
+
+.journal-neu-entry-head {
+  background: var(--neu-dent);
+  box-shadow:
+    inset 0 2px 6px var(--neu-shadow-d),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.12);
+}
+
+.dark .journal-neu-entry-head {
+  box-shadow:
+    inset 0 2px 8px rgba(0, 0, 0, 0.35),
+    inset 0 -1px 0 var(--neu-inset-hi);
+}
+
+.journal-neu-thumb {
+  box-shadow:
+    inset 2px 2px 5px var(--neu-shadow-d),
+    inset -2px -2px 4px var(--neu-inset-hi);
+}
+
+.journal-neu-progress-track {
+  background: var(--neu-dent);
+  box-shadow:
+    inset 2px 2px 4px var(--neu-shadow-d),
+    inset -1px -1px 3px var(--neu-inset-hi);
+}
+
+.journal-neu-note {
+  background: var(--neu-dent);
+  box-shadow:
+    inset 3px 3px 8px var(--neu-shadow-d),
+    inset -2px -2px 6px var(--neu-inset-hi);
+}
+
+/* 弹窗 Teleport 到 body 时需自带变量 */
+.journal-neu-modal {
+  --neu-base: #e5dce2;
+  --neu-raised: #ebe3e8;
+  --neu-dent: #e4d9e0;
+  --neu-shadow-d: rgba(150, 110, 130, 0.24);
+  --neu-shadow-l: rgba(255, 252, 254, 0.94);
+  --neu-inset-hi: rgba(255, 255, 255, 0.62);
+  background-color: var(--neu-raised);
+  box-shadow:
+    10px 10px 26px var(--neu-shadow-d),
+    -8px -8px 22px var(--neu-shadow-l),
+    inset 1px 1px 0 rgba(255, 255, 255, 0.55);
+}
+
+.dark .journal-neu-modal {
+  --neu-base: #19141a;
+  --neu-raised: #241d26;
+  --neu-dent: #18141a;
+  --neu-shadow-d: rgba(0, 0, 0, 0.5);
+  --neu-shadow-l: rgba(100, 70, 90, 0.1);
+  --neu-inset-hi: rgba(255, 210, 230, 0.05);
+  background-color: var(--neu-raised);
+  box-shadow:
+    8px 8px 22px var(--neu-shadow-d),
+    -6px -6px 18px var(--neu-shadow-l),
+    inset 1px 1px 0 var(--neu-inset-hi);
+}
+
+.journal-neu-modal-head {
+  background: var(--neu-raised);
+  box-shadow: inset 0 -4px 8px var(--neu-inset-hi);
+}
+
+.dark .journal-neu-modal-head {
+  box-shadow: inset 0 -1px 0 var(--neu-inset-hi);
+}
+
+.journal-neu-modal-body {
+  background: var(--neu-raised);
+}
+
+.journal-neu-modal-foot {
+  background: var(--neu-raised);
+  box-shadow: inset 0 3px 8px var(--neu-inset-hi);
+}
+
+.dark .journal-neu-modal-foot {
+  box-shadow: inset 0 1px 0 var(--neu-inset-hi);
+}
+
+.journal-neu-type-pop {
+  --neu-raised: #ebe3e8;
+  --neu-dent: #e4d9e0;
+  --neu-shadow-d: rgba(150, 110, 130, 0.24);
+  --neu-shadow-l: rgba(255, 252, 254, 0.94);
+  --neu-inset-hi: rgba(255, 255, 255, 0.62);
+  background: var(--neu-raised);
+  box-shadow:
+    8px 8px 22px var(--neu-shadow-d),
+    -6px -6px 18px var(--neu-shadow-l),
+    inset 1px 1px 0 rgba(255, 255, 255, 0.55);
+}
+
+.dark .journal-neu-type-pop {
+  --neu-raised: #241d26;
+  --neu-dent: #18141a;
+  --neu-shadow-d: rgba(0, 0, 0, 0.5);
+  --neu-shadow-l: rgba(100, 70, 90, 0.1);
+  --neu-inset-hi: rgba(255, 210, 230, 0.05);
+  background: var(--neu-raised);
+  box-shadow:
+    8px 8px 22px var(--neu-shadow-d),
+    -6px -6px 18px var(--neu-shadow-l),
+    inset 1px 1px 0 var(--neu-inset-hi);
+}
+
+.journal-neu-type-row {
+  background: var(--neu-dent);
+  box-shadow:
+    inset 3px 3px 8px var(--neu-shadow-d),
+    inset -2px -2px 6px var(--neu-inset-hi);
+}
+
+.journal-neu-type-row:hover {
+  filter: brightness(1.03);
+}
+
+.dark .journal-neu-type-row:hover {
+  filter: brightness(1.06);
 }
 </style>

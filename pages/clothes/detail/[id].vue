@@ -10,7 +10,8 @@ interface ExtendedWardrobeClothes extends WardrobeClothes {
   sence_id?: number
   image_list?: string[]
 }
-import { getClothesDetail, updateClothes, deteleClothes, addClothesCitation } from '@/api/wardrobe'
+import { getClothesDetail, getClothesListAllFallback, parseClothesIdsFromRows, updateClothes, deteleClothes, addClothesCitation } from '@/api/wardrobe'
+import { getCommunityForeignList } from '@/api/community'
 import { planComplete, deletePlanList } from '@/api/plan'
 import type ClothesAdd from '@/components/Clothes/ClothesAdd.vue'
 import PlanAddEdit from '@/components/Plan/PlanAddEdit.vue'
@@ -32,12 +33,20 @@ onMounted(async () => {
 const route = useRoute()
 const router = useRouter()
 const config = useConfigStore()
+const wardrobeStore = useWardrobeStore()
 const user = useUserStore()
 const toast = useToast()
-const id = route.params.id as string
+const clothesRouteId = computed(() => String(route.params.id ?? ''))
 
 const detail = ref<ExtendedWardrobeClothes | null>(null)
-const currentTab = ref(0)
+/** 当前衣柜内服饰 id 顺序（来自 `/clothes/all` 或 list 分页兜底） */
+const wardrobeSiblingIds = ref<number[]>([])
+const siblingsWardrobeId = ref<number | null>(null)
+/** 最近一次详情期望拉取的衣柜（用于丢弃慢请求覆盖新衣柜） */
+const latestSiblingWardrobeTarget = ref<number | null>(null)
+const siblingIdsInflight = new Map<number, Promise<void>>()
+const slideTransitionName = ref<'clothes-slide-forward' | 'clothes-slide-back'>('clothes-slide-forward')
+const showMemoryListModal = ref(false)
 const sortMode = ref(false)
 const showDeleteModal = ref(false)
 const showDeleteLinkModal = ref(false)
@@ -81,9 +90,167 @@ const timesOptions = Array.from({ length: 1000 }, (_, i) => ({
   value: i
 }))
 
-const fetchClothesDetail = async () => {
+const fetchSiblingClothesIds = async (wardrobeId: number | string | undefined | null) => {
+  const wid = typeof wardrobeId === 'number' ? wardrobeId : Number(wardrobeId)
+  if (!Number.isFinite(wid) || wid <= 0) return
+  latestSiblingWardrobeTarget.value = wid
+  // 已成功缓存过该衣柜（即使解析 id 为空也不再重复打 /clothes/all）
+  if (siblingsWardrobeId.value === wid) return
+
+  let pending = siblingIdsInflight.get(wid)
+  if (!pending) {
+    pending = (async () => {
+      try {
+        const rows = await getClothesListAllFallback({ wardrobe_id: wid })
+        if (latestSiblingWardrobeTarget.value !== wid) return
+        wardrobeSiblingIds.value = parseClothesIdsFromRows(rows)
+        siblingsWardrobeId.value = wid
+      } catch {
+        if (latestSiblingWardrobeTarget.value !== wid) return
+        wardrobeSiblingIds.value = []
+      } finally {
+        siblingIdsInflight.delete(wid)
+      }
+    })()
+    siblingIdsInflight.set(wid, pending)
+  }
+  await pending
+}
+
+const currentSiblingIndex = computed(() => {
+  const cid = Number.parseInt(clothesRouteId.value, 10)
+  if (Number.isNaN(cid)) return -1
+  return wardrobeSiblingIds.value.findIndex((id) => Number(id) === cid)
+})
+
+const canGoSiblingPrev = computed(() => {
+  const i = currentSiblingIndex.value
+  return i > 0
+})
+
+const canGoSiblingNext = computed(() => {
+  const i = currentSiblingIndex.value
+  return i >= 0 && i < wardrobeSiblingIds.value.length - 1
+})
+
+const showSiblingNav = computed(
+  () => wardrobeSiblingIds.value.length > 1 && currentSiblingIndex.value >= 0
+)
+
+/** 手机端：横向滑动切相邻件；电脑端不用滑动（见悬浮按钮） */
+const swipeMobileActive = computed(() => showSiblingNav.value && isMobile.value)
+
+const goToSibling = (delta: -1 | 1) => {
+  const i = currentSiblingIndex.value
+  const nextId = wardrobeSiblingIds.value[i + delta]
+  if (nextId == null) return
+  slideTransitionName.value = delta < 0 ? 'clothes-slide-back' : 'clothes-slide-forward'
+  router.replace({ path: `/clothes/detail/${nextId}`, query: route.query })
+}
+
+const swipeStartX = ref(0)
+const swipeStartY = ref(0)
+const swipeTrackingPointerId = ref<number | null>(null)
+
+const SWIPE_MIN_DISTANCE = 48
+
+const isSwipeIgnoredTarget = (target: EventTarget | null) => {
+  const el = target as HTMLElement | null
+  if (!el?.closest) return false
+  return !!el.closest(
+    'button, a, input, textarea, select, label, [role="button"], iframe'
+  )
+}
+
+const swipePointerDown = (e: PointerEvent) => {
+  if (!swipeMobileActive.value) return
+  if (isSwipeIgnoredTarget(e.target)) return
+  if (swipeTrackingPointerId.value !== null) return
+  if (e.pointerType === 'mouse' && e.button !== 0) return
+  swipeTrackingPointerId.value = e.pointerId
+  swipeStartX.value = e.clientX
+  swipeStartY.value = e.clientY
+  ;(e.currentTarget as HTMLElement | null)?.setPointerCapture?.(e.pointerId)
+}
+
+const swipePointerUp = (e: PointerEvent) => {
+  if (!swipeMobileActive.value) return
+  if (swipeTrackingPointerId.value !== e.pointerId) return
+  ;(e.currentTarget as HTMLElement | null)?.releasePointerCapture?.(e.pointerId)
+  swipeTrackingPointerId.value = null
+
+  const dx = e.clientX - swipeStartX.value
+  const dy = e.clientY - swipeStartY.value
+  if (Math.abs(dx) < SWIPE_MIN_DISTANCE || Math.abs(dx) < Math.abs(dy) * 1.15) return
+
+  if (dx < 0 && canGoSiblingNext.value) goToSibling(1)
+  else if (dx > 0 && canGoSiblingPrev.value) goToSibling(-1)
+}
+
+const swipePointerCancel = (e: PointerEvent) => {
+  if (swipeTrackingPointerId.value !== e.pointerId) return
   try {
-    const response = await getClothesDetail({ clothes_id: Number.parseInt(id) })
+    ;(e.currentTarget as HTMLElement | null)?.releasePointerCapture?.(e.pointerId)
+  } catch {
+    /* capture 可能已释放 */
+  }
+  swipeTrackingPointerId.value = null
+}
+
+/** 手机端：进入详情约 2s 后提示可横向滑动切换（不占点击，穿透到底层） */
+const showSwipeGuide = ref(false)
+const swipeGuideTimers: ReturnType<typeof setTimeout>[] = []
+
+const SWIPE_GUIDE_SESSION_KEY = 'clothes-detail-swipe-guide'
+
+const clearSwipeGuideTimers = () => {
+  for (const t of swipeGuideTimers) clearTimeout(t)
+  swipeGuideTimers.length = 0
+}
+
+const scheduleMobileSwipeGuide = () => {
+  clearSwipeGuideTimers()
+  showSwipeGuide.value = false
+  if (!import.meta.client) return
+  if (!isMobile.value || !showSiblingNav.value || !detail.value) return
+  try {
+    if (sessionStorage.getItem(SWIPE_GUIDE_SESSION_KEY) === '1') return
+  } catch {
+    /* 无痕模式等 */
+  }
+
+  const tShow = setTimeout(() => {
+    if (!isMobile.value || !showSiblingNav.value || !detail.value) return
+    showSwipeGuide.value = true
+    const tHide = setTimeout(() => {
+      showSwipeGuide.value = false
+      try {
+        sessionStorage.setItem(SWIPE_GUIDE_SESSION_KEY, '1')
+      } catch {
+        /* */
+      }
+    }, 4800)
+    swipeGuideTimers.push(tHide)
+  }, 2000)
+  swipeGuideTimers.push(tShow)
+}
+
+watch(
+  () => [isMobile.value, showSiblingNav.value, !!detail.value] as const,
+  () => {
+    scheduleMobileSwipeGuide()
+  }
+)
+
+onUnmounted(() => {
+  clearSwipeGuideTimers()
+})
+
+const fetchClothesDetail = async () => {
+  const pid = Number.parseInt(clothesRouteId.value, 10)
+  if (Number.isNaN(pid)) return
+  try {
+    const response = await getClothesDetail({ clothes_id: pid })
     const data = response
     if (data) {
       if (data.detail_image) {
@@ -121,6 +288,9 @@ const fetchClothesDetail = async () => {
       }
     }
     detail.value = data
+    void fetchSiblingClothesIds(
+      data.wardrobe_id ?? (data as ExtendedWardrobeClothes).wardrobe?.wardrobe_id ?? null
+    )
   } catch (error) {
     console.error('获取服饰详情失败:', error)
     toast.add({
@@ -468,9 +638,26 @@ const onEditSuccess = () => {
   fetchClothesDetail()
 }
 
-// 记忆数量更新
+// 记忆数量更新（弹窗内列表加载时同步）
 const onMemoryCountChange = (count: number) => {
   memoryCount.value = count
+}
+
+/** 直接请求记忆列表总数（用于角标，不依赖弹窗是否打开） */
+const fetchMemoryListCount = async () => {
+  const clothesId = Number.parseInt(clothesRouteId.value, 10)
+  if (Number.isNaN(clothesId)) return
+  try {
+    const res = await getCommunityForeignList({
+      page: 1,
+      pageSize: 1,
+      pk_id: clothesId,
+      pk_type: 2
+    })
+    memoryCount.value = res.count ?? 0
+  } catch {
+    /* 保持原数量 */
+  }
 }
 
 // 搭配数量更新
@@ -479,9 +666,31 @@ const onMatchingCountChange = (count: number) => {
 }
 
 onMounted(async () => {
+  const isInUniApp =
+    typeof window !== 'undefined' &&
+    navigator.userAgent.includes('Html5Plus')
+  if (isInUniApp || port.value) {
+    void wardrobeStore.getWardrobeConfig()
+  }
+  void fetchMemoryListCount()
   setTimeout(async () => {
     await fetchClothesDetail()
   })
+})
+
+watch(
+  () => route.params.id,
+  (newId, oldId) => {
+    if (newId === oldId) return
+    memoryCount.value = 0
+    void fetchMemoryListCount()
+    detail.value = null
+    void fetchClothesDetail()
+  }
+)
+
+watch(showMemoryListModal, (open) => {
+  if (!open) void fetchMemoryListCount()
 })
 
 useHead({
@@ -768,6 +977,74 @@ const showEditPlan = (e?: MouseEvent) => {
 
 <template>
   <div>
+    <button
+      v-if="detail"
+      type="button"
+      class="fixed top-20 right-3 max-md:top-16 max-md:right-2 z-[60] rounded-full bg-qhx-primary text-white shadow-md shadow-qhx-primary/20 pl-2 pr-2.5 py-1.5 text-xs font-medium ring-1 ring-white/20 transition hover:brightness-110 active:scale-[0.98]"
+      @click="showMemoryListModal = true"
+    >
+      <span class="relative inline-flex items-center gap-1">
+        <UIcon name="i-heroicons-sparkles" class="w-4 h-4 shrink-0" />
+        记忆
+        <span
+          v-if="memoryCount > 0"
+          class="absolute -top-2.5 -right-3 z-10 flex min-h-4 min-w-4 translate-x-px -translate-y-px items-center justify-center rounded-full bg-red-500 px-0.5 text-[9px] font-bold leading-none text-white shadow-sm ring-1 ring-white dark:ring-gray-900"
+        >{{ memoryCount > 99 ? '99+' : memoryCount }}</span>
+      </span>
+    </button>
+
+    <Transition name="clothes-swipe-guide">
+      <div
+        v-if="showSwipeGuide"
+        class="clothes-swipe-guide-root pointer-events-none fixed inset-0 z-[61] flex items-center justify-center px-6"
+        aria-hidden="true"
+      >
+        <div class="clothes-swipe-guide-backdrop" />
+        <div class="clothes-swipe-guide-content pointer-events-none relative z-[1] max-w-[18rem] text-center">
+          <div class="clothes-swipe-guide-hint-row mb-2.5 flex items-center justify-center">
+            <UIcon
+              name="material-symbols:swipe-outline-rounded"
+              class="clothes-swipe-guide-hand-icon h-16 w-16 text-white drop-shadow-[0_3px_12px_rgba(0,0,0,0.4)]"
+            />
+          </div>
+          <p class="text-[13px] leading-snug text-white drop-shadow-[0_1px_8px_rgba(0,0,0,0.45)]">
+            左右滑动可切换服饰
+          </p>
+        </div>
+      </div>
+    </Transition>
+
+    <QhxModal v-model="showMemoryListModal">
+      <div
+        class="w-[92vw] max-w-lg max-h-[85vh] bg-white dark:bg-gray-800 rounded-2xl shadow-2xl overflow-hidden flex flex-col border border-gray-200/50 dark:border-gray-700/50"
+      >
+        <div
+          class="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-700 flex-shrink-0"
+        >
+          <h3 class="text-base font-semibold text-gray-900 dark:text-gray-100">记忆</h3>
+          <button
+            type="button"
+            class="w-9 h-9 flex items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500"
+            aria-label="关闭"
+            @click="showMemoryListModal = false"
+          >
+            <UIcon name="i-heroicons-x-mark" class="w-5 h-5" />
+          </button>
+        </div>
+        <div class="p-4 overflow-y-auto flex-1 min-h-0">
+          <p class="text-sm text-gray-500 dark:text-gray-400 text-center mb-4">
+            发帖记录你与小裙子之间的美好记忆
+          </p>
+          <CommunityForeignList
+            v-if="showMemoryListModal"
+            :pk_type="2"
+            :pk_id="Number.parseInt(clothesRouteId, 10)"
+            @count-change="onMemoryCountChange"
+          />
+        </div>
+      </div>
+    </QhxModal>
+
     <clothes-add ref="addEditClothesRef" @success="onEditSuccess"></clothes-add>
     <PlanAddEdit
       ref="planAddEditRef"
@@ -778,8 +1055,16 @@ const showEditPlan = (e?: MouseEvent) => {
     />
     <WardrobeClothesChoose ref="wardrobeClothesChooseRef" @choose="handleLinkClothesChoose" />
 
-    <!-- 有场景ID时的布局：全屏背景 + 可拖拽半模态框 -->
-    <template v-if="detail && detail.sence_id">
+    <Transition :name="slideTransitionName" mode="out-in">
+    <div
+      v-if="detail && detail.sence_id"
+      :key="`scene-${clothesRouteId}`"
+      class="relative min-h-[100dvh]"
+      :class="{ 'touch-pan-y': isMobile }"
+      @pointerdown="swipePointerDown"
+      @pointerup="swipePointerUp"
+      @pointercancel="swipePointerCancel"
+    >
       <!-- 全屏场景背景 -->
       <div class="fixed inset-0 w-screen h-screen z-0">
         <iframe :src="`https://lolitalibrary.com/scene/detail/${detail.sence_id}`" class="w-full h-full border-0"
@@ -790,12 +1075,7 @@ const showEditPlan = (e?: MouseEvent) => {
       <Transition :name="`drawer-${isMobile ? 'bottom' : 'right'}`">
         <QhxBottomDrawer v-if="detail" :direction="isMobile ? 'bottom' : 'right'">
         <div v-if="detail" class="bg-qhx-bg-card">
-          <!-- 标签页 -->
-          <QhxTabs :tabs="['基本信息', '记忆']" @change="(index) => currentTab = index">
-            <!-- 基本信息标签页 -->
-            <QhxTabPanel :index="0">
-              <template #default="{ isActive }">
-                <div v-show="isActive" class="py-2">
+          <div class="py-2">
                   <!-- 标题和操作按钮 -->
                   <div class="items-center justify-between mb-4">
                     <h2 class="text-xl font-bold flex-1">
@@ -1256,35 +1536,25 @@ const showEditPlan = (e?: MouseEvent) => {
                     </div>
                   </div>
                 </div>
-              </template>
-            </QhxTabPanel>
-
-            <!-- 记忆标签页 -->
-            <QhxTabPanel :index="1">
-              <template #default="{ isActive }">
-                <div v-if="isActive" class="py-2">
-                  <div class="text-sm text-gray-500 text-center mb-4">
-                    发帖记录你与小裙子之间的美好记忆
-                  </div>
-                  <CommunityForeignList :pk_type="2" :pk_id="Number.parseInt(id, 10)" />
-                </div>
-              </template>
-            </QhxTabPanel>
-          </QhxTabs>
         </div>
       </QhxBottomDrawer>
       </Transition>
-    </template>
-
-    <!-- 没有场景ID时的原有布局 -->
-    <div v-else class="container mx-auto p-4 max-md:p-2">
+    </div>
+    <div
+      v-else-if="detail && !detail.sence_id"
+      :key="`plain-${clothesRouteId}`"
+      class="container mx-auto px-4 pb-4 max-md:px-2 max-md:pb-2 pt-[calc(1rem+env(safe-area-inset-top,0px))] max-md:pt-[calc(0.5rem+env(safe-area-inset-top,0px))] min-h-[100dvh]"
+      :class="{ 'touch-pan-y': isMobile }"
+      @pointerdown="swipePointerDown"
+      @pointerup="swipePointerUp"
+      @pointercancel="swipePointerCancel"
+    >
+      <!-- <div
+        v-if="configStore.statusBarHeight > 0"
+        :style="{ height: `${configStore.statusBarHeight}px` }"
+      /> -->
       <div v-if="detail" class="bg-qhx-bg-card rounded-lg shadow-lg">
-        <!-- 标签页 -->
-        <QhxTabs :tabs="['基本信息', '记忆']" @change="(index) => currentTab = index">
-          <!-- 基本信息标签页 -->
-          <QhxTabPanel :index="0">
-            <template #default="{ isActive }">
-              <div v-show="isActive" class="p-4 max-md:p-2">
+        <div class="p-4 max-md:p-2">
                 <!-- 图片区域 -->
                 <div class="flex max-md:block gap-4 mb-4">
                   <!-- 主图 -->
@@ -1551,9 +1821,8 @@ const showEditPlan = (e?: MouseEvent) => {
                     <div v-if="detail.add_time" class="text-sm">
                       购入：{{ formatDate(detail.add_time) }}
                     </div>
-
                     <!-- 来源 -->
-                    <div v-if="!detail.library && !detail.origin_shop && detail.origin" class="text-sm">
+                    <div v-if="!detail.origin_shop && detail.origin" class="text-sm">
                       来源：{{ detail.origin }}
                     </div>
                     <!-- 关联服饰 -->
@@ -1827,38 +2096,7 @@ const showEditPlan = (e?: MouseEvent) => {
                   </div>
                 </div>
               </div>
-            </template>
-          </QhxTabPanel>
-
-          <!-- 记忆标签页 -->
-          <QhxTabPanel :index="1">
-            <template #default="{ isActive }">
-              <div v-if="isActive" class="p-4 max-md:p-2">
-                <!-- <div v-if="isOwner" class="mb-4">
-                <UButton icon="i-heroicons-plus" color="primary" @click="showAddMemoryModal = true">
-                  添加记忆
-                </UButton>
-              </div> -->
-                <div class="text-sm text-gray-500 text-center mb-4">
-                  发帖记录你与小裙子之间的美好记忆
-                </div>
-                <CommunityForeignList :pk_type="2" :pk_id="Number.parseInt(id, 10)" />
-              </div>
-            </template>
-          </QhxTabPanel>
-
-          <!-- 搭配标签页 -->
-          <!-- <QhxTabPanel :index="2">
-          <template #default="{ isActive }">
-            <div v-if="isActive" class="p-4 max-md:p-2">
-              <div class="text-sm text-gray-500 mb-4">
-                这里显示与该服饰相关的搭配记录
-              </div>
-            </div>
-          </template>
-        </QhxTabPanel> -->
-        </QhxTabs>
-      </div>
+        </div>
       <!-- 场景选择组件 -->
       <SceneChoose ref="SceneChooseRef" @choose="chooseScene"></SceneChoose>
       
@@ -1919,6 +2157,42 @@ const showEditPlan = (e?: MouseEvent) => {
         </div>
       </QhxModal>
     </div>
+    <div
+      v-else
+      key="clothes-detail-loading"
+      class="min-h-0"
+      aria-hidden="true"
+    />
+    </Transition>
+
+    <div
+      v-if="!isMobile && showSiblingNav"
+      class="pointer-events-none fixed inset-y-0 left-0 right-0 z-[58] flex items-end justify-between px-2 sm:px-5 pb-6 sm:pb-8"
+    >
+      <div class="pointer-events-auto flex min-w-[2rem] justify-start">
+        <button
+          v-if="canGoSiblingPrev"
+          type="button"
+          class="clothes-sibling-neu-btn h-8 w-8 shrink-0"
+          aria-label="上一件服饰"
+          @click="goToSibling(-1)"
+        >
+          <UIcon name="i-heroicons-chevron-left" class="h-4 w-4" />
+        </button>
+      </div>
+      <div class="pointer-events-auto flex min-w-[2rem] justify-end">
+        <button
+          v-if="canGoSiblingNext"
+          type="button"
+          class="clothes-sibling-neu-btn h-8 w-8 shrink-0"
+          aria-label="下一件服饰"
+          @click="goToSibling(1)"
+        >
+          <UIcon name="i-heroicons-chevron-right" class="h-4 w-4" />
+        </button>
+      </div>
+    </div>
+
     <!-- 删除确认弹窗 -->
     <UModal v-model="showDeleteModal" title="操作确认">
         <div class="p-4">
@@ -2012,3 +2286,149 @@ const showEditPlan = (e?: MouseEvent) => {
     </div> -->
   </div>
 </template>
+
+<style scoped>
+.clothes-slide-forward-enter-active,
+.clothes-slide-forward-leave-active,
+.clothes-slide-back-enter-active,
+.clothes-slide-back-leave-active {
+  transition:
+    transform 0.32s cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 0.26s ease;
+}
+
+.clothes-slide-forward-enter-from {
+  transform: translateX(22px);
+  opacity: 0;
+}
+.clothes-slide-forward-leave-to {
+  transform: translateX(-22px);
+  opacity: 0;
+}
+
+.clothes-slide-back-enter-from {
+  transform: translateX(-22px);
+  opacity: 0;
+}
+.clothes-slide-back-leave-to {
+  transform: translateX(22px);
+  opacity: 0;
+}
+
+/* 电脑端相邻服饰切换：拟态圆形按钮（与衣柜/搭配页色系接近） */
+.clothes-sibling-neu-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  border: none;
+  cursor: pointer;
+  color: #6b5563;
+  background: #ebe3e8;
+  box-shadow:
+    4px 4px 10px rgba(150, 110, 130, 0.22),
+    -4px -4px 10px rgba(255, 252, 254, 0.95),
+    inset 0 1px 1px rgba(255, 255, 255, 0.55);
+  transition:
+    box-shadow 0.2s ease,
+    transform 0.15s ease,
+    color 0.2s ease;
+}
+
+.clothes-sibling-neu-btn:hover {
+  color: #5b4660;
+  box-shadow:
+    5px 5px 12px rgba(150, 110, 130, 0.26),
+    -5px -5px 12px rgba(255, 252, 254, 0.98),
+    inset 0 1px 1px rgba(255, 255, 255, 0.6);
+}
+
+.clothes-sibling-neu-btn:active {
+  transform: scale(0.94);
+  color: #524459;
+  box-shadow:
+    inset 3px 3px 8px rgba(150, 110, 130, 0.28),
+    inset -2px -2px 6px rgba(255, 252, 254, 0.65);
+}
+
+.dark .clothes-sibling-neu-btn {
+  color: rgba(251, 207, 232, 0.82);
+  background: #241d26;
+  box-shadow:
+    4px 4px 12px rgba(0, 0, 0, 0.45),
+    -3px -3px 10px rgba(120, 80, 100, 0.08),
+    inset 0 1px 0 rgba(255, 210, 230, 0.06);
+}
+
+.dark .clothes-sibling-neu-btn:hover {
+  color: rgba(252, 220, 236, 0.92);
+  box-shadow:
+    5px 5px 14px rgba(0, 0, 0, 0.5),
+    -4px -4px 11px rgba(130, 90, 110, 0.1),
+    inset 0 1px 0 rgba(255, 210, 230, 0.08);
+}
+
+.dark .clothes-sibling-neu-btn:active {
+  box-shadow:
+    inset 3px 3px 10px rgba(0, 0, 0, 0.55),
+    inset -2px -2px 8px rgba(140, 100, 120, 0.06);
+}
+
+/* 手机端滑动引导：轻遮罩、无卡片无模糊，低存在感 */
+.clothes-swipe-guide-root {
+  isolation: isolate;
+}
+
+.clothes-swipe-guide-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background: rgba(0, 0, 0, 0.38);
+}
+
+.dark .clothes-swipe-guide-backdrop {
+  background: rgba(0, 0, 0, 0.42);
+}
+
+.clothes-swipe-guide-enter-active {
+  transition: opacity 0.45s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.clothes-swipe-guide-leave-active {
+  transition: opacity 0.32s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.clothes-swipe-guide-enter-active .clothes-swipe-guide-content,
+.clothes-swipe-guide-leave-active .clothes-swipe-guide-content {
+  transition:
+    opacity 0.45s cubic-bezier(0.22, 1, 0.36, 1),
+    transform 0.48s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.clothes-swipe-guide-enter-from,
+.clothes-swipe-guide-leave-to {
+  opacity: 0;
+}
+
+.clothes-swipe-guide-enter-from .clothes-swipe-guide-content,
+.clothes-swipe-guide-leave-to .clothes-swipe-guide-content {
+  opacity: 0;
+  transform: translateY(8px);
+}
+
+.clothes-swipe-guide-hint-row {
+  animation: clothes-swipe-guide-hand 2.2s ease-in-out infinite;
+  transform-origin: 50% 65%;
+  will-change: transform;
+}
+
+@keyframes clothes-swipe-guide-hand {
+  0%,
+  100% {
+    transform: translateX(-14px) rotate(-8deg);
+  }
+  50% {
+    transform: translateX(14px) rotate(8deg);
+  }
+}
+</style>

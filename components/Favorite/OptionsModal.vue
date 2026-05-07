@@ -11,7 +11,8 @@ const collect_type = ref<number | null>(null)
 const clickPosition = ref({ x: 0, y: 0 })
 const selectedOptions = ref<number[]>([])
 const fetchOptions = async () => {
-  if (pk_id.value && collect_type.value) {
+  // collect_type / pk_id 可能为 0（如用户收藏 pk_type=0），不能用 && 判断真假值
+  if (pk_id.value != null && collect_type.value != null) {
     const params = { pk_id: pk_id.value, 
       collect_type: collect_type.value
      }

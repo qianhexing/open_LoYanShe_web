@@ -93,7 +93,7 @@
                   </QhxJellyButton>
                 </div>
                 <!-- 状态标签 -->
-                <div class="absolute top-2 left-2">
+                <div class="absolute top-2 left-2 flex flex-wrap gap-1">
                   <span
                     v-if="item.is_private === 1"
                     class="px-2 py-1 text-xs rounded bg-yellow-500/80 text-white"
@@ -101,16 +101,10 @@
                     私有
                   </span>
                   <span
-                    v-if="item.is_enable === 0"
+                    v-if="item.is_enable === 1"
                     class="px-2 py-1 text-xs rounded bg-red-500/80 text-white"
                   >
-                    启用
-                  </span>
-                  <span
-                    v-else
-                    class="px-2 py-1 text-xs rounded bg-red-500/80 text-white"
-                  >
-                    禁用
+                    已删除
                   </span>
                 </div>
               </div>
@@ -247,7 +241,7 @@
             </div>
           </div>
 
-          <!-- 封面图 -->
+          <!-- 封面图（GLB/GLTF 上传成功后会自动截屏并上传，也可手动改） -->
           <div>
             <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               封面图
@@ -274,13 +268,6 @@
                 @change="formData.is_private = isPrivateChecked ? 1 : 0"
               />
               <span class="text-sm text-gray-700 dark:text-gray-300">设为私密</span>
-            </label>
-            <label class="flex items-center gap-2 cursor-pointer">
-              <UCheckbox
-                v-model="isEnableChecked"
-                @change="formData.is_enable = isEnableChecked ? 1 : 1"
-              />
-              <span class="text-sm text-gray-700 dark:text-gray-300">是否禁用</span>
             </label>
           </div>
         </div>
@@ -335,6 +322,8 @@
         </template>
       </UCard>
     </UModal>
+
+    <MateriaGltfCoverCapture ref="gltfCoverRef" v-model="formData.cover" />
   </div>
 </template>
 
@@ -342,7 +331,6 @@
 import { ref, reactive } from 'vue'
 import type { Material } from '@/types/api'
 import { getMaterialctList, insertMaterial, updateMaterial, deleteMaterial, type InsertMaterialParams } from '@/api/material'
-import { uploadImage } from '@/api'
 import { uploadFileToOSS } from '@/utils/ossUpload'
 import { BASE_IMG } from '@/utils/ipConfig'
 import type QhxImagePicker from '@/components/Qhx/ImagePicker.vue'
@@ -374,17 +362,18 @@ const formData = reactive<InsertMaterialParams>({
   materia_url: '',
   cover: null,
   is_private: 0,
-  is_enable: 1,
   options: {}
 })
 
 // 复选框状态
 const isPrivateChecked = ref(false)
-const isEnableChecked = ref(true)
 
 // 组件引用
 const materialFileInput = ref<HTMLInputElement | null>(null)
 const coverPicker = ref<InstanceType<typeof QhxImagePicker> | null>(null)
+const gltfCoverRef = ref<{
+  generateAndUploadFromFile: (file: File) => Promise<string>
+} | null>(null)
 
 // 素材文件相关
 const uploadingMaterial = ref(false)
@@ -512,6 +501,17 @@ const uploadMaterialFile = async (file: File) => {
       icon: 'i-heroicons-check-circle',
       color: 'green'
     })
+    try {
+      await gltfCoverRef.value?.generateAndUploadFromFile(file)
+    } catch (coverErr) {
+      console.error('GLB/GLTF 自动封面失败:', coverErr)
+      toast.add({
+        title: '素材已上传，封面未自动生成',
+        description: '可手动在下方选择封面图',
+        icon: 'i-heroicons-exclamation-triangle',
+        color: 'orange'
+      })
+    }
   } catch (error) {
     console.error('文件上传失败:', error)
     toast.add({
@@ -566,10 +566,8 @@ const handleEdit = (item: Material) => {
   formData.materia_url = item.materia_url || ''
   formData.cover = item.cover
   formData.is_private = item.is_private ?? 0
-  formData.is_enable = item.is_enable ?? 1
   formData.options = item.options || {}
   isPrivateChecked.value = formData.is_private === 1
-  isEnableChecked.value = formData.is_enable === 1
   formData.pk_id = item.pk_id
   // 如果有素材文件，显示文件名（从 URL 中提取）
   if (formData.materia_url) {
@@ -677,11 +675,9 @@ const handleCloseModal = () => {
   formData.materia_url = null
   formData.cover = null
   formData.is_private = 0
-  formData.is_enable = 1
   formData.options = {}
   formData.pk_id = null
   isPrivateChecked.value = false
-  isEnableChecked.value = true
   selectedMaterialFileName.value = ''
   selectedMaterialFileSize.value = 0
   if (materialFileInput.value) {

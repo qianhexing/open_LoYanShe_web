@@ -1,10 +1,11 @@
 <template>
   <div class="rich-text-editor">
     <div class="bg-white dark:bg-gray-700 rounded-2xl border border-gray-200 dark:border-gray-600 overflow-visible relative">
-      <!-- 工具栏 -->
-      <div v-if="editor" class="bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-600 p-2 flex gap-2 flex-wrap items-center">
+      <!-- 工具栏：传 toolbar 则仅显示所列项；不传则沿用 enable*（粗体/斜体/删除线默认开启） -->
+      <div v-if="editor && showToolbar" class="bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-600 p-2 flex gap-2 flex-wrap items-center">
         <!-- 基础格式化按钮 -->
         <button 
+          v-if="toolbarFlags.bold"
           type="button" 
           @click="editor.chain().focus().toggleBold().run()"
           :class="{ 'bg-gray-200 dark:bg-gray-600': editor.isActive('bold') }"
@@ -14,6 +15,7 @@
           <span class="font-bold text-gray-700 dark:text-gray-200">B</span>
         </button>
         <button 
+          v-if="toolbarFlags.italic"
           type="button" 
           @click="editor.chain().focus().toggleItalic().run()"
           :class="{ 'bg-gray-200 dark:bg-gray-600': editor.isActive('italic') }"
@@ -23,6 +25,7 @@
           <span class="italic text-gray-700 dark:text-gray-200">I</span>
         </button>
         <button 
+          v-if="toolbarFlags.strike"
           type="button" 
           @click="editor.chain().focus().toggleStrike().run()"
           :class="{ 'bg-gray-200 dark:bg-gray-600': editor.isActive('strike') }"
@@ -33,11 +36,22 @@
         </button>
 
         <!-- 分隔符 -->
-        <div v-if="enableImageUpload || enableTopic || enableEmoji || enableMention || enableInternalLink" class="w-px h-6 bg-gray-300 dark:bg-gray-600 mx-1"></div>
-
+        <div
+          v-if="hasBasicToolbar && (toolbarFlags.image || toolbarFlags.internalLink || toolbarFlags.topic || toolbarFlags.emoji || toolbarFlags.mention)"
+          class="w-px h-6 bg-gray-300 dark:bg-gray-600 mx-1"
+        />
+        <!-- Emoji 按钮（面板见下方 QhxModal） -->
+        <button
+          v-if="toolbarFlags.emoji"
+          type="button"
+          class="px-3 py-1.5 text-sm font-medium bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 rounded-lg border border-gray-200 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors flex items-center gap-1"
+          @click="openEmojiModal($event)"
+        >
+          <span>😊</span> 表情
+        </button>
         <!-- 插入图片（OSS 上传后插入可访问 URL，供 SafeRichText 展示） -->
         <button
-          v-if="enableImageUpload"
+          v-if="toolbarFlags.image"
           type="button"
           :disabled="imageUploading"
           class="px-3 py-1.5 text-sm font-medium bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 rounded-lg border border-gray-200 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors flex items-center gap-1 disabled:opacity-50 disabled:pointer-events-none"
@@ -60,13 +74,13 @@
         >
 
         <div
-          v-if="enableImageUpload && (enableTopic || enableEmoji || enableMention || enableInternalLink)"
+          v-if="toolbarFlags.image && (toolbarFlags.internalLink || toolbarFlags.topic || toolbarFlags.emoji || toolbarFlags.mention)"
           class="w-px h-6 bg-gray-300 dark:bg-gray-600 mx-1"
         />
 
         <!-- 站内链接：图鉴 / 百科等 -->
         <button
-          v-if="enableInternalLink"
+          v-if="toolbarFlags.internalLink"
           type="button"
           class="px-3 py-1.5 text-sm font-medium bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 rounded-lg border border-gray-200 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors flex items-center gap-1"
           @click="openInternalLinkTypeModal($event)"
@@ -77,7 +91,7 @@
 
         <!-- 话题按钮 -->
         <button 
-          v-if="enableTopic"
+          v-if="toolbarFlags.topic"
           type="button" 
           class="px-3 py-1.5 text-sm font-medium bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 rounded-lg border border-gray-200 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors flex items-center gap-1"
           @click="openTopicModal($event)"
@@ -85,40 +99,9 @@
           <span class="text-pink-500 font-bold">#</span> 话题
         </button>
 
-        <!-- Emoji 按钮 -->
-        <div v-if="enableEmoji" class="relative">
-          <button 
-            type="button" 
-            class="px-3 py-1.5 text-sm font-medium bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 rounded-lg border border-gray-200 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors flex items-center gap-1"
-            @click="showEmojiPicker = !showEmojiPicker"
-          >
-            <span>😊</span> 表情
-          </button>
-          
-          <!-- Emoji 选择器 -->
-          <div v-if="showEmojiPicker" class="absolute top-full left-0 mt-2 z-50 bg-white dark:bg-gray-800 rounded-lg shadow-xl border border-gray-200 dark:border-gray-700 w-80 max-h-80 overflow-y-auto p-4">
-            <div v-for="(category, index) in emojiConfig" :key="index" class="mb-4">
-              <h4 class="text-xs text-gray-500 mb-2">{{ category.name }}</h4>
-              <div class="grid grid-cols-6 gap-2">
-                <button 
-                  v-for="emoji in category.list" 
-                  :key="emoji.value"
-                  type="button"
-                  class="hover:bg-gray-100 dark:hover:bg-gray-700 p-1 rounded"
-                  @click="insertEmoji(emoji)"
-                >
-                  <img :src="BASE_IMG + emoji.url" :alt="emoji.label" class="w-6 h-6 object-contain" />
-                </button>
-              </div>
-            </div>
-            <!-- 关闭遮罩 -->
-            <div class="fixed inset-0 -z-10" @click="showEmojiPicker = false"></div>
-          </div>
-        </div>
-
         <!-- 用户按钮 -->
         <button 
-          v-if="enableMention"
+          v-if="toolbarFlags.mention"
           type="button" 
           class="px-3 py-1.5 text-sm font-medium bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 rounded-lg border border-gray-200 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors flex items-center gap-1"
           @click="insertUserMentionTrigger"
@@ -137,12 +120,10 @@
           overflowY: maxHeight ? 'auto' : undefined
         }"
       />
-
-      {{ editor?.getHTML() }}
     </div>
 
     <!-- 话题输入弹窗 -->
-    <QhxModal v-model="showTopicModal" :trigger-position="topicModalPosition">
+    <QhxModal v-if="toolbarFlags.topic" v-model="showTopicModal" :trigger-position="topicModalPosition">
       <div class="p-6 w-[min(100vw-2rem,420px)] bg-white dark:bg-gray-800 rounded-[10px] shadow-lg">
         <h3 class="text-lg font-bold mb-4 text-gray-800 dark:text-gray-100">插入话题</h3>
         <input
@@ -171,9 +152,36 @@
       </div>
     </QhxModal>
 
+    <!-- 表情选择：QhxModal 居中展开 + trigger 位置动画，避免工具栏内绝对定位裁切/错位 -->
+    <QhxModal v-if="toolbarFlags.emoji" v-model="showEmojiPicker" :trigger-position="emojiModalPosition">
+      <div
+        class="flex max-h-[min(24rem,70dvh)] w-[min(100vw-2rem,20rem)] flex-col overflow-hidden rounded-[10px] border border-gray-200 bg-white shadow-lg dark:border-gray-700 dark:bg-gray-800"
+      >
+        <div class="flex shrink-0 items-center justify-between border-b border-gray-200 px-4 py-3 dark:border-gray-700">
+          <h3 class="text-sm font-bold text-gray-800 dark:text-gray-100">选择表情</h3>
+        </div>
+        <div class="min-h-0 flex-1 overflow-y-auto overscroll-contain p-3">
+          <div v-for="(category, index) in emojiConfig" :key="index" class="mb-4 last:mb-0">
+            <h4 class="mb-2 text-xs text-gray-500 dark:text-gray-400">{{ category.name }}</h4>
+            <div class="grid grid-cols-5 gap-1.5 sm:grid-cols-6 sm:gap-2">
+              <button
+                v-for="emoji in category.list"
+                :key="emoji.value"
+                type="button"
+                class="flex items-center justify-center rounded-lg p-1.5 outline-none ring-qhx-primary transition-colors hover:bg-gray-100 focus-visible:ring-2 dark:hover:bg-gray-700"
+                @click="insertEmoji(emoji)"
+              >
+                <img :src="BASE_IMG + emoji.url" :alt="emoji.label" class="mx-auto h-6 w-6 object-contain" />
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </QhxModal>
+
     <!-- 站内链接：类型选择（样式参考场景/手账中的类型弹层） -->
     <ClientOnly>
-      <div v-if="enableInternalLink">
+      <div v-if="toolbarFlags.internalLink">
         <QhxModal v-model="showInternalLinkTypeModal" :trigger-position="internalLinkTypeModalPosition">
           <div class="p-4 w-[220px] bg-white dark:bg-gray-800 rounded-[10px] shadow-lg">
             <h3 class="text-sm font-bold mb-3 text-gray-800 dark:text-gray-200">选择链接类型</h3>
@@ -209,6 +217,22 @@
                 <div class="text-xs text-gray-500 dark:text-gray-400">链到 Lolita 百科详情</div>
               </div>
             </button>
+
+            <button
+              type="button"
+              class="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors text-left group mt-2"
+              @click="pickInternalLinkShop($event)"
+            >
+              <div
+                class="w-8 h-8 bg-emerald-500 dark:bg-emerald-600 rounded-lg flex items-center justify-center group-hover:scale-110 transition-transform"
+              >
+                <UIcon name="material-symbols:storefront-rounded" class="text-base text-white" />
+              </div>
+              <div class="flex-1">
+                <div class="text-sm font-medium text-gray-800 dark:text-gray-200">店铺</div>
+                <div class="text-xs text-gray-500 dark:text-gray-400">链到店铺详情页</div>
+              </div>
+            </button>
           </div>
         </QhxModal>
 
@@ -218,6 +242,7 @@
           @choose="onLibraryInternalLinkChosen"
         />
         <WikiOptionsChoose ref="wikiOptionsChooseRef" @choose="onWikiInternalLinkChosen" />
+        <ShopChoose ref="shopChooseRef" :multiple="false" @choose="onShopInternalLinkChosen" />
       </div>
     </ClientOnly>
   </div>
@@ -228,6 +253,7 @@ import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import { Node } from '@tiptap/core'
 import { useEditor, EditorContent, VueRenderer } from '@tiptap/vue-3'
 import StarterKit from '@tiptap/starter-kit'
+import Link from '@tiptap/extension-link'
 import Placeholder from '@tiptap/extension-placeholder'
 import Image from '@tiptap/extension-image'
 import Mention from '@tiptap/extension-mention'
@@ -243,7 +269,19 @@ import { contentToEditorFormat, type RichNode } from '@/utils/public'
 import MentionList from '@/components/community/MentionList.vue'
 import LibraryChoose from '@/components/library/LibraryChoose.vue'
 import WikiOptionsChoose from '@/components/wiki/wikiOptionsChoose.vue'
-import type { Library } from '@/types/api'
+import ShopChoose from '@/components/shop/ShopChoose.vue'
+import type { Library, Shop } from '@/types/api'
+
+/** 工具栏按钮；传 `toolbar` 时仅渲染列表中的项（不传则粗体/斜体/删除线默认显示，其余由 enable* 控制） */
+export type RichTextToolbarItem =
+  | 'bold'
+  | 'italic'
+  | 'strike'
+  | 'image'
+  | 'internalLink'
+  | 'topic'
+  | 'emoji'
+  | 'mention'
 
 interface Props {
   modelValue?: string
@@ -257,6 +295,8 @@ interface Props {
   enableInternalLink?: boolean
   /** 工具栏上传图片并插入编辑器（OSS 上传，src 为完整 https 地址以通过 SafeRichText 校验） */
   enableImageUpload?: boolean
+  /** 仅显示所列工具项；与 enable* 二选一语义：传入后忽略各 enable*，且扩展按列表注册 */
+  toolbar?: RichTextToolbarItem[]
   mentionUsers?: string[]
   topicSuggestions?: string[]
 }
@@ -270,10 +310,53 @@ const props = withDefaults(defineProps<Props>(), {
   enableTopic: false,
   enableEmoji: false,
   enableInternalLink: false,
-  enableImageUpload: true,
+  enableImageUpload: false,
   mentionUsers: () => [],
   topicSuggestions: () => []
 })
+
+const toolbarFlags = computed(() => {
+  if (props.toolbar !== undefined) {
+    const s = new Set(props.toolbar)
+    return {
+      bold: s.has('bold'),
+      italic: s.has('italic'),
+      strike: s.has('strike'),
+      image: s.has('image'),
+      internalLink: s.has('internalLink'),
+      topic: s.has('topic'),
+      emoji: s.has('emoji'),
+      mention: s.has('mention'),
+    }
+  }
+  return {
+    bold: true,
+    italic: true,
+    strike: true,
+    image: props.enableImageUpload,
+    internalLink: props.enableInternalLink,
+    topic: props.enableTopic,
+    emoji: props.enableEmoji,
+    mention: props.enableMention,
+  }
+})
+
+const hasBasicToolbar = computed(
+  () => toolbarFlags.value.bold || toolbarFlags.value.italic || toolbarFlags.value.strike
+)
+
+/** 未传 toolbar 时始终显示工具栏（含 B/I/S）；传了且为空数组则隐藏整栏 */
+const showToolbar = computed(() => {
+  if (props.toolbar !== undefined) {
+    return props.toolbar.length > 0
+  }
+  return true
+})
+
+const initToolbarSet = props.toolbar !== undefined ? new Set(props.toolbar) : null
+const extMentionEnabled = initToolbarSet ? initToolbarSet.has('mention') : props.enableMention
+const extEmojiEnabled = initToolbarSet ? initToolbarSet.has('emoji') : props.enableEmoji
+const extTopicEnabled = initToolbarSet ? initToolbarSet.has('topic') : props.enableTopic
 
 const emit = defineEmits<{
   'update:modelValue': [value: string]
@@ -301,10 +384,12 @@ const showTopicModal = ref(false)
 const topicModalPosition = ref({ x: 0, y: 0 })
 const topicInput = ref('')
 const showEmojiPicker = ref(false)
+const emojiModalPosition = ref({ x: 0, y: 0 })
 const showInternalLinkTypeModal = ref(false)
 const internalLinkTypeModalPosition = ref({ x: 0, y: 0 })
 const libraryChooseRef = ref<InstanceType<typeof LibraryChoose> | null>(null)
 const wikiOptionsChooseRef = ref<InstanceType<typeof WikiOptionsChoose> | null>(null)
+const shopChooseRef = ref<InstanceType<typeof ShopChoose> | null>(null)
 
 // Emoji Config
 const emojiConfig = computed(() => configStore.config?.emoji_config || [])
@@ -426,18 +511,27 @@ const TopicMention = Mention.extend({
   },
 })
 
+/**
+ * 默认 Link 的 inclusive() 等于 autolink，为 true 时链接末尾继续输入会算进 <a>。
+ * 固定为 false，与是否开启自动链 URL 无关。
+ */
+const EditorLink = Link.extend({
+  inclusive: () => false,
+}).configure({
+  openOnClick: false,
+  HTMLAttributes: {
+    class: 'text-qhx-primary underline rich-inline-link',
+  },
+})
+
 // Initialize Editor
 const editor = useEditor({
   content: props.modelValue,
   extensions: [
     StarterKit.configure({
-      link: {
-        openOnClick: false,
-        HTMLAttributes: {
-          class: 'text-qhx-primary underline',
-        },
-      },
+      link: false,
     }),
+    EditorLink,
     Placeholder.configure({
       placeholder: props.placeholder,
     }),
@@ -446,7 +540,7 @@ const editor = useEditor({
       allowBase64: true,
     }),
     // User Mention (@)
-    ...(props.enableMention ? [
+    ...(extMentionEnabled ? [
       Mention.configure({
         HTMLAttributes: {
           class: 'mention',
@@ -455,9 +549,9 @@ const editor = useEditor({
       })
     ] : []),
     // Emoji 标签（<emoji>，data-emoji-id 记录 id，50x50px）
-    ...(props.enableEmoji ? [EmojiNode] : []),
+    ...(extEmojiEnabled ? [EmojiNode] : []),
     // Topic Mention (#)
-    ...(props.enableTopic ? [
+    ...(extTopicEnabled ? [
       TopicMention.configure({
         suggestion: {
           char: '#',
@@ -496,6 +590,11 @@ const openTopicModal = (e?: MouseEvent) => {
   topicModalPosition.value = modalTriggerFromEvent(e)
   topicInput.value = ''
   showTopicModal.value = true
+}
+
+const openEmojiModal = (e?: MouseEvent) => {
+  emojiModalPosition.value = modalTriggerFromEvent(e)
+  showEmojiPicker.value = true
 }
 
 const confirmInsertTopic = () => {
@@ -575,11 +674,20 @@ const onRichTextImageSelected = async (e: Event) => {
 
 const insertEditorLink = (href: string, label: string) => {
   const text = label.trim() || href
-  editor.value?.chain().focus().insertContent({
-    type: 'text',
-    text,
-    marks: [{ type: 'link', attrs: { href } }],
-  }).insertContent(' ').run()
+  editor.value
+    ?.chain()
+    .focus()
+    .insertContent({
+      type: 'text',
+      text,
+      marks: [{ type: 'link', attrs: { href } }],
+    })
+    .insertContent(' ')
+    .command(({ tr, dispatch }) => {
+      if (dispatch) dispatch(tr.setStoredMarks(null))
+      return true
+    })
+    .run()
 }
 
 const openInternalLinkTypeModal = (e?: MouseEvent) => {
@@ -597,6 +705,11 @@ const pickInternalLinkWiki = (e: MouseEvent) => {
   nextTick(() => wikiOptionsChooseRef.value?.showModel({}, e))
 }
 
+const pickInternalLinkShop = (e: MouseEvent) => {
+  showInternalLinkTypeModal.value = false
+  nextTick(() => shopChooseRef.value?.showModel(e))
+}
+
 const onLibraryInternalLinkChosen = (list: Library[]) => {
   const item = list[0]
   if (!item?.library_id) return
@@ -604,11 +717,35 @@ const onLibraryInternalLinkChosen = (list: Library[]) => {
   insertEditorLink(href, item.name)
 }
 
-const onWikiInternalLinkChosen = (list: { wiki_id?: number | string; wiki_name?: string }[]) => {
+const onShopInternalLinkChosen = (list: Shop[]) => {
   const item = list[0]
-  if (item?.wiki_id === undefined || item?.wiki_id === null || item.wiki_id === '') return
-  const href = `/lolitaWiki/detail/${item.wiki_id}`
-  insertEditorLink(href, item.wiki_name || `词条${item.wiki_id}`)
+  if (!item?.shop_id) return
+  const href = `/shop/detail/${item.shop_id}`
+  insertEditorLink(href, item.shop_name)
+}
+
+const onWikiInternalLinkChosen = (list: { wiki_id?: number | string; wiki_name?: string }[]) => {
+  if (!list?.length || !editor.value) return
+  const items = list.filter(
+    (item) => item?.wiki_id !== undefined && item?.wiki_id !== null && item.wiki_id !== ''
+  )
+  if (items.length === 0) return
+  let chain = editor.value.chain().focus()
+  for (const item of items) {
+    const href = `/lolitaWiki/detail/${item.wiki_id}`
+    const text = (item.wiki_name || `词条${item.wiki_id}`).trim() || href
+    chain = chain.insertContent({
+      type: 'text',
+      text,
+      marks: [{ type: 'link', attrs: { href } }],
+    }).insertContent(' ')
+  }
+  chain
+    .command(({ tr, dispatch }) => {
+      if (dispatch) dispatch(tr.setStoredMarks(null))
+      return true
+    })
+    .run()
 }
 
 // 获取内容
@@ -710,6 +847,17 @@ defineExpose({
   border-radius: 0.25rem;
   padding: 0.125rem 0.25rem;
   font-weight: 700;
+}
+
+/* 站内链接：每段独立「块」，下划线不连成一条（多词条 / 相邻链接） */
+:deep(.ProseMirror a.rich-inline-link) {
+  display: inline-block;
+  padding: 0 0.2em;
+  margin: 0 0.12em;
+  text-underline-offset: 0.15em;
+  text-decoration-thickness: 1px;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
 }
 
 :deep(img.ProseMirror-selectednode) {

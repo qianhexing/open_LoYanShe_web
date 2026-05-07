@@ -2,9 +2,27 @@
 import type { Effect, Material, TemplateInterface } from '@/types/api';
 const configStore = useConfigStore()
 import { uploadImage } from '@/api';
+import { insertMaterial } from '@/api/material'
+import { uploadFileToOSS } from '@/utils/ossUpload'
+import { createGltfCoverBlob } from '@/utils/gltfCoverSnapshot'
 import type QhxImagePicker from '@/components/Qhx/ImagePicker.vue'
 import type * as THREE from 'three'
 const imagePicker = ref<InstanceType<typeof QhxImagePicker> | null>(null)
+const toast = useToast()
+const customUploadInput = ref<HTMLInputElement | null>(null)
+const customUploading = ref(false)
+const customMateriaListKey = ref(0)
+const gltfEditOpen = ref(false)
+const gltfEditTarget = ref<Material | null>(null)
+
+function openGltfEdit(m: Material) {
+  gltfEditTarget.value = m
+  gltfEditOpen.value = true
+}
+
+function onGltfMaterialEditSuccess() {
+  customMateriaListKey.value += 1
+}
 const show = ref(false)
 const diary = ref(false)
 const textShow = ref(false)
@@ -21,7 +39,7 @@ interface Props {
   className?: string,
   needJump?: boolean // 是否需要跳转
   loadTemplate?: boolean
-  panelType?: 'material' | 'template' | 'effect' | 'clothing' | 'scene' | null // 面板类型
+  panelType?: 'material' | 'template' | 'effect' | 'clothing' | 'scene' | 'custom' | null // 面板类型
 }
 const addImage = () => {
   imageType.value = 0
@@ -54,7 +72,7 @@ const props = withDefaults(defineProps<Props>(), {
 })
 const { loadTemplate, panelType } = toRefs(props)
 // 记录已访问的面板类型，懒加载：首次访问才挂载，切换时保持挂载不重新加载
-const visitedTypes = ref<Set<'material' | 'clothing' | 'template' | 'effect' | 'scene'>>(new Set())
+const visitedTypes = ref<Set<'material' | 'clothing' | 'template' | 'effect' | 'scene' | 'custom'>>(new Set())
 watch(panelType, (val) => {
     if (val && !visitedTypes.value.has(val)) {
         visitedTypes.value = new Set([...visitedTypes.value, val])
@@ -98,6 +116,97 @@ const recordCamera = () =>{
   emit('recordCamera')
 }
 
+const triggerCustomUpload = () => {
+  customUploadInput.value?.click()
+}
+
+const onCustomFileChange = async (e: Event) => {
+  const input = e.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ''
+  if (!file) return
+
+  const lower = file.name.toLowerCase()
+  const isGltf = lower.endsWith('.glb') || lower.endsWith('.gltf')
+  const isImage = file.type.startsWith('image/')
+
+  if (!isGltf && !isImage) {
+    toast.add({
+      title: '格式不支持',
+      description: '请选择图片或 .glb / .gltf 文件',
+      icon: 'i-heroicons-exclamation-circle',
+      color: 'orange'
+    })
+    return
+  }
+
+  customUploading.value = true
+  try {
+    if (isImage) {
+      const uploaded = await uploadImage(file)
+      const created = await insertMaterial({
+        materia_title: file.name,
+        materia_url: uploaded.file_url,
+        cover: uploaded.file_url,
+        pk_type: 5,
+        pk_id: uploaded.file_id,
+        is_enable: 1,
+        is_private: 0,
+        options: { assetKind: 'image' }
+      })
+      chooseMaterial(created)
+    } else {
+      const uploaded = await uploadFileToOSS(file, 'material')
+      let coverUrl: string | null = null
+      try {
+        const blob = await createGltfCoverBlob(file)
+        const png = new File(
+          [blob],
+          `materia-cover-${Date.now()}.png`,
+          { type: 'image/png' }
+        )
+        const coverRes = await uploadFileToOSS(png, 'editor')
+        coverUrl = coverRes.file_url
+      } catch (coverErr) {
+        console.error('GLB/GLTF 自动封面失败:', coverErr)
+        toast.add({
+          title: '模型已上传，封面未自动生成',
+          description: '可稍后在素材管理中补充封面',
+          icon: 'i-heroicons-exclamation-triangle',
+          color: 'orange'
+        })
+      }
+      const created = await insertMaterial({
+        materia_title: file.name,
+        materia_url: uploaded.file_url,
+        cover: coverUrl,
+        pk_type: 5,
+        pk_id: uploaded.file_id,
+        is_private: 0,
+        options: { assetKind: 'model', useDracoLoader: true }
+      })
+      chooseMaterial(created)
+    }
+    customMateriaListKey.value += 1
+    toast.add({
+      title: '已添加',
+      description: '素材已上传并加入场景',
+      icon: 'i-heroicons-check-circle',
+      color: 'green'
+    })
+  } catch (err) {
+    console.error('自定义素材上传失败:', err)
+    toast.add({
+      title: '上传失败',
+      description: err instanceof Error ? err.message : '请稍后重试',
+      icon: 'i-heroicons-x-circle',
+      color: 'red'
+    })
+  } finally {
+    customUploading.value = false
+  }
+}
+
 const onUpdateFiles = (file: File[]) => {
   console.log('选择的文件', file)
   uploadImage(file[0])
@@ -126,6 +235,13 @@ defineExpose({
 })
 </script>
 <template>
+  <input
+    ref="customUploadInput"
+    type="file"
+    class="hidden"
+    accept="image/*,.glb,.gltf,model/gltf-binary,model/gltf+json"
+    @change="onCustomFileChange"
+  >
   <QhxImagePicker :multiple="true" @update:files="onUpdateFiles" class="hidden" ref="imagePicker" />
   <QhxModal v-model="diary" :trigger-position="clickPosition">
     <div class="p-6 w-[400px] bg-white rounded-[10px] max-h-[50vh] overflow-y-auto">
@@ -298,6 +414,35 @@ defineExpose({
     <div v-if="panelType === 'scene'" class="w-full">
       <MateriaList @choose="chooseMaterial" :compact="true" :pk-type="4"></MateriaList>
     </div>
+
+    <!-- 自定义素材（pk_type 与后端约定为 5） -->
+    <div v-if="panelType === 'custom'" class="w-full">
+      <div class="mb-1.5 px-0.5 shrink-0">
+        <button
+          type="button"
+          class="w-full h-8 text-[10px] font-medium text-center px-1.5 cursor-pointer flex items-center justify-center gap-1 bg-indigo-50 dark:bg-indigo-900/25 hover:bg-indigo-100 dark:hover:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300 rounded-lg border border-indigo-200/70 dark:border-indigo-700/50 transition-colors active:scale-[0.98] disabled:opacity-60 disabled:pointer-events-none"
+          :disabled="customUploading"
+          title="上传图片或 glTF / GLB 模型"
+          @click="triggerCustomUpload"
+        >
+          <UIcon
+            :name="customUploading ? 'svg-spinners:ring-resize' : 'material-symbols:add-rounded'"
+            class="text-sm shrink-0"
+          />
+          <span>{{ customUploading ? '上传中…' : '上传' }}</span>
+        </button>
+      </div>
+      <MateriaList
+        :key="customMateriaListKey"
+        hide-item-title
+        allow-delete
+        allow-gltf-edit
+        @choose="chooseMaterial"
+        @edit-gltf="openGltfEdit"
+        :compact="true"
+        :pk-type="5"
+      />
+    </div>
     
     <!-- 模版列表 -->
     <div v-if="panelType === 'template'" class="w-full">
@@ -318,6 +463,12 @@ defineExpose({
       <EffectList @choose="chooseEffect" :compact="true"></EffectList>
     </div>
   </div>
+
+  <MateriaGltfModelEditModal
+    v-model="gltfEditOpen"
+    :material="gltfEditTarget"
+    @success="onGltfMaterialEditSuccess"
+  />
 </template>
 
 <style scoped></style>

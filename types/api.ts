@@ -25,7 +25,17 @@ export interface ExchangeRate  {
   RUB?: number
   [key: string]: number | undefined; // 添加索引签名
 }
-
+export interface QrCode {
+  code_id?: number
+  pk_type?: number
+  pk_id?: number
+  create_time?: string
+  expires_time?: string | null
+  user_id?: number
+  code_url?: string
+  code_content?: string
+  is_enable?: number
+}
 /** 配置类型 */
 export interface Config {
   app_down_link: string;
@@ -70,6 +80,7 @@ export interface Config {
   scan_code: Array<{ label: number; value: string }>;
   shop_country: Array<{ label: string; value: number }>;
   shop_state: Array<{ label: string; value: number }>;
+  /** 研习内部链接等映射配置；value 为 APP 路径（如 pages/…）时可出现在管理端「类型映射」下拉里 */
   study_type: Array<{ type: number; value: string }>;
   user: Record<string, unknown>; // 或者定义更具体的用户接口
   wiki_type: Array<{ value: number; label: string }>;
@@ -255,6 +266,7 @@ export interface Wardrobe {
   total_price?: number
   total_count?: number
   config?: WardrobeConfig
+  display_badge?: string
 }
 /** 服饰 */
 export interface WardrobeClothes {
@@ -308,7 +320,7 @@ export interface MaterialForeign {
   is_enable?: number
   material_box?: Material
 }
-/** 研习类型 */
+/** 研习类型 study_type：0 学习板块 · 1 内部链接（APP pages 路径）· 2 外部链接 */
 export interface Study {
   study_id: number
   parent_id?: number
@@ -321,6 +333,8 @@ export interface Study {
   study_type: number
   study_url: string
   count: number
+  /** 是否底层：0 否（还可有下级）· 1 是（叶子，不显示展开） */
+  is_bottom?: number
   child?: Study[]
 }
 /** 研习关联 */
@@ -407,8 +421,6 @@ export interface Community {
   title?: string | null
   content?: string | null
   user_id?: number
-  good_num?: number
-  collection_number?: number
   is_enable?: number
   boutique?: number
   sort?: number
@@ -424,10 +436,13 @@ export interface Community {
   date?: string              // ISO timestamp string
   is_lock?: number
   vote_id?: number
+  display_badge?: string
 
   // 关联字段
   user?: User
   good?: Good[]
+  good_count?: number
+  collect_count?: number
   black_list?: BlackList
   comments?: Comment[]
   collect?: Collect
@@ -755,6 +770,36 @@ export interface Journal {
   matching_list?: MatchingListItem
   library?: Library
   plan?: PlanList
+}
+
+/** 投票选项 */
+export interface VoteOption {
+  options_id: number
+  options_content: string
+  options_number: number
+}
+
+/**
+ * 投票类型：0 单选，1 多选
+ * @see VoteDetail.vote_type
+ */
+export type VoteType = 0 | 1
+
+/** 投票详情 */
+export interface VoteDetail {
+  vote_id?: number
+  vote_title: string
+  /** 0 单选，1 多选 */
+  vote_type: number
+  vote_options: VoteOption[]
+  /** 已参与投票人数 */
+  vote_number: number
+  vote_end_time?: string | null
+}
+
+/** 单条用户已选（与 isVote 接口返回项一致） */
+export interface VoteRecordChoice {
+  options_id: number
 }
 
 

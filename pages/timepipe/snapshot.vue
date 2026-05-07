@@ -65,7 +65,7 @@
               
               <!-- 底部信息浮层 -->
               <div class="absolute bottom-4 left-0 w-full flex flex-col items-center justify-end pointer-events-none px-2">
-                <div class="bg-white/60 backdrop-blur-[2px] px-3 py-1.5 rounded-md flex flex-col items-center justify-center max-w-full shadow-sm text-center">
+                <div class="bg-white/88 backdrop-blur-sm px-3 py-1.5 rounded-md flex flex-col items-center justify-center max-w-full shadow-sm text-center">
                    <!-- 图鉴名称 -->
                    <div class="text-xs font-bold text-black leading-tight text-center line-clamp-1 break-all mb-1">
                     {{ item.item?.name }}
@@ -381,7 +381,7 @@ const downloadChunk = async (index: number) => {
     const boxY = y + cellHeight - boxHeight - 20
     
     // 绘制半透明圆角背景
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.6)'
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.88)'
     // ctx.shadowColor = 'rgba(0, 0, 0, 0.1)'
     // ctx.shadowBlur = 4
     roundedRect(ctx, boxX, boxY, boxWidth, boxHeight, 8)

@@ -102,8 +102,11 @@ export async function updatePlanMoney(
   return response.data;
 }
 
-/** 获取攒钱计划衣柜参数 */
-interface GetPlanListWardrobeParams {
+/** 获取攒钱计划衣柜参数（按衣柜分页列表） */
+export interface GetPlanListWardrobeParams {
+  wardrobe_id?: number;
+  page?: number;
+  pageSize?: number;
   list_id?: number;
   [key: string]: any;
 }

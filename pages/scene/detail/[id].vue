@@ -16,6 +16,8 @@ import { useSceneCore } from '@/composables/useSceneCore';
 import { useSceneUndo, type TransformState } from '@/composables/useSceneUndo';
 import YearlySummaryPostModal from '@/components/yearlySummary/PostModal.vue';
 import { BASE_IMG_MODEL as BASE_IMG } from '@/utils/ipConfig';
+import { CharacterTypeController } from '@/utils/characterTypeController';
+import type { CharacterTypeConfig } from '@/utils/characterTypeController';
 // @ts-ignore - 缺少类型定义
 import InfiniteGridHelper from '@plackyfantacky/three.infinitegridhelper';
 
@@ -47,6 +49,316 @@ const { canUndo, undoStack, pushTransformUndo, undo: performUndo, cloneTransform
 const pendingTransformState = ref<{ objectUuid: string; state: TransformState } | null>(null)
 /** 变换控件的撤销监听器，用于 onBeforeUnmount 时移除 */
 const transformUndoListeners = ref<{ onMouseDown: () => void; onMouseUp: () => void } | null>(null)
+/** 角色类型控制器（自定义素材 options.characterType） */
+const roleControllers = ref<CharacterTypeController[]>([])
+
+/** 左侧独立「动画」面板展开（与右侧列表块一致，与功能栏分离） */
+const roleAnimationListExpanded = ref(false)
+const showRoleAnimation = () => {
+    roleAnimationListExpanded.value = !roleAnimationListExpanded.value
+}
+type SceneRoleAnimationEntry = {
+    key: string
+    label: string
+    controller: CharacterTypeController
+    clips: string[]
+}
+const sceneRoleAnimationTree = computed((): SceneRoleAnimationEntry[] =>
+    roleControllers.value.map((c, i) => ({
+        key: `${c.modelUrl}-${i}`,
+        label:
+            c.config.id?.trim()
+            || c.modelUrl.split('/').filter(Boolean).pop()
+            || `角色${i + 1}`,
+        controller: c as CharacterTypeController,
+        clips: c.getClipNameList()
+    }))
+)
+const pickSceneRoleAnimation = (
+    ctrl: CharacterTypeController,
+    clip: string
+) => {
+    ctrl.playUserSelectedAnimation(clip)
+}
+
+/**
+ * 本页已加入场景（含角色控制）的模型 URL，同一地址禁止再次作为角色加载
+ * 与 threeCore 内 URL 缓存一致，以完整 BASE_IMG+路径 为键
+ */
+const loadedRoleModelUrls = new Set<string>()
+
+/**
+ * 若选中/射线命中为某角色的子节点，找到其 CharacterTypeController 的 root
+ */
+const findRoleControllerIndexForObject = (object: THREE.Object3D): number => {
+    return roleControllers.value.findIndex((c) => {
+        if (c.root === object) {
+            return true
+        }
+        let p: THREE.Object3D | null = object
+        while (p) {
+            if (p === c.root) {
+                return true
+            }
+            p = p.parent
+        }
+        return false
+    })
+}
+
+/**
+ * 从场景中移除前：释放角色控制器、本地 URL 去重、返回 modelUrl 供 threeCore 清缓存
+ */
+const detachRoleControllerForObject = (object: THREE.Object3D): string | null => {
+    const i = findRoleControllerIndexForObject(object)
+    if (i < 0) {
+        return null
+    }
+    const ctrl = roleControllers.value[i]
+    if (!ctrl) {
+        return null
+    }
+    const url = ctrl.modelUrl
+    ctrl.dispose()
+    roleControllers.value.splice(i, 1)
+    loadedRoleModelUrls.delete(url)
+    return url
+}
+
+/** 角色点击对话气泡（固定定位，据角色头侧上缘投影，约 5s 后消失） */
+const showRoleDialog = ref(false)
+const roleDialogStyle = ref<Record<string, string>>({ left: '0px', top: '0px' })
+const roleDialogTitle = ref('对话')
+const roleDialogMessage = ref('')
+const roleDialogAutoCloseTimer = ref<ReturnType<typeof setTimeout> | null>(null)
+
+const pickRoleDialogueMessage = (cfg?: CharacterTypeConfig | null): string => {
+    if (!cfg) {
+        return '点我继续播放下一个动作~'
+    }
+    if (cfg.dialogueLines?.length) {
+        const i = Math.floor(Math.random() * cfg.dialogueLines.length)
+        return cfg.dialogueLines[i] ?? '…'
+    }
+    if (cfg.dialogueText?.trim()) {
+        return cfg.dialogueText.trim()
+    }
+    return '点我继续播放下一个动作~'
+}
+
+const pickRoleDialogueTitle = (cfg?: CharacterTypeConfig | null) =>
+    cfg?.dialogueTitle?.trim() || '对话'
+
+/** 取角色包围盒上缘中点在屏幕上的位置（用于挂气泡） */
+const getCharacterDialogScreenAnchor = (root: THREE.Object3D) => {
+    if (!threeCore.value?.camera) {
+        return { x: window.innerWidth / 2, y: window.innerHeight * 0.28 }
+    }
+    const box = new THREE.Box3().setFromObject(root)
+    if (box.isEmpty()) {
+        return threeCore.value.screenPositionFromObject(root)
+    }
+    // 世界空间包围盒顶面中心（头/上半身附近）
+    const v = new THREE.Vector3(
+        (box.min.x + box.max.x) * 0.5,
+        box.max.y,
+        (box.min.z + box.max.z) * 0.5
+    )
+    v.project(threeCore.value.camera)
+    return {
+        x: ((v.x + 1) * window.innerWidth) / 2,
+        y: ((-v.y + 1) * window.innerHeight) / 2
+    }
+}
+
+const BUBBLE_W = 280
+const PADDING = 8
+
+const clearRoleDialogTimer = () => {
+    const t = roleDialogAutoCloseTimer.value
+    if (t) {
+        clearTimeout(t)
+        roleDialogAutoCloseTimer.value = null
+    }
+}
+
+/**
+ * 在角色头侧右上方显示对话气泡，5 秒后自动消失
+ * @param characterRoot 角色根节点（与 CharacterTypeController.root 一致）
+ */
+const openRoleDialogue = (
+    cfg: CharacterTypeConfig | null | undefined,
+    characterRoot: THREE.Object3D
+) => {
+    if (!import.meta.client) {
+        return
+    }
+    clearRoleDialogTimer()
+    const ax = getCharacterDialogScreenAnchor(characterRoot)
+    // 气泡主体在锚点右上方：左侧 = 头右侧偏移，上缘 = 头上方向上浮
+    let left = ax.x + 12
+    let top = ax.y - 6
+    const estH = 100
+    top -= estH
+    if (left + BUBBLE_W + PADDING > window.innerWidth) {
+        left = window.innerWidth - BUBBLE_W - PADDING
+    }
+    if (left < PADDING) {
+        left = PADDING
+    }
+    if (top < PADDING) {
+        top = ax.y + 16
+    }
+    if (top + estH + PADDING > window.innerHeight) {
+        top = Math.max(PADDING, window.innerHeight - estH - PADDING)
+    }
+    roleDialogStyle.value = {
+        left: `${left}px`,
+        top: `${top}px`,
+        width: `${BUBBLE_W}px`
+    }
+    roleDialogTitle.value = pickRoleDialogueTitle(cfg)
+    roleDialogMessage.value = pickRoleDialogueMessage(cfg)
+    showRoleDialog.value = true
+    roleDialogAutoCloseTimer.value = setTimeout(() => {
+        showRoleDialog.value = false
+        roleDialogAutoCloseTimer.value = null
+    }, 5000)
+}
+
+const closeRoleDialog = () => {
+    clearRoleDialogTimer()
+    showRoleDialog.value = false
+}
+
+/**
+ * 场景 JSON 加载后，将 threeCore 中 type: character 的条目补挂 CharacterTypeController
+ */
+const rehydrateSceneCharacterControllers = () => {
+    const core = threeCore.value
+    if (!core || !import.meta.client) {
+        return
+    }
+    const items = core.takePendingCharacterRehydrations()
+    for (const { mesh, modelUrl, config } of items) {
+        if (loadedRoleModelUrls.has(modelUrl)) {
+            continue
+        }
+        const cfg = config as unknown as CharacterTypeConfig
+        if (!cfg?.stand?.primary) {
+            continue
+        }
+        try {
+            const ctrl = new CharacterTypeController({
+                core,
+                root: mesh,
+                modelUrl,
+                config: cfg
+            })
+            if (core.renderer?.domElement && core.camera) {
+                ctrl.attachClick(core.renderer.domElement, core.camera)
+                ctrl.setOnClick((ctx) => {
+                    openRoleDialogue(cfg, ctx.controller.root)
+                })
+                roleControllers.value.push(ctrl)
+                loadedRoleModelUrls.add(modelUrl)
+            }
+        } catch (e) {
+            console.error('[rehydrateSceneCharacterControllers]', e)
+        }
+    }
+}
+
+/** 角色演示用 GLB（相对 BASE_IMG 的路径） */
+const ROLE_DEMO_GLB_PATH = 'material/02c37fb4069cdb8bd346de657e1adf6c.glb'
+
+/**
+ * 加载固定路径的角色示例：按 glTF 内 clip 顺序，第 1 个为主站立、其余为扩展（在左侧「动画」中切换；播完回主站立）
+ */
+const loadRoleDemoGlb = async () => {
+    if (!threeCore.value) {
+        return
+    }
+    if (!import.meta.client) {
+        return
+    }
+    const modelUrl = `${BASE_IMG}${ROLE_DEMO_GLB_PATH}`
+    if (loadedRoleModelUrls.has(modelUrl)) {
+        toast.add({
+            title: '角色示例',
+            description: '该角色已加载，请勿重复添加',
+            color: 'amber'
+        })
+        return
+    }
+    sceneStore.setLoading(true)
+    try {
+        const mesh = await threeCore.value.loadModel(modelUrl, {
+            useDracoLoader: true,
+            dracoDecoderPath: '/draco/gltf/',
+            skipDefaultAnimations: true
+        })
+        const clips = threeCore.value.getLoadedAnimationClips(modelUrl)
+        if (!clips?.length) {
+            const p = getScreenCenter()
+            mesh.position.set(p.x, p.y, p.z)
+            threeCore.value.scene.add(mesh)
+            loadedRoleModelUrls.add(modelUrl)
+            toast.add({
+                title: '角色示例',
+                description: '该 glb 无动画，仅添加模型到场景',
+                color: 'amber'
+            })
+            return
+        }
+        const standPrimary = clips[0].name
+        const extraNames = clips.slice(1).map((c) => c.name)
+        const config: CharacterTypeConfig = {
+            id: 'demo-role-02c37',
+            stand: { primary: standPrimary, primaryWeight: 1 },
+            extras: extraNames,
+            dialogueTitle: '角色示例',
+            dialogueLines: [
+                '欢迎来到这个场景~',
+                '今天想四处看看吗？',
+                '你好鸭',
+                '这是一个角色类型的示例',
+                '我期待可以把它做成OC展示平台哦'
+            ]
+        }
+        const screen = getScreenCenter()
+        mesh.position.set(screen.x, screen.y, screen.z)
+        mesh.userData.type = 'character'
+        threeCore.value.setOptionsModel(mesh, { characterType: config })
+        threeCore.value.scene.add(mesh)
+        if (threeCore.value.renderer?.domElement && threeCore.value.camera) {
+            const ctrl = new CharacterTypeController({
+                core: threeCore.value,
+                root: mesh,
+                modelUrl,
+                config
+            })
+            ctrl.attachClick(
+                threeCore.value.renderer.domElement,
+                threeCore.value.camera
+            )
+            ctrl.setOnClick((ctx) => {
+                openRoleDialogue(config, ctx.controller.root)
+            })
+            roleControllers.value.push(ctrl)
+        }
+        loadedRoleModelUrls.add(modelUrl)
+        toast.add({
+            title: '角色示例已加载',
+            description: `站立: ${standPrimary}（共 ${clips.length} 个 clip）`
+        })
+    } catch (e) {
+        console.error('[loadRoleDemoGlb]', e)
+        toast.add({ title: '角色示例', description: '加载失败，请检查资源地址', color: 'red' })
+    } finally {
+        sceneStore.setLoading(false)
+    }
+}
 
 let uni: any;
 
@@ -67,6 +379,11 @@ const MaterialRef = ref<InstanceType<typeof SceneMaterial> | null>(null)
 const SceneTextureEditorRef = ref<InstanceType<typeof SceneTextureEditor> | null>(null)
 
 const route = useRoute()
+/** 从站内 iframe 嵌入打开（如 /scene/detail/x?from_iframe=true）时隐藏发帖/分享浮层 */
+const isFromIframeEmbed = computed(() => {
+  const v = route.query.from_iframe
+  return (Array.isArray(v) ? v[0] : v) === 'true'
+})
 const edit_mode = ref(false) // 编辑模式
 const add_mode = ref(false)
 const token = ref<string | null>(null) // 传入的token
@@ -77,12 +394,13 @@ const clickPosition = ref({ x: 0, y: 0 })
 const target: Ref<THREE.Object3D | null> = ref(null)
 const transformType = ref('translate')
 const showToolbar = ref(true) // 控制工具栏显示/隐藏
-// 五个独立的悬浮列表展开状态，互不联动，但同时只展开一个
+// 六个独立的悬浮列表展开状态，互不联动，但同时只展开一个
 const materialListExpanded = ref(false)
 const clothingListExpanded = ref(false)
 const sceneListExpanded = ref(false)
 const effectListExpanded = ref(false)
 const templateListExpanded = ref(false)
+const customListExpanded = ref(false)
 const layoutReady = inject('layoutReady') as Ref<boolean>
 if (route.query?.edit) {
     edit_mode.value = true
@@ -143,15 +461,20 @@ const copyModel = async () => {
 const deleteModel = () => {
     if (!threeCore.value) return
     if (clickObject.value && clickObject.value.length > 0) {
-        if (clickObject.value[0].userData.type === 'diary') {
+        const toRemove = clickObject.value[0]
+        if (toRemove.userData.type === 'diary') {
             const index = threeCore.value.loadedDiary.findIndex((child) => {
-                return clickObject.value && child.object.uuid === clickObject.value[0].uuid
+                return clickObject.value && child.object.uuid === toRemove.uuid
             })
             if (index !== -1) {
                 threeCore.value.loadedDiary.splice(index, 1)
             }
         }
-        threeCore.value.clearGroup(clickObject.value[0])
+        const evictUrl = detachRoleControllerForObject(toRemove)
+        threeCore.value.clearGroup(toRemove)
+        if (evictUrl) {
+            threeCore.value.evictModelCacheIfOrphaned(evictUrl)
+        }
         clickObject.value = null
         threeCore.value.transformControls.detach()
         threeCore.value.showbloom = true
@@ -238,6 +561,7 @@ const showMaterial = () => {
     sceneListExpanded.value = false
     effectListExpanded.value = false
     templateListExpanded.value = false
+    customListExpanded.value = false
     if (!wasExpanded) materialListExpanded.value = true
 }
 const showClothing = () => {
@@ -247,6 +571,7 @@ const showClothing = () => {
     sceneListExpanded.value = false
     effectListExpanded.value = false
     templateListExpanded.value = false
+    customListExpanded.value = false
     if (!wasExpanded) clothingListExpanded.value = true
 }
 const showScene = () => {
@@ -256,6 +581,7 @@ const showScene = () => {
     sceneListExpanded.value = false
     effectListExpanded.value = false
     templateListExpanded.value = false
+    customListExpanded.value = false
     if (!wasExpanded) sceneListExpanded.value = true
 }
 const showEffect = () => {
@@ -265,6 +591,7 @@ const showEffect = () => {
     sceneListExpanded.value = false
     effectListExpanded.value = false
     templateListExpanded.value = false
+    customListExpanded.value = false
     if (!wasExpanded) effectListExpanded.value = true
 }
 const showTemplate = () => {
@@ -274,13 +601,25 @@ const showTemplate = () => {
     sceneListExpanded.value = false
     effectListExpanded.value = false
     templateListExpanded.value = false
+    customListExpanded.value = false
     if (!wasExpanded) templateListExpanded.value = true
+}
+const showCustom = () => {
+    const wasExpanded = customListExpanded.value
+    materialListExpanded.value = false
+    clothingListExpanded.value = false
+    sceneListExpanded.value = false
+    effectListExpanded.value = false
+    templateListExpanded.value = false
+    customListExpanded.value = false
+    if (!wasExpanded) customListExpanded.value = true
 }
 
 const showSettings = ref(false)
 const settingsState = reactive({
     shadowsEnabled: true,
     shadowQuality: 'high',
+    cameraType: 'perspective' as 'perspective' | 'orthographic',
     fov: 45, // 镜头角度（视野角度）
     lightAzimuth: 45, // 光源水平角度
     lightElevation: 45, // 光源垂直角度
@@ -316,6 +655,11 @@ const shadowQualityOptions = [
     // { label: '超高', value: 'ultra' }
 ]
 
+const cameraTypeOptions = [
+    { label: '透视', value: 'perspective' },
+    { label: '正交', value: 'orthographic' }
+]
+
 const openSettings = (e: MouseEvent) => {
     clickPosition.value = {
         x: e.clientX + 50,
@@ -333,9 +677,14 @@ const openSettings = (e: MouseEvent) => {
         }
     }
 
-    // 初始化镜头角度
-    if (threeCore.value?.camera && (threeCore.value.camera as THREE.PerspectiveCamera).isPerspectiveCamera) {
-        settingsState.fov = (threeCore.value.camera as THREE.PerspectiveCamera).fov
+    // 摄像机类型与镜头角度
+    if (threeCore.value?.camera) {
+        settingsState.cameraType = threeCore.value.camera instanceof THREE.OrthographicCamera
+            ? 'orthographic'
+            : 'perspective'
+        if (threeCore.value.camera instanceof THREE.PerspectiveCamera) {
+            settingsState.fov = threeCore.value.camera.fov
+        }
     }
 
     // 初始化controls旋转角度限制
@@ -412,6 +761,13 @@ const changeFov = (val: number) => {
     }
 }
 
+const changeCameraType = (val: string) => {
+    if (!threeCore.value) return
+    const t = val as 'perspective' | 'orthographic'
+    threeCore.value.setCameraType(t)
+    settingsState.cameraType = t
+}
+
 const handleAzimuthRangeChange = (values: [number, number]) => {
     if (!threeCore.value || !threeCore.value.controls) return
     const [min, max] = values
@@ -433,7 +789,8 @@ const objectSettingsState = reactive({
     color: '#ffffff',
     depth: 0.3,
     size: 1,
-    longText: '' // 长文本内容
+    longText: '', // 长文本内容
+    follow: false // 图片是否面向相机
 })
 
 const showTextMenu = ref(false)
@@ -490,11 +847,22 @@ const openObjectSettings = () => {
             showObjectSettings.value = true
         }
         if (obj.userData.type === 'image') {
-            // 初始化设置
             if (obj.userData.follow === undefined) {
                 obj.userData.follow = false
             }
+            objectSettingsState.follow = !!obj.userData.follow
+            clickPosition.value = {
+                x: operaPosition.value.x + 100,
+                y: operaPosition.value.y
+            }
+            showObjectSettings.value = true
         }
+    }
+}
+
+const onImageFollowChange = (v: boolean) => {
+    if (clickObject.value?.[0]?.userData?.type === 'image') {
+        clickObject.value[0].userData.follow = v
     }
 }
 
@@ -935,9 +1303,9 @@ const chooseMaterial = async (item: Material) => {
             threeCore.value.setOptionsModel(mesh, item.options)
         }
         sceneStore.setLoading(false)
-        setTimeout(() => {
-            threeCore.value!.lookAtSelectObj([mesh])
-        });
+        // setTimeout(() => {
+        //     threeCore.value!.lookAtSelectObj([mesh])
+        // });
 
         threeCore.value.scene.add(mesh)
     } else if (item.pk_type === 3) {
@@ -973,15 +1341,107 @@ const chooseMaterial = async (item: Material) => {
             threeCore.value.scene.add(group)
             
             // 调整相机视角
-            setTimeout(() => {
-                threeCore.value!.lookAtSelectObj([group])
-            })
+            // setTimeout(() => {
+            //     threeCore.value!.lookAtSelectObj([group])
+            // })
         } catch (error) {
             console.error('加载点云失败:', error)
             if (process.client) {
                 toast.add({
                     title: '加载失败',
                     description: '点云模型加载失败，请稍后重试',
+                    color: 'red'
+                })
+            }
+        } finally {
+            sceneStore.setLoading(false)
+        }
+    } else if (item.pk_type === 5) {
+        const isModel =
+            item.options?.assetKind === 'model'
+            || /\.(glb|gltf)(\?|#|$)/i.test(item.materia_url)
+        sceneStore.setLoading(true)
+        try {
+            const screenCenter = getScreenCenter()
+            if (isModel) {
+                const modelUrl = BASE_IMG + item.materia_url
+                const rawCt = item.options?.characterType as CharacterTypeConfig | undefined
+                const hasCharacterType = Boolean(
+                    rawCt
+                    && typeof rawCt.stand?.primary === 'string'
+                    && rawCt.stand.primary.length > 0
+                )
+                if (hasCharacterType && loadedRoleModelUrls.has(modelUrl)) {
+                    if (process.client) {
+                        toast.add({
+                            title: '角色',
+                            description: '该模型已作为角色加载，请勿重复添加',
+                            color: 'amber'
+                        })
+                    }
+                    return
+                }
+                const mesh = await threeCore.value.loadModel(modelUrl, {
+                    useDracoLoader: item.options?.useDracoLoader !== false,
+                    dracoDecoderPath: '/draco/gltf/',
+                    ...(hasCharacterType ? { skipDefaultAnimations: true } : {})
+                })
+                mesh.position.set(screenCenter.x, screenCenter.y, screenCenter.z)
+                if (item.options) {
+                    threeCore.value.setOptionsModel(mesh, item.options)
+                }
+                if (hasCharacterType) {
+                    mesh.userData.type = 'character'
+                }
+                threeCore.value.scene.add(mesh)
+                if (
+                    hasCharacterType
+                    && rawCt
+                    && threeCore.value.renderer?.domElement
+                    && threeCore.value.camera
+                ) {
+                    try {
+                        const config: CharacterTypeConfig = {
+                            ...rawCt,
+                            extras: Array.isArray(rawCt.extras) ? rawCt.extras : []
+                        }
+                        const ctrl = new CharacterTypeController({
+                            core: threeCore.value,
+                            root: mesh,
+                            modelUrl,
+                            config
+                        })
+                        ctrl.attachClick(
+                            threeCore.value.renderer.domElement,
+                            threeCore.value.camera
+                        )
+                        ctrl.setOnClick((ctx) => {
+                            openRoleDialogue(config, ctx.controller.root)
+                        })
+                        roleControllers.value.push(ctrl)
+                        loadedRoleModelUrls.add(modelUrl)
+                    } catch (roleErr) {
+                        console.error('[characterType] 初始化失败', roleErr)
+                        if (process.client) {
+                            toast.add({
+                                title: '角色动画',
+                                description: '动作配置与模型不匹配，请检查 clip 名称',
+                                color: 'amber'
+                            })
+                        }
+                    }
+                }
+            } else {
+                const mesh = await threeCore.value.loadImageMesh(BASE_IMG + item.materia_url)
+                mesh.position.set(screenCenter.x, screenCenter.y, screenCenter.z)
+                threeCore.value.scene.add(mesh)
+            }
+        } catch (error) {
+            console.error('加载自定义素材失败:', error)
+            if (process.client) {
+                toast.add({
+                    title: '加载失败',
+                    description: '自定义素材加载失败，请稍后重试',
                     color: 'red'
                 })
             }
@@ -1278,6 +1738,13 @@ onUnmounted(() => {
         core.transformControls.removeEventListener('mouseUp', listeners.onMouseUp)
         transformUndoListeners.value = null
     }
+    for (const c of roleControllers.value) {
+        c.dispose()
+    }
+    roleControllers.value = []
+    loadedRoleModelUrls.clear()
+    clearRoleDialogTimer()
+    showRoleDialog.value = false
     disposeScene(document.getElementById('scene') || undefined)
 
     // 恢复 body 样式
@@ -1322,7 +1789,8 @@ const initThreejs = async () => {
             sceneData: detail.value,
             enableRaycaster: hasSplatObject
         })
-        
+        rehydrateSceneCharacterControllers()
+
         // 场景加载完成后，灯光配置已经在 loadSceneFromJSON 中自动应用了
         // 如果没有保存的灯光配置，使用默认预设
         if (threeCore.value && !detail.value?.json_data?.lighting) {
@@ -1450,7 +1918,7 @@ useHead({
 <template>
     <div class="select-none touch-callout-none"
         :style="{ background: threeCore && threeCore.background && !threeCore.background.startsWith('color:') ? `url(${BASE_IMG}${threeCore.background})` : '', backgroundSize: 'cover' }">
-        <div v-if="detail && userStore.user?.user_id === detail?.user_id"
+        <div v-if="detail && userStore.user?.user_id === detail?.user_id && !isFromIframeEmbed"
             class="fixed top-[60px] right-4 z-50 flex items-center gap-3">
             <button @click="showPostModal = true"
                 class="bg-white/90 dark:bg-gray-800/90 backdrop-blur-md rounded-full px-4 py-2 shadow-lg border border-white/50 dark:border-gray-700 flex items-center gap-2 hover:bg-pink-50 dark:hover:bg-gray-700 transition-colors">
@@ -1515,9 +1983,9 @@ useHead({
         <SceneTextureEditor ref="SceneTextureEditorRef" v-if="target" :target="target"
             :image-url="BASE_IMG + threeCore?.background" @close="target = null" />
 
-        <!-- 左侧功能列表 - 参考右侧悬浮按钮样式，默认展开，收起动画优化为内容区过渡 -->
+        <!-- 左侧功能栏：仅编辑工具；「动画」见下方独立块，交互与右侧素材/特效等一致 -->
         <div
-            class="fixed left-0 z-[20] flex flex-col rounded-r-xl bg-white/95 dark:bg-gray-800/95 shadow-lg backdrop-blur-sm border border-gray-200/50 dark:border-gray-600/50 overflow-hidden top-1/2 -translate-y-1/2 max-h-[75vh] z-[30] transition-[width] duration-300 ease-in-out"
+            class="fixed left-0 z-[20] flex flex-col overflow-hidden rounded-r-xl border border-gray-200/50 bg-white/95 shadow-lg backdrop-blur-sm transition-all duration-300 ease-out dark:border-gray-600/50 dark:bg-gray-800/95 top-1/2 z-[30] max-h-[75vh] -translate-y-1/2"
             :class="showToolbar ? 'w-[52px] sm:w-[56px]' : 'w-[44px] sm:w-[48px]'"
         >
             <button
@@ -1642,6 +2110,17 @@ useHead({
                         </div>
                         <span class="text-[9px] text-gray-700 dark:text-gray-200 font-medium leading-tight">模版</span>
                     </button> -->
+                    <!-- 角色示例（固定 material/02c37...glb，自动识别动画 clip） -->
+                    <button v-if="edit_mode || add_mode" type="button" @click="loadRoleDemoGlb"
+                        class="w-full flex flex-col items-center gap-1 p-1.5 rounded-xl hover:bg-cyan-50 dark:hover:bg-cyan-900/20 transition-colors group active:scale-95"
+                        title="加载角色动画示例（material/02c37...glb）">
+                        <div
+                            class="w-7 h-7 bg-cyan-500 dark:bg-cyan-600 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform">
+                            <UIcon name="material-symbols:face-3" class="text-sm text-white" />
+                        </div>
+                        <span class="text-[9px] text-gray-700 dark:text-gray-200 font-medium leading-tight">角色示例</span>
+                    </button>
+
                     <!-- 记录镜头 -->
                     <button v-if="edit_mode || add_mode" @click="recordCamera"
                         class="w-full flex flex-col items-center gap-1 p-1.5 rounded-xl hover:bg-rose-50 dark:hover:bg-rose-900/20 transition-colors group active:scale-95"
@@ -1674,6 +2153,66 @@ useHead({
                         <span class="text-[9px] text-gray-700 dark:text-gray-200 font-medium leading-tight">灯光</span>
                     </button>
                 </div>
+            </div>
+        </div>
+
+        <!-- 动画：独立块，布局与右侧「特效/模版」等一致（fixed + 折叠条 + 展开列表） -->
+        <div
+            v-if="edit_mode || add_mode"
+            class="fixed left-0 z-[20] flex flex-col rounded-r-xl bg-white/95 shadow-lg backdrop-blur-sm border border-gray-200/50 dark:bg-gray-800/95 dark:border-gray-600/50 overflow-hidden transition-all duration-300 ease-out"
+            :class="roleAnimationListExpanded
+                ? 'top-1/2 -translate-y-1/2 h-[62vh] w-[170px] sm:w-[190px] md:w-[210px] z-[30]'
+                : 'top-[calc(50%+62px)] -translate-y-1/2 h-[52px] w-[44px] sm:w-[48px]'"
+        >
+            <button
+                type="button"
+                class="shrink-0 text-violet-600 transition-colors dark:text-violet-400 hover:bg-violet-50 dark:hover:bg-gray-700/50"
+                :class="roleAnimationListExpanded ? 'border-b border-gray-100 dark:border-gray-600 flex items-center justify-center gap-1.5 py-2 px-2' : 'min-h-[52px] block leading-[14px] py-2 px-2 text-center'"
+                :title="roleAnimationListExpanded ? '收起列表' : '展开列表'"
+                @click="showRoleAnimation()"
+            >
+                <UIcon
+                    :name="roleAnimationListExpanded ? 'material-symbols:chevron-left' : 'material-symbols:animation-rounded'"
+                    class="text-xl transition-transform sm:text-2xl"
+                />
+                <span class="text-xs font-medium sm:inline">动画</span>
+            </button>
+            <div
+                v-show="roleAnimationListExpanded"
+                class="min-h-0 h-0 flex-1 space-y-2 overflow-y-auto overscroll-contain p-2"
+            >
+                <template v-if="sceneRoleAnimationTree.length">
+                    <div
+                        v-for="entry in sceneRoleAnimationTree"
+                        :key="entry.key"
+                        class="text-left"
+                    >
+                        <div
+                            class="truncate text-[10px] font-medium text-gray-500 dark:text-gray-400"
+                            :title="entry.label"
+                        >
+                            {{ entry.label }}
+                        </div>
+                        <div class="mt-1 flex flex-wrap gap-1">
+                            <button
+                                v-for="clip in entry.clips"
+                                :key="`${entry.key}-${clip}`"
+                                type="button"
+                                class="max-w-full truncate rounded-md bg-violet-100/90 px-1.5 py-0.5 text-[10px] text-violet-900 hover:bg-violet-200/90 dark:bg-violet-900/50 dark:text-violet-100 dark:hover:bg-violet-800/60"
+                                :title="clip"
+                                @click="pickSceneRoleAnimation(entry.controller, clip)"
+                            >
+                                {{ clip }}
+                            </button>
+                        </div>
+                    </div>
+                </template>
+                <p
+                    v-else
+                    class="text-[10px] leading-relaxed text-gray-400"
+                >
+                    暂无角色。请添加「角色示例」或带 characterType 的自定义素材。
+                </p>
             </div>
         </div>
 
@@ -1858,6 +2397,42 @@ useHead({
                 />
             </div>
         </div>
+        <!-- 自定义 -->
+        <div
+            v-if="edit_mode || add_mode"
+            class="fixed right-0 z-[20] flex flex-col rounded-l-xl bg-white/95 dark:bg-gray-800/95 shadow-lg backdrop-blur-sm border border-gray-200/50 dark:border-gray-600/50 overflow-hidden transition-all duration-300 ease-out"
+            :class="customListExpanded
+                ? 'top-1/2 -translate-y-1/2 h-[62vh] w-[170px] sm:w-[190px] md:w-[210px] z-[30]'
+                : 'top-[calc(50%+186px)] -translate-y-1/2 h-[52px] w-[44px] sm:w-[48px]'"
+        >
+            <button
+                type="button"
+                class="items-center justify-center gap-1.5 py-2 px-2 shrink-0 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-gray-700/50 transition-colors"
+                :class="customListExpanded ? 'border-b border-gray-100 dark:border-gray-600 flex' : 'min-h-[52px] block leading-[14px]'"
+                :title="customListExpanded ? '收起列表' : '展开列表'"
+                @click="showCustom()"
+            >
+                <UIcon
+                    :name="customListExpanded ? 'material-symbols:chevron-right' : 'material-symbols:extension-rounded'"
+                    class="text-xl sm:text-2xl transition-transform"
+                    :class="customListExpanded ? '' : 'rotate-0'"
+                />
+                <span class="text-xs font-medium sm:inline">自定义</span>
+            </button>
+            <div
+                v-show="customListExpanded"
+                class="flex-1 overflow-y-auto overscroll-contain p-2 space-y-2 min-h-0 h-0"
+            >
+                <SceneMaterial
+                    panel-type="custom"
+                    :load-template="false"
+                    @choose-material="chooseMaterial"
+                    @choose-template="chooseTemplate"
+                    @choose-effect="chooseEffect"
+                    @clear-template="clearTemplate"
+                />
+            </div>
+        </div>
 
         <div style="height: 100vh; width: 100vw; overflow: hidden; " id="scene"></div>
         <div class="opera fixed z-20 md:flex items-center whitespace-nowrap"
@@ -1997,6 +2572,13 @@ useHead({
                 <!-- 光影设置区域 -->
                 <div class="mb-6">
                     <h4 class="text-sm font-semibold mb-3 text-gray-800 dark:text-gray-200">光影设置</h4>
+
+                    <!-- 摄像机类型 -->
+                    <div class="mb-4">
+                        <div class="text-sm text-gray-700 dark:text-gray-300 mb-2">摄像机类型</div>
+                        <USelect v-model="settingsState.cameraType" :options="cameraTypeOptions"
+                            option-attribute="label" @update:model-value="changeCameraType" color="white" />
+                    </div>
                     
                     <!-- 阴影质量 -->
                     <div class="mb-4">
@@ -2005,8 +2587,8 @@ useHead({
                             option-attribute="label" @update:model-value="changeShadowQuality" color="white" />
                     </div>
 
-                    <!-- 镜头角度 -->
-                    <div class="mb-2">
+                    <!-- 镜头角度（仅透视相机） -->
+                    <div class="mb-2" v-if="settingsState.cameraType === 'perspective'">
                         <div class="flex justify-between mb-2">
                             <span class="text-sm text-gray-700 dark:text-gray-300">镜头角度</span>
                             <span class="text-xs text-gray-500">{{ Math.round(settingsState.fov) }}°</span>
@@ -2111,6 +2693,27 @@ useHead({
                         </div>
                         <URange v-model="objectSettingsState.size" :min="0.1" :max="5" :step="0.1"
                             @update:model-value="updateTextObject" />
+                    </div>
+                </template>
+
+                <!-- 图片设置 -->
+                <template v-if="clickObject && clickObject[0] && clickObject[0].userData.type === 'image'">
+                    <div class="mb-2">
+                        <div class="flex items-center justify-between gap-3 mb-2">
+                            <span class="text-sm text-gray-700 dark:text-gray-300">面向相机</span>
+                            <div class="flex items-center gap-2 shrink-0">
+                                <UToggle
+                                    v-model="objectSettingsState.follow"
+                                    @update:model-value="onImageFollowChange"
+                                />
+                                <span class="text-sm text-gray-600 dark:text-gray-400">
+                                    {{ objectSettingsState.follow ? '开启' : '关闭' }}
+                                </span>
+                            </div>
+                        </div>
+                        <p class="text-xs text-gray-500">
+                            开启后图片会随视角旋转，始终面向相机（Billboard）
+                        </p>
                     </div>
                 </template>
 
@@ -2227,6 +2830,44 @@ useHead({
                 </div>
             </div>
         </QhxModal>
+        <!-- 角色对话气泡：据模型头侧上缘投屏，右上浮层，5s 后消失 -->
+        <ClientOnly>
+            <Teleport to="body">
+                <Transition name="role-dialogue-fx">
+                    <div
+                        v-show="showRoleDialog"
+                        class="role-dialogue-bubble pointer-events-none fixed z-[5000]"
+                        :style="roleDialogStyle"
+                    >
+                        <div
+                            class="role-dialogue-neu-panel pointer-events-auto relative cursor-default rounded-[1.05rem] px-4 py-3 transition-transform active:scale-[0.99]"
+                            title="点击关闭"
+                            @click="closeRoleDialog"
+                        >
+                            <!-- 顶部柔光（拟态凸起感） -->
+                            <div
+                                class="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-white/70 to-transparent dark:via-white/10"
+                                aria-hidden="true"
+                            />
+                            <div
+                                class="role-dialogue-neu-tail pointer-events-none absolute -bottom-[5px] left-5 h-3 w-3 rotate-45"
+                                aria-hidden="true"
+                            />
+                            <div
+                                class="relative text-xs font-semibold tracking-wide text-amber-900/95 dark:text-amber-100/95"
+                            >
+                                {{ roleDialogTitle }}
+                            </div>
+                            <p
+                                class="relative mt-1.5 text-sm leading-relaxed text-stone-800/95 dark:text-stone-100/95"
+                            >
+                                {{ roleDialogMessage }}
+                            </p>
+                        </div>
+                    </div>
+                </Transition>
+            </Teleport>
+        </ClientOnly>
         <QhxModal v-model="showPointMenu" :trigger-position="pointMenuPosition">
             <div class="p-4 w-[200px] bg-white dark:bg-gray-800 rounded-[10px] shadow-lg">
                 <h3 class="text-sm font-bold mb-3 text-gray-800 dark:text-gray-200">选择点位类型</h3>
@@ -2376,7 +3017,8 @@ useHead({
 
         <!-- 发帖弹窗 -->
         <ClientOnly>
-            <YearlySummaryPostModal v-model="showPostModal" :sence-id="Number.parseInt(id)" :skip-summary-link="true"
+            <YearlySummaryPostModal v-model="showPostModal" :sence-id="Number.parseInt(id)"
+                :scene-cover-relative-path="detail?.sence_cover ?? ''" :skip-summary-link="true"
                 @success="handlePostSuccess" />
         </ClientOnly>
     </div>
@@ -2412,6 +3054,72 @@ useHead({
     .scrollbar-hide {
         max-height: calc(100vh - 2rem);
     }
+}
+
+.role-dialogue-fx-enter-active,
+.role-dialogue-fx-leave-active {
+    transition: opacity 0.22s ease, transform 0.22s ease;
+}
+
+.role-dialogue-fx-enter-from,
+.role-dialogue-fx-leave-to {
+    opacity: 0;
+    transform: translateY(6px);
+}
+
+/* 角色对话气泡：拟态（软凸起 + 内阴影层次，与站内 neu 按钮风格一致） */
+.role-dialogue-neu-panel {
+    border: 1px solid color-mix(in srgb, #fbbf24 28%, #fde68a 72%);
+    background: linear-gradient(
+        155deg,
+        color-mix(in srgb, #fffbeb 94%, #fef3c7),
+        color-mix(in srgb, #fff7ed 90%, #fde68a 18%)
+    );
+    box-shadow:
+        6px 6px 16px color-mix(in srgb, #b45309 14%, transparent),
+        -4px -4px 14px rgba(255, 255, 255, 0.95),
+        inset 0 1px 0 rgba(255, 255, 255, 0.88),
+        inset 0 -1px 0 color-mix(in srgb, #d97706 12%, transparent);
+}
+
+html.dark .role-dialogue-neu-panel {
+    border-color: color-mix(in srgb, #d97706 35%, rgba(28, 25, 23, 0.9));
+    background: linear-gradient(
+        155deg,
+        color-mix(in srgb, rgb(41 37 36) 92%, rgb(69 26 3)),
+        color-mix(in srgb, rgb(28 25 23) 96%, rgb(120 53 15 / 0.45))
+    );
+    box-shadow:
+        8px 8px 22px rgba(0, 0, 0, 0.55),
+        -3px -3px 12px color-mix(in srgb, #fbbf24 9%, transparent),
+        inset 0 1px 0 rgba(255, 255, 255, 0.08),
+        inset 0 -2px 6px rgba(0, 0, 0, 0.35);
+}
+
+.role-dialogue-neu-tail {
+    background: linear-gradient(
+        135deg,
+        color-mix(in srgb, #fffbeb 92%, #fef3c7),
+        color-mix(in srgb, #fff7ed 88%, #fcd34d 22%)
+    );
+    border-right: 1px solid color-mix(in srgb, #fbbf24 22%, #fde68a);
+    border-bottom: 1px solid color-mix(in srgb, #f59e0b 18%, transparent);
+    box-shadow:
+        3px 3px 8px color-mix(in srgb, #b45309 12%, transparent),
+        inset 0 1px 0 rgba(255, 255, 255, 0.75);
+}
+
+html.dark .role-dialogue-neu-tail {
+    background: linear-gradient(
+        135deg,
+        color-mix(in srgb, rgb(41 37 36) 94%, rgb(69 26 3)),
+        color-mix(in srgb, rgb(28 25 23) 98%, rgb(120 53 15 / 0.5))
+    );
+    border-right-color: color-mix(in srgb, #92400e 45%, rgb(41 37 36));
+    border-bottom-color: color-mix(in srgb, #000000 45%, rgb(69 26 3));
+    box-shadow:
+        4px 4px 10px rgba(0, 0, 0, 0.45),
+        inset 0 1px 0 rgba(255, 255, 255, 0.06);
 }
 
 </style>

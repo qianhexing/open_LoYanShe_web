@@ -47,12 +47,40 @@ export interface CommunityInterface {
   content: string
   type: string
   img_list?: string | null  // JSON字符串格式的图片列表
+  display_badge?: string
 }
+
+export interface UpdateCommunityParams extends CommunityInterface {
+  community_id: number
+}
+
 export async function insertCommunity(
   params: CommunityInterface
 ): Promise<Community> {
   const response = await use$Post<BaseResponse<Community>>(
     '/community/insert',
+    params
+  );
+  return response.data;
+}
+
+export async function updateCommunity(
+  params: UpdateCommunityParams
+): Promise<Community> {
+  const response = await use$Post<BaseResponse<Community>>(
+    '/community/update',
+    params
+  );
+  return response.data;
+}
+
+/** 仅更新帖子展示徽章：不走五分钟限制、不写编辑历史；须作者本人 */
+export async function updateCommunityDisplayBadge(params: {
+  community_id: number
+  display_badge: string | null
+}): Promise<Community> {
+  const response = await use$Post<BaseResponse<Community>>(
+    '/community/update/display_badge',
     params
   );
   return response.data;

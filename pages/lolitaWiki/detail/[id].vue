@@ -47,6 +47,15 @@ const hasPermi = (permission: string): boolean => {
   return user.permission.some(p => p.permissions === permission)
 }
 
+// Wiki 详情页部分管理操作：仅用户 id 为 1、2018、381 时显示
+const WIKI_DETAIL_ADMIN_USER_IDS = new Set([1, 2018, 381])
+const canManageWiki = computed(() => {
+  const uid = user.user?.user_id
+  if (uid === undefined || uid === null) return false
+  const n = typeof uid === 'string' ? Number.parseInt(uid, 10) : uid
+  return WIKI_DETAIL_ADMIN_USER_IDS.has(n)
+})
+
 // 数据
 const wiki = ref<WikiDetail | null>(null)
 const sectionList = ref<WikiSection[]>([])
@@ -511,7 +520,7 @@ useHead({
           {{ wiki.other_name }}
         </div>
         
-        <!-- 操作按钮 -->
+        <!-- 操作按钮：关联/合并仍按 wiki:admin:merge；其余管理仅指定用户 -->
         <div class="flex flex-wrap gap-2 justify-center mb-6">
           <UButton
             v-if="hasPermi('wiki:admin:merge')"
@@ -550,6 +559,7 @@ useHead({
             合并wiki
           </UButton>
           <UButton
+            v-if="canManageWiki"
             size="sm"
             color="primary"
             variant="outline"
@@ -558,6 +568,7 @@ useHead({
             新增段落
           </UButton>
           <UButton
+            v-if="canManageWiki"
             size="sm"
             color="primary"
             variant="outline"
@@ -566,6 +577,7 @@ useHead({
             编辑词条
           </UButton>
           <UButton
+            v-if="canManageWiki"
             size="sm"
             color="red"
             variant="outline"
@@ -672,7 +684,7 @@ useHead({
           >
             <div class="flex items-center justify-between mb-3">
               <h3 class="text-lg font-semibold flex-1">{{ item.section_title }}</h3>
-              <div class="flex gap-2">
+              <div v-if="canManageWiki" class="flex gap-2">
                 <UButton
                   size="xs"
                   color="primary"

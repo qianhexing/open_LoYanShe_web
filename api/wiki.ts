@@ -51,8 +51,8 @@ export async function updateWikiSection (params: UpdateWikiSectionParams): Promi
 
 
 // 获取wiki类型选项
-export async function getWikiTypeOptions (params: WikiSearchParams): Promise<WikiType> {
-  const response = await use$Post<BaseResponse<WikiType>>('/wikiType/getOptions', params);
+export async function getWikiTypeOptions (params: WikiSearchParams): Promise<WikiType[]> {
+  const response = await use$Post<BaseResponse<WikiType[]>>('/wikiType/getOptions', params);
   return response.data;
 }
 export interface WikiResponse {

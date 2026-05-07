@@ -24,6 +24,9 @@ const clickPosition = ref({ x: 0, y: 0 })
 const selectedIndex = ref(0)
 const selected = ref(props.defaultValue || (props.options.length ? props.options[0] : ''))
 const isDrag = ref(false) // 判断是点击还是拖拽
+/** 本轮按下后指针累计移动距离，用于区分「点选」与「拖拽」后误触的 click */
+const dragDistance = ref(0)
+const CLICK_DRAG_SUPPRESS_PX = 8
 const banScroll = ref(false)
 const isDragging = ref(false)
 const emit = defineEmits(['change', 'open', 'select'])
@@ -48,6 +51,18 @@ const itemHeight = 40
 const visibleCount = 10
 const paddingTop = (itemHeight * visibleCount) / 2 - itemHeight / 2
 
+/** 视口垂直中心在内容坐标系中的位置，用真实 clientHeight 避免与 style 高度不一致时对不齐 */
+const getViewportContentCenter = () => {
+  if (!pickerRef.value) return (itemHeight * visibleCount) / 2
+  return pickerRef.value.scrollTop + pickerRef.value.clientHeight / 2
+}
+
+/** 将第 index 行中心对齐到视口中心所需的 scrollTop */
+const scrollTopForCenteredIndex = (index: number) => {
+  const half = pickerRef.value ? pickerRef.value.clientHeight / 2 : (itemHeight * visibleCount) / 2
+  return paddingTop + index * itemHeight + itemHeight / 2 - half
+}
+
 const scrollToSelected = () => {
   if (!pickerRef.value) return
   banScroll.value = true
@@ -60,8 +75,7 @@ const scrollToSelected = () => {
 const onScroll = () => {
   if (!pickerRef.value) return
   if (banScroll.value) return
-  const scrollTop = pickerRef.value.scrollTop
-  const viewportCenter = scrollTop + (itemHeight * visibleCount) / 2
+  const viewportCenter = getViewportContentCenter()
   const index = Math.round((viewportCenter - paddingTop - itemHeight / 2) / itemHeight)
   const clampedIndex = Math.min(props.options.length - 1, Math.max(0, index))
   selectedIndex.value = clampedIndex
@@ -71,8 +85,7 @@ const onScroll = () => {
 
 const updateSelected = () => {
   if (!pickerRef.value) return
-  const scrollTop = pickerRef.value.scrollTop
-  const viewportCenter = scrollTop + (itemHeight * visibleCount) / 2
+  const viewportCenter = getViewportContentCenter()
   const index = Math.round((viewportCenter - paddingTop - itemHeight / 2) / itemHeight)
   selectedIndex.value = Math.min(Math.max(index, 0), props.options.length - 1)
   selected.value = props.options[selectedIndex.value]
@@ -89,6 +102,8 @@ const startDrag = (y: number) => {
   if (!pickerRef.value) return
   isDragging.value = true
   isDrag.value = true
+  dragDistance.value = 0
+  velocity = 0
   startY = y
   lastY = y
   cancelAnimationFrame(animationFrame)
@@ -98,6 +113,7 @@ const moveDrag = (y: number) => {
   isDrag.value = false
   if (!isDragging.value || !pickerRef.value) return
   const delta = y - lastY
+  dragDistance.value += Math.abs(delta)
   pickerRef.value.scrollTop -= delta
   velocity = delta
   lastY = y
@@ -111,10 +127,10 @@ const endDrag = () => {
     if (!pickerRef.value) return
     velocity *= deceleration
     if (Math.abs(velocity) < 0.5) {
-      const viewportCenter = pickerRef.value.scrollTop + (itemHeight * visibleCount) / 2
+      const viewportCenter = getViewportContentCenter()
       const index = Math.round((viewportCenter - paddingTop - itemHeight / 2) / itemHeight)
       const clampedIndex = Math.min(props.options.length - 1, Math.max(0, index))
-      const target = paddingTop + clampedIndex * itemHeight + itemHeight / 2 - (itemHeight * visibleCount) / 2
+      const target = scrollTopForCenteredIndex(clampedIndex)
       smoothScroll(pickerRef.value.scrollTop, target, 220)
       return
     }
@@ -140,7 +156,7 @@ const smoothScroll = (from: number, to: number, duration: number) => {
 const scrollToIndex = (index: number) => {
   if (!pickerRef.value) return
   const clampedIndex = Math.min(props.options.length - 1, Math.max(0, index))
-  const target = paddingTop + clampedIndex * itemHeight + itemHeight / 2 - (itemHeight * visibleCount) / 2
+  const target = scrollTopForCenteredIndex(clampedIndex)
   banScroll.value = true
   selectedIndex.value = clampedIndex
   selected.value = props.options[clampedIndex]
@@ -161,6 +177,18 @@ const onMouseMove = (e: MouseEvent) => moveDrag(e.clientY)
 const onMouseUp = () => {
   window.removeEventListener('mousemove', onMouseMove)
   endDrag()
+}
+
+const onOptionClick = (i: number, e: MouseEvent) => {
+  if (dragDistance.value > CLICK_DRAG_SUPPRESS_PX) {
+    e.preventDefault()
+    e.stopPropagation()
+    nextTick(() => {
+      dragDistance.value = 0
+    })
+    return
+  }
+  scrollToIndex(i)
 }
 
 // 触摸事件
@@ -245,7 +273,7 @@ onMounted(() => {
                   : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
               ]"
               :style="{ height: itemHeight + 'px', lineHeight: itemHeight + 'px' }"
-              @click="scrollToIndex(i)"
+              @click="onOptionClick(i, $event)"
             >
               {{ opt.label }}
             </div>

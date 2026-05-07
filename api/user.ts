@@ -159,6 +159,13 @@ export async function getUserSpace(params: { user_id: number }): Promise<User> {
   return response.data;
 }
 
+/** 管理员将指定用户升级为正式居民（需后端权限：userSpace:admin:upgradeFormal） */
+export async function adminUpgradeUserFormalResident(params: {
+  user_id: number;
+}): Promise<void> {
+  await use$Post<BaseResponse<unknown>>('/admin/user/upgrade', params);
+}
+
 // 发送邮箱验证码
 interface SendEmailCodeParams {
   email: string

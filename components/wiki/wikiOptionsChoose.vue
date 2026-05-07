@@ -44,10 +44,10 @@
 					<div class="flex-1 flex overflow-x-auto" ref="tagsContainer">
 						<div class="flex scrollbar-hide">
 							<div v-if="!type_id">
-								<QhxTag style="white-space: nowrap !important;" @click="show_control.wiki_type = true" v-if="!choose_wiki_type" class="cursor-pointer">
+								<QhxTag style="white-space: nowrap !important;" @click="openWikiTypeDialog($event)" v-if="!choose_wiki_type" class="cursor-pointer">
 									选择大类
 								</QhxTag>
-								<QhxTag style="white-space: nowrap !important;" @click="show_control.wiki_type = true" v-else class="cursor-pointer">
+								<QhxTag style="white-space: nowrap !important;" @click="openWikiTypeDialog($event)" v-else class="cursor-pointer">
 									{{ choose_wiki_type.label }}
 								</QhxTag>
 							</div>
@@ -91,13 +91,48 @@
 			</div>
 		</div>
 	</QhxModal>
+
+	<QhxModal
+		v-model="show_control.wiki_type"
+		:trigger-position="wikiTypeClickPosition"
+		@close="show_control.wiki_type = false"
+	>
+		<div class="w-[95vw] max-w-md bg-white dark:bg-gray-800 rounded-2xl shadow-2xl overflow-hidden border border-gray-200/50 dark:border-gray-700/50">
+			<div class="px-4 py-3 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
+				<h3 class="text-lg font-semibold text-gray-900 dark:text-gray-100">选择大类</h3>
+				<button
+					type="button"
+					class="w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+					@click="show_control.wiki_type = false"
+				>
+					<UIcon name="i-heroicons-x-mark" class="text-gray-500 dark:text-gray-400" />
+				</button>
+			</div>
+			<div class="p-4 max-h-[50vh] overflow-y-auto">
+				<div class="flex flex-wrap gap-2">
+					<QhxTag
+						v-for="opt in type_options"
+						:key="opt.value"
+						class="cursor-pointer"
+						:active="choose_wiki_type?.value === opt.value"
+						@click="selectWikiType(opt)"
+					>
+						{{ opt.label }}
+					</QhxTag>
+				</div>
+				<div v-if="!type_options.length" class="text-center text-gray-400 py-6 text-sm">
+					暂无大类数据
+				</div>
+			</div>
+		</div>
+	</QhxModal>
 </template>
 
 <script setup lang="ts">
 // import { formatCommunity } from '../../pages/community/formatCommunity.js'
 // 依赖 Nuxt 组件自动注册：Loading、QhxModal、QhxSelect
-import { getWikiList, getWikiOptions, getWikiFilterOptions, getWikiWikiList } from '@/api/wiki'
-import type { Wiki } from '@/types/api'
+import { getWikiList, getWikiTypeOptions as getWikiTypeOptionsApi, getWikiFilterOptions, getWikiWikiList } from '@/api/wiki'
+import type { Wiki, WikiType } from '@/types/api'
 import { useScrollListener } from '@/composables/useScrollListener'
 // import { getWikiWikiList, getWikiList, getWikiTypeOptions } from '@/api/wiki'
 
@@ -143,6 +178,7 @@ const choose_list = ref<Wiki[]>([])
 const options = ref<FilterOption[]>([])
 const default_options = ref<Wiki[]>([]) // 默认选项
 const clickPosition = ref({ x: 0, y: 0 })
+const wikiTypeClickPosition = ref({ x: 0, y: 0 })
 
 type QhxSelectExpose = { showPicker: (e: MouseEvent) => void } | null
 const selectRef = ref<QhxSelectExpose>(null)
@@ -178,9 +214,25 @@ const chooseParentId = (tags: Wiki) => {
 
 const onSelectWikiType = (opt: OptionItem) => {
   choose_wiki_type.value = opt
-  Object.assign(where, { type_id: opt.value })
+  Object.assign(where.value, { type_id: opt.value })
   page.value = 0
   getWikiListData()
+}
+
+const openWikiTypeDialog = async (e: MouseEvent) => {
+  wikiTypeClickPosition.value = {
+    x: e.clientX,
+    y: e.clientY
+  }
+  if (!type_options.value.length) {
+    await getWikiTypeOptions()
+  }
+  show_control.wiki_type = true
+}
+
+const selectWikiType = (opt: OptionItem) => {
+  onSelectWikiType(opt)
+  show_control.wiki_type = false
 }
 
 const openWikiTypePicker = (e: MouseEvent) => {
@@ -243,11 +295,11 @@ const showModel = (item: { type_id?: string; parent_id?: number }, event?: Mouse
 
 const getWikiTypeOptions = async () => {
   try {
-    const res = await getWikiOptions({})
-    const data = res.rows
-    type_options.value = data.map((child: WikiItem) => ({
-      value: child.wiki_id,
-      label: child.wiki_name
+    const res = await getWikiTypeOptionsApi({})
+    const data = res
+    type_options.value = data.map((child: WikiType) => ({
+      value: child.wiki_type_id,
+      label: child.wiki_type ? `${child.wiki_type}${child.wiki_secondary_type ? `·${child.wiki_secondary_type}` : ''}` : child.wiki_type_name
     }))
   } catch (error) {
     console.error('获取类型选项失败:', error)

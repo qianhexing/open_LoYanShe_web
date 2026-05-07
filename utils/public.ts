@@ -1,3 +1,29 @@
+import { BASE_IMG } from '@/utils/ipConfig'
+
+/** 富文本里历史绝对地址，统一成当前图片域名 + 相对路径 */
+function normalizeLolitaAliImgSrc(src: string): string {
+  const prefixes = [
+    'https://www.lolitalibrary.com/ali/',
+    'https://lolitalibrary.com/ali/',
+  ] as const
+  for (const p of prefixes) {
+    if (src.startsWith(p)) {
+      return `${BASE_IMG}${src.slice(p.length)}`
+    }
+  }
+  return src
+}
+
+function rewriteImgTagLolitaAliSrc(imgTag: string): string {
+  return imgTag.replace(
+    /\bsrc\s*=\s*(["'])([^"']*)\1/i,
+    (match, quote: string, srcVal: string) => {
+      const next = normalizeLolitaAliImgSrc(srcVal)
+      return next === srcVal ? match : `src=${quote}${next}${quote}`
+    }
+  )
+}
+
 export const hexToRgba = (hex: string, opacity = 1): string => {
   // 验证输入
   if (!hex || typeof hex !== 'string') {
@@ -167,11 +193,27 @@ export function formatRich(richText: string) {
 	// 去除img标签
 	textWithoutImgTags = richText.replace(editorImageRegex, '');
   // textWithoutImgTags = safeHtml(textWithoutImgTags)
-	return {
+  return {
 	    image: imageUrls,
 	    text: textWithoutImgTags
 	};
 }
+
+/**
+ * 编辑器/历史富文本中的投票块，替换为可解析的 <vote href="id">
+ * 内层 iframe 如 …/lolitaVote/47
+ */
+export function replaceLolitavoteWithVoteTag(html: string): string {
+  return html.replace(
+    /<\s*lolitavote[^>]*>([\s\S]*?)<\/\s*lolitavote\s*>/gi,
+    (_all, inner: string) => {
+      const m = inner.match(/lolitaVote\/(\d+)/i)
+      if (!m) return ''
+      return `<vote href="${m[1]}"></vote>`
+    }
+  )
+}
+
 export interface RichNode {
   name: string;                         // 标签名，如 'div', 'p', 'text'
   text: string;                         // 节点包含的纯文本内容
@@ -182,6 +224,17 @@ export interface RichNode {
 export function parseRichText(html: string): RichNode[] {
   let newHtml = html.replace(/ahref/g, 'a href')
   newHtml = newHtml.replace(/editorcommunity/g, 'p')
+  newHtml = replaceLolitavoteWithVoteTag(newHtml)
+  // 编辑器包裹的图片：去掉 editorimage，只保留内层 img，便于 DOM 解析为 img 节点
+  newHtml = newHtml.replace(
+    /<editorimage[^>]*>([\s\S]*?)<\/editorimage>/gi,
+    (_match, inner: string) => {
+      const imgs = inner.match(/<img\b[^>]*>/gi)
+      if (!imgs) return ''
+      return imgs.map((tag) => rewriteImgTagLolitaAliSrc(tag)).join('')
+    }
+  )
+  newHtml = newHtml.replace(/<img\b[^>]*>/gi, (tag) => rewriteImgTagLolitaAliSrc(tag))
   const parser = new DOMParser()
   const doc = parser.parseFromString(newHtml, 'text/html')
 
