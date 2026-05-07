@@ -46,6 +46,73 @@ export async function getClothesList(
   const response = await use$Post<BaseResponse<ClothesResponse<WardrobeClothes>>>('/clothes/list', params);
   return response.data;
 }
+
+/** 单次拉取某衣柜下全部服饰（与列表排序一致由后端保证） */
+export interface ClothesAllParams {
+  wardrobe_id: number
+  password?: string
+  filter_list?: Record<string, unknown>
+}
+
+/** `/clothes/all` 可能返回仅含 clothes_id / wardrobe_id 的精简项，或 clothes_id 为字符串 */
+export type ClothesAllRow = Partial<WardrobeClothes> & { clothes_id?: number | string }
+
+export function normalizeClothesAllPayload(payload: unknown): ClothesAllRow[] {
+  if (payload == null) return []
+  if (Array.isArray(payload)) return payload as ClothesAllRow[]
+  if (typeof payload === 'object') {
+    const o = payload as Record<string, unknown>
+    const nested = o.rows ?? o.list ?? o.clothes
+    if (Array.isArray(nested)) return nested as ClothesAllRow[]
+    const inner = o.data
+    if (Array.isArray(inner)) return inner as ClothesAllRow[]
+  }
+  return []
+}
+
+/** 从列表项中解析有效服饰 id（兼容 number / string） */
+export function parseClothesIdsFromRows(rows: readonly { clothes_id?: unknown }[]): number[] {
+  const ids: number[] = []
+  for (const r of rows) {
+    const raw = r?.clothes_id as unknown
+    const n = typeof raw === 'number' ? raw : Number(raw)
+    if (Number.isFinite(n) && n > 0) ids.push(n)
+  }
+  return ids
+}
+
+export async function getClothesAll(params: ClothesAllParams): Promise<WardrobeClothes[]> {
+  const response = await use$Post<BaseResponse<unknown>>('/clothes/all', params)
+  const rows = normalizeClothesAllPayload(response?.data)
+  return rows as WardrobeClothes[]
+}
+
+/** 优先 `/clothes/all`，失败时分页 `/clothes/list` 兜底拼齐 */
+export async function getClothesListAllFallback(params: ClothesAllParams): Promise<WardrobeClothes[]> {
+  try {
+    const rows = await getClothesAll(params)
+    return Array.isArray(rows) ? rows : []
+  } catch {
+    const out: WardrobeClothes[] = []
+    let page = 1
+    const pageSize = 500
+    while (true) {
+      const res = await getClothesList({
+        wardrobe_id: params.wardrobe_id,
+        page,
+        pageSize,
+        password: params.password,
+        filter_list: params.filter_list as Record<string, unknown> | undefined
+      })
+      const chunk = res.rows ?? []
+      out.push(...chunk)
+      const total = res.count ?? 0
+      if (chunk.length < pageSize || out.length >= total) break
+      page++
+    }
+    return out
+  }
+}
 interface sortParams {
   sort: Array<{ clothes_id: number, sort: number}>
   wardrobe_id: number
