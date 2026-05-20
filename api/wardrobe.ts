@@ -138,6 +138,8 @@ export interface WardrobeConfigInterface {
   clothes_part: Array<string>
   color_list: Array<string>
   wardrobe_status: Array<string>
+  /** 当前用户全部启用衣柜中、启用服饰且参与总价统计的金额合计（两位小数），无衣柜时接口为 null 无此字段 */
+  total_price?: string
 }
 
 export async function wardrobeConfig(): Promise<WardrobeConfigInterface> {
@@ -179,6 +181,15 @@ export async function changeWardrobeClothesBatch(data: {
 export async function deleteClothesByIds(params: { ids: string }): Promise<boolean> {
   const response = await use$Post<BaseResponse<boolean>>('/clothes/delete/ids', params);
   return response.data;
+}
+
+/** 批量更新服饰字段（如拥有状态）；clothes_id 为逗号分割字符串，与客户端约定一致 */
+export async function updateClothesIds(data: {
+  clothes_id: string
+  wardrobe_status: string
+}): Promise<boolean> {
+  const response = await use$Post<BaseResponse<boolean>>('/clothes/update/ids', data)
+  return response.data
 }
 
 export async function deteleClothes(
@@ -361,4 +372,10 @@ export async function getWardrobeStatistics(
 ): Promise<WardrobeStatisticsData> {
   const response = await use$Post<BaseResponse<WardrobeStatisticsData>>('/wardrobe/statistics', params)
   return response.data
+}
+
+/** 衣柜下服饰对应的去重图鉴 ID（需登录；权限与衣柜公开/私有及所属一致） */
+export async function getWardrobeClothesLibraryIds(params: { wardrobe_id: number }): Promise<number[]> {
+  const response = await use$Post<BaseResponse<number[]>>('/wardrobe/clothes/library_ids', params)
+  return Array.isArray(response.data) ? response.data : []
 }

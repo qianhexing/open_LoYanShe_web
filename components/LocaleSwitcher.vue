@@ -10,7 +10,8 @@
     <transition name="fade">
       <div
         v-if="open"
-        class="absolute mt-2 w-32 bg-white rounded-lg shadow-lg border border-pink-200 backdrop-blur-md"
+        :class="[panelPositionClass, placementMotionClass]"
+        class="absolute left-0 z-10 w-32 rounded-lg border border-pink-200 bg-white shadow-lg backdrop-blur-md max-h-[min(12rem,calc(100dvh-6rem))] overflow-y-auto"
       >
         <ul class="py-1 text-sm text-gray-700">
           <li
@@ -29,12 +30,30 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
+
+const props = withDefaults(
+  defineProps<{
+    /** 下拉相对按钮的方向：抽屉底部等场景用 above，避免超出视口底部 */
+    placement?: 'below' | 'above'
+  }>(),
+  { placement: 'below' }
+)
+
 const { locale, locales, setLocale } = useI18n()
 
 const languageStore = useLanguageStore()
 
 const open = ref(false)
 const wrapper = ref<HTMLElement | null>(null)
+
+const panelPositionClass = computed(() =>
+  props.placement === 'above' ? 'bottom-full mb-2' : 'top-full mt-2'
+)
+
+/** 与 placement 绑定的类名，避免用 CSS 变量做 transform 插值导致关闭动画发涩 */
+const placementMotionClass = computed(() =>
+  props.placement === 'above' ? 'locale-panel-motion-above' : 'locale-panel-motion-below'
+)
 
 const currentLocale = computed(() =>
   locales.value.find((l: any) => l.code === locale.value) || { name: locale.value }
@@ -61,13 +80,34 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
-.fade-enter-active,
-.fade-leave-active {
-  transition: all 0.2s ease;
+.fade-enter-active {
+  transition:
+    opacity 0.22s cubic-bezier(0.16, 1, 0.3, 1),
+    transform 0.22s cubic-bezier(0.16, 1, 0.3, 1);
 }
-.fade-enter-from,
-.fade-leave-to {
+
+.fade-leave-active {
+  pointer-events: none;
+  transition:
+    opacity 0.14s cubic-bezier(0.4, 0, 1, 1),
+    transform 0.14s cubic-bezier(0.4, 0, 1, 1);
+}
+
+.fade-enter-to,
+.fade-leave-from {
+  opacity: 1;
+  transform: translate3d(0, 0, 0);
+}
+
+.locale-panel-motion-below.fade-enter-from,
+.locale-panel-motion-below.fade-leave-to {
   opacity: 0;
-  transform: translateY(-5px);
+  transform: translate3d(0, -6px, 0);
+}
+
+.locale-panel-motion-above.fade-enter-from,
+.locale-panel-motion-above.fade-leave-to {
+  opacity: 0;
+  transform: translate3d(0, 6px, 0);
 }
 </style>

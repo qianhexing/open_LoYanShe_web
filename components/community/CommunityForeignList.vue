@@ -1,32 +1,73 @@
 <script setup lang="ts">
 import type { CommunityForeign, PaginationResponse, FilterList } from '@/types/api';
 import useScrollBottom from '@/composables/useScrollBottom'
-import { getCommunityForeignList } from '@/api/community';
+import { getCommunityForeignList, deleteCommunityForeign } from '@/api/community';
 interface Props {
   className?: string,
   size?: string // 尺寸 mini small mid big
   needJump?: boolean // 是否需要跳转
   need_water?: boolean // 是否需要瀑布流
   water_class?: string
+  /** 关联业务实体 id（与 pk_type 一起筛选 foreign） */
   pk_id: number
+  /** 关联类型：0店铺 1实体店 2衣柜服饰 3搭配场景 4搭配清单 5合集考据 6茶会返图 7图鉴返图（详见 types/api CommunityForeign） */
   pk_type: number
   can_load?: boolean // 是否允许加载
+  /** 单列纵向排列（PC 与移动端均为一行一个帖子，适用于窄容器/弹窗） */
+  singleColumn?: boolean
+  /** 是否允许删除关联（仅当帖子作者为当前登录用户时显示删除） */
+  allowDeleteForeign?: boolean
+  /**
+   * PC 端（≥md）瀑布流列数；移动端始终 1 列。
+   * `singleColumn` 为 true 时强制 1 列，忽略本项。
+   */
+  pcColumns?: number
 }
 const props = withDefaults(defineProps<Props>(), {
   size: 'big',
   needJump: true,
   need_water: true,
-  can_load: true
+  water_class: '',
+  can_load: true,
+  singleColumn: false,
+  allowDeleteForeign: false,
+  pcColumns: 3
 })
 const emit = defineEmits<{ 'count-change': [count: number] }>()
 const { can_load, pk_type, pk_id, water_class, size, needJump, need_water } = props
 const user = useUserStore()
+const toast = useToast()
 // 分页参数
 const pageSize = 20
 const page = ref(1)
 const keyword = ref('')
 const value = ref('')
 const column = ref(3)
+
+/** PC 端有效列数（1–12），供瀑布流与卡片宽度共用 */
+const resolvedPcColumns = computed(() =>
+  Math.min(Math.max(Math.round(props.pcColumns ?? 3), 1), 12)
+)
+
+/** 每项上的 CSS 变量，供 PC 列宽计算（singleColumn 时不设置） */
+const foreignItemCssVars = computed((): Record<string, string> | undefined =>
+  props.singleColumn
+    ? undefined
+    : { '--foreign-pc-cols': String(resolvedPcColumns.value) }
+)
+
+function syncColumnCount() {
+  if (props.singleColumn) {
+    column.value = 1
+    return
+  }
+  if (typeof window !== 'undefined' && window.innerWidth < 768) {
+    column.value = 1
+    return
+  }
+  column.value = resolvedPcColumns.value
+}
+
 const isLoading = ref(true)
 const isServer = useState('isServer', () => false)
 const isCheck = ref(true)
@@ -74,7 +115,7 @@ const fetchList = async (): Promise<PaginationResponse<CommunityForeign>> => {
     }
   }
 }
-const { data, refresh  } = await useAsyncData('community_foreign', fetchList, 
+const { data, refresh } = await useAsyncData('community_foreign', fetchList, 
   {
     watch: [page, keyword]
   }
@@ -125,7 +166,7 @@ const handleSearch = () => {
   }
 }
 const waterList = () => {
-  if (!need_water) {
+  if (!need_water || props.singleColumn) {
     return
   }
   if (!window) {
@@ -141,22 +182,31 @@ const waterList = () => {
       el.style.display = 'block'
     })
 }
+const debounceWater = debounce(waterList, 100)
+
 watchEffect(() => {
 	console.log('当前列表:', list.value.length)
   if (process.client) {
+    if (props.singleColumn || !need_water) return
     setTimeout(() => {
       debounceWater()
     });
   }
 })
-const debounceWater = debounce(waterList, 100);
+
+watch([() => props.singleColumn, resolvedPcColumns], () => {
+  if (!import.meta.client) return
+  syncColumnCount()
+  nextTick(() => debounceWater())
+})
+
 onMounted(() => {
-  if (window.innerWidth < 768) {
-    column.value = 1
-  } else {
-    waterList()
-  }
-  
+  syncColumnCount()
+  nextTick(() => {
+    if (!props.singleColumn && typeof window !== 'undefined' && window.innerWidth >= 768) {
+      debounceWater()
+    }
+  })
 
   if (user.token) {
     console.log('是否服务端渲染', isServer.value)
@@ -175,6 +225,50 @@ const loadMore = () => {
   isLoading.value = true
   // 加载更多数据
   handlePageChange(page.value + 1)
+}
+
+const deletingForeignId = ref<number | null>(null)
+
+function isOwnCommunityPost(row: CommunityForeign): boolean {
+  const myId = user.user?.user_id
+  if (myId == null) return false
+  const authorId = row.community?.user_id ?? row.community?.user?.user_id
+  return authorId === myId
+}
+
+async function handleDeleteForeign(row: CommunityForeign) {
+  if (!props.allowDeleteForeign || !isOwnCommunityPost(row)) return
+  const communityId = row.community?.community_id
+  if (communityId == null) return
+  if (typeof window !== 'undefined' && !window.confirm('确定解除该帖子与本页的关联？')) {
+    return
+  }
+  deletingForeignId.value = row.community_fireign_id
+  try {
+    await deleteCommunityForeign({
+      community_id: communityId,
+      pk_type,
+      pk_id
+    })
+    toast.add({
+      title: '已解除关联',
+      icon: 'i-heroicons-check-circle',
+      color: 'green'
+    })
+    page.value = 1
+    await refresh()
+  } catch (error: unknown) {
+    console.error('解除关联失败:', error)
+    const msg = error instanceof Error ? error.message : '请稍后重试'
+    toast.add({
+      title: '解除失败',
+      description: msg,
+      icon: 'i-heroicons-x-circle',
+      color: 'red'
+    })
+  } finally {
+    deletingForeignId.value = null
+  }
 }
 
 const { isFinished, setFinished } = useScrollBottom(
@@ -223,9 +317,44 @@ const { isFinished, setFinished } = useScrollBottom(
       </div>
     </div> -->
     <!-- 空状态 -->
-    <div class="relative min-h-[600px] flex max-md:block" v-if="total > 0">
-      <div class="w-full md:w-1/3  max-md:static" :class="(need_water ? 'absolute max-md:static' : '') + (water_class ? water_class : ' community-list' )" v-for="item in list" :key="item.community_fireign_id">
-        <CommunityItem :item="item.community" :size="size"></CommunityItem>
+    <div
+      v-if="total > 0"
+      class="relative overflow-hidden"
+      :class="
+        singleColumn
+          ? 'min-h-0 flex flex-col gap-1 pt-2 pb-16'
+          : 'min-h-[600px] flex max-md:block'
+      "
+    >
+      <div
+        v-for="item in list"
+        :key="item.community_fireign_id"
+        :class="[
+          water_class ? water_class : 'community-list',
+          singleColumn
+            ? 'w-full relative'
+            : [
+                'w-full max-md:static foreign-list-pc-col-item',
+                need_water ? 'absolute max-md:static' : ''
+              ].filter(Boolean).join(' ')
+        ]"
+        :style="foreignItemCssVars"
+      >
+        <button
+          v-if="allowDeleteForeign && isOwnCommunityPost(item)"
+          type="button"
+          class="absolute top-2 right-2 z-10 flex h-8 w-8 items-center justify-center rounded-full bg-white/95 text-red-500 shadow-md ring-1 ring-gray-200/80 hover:bg-red-50 dark:bg-gray-800/95 dark:ring-gray-600 dark:hover:bg-red-950/40"
+          :disabled="deletingForeignId === item.community_fireign_id"
+          aria-label="解除关联"
+          @click.stop="handleDeleteForeign(item)"
+        >
+          <UIcon
+            :name="deletingForeignId === item.community_fireign_id ? 'i-heroicons-arrow-path' : 'i-heroicons-trash'"
+            class="h-4 w-4"
+            :class="{ 'animate-spin': deletingForeignId === item.community_fireign_id }"
+          />
+        </button>
+        <CommunityItem :item="item.community" :size="size" :className="'bg-qhx-bg-card polaroid-card cursor-pointer p-1 m-1 rounded'"></CommunityItem>
       </div>
     </div>
     <div v-else class="text-center text-gray-500 py-8">
@@ -236,6 +365,17 @@ const { isFinished, setFinished } = useScrollBottom(
 </template>
 
 <style scoped>
+/* PC 端列宽：与 waterfall columnCount、resolvedPcColumns 一致（假定列间距约 8px） */
+.foreign-list-pc-col-item {
+  width: 100%;
+}
+@media (min-width: 768px) {
+  .foreign-list-pc-col-item {
+    width: calc(
+      (100% - (var(--foreign-pc-cols, 3) - 1) * 8px) / var(--foreign-pc-cols, 3)
+    );
+  }
+}
 </style>
 
 

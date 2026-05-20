@@ -291,7 +291,14 @@ const canAddItem = computed(() => {
 })
 
 // 初始化
-onMounted(() => {
+onMounted(async () => {
+  if (!detail.value) {
+    try {
+      detail.value = await getCompById({ comp_id: Number.parseInt(id) })
+    } catch {
+      // useAsyncData 未带回详情时客户端补拉失败则保持空状态
+    }
+  }
   layoutReady.value = true
 })
 

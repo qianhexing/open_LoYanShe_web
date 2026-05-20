@@ -49,6 +49,56 @@ import {
 	SplatFileType,
 	SparkRenderer
 } from '@sparkjsdev/spark'
+
+/** 已为绝对/协议相对的资源 URL 不再拼接 CDN 前缀（避免 OSS 存的完整域名与 BASE 拼接后请求失效） */
+function resolveAssetUrlWithBase(relOrAbs: string | undefined | null, base: string): string {
+	if (relOrAbs == null || typeof relOrAbs !== 'string') {
+		return ''
+	}
+	const s = relOrAbs.trim()
+	if (!s) return ''
+	if (/^(https?:|blob:|data:)/i.test(s)) return s
+	if (s.startsWith('//')) return s
+	const b = base.endsWith('/') ? base.slice(0, -1) : base
+	const path = s.startsWith('/') ? s.slice(1) : s
+	return `${b}/${path}`
+}
+
+/** 根据 URL 路径推断 Spark 2.0 点云格式（含 build-lod 输出的 .rad）；无法识别则返回 undefined，交由 Spark 按内容自动检测 */
+function inferSplatFileTypeFromUrl(url: string): SplatFileType | undefined {
+	let pathname = url
+	try {
+		pathname = new URL(url, 'https://placeholder.local').pathname
+	} catch {
+		const q = url.indexOf('?')
+		const h = url.indexOf('#')
+		let end = url.length
+		if (q >= 0) end = Math.min(end, q)
+		if (h >= 0) end = Math.min(end, h)
+		pathname = url.slice(0, end)
+	}
+	const lower = pathname.toLowerCase()
+	const dot = lower.lastIndexOf('.')
+	if (dot < 0 || dot >= lower.length - 1) return undefined
+	const ext = lower.slice(dot + 1)
+	switch (ext) {
+		case 'ply':
+			return SplatFileType.PLY
+		case 'spz':
+			return SplatFileType.SPZ
+		case 'splat':
+			return SplatFileType.SPLAT
+		case 'ksplat':
+			return SplatFileType.KSPLAT
+		case 'rad':
+			return SplatFileType.RAD
+		case 'zip':
+			return SplatFileType.PCSOGSZIP
+		default:
+			return undefined
+	}
+}
+
 const grid = createGrid()
 export interface SceneEffectJSON {
 	type: 'animation' | 'effect' | 'timeline'
@@ -280,6 +330,13 @@ function isMobileDevice(): boolean {
 	)
 }
 
+/** Spark / GSplat：是否在移动端帧率预设（与 ThreeCore.options.mobileOptimized 一致） */
+function isSparkMobilePerfMode(coreOptions?: {
+	mobileOptimized?: boolean
+}): boolean {
+	return Boolean(coreOptions?.mobileOptimized) || isMobileDevice()
+}
+
 interface ThreeCoreOptions {
 	antialias?: boolean
 	alpha?: boolean
@@ -378,7 +435,8 @@ class ThreeCore {
 	public loadedLaxian: LaxianInterface[] // 加载的拉线点
 	public allMat: THREE.Material[]
 
-	public loadTemplate: THREE.Group[] // 加载成功的模型数组
+	/** 当前加载的模版根对象（可为 Group/Mesh 等，默认由页面层拆开加入场景） */
+	public loadTemplate: THREE.Object3D[]
 	/**
 	 * 从 loadSceneFromJSON 解析出的、需在页面层挂载 CharacterTypeController 的条目
 	 * 由 takePendingCharacterRehydrations 取出并清空
@@ -1446,12 +1504,15 @@ class ThreeCore {
 		// 如果你有旧的 GaussianSplats3D UI，可以先移除
 		// this.removeGaussianSplatUIRoot();
 
-		// 创建 Spark SplatMesh
+		// 创建 Spark SplatMesh（Spark 2.0：构造函数同步返回实例，加载完成需 await initialized）
+		const demoSplatUrl = '/model/1.compressed.ply' // ⭐ 改成你的点云文件（.ply / .spz / .rad 等）
+		const demoFileType = inferSplatFileTypeFromUrl(demoSplatUrl)
 		const splatMesh = new SplatMesh({
-			url: '/model/1.compressed.ply', // ⭐ 改成你的压缩 KSPLAT 文件
-			fileType: SplatFileType.PLY,
+			url: demoSplatUrl,
+			...(demoFileType !== undefined ? { fileType: demoFileType } : {}),
 			maxSplats: 50000 // ⭐ 每块最大 5 万点
 		})
+		await splatMesh.initialized
 		splatMesh.maxSh = 0
 		// 选择180度
 		splatMesh.userData.type = 'splat'
@@ -2200,7 +2261,8 @@ class ThreeCore {
 	 * 加载点云模型（Splat）
 	 * @param url 点云文件URL
 	 * @param options 加载选项
-	 * @param options.mobileOptimized 移动端优化预设：25k-40k splats、SH degree 1、降低 overdraw，目标 45-60 FPS
+	 * @param options.fileType 可选。若 URL 含可识别扩展名（.ply / .spz / .splat / .ksplat / .rad / .zip 等）则优先按后缀选择（Spark 2 的 LoD 链 .rad 对应 RAD）；仅当路径无法推断时使用本字段，仍未设置则交由 Spark 自动检测
+	 * @param options.mobileOptimized 可选：更强一档移动端预设（更低 maxSplats / lodScale）；未传时在手机仍会套用 Spark 移动端渲染预设
 	 * @returns Promise<THREE.Group> 包含点云模型的组
 	 */
 	public async loadSplat(
@@ -2214,23 +2276,43 @@ class ThreeCore {
 		} = {}
 	): Promise<THREE.Group> {
 		const {
-			fileType = SplatFileType.PLY,
+			fileType: explicitFileType,
 			maxSplats: rawMaxSplats = 500000,
 			maxSh: rawMaxSh = 2,
 			mobileOptimized = false
 		} = options
 
+		// 可识别扩展名时优先按后缀切换（含 .rad），避免场景 JSON 中过时的 fileType 盖住真实路径
+		const inferredFileType = inferSplatFileTypeFromUrl(url)
+		const fileType =
+			inferredFileType !== undefined ? inferredFileType : explicitFileType
+
 		// 移动端优化预设：25k-40k splats、SH degree 1、减少 overdraw、压缩格式
-		const maxSplats = mobileOptimized ? 40000 : rawMaxSplats
-		const maxSh = mobileOptimized ? 1 : rawMaxSh
+		const wantsMobileSplat = mobileOptimized || isMobileDevice()
+
+		// 移动端：收紧解码上限与 SH（Spark 文档：SH 越高开销越大）；显式 mobileOptimized 时使用更强一档 maxSplats
+		const maxSplats = wantsMobileSplat
+			? Math.min(rawMaxSplats, mobileOptimized ? 40000 : 120000)
+			: rawMaxSplats
+		const maxSh = wantsMobileSplat ? Math.min(rawMaxSh, 1) : rawMaxSh
+		// Spark 2：预构建的 .rad 已带 LoD 树，无需再开 lod（见 spark 文档 LoD getting started）
+		const skipRuntimeLod =
+			fileType === SplatFileType.RAD
 
 		try {
-			// 使用 Spark SplatMesh 加载点云模型
-			const splatMesh = await new SplatMesh({
+			// 使用 Spark SplatMesh 加载（Spark 2.0：移动端对非 RAD 启用 lod + lodScale，配合 SparkRenderer LoD）
+			const splatMesh = new SplatMesh({
 				url,
-				fileType,
-				maxSplats
+				...(fileType !== undefined ? { fileType } : {}),
+				maxSplats,
+				...(wantsMobileSplat && !skipRuntimeLod
+					? {
+							lod: true,
+							lodScale: mobileOptimized ? 0.55 : 0.68
+						}
+					: {})
 			})
+			await splatMesh.initialized
 
 			// 配置点云属性：SH degree 1 保持方向光照同时减少显存与计算
 			splatMesh.maxSh = maxSh
@@ -2272,8 +2354,14 @@ class ThreeCore {
 		return device
 	}
 	initRenderer() {
+		const sparkMobilePerf = isSparkMobilePerfMode(this.options)
+
 		this.renderer = new THREE.WebGLRenderer({
-			antialias: this.options.antialias,
+			// Spark 文档：GSplat 几乎不受 MSAA 增益；移动端默认关闭 antialias 减轻带宽与片元压力
+			antialias:
+				sparkMobilePerf && this.options.antialias !== true
+					? false
+					: Boolean(this.options.antialias),
 			alpha: this.options.alpha
 		})
 		this.renderer.debug.checkShaderErrors = true
@@ -2287,12 +2375,9 @@ class ThreeCore {
 			})
 		}
 
-		// 移动端优化：限制 pixelRatio 以减少 overdraw，目标 45-60 FPS
+		// 移动端：限制 pixelRatio，减轻 GSplat overdraw（Spark 文档）
 		const rawPR = this.options.pixelRatio ?? window.devicePixelRatio ?? 1
-		const pixelRatio =
-			this.options.mobileOptimized || isMobileDevice()
-				? Math.min(rawPR, 2)
-				: rawPR
+		const pixelRatio = sparkMobilePerf ? Math.min(rawPR, 2) : rawPR
 		this.renderer.setPixelRatio(pixelRatio)
 
 		const width = this.container
@@ -2331,24 +2416,30 @@ class ThreeCore {
 		}
 		console.log(this.renderer, '渲染器=======')
 
-		// 预置 SparkRenderer，配置高斯点云排序与渲染参数，解决旋转闪烁和模糊
-		// WebGL 渲染管线：antialias 对 Splat 无益且耗性能，Spark 建议关掉
-		// GPU 排序：sort32 使用 float32 双通道排序，避免整数精度导致闪烁
-		// Gaussian Splatting：sortRadial=false 用 Z-depth 更准确，focalAdjustment 改善模糊
+		// SparkRenderer（2.0 文档）：移动端通过 lodSplatScale / lodRenderScale / minSortIntervalMs /
+		// foveation 控制 splat 预算与排序频率；桌面保持 Z-depth 排序与原有观感参数
 		const sparkRenderer = new SparkRenderer({
 			renderer: this.renderer,
-			view: {
-				sortRadial: false, // Z-depth 排序，与训练时一致，减少旋转闪烁
-				sort32: true, // float32 双通道排序，提升深度精度
-				sortDistance: 0.005, // 相机移动阈值，更频繁重排
-				sortCoorient: 0.9995, // 视角变化阈值，更敏感地触发重排
-				depthBias: 1.0
-			},
-			focalAdjustment: 1.2, // 略高于 1 可锐化投影，减轻模糊
-			maxStdDev: Math.sqrt(8) // 标准高斯截断，平衡质量与性能
+			encodeLinear: true,
+			...(sparkMobilePerf
+				? {
+						sortRadial: true,
+						focalAdjustment: 1.05,
+						maxStdDev: Math.sqrt(6),
+						maxPixelRadius: 240,
+						lodSplatScale: 0.52,
+						lodRenderScale: 3,
+						minSortIntervalMs: 22,
+						numLodFetchers: 2,
+						coneFoveate: 0.33,
+						behindFoveate: 0.12
+					}
+				: {
+						sortRadial: false,
+						focalAdjustment: 1.2,
+						maxStdDev: Math.sqrt(8)
+					})
 		})
-		// 伽马校色：encodeLinear=true 使 Splat 输出线性，与普通模型共用同一伽马管线，避免混合场景偏色
-		sparkRenderer.defaultView.encodeLinear = true
 		this.scene.add(sparkRenderer)
 		// this.container.appendChild(this.rendererGPU.domElement);
 	}
@@ -2769,10 +2860,7 @@ class ThreeCore {
 	}
 	gpuPick(ev: MouseEvent | TouchEvent) {
 		function shouldPickObject(object: THREE.Object3D) {
-			if (
-				object.type === 'Mesh' &&
-				object.constructor?.name?.startsWith('_SparkRenderer')
-			) {
+			if (object instanceof SparkRenderer) {
 				console.log(object, '属于忽略对象')
 				return false
 			}
@@ -3646,9 +3734,16 @@ class ThreeCore {
 					// 更新点云模型：viewToWorld 应为 camera.matrixWorld（视空间→世界空间）
 					// 错误使用 objectToView 的逆会导致排序闪烁
 					obj.update({
+						renderer: this.renderer,
+						object: obj as SplatMesh,
 						time: this.clock.getElapsedTime(),
 						viewToWorld: this.camera.matrixWorld.clone(),
 						deltaTime: delta,
+						camera: this.camera,
+						renderSize: new THREE.Vector2(
+							this.renderer.domElement.width,
+							this.renderer.domElement.height
+						),
 						globalEdits: []
 					})
 					return // 跳过点云模型的材质处理
@@ -5152,14 +5247,15 @@ class ThreeCore {
 			}
 			if (obj.type === 'splat' && obj.url) {
 				try {
-					const url = BASE_IMG + obj.url
-					
-					// 从 options 中获取配置；mobileOptimized 启用移动端预设(25k-40k splats, SH1, 45-60 FPS)
+					const url = resolveAssetUrlWithBase(obj.url, BASE_IMG)
+
+					// mobileOptimized：更强解码档位（40k splats）；手机默认仅依赖 UA，也可在 JSON 显式关闭
 					const splatOptions = {
-						fileType: obj.options?.fileType || SplatFileType.PLY,
+						fileType: obj.options?.fileType,
 						maxSplats: obj.options?.maxSplats || 50000,
 						maxSh: obj.options?.maxSh || 2,
-						mobileOptimized: obj.options?.mobileOptimized ?? false
+						mobileOptimized:
+							obj.options?.mobileOptimized ?? isMobileDevice()
 					}
 
 					// 使用封装的 loadSplat 方法加载点云模型

@@ -173,12 +173,12 @@ export const useNotification = () => {
           // })
         } else if (message.type === 'error') {
           // 错误消息
-          toast.add({
-            title: '错误',
-            description: message.message || '发生错误',
-            icon: 'i-heroicons-x-circle',
-            color: 'red'
-          })
+          // toast.add({
+          //   title: '错误',
+          //   description: message.message || '发生错误',
+          //   icon: 'i-heroicons-x-circle',
+          //   color: 'red'
+          // })
         } else {
           // 其他类型消息
           console.log('收到消息:', message)

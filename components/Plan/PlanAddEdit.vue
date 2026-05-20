@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { ref, computed, watch, nextTick } from 'vue'
-import type { PlanList } from '@/types/api'
-import { insertPlanList, updatePlanList } from '@/api/plan'
+import type { PlanList, WardrobeClothes } from '@/types/api'
+import { insertPlanList, updatePlanList, planListRelate } from '@/api/plan'
 import { uploadImage } from '@/api'
 import { BASE_IMG } from '@/utils/ipConfig'
 import type QhxImagePicker from '@/components/Qhx/ImagePicker.vue'
+import type WardrobeClothesChoose from '@/components/Wardrobe/WardrobeClothesChoose.vue'
+import { useConfigStore } from '@/stores/config'
 import dayjs from 'dayjs'
 
 interface PlanStage {
@@ -19,13 +21,19 @@ interface Props {
   dontUpload?: boolean
   /** 创建时预填需要资金（如服饰尾款金额） */
   initialNeedMoney?: number
+  /** 为 true 时显示「关联服饰」，可选择衣柜服饰并在保存后调用计划关联接口 */
+  enableLinkClothes?: boolean
+  /** 新增计划时预置的关联服饰信息（如从服饰详情打开），含 clothes_id 即可参与保存关联 */
+  linkedClothes?: WardrobeClothes | null
 }
 
 const props = withDefaults(defineProps<Props>(), {
   planList: null,
   needStatus: false,
   dontUpload: true,
-  initialNeedMoney: 0
+  initialNeedMoney: 0,
+  enableLinkClothes: false,
+  linkedClothes: null
 })
 
 const emit = defineEmits<{
@@ -39,6 +47,7 @@ const show = ref(false)
 const loading = ref(false)
 const type = ref(0) // 0 添加 1 编辑
 const toast = useToast()
+const configStore = useConfigStore()
 const clickPosition = ref({ x: 0, y: 0 })
 
 const form = ref({
@@ -52,6 +61,40 @@ const form = ref({
 
 const list = ref<PlanStage[]>([])
 const imagePickerRef = ref<InstanceType<typeof QhxImagePicker> | null>(null)
+const wardrobeClothesChooseRef = ref<InstanceType<typeof WardrobeClothesChoose> | null>(null)
+/** 当前表单选中的关联服饰（展示与提交） */
+const selectedLinkedClothes = ref<WardrobeClothes | null>(null)
+
+const getImageParams = () => configStore.config?.image_params || ''
+
+const syncLinkedClothesFromPlan = () => {
+  const p = props.planList
+  if (!p) {
+    selectedLinkedClothes.value = props.linkedClothes ? { ...props.linkedClothes } : null
+    return
+  }
+  if (p.wardrobe_clothes?.clothes_id) {
+    selectedLinkedClothes.value = { ...p.wardrobe_clothes }
+    return
+  }
+  if (p.clothes_id) {
+    selectedLinkedClothes.value = { clothes_id: p.clothes_id }
+    return
+  }
+  selectedLinkedClothes.value = null
+}
+
+const openClothesPicker = (e?: MouseEvent) => {
+  wardrobeClothesChooseRef.value?.showModel(e)
+}
+
+const onClothesChosen = (item: WardrobeClothes) => {
+  selectedLinkedClothes.value = item ? { ...item } : null
+}
+
+const clearLinkedClothes = () => {
+  selectedLinkedClothes.value = null
+}
 
 // 计算总金额
 const getListLength = computed(() => {
@@ -68,6 +111,11 @@ const getListLength = computed(() => {
 // 监听弹窗显示，初始化数据
 watch(show, (newValue) => {
   if (newValue) {
+    if (props.enableLinkClothes) {
+      syncLinkedClothesFromPlan()
+    } else {
+      selectedLinkedClothes.value = null
+    }
     if (props.planList) {
       type.value = 1
       const { plan_cover, plan_name, need_money, plan_note, have_money, end_time } = props.planList
@@ -183,6 +231,7 @@ const initData = () => {
     end_time: null
   }
   list.value = []
+  selectedLinkedClothes.value = null
 }
 
 // 处理图片上传
@@ -258,8 +307,11 @@ const handleSubmit = async () => {
     params.plan_cover = props.planList.plan_cover
   }
 
-  // 如果不自动上传，直接触发事件
+  // 如果不自动上传，直接触发事件（服饰关联由父级或后续接口处理）
   if (!props.dontUpload) {
+    if (props.enableLinkClothes) {
+      params.clothes_id = selectedLinkedClothes.value?.clothes_id ?? null
+    }
     emit('success', params)
     closeModel()
     return
@@ -269,16 +321,50 @@ const handleSubmit = async () => {
   try {
     if (type.value === 0) {
       const res = await insertPlanList(params)
+      let merged = res as PlanList
+      if (props.enableLinkClothes && res.list_id) {
+        const cid = selectedLinkedClothes.value?.clothes_id
+        if (cid) {
+          try {
+            const rel = await planListRelate({ list_id: res.list_id, clothes_id: cid })
+            merged = { ...res, ...rel }
+          } catch {
+            toast.add({
+              title: '计划已添加，但关联服饰失败，稍后在计划页可再关联',
+              icon: 'i-heroicons-exclamation-triangle',
+              color: 'orange'
+            })
+          }
+        }
+      }
       toast.add({
         title: '添加成功',
         icon: 'i-heroicons-check-circle',
         color: 'green'
       })
       emit('edit')
-      emit('insert', res)
+      emit('insert', merged)
       closeModel()
     } else {
       const res = await updatePlanList(params)
+      let merged = res as PlanList
+      if (props.enableLinkClothes) {
+        const listId = params.list_id ?? props.planList?.list_id
+        const nextId = selectedLinkedClothes.value?.clothes_id ?? null
+        const prevId = props.planList?.clothes_id ?? null
+        if (listId != null && nextId !== prevId) {
+          try {
+            const rel = await planListRelate({ list_id: listId, clothes_id: nextId })
+            merged = { ...res, ...rel }
+          } catch {
+            toast.add({
+              title: '计划已保存，但关联服饰失败，稍后在计划页可再关联',
+              icon: 'i-heroicons-exclamation-triangle',
+              color: 'orange'
+            })
+          }
+        }
+      }
       toast.add({
         title: '修改成功',
         icon: 'i-heroicons-check-circle',
@@ -293,11 +379,11 @@ const handleSubmit = async () => {
           need_money: item.need_money,
           end_time: item.end_time,
           plan_note: item.plan_note
-        } as PlanList
+        } as unknown as PlanList
       })
       const fullPlan: PlanList = {
         ...(props.planList || {}),
-        ...res,
+        ...merged,
         list_id: params.list_id ?? props.planList?.list_id,
         plan_name: form.value.plan_name,
         need_money: form.value.need_money,
@@ -391,6 +477,45 @@ defineExpose({
           />
         </UFormGroup>
 
+        <!-- 关联服饰 -->
+        <UFormGroup v-if="enableLinkClothes" label="关联服饰" class="mb-0">
+          <div class="flex items-stretch gap-2">
+            <button
+              type="button"
+              class="flex-1 min-w-0 flex items-center gap-2 rounded-lg border border-gray-200/70 dark:border-gray-600/70 bg-gray-50/80 dark:bg-gray-800/50 px-3 py-2 text-left text-sm transition hover:border-qhx-primary/50 hover:bg-qhx-primary/5"
+              @click="openClothesPicker"
+            >
+              <template v-if="selectedLinkedClothes?.clothes_id">
+                <div class="w-10 h-10 rounded-md overflow-hidden flex-shrink-0 bg-gray-200 dark:bg-gray-700">
+                  <img
+                    v-if="selectedLinkedClothes.clothes_img"
+                    :src="`${BASE_IMG}${selectedLinkedClothes.clothes_img}${getImageParams()}`"
+                    :alt="selectedLinkedClothes.clothes_note || ''"
+                    class="w-full h-full object-cover"
+                  />
+                  <div v-else class="w-full h-full flex items-center justify-center text-gray-400">
+                    <UIcon name="i-heroicons-shirt" class="w-5 h-5" />
+                  </div>
+                </div>
+                <span class="truncate text-gray-800 dark:text-gray-100 font-medium">
+                  {{ selectedLinkedClothes.clothes_note || `服饰 #${selectedLinkedClothes.clothes_id}` }}
+                </span>
+              </template>
+              <span v-else class="text-gray-400 dark:text-gray-500">点击选择衣柜服饰</span>
+            </button>
+            <UButton
+              v-if="selectedLinkedClothes?.clothes_id"
+              color="gray"
+              variant="ghost"
+              size="sm"
+              icon="i-heroicons-x-mark"
+              class="flex-shrink-0 self-center"
+              aria-label="清除关联"
+              @click="clearLinkedClothes"
+            />
+          </div>
+        </UFormGroup>
+
         <!-- 新增定尾阶段 -->
         <UButton
           color="primary"
@@ -458,5 +583,6 @@ defineExpose({
       </div>
     </div>
   </QhxModal>
+  <WardrobeClothesChoose ref="wardrobeClothesChooseRef" @choose="onClothesChosen" />
 </template>
 

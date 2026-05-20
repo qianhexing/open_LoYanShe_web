@@ -1,6 +1,17 @@
 
 // https://nuxt.com/docs/api/configuration/nuxt-config
 export default defineNuxtConfig({
+	hooks: {
+		// 将 @nuxt/ui 自动注册的组件全部设为仅客户端渲染，避免 SSR 阶段 Teleport/插槽等与 Vue 实例相关的 500（如 reading 'ce'）
+		'components:extend'(components) {
+			for (const component of components) {
+				const fp = component.filePath?.replace(/\\/g, '/') ?? ''
+				if (/\/node_modules\/@nuxt\/ui\//.test(fp)) {
+					component.mode = 'client'
+				}
+			}
+		},
+	},
 	pages: true,
 	vue: {
 		compilerOptions: {

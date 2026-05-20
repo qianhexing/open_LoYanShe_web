@@ -1,5 +1,5 @@
 <template>
-  <UPopover ref="popover1" v-model:open="open" :popper="{ placement: 'bottom-start' }" :ui="{ rounded: 'rounded-[18px]' }"" >
+  <QhxPopover v-model:open="open" placement="bottom-start" panel-class="rounded-[18px]">
     <UButton class="bg-qhx-primary text-qhx-inverted hover:bg-qhx-primaryHover" variant="ghost" icon="i-heroicons-user-circle">{{ $t('login.login') }}</UButton>
     <template #panel>
       <div class="p-6 w-[400px]">
@@ -110,11 +110,10 @@
         </UForm>
       </div>
     </template>
-  </UPopover>
+  </QhxPopover>
 </template>
 
 <script setup lang="ts">
-const popover1 = ref() // 模板引用
 const open = ref(false)
 const userStore = useUserStore()
 const config = useConfigStore()

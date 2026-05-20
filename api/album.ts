@@ -3,6 +3,8 @@ import type { BaseResponse, PaginationParams, PaginationResponse, Album } from '
 interface AlbumSearchParams extends PaginationParams {
   parent_id?: number | null;
   album_id?: number;
+  /** 查看指定用户的相册列表（如个人空间成就簿） */
+  user_id?: number;
 }
 
 export async function getAlbumList(

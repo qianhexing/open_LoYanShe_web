@@ -1,10 +1,17 @@
 <template>
   <div class="journal-page neu-page relative min-h-screen w-full overflow-x-hidden">
+    <div
+      v-if="configStore.statusBarHeight > 0"
+      class="shrink-0"
+      :style="{ height: `${configStore.statusBarHeight}px` }"
+      aria-hidden="true"
+    />
     <div class="container mx-auto p-2 pb-20 max-w-4xl">
     <!-- 功能栏：登录用户显示，新增按钮仅自己手账显示 -->
     <div
       v-if="layoutReady && userStore.user"
-      class="journal-neu-toolbar flex justify-between items-center sticky top-[10px] z-10 mb-4 rounded-2xl px-2 py-2"
+      class="journal-neu-toolbar flex justify-between items-center sticky z-10 mb-4 rounded-2xl px-2 py-2"
+      :style="{ top: `${10 + (configStore.statusBarHeight || 0)}px` }"
     >
       <div class="flex flex-wrap items-center gap-2">
         <QhxJellyButton v-if="isOwnJournal">
@@ -19,11 +26,23 @@
             </div>
           </div>
         </QhxJellyButton>
-        <!-- 按月/按日切换 -->
-        <div class="journal-tab-rail flex rounded-xl p-0.5">
+        <!-- 列表 / 按月 / 按日切换 -->
+        <div class="journal-tab-rail flex rounded-xl p-0.5 gap-0.5 flex-wrap">
           <button
             type="button"
-            class="journal-tab-btn flex-1 rounded-lg px-2.5 py-1.5 text-xs font-medium outline-none transition-all duration-200 focus-visible:ring-2 focus-visible:ring-qhx-primary/45"
+            class="journal-tab-btn flex-1 min-w-[4.5rem] rounded-lg px-2 py-1.5 text-xs font-medium outline-none transition-all duration-200 focus-visible:ring-2 focus-visible:ring-qhx-primary/45"
+            :class="
+              viewMode === 'list'
+                ? 'journal-tab-btn--active text-[#3d2833] dark:text-pink-50'
+                : 'journal-tab-btn--idle text-[#6b4f5f] hover:text-[#4a2f3d] active:scale-[0.99] dark:text-pink-200/80 dark:hover:text-pink-50'
+            "
+            @click="viewMode = 'list'; fetchListModeData()"
+          >
+            列表
+          </button>
+          <button
+            type="button"
+            class="journal-tab-btn flex-1 min-w-[4.5rem] rounded-lg px-2 py-1.5 text-xs font-medium outline-none transition-all duration-200 focus-visible:ring-2 focus-visible:ring-qhx-primary/45"
             :class="
               viewMode === 'month'
                 ? 'journal-tab-btn--active text-[#3d2833] dark:text-pink-50'
@@ -35,7 +54,7 @@
           </button>
           <button
             type="button"
-            class="journal-tab-btn flex-1 rounded-lg px-2.5 py-1.5 text-xs font-medium outline-none transition-all duration-200 focus-visible:ring-2 focus-visible:ring-qhx-primary/45"
+            class="journal-tab-btn flex-1 min-w-[4.5rem] rounded-lg px-2 py-1.5 text-xs font-medium outline-none transition-all duration-200 focus-visible:ring-2 focus-visible:ring-qhx-primary/45"
             :class="
               viewMode === 'day'
                 ? 'journal-tab-btn--active text-[#3d2833] dark:text-pink-50'
@@ -47,6 +66,175 @@
           </button>
         </div>
       </div>
+    </div>
+
+    <!-- 列表模式：不按年月筛选，按 journal_time 分组为「日期小标题 + 当日列表」 -->
+    <div v-if="layoutReady && userId && viewMode === 'list'" class="space-y-4">
+      <div
+        v-if="listModeLoading"
+        class="journal-neu-well text-center py-8 rounded-3xl text-sm text-[#7a5f6f] dark:text-pink-300/85"
+      >
+        加载中...
+      </div>
+      <template v-else>
+        <div
+          v-if="journalGroupsByDay.length === 0"
+          class="journal-neu-well text-center py-12 rounded-3xl text-sm text-[#9d8090] dark:text-pink-300/65"
+        >
+          暂无记录
+        </div>
+        <div v-else class="space-y-5">
+          <section
+            v-for="group in journalGroupsByDay"
+            :key="group.dateKey"
+            class="space-y-2"
+          >
+            <div
+              class="px-1 py-1 border-b border-[var(--neu-shadow-d)]/25 dark:border-white/10"
+            >
+              <h2 class="text-sm font-semibold text-[#4a2f3d] dark:text-pink-50">
+                {{ group.title }}
+              </h2>
+            </div>
+            <div class="space-y-3">
+              <div
+                v-for="j in group.items"
+                :key="j.journal_id"
+                class="journal-neu-entry rounded-2xl overflow-hidden"
+              >
+                <div class="journal-neu-entry-head flex items-center justify-between px-3 py-2">
+                  <div class="text-xs text-[#8a6f7d] dark:text-pink-300/85">
+                    {{ getPkTypeLabel(j.pk_type) }}
+                    <span v-if="j.create_time" class="ml-1">{{ formatTime(j.create_time) }}</span>
+                  </div>
+                  <div v-if="isOwnJournal && j.pk_type !== 0" class="flex items-center gap-1">
+                    <UButton size="2xs" color="gray" variant="ghost" icon="i-heroicons-pencil-square" @click="(e: MouseEvent) => editJournal(j, e)" />
+                    <UButton size="2xs" color="red" variant="ghost" icon="i-heroicons-trash" :loading="deleteId === j.journal_id" @click="confirmDelete(j.journal_id)" />
+                  </div>
+                </div>
+                <div class="p-3">
+                  <CommentItem
+                    v-if="j.pk_type === 0 && j.comment"
+                    :item="j.comment"
+                    :ui="'p-0'"
+                    :need_bottom="false"
+                  />
+                  <p v-else-if="j.pk_type === 0" class="text-sm text-amber-600 dark:text-amber-400">关联已失效</p>
+                  <div v-else-if="j.pk_type === 1 && j.community" class="space-y-2">
+                    <CommunityItem
+                      :item="j.community"
+                      size="big"
+                      :need-jump="false"
+                      class="!m-0 !shadow-none border-0"
+                    />
+                    <UButton size="xs" color="primary" variant="soft" @click="jumpToCommunity(j.community!)">
+                      查看详情
+                    </UButton>
+                  </div>
+                  <p v-else-if="j.pk_type === 1" class="text-sm text-amber-600 dark:text-amber-400">关联已失效</p>
+                  <div v-else-if="j.pk_type === 2 && j.wardrobe_clothes" class="flex gap-3">
+                    <div class="journal-neu-thumb w-16 h-16 rounded-xl overflow-hidden flex-shrink-0">
+                      <img
+                        :src="`${BASE_IMG}${j.wardrobe_clothes.clothes_img || ''}${getImageParams()}`"
+                        :alt="j.wardrobe_clothes.clothes_note"
+                        class="w-full h-full object-cover"
+                        loading="lazy"
+                      />
+                    </div>
+                    <div class="flex-1 min-w-0">
+                      <div class="text-sm font-medium text-[#3d2833] dark:text-pink-50 truncate">
+                        {{ j.wardrobe_clothes.clothes_note || '暂无笔记' }}
+                      </div>
+                      <div v-if="j.wardrobe_clothes.wardrobe_status" class="text-xs text-[#8a6f7d] dark:text-pink-200/70 mt-0.5">
+                        状态：{{ j.wardrobe_clothes.wardrobe_status }}
+                      </div>
+                      <div v-if="j.wardrobe_clothes.clothes_part" class="text-xs text-[#8a6f7d] dark:text-pink-200/70">
+                        部位：{{ j.wardrobe_clothes.clothes_part }}
+                      </div>
+                      <UButton size="xs" color="primary" variant="soft" class="mt-2" @click="jumpToClothes(j.wardrobe_clothes!)">
+                        查看详情
+                      </UButton>
+                    </div>
+                  </div>
+                  <p v-else-if="j.pk_type === 2" class="text-sm text-amber-600 dark:text-amber-400">关联已失效</p>
+                  <div v-else-if="j.pk_type === 3 && j.matching_list" class="flex gap-3">
+                    <div
+                      v-if="j.matching_list.cover"
+                      class="journal-neu-thumb w-16 h-16 rounded-xl overflow-hidden flex-shrink-0"
+                    >
+                      <img
+                        :src="`${BASE_IMG}${j.matching_list.cover}${getImageParams()}`"
+                        :alt="j.matching_list.note || '搭配'"
+                        class="w-full h-full object-cover"
+                        loading="lazy"
+                      />
+                    </div>
+                    <div class="flex-1 min-w-0">
+                      <div class="text-sm font-medium text-[#3d2833] dark:text-pink-50 truncate">
+                        {{ j.matching_list.note || '未命名搭配' }}
+                      </div>
+                      <div v-if="j.matching_list.main_style" class="text-xs text-[#8a6f7d] dark:text-pink-200/70 mt-0.5">
+                        风格：{{ j.matching_list.main_style }}
+                      </div>
+                      <UButton size="xs" color="primary" variant="soft" class="mt-2" @click="jumpToMatching(j.matching_list!)">
+                        查看详情
+                      </UButton>
+                    </div>
+                  </div>
+                  <p v-else-if="j.pk_type === 3" class="text-sm text-amber-600 dark:text-amber-400">关联已失效</p>
+                  <div v-else-if="j.pk_type === 4 && j.library" class="space-y-2">
+                    <LibraryItem :need-jump="false" :size="'mini-list'" :item="j.library" />
+                    <UButton size="xs" color="primary" variant="soft" @click="jumpToLibrary(j.library!)">
+                      查看详情
+                    </UButton>
+                  </div>
+                  <p v-else-if="j.pk_type === 4" class="text-sm text-amber-600 dark:text-amber-400">关联已失效</p>
+                  <div v-else-if="j.pk_type === 5 && j.plan" class="flex gap-3">
+                    <div class="journal-neu-thumb w-16 h-16 rounded-xl overflow-hidden flex-shrink-0 bg-[var(--neu-dent)]">
+                      <img
+                        :src="getPlanCoverSrc(j.plan)"
+                        :alt="j.plan.plan_name || '计划'"
+                        class="w-full h-full object-cover"
+                        loading="lazy"
+                      />
+                    </div>
+                    <div class="flex-1 min-w-0">
+                      <div class="text-sm font-medium text-[#3d2833] dark:text-pink-50 truncate">
+                        {{ j.plan.plan_name || '未命名计划' }}
+                      </div>
+                      <div v-if="j.plan.plan_note" class="text-xs text-[#8a6f7d] dark:text-pink-200/70 mt-0.5 truncate">
+                        {{ j.plan.plan_note }}
+                      </div>
+                      <div class="text-xs text-[#8a6f7d] dark:text-pink-200/70 mt-0.5">
+                        ￥{{ formatPlanMoney(j.plan.have_money) }}/￥{{ formatPlanMoney(j.plan.need_money) }}
+                      </div>
+                      <div class="flex items-center gap-2 mt-1">
+                        <div class="journal-neu-progress-track flex-1 rounded-full h-1.5 max-w-24">
+                          <div class="bg-qhx-primary h-1.5 rounded-full shadow-sm" :style="{ width: `${getPlanProgress(j.plan)}%` }" />
+                        </div>
+                        <span class="text-[10px] text-[#8a6f7d] dark:text-pink-300/80">{{ Math.ceil(getPlanProgress(j.plan)) }}%</span>
+                      </div>
+                      <UButton size="xs" color="primary" variant="soft" class="mt-2" @click="jumpToPlan(j.plan!)">
+                        查看详情
+                      </UButton>
+                    </div>
+                  </div>
+                  <p v-else-if="j.pk_type === 5" class="text-sm text-amber-600 dark:text-amber-400">关联已失效</p>
+                  <p v-else class="text-sm text-[#4a2f3d] dark:text-pink-100/90">
+                    {{ j.note || '无笔记' }}
+                  </p>
+                </div>
+                <div v-if="j.note && (j.community || j.comment || j.wardrobe_clothes || j.matching_list || j.library || j.plan)" class="px-3 pb-3 pt-0">
+                  <div class="journal-neu-note text-xs text-[#7a5f6a] dark:text-pink-200/75 rounded-xl px-2 py-1.5">
+                    <span class="font-medium text-amber-700 dark:text-amber-400"></span>
+                    {{ j.note }}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+        </div>
+      </template>
     </div>
 
     <!-- 按月视图：12个月块，点击进入该月按日视图 -->
@@ -210,16 +398,6 @@
                 class="journal-neu-panel-head px-3 py-2 text-sm font-semibold text-[#4a2f3d] dark:text-pink-50"
               >
                 {{ yearSelect }}年{{ monthSelect }}月{{ displayDay }}日 手账记录
-                <div v-if="isOwnJournal" class="mt-1">
-                  <UButton
-                    size="xs"
-                    color="primary"
-                    variant="soft"
-                    @click="(e: MouseEvent) => openAddJournalForDay(displayDay!, e)"
-                  >
-                    添加记录
-                  </UButton>
-                </div>
               </div>
               <div class="journal-neu-panel-body px-3 py-2">
                 <div
@@ -412,6 +590,7 @@
               日期
             </label>
             <QhxDateTimePicker
+              v-if="journalDateEditable"
               v-model="form.journal_time"
               placeholder="选择日期"
               mode="date"
@@ -419,6 +598,16 @@
               :enable-time-picker="false"
               class="w-full"
             />
+            <template v-else>
+              <div
+                class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-800/80 text-gray-800 dark:text-gray-200 text-sm"
+              >
+                {{ form.journal_time }}
+              </div>
+              <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                新增默认为今日；切换到「按日」后可选择其它日期。
+              </p>
+            </template>
           </div>
           <div>
             <label class="block text-sm font-medium mb-1 text-gray-700 dark:text-gray-300">
@@ -730,6 +919,7 @@
 <script setup lang="ts">
 import { ref, inject, computed, watch, nextTick } from 'vue'
 import {
+  journalList,
   journalListByDate,
   journalInsert,
   journalUpdate,
@@ -782,9 +972,12 @@ const now = new Date()
 const yearSelect = ref(now.getFullYear())
 const monthSelect = ref(now.getMonth() + 1)
 const dayCountLoading = ref(false)
-/** 视图模式：按月(12月块) | 按日(日网格) */
-const viewMode = ref<'month' | 'day'>('day')
+/** 视图模式：列表(按日期分组全文) | 按月(12月块) | 按日(日网格) */
+const viewMode = ref<'list' | 'month' | 'day'>('list')
 const monthViewLoading = ref(false)
+/** 列表模式：聚合拉取的手账（按 journal_time 分组展示） */
+const listModeLoading = ref(false)
+const listModeJournals = ref<Journal[]>([])
 /** 按月视图：12个月的数据 { month, count, firstImage } */
 const monthViewData = ref<Record<number, { count: number; firstImage: string | null }>>({})
 /** 按日期(日)分组的手账数据，切换月份时预分组，切换日时直接取用 */
@@ -861,6 +1054,31 @@ const all12Months = computed(() => {
   })
 })
 
+/** 列表模式：YYYY-MM-DD → 当日记录（日期降序，日内按创建时间降序） */
+const journalGroupsByDay = computed(() => {
+  const map = new Map<string, Journal[]>()
+  for (const j of listModeJournals.value) {
+    const key = dateKeyFromJournalTime(j.journal_time)
+    if (!key) continue
+    const arr = map.get(key)
+    if (arr) arr.push(j)
+    else map.set(key, [j])
+  }
+  const keys = [...map.keys()].sort((a, b) => b.localeCompare(a))
+  return keys.map((dateKey) => {
+    const items = (map.get(dateKey) ?? []).slice().sort((a, b) => {
+      const ta = a.create_time ? dayjs(a.create_time).valueOf() : 0
+      const tb = b.create_time ? dayjs(b.create_time).valueOf() : 0
+      return tb - ta
+    })
+    return {
+      dateKey,
+      title: dayjs(dateKey).format('YYYY年M月D日'),
+      items
+    }
+  })
+})
+
 // 弹窗
 const addEditModal = ref(false)
 const addEditClickPosition = ref({ x: 0, y: 0 })
@@ -869,6 +1087,11 @@ const editingJournal = ref<Journal | null>(null)
 const deleteModal = ref(false)
 const deleteId = ref<number | null>(null)
 const deleteLoading = ref(false)
+
+/** 新增时在「按日」下可选日期；编辑时任意视图均可改日期 */
+const journalDateEditable = computed(
+  () => viewMode.value === 'day' || editingJournal.value !== null
+)
 
 const form = ref<{
   journal_time: string
@@ -1132,6 +1355,44 @@ async function fetchYearMonthData() {
   }
 }
 
+/** 列表模式：走 `/journal/list`，分页拉全量后在本地按日分组 */
+const LIST_PAGE_SIZE = 100
+const LIST_MAX_PAGES = 500
+
+async function fetchListModeData() {
+  const uid = userId.value
+  if (!uid) {
+    listModeJournals.value = []
+    return
+  }
+  listModeLoading.value = true
+  try {
+    const merged: Journal[] = []
+    let page = 1
+    while (page <= LIST_MAX_PAGES) {
+      const { rows, count } = await journalList({
+        user_id: uid,
+        page,
+        pageSize: LIST_PAGE_SIZE
+      })
+      merged.push(...rows)
+      if (merged.length >= count || rows.length === 0) break
+      page++
+    }
+    listModeJournals.value = merged
+  } catch (error) {
+    console.error('获取手账列表失败:', error)
+    toast.add({
+      title: '获取手账列表失败',
+      icon: 'i-heroicons-exclamation-circle',
+      color: 'red'
+    })
+    listModeJournals.value = []
+  } finally {
+    listModeLoading.value = false
+  }
+}
+
 /** 按月视图中点击某月：切换到按日视图并选中该月 */
 function goToMonth(month: number) {
   monthSelect.value = month
@@ -1143,12 +1404,22 @@ function goToMonth(month: number) {
 async function refreshCurrentView() {
   if (viewMode.value === 'month') {
     await fetchYearMonthData()
-  } else {
+  } else if (viewMode.value === 'day') {
     await fetchMonthData()
     if (expandedDay.value !== null) {
       filterJournalListForDay(expandedDay.value)
     }
+  } else {
+    await fetchListModeData()
   }
+}
+
+/** 从 journal_time 解析日历日期键 YYYY-MM-DD（用于列表分组） */
+function dateKeyFromJournalTime(journalTime: string): string | null {
+  if (!journalTime) return null
+  const slice = journalTime.slice(0, 10)
+  const d = dayjs(slice)
+  return d.isValid() ? slice : null
 }
 
 /** 从 journal_time (YYYY-MM-DD 或 YYYY-MM-DDTHH:mm:ss) 解析日 */
@@ -1236,23 +1507,6 @@ function openAddJournal(event?: MouseEvent) {
   selectedLibrary.value = null
   form.value = {
     journal_time: dayjs().format('YYYY-MM-DD'),
-    pk_type: 0,
-    pk_id: 0,
-    note: ''
-  }
-  addEditModal.value = true
-}
-
-function openAddJournalForDay(day: number, event?: MouseEvent) {
-  setAddEditClickPosition(event)
-  editingJournal.value = null
-  selectedCommunity.value = null
-  selectedClothes.value = null
-  selectedMatching.value = null
-  selectedLibrary.value = null
-  const pad = (n: number) => String(n).padStart(2, '0')
-  form.value = {
-    journal_time: `${yearSelect.value}-${pad(monthSelect.value)}-${pad(day)}`,
     pk_type: 0,
     pk_id: 0,
     note: ''
@@ -1414,8 +1668,10 @@ watch(
       monthSelect.value = now.getMonth() + 1
       if (viewMode.value === 'month') {
         fetchYearMonthData()
-      } else {
+      } else if (viewMode.value === 'day') {
         fetchMonthData()
+      } else {
+        fetchListModeData()
       }
     }
   },

@@ -1,4 +1,4 @@
-import type { BaseResponse, PaginationParams, PaginationResponse, Library, FilterList, Shop, LibraryVideo, LibraryPipe } from '@/types/api';
+import type { BaseResponse, PaginationParams, PaginationResponse, Library, LibrarySimilarItem, FilterList, Shop, LibraryVideo, LibraryPipe } from '@/types/api';
 import type { Wiki, User } from '@/types/api'
 interface SearchParams extends PaginationParams {
   keyword?: string | null  // 可选字段
@@ -13,6 +13,17 @@ export async function getLibraryList(
 ): Promise<PaginationResponse<Library>> {
   const response = await use$Post<BaseResponse<PaginationResponse<Library>>>(
     '/library/list',
+    params
+  );
+  return response.data;
+}
+
+/** @ 提及等场景；请求体与 `/library/list` 一致 */
+export async function getLibraryMentionList(
+  params: SearchParams
+): Promise<PaginationResponse<Library>> {
+  const response = await use$Post<BaseResponse<PaginationResponse<Library>>>(
+    '/library/mention',
     params
   );
   return response.data;
@@ -146,6 +157,45 @@ export async function getLibraryById(params: DetailParams): Promise<Library> {
     params
   );
   return response.data;
+}
+
+export interface LibrarySimilarParams {
+  library_id: number
+  pageSize?: number
+}
+
+export async function getLibrarySimilar(
+  params: LibrarySimilarParams
+): Promise<PaginationResponse<LibrarySimilarItem>> {
+  const response = await use$Post<BaseResponse<PaginationResponse<LibrarySimilarItem>>>(
+    '/library/similar',
+    {
+      library_id: params.library_id,
+      pageSize: params.pageSize ?? 20
+    }
+  );
+  return response.data;
+}
+
+/** 多图鉴合并画像相似推荐（需登录；勿与单点 `/library/similar` 混用） */
+export interface LibrarySimilarBatchParams {
+  ids: number[]
+  pageSize?: number
+  need_Statistics?: boolean
+}
+
+export async function getLibrarySimilarBatch(
+  params: LibrarySimilarBatchParams
+): Promise<PaginationResponse<LibrarySimilarItem>> {
+  const response = await use$Post<BaseResponse<PaginationResponse<LibrarySimilarItem>>>(
+    '/library/similar/batch',
+    {
+      ids: params.ids,
+      pageSize: params.pageSize ?? 20,
+      need_Statistics: params.need_Statistics
+    }
+  )
+  return response.data
 }
 export async function updateLibrary(params: InsertParams): Promise<Library> {
   const response = await use$Post<BaseResponse<Library>>('/library/update', params)

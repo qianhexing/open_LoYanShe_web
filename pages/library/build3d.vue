@@ -47,6 +47,14 @@ const selectedSpzFiles = ref<Array<{ name: string; url: string }>>([])
 const submitting = ref(false)
 const coverPickerRef = ref<InstanceType<typeof QhxImagePicker> | null>(null)
 
+/** 3D 建设上传：Spark 点云（.spz）与 Spark 2 LoD / RAD（.rad） */
+const SPLAT_UPLOAD_EXTS = ['.spz', '.rad'] as const
+
+const isAllowedSplatUpload = (fileName: string) => {
+  const n = fileName.toLowerCase()
+  return SPLAT_UPLOAD_EXTS.some(ext => n.endsWith(ext))
+}
+
 const formatImg = (url: string) => {
   if (!url) return ''
   return `${BASE_IMG}${url.replace(BASE_IMG, '')}`
@@ -146,10 +154,9 @@ const handleSpzFileSelect = async (event: Event) => {
   const input = event.target as HTMLInputElement
   if (!input.files?.length) return
   for (const file of Array.from(input.files)) {
-    const name = file.name.toLowerCase()
-    if (!name.endsWith('.spz')) {
+    if (!isAllowedSplatUpload(file.name)) {
       toast.add({
-        title: '仅支持 .spz 格式',
+        title: `仅支持 ${SPLAT_UPLOAD_EXTS.join('、')} 格式`,
         description: `"${file.name}" 格式不正确`,
         icon: 'i-heroicons-exclamation-circle',
         color: 'orange'
@@ -165,10 +172,9 @@ const handleSpzFileSelect = async (event: Event) => {
 const handleSpzFileDrop = async (event: DragEvent) => {
   if (!event.dataTransfer?.files?.length) return
   for (const file of Array.from(event.dataTransfer.files)) {
-    const name = file.name.toLowerCase()
-    if (!name.endsWith('.spz')) {
+    if (!isAllowedSplatUpload(file.name)) {
       toast.add({
-        title: '仅支持 .spz 格式',
+        title: `仅支持 ${SPLAT_UPLOAD_EXTS.join('、')} 格式`,
         description: `"${file.name}" 格式不正确`,
         icon: 'i-heroicons-exclamation-circle',
         color: 'orange'
@@ -263,7 +269,7 @@ const handleSubmit = async () => {
   }
   if (!formData.addr?.trim()) {
     toast.add({
-      title: '请上传 .spz 模型文件',
+      title: `请上传模型文件（${SPLAT_UPLOAD_EXTS.join('、')}）`,
       icon: 'i-heroicons-exclamation-circle',
       color: 'orange'
     })
@@ -490,15 +496,15 @@ const handleSubmit = async () => {
             </div>
           </div>
 
-          <!-- 模型上传 (仅 .spz) -->
+          <!-- 模型上传：.spz / .rad（Spark 2 LoD） -->
           <div>
             <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              模型文件 (.spz)
+              模型文件（.spz / .rad）
             </label>
             <input
               ref="spzFileInput"
               type="file"
-              accept=".spz"
+              accept=".spz,.rad"
               multiple
               class="hidden"
               @change="handleSpzFileSelect"
@@ -512,10 +518,10 @@ const handleSubmit = async () => {
             >
               <UIcon name="i-heroicons-cube" class="text-4xl text-gray-400 mx-auto mb-2" />
               <p class="text-sm text-gray-600 dark:text-gray-400">
-                点击选择或拖拽 .spz 文件
+                点击选择或拖拽 .spz / .rad 文件
               </p>
               <p class="text-xs text-gray-500 dark:text-gray-500">
-                仅支持 .spz 格式
+                支持 .spz 与 Spark 2 的 .rad（LoD）
               </p>
             </div>
             <div v-else class="space-y-2">

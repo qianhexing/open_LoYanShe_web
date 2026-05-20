@@ -22,6 +22,23 @@ function parseVoteIdFromNode(node: RichNode): number | null {
   return Number.isFinite(n) && n > 0 ? n : null
 }
 
+/** 社区正文内 @用户：`data-id` 为数字 user_id 时跳转个人主页 */
+function userSpacePathForMentionSpan(node: RichNode): string | null {
+  if (node.name !== 'span') return null
+  if (node.attrs?.['data-type'] !== 'mention') return null
+  const uid = String(node.attrs?.['data-id'] ?? '').trim()
+  if (!/^\d+$/.test(uid)) return null
+  return `/userSpace/${uid}`
+}
+
+function mentionSpanDisplay(node: RichNode): string {
+  const lb = String(node.attrs?.['data-label'] ?? '').trim()
+  if (lb) return `@${lb}`
+  const t = node.text?.trim()
+  if (t) return t.startsWith('@') ? t : `@${t}`
+  return '@用户'
+}
+
 /** 富文中站内图床域名统一走 CDN（与 CommentItem、Community 等处一致） */
 function rewriteAliImageSrc(src: string): string {
   const prefixes = [
@@ -244,6 +261,14 @@ function getSafeAttrs(tag: string, attrs: Record<string, string>): Record<string
       <SafeRichText v-if="node.children?.length" :nodes="node.children" />
       <template v-else>{{ node.text }}</template>
     </a>
+
+    <NuxtLink
+      v-else-if="userSpacePathForMentionSpan(node)"
+      :to="userSpacePathForMentionSpan(node)!"
+      class="inline font-medium rounded px-1 text-sky-600 underline-offset-2 hover:text-sky-700 hover:underline dark:text-sky-400 dark:hover:text-sky-300 bg-sky-500/[0.09]"
+    >
+      {{ mentionSpanDisplay(node) }}
+    </NuxtLink>
 
     <div
       v-else-if="node.name === 'vote'"

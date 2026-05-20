@@ -1,7 +1,14 @@
-<template> 
-  <UPopover ref="popover" v-model:open="open" :popper="{ placement: 'bottom-start' }" :ui="{ rounded: 'rounded-[18px]' }" >
-    <img :src="`${BASE_IMG}${user.user_face}`" :alt="user.user_name" v-if="user"
-          class="w-8 h-8 object-cover rounded-[40px] border border-gray-200 my-2 cursor-pointer transition-transform hover:scale-105" loading="lazy" />
+<template>
+  <QhxPopover v-model:open="open" placement="bottom-start" panel-class="rounded-[18px]">
+    <slot name="trigger">
+      <img
+        v-if="user"
+        :src="`${BASE_IMG}${user.user_face}`"
+        :alt="user.user_name"
+        class="w-8 h-8 object-cover rounded-[40px] border border-gray-200 my-2 cursor-pointer transition-transform hover:scale-105"
+        loading="lazy"
+      />
+    </slot>
     <template #panel>
       <div class="w-[24rem] bg-white">
         <!-- 用户信息区域 -->
@@ -100,6 +107,18 @@
               </div>
             </button>
 
+            <button 
+              @click="jumpToMyFavorites()"
+              class="flex items-center gap-2 p-3 rounded-lg hover:bg-rose-50 transition-colors text-left group"
+            >
+              <div class="w-10 h-10 rounded-lg bg-rose-100 flex items-center justify-center group-hover:bg-rose-200 transition-colors">
+                <UIcon name="material-symbols:bookmark-rounded" class="text-[20px] text-rose-600" />
+              </div>
+              <div>
+                <div class="font-medium text-gray-800">我的收藏夹</div>
+                <div class="text-xs text-gray-500">查看与管理收藏</div>
+              </div>
+            </button>
             
             <button 
               @click="jumpToPlan()"
@@ -193,14 +212,13 @@
         </div>
       </div>
     </template>
-  </UPopover>
+  </QhxPopover>
 </template>
 
 <script setup lang="ts">
 import { BASE_IMG } from '@/utils/ipConfig'
 import { useConfigStore } from '@/stores/config'
 
-const popover = ref() // 模板引用
 const open = ref(false)
 const userStore = storeToRefs(useUserStore()) 
 const { user } = userStore
@@ -277,6 +295,12 @@ const jumpToMySpace = () => {
 const jumpToMyWardrobe = () => {
   if (user.value) {
     navigateTo(`/wardrobe/detail/${user.value.user_id}`);
+  }
+  open.value = false
+}
+const jumpToMyFavorites = () => {
+  if (user.value) {
+    navigateTo('/favorite');
   }
   open.value = false
 }

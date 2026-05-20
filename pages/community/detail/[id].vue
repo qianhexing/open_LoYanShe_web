@@ -42,6 +42,7 @@ const focusCommentId = computed(() => {
 const { data } = await useAsyncData('communityDeatil', () => {
   return getCommunityDetail({ community_id: communityId })
 }, {})
+console.log('data===========', data.value)
 
 const { data: commentCountData, refresh: refreshCommentCount } = await useAsyncData(
   `community-detail-comment-count-${id}`,
@@ -204,6 +205,18 @@ provide(communityCommentSectionRefreshKey, commentSectionRefreshFn)
 
 const commentUiStore = useCommentUiStore()
 
+onMounted(() => {
+  console.log('onMounted===========', detail.value)
+  if (!detail.value) {
+    getCommunityDetail({ community_id: communityId })
+    .then((res) => {
+      detail.value = res
+    })
+    .catch((err) => {
+      console.error('获取帖子详情失败:', err)
+    })
+  }
+})
 onUnmounted(() => {
   commentUiStore.clearNewCommentHighlight()
 })
@@ -392,6 +405,10 @@ useHead({
                 <div v-if="richText" class="leading-[1.8]">
                   <SafeRichText :nodes="richText"></SafeRichText>
                 </div>
+                <CommunityDetailForeignSection
+                  v-if="detail.foreign_list?.length"
+                  :items="detail.foreign_list"
+                />
               </div>
               <div class="rounded-lg shadow-inner mt-1 border border-gray-100/80 overflow-hidden bg-white">
                 <CommentSection
@@ -487,6 +504,10 @@ useHead({
               <div v-if="richText" class=" leading-[1.8]">
                 <SafeRichText :nodes="richText"></SafeRichText>
               </div>
+              <CommunityDetailForeignSection
+                v-if="detail.foreign_list?.length"
+                :items="detail.foreign_list"
+              />
             </div>
           </div>
         </div>

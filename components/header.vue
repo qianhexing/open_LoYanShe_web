@@ -20,22 +20,27 @@
         </div>
 
         <!-- 桌面端导航 -->
-        <nav class="hidden md:flex items-center gap-4">
-          <UButton v-for="item in navItems" :key="item.to" :to="item.to" variant="ghost" color="gray">
+        <nav class="hidden md:flex items-center gap-1">
+          <NuxtLink
+            v-for="item in navItems"
+            :key="item.to"
+            :to="item.to"
+            class="px-3 py-2 text-sm font-medium rounded-lg text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+            :class="navLinkActiveClass(item.to)"
+          >
             {{ item.label }}
-          </UButton>
+          </NuxtLink>
         </nav>
 
         <!-- 右侧操作区 -->
         <div class="flex items-center gap-2 md:gap-4">
-          <LocaleSwitcher class="hidden sm:block mr-0 md:mr-3"/>
-          <!-- 右侧操作区 -->
+          <LocaleSwitcher class="hidden sm:block mr-0 md:mr-3" />
           <div class="flex items-center gap-2 md:gap-4" v-show="!user">
             <LoginBox />
           </div>
           <div class="flex items-center gap-2 md:gap-4" v-show="user">
-            <!-- 消息图标 -->
             <button
+              type="button"
               @click="handleMessageClick"
               class="relative p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
               aria-label="消息"
@@ -43,67 +48,79 @@
               <svg class="w-6 h-6 text-gray-700 dark:text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
               </svg>
-              <!-- 红点提示 -->
               <span
                 v-if="hasNotification"
                 class="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full"
-              ></span>
+              />
             </button>
-            <UserBox></UserBox>
+            <UserBox />
           </div>
         </div>
       </div>
 
-      <!-- 手机端抽屉菜单 -->
-      <QhxDrawer
-        v-model="mobileMenuOpen"
-        direction="left"
-        :size="'280px'"
-        :mobile-size="'85vw'"
-      >
-        <div class="h-full flex flex-col bg-white dark:bg-gray-900">
-          <!-- 抽屉头部 -->
-          <div class="flex items-center justify-between p-4 border-b dark:border-gray-800">
-            <h2 class="text-lg font-bold text-gray-900 dark:text-white">菜单</h2>
-            <button
-              @click="mobileMenuOpen = false"
-              class="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
-              aria-label="关闭菜单"
+      <!-- 手机端菜单：左侧抽屉（仅小屏） -->
+      <Teleport to="body">
+        <div
+          v-show="mobileMenuOpen"
+          class="fixed inset-0 z-[60] md:hidden"
+          :aria-hidden="!mobileMenuOpen"
+        >
+          <div
+            role="presentation"
+            class="absolute inset-0 z-0 bg-black/40"
+            @click="mobileMenuOpen = false"
+          />
+          <Transition name="drawer-left">
+            <QhxBottomDrawer
+              v-if="mobileMenuOpen"
+              direction="left"
+              :default-size="288"
+              :content-padding="false"
             >
-              <svg class="w-6 h-6 text-gray-700 dark:text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-          </div>
+              <div class="flex h-full min-h-0 flex-col bg-qhx-bg-card">
+                <div class="flex shrink-0 items-center justify-between border-b border-gray-200 px-4 pb-3 pt-1 dark:border-gray-800">
+                  <h2 class="text-lg font-bold text-gray-900 dark:text-white">菜单</h2>
+                  <button
+                    type="button"
+                    class="rounded-lg p-2 transition-colors hover:bg-gray-100 dark:hover:bg-gray-800"
+                    aria-label="关闭菜单"
+                    @click="mobileMenuOpen = false"
+                  >
+                    <svg class="h-6 w-6 text-gray-700 dark:text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
 
-          <!-- 导航菜单 -->
-          <nav class="flex-1 overflow-y-auto py-4">
-            <NuxtLink
-              v-for="item in navItems"
-              :key="item.to"
-              :to="item.to"
-              @click="mobileMenuOpen = false"
-              class="block px-4 py-3 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors border-l-4 border-transparent hover:border-qhx-primary dark:hover:border-qhx-primary"
-              :class="{ 'bg-gray-50 dark:bg-gray-800 border-qhx-primary text-qhx-primary dark:text-qhx-primary': route.path === item.to || (item.to !== '/' && route.path.startsWith(item.to)) }"
-            >
-              {{ item.label }}
-            </NuxtLink>
-          </nav>
+                <nav class="min-h-0 flex-1 overflow-y-auto py-2">
+                  <NuxtLink
+                    v-for="item in navItems"
+                    :key="item.to"
+                    :to="item.to"
+                    class="block border-l-4 border-transparent px-4 py-3 text-gray-700 transition-colors hover:border-qhx-primary hover:bg-gray-100 dark:text-gray-300 dark:hover:border-qhx-primary dark:hover:bg-gray-800"
+                    :class="{ 'border-qhx-primary bg-gray-50 text-qhx-primary dark:border-qhx-primary dark:bg-gray-800 dark:text-qhx-primary': route.path === item.to || (item.to !== '/' && route.path.startsWith(item.to)) }"
+                    @click="mobileMenuOpen = false"
+                  >
+                    {{ item.label }}
+                  </NuxtLink>
+                </nav>
 
-          <!-- 抽屉底部 -->
-          <div class="p-4 border-t dark:border-gray-800">
-            <div class="mb-3">
-              <LocaleSwitcher />
-            </div>
-            <div v-if="!user" class="mb-2">
-              <LoginBox />
-            </div>
-            <div v-if="user" class="text-sm text-gray-600 dark:text-gray-400">
-              {{ user.user_name }}
-            </div>
-          </div>
+                <div class="shrink-0 border-t border-gray-200 px-4 pb-[calc(1rem+env(safe-area-inset-bottom,0px))] pt-3 dark:border-gray-800">
+                  <div class="mb-3">
+                    <LocaleSwitcher placement="above" />
+                  </div>
+                  <div v-if="!user" class="mb-2">
+                    <LoginBox />
+                  </div>
+                  <div v-if="user" class="text-sm text-gray-600 dark:text-gray-400">
+                    {{ user.user_name }}
+                  </div>
+                </div>
+              </div>
+            </QhxBottomDrawer>
+          </Transition>
         </div>
-      </QhxDrawer>
+      </Teleport>
     </header>
 </template>
 
@@ -128,6 +145,15 @@ const handleMessageClick = () => {
   }
   // 否则跳转到消息页面
   router.push('/user/message')
+}
+
+const navLinkActiveClass = (to: string) => {
+  if (to === '/') {
+    return route.path === '/' ? 'bg-gray-100 dark:bg-gray-800 text-qhx-primary dark:text-qhx-primary' : ''
+  }
+  return route.path.startsWith(to)
+    ? 'bg-gray-100 dark:bg-gray-800 text-qhx-primary dark:text-qhx-primary'
+    : ''
 }
 
 const navItems = computed(() => [

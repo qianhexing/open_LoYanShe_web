@@ -25,14 +25,30 @@ const emit = defineEmits(['close'])
 
 const isLoading = ref(false)
 
+/** 设置 image.src 并标记重绘；已缓存的图片会同步 decode，仅绑定 onload 会漏掉回调导致场景贴图不更新 */
+function setImageSrcRedraw(src: string) {
+  image.onload = () => {
+    isDirty = true
+  }
+  image.onerror = () => {
+    isDirty = true
+  }
+  image.src = src
+  if (image.complete && image.naturalWidth > 0) {
+    isDirty = true
+  }
+}
+
 // 离屏 Canvas 用于缓存 Mask
 const maskCanvas = document.createElement('canvas')
 const maskCtx = maskCanvas.getContext('2d')
 let hasMask = false
 
-// 图片 & mask
+// 图片 & mask（跨域 OSS 资源必须带 crossOrigin，否则 canvas 污染后 WebGL 无法采样）
 const image = new Image()
+image.crossOrigin = 'anonymous'
 const mask = new Image()
+mask.crossOrigin = 'anonymous'
 
 // 控制参数
 let offsetX = 0
@@ -168,10 +184,10 @@ const setupEventListeners = () => {
 
 // 移除事件监听器
 const removeEventListeners = () => {
-  if (!canvas.value) return
-  
-  if (mouseDownHandler) {
-    canvas.value.removeEventListener('mousedown', mouseDownHandler)
+  const el = canvas.value
+
+  if (el && mouseDownHandler) {
+    el.removeEventListener('mousedown', mouseDownHandler)
     mouseDownHandler = null
   }
   if (mouseMoveHandler) {
@@ -182,21 +198,45 @@ const removeEventListeners = () => {
     window.removeEventListener('mouseup', mouseUpHandler)
     mouseUpHandler = null
   }
-  if (touchStartHandler) {
-    canvas.value.removeEventListener('touchstart', touchStartHandler)
+  if (el && touchStartHandler) {
+    el.removeEventListener('touchstart', touchStartHandler)
     touchStartHandler = null
   }
-  if (touchMoveHandler) {
-    canvas.value.removeEventListener('touchmove', touchMoveHandler)
+  if (el && touchMoveHandler) {
+    el.removeEventListener('touchmove', touchMoveHandler)
     touchMoveHandler = null
   }
-  if (wheelHandler) {
-    canvas.value.removeEventListener('wheel', wheelHandler)
+  if (el && wheelHandler) {
+    el.removeEventListener('wheel', wheelHandler)
     wheelHandler = null
   }
 }
 
-const showModel = () => {
+/** GLTF 常见 material 为数组；若把数组当单个材质访问 `.map`，会得到 Array.prototype.map，贴图永远不会赋给真实材质 */
+function getMeshMaterials(mesh: THREE.Mesh): THREE.Material[] {
+  const m = mesh.material
+  return Array.isArray(m) ? m : [m]
+}
+
+/** 排除纯色背景误拼接、空串；避免加载无效地址 */
+function sanitizeDefaultImageUrl(raw: string): string {
+  const u = raw.trim()
+  if (!u || u.startsWith('color:')) return ''
+  if (/[/]color:/i.test(u)) return ''
+  return u
+}
+
+function applyCanvasMapToMesh(mesh: THREE.Mesh, tex: THREE.CanvasTexture | null) {
+  for (const mat of getMeshMaterials(mesh)) {
+    if (!('map' in mat)) continue
+    const m = mat as THREE.MeshStandardMaterial
+    m.map = tex
+    m.transparent = true
+    m.needsUpdate = true
+  }
+}
+
+const showModel = async () => {
   show.value = true
   isSaved = false // 重置保存状态
   isDirty = true
@@ -206,16 +246,18 @@ const showModel = () => {
     loop()
   }
 
-  // 确保显示时重新生成 Mask 并绘制，然后添加事件监听器
-  if (props.target) {
-    nextTick(() => {
-      setupTexture()
-      // 在 canvas 渲染后添加事件监听器
-      nextTick(() => {
-        setupEventListeners()
-      })
-    })
-  }
+  if (!props.target) return
+
+  removeEventListeners()
+
+  // Transition + v-if 下 canvas ref 可能晚一拍，双 nextTick + rAF 再初始化
+  await nextTick()
+  await nextTick()
+  await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+
+  await setupTexture()
+  await nextTick()
+  setupEventListeners()
 }
 
 const closeModel = () => {
@@ -276,22 +318,23 @@ const restoreOriginalState = () => {
                               image.naturalHeight > 0
     
     if (!currentImageValid) {
-      // 需要重新加载图片
-      image.onload = () => {
-        // 确保图片加载成功后再绘制
-        if (image.naturalWidth > 0 && image.naturalHeight > 0) {
-          restoreDraw()
-        } else {
-          // 图片加载失败，直接关闭
-          restoreDraw()
-        }
-      }
-      image.onerror = () => {
-        // 图片加载失败，清空图片并关闭
-        image.removeAttribute('src')
+      let restored = false
+      const onceRestore = () => {
+        if (restored) return
+        restored = true
         restoreDraw()
       }
+      image.onload = () => {
+        onceRestore()
+      }
+      image.onerror = () => {
+        image.removeAttribute('src')
+        onceRestore()
+      }
       image.src = originalState.url
+      if (image.complete && image.naturalWidth > 0) {
+        onceRestore()
+      }
     } else {
       // 当前图片有效，直接还原
       restoreDraw()
@@ -484,8 +527,13 @@ function draw() {
 
   // 3. 更新 Texture
   // 只有在显示状态下才更新 Texture，避免后台更新
-  if (show.value && texture) {
+  if (show.value && texture && props.target) {
     texture.needsUpdate = true
+    for (const mat of getMeshMaterials(props.target)) {
+      if ('needsUpdate' in mat) {
+        ;(mat as THREE.MeshStandardMaterial).needsUpdate = true
+      }
+    }
   }
 }
 
@@ -504,7 +552,12 @@ function loop() {
 }
 
 async function setupTexture() {
-  if (!props.target || !canvas.value) return
+  if (!props.target) return
+  if (!canvas.value) {
+    await nextTick()
+    await nextTick()
+  }
+  if (!canvas.value) return
   ctx = canvas.value.getContext('2d')
   if (!ctx) return
 
@@ -526,20 +579,16 @@ async function setupTexture() {
   
   texture.needsUpdate = true
   
-  const mat = (props.target as THREE.Mesh).material as THREE.MeshStandardMaterial
-  if (mat.map !== texture) {
-    mat.map = texture
-    mat.transparent = true
-    mat.needsUpdate = true
-  }
+  applyCanvasMapToMesh(props.target, texture)
 
   // 读取并备份初始状态
   const parent = findTopmostParent(props.target)
   let targetUrl = ''
   
   // 优先从 userData 中读取之前的配置
-  if (parent.userData.material && parent.userData.material[props.target.name]) {
-      const options = parent.userData.material[props.target.name]
+  const entry = parent.userData.material?.[props.target.name]
+  if (entry) {
+      const options = entry
       offsetX = options.offsetX
       offsetY = options.offsetY
       scale = options.scale
@@ -554,10 +603,7 @@ async function setupTexture() {
       offsetY = 0
       scale = 1
       rotation = 0
-      // 只有在没有 userData 配置时，才尝试使用 props.imageUrl (背景图)
-      // 但也要注意，如果用户没有配置过，可能不希望显示背景图，而是显示空白等待上传?
-      // 之前的逻辑是会显示 props.imageUrl
-      targetUrl = props.imageUrl || ''
+      targetUrl = sanitizeDefaultImageUrl(props.imageUrl || '')
   }
 
   // 备份初始状态 (存绝对路径)
@@ -567,8 +613,7 @@ async function setupTexture() {
   }
   
   if (targetUrl) {
-    image.src = targetUrl
-    image.onload = () => { isDirty = true }
+    setImageSrcRedraw(targetUrl)
   } else {
     // 确保清空
     image.removeAttribute('src')
@@ -656,13 +701,16 @@ const onUpdateFiles = (file: File[]) => {
       const newSrc = BASE_IMG + res
       
       // 确保 image 对象感知到变化
-      image.src = newSrc
-      
       image.onload = () => {
-        isDirty = true // 标记重绘
+        isDirty = true
         isLoading.value = false
       }
       image.onerror = () => {
+        isLoading.value = false
+      }
+      image.src = newSrc
+      if (image.complete && image.naturalWidth > 0) {
+        isDirty = true
         isLoading.value = false
       }
       if (imagePicker.value) {

@@ -1,3 +1,69 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* 全局滚动条 —— 与主题色、深色模式一致 */
+:root {
+	--scrollbar-size: 8px;
+	--scrollbar-track: rgb(243 244 246 / 0.85);
+	--scrollbar-thumb: rgb(209 213 219 / 0.95);
+	--scrollbar-thumb-hover: rgb(255 158 181 / 0.75);
+	--scrollbar-thumb-active: rgb(230 120 150 / 0.9);
+}
+
+.dark {
+	--scrollbar-track: rgb(31 41 55 / 0.6);
+	--scrollbar-thumb: rgb(75 85 99 / 0.85);
+	--scrollbar-thumb-hover: rgb(255 158 181 / 0.45);
+	--scrollbar-thumb-active: rgb(255 158 181 / 0.65);
+}
+
+* {
+	scrollbar-width: thin;
+	scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+}
+
+*::-webkit-scrollbar {
+	width: var(--scrollbar-size);
+	height: var(--scrollbar-size);
+}
+
+*::-webkit-scrollbar-track {
+	background: var(--scrollbar-track);
+	border-radius: 9999px;
+}
+
+*::-webkit-scrollbar-thumb {
+	background: var(--scrollbar-thumb);
+	border-radius: 9999px;
+	border: 2px solid transparent;
+	background-clip: padding-box;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+	background: var(--scrollbar-thumb-hover);
+	background-clip: padding-box;
+}
+
+*::-webkit-scrollbar-thumb:active {
+	background: var(--scrollbar-thumb-active);
+	background-clip: padding-box;
+}
+
+*::-webkit-scrollbar-corner {
+	background: var(--scrollbar-track);
+}
+
+/* Tippy.js：mention 等挂载自定义 Vue 内容时禁用默认深色底（#333） */
+.tippy-box[data-theme~='qhx-mention'] {
+	background: transparent !important;
+	color: inherit;
+	border: none;
+	box-shadow: none;
+	max-width: none;
+}
+
+.tippy-box[data-theme~='qhx-mention'] > .tippy-content {
+	padding: 0 !important;
+	background: transparent !important;
+}
