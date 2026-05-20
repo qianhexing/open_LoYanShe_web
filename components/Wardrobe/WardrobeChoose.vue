@@ -1,13 +1,16 @@
 <!-- 选择衣柜组件 -->
 <template>
-  <UModal v-model="show" :overlay="true" :ui="{ width: 'max-w-3xl' }">
+  <QhxModal v-model="show">
+    <div
+      class="w-[95vw] max-w-3xl max-h-[90vh] flex flex-col bg-white dark:bg-gray-800 rounded-2xl shadow-xl overflow-hidden border border-gray-200/50 dark:border-gray-700/50"
+    >
     <!-- 头部 -->
-    <div class="flex items-center justify-between border-b px-4 py-3">
-      <h3 class="text-lg font-semibold">选择衣柜</h3>
+    <div class="flex items-center justify-between border-b border-gray-200/60 dark:border-gray-700 px-4 py-3 shrink-0">
+      <h3 class="text-lg font-semibold text-gray-900 dark:text-gray-100">选择衣柜</h3>
       <UButton color="gray" variant="ghost" icon="i-heroicons-x-mark" @click="closeModel" />
     </div>
 
-    <div class="p-4 space-y-4">
+    <div class="p-4 space-y-4 overflow-y-auto min-h-0 flex-1">
       <!-- 搜索框 -->
       <!-- <UInput v-model="keywords" placeholder="请输入关键词" icon="i-heroicons-magnifying-glass-20-solid"
         @keyup.enter="search" /> -->
@@ -67,15 +70,15 @@
         </div>
       </div>
     </div>
-  </UModal>
+    </div>
+  </QhxModal>
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
 import type { Wardrobe } from '~/types/api'
 import { getWardrobeList as apiGetWardrobeList } from '@/api/wardrobe'
 import type { WardrobeSearchParams } from '@/api/wardrobe'
-const user = useUserStore()
 const props = defineProps({
   needStatus: { type: Boolean, default: true },
   needHiddenTabbar: { type: Boolean, default: false },
@@ -85,7 +88,11 @@ const props = defineProps({
   needExamin: { type: Boolean, default: true },
   user_id: { type: Number, default: 0 }
 })
-const emit = defineEmits(['choose'])
+const emit = defineEmits<{
+  choose: [wards: Wardrobe[]]
+  /** 弹窗关闭（含点遮罩 / X），用于取消待处理的业务流程 */
+  close: []
+}>()
 
 const show = ref(false)
 const keywords = ref('')
@@ -100,11 +107,23 @@ const toast = useToast()
 
 const closeModel = () => {
   show.value = false
-  init()
 }
 const showModel = () => {
   show.value = true
 }
+
+watch(show, (open) => {
+  if (open) {
+    if (props.user_id) {
+      page.value = 1
+      listData.value = []
+      void getWardrobeList(1)
+    }
+    return
+  }
+  emit('close')
+  init()
+})
 
 const loadMore =async () => {
   
@@ -138,7 +157,8 @@ const formateExaminState = (state: number) => {
       return '永久拒绝'
   }
 }
-function deleteList(id: number) {
+function deleteList(id?: number) {
+  if (id == null) return
   choose_list.value = choose_list.value.filter((i) => i.wardrobe_id !== id)
 }
 
@@ -192,9 +212,6 @@ const getWardrobeList = async (initPage: number | undefined = undefined, initPag
     loading.value = false
   }
 }
-onMounted(() => {
-  getWardrobeList()
-})
 defineExpose({
   showModel
 })

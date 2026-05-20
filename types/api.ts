@@ -144,7 +144,8 @@ export interface Shop {
   shop_url?: string
   shop_describe?: string
   black_count?: number
-  
+  collect_count?: number
+
 }
 export interface PhysicalShop {
 	physical_id?: number
@@ -192,7 +193,8 @@ export interface WikiType {
 export interface FilterList {
   field: string
   op: string
-  value: string | number
+  /** 等值筛选，或区间对象（如图鉴价 library_price：`{ start, end }`） */
+  value: string | number | Record<string, unknown>
 }
 
 /** 图鉴 */
@@ -238,6 +240,12 @@ export interface Library {
   examin?: number;
   complete?: boolean;
 }
+
+/** 相似推荐列表项（与列表/详情 library 结构相近，可带 shop，额外相似度分越大越相似） */
+export interface LibrarySimilarItem extends Library {
+  similarity_score: number
+}
+
 /** 衣柜配置 */
 export interface WardrobeConfig {
   open_danmu?: number
@@ -299,6 +307,7 @@ export interface WardrobeClothes {
   size?: string
   add_time?: Date
   position?: string
+  /** 喜爱级别，0–5，0 表示无星级 */
   is_favorite?: number
   main_style?: string
   num?: number
@@ -363,6 +372,66 @@ export interface Favorite {
   favorite_pic?: string | null;
 }
 
+/** 用户收藏夹列表项（GET /favorite/list/visitor） */
+export interface FavoriteFolder {
+  id: number
+  favorite_name: string
+  favorite_pic?: string | null
+  favorite_desc?: string | null
+  collect_type?: number
+  collect_count?: number
+  create_time?: string
+  /** 0 公开 1 私有 */
+  is_private?: number
+}
+
+/** 收藏夹详情（GET /favorite/detail） */
+export interface FavoriteDetail extends FavoriteFolder {
+  user_id?: number
+  user_name?: string
+  times_count?: number
+  /** 与旧站一致：0 表示允许删除 */
+  able_delete?: number
+}
+
+/** 收藏夹内单条记录关联的图鉴摘要 */
+export interface CollectLibraryInfo {
+  library_id: number
+  name: string
+  cover?: string
+  square_cover?: string
+  library_pattern?: string
+  pattern?: string
+  library_type?: string
+  state?: string
+  shop_country?: number
+  price?: number | string
+  /** 列表接口可选返回，供收藏按钮展示 */
+  collect_count?: number
+  is_collect?: number
+}
+
+/** 收藏夹内单条记录关联的帖子摘要 */
+export interface CollectCommunityInfo {
+  community_id: number
+  title?: string
+  content?: string
+  user?: User
+  collect_count?: number
+  is_collect?: number
+  /** 帖子图列表，逗号分隔路径，与 Community 一致 */
+  img_list?: string | null
+  small_img_list?: string | null
+}
+
+/** 收藏夹内容列表项（POST /collect/list/visitor） */
+export interface CollectVisitorRow {
+  id: number
+  collect_type: number
+  create_time?: string
+  info?: CollectLibraryInfo | CollectCommunityInfo | null
+}
+
 /** 采集清单（collection_list） */
 export interface CollectionList {
   /** 主键 ID */
@@ -384,6 +453,17 @@ export interface CollectionList {
   url?: string
 }
 
+/**
+ * 帖子关联外键（community foreign）里的 `pk_type` 与业务实体对应：
+ * - 0 店铺
+ * - 1 实体店
+ * - 2 衣柜服饰
+ * - 3 搭配场景
+ * - 4 搭配清单
+ * - 5 合集考据
+ * - 6 茶会返图
+ * - 7 图鉴返图
+ */
 export interface CommunityForeign {
   community:Community
   community_fireign_id: number
@@ -391,8 +471,20 @@ export interface CommunityForeign {
   create_time: Date
   is_enable: number
   pk_id:number
+  /** 关联实体类型，取值见接口上方说明 */
   pk_type: number
   sort: number
+}
+
+/**
+ * 帖子详情接口 `foreign_list` 单项：`pk_type` 含义与 {@link CommunityForeign} 一致，
+ * 结构常与 {@link Library} 类似（封面、店铺、library_id / shop_id 等）。
+ */
+export type CommunityDetailForeignItem = Partial<Library> & {
+  pk_type: number
+  pk_id: number
+  title?: string | null
+  square_cover?: string | null
 }
 export interface Comment {
   bad_num:number
@@ -431,6 +523,7 @@ export interface Community {
   shop_list?: string | null
   collocation_list?: string | null
   clothes_id?: number
+  /** 社区内可见：0 正式居民可见，1 开放，2 仅自己可见 */
   is_open?: number
   video?: string | null
   date?: string              // ISO timestamp string
@@ -448,6 +541,8 @@ export interface Community {
   collect?: Collect
   community_hide?: CommunityHide
   sence_id?: number
+  /** 发帖关联的外部实体摘要列表（与 {@link CommunityDetailForeignItem} 对应） */
+  foreign_list?: CommunityDetailForeignItem[]
 }
 
 export interface UserDeco {
@@ -470,7 +565,8 @@ export interface User {
   avatar?: Avatar
   permission_list?: string[]
   email?: string
-  message_config?: Record<string, boolean>
+  /** 含邮件开关等布尔项，以及如 `home_page`（首页枚举）等非布尔配置 */
+  message_config?: Record<string, unknown>
   signature?: string
   province?: string | null
   city?: string | null

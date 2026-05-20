@@ -1,8 +1,16 @@
 <script setup lang="ts">
 import { ref, nextTick, watch, computed, onMounted, onUnmounted } from 'vue'
-import type { Library, Shop, Wardrobe, Scene, PlanList } from '~/types/api'
+import type { Library, Shop, Wardrobe, Scene, PlanList, WardrobeClothes } from '~/types/api'
 import { getShopOptiosns } from '@/api/shop'
-import { insertClothes, updateClothes, getClothesSharedList, getClothesDetail, addClothesCitation } from '@/api/wardrobe'
+import {
+  insertClothes,
+  updateClothes,
+  getClothesSharedList,
+  getClothesDetail,
+  addClothesCitation,
+  getWardrobeList,
+  insertWardrobe
+} from '@/api/wardrobe'
 import { debounce } from '@/utils/public'
 import { getPlanList } from '@/api/plan'
 import type LibraryChoose from '@/components/library/LibraryChoose.vue'
@@ -29,7 +37,6 @@ import customInput from './customInput.vue'
 const detailImageRef = ref<InstanceType<typeof QhxImagePicker> | null>(null)
 import { uploadImage } from '@/api';
 import { BASE_IMG } from '@/utils/ipConfig'
-import type { WardrobeClothes } from '@/types/api'
 
 // 扩展类型以包含详情页传递的数据
 interface ExtendedClothesItem extends Partial<WardrobeClothes> {
@@ -43,12 +50,24 @@ interface ExtendedClothesItem extends Partial<WardrobeClothes> {
   detail_image_list?: string[]
 }
 
-const emit = defineEmits(['success'])
+const props = withDefaults(
+  defineProps<{
+    /** 新增 / 复制时在表单内用 QhxSelect 选择衣柜；若无衣柜则自动创建「默认衣柜」 */
+    enableWardrobePicker?: boolean
+  }>(),
+  { enableWardrobePicker: false }
+)
+
+const emit = defineEmits<{
+  /** 服饰写入成功后把接口返回带给上层（用于 AI 对话回显等） */
+  success: [payload?: WardrobeClothes]
+}>()
 
 
 const qhxSelectRef = ref<InstanceType<typeof QhxSelect>>()
 const wikiOptionsChooseRef = ref<InstanceType<typeof WikiOptionsChoose> | null>(null)
 const clothesPartRef = ref<InstanceType<typeof QhxSelect>>()
+const wardrobeSelectRef = ref<InstanceType<typeof QhxSelect> | null>(null)
 const tagRef = ref<InstanceType<typeof customInput>>()
   const form = ref<{
   wardrobe_id: number | null
@@ -121,6 +140,8 @@ const openTag = (e: MouseEvent) => {
 const wardrobe = ref<Wardrobe | null>(null) // 衣柜信息
 const wardrobeStore = useWardrobeStore()
 const configStore = useConfigStore()
+const userStore = useUserStore()
+const toast = useToast()
 console.log(wardrobeStore, '衣柜配置')
 const wardrobe_status_defaults: optionsInterface[] = [
   { value: '已拥有', label: '已拥有' },
@@ -135,10 +156,22 @@ const show = ref(false)
 const loading = ref(false)
 const type = ref(0) // 0 添加 1 编辑
 const clickPosition = ref({ x: 0, y: 0 })
+/** enableWardrobePicker：下拉选项与缓存列表（表单内 QhxSelect） */
+const wardrobeSelectOptions = ref<optionsInterface[]>([])
+const wardrobeListCached = ref<Wardrobe[]>([])
 const showSceneChooseModal = ref(false)
 const sceneChooseClickPosition = ref({ x: 0, y: 0 })
 const plan = ref<PlanList | null>(null)
 const planAddEditClickPosition = ref({ x: 0, y: 0 })
+
+/** 编辑已有服饰时，计划弹窗预填关联服饰 */
+const planLinkedClothesPreset = computed((): WardrobeClothes | null => {
+  if (form.value.clothes_id == null) return null
+  return {
+    clothes_id: form.value.clothes_id,
+    clothes_note: form.value.clothes_note || undefined
+  }
+})
 
 // 新增服饰时，名称输入框聚焦时显示共享服饰列表
 const contentScrollRef = ref<HTMLElement | null>(null)
@@ -484,20 +517,90 @@ const chooseExistingScene = () => {
     }
   })
 }
-const showModel = async (item: ExtendedClothesItem | null, isCopy = false, event?: MouseEvent) => {
-  // 记录触发位置（如果有事件对象）
-  if (event) {
-    clickPosition.value = {
-      x: event.clientX,
-      y: event.clientY
-    }
-  } else {
-    // 默认位置：屏幕中心
-    clickPosition.value = {
-      x: window.innerWidth / 2,
-      y: window.innerHeight / 2
+async function ensureAtLeastOneWardrobe(uid: number) {
+  const res = await getWardrobeList({
+    user_id: uid,
+    page: 1,
+    pageSize: 99
+  })
+  const rows = res.rows ?? []
+  if (rows.length === 0) {
+    await insertWardrobe({ wardrobe_name: '默认衣柜' })
+  }
+}
+
+async function loadWardrobeSelectOptions(uid: number): Promise<boolean> {
+  await ensureAtLeastOneWardrobe(uid)
+  const res = await getWardrobeList({
+    user_id: uid,
+    page: 1,
+    pageSize: 99
+  })
+  const rows = [...(res.rows ?? [])].sort(
+    (a, b) => (Number(a.sort) || 0) - (Number(b.sort) || 0)
+  )
+  wardrobeListCached.value = rows
+  wardrobeSelectOptions.value = rows
+    .filter((w) => w.wardrobe_id != null)
+    .map((w) => ({
+      value: Number(w.wardrobe_id),
+      label: w.wardrobe_name?.trim() || `衣柜 #${w.wardrobe_id}`
+    }))
+  return wardrobeSelectOptions.value.length > 0
+}
+
+/** 无 item 时用列表第一项；有 item 时校验 wardrobe_id 是否在列表内 */
+function mergeItemWithDefaultWardrobe(
+  item: ExtendedClothesItem | null
+): ExtendedClothesItem | null {
+  const opts = wardrobeSelectOptions.value
+  if (!opts.length) return item
+  const firstOpt = opts[0]
+  const firstId = Number(firstOpt.value)
+  const firstRow = wardrobeListCached.value.find(
+    (w) => Number(w.wardrobe_id) === firstId
+  )
+
+  if (!item) {
+    return {
+      wardrobe_id: firstId,
+      wardrobe_name: firstRow?.wardrobe_name ?? String(firstOpt.label),
+      wardrobe: firstRow
     }
   }
+
+  const wid =
+    item.wardrobe_id != null ? Number(item.wardrobe_id) : Number.NaN
+  const valid =
+    Number.isFinite(wid) &&
+    opts.some((o) => Number(o.value) === wid)
+
+  if (valid) return item
+
+  return {
+    ...item,
+    wardrobe_id: firstId,
+    wardrobe_name: firstRow?.wardrobe_name ?? String(firstOpt.label),
+    wardrobe: firstRow ?? item.wardrobe
+  }
+}
+
+function onWardrobeSelectChanged(select: optionsInterface) {
+  form.value.wardrobe_id = Number(select.value)
+  const id = form.value.wardrobe_id
+  const row = wardrobeListCached.value.find((w) => Number(w.wardrobe_id) === id)
+  wardrobeName.value = row?.wardrobe_name?.trim() ?? select.label
+  wardrobe.value = row ?? null
+}
+
+function openWardrobeSelectPicker(e: MouseEvent) {
+  wardrobeSelectRef.value?.showPicker(e)
+}
+
+async function applyShowModelPayload(
+  item: ExtendedClothesItem | null,
+  isCopy: boolean
+) {
   // 初始化配置选项
   const config = configStore.config
   if (wardrobeStore.config) {
@@ -755,6 +858,66 @@ const showModel = async (item: ExtendedClothesItem | null, isCopy = false, event
   show.value = true
 }
 
+const showModel = async (
+  item: ExtendedClothesItem | null,
+  isCopy = false,
+  event?: MouseEvent
+) => {
+  if (event) {
+    clickPosition.value = {
+      x: event.clientX,
+      y: event.clientY
+    }
+  } else if (typeof window !== 'undefined') {
+    clickPosition.value = {
+      x: window.innerWidth / 2,
+      y: window.innerHeight / 2
+    }
+  }
+
+  const needsWardrobePick =
+    props.enableWardrobePicker && (isCopy || !item?.clothes_id)
+
+  if (needsWardrobePick) {
+    const uid = userStore.user?.user_id
+    if (uid == null || !Number.isFinite(Number(uid))) {
+      toast.add({
+        title: '请先登录',
+        color: 'amber',
+        icon: 'i-heroicons-information-circle'
+      })
+      return
+    }
+    if (!wardrobeStore.config) {
+      await wardrobeStore.getWardrobeConfig()
+    }
+    try {
+      const ok = await loadWardrobeSelectOptions(Number(uid))
+      if (!ok) {
+        toast.add({
+          title: '暂无可用衣柜',
+          description: '请稍后重试',
+          color: 'amber',
+          icon: 'i-heroicons-information-circle'
+        })
+        return
+      }
+      const merged = mergeItemWithDefaultWardrobe(item)
+      await applyShowModelPayload(merged, isCopy)
+    } catch {
+      toast.add({
+        title: '无法加载衣柜',
+        description: '请稍后重试',
+        color: 'red',
+        icon: 'i-heroicons-exclamation-circle'
+      })
+    }
+    return
+  }
+
+  await applyShowModelPayload(item, isCopy)
+}
+
 const showColorPicker = () => {
   if (ColorPickerRef.value) {
     ColorPickerRef.value.showModel()
@@ -776,6 +939,18 @@ const openCoverImageColorPicker = (e?: MouseEvent) => {
 const wardrobeName = ref('')
 const library = ref<Library | null>(null)
 const scene = ref<Scene | null>(null)
+
+/** 与 form.wardrobe_id 对齐，供 QhxSelect default-value */
+const wardrobeSelectDefault = computed(() => {
+  const opts = wardrobeSelectOptions.value
+  if (!opts.length) return null
+  const wid = form.value.wardrobe_id
+  if (wid != null && Number.isFinite(Number(wid))) {
+    const hit = opts.find((o) => Number(o.value) === Number(wid))
+    if (hit) return hit
+  }
+  return opts[0]
+})
 
 const showControl = ref({
   color_choose: false,
@@ -916,6 +1091,8 @@ const initData = () => {
 			scene.value = null
 			wardrobe.value = null
 			wardrobeName.value = ''
+			wardrobeSelectOptions.value = []
+			wardrobeListCached.value = []
 			origin_shop.value = undefined
 			plan.value = null
 			showClothesSharedPopover.value = false
@@ -1118,7 +1295,7 @@ const insert = async () => {
   if (type.value === 0) {
       insertClothes(params)
         .then((res) => {
-          emit('success')
+          emit('success', res)
           closeModel()
         })
         .finally(() => {
@@ -1128,7 +1305,7 @@ const insert = async () => {
       params.clothes_id = clothes_id
       updateClothes(params)
         .then((res) => {
-          emit('success')
+          emit('success', res)
           closeModel()
         })
         .finally(() => {
@@ -1181,10 +1358,39 @@ defineExpose({
       <!-- 内容区域 -->
       <div ref="contentScrollRef" class="flex-1 overflow-y-auto p-6 space-y-6 scrollbar-thin scrollbar-thumb-gray-300 dark:scrollbar-thumb-gray-600 scrollbar-track-transparent">
 
-        <!-- 衣柜名称 -->
+        <!-- 衣柜：表单内选择（enableWardrobePicker + 新增）或只读名称 -->
         <div class="grid grid-cols-12 gap-4 items-center p-4 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-gray-700/50 dark:to-gray-700/30 rounded-xl border border-blue-100 dark:border-gray-600">
-          <div class="col-span-3 font-semibold text-gray-700 dark:text-gray-300">衣柜名称</div>
-          <div class="col-span-9 text-gray-900 dark:text-gray-100 font-medium">{{ wardrobeName }}</div>
+          <div class="col-span-3 font-semibold text-gray-700 dark:text-gray-300">
+            {{ enableWardrobePicker && type === 0 ? '衣柜' : '衣柜名称' }}
+          </div>
+          <div class="col-span-9 space-y-2">
+            <template v-if="enableWardrobePicker && type === 0 && wardrobeSelectOptions.length">
+              <div class="flex flex-wrap items-center gap-2">
+                <span class="font-medium text-gray-900 dark:text-gray-100">{{ wardrobeName || '请选择衣柜' }}</span>
+                <UButton
+                  type="button"
+                  size="xs"
+                  class="bg-qhx-primary text-qhx-inverted hover:bg-qhx-primaryHover"
+                  @click="openWardrobeSelectPicker($event)"
+                >
+                  选择衣柜
+                </UButton>
+              </div>
+              <QhxSelect
+                ref="wardrobeSelectRef"
+                :options="wardrobeSelectOptions"
+                :default-value="wardrobeSelectDefault ?? undefined"
+                :can-customize="false"
+                @select="onWardrobeSelectChanged"
+              />
+            </template>
+            <div
+              v-else
+              class="font-medium text-gray-900 dark:text-gray-100"
+            >
+              {{ wardrobeName }}
+            </div>
+          </div>
         </div>
 
         <!-- 主要信息板块 -->
@@ -1896,6 +2102,8 @@ defineExpose({
       ref="PlanAddEditRef"
       :plan-list="plan"
       :initial-need-money="form.price || 0"
+      :enable-link-clothes="type === 1 ? true : false"
+      :linked-clothes="planLinkedClothesPreset"
       @insert="onPlanInsert"
       @updated="onPlanUpdated"
     />

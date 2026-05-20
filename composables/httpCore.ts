@@ -40,17 +40,24 @@ function handleRequest(options: RequestOptions) {
 // 响应拦截器
 async function handleResponse<T>(response: any): Promise<T> {
   if (response.code !== 200) {
-    const toast = useToast()
     console.log(response, '返回参数')
     if (response.code === 401) {
-      if (typeof window !== 'undefined' && useUserStore) {
-        const userStore = useUserStore()
-        // userStore.clearUserInfo()
+      if (typeof window !== 'undefined') {
+        try {
+          useUserStore().clearToken()
+          /** clearToken 内会 reload；若未执行到则兜底 */
+        } catch {
+          window.location.reload()
+        }
       }
+      throw new Error(
+        response.message || response.msg || '登录已失效，请重新登录'
+      )
     }
+    const toast = useToast()
     toast.add({
       title: '错误',
-      description: response.message || response.msg  || '操作失败，请重试',
+      description: response.message || response.msg || '操作失败，请重试',
       icon: 'i-heroicons-exclamation-circle',
       color: 'red'
     })

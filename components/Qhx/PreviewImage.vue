@@ -29,7 +29,8 @@ const load = () => {
       @load="load"
       :class="props.className ? `${props.className}` : ''"
       loading="lazy"><slot></slot></img>
-  <vue-easy-lightbox
+  <ClientOnly>
+    <vue-easy-lightbox
       :visible="visible"
       :imgs="preview && preview.length > 0 ? preview.map(item => {
         if (typeof item === 'string') {
@@ -45,6 +46,7 @@ const load = () => {
       :maxZoom="5"
       @hide="visible = false"
     />
+  </ClientOnly>
 </template>
 
 <style scoped>

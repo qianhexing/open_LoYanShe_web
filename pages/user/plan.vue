@@ -1,5 +1,12 @@
 <template>
-  <div class="container mx-auto p-2 pb-20 max-w-4xl">
+  <div class="relative min-h-screen w-full overflow-x-hidden">
+    <div
+      v-if="configStore.statusBarHeight > 0"
+      class="shrink-0"
+      :style="{ height: `${configStore.statusBarHeight}px` }"
+      aria-hidden="true"
+    />
+    <div class="container mx-auto p-2 pb-20 max-w-4xl">
     <!-- 统计卡片区域 -->
     <div ref="statisticsRef" v-if="layoutReady && statistics" class="mb-4">
       <div class="bg-gray-900 dark:bg-gray-800 rounded-lg p-2.5 border border-gray-800 dark:border-gray-700">
@@ -44,7 +51,11 @@
     </div>
 
     <!-- 功能栏 -->
-    <div v-if="layoutReady && userStore.user" class="flex justify-between items-center sticky top-[10px] z-10 mb-4">
+    <div
+      v-if="layoutReady && userStore.user"
+      class="flex justify-between items-center sticky z-10 mb-4"
+      :style="{ top: `${10 + (configStore.statusBarHeight || 0)}px` }"
+    >
       <div class="flex flex-wrap items-center gap-2">
         <QhxJellyButton>
           <!-- h-[40px] -->
@@ -461,6 +472,7 @@
 
   <!-- 选择衣柜服饰弹框 -->
   <WardrobeClothesChoose ref="wardrobeClothesChooseRef" @choose="handleClothesChoose" />
+  </div>
 </template>
 
 <script setup lang="ts">

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { CameraState, SceneObjectJSON, SceneJSON } from '@/utils/threeCore';
+import type ThreeCore from '@/utils/threeCore';
 import * as THREE from 'three';
 import { updateScene, insertScene, getSceneId } from '@/api/scene'
 import type { Community, Effect, Library, Material, Scene, TemplateInterface } from '@/types/api'
@@ -367,7 +368,7 @@ const canTexture = computed(() => {
     let flag = false
     if (clickObject.value && clickObject.value.length > 0) {
         clickObject.value[0].traverse((child) => {
-            if (child.name.includes('replace')) {
+            if (child instanceof THREE.Mesh && child.name.includes('replace')) {
                 flag = true
             }
         })
@@ -377,6 +378,16 @@ const canTexture = computed(() => {
 
 const MaterialRef = ref<InstanceType<typeof SceneMaterial> | null>(null)
 const SceneTextureEditorRef = ref<InstanceType<typeof SceneTextureEditor> | null>(null)
+
+/** 贴图编辑器默认底图：与根容器背景一致，纯色 color: 不设底图；兼容已是绝对 URL */
+const textureEditorDefaultImageUrl = computed(() => {
+    const bg = threeCore.value?.background
+    if (!bg || typeof bg !== 'string') return ''
+    const trimmed = bg.trim()
+    if (!trimmed || trimmed.startsWith('color:')) return ''
+    if (/^https?:\/\//i.test(trimmed)) return trimmed
+    return `${BASE_IMG}${trimmed.replace(/^\//, '')}`
+})
 
 const route = useRoute()
 /** 从站内 iframe 嵌入打开（如 /scene/detail/x?from_iframe=true）时隐藏发帖/分享浮层 */
@@ -391,7 +402,7 @@ const token = ref<string | null>(null) // 传入的token
 const toast = useToast()
 const userStore = useUserStore()
 const clickPosition = ref({ x: 0, y: 0 })
-const target: Ref<THREE.Object3D | null> = ref(null)
+const target: Ref<THREE.Mesh | null> = ref(null)
 const transformType = ref('translate')
 const showToolbar = ref(true) // 控制工具栏显示/隐藏
 // 六个独立的悬浮列表展开状态，互不联动，但同时只展开一个
@@ -401,6 +412,115 @@ const sceneListExpanded = ref(false)
 const effectListExpanded = ref(false)
 const templateListExpanded = ref(false)
 const customListExpanded = ref(false)
+/** 左侧「贴图」面板（动画下方）：列出所有名称含 replace 的可替换 Mesh */
+const textureListExpanded = ref(false)
+
+/** 遍历场景顶层子树，收集全部可替换贴图网格（与悬浮条「贴图」判定一致） */
+function collectReplaceTextureMeshes(scene: THREE.Scene): THREE.Mesh[] {
+    const meshes: THREE.Mesh[] = []
+    for (const child of scene.children) {
+        child.traverse((obj) => {
+            if (obj instanceof THREE.Mesh && obj.name.includes('replace')) {
+                meshes.push(obj)
+            }
+        })
+    }
+    return meshes
+}
+
+function getSceneTopLevelRoot(obj: THREE.Object3D, scene: THREE.Scene): THREE.Object3D | null {
+    let cur: THREE.Object3D | null = obj
+    while (cur?.parent && cur.parent !== scene) {
+        cur = cur.parent
+    }
+    return cur && cur.parent === scene ? cur : null
+}
+
+function textureReplaceableModelLabel(root: THREE.Object3D): string {
+    const u = root.userData as Record<string, unknown>
+    const title = u?.title
+    if (typeof title === 'string' && title.trim()) return title.trim()
+    const name = root.name?.trim()
+    if (name) return name
+    return `模型 ${root.uuid.slice(0, 8)}`
+}
+
+function textureReplaceableMeshLabel(mesh: THREE.Mesh): string {
+    const scene = threeCore.value?.scene
+    const meshLabel = mesh.name.trim() || 'replace'
+    if (!scene) return meshLabel
+    const root = getSceneTopLevelRoot(mesh, scene)
+    if (!root || root === mesh) return meshLabel
+    return `${textureReplaceableModelLabel(root)} · ${meshLabel}`
+}
+
+const textureSceneScanRev = ref(0)
+const textureReplaceableMeshes = shallowRef<THREE.Mesh[]>([])
+
+function bumpTextureReplaceableScan() {
+    textureSceneScanRev.value++
+}
+
+watchEffect(() => {
+    textureSceneScanRev.value
+    if (!(edit_mode.value || add_mode.value)) {
+        textureReplaceableMeshes.value = []
+        return
+    }
+    const scene = threeCore.value?.scene
+    if (!scene) {
+        textureReplaceableMeshes.value = []
+        return
+    }
+    textureReplaceableMeshes.value = collectReplaceTextureMeshes(scene)
+})
+
+watch(
+    () => sceneStore.loading,
+    (loading, prevLoading) => {
+        if (prevLoading === true && loading === false) {
+            bumpTextureReplaceableScan()
+        }
+    }
+)
+
+/** 等待 v-if 子组件挂载/卸载后与画布 ref 对齐 */
+async function flushTextureEditorMount() {
+    await nextTick()
+    await nextTick()
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+}
+
+/**
+ * 打开贴图编辑器：若当前已打开则先关闭（卸载组件），再挂载目标 mesh 并 showModel，避免同实例残留
+ */
+async function openTextureEditorForMesh(mesh: THREE.Mesh) {
+    if (target.value) {
+        target.value = null
+        await flushTextureEditorMount()
+    }
+    target.value = mesh
+    await flushTextureEditorMount()
+    SceneTextureEditorRef.value?.showModel()
+}
+
+/** 选中列表中的 replace Mesh：聚焦其所属顶层模型并打开贴图编辑器（编辑目标为该 Mesh） */
+async function pickReplaceMeshFromTextureToolbar(mesh: THREE.Mesh) {
+    const core = threeCore.value
+    if (!core || !(edit_mode.value || add_mode.value)) return
+
+    const root = getSceneTopLevelRoot(mesh, core.scene)
+    if (!root) return
+
+    core.transformControls.attach(root)
+    core.showbloom = false
+    clickObject.value = [root]
+    operaPosition.value = core.screenPositionFromObject(root)
+    core.lookAtSelectObj([root])
+
+    await openTextureEditorForMesh(mesh)
+}
+
 const layoutReady = inject('layoutReady') as Ref<boolean>
 if (route.query?.edit) {
     edit_mode.value = true
@@ -429,20 +549,18 @@ const editDiary = () => {
     }
 }
 const showTexture = async () => {
-    if (!target.value && clickObject.value && clickObject.value.length > 0) {
-        clickObject.value[0].traverse((child) => {
-            if (child.name.includes('replace')) {
-                target.value = child
-            }
-        })
-    }
+    // 始终按当前选中物体解析 replace 网格，避免上次编辑遗留的 target 导致换物体后贴图不回显
+    if (!clickObject.value || clickObject.value.length === 0) return
 
-    if (target.value) {
-        await nextTick()
-        if (SceneTextureEditorRef.value) {
-            SceneTextureEditorRef.value.showModel()
+    let found: THREE.Mesh | null = null
+    clickObject.value[0].traverse((child) => {
+        if (child instanceof THREE.Mesh && child.name.includes('replace')) {
+            found = child
         }
-    }
+    })
+    if (!found) return
+
+    await openTextureEditorForMesh(found)
 }
 const copyModel = async () => {
     if (!threeCore.value) return
@@ -454,6 +572,7 @@ const copyModel = async () => {
                     threeCore.value.setOptionsModel(mesh, clickObject.value[0].userData.options)
                 }
                 threeCore.value.scene.add(mesh)
+                bumpTextureReplaceableScan()
             }
         }
     }
@@ -478,6 +597,7 @@ const deleteModel = () => {
         clickObject.value = null
         threeCore.value.transformControls.detach()
         threeCore.value.showbloom = true
+        bumpTextureReplaceableScan()
     }
 }
 const handleClickDiary = (e: MouseEvent, item: DiaryInterface) => {
@@ -562,6 +682,7 @@ const showMaterial = () => {
     effectListExpanded.value = false
     templateListExpanded.value = false
     customListExpanded.value = false
+    textureListExpanded.value = false
     if (!wasExpanded) materialListExpanded.value = true
 }
 const showClothing = () => {
@@ -572,6 +693,7 @@ const showClothing = () => {
     effectListExpanded.value = false
     templateListExpanded.value = false
     customListExpanded.value = false
+    textureListExpanded.value = false
     if (!wasExpanded) clothingListExpanded.value = true
 }
 const showScene = () => {
@@ -582,6 +704,7 @@ const showScene = () => {
     effectListExpanded.value = false
     templateListExpanded.value = false
     customListExpanded.value = false
+    textureListExpanded.value = false
     if (!wasExpanded) sceneListExpanded.value = true
 }
 const showEffect = () => {
@@ -592,6 +715,7 @@ const showEffect = () => {
     effectListExpanded.value = false
     templateListExpanded.value = false
     customListExpanded.value = false
+    textureListExpanded.value = false
     if (!wasExpanded) effectListExpanded.value = true
 }
 const showTemplate = () => {
@@ -602,6 +726,7 @@ const showTemplate = () => {
     effectListExpanded.value = false
     templateListExpanded.value = false
     customListExpanded.value = false
+    textureListExpanded.value = false
     if (!wasExpanded) templateListExpanded.value = true
 }
 const showCustom = () => {
@@ -612,7 +737,19 @@ const showCustom = () => {
     effectListExpanded.value = false
     templateListExpanded.value = false
     customListExpanded.value = false
+    textureListExpanded.value = false
     if (!wasExpanded) customListExpanded.value = true
+}
+const showTextureList = () => {
+    const wasExpanded = textureListExpanded.value
+    materialListExpanded.value = false
+    clothingListExpanded.value = false
+    sceneListExpanded.value = false
+    effectListExpanded.value = false
+    templateListExpanded.value = false
+    customListExpanded.value = false
+    textureListExpanded.value = false
+    if (!wasExpanded) textureListExpanded.value = true
 }
 
 const showSettings = ref(false)
@@ -1264,6 +1401,7 @@ const clearTemplate = () => {
         })
         threeCore.value.loadTemplate = []
     }
+    bumpTextureReplaceableScan()
 }
 const recordCamera = () => {
     if (!threeCore.value) return
@@ -1308,6 +1446,7 @@ const chooseMaterial = async (item: Material) => {
         // });
 
         threeCore.value.scene.add(mesh)
+        bumpTextureReplaceableScan()
     } else if (item.pk_type === 3) {
         sceneStore.setLoading(true)
         try {
@@ -1450,38 +1589,140 @@ const chooseMaterial = async (item: Material) => {
         }
     }
 }
-const chooseTemplate = async (item: TemplateInterface) => {
-    if (!threeCore.value) return
-    if (threeCore.value.loadTemplate.length > 0) {
-        // biome-ignore lint/complexity/noForEach: <explanation>
-        threeCore.value.loadTemplate.forEach((child) => {
-            threeCore.value!.clearGroup(child)
-        })
-        threeCore.value.loadTemplate = []
+/** 选择模版后先展示确认弹窗，确认后再写入场景 */
+const showTemplateConfirmModal = ref(false)
+const pendingTemplateItem = ref<TemplateInterface | null>(null)
+const templateConfirmLoading = ref(false)
+
+/**
+ * 是否允许加载该模版（预留：后续可接入会员、购买、限免等校验）
+ * @returns true 表示可加载
+ */
+const canUseTemplate = (_item: TemplateInterface): boolean => {
+    return true
+}
+
+const pendingTemplateCoverUrl = computed(() => {
+    const item = pendingTemplateItem.value
+    if (!item) {
+        return ''
     }
-    if (item.json_data) {
-        const group = await threeCore.value.loadSceneFromJSON(item.json_data, true)
-        if (group) {
-            group.userData.type = 'template'
-            group.userData.template_id = item.template_id
-            group.userData.ignorePick = true
-            threeCore.value.scene.add(group)
-            threeCore.value.loadTemplate.push(group)
-        }
-    } else if (item.json_url) {
-        use$Get(`/sence/json/${item.json_url}.json?2`, undefined, { baseURL: BASE_IMG })
-            .then(async (res) => {
-                const group = await threeCore.value!.loadSceneFromJSON(res, true)
-                if (group) {
-                    group.userData.type = 'template'
-                    group.userData.template_id = item.template_id
-                    group.userData.ignorePick = true
-                    threeCore.value!.scene.add(group)
-                    threeCore.value!.loadTemplate.push(group)
-                }
-            })
+    return `${BASE_IMG}${item.cover || 'static/plan_cover/default.jpg'}`
+})
+
+const pendingTemplatePriceLabel = computed(() => {
+    const item = pendingTemplateItem.value
+    if (!item) {
+        return ''
+    }
+    if (item.is_free) {
+        return '免费'
+    }
+    if (item.price > 0) {
+        return `¥${item.price}`
+    }
+    return '付费'
+})
+
+const chooseTemplate = (item: TemplateInterface) => {
+    if (!threeCore.value) {
+        return
+    }
+    pendingTemplateItem.value = item
+    showTemplateConfirmModal.value = true
+}
+
+/**
+ * 将 loadSceneFromJSON(..., true) 返回的临时 Group 拆开：每个根子节点单独加入场景并记入 loadTemplate
+ */
+const addFlattenedTemplateFromGroup = (
+    core: ThreeCore,
+    group: THREE.Group,
+    templateId: number
+) => {
+    const roots = [...group.children]
+    for (const obj of roots) {
+        obj.userData.type = 'template'
+        obj.userData.template_id = templateId
+        obj.userData.ignorePick = true
+        core.scene.add(obj)
+        core.loadTemplate.push(obj)
     }
 }
+
+/** 将模版 JSON 载入当前场景（不包含弹窗与权限校验） */
+const applyTemplateToScene = async (item: TemplateInterface) => {
+    const core = threeCore.value
+    if (!core) {
+        return
+    }
+    if (core.loadTemplate.length > 0) {
+        // biome-ignore lint/complexity/noForEach: <explanation>
+        core.loadTemplate.forEach((child) => {
+            core.clearGroup(child)
+        })
+        core.loadTemplate = []
+    }
+    if (item.json_data) {
+        const group = await core.loadSceneFromJSON(item.json_data, true)
+        if (group) {
+            addFlattenedTemplateFromGroup(core, group, item.template_id)
+        }
+    } else if (item.json_url) {
+        const res = await use$Get(`/sence/json/${item.json_url}.json?2`, undefined, {
+            baseURL: BASE_IMG
+        })
+        const group = await core.loadSceneFromJSON(res, true)
+        if (group) {
+            addFlattenedTemplateFromGroup(core, group, item.template_id)
+        }
+    } else {
+        throw new Error('NO_TEMPLATE_DATA')
+    }
+}
+
+const confirmLoadPendingTemplate = async () => {
+    const item = pendingTemplateItem.value
+    if (!item || !threeCore.value) {
+        return
+    }
+    if (!canUseTemplate(item)) {
+        toast.add({
+            title: '无法加载',
+            description: '您当前无权使用该模版',
+            icon: 'i-heroicons-exclamation-circle',
+            color: 'amber'
+        })
+        return
+    }
+    templateConfirmLoading.value = true
+    try {
+        await applyTemplateToScene(item)
+        showTemplateConfirmModal.value = false
+    } catch (e) {
+        const msg =
+            e instanceof Error && e.message === 'NO_TEMPLATE_DATA'
+                ? '该模版缺少场景数据'
+                : '模版加载失败，请稍后重试'
+        toast.add({
+            title: '加载失败',
+            description: msg,
+            icon: 'i-heroicons-exclamation-circle',
+            color: 'red'
+        })
+    } finally {
+        templateConfirmLoading.value = false
+        bumpTextureReplaceableScan()
+    }
+}
+
+watch(showTemplateConfirmModal, (open) => {
+    if (!open) {
+        templateConfirmLoading.value = false
+        pendingTemplateItem.value = null
+    }
+})
+
 const jumpToCommunity = (item: Community) => {
     const isInUniApp =
         typeof window !== 'undefined' &&
@@ -1766,6 +2007,7 @@ const handleUndo = () => {
     if (!threeCore.value || !canUndo.value) return
     const ok = performUndo(threeCore.value.scene)
     if (ok) {
+        bumpTextureReplaceableScan()
         toast.add({ title: '已撤销', icon: 'i-heroicons-arrow-uturn-left' })
     }
 }
@@ -1790,6 +2032,7 @@ const initThreejs = async () => {
             enableRaycaster: hasSplatObject
         })
         rehydrateSceneCharacterControllers()
+        bumpTextureReplaceableScan()
 
         // 场景加载完成后，灯光配置已经在 loadSceneFromJSON 中自动应用了
         // 如果没有保存的灯光配置，使用默认预设
@@ -1824,8 +2067,8 @@ const initThreejs = async () => {
             transformUndoListeners.value = { onMouseDown, onMouseUp }
         }
 
-        // 如果是编辑模式，添加坐标系和无限地面
-        if (threeCore.value && edit_mode.value && false) {
+        // 如果是编辑模式，添加坐标系和无限地面网格
+        if (threeCore.value && edit_mode.value) {
             // 添加坐标系（AxesHelper）
             const axesHelper = new THREE.AxesHelper(10) // 5 个单位长度
             axesHelper.userData.ignorePick = true // 不参与拾取
@@ -1836,7 +2079,7 @@ const initThreejs = async () => {
             const gridHelper = new InfiniteGridHelper(
                 1,  // size1 - 次要网格线大小
                 5,  // size2 - 主要网格线大小
-                new THREE.Color(0xcfd3dc),  // color - 网格颜色
+                new THREE.Color(0x000000), // color - 网格颜色（黑线）
                 30, // distance - 淡出距离（30 会让淡出效果更好）
                 'xzy' // axes - 轴方向（xzy 表示在 XZ 平面上）
             )
@@ -1981,7 +2224,7 @@ useHead({
         </div>
 
         <SceneTextureEditor ref="SceneTextureEditorRef" v-if="target" :target="target"
-            :image-url="BASE_IMG + threeCore?.background" @close="target = null" />
+            :image-url="textureEditorDefaultImageUrl" @close="target = null" />
 
         <!-- 左侧功能栏：仅编辑工具；「动画」见下方独立块，交互与右侧素材/特效等一致 -->
         <div
@@ -1990,20 +2233,23 @@ useHead({
         >
             <button
                 type="button"
-                class="shrink-0 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700/50 transition-colors"
-                :class="showToolbar ? 'flex items-center justify-center gap-1.5 py-2 px-2 border-b border-gray-100 dark:border-gray-600' : 'flex flex-col items-center justify-center min-h-[52px] w-full py-2'"
+                class="shrink-0 flex w-full flex-col items-center justify-center gap-0.5 py-2 px-1 text-gray-600 transition-colors hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700/50"
+                :class="showToolbar ? 'border-b border-gray-100 dark:border-gray-600' : 'min-h-[52px]'"
                 :title="showToolbar ? '收起' : '展开'"
                 @click="showToolbar = !showToolbar"
             >
                 <UIcon
-                    :name="showToolbar ? 'material-symbols:chevron-left' : 'material-symbols:menu'"
+                    :name="showToolbar ? 'material-symbols:chevron-right' : 'material-symbols:menu'"
                     class="text-xl sm:text-2xl transition-transform"
                 />
+                <span class="text-center text-[9px] font-medium leading-tight text-gray-700 dark:text-gray-200">
+                    {{ showToolbar ? '收起' : '展开' }}
+                </span>
             </button>
             <!-- 内容区用 max-h 过渡实现流畅收起，不使用 v-show 避免瞬间消失 -->
             <div
                 class="overflow-hidden transition-[max-height] duration-300 ease-in-out"
-                :class="showToolbar ? 'max-h-[calc(75vh-52px)]' : 'max-h-0'"
+                :class="showToolbar ? 'max-h-[calc(75vh-64px)]' : 'max-h-0'"
             >
                 <div class="overflow-y-auto overscroll-contain p-1.5 space-y-1.5 scrollbar-hide">
                     <!-- 保存 -->
@@ -2166,16 +2412,18 @@ useHead({
         >
             <button
                 type="button"
-                class="shrink-0 text-violet-600 transition-colors dark:text-violet-400 hover:bg-violet-50 dark:hover:bg-gray-700/50"
-                :class="roleAnimationListExpanded ? 'border-b border-gray-100 dark:border-gray-600 flex items-center justify-center gap-1.5 py-2 px-2' : 'min-h-[52px] block leading-[14px] py-2 px-2 text-center'"
+                class="shrink-0 text-violet-600 transition-colors hover:bg-violet-50 dark:text-violet-400 dark:hover:bg-gray-700/50"
+                :class="roleAnimationListExpanded
+                    ? 'flex flex-row items-center justify-center gap-1.5 border-b border-gray-100 py-2 px-2 dark:border-gray-600'
+                    : 'flex min-h-[52px] flex-col items-center justify-center gap-1 py-2 px-2'"
                 :title="roleAnimationListExpanded ? '收起列表' : '展开列表'"
                 @click="showRoleAnimation()"
             >
                 <UIcon
-                    :name="roleAnimationListExpanded ? 'material-symbols:chevron-left' : 'material-symbols:animation-rounded'"
+                    :name="roleAnimationListExpanded ? 'material-symbols:chevron-right' : 'material-symbols:animation-rounded'"
                     class="text-xl transition-transform sm:text-2xl"
                 />
-                <span class="text-xs font-medium sm:inline">动画</span>
+                <span class="text-center text-xs font-medium leading-tight">动画</span>
             </button>
             <div
                 v-show="roleAnimationListExpanded"
@@ -2213,6 +2461,60 @@ useHead({
                 >
                     暂无角色。请添加「角色示例」或带 characterType 的自定义素材。
                 </p>
+            </div>
+        </div>
+
+        <!-- 贴图：左侧动画下方；列出可替换 Mesh，角标为可替换数量 -->
+        <div
+            v-if="edit_mode || add_mode"
+            class="fixed left-0 z-[20] flex flex-col rounded-r-xl bg-white/95 shadow-lg backdrop-blur-sm border border-gray-200/50 dark:bg-gray-800/95 dark:border-gray-600/50 overflow-hidden transition-all duration-300 ease-out"
+            :class="textureListExpanded
+                ? 'top-1/2 -translate-y-1/2 h-[62vh] w-[170px] sm:w-[190px] md:w-[210px] z-[30]'
+                : 'top-[calc(50%+124px)] -translate-y-1/2 h-[52px] w-[44px] sm:w-[48px]'"
+        >
+            <button
+                type="button"
+                class="shrink-0 text-amber-600 transition-colors hover:bg-amber-50 dark:text-amber-400 dark:hover:bg-gray-700/50"
+                :class="textureListExpanded
+                    ? 'flex flex-row items-center justify-center gap-1.5 border-b border-gray-100 py-2 px-2 dark:border-gray-600'
+                    : 'flex min-h-[52px] flex-col items-center justify-center gap-1 py-2 px-2'"
+                :title="textureListExpanded ? '收起列表' : '展开列表'"
+                @click="showTextureList()"
+            >
+                <span class="relative inline-flex shrink-0">
+                    <UIcon
+                        :name="textureListExpanded ? 'material-symbols:chevron-right' : 'material-symbols:texture-rounded'"
+                        class="text-xl transition-transform sm:text-2xl"
+                    />
+                    <span
+                        v-if="textureReplaceableMeshes.length > 0"
+                        class="absolute -right-1.5 -top-1 flex h-[18px] min-w-[18px] translate-x-px items-center justify-center rounded-full bg-amber-500 px-0.5 text-[10px] font-bold leading-none text-white shadow-sm ring-2 ring-white dark:ring-gray-800"
+                    >
+                        {{ textureReplaceableMeshes.length > 99 ? '99+' : textureReplaceableMeshes.length }}
+                    </span>
+                </span>
+                <span class="text-center text-xs font-medium leading-tight">贴图</span>
+            </button>
+            <div
+                v-show="textureListExpanded"
+                class="min-h-0 h-0 flex-1 space-y-1.5 overflow-y-auto overscroll-contain p-2"
+            >
+                <p
+                    v-if="textureReplaceableMeshes.length === 0"
+                    class="text-[10px] leading-relaxed text-gray-400 px-0.5"
+                >
+                    场景中暂无可替换贴图网格（名称需包含 replace）。
+                </p>
+                <button
+                    v-for="m in textureReplaceableMeshes"
+                    :key="m.uuid"
+                    type="button"
+                    class="w-full truncate rounded-lg bg-amber-50/90 dark:bg-amber-900/25 hover:bg-amber-100/90 dark:hover:bg-amber-900/40 border border-amber-200/60 dark:border-amber-800/50 px-2 py-1.5 text-left text-[11px] text-amber-900 dark:text-amber-100 transition-colors active:scale-[0.98]"
+                    :title="textureReplaceableMeshLabel(m)"
+                    @click="pickReplaceMeshFromTextureToolbar(m)"
+                >
+                    {{ textureReplaceableMeshLabel(m) }}
+                </button>
             </div>
         </div>
 
@@ -2554,6 +2856,56 @@ useHead({
                     @click="editDiary()">
                     保存修改
                 </UButton>
+            </div>
+        </QhxModal>
+        <QhxModal
+            v-model="showTemplateConfirmModal"
+            :close-on-backdrop="!templateConfirmLoading"
+        >
+            <div
+                v-if="pendingTemplateItem"
+                class="w-[min(92vw,420px)] max-h-[min(85vh,640px)] flex flex-col overflow-hidden rounded-[12px] bg-white shadow-lg dark:bg-gray-800"
+            >
+                <div class="relative w-full shrink-0 bg-gray-100 dark:bg-gray-900">
+                    <img
+                        :src="pendingTemplateCoverUrl"
+                        :alt="pendingTemplateItem.title"
+                        class="max-h-[220px] w-full object-cover"
+                        loading="lazy"
+                    />
+                </div>
+                <div class="min-h-0 flex-1 overflow-y-auto p-4">
+                    <h3 class="text-base font-semibold text-gray-900 dark:text-gray-100">
+                        {{ pendingTemplateItem.title }}
+                    </h3>
+                    <div class="mt-3 space-y-2 text-sm text-gray-600 dark:text-gray-300">
+                        <div class="flex justify-between gap-2">
+                            <span class="shrink-0 text-gray-500 dark:text-gray-400">风格</span>
+                            <span class="text-right">{{ pendingTemplateItem.main_style || '—' }}</span>
+                        </div>
+                        <div class="flex justify-between gap-2">
+                            <span class="shrink-0 text-gray-500 dark:text-gray-400">类型</span>
+                            <span class="text-right">{{ pendingTemplateItem.pk_type }}</span>
+                        </div>
+                        <!-- <div class="flex justify-between gap-2">
+                            <span class="shrink-0 text-gray-500 dark:text-gray-400">定价</span>
+                            <span class="text-right font-medium text-qhx-primary">{{ pendingTemplatePriceLabel }}</span>
+                        </div> -->
+                    </div>
+                </div>
+                <div
+                    class="shrink-0 border-t border-gray-100 bg-white p-4 dark:border-gray-700 dark:bg-gray-800"
+                >
+                    <UButton
+                        block
+                        class="bg-qhx-primary text-qhx-inverted hover:bg-qhx-primaryHover justify-center"
+                        :loading="templateConfirmLoading"
+                        :disabled="templateConfirmLoading"
+                        @click="confirmLoadPendingTemplate"
+                    >
+                        确认加载模版
+                    </UButton>
+                </div>
             </div>
         </QhxModal>
         <Transition :name="`drawer-${isMobile ? 'bottom' : 'right'}`">

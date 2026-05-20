@@ -54,9 +54,9 @@
                 :min-height="300"
                 :max-height="400"
                 :enable-image-upload="true"
-                :enable-topic="true"
+                :enable-topic="false"
                 :enable-emoji="true"
-                :enable-mention="true"
+                :enable-mention="false"
                 ref="richTextEditorRef"
               />
             </div>

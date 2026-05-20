@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import type { Library, PaginationResponse, Shop, LibraryVideo, LibraryPipe } from '@/types/api';
-import { getLibraryDetail, getLibraryList, getLibraryVideo, getLibraryPipeListAll } from '@/api/library'
+import type { Library, LibrarySimilarItem, PaginationResponse, Shop, LibraryVideo, LibraryPipe, Community } from '@/types/api';
+import { getLibraryDetail, getLibraryList, getLibraryVideo, getLibraryPipeListAll, getLibrarySimilar } from '@/api/library'
 import html2canvas from 'html2canvas';
 import QhxTag from '~/components/Qhx/Tag.vue';
 import type { image } from 'html2canvas/dist/types/css/types/image';
@@ -13,10 +13,25 @@ import dayjs from 'dayjs'
 import PhysicsDrop from '@/components/PhysicsDrop.client.vue'
 import { getWikiDetail, type WikiDetailParams } from '@/api/wiki'
 import SPZModelViewer from '@/components/ModelViewer/SPZModelViewer.vue'
+import { insertCommunityForeign } from '@/api/community'
+import type { CommunityPostForeignContext } from '@/utils/communityPost'
 const user = useUserStore()
 const config = useConfigStore()
 const route = useRoute()
 const toast = useToast()
+
+/** 图鉴返图 community foreign（pk_type 见 types/api CommunityForeign） */
+const LIBRARY_RETURN_GRAPH_PK_TYPE = 7 as const
+
+const libraryForeignRefreshKey = ref(0)
+const libraryForeignLinkLoading = ref(false)
+const libraryCommunityChooseRef = ref<{ showModel: (e?: MouseEvent) => void } | null>(null)
+const libraryReturnPostModalRef = ref<{
+  open: (e?: MouseEvent) => void
+  close: () => void
+} | null>(null)
+const showLibraryReturnPostModal = ref(false)
+
 const id = route.params.id as string
 const { data } = await useAsyncData('libraryDeatil', () => {
   return getLibraryDetail({ library_id: Number.parseInt(id) })
@@ -34,6 +49,72 @@ library.value = data.value?.library ?? null
 style_list.value = data.value?.style_list ?? []
 parent.value = data.value?.parent ?? null
 shop.value = data.value?.shop ?? null
+
+const libraryReturnForeignPk = computed((): CommunityPostForeignContext | null => {
+  const lid = library.value?.library_id
+  if (lid == null) return null
+  return { pk_id: lid, pk_type: LIBRARY_RETURN_GRAPH_PK_TYPE }
+})
+
+function openLibraryReturnChooseCommunity(e?: MouseEvent) {
+  if (!user.token) {
+    toast.add({
+      title: '请先登录',
+      icon: 'i-heroicons-exclamation-circle',
+      color: 'orange'
+    })
+    return
+  }
+  if (!library.value?.library_id) return
+  libraryCommunityChooseRef.value?.showModel(e)
+}
+
+async function onLibraryReturnCommunityChosen(item: Community) {
+  const lid = library.value?.library_id
+  if (lid == null) return
+  libraryForeignLinkLoading.value = true
+  try {
+    await insertCommunityForeign({
+      pk_type: LIBRARY_RETURN_GRAPH_PK_TYPE,
+      community_id: item.community_id,
+      pk_id: lid
+    })
+    toast.add({
+      title: '已关联到本图鉴返图',
+      icon: 'i-heroicons-check-circle',
+      color: 'green'
+    })
+    libraryForeignRefreshKey.value += 1
+  } catch (error: unknown) {
+    console.error('关联返图帖子失败:', error)
+    const msg = error instanceof Error ? error.message : '请稍后重试'
+    toast.add({
+      title: '关联失败',
+      description: msg,
+      icon: 'i-heroicons-x-circle',
+      color: 'red'
+    })
+  } finally {
+    libraryForeignLinkLoading.value = false
+  }
+}
+
+function goLibraryReturnNewPost(e?: MouseEvent) {
+  if (!user.token) {
+    toast.add({
+      title: '请先登录',
+      icon: 'i-heroicons-exclamation-circle',
+      color: 'orange'
+    })
+    return
+  }
+  if (!library.value?.library_id) return
+  libraryReturnPostModalRef.value?.open(e)
+}
+
+function onLibraryReturnPostSuccess() {
+  libraryForeignRefreshKey.value += 1
+}
 if (library.value && library.value?.library_type === '系列') {
   const { data } = await useAsyncData('librarys', () => {
     return getLibraryList({
@@ -127,9 +208,60 @@ const fetchLibraryPipe = () => {
     }
   })
 }
-onMounted(() => {
+const similarRows = ref<LibrarySimilarItem[]>([])
+const similarLoading = ref(false)
+const routeLibraryId = computed(() => {
+  const n = Number.parseInt(String(route.params.id), 10)
+  return Number.isNaN(n) ? null : n
+})
+const formatSimilarityScore = (score: number) => {
+  if (score >= 0 && score <= 1) {
+    return `${(score * 100).toFixed(0)}%`
+  }
+  return Number.isInteger(score) ? String(score) : score.toFixed(2)
+}
+const fetchSimilarLibraries = async (lid: number) => {
+  similarLoading.value = true
+  try {
+    const res = await getLibrarySimilar({ library_id: lid, pageSize: 20 })
+    const rows = res.rows ?? []
+    similarRows.value = rows.filter((r) => r.library_id !== lid)
+  } catch {
+    similarRows.value = []
+  } finally {
+    similarLoading.value = false
+  }
+}
+
+onMounted(async () => {
+  if (!library.value) {
+    try {
+      const detail = await getLibraryDetail({ library_id: Number.parseInt(id) })
+      library.value = detail.library ?? null
+      style_list.value = detail.style_list ?? []
+      parent.value = detail.parent ?? null
+      shop.value = detail.shop ?? null
+    } catch {
+      // SSR 或首次 useAsyncData 异常时客户端补拉失败则保持空状态
+    }
+  }
   fetchLibraryVideo()
   fetchLibraryPipe()
+  const lid = routeLibraryId.value
+  if (lid != null) {
+    void fetchSimilarLibraries(lid)
+  }
+})
+
+watch(routeLibraryId, (lid) => {
+  if (!import.meta.client) {
+    return
+  }
+  if (lid == null) {
+    similarRows.value = []
+    return
+  }
+  void fetchSimilarLibraries(lid)
 })
 interface WikiParams {
   wiki_name: string
@@ -727,6 +859,37 @@ const togglePhysicsDrop = () => {
         <ShopItem :item="shop" size="small"></ShopItem>
       </div>
     </div>
+    <div v-if="library && (similarLoading || similarRows.length > 0)" class="bg-qhx-bg-card rounded-lg shadow-lg mt-3 p-3 max-md:p-2">
+      <h2 class="mb-3 text-lg font-semibold">相似推荐</h2>
+      <div v-if="similarLoading" class="text-sm text-gray-500 py-4 text-center">加载中…</div>
+      <div v-else class="flex gap-3 overflow-x-auto pb-1">
+        <nuxt-link
+          v-for="item in similarRows"
+          :key="item.library_id"
+          :to="`/library/detail/${item.library_id}`"
+          class="flex-shrink-0 w-[120px] max-md:w-[100px] block rounded-[10px] border border-gray-100 overflow-hidden shadow-sm hover:shadow-md transition-shadow bg-white dark:bg-gray-900/40"
+        >
+          <div class="relative aspect-[3/4] w-full">
+            <img
+              :src="`${BASE_IMG}${item.cover}?x-oss-process=image/quality,q_80/resize,w_300,h_400`"
+              :alt="item.name"
+              class="w-full h-full object-cover"
+              loading="lazy"
+            />
+            <span
+              v-if="item.similarity_score != null && !Number.isNaN(Number(item.similarity_score))"
+              class="absolute bottom-1 right-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-black/60 text-white"
+            >
+              {{ formatSimilarityScore(Number(item.similarity_score)) }}
+            </span>
+          </div>
+          <div class="p-2 pt-1.5">
+            <p class="text-xs font-medium text-gray-900 dark:text-gray-100 leading-snug line-clamp-2" :title="item.name">{{ item.name }}</p>
+            <p v-if="item.shop?.shop_name" class="text-[10px] text-gray-500 truncate mt-0.5" :title="item.shop.shop_name">{{ item.shop.shop_name }}</p>
+          </div>
+        </nuxt-link>
+      </div>
+    </div>
     <div v-if="library && library_video.length > 0" class="bg-qhx-bg-card rounded-lg shadow-lg mt-3">
       <div class="p-3 max-md:block">
         <h1 class="mb-3 text-lg font-semibold">人台图</h1>
@@ -776,8 +939,40 @@ const togglePhysicsDrop = () => {
       <QhxTabs :tabs="['返图', '贩售历史']">
         <QhxTabPanel :index="0">
           <template #default="{ isActive }">
-            <div class="bg-white">
-              <CommunityForeignList :pk_type="7" :pk_id="library.library_id" :can_load="isActive"/>
+            <div class="bg-white dark:bg-gray-900">
+              <p class="text-sm text-gray-500 dark:text-gray-400 text-center px-4 pt-4 pb-2">
+                分享你与这条图鉴相关的返图，或关联已有帖子
+              </p>
+              <div class="flex flex-wrap gap-2 justify-center px-4 pb-4">
+                <UButton
+                  color="primary"
+                  variant="soft"
+                  size="sm"
+                  icon="i-heroicons-link"
+                  :loading="libraryForeignLinkLoading"
+                  :disabled="libraryForeignLinkLoading || !library?.library_id"
+                  @click="openLibraryReturnChooseCommunity($event)"
+                >
+                  关联已有帖子
+                </UButton>
+                <UButton
+                  color="primary"
+                  size="sm"
+                  icon="i-heroicons-pencil-square"
+                  :disabled="!library?.library_id"
+                  @click="goLibraryReturnNewPost($event)"
+                >
+                  投稿返图
+                </UButton>
+              </div>
+              <CommunityForeignList
+                v-if="isActive && library"
+                :key="libraryForeignRefreshKey"
+                :pk_type="LIBRARY_RETURN_GRAPH_PK_TYPE"
+                :pk_id="library.library_id"
+                allow-delete-foreign
+                :can_load="isActive"
+              />
             </div>
           </template>
         </QhxTabPanel>
@@ -862,6 +1057,22 @@ const togglePhysicsDrop = () => {
     </div>
     
     <!-- 加入衣柜相关组件 -->
+    <CommunityChoose
+      ref="libraryCommunityChooseRef"
+      :only-mine="true"
+      title="选择要关联的返图帖子"
+      placeholder="搜索我的帖子..."
+      @choose="onLibraryReturnCommunityChosen"
+    />
+    <CommunityPostModal
+      ref="libraryReturnPostModalRef"
+      v-model="showLibraryReturnPostModal"
+      :foreign-pk="libraryReturnForeignPk"
+      modal-title="投稿返图"
+      :skip-summary-link="true"
+      :success-redirect="false"
+      @success="onLibraryReturnPostSuccess"
+    />
     <LibraryTypeColorChoose ref="libraryTypeColorChooseRef" @choose="handleLibraryTypeColorChoose" />
     <WardrobeAddLibrary ref="wardrobeAddLibraryRef" @change="handleWardrobeChange" />
     

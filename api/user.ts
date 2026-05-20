@@ -187,6 +187,47 @@ interface BindEmailParams {
   code: string
 }
 
+/**
+ * ─────────────────────────────────────────────────────────────────────────────
+ * 【@提及 / 发帖艾特联想】推荐给后端的契约（对齐后可删除本说明中的多余空行）
+ * ─────────────────────────────────────────────────────────────────────────────
+ *
+ * **方法与路径：** `POST /user/search/mention`
+ *
+ * **请求体（JSON）：**
+ * | 字段        | 类型   | 说明 |
+ * |------------|--------|------|
+ * | `keywords` | string | 可选；用户昵称关键词，空字符串可表示「默认推荐」列表 |
+ * | `page`     | number | 页码，与项目内其它分页一致，从 1 起 |
+ * | `pageSize` | number | 每页条数，建议上限 20 |
+ *
+ * **响应体：** 与 `PaginationResponse<User>` 一致（`rows` + `count`）
+ * - 每条 `User` 建议至少包含：`user_id`（number）、`user_name`、`user_face`（可为相对路径，前端会拼 CDN）
+ *
+ * **前端落库 HTML 形态（Tiptap 默认）：**
+ * `<span data-type="mention" data-id="{user_id}" data-label="{user_name}" class="mention" ...>@昵称</span>`
+ * 服务端可用 `data-id` 解析被艾特用户，做通知、计数等。
+ *
+ * **若暂时无该接口：** 前端会捕获错误并回退到本地默认昵称列表 + 父组件传入的 `mentionUsers`。
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+export interface SearchUsersForMentionParams {
+  keywords?: string | null
+  page?: number
+  pageSize?: number
+}
+
+export async function searchUsersForMention(
+  params: SearchUsersForMentionParams = {}
+): Promise<PaginationResponse<User>> {
+  const response = await use$Post<BaseResponse<PaginationResponse<User>>>('/user/search/mention', {
+    keywords: params.keywords ?? '',
+    page: params.page ?? 1,
+    pageSize: params.pageSize ?? 12,
+  })
+  return response.data
+}
+
 export async function bindEmail(
   params: BindEmailParams
 ): Promise<{ success: boolean }> {

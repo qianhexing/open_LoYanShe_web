@@ -35,7 +35,14 @@ const formateState = (state: number) => {
   const item = config.value?.pipe_state.find(item => item.value === state)
   return item?.label
 }
-onMounted(() => {
+onMounted(async () => {
+  if (!detail.value) {
+    try {
+      detail.value = await getShopDetail({ shop_id: Number.parseInt(id) })
+    } catch {
+      // useAsyncData 未带回详情时客户端补拉失败则保持空状态
+    }
+  }
   fetchLibraryPipe()
 })
 interface WikiParams {
@@ -64,7 +71,7 @@ const showLibraryPipeManage = () => {
 }
 </script>
 <template>
-  <div class="container mx-auto p-4container mx-auto p-4">
+  <div class="container mx-auto p-4 max-md:p-2">
     <div v-if="detail" class="bg-qhx-bg-card rounded-lg shadow-lg" :key="detail.shop_id">
       <div class="p-3 flex max-md:block max-md:px-1">
         <div class="flex my-2 w-[434px] max-md:w-full relative">
@@ -81,16 +88,20 @@ const showLibraryPipeManage = () => {
               管理店铺状态流
             </UButton>
           </div>
-          <div class="flex justify-center p-3">
-            <div class=" flex-1 text-center">
+          <div class="flex justify-center p-3 flex-wrap gap-y-2">
+            <div class=" flex-1 text-center min-w-[88px]">
               <UserGoodBtn ref="goodBtn" :pk_type="1" :pk_id="detail.shop_id" :good_count="detail.good_count || 0" :need_judge="true">
               </UserGoodBtn>
             </div>
-            <div class=" flex-1 text-center">
+            <div class=" flex-1 text-center min-w-[88px]">
+              <UserCollectBtn :collect_count="detail.collect_count ?? 0" :pk_type="1" :pk_id="detail.shop_id" :need_judge="true">
+              </UserCollectBtn>
+            </div>
+            <div class=" flex-1 text-center min-w-[88px]">
               <UserBlackBtn ref="blackBtn" :pk_type="1" :pk_id="detail.shop_id" :black_count="detail.black_count || 0" :need_judge="true">
               </UserBlackBtn>
             </div>
-            <div class=" flex-1 text-center" v-if="goodBtn && blackBtn">
+            <div class=" flex-1 text-center min-w-[88px]" v-if="goodBtn && blackBtn">
               赞黑比 {{ blackBtn.blackCount ? (goodBtn.goodCount / blackBtn.blackCount).toFixed(2) : goodBtn.goodCount ? goodBtn.goodCount : '--' }}
             </div>
           </div>
@@ -133,7 +144,7 @@ const showLibraryPipeManage = () => {
         </div>
       </div>
     </div>
-    <div v-if="detail" class="bg-qhx-bg-card rounded-lg shadow-lg mt-3">
+    <div v-if="detail && library_pipe.length > 0" class="bg-qhx-bg-card rounded-lg shadow-lg mt-3">
       <QhxTabs :tabs="['近期工作流', '图表版']">
         <QhxTabPanel :index="0">
           <div class=" bg-white">
@@ -170,15 +181,16 @@ const showLibraryPipeManage = () => {
       </QhxTabs>
     </div>
     <div v-if="detail" class="bg-qhx-bg-card rounded-lg shadow-lg mt-3">
-      <QhxTabs :tabs="['图鉴', '大事记']">
+      <!-- , '大事记' -->
+      <QhxTabs :tabs="['图鉴']">
         <QhxTabPanel :index="0">
           <div class=" bg-white">
             <LibraryList :filter_list="[{ field: 'shop_id', op: 'and', value: id }]" :size="'big'"></LibraryList>
           </div>
         </QhxTabPanel>
-        <QhxTabPanel :index="1">
+        <!-- <QhxTabPanel :index="1">
           <div class=" bg-white">这是111我的内容</div>
-        </QhxTabPanel>
+        </QhxTabPanel> -->
       </QhxTabs>
     </div>
     <LibraryPipeManage ref="libraryPipeManageRef" />

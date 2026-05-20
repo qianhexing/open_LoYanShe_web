@@ -145,7 +145,7 @@ const jumpToAddShop = () => {
     </div>
     <!-- 加载状态 -->
     <div v-if="isLoading" class="flex justify-center items-center min-h-[200px]">
-      <USkeleton class="h-32 w-full" />
+      <!-- <USkeleton class="h-32 w-full" /> -->
     </div>
 
     <!-- 空状态 -->
@@ -166,15 +166,17 @@ const jumpToAddShop = () => {
 
     <!-- 分页组件 -->
     <div v-if="total > 0" class="mt-8 flex justify-center">
-      <UPagination
-        v-model="page"
-        :total="total / 2"
-        :ui="{
-          wrapper: 'flex items-center gap-1',
-          base: 'flex items-center gap-1',
-        }"
-        @change="handlePageChange"
-      />
+      <client-only>
+        <UPagination
+          v-model="page"
+          :total="total / 2"
+          :ui="{
+            wrapper: 'flex items-center gap-1',
+            base: 'flex items-center gap-1',
+          }"
+          @change="handlePageChange"
+        />
+      </client-only>
     </div>
   </div>
 </template>

@@ -38,7 +38,7 @@
         <template #header>
           <div
             v-if="!props.disabled"
-            class="[@media(min-width:1920px)]:w-[calc(100%/10)] xl:w-1/4 md:w-1/4 max-md:w-1/3"
+            class="[@media(min-width:1920px)]:w-[calc(100%/4)] xl:w-1/4 md:w-1/4 max-md:w-1/3"
           >
             <div
               class="flex flex-col items-center transition-transform duration-300 ease-out hover:scale-105 py-[10px] px-[15px] max-md:px-[5px]"
@@ -56,7 +56,7 @@
         </template>
         <template #item="{ element, index }">
           <transition-group tag="div"
-            class="[@media(min-width:1920px)]:w-[calc(100%/10)] xl:w-1/4 md:w-1/4 max-md:w-1/3" name="list">
+            class="[@media(min-width:1920px)]:w-[calc(100%/4)] xl:w-1/4 md:w-1/4 max-md:w-1/3" name="list">
             <div
               class="group drag-handle flex flex-col items-center transition-transform duration-300 ease-out hover:scale-105 py-[10px] px-[15px] max-md:px-[5px]">
               <div class="w-full aspect-[1/1] relative shadow-xl">
@@ -78,16 +78,18 @@
           </transition-group>
         </template>
       </Draggable>
-      <vue-easy-lightbox
-        :visible="lightboxVisible"
-        :imgs="lightboxImgs"
-        :index="lightboxIndex"
-        append-to-body
-        :teleport="'body'"
-        :zoomScale="0.4"
-        :maxZoom="5"
-        @hide="lightboxVisible = false"
-      />
+      <ClientOnly>
+        <vue-easy-lightbox
+          :visible="lightboxVisible"
+          :imgs="lightboxImgs"
+          :index="lightboxIndex"
+          append-to-body
+          :teleport="'body'"
+          :zoomScale="0.4"
+          :maxZoom="5"
+          @hide="lightboxVisible = false"
+        />
+      </ClientOnly>
       <!-- <Draggable :forceFallback="true" :disabled="!props.multiple || props.disabled" :delay="150"
         v-model="previewImages" item-key="id" animation="250" ghost-class="drag-ghost" chosen-class="drag-chosen"
         drag-class="dragging" class="grid grid-cols-3 gap-4">
@@ -147,10 +149,10 @@ const triggerInput = () => {
   }
 }
 
-function handleFiles(event: Event) {
+async function handleFiles(event: Event) {
   const input = event.target as HTMLInputElement
   if (input.files) {
-    addFiles(Array.from(input.files))
+    await addFiles(Array.from(input.files))
     input.value = '' // 清空 input 避免同图重复上传
   }
 }
@@ -199,7 +201,7 @@ async function handleDrop(event: DragEvent) {
     const safe = needSafeConvert
       ? await Promise.all(filesToAdd.map(toSafeUploadFile))
       : filesToAdd
-    addFiles(safe)
+    await addFiles(safe)
   }
 }
 
@@ -233,9 +235,41 @@ async function toSafeUploadFile(file: File): Promise<File> {
   }
 }
 
-const addFiles = (newFiles: File[]) => {
+const MAX_BYTES = 3 * 1024 * 1024
+async function under3m(f: File): Promise<File> {
+  if (f.size <= MAX_BYTES) return f
+  let b: ImageBitmap
+  try {
+    b = await createImageBitmap(f)
+  } catch {
+    return f
+  }
+  const c = document.createElement('canvas')
+  const x = c.getContext('2d')
+  if (!x) {
+    b.close()
+    return f
+  }
+  const n = `${(f.name || 'img').replace(/\.[^.]+$/, '') || 'img'}.jpg`
+  for (let s = 1; s > 0.18; s *= 0.86) {
+    for (let q = 0.92; q > 0.42; q -= 0.07) {
+      c.width = Math.max(1, (b.width * s) | 0)
+      c.height = Math.max(1, (b.height * s) | 0)
+      x.drawImage(b, 0, 0, c.width, c.height)
+      const blob = await new Promise<Blob | null>((r) => c.toBlob(r, 'image/jpeg', q))
+      if (blob && blob.size <= MAX_BYTES) {
+        b.close()
+        return new File([blob], n, { type: 'image/jpeg' })
+      }
+    }
+  }
+  b.close()
+  return f
+}
+
+const addFiles = async (newFiles: File[]) => {
   if (props.disabled) return
-  const imageFiles = newFiles.filter((f) => f.type.startsWith('image/'))
+  const imageFiles = await Promise.all(newFiles.filter((f) => f.type.startsWith('image/')).map(under3m))
   const newPreviews = imageFiles.map((file) => ({
     id: generateId(),
     file,

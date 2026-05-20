@@ -9,7 +9,8 @@ interface Props {
   item: Library,
   className?: string,
   needShop?: boolean,
-  size?: string // 尺寸 mini small mid big
+  /** 尺寸：含 wardrobe-similar（衣柜相似推荐：小封面、仅标题+slot、不展示店铺） */
+  size?: string
   needJump?: boolean // 是否需要跳转
   showActions?: boolean // 是否显示操作按钮（点赞、收藏、加衣柜）
 }
@@ -335,8 +336,98 @@ const handleJump = (id: number) => {
       </div>
       <slot name="extra"></slot>
     </div>
+    <div
+      v-else-if="size === 'wardrobe-similar'"
+      :to="`/library/detail/${item.library_id}`"
+      @click="handleJump(item.library_id)"
+    >
+      <div class="flex items-start gap-2">
+        <img
+          @load="imageLoad"
+          :src="`${BASE_IMG}${item.cover}?x-oss-process=image/quality,q_80/resize,w_160,h_160`"
+          :alt="item.name"
+          class="w-[64px] h-[64px] shrink-0 rounded-lg object-cover border border-gray-200 dark:border-gray-600"
+          loading="lazy"
+        />
+        <div class="min-w-0 flex-1 overflow-hidden pt-0.5">
+          <h3 class="text-sm font-medium text-gray-900 dark:text-gray-100 leading-snug line-clamp-2">
+            {{ item.name }}
+          </h3>
+          <div v-if="showActions" class="mt-1 flex items-center justify-between gap-2 min-w-0">
+            <div class="min-w-0 flex-1 overflow-hidden text-[11px] leading-tight">
+              <slot name="tagInfo"></slot>
+            </div>
+            <div class="flex shrink-0 items-center gap-0.5 [&_div]:leading-none" @click.stop>
+              <UserGoodBtn
+                :pk_type="2"
+                :pk_id="item.library_id"
+                :good_count="item.good_count || 0"
+                :is_good="item.is_good === 1 ? true : false"
+                :need_judge="false"
+                :need_axios="false"
+                @handle-click="handleGoodClick"
+              >
+                <template #default="{ childData }">
+                  <div class="flex items-center rounded-md px-0.5 py-px hover:bg-gray-100/80 dark:hover:bg-white/5">
+                    <UIcon
+                      name="weui:like-filled"
+                      class="text-[17px] shrink-0"
+                      :class="childData.is_good ? 'text-[#409EFF]' : 'text-gray-500'"
+                    />
+                    <span class="ml-px text-[10px] font-medium tabular-nums text-gray-600 dark:text-gray-400">
+                      {{ childData.good_count }}
+                    </span>
+                  </div>
+                </template>
+              </UserGoodBtn>
+              <UserCollectBtn
+                :collect_count="item.collect_count || 0"
+                :pk_type="2"
+                :is_collect="item.is_collect === 1 ? true : false"
+                :pk_id="item.library_id"
+                :need_judge="false"
+                :need_axios="false"
+                @handle-click="handleCollectClick"
+              >
+                <template #default="collectSlot">
+                  <div class="flex items-center rounded-md px-0.5 py-px hover:bg-gray-100/80 dark:hover:bg-white/5">
+                    <UIcon
+                      name="ant-design:star-filled"
+                      class="text-[17px] shrink-0"
+                      :class="item.is_collect ? 'text-[#FFD166]' : 'text-gray-500'"
+                    />
+                    <span class="ml-px text-[10px] font-medium tabular-nums text-gray-600 dark:text-gray-400">
+                      {{ item.collect_count }}
+                    </span>
+                  </div>
+                </template>
+              </UserCollectBtn>
+              <div class="cursor-pointer rounded-md px-0.5 py-px hover:bg-gray-100/80 dark:hover:bg-white/5" @click.stop="handleAddToWardrobe">
+                <div class="flex items-center">
+                  <UIcon
+                    name="hugeicons:wardrobe-04"
+                    class="text-[17px] shrink-0"
+                    :class="item.is_wardrobe === 1 ? 'text-[#409EFF]' : 'text-gray-500'"
+                  />
+                  <span class="ml-px text-[10px] font-medium tabular-nums text-gray-600 dark:text-gray-400">
+                    {{ wardrobeCount || item.wardrobe_count || 0 }}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div v-else class="mt-1">
+            <slot name="tagInfo"></slot>
+          </div>
+        </div>
+      </div>
+      <slot name="extra"></slot>
+    </div>
     <!-- 操作按钮区域 -->
-    <div v-if="showActions" class="flex justify-around items-center gap-4 mt-3 pt-1 border-gray-200 dark:border-gray-700">
+    <div
+      v-if="showActions && size !== 'wardrobe-similar'"
+      class="flex justify-around items-center gap-4 mt-3 pt-1 border-gray-200 dark:border-gray-700"
+    >
       <UserGoodBtn 
         :pk_type="2" 
         :pk_id="item.library_id" 
@@ -367,7 +458,7 @@ const handleJump = (id: number) => {
         </div>
       </div>
     </div>
-    <div class="shop mx-2" v-if="item.shop && needShop">
+    <div class="shop mx-2" v-if="item.shop && needShop && size !== 'wardrobe-similar'">
       <ShopItem :item="item.shop" :need-jump="needJump"></ShopItem>
     </div>
     

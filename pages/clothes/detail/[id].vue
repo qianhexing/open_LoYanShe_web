@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { nextTick } from 'vue'
-import type { WardrobeClothes, Library, Shop, Wardrobe, Scene } from '@/types/api'
+import type { WardrobeClothes, Library, Shop, Wardrobe, Scene, Community } from '@/types/api'
 
 // 扩展 WardrobeClothes 类型以包含关联数据
 interface ExtendedWardrobeClothes extends WardrobeClothes {
@@ -11,13 +11,16 @@ interface ExtendedWardrobeClothes extends WardrobeClothes {
   image_list?: string[]
 }
 import { getClothesDetail, getClothesListAllFallback, parseClothesIdsFromRows, updateClothes, deteleClothes, addClothesCitation } from '@/api/wardrobe'
-import { getCommunityForeignList } from '@/api/community'
+import { getCommunityForeignList, insertCommunityForeign } from '@/api/community'
 import { planComplete, deletePlanList } from '@/api/plan'
 import type ClothesAdd from '@/components/Clothes/ClothesAdd.vue'
 import PlanAddEdit from '@/components/Plan/PlanAddEdit.vue'
 import type QhxSelect from '@/components/Qhx/Select.vue'
 import type SceneChoose from '@/components/scene/SceneChoose.vue'
 import WardrobeClothesChoose from '@/components/Wardrobe/WardrobeClothesChoose.vue'
+import ClothesFavoriteCoverOverlay from '@/components/Clothes/ClothesFavoriteCoverOverlay.vue'
+import CommunityPostModal from '@/components/community/CommunityPostModal.vue'
+import type { CommunityPostForeignContext } from '@/utils/communityPost'
 import { BASE_IMG } from '@/utils/ipConfig'
 import PhysicsDrop from '@/components/PhysicsDrop.client.vue'
 import type { MaterialForeign, Material } from '@/types/api'
@@ -47,12 +50,16 @@ const latestSiblingWardrobeTarget = ref<number | null>(null)
 const siblingIdsInflight = new Map<number, Promise<void>>()
 const slideTransitionName = ref<'clothes-slide-forward' | 'clothes-slide-back'>('clothes-slide-forward')
 const showMemoryListModal = ref(false)
+/** 关联成功后强制刷新记忆列表（CommunityForeignList 无对外 refresh） */
+const memoryListRefreshKey = ref(0)
+const memoryForeignLinkLoading = ref(false)
+const memoryCommunityChooseRef = ref<{ showModel: (e?: MouseEvent) => void } | null>(null)
+const clothesMemoryPostModalRef = ref<InstanceType<typeof CommunityPostModal> | null>(null)
+const showClothesMemoryPostModal = ref(false)
 const sortMode = ref(false)
 const showDeleteModal = ref(false)
 const showDeleteLinkModal = ref(false)
 const showAddClothesModal = ref(false)
-const showAddMemoryModal = ref(false)
-const showChooseCommunityModal = ref(false)
 const showDeleteCommunityModal = ref(false)
 const showSceneChooseModal = ref(false)
 const showRemoveSceneModal = ref(false)
@@ -61,12 +68,21 @@ const showCompletePlanModal = ref(false)
 const completePlanListId = ref<number | null>(null)
 const showDeletePlanModal = ref(false)
 const planAddEditRef = ref<InstanceType<typeof PlanAddEdit> | null>(null)
+/** 从详情页打开计划弹窗时预填当前服饰 */
+const planAddEditLinkedClothes = computed((): WardrobeClothes | null => {
+  const d = detail.value
+  if (!d?.clothes_id) return null
+  return {
+    clothes_id: d.clothes_id,
+    clothes_note: d.clothes_note,
+    clothes_img: d.clothes_img
+  }
+})
 const planRemoveLoading = ref(false)
 const planCompleteLoading = ref(false)
 const planDeleteLoading = ref(false)
 const sceneChooseClickPosition = ref({ x: 0, y: 0 })
 const selectedClothes = ref<WardrobeClothes | null>(null)
-const selectedCommunity = ref<{ community_id: number;[key: string]: unknown } | null>(null)
 const memoryCount = ref(0)
 const matchingCount = ref(0)
 
@@ -212,23 +228,24 @@ const scheduleMobileSwipeGuide = () => {
   clearSwipeGuideTimers()
   showSwipeGuide.value = false
   if (!import.meta.client) return
-  if (!isMobile.value || !showSiblingNav.value || !detail.value) return
   try {
     if (sessionStorage.getItem(SWIPE_GUIDE_SESSION_KEY) === '1') return
   } catch {
     /* 无痕模式等 */
   }
+  if (!isMobile.value || !showSiblingNav.value || !detail.value) return
 
   const tShow = setTimeout(() => {
     if (!isMobile.value || !showSiblingNav.value || !detail.value) return
+    // 弹出即写入会话缓存，避免切换 sibling 时 cancel 掉 hide 定时器导致从未写入，从而反复弹出
+    try {
+      sessionStorage.setItem(SWIPE_GUIDE_SESSION_KEY, '1')
+    } catch {
+      /* */
+    }
     showSwipeGuide.value = true
     const tHide = setTimeout(() => {
       showSwipeGuide.value = false
-      try {
-        sessionStorage.setItem(SWIPE_GUIDE_SESSION_KEY, '1')
-      } catch {
-        /* */
-      }
     }, 4800)
     swipeGuideTimers.push(tHide)
   }, 2000)
@@ -313,6 +330,27 @@ const isShared = computed(() => (detail.value?.is_shared ?? 0) === 1)
 const displayGoodCount = computed(() => Number(detail.value?.good_count) || 0)
 const displayCitationCount = computed(() => Number(detail.value?.citation_count) || 0)
 
+/** 有关联服饰即展示。缺价格不参与相加（数值等同于 +0）；分解式里只写出有有效价格的项。 */
+const includeOutfitPriceBreakdown = computed(() => {
+  const d = detail.value
+  if (!d?.include_clothes?.trim() || !d.include?.length) return null
+
+  const segmentPrices: number[] = []
+  const pushIfNumeric = (raw: unknown) => {
+    if (raw === undefined || raw === null || raw === '') return
+    const n = Number(raw)
+    if (!Number.isNaN(n)) segmentPrices.push(n)
+  }
+
+  pushIfNumeric(d.price)
+  for (const item of d.include) {
+    pushIfNumeric(item.price)
+  }
+
+  const total = segmentPrices.reduce((a, b) => a + b, 0)
+  return { segmentPrices, total }
+})
+
 // 编辑服饰
 const editClothes = () => {
   if (addEditClothesRef.value && detail.value) {
@@ -378,19 +416,34 @@ const confirmDelete = async () => {
   }
 }
 
-// 设置最爱
-const setFavorite = async (is_favorite: number) => {
+/** 喜爱级别 0–5，与接口字段 `is_favorite` 对应 */
+const favoriteLevelDisplay = computed(() => {
+  const v = detail.value?.is_favorite
+  const n = typeof v === 'number' ? v : Number(v)
+  if (!Number.isFinite(n)) return 0
+  return Math.min(5, Math.max(0, Math.round(n)))
+})
+
+/** 详情区喜爱星级：新拟态容器 */
+const favoriteNeuPanel =
+  'inline-flex items-center gap-0.5 rounded-2xl border border-white/55 bg-[#e8eaf0] px-2 py-1 shadow-[4px_4px_10px_rgb(163_177_198/0.45),-3px_-3px_10px_rgb(255_255_255/0.9),inset_0_1px_1px_rgb(255_255_255/0.8)] dark:border-white/[0.08] dark:bg-[#3d4354] dark:shadow-[5px_5px_12px_rgb(0_0_0/0.45),-4px_-4px_12px_rgb(255_255_255/0.05),inset_0_1px_1px_rgb(255_255_255/0.06)]'
+
+const favoriteNeuMiniBtn =
+  'rounded-xl border border-white/50 bg-[#e8eaf0] px-2.5 py-1 text-xs font-medium text-gray-600 shadow-[3px_3px_8px_rgb(163_177_198/0.4),-2px_-2px_8px_rgb(255_255_255/0.85)] transition-all hover:text-gray-800 active:shadow-[inset_2px_2px_6px_rgb(163_177_198/0.45)] dark:border-white/[0.08] dark:bg-[#3d4354] dark:text-gray-300 dark:shadow-[4px_4px_10px_rgb(0_0_0/0.4),-3px_-3px_10px_rgb(255_255_255/0.04)] dark:hover:text-gray-100 dark:active:shadow-[inset_2px_2px_8px_rgb(0_0_0/0.35)]'
+
+const setFavoriteLevel = async (level: number) => {
   if (!detail.value || !isOwner.value) return
+  const next = Math.min(5, Math.max(0, Math.round(level)))
   try {
     await updateClothes({
       clothes_id: detail.value.clothes_id,
-      is_favorite
+      is_favorite: next
     })
     if (detail.value) {
-      detail.value.is_favorite = is_favorite
+      detail.value.is_favorite = next
     }
     toast.add({
-      title: is_favorite === 1 ? '已设为最爱' : '已取消最爱',
+      title: next === 0 ? '已设为无星级' : `已设为 ${next} 星`,
       icon: 'i-heroicons-check-circle',
       color: 'green'
     })
@@ -643,6 +696,84 @@ const onMemoryCountChange = (count: number) => {
   memoryCount.value = count
 }
 
+const MEMORY_PK_TYPE = 2 as const
+
+const clothesMemoryPkId = computed(() => {
+  const n = Number.parseInt(clothesRouteId.value, 10)
+  return Number.isFinite(n) ? n : null
+})
+
+/** 记忆发帖弹窗 foreign 上下文（pk_type=服饰） */
+const memoryPostForeignForModal = computed((): CommunityPostForeignContext | null => {
+  const id = clothesMemoryPkId.value
+  if (id == null) return null
+  return { pk_id: id, pk_type: MEMORY_PK_TYPE }
+})
+
+function openMemoryChooseCommunity(e?: MouseEvent) {
+  if (!user.token) {
+    toast.add({
+      title: '请先登录',
+      icon: 'i-heroicons-exclamation-circle',
+      color: 'orange'
+    })
+    return
+  }
+  if (clothesMemoryPkId.value == null) return
+  memoryCommunityChooseRef.value?.showModel(e)
+}
+
+async function onMemoryCommunityChosen(item: Community) {
+  const pkId = clothesMemoryPkId.value
+  if (pkId == null) return
+  memoryForeignLinkLoading.value = true
+  try {
+    await insertCommunityForeign({
+      pk_type: MEMORY_PK_TYPE,
+      community_id: item.community_id,
+      pk_id: pkId
+    })
+    toast.add({
+      title: '已关联到本条裙子记忆',
+      icon: 'i-heroicons-check-circle',
+      color: 'green'
+    })
+    memoryListRefreshKey.value += 1
+    void fetchMemoryListCount()
+  } catch (error: unknown) {
+    console.error('关联记忆帖子失败:', error)
+    const msg = error instanceof Error ? error.message : '请稍后重试'
+    toast.add({
+      title: '关联失败',
+      description: msg,
+      icon: 'i-heroicons-x-circle',
+      color: 'red'
+    })
+  } finally {
+    memoryForeignLinkLoading.value = false
+  }
+}
+
+function goNewMemoryPost(e?: MouseEvent) {
+  if (!user.token) {
+    toast.add({
+      title: '请先登录',
+      icon: 'i-heroicons-exclamation-circle',
+      color: 'orange'
+    })
+    return
+  }
+  const pkId = clothesMemoryPkId.value
+  if (pkId == null) return
+  showMemoryListModal.value = false
+  clothesMemoryPostModalRef.value?.open(e)
+}
+
+function onClothesMemoryPostSuccess() {
+  memoryListRefreshKey.value += 1
+  void fetchMemoryListCount()
+}
+
 /** 直接请求记忆列表总数（用于角标，不依赖弹窗是否打开） */
 const fetchMemoryListCount = async () => {
   const clothesId = Number.parseInt(clothesRouteId.value, 10)
@@ -652,7 +783,7 @@ const fetchMemoryListCount = async () => {
       page: 1,
       pageSize: 1,
       pk_id: clothesId,
-      pk_type: 2
+      pk_type: MEMORY_PK_TYPE
     })
     memoryCount.value = res.count ?? 0
   } catch {
@@ -1016,12 +1147,12 @@ const showEditPlan = (e?: MouseEvent) => {
 
     <QhxModal v-model="showMemoryListModal">
       <div
-        class="w-[92vw] max-w-lg max-h-[85vh] bg-white dark:bg-gray-800 rounded-2xl shadow-2xl overflow-hidden flex flex-col border border-gray-200/50 dark:border-gray-700/50"
+        class="w-[95vw] max-w-3xl h-[90vh] max-h-[90vh] bg-white dark:bg-gray-800 rounded-2xl shadow-2xl overflow-hidden flex flex-col border border-gray-200/50 dark:border-gray-700/50 backdrop-blur-xl"
       >
         <div
-          class="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-700 flex-shrink-0"
+          class="flex items-center justify-between px-4 py-3 md:px-6 md:py-4 border-b border-gray-200 dark:border-gray-700 flex-shrink-0 bg-gradient-to-r from-pink-50/90 to-purple-50/80 dark:from-gray-800 dark:to-gray-800"
         >
-          <h3 class="text-base font-semibold text-gray-900 dark:text-gray-100">记忆</h3>
+          <h3 class="text-base md:text-lg font-semibold text-gray-900 dark:text-gray-100">记忆</h3>
           <button
             type="button"
             class="w-9 h-9 flex items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500"
@@ -1031,25 +1162,70 @@ const showEditPlan = (e?: MouseEvent) => {
             <UIcon name="i-heroicons-x-mark" class="w-5 h-5" />
           </button>
         </div>
-        <div class="p-4 overflow-y-auto flex-1 min-h-0">
-          <p class="text-sm text-gray-500 dark:text-gray-400 text-center mb-4">
+        <div class="p-4 md:p-6 overflow-y-auto flex-1 min-h-0">
+          <p class="text-sm text-gray-500 dark:text-gray-400 text-center mb-3">
             发帖记录你与小裙子之间的美好记忆
           </p>
+          <div class="flex flex-wrap gap-2 justify-center mb-4">
+            <UButton
+              color="primary"
+              variant="soft"
+              size="sm"
+              icon="i-heroicons-link"
+              :loading="memoryForeignLinkLoading"
+              :disabled="memoryForeignLinkLoading || clothesMemoryPkId == null"
+              @click="openMemoryChooseCommunity($event)"
+            >
+              关联已有帖子
+            </UButton>
+            <UButton
+              color="primary"
+              size="sm"
+              icon="i-heroicons-pencil-square"
+              :disabled="clothesMemoryPkId == null"
+              @click="goNewMemoryPost($event)"
+            >
+              写新记忆
+            </UButton>
+          </div>
           <CommunityForeignList
-            v-if="showMemoryListModal"
-            :pk_type="2"
-            :pk_id="Number.parseInt(clothesRouteId, 10)"
+            v-if="showMemoryListModal && clothesMemoryPkId != null"
+            :key="memoryListRefreshKey"
+            :pk_type="MEMORY_PK_TYPE"
+            :pk_id="clothesMemoryPkId"
+            single-column
+            allow-delete-foreign
             @count-change="onMemoryCountChange"
           />
         </div>
       </div>
     </QhxModal>
 
+    <CommunityChoose
+      ref="memoryCommunityChooseRef"
+      :only-mine="true"
+      title="选择要关联的帖子"
+      placeholder="搜索我的帖子..."
+      @choose="onMemoryCommunityChosen"
+    />
+
+    <CommunityPostModal
+      ref="clothesMemoryPostModalRef"
+      v-model="showClothesMemoryPostModal"
+      :foreign-pk="memoryPostForeignForModal"
+      modal-title="写新记忆"
+      :skip-summary-link="true"
+      :success-redirect="false"
+      @success="onClothesMemoryPostSuccess"
+    />
+
     <clothes-add ref="addEditClothesRef" @success="onEditSuccess"></clothes-add>
     <PlanAddEdit
       ref="planAddEditRef"
       :plan-list="detail?.plan ?? null"
       :initial-need-money="detail?.price ?? 0"
+      enable-link-clothes
+      :linked-clothes="planAddEditLinkedClothes"
       @insert="onPlanAddSuccess"
       @updated="() => fetchClothesDetail()"
     />
@@ -1067,7 +1243,7 @@ const showEditPlan = (e?: MouseEvent) => {
     >
       <!-- 全屏场景背景 -->
       <div class="fixed inset-0 w-screen h-screen z-0">
-        <iframe :src="`https://lolitalibrary.com/scene/detail/${detail.sence_id}`" class="w-full h-full border-0"
+        <iframe :src="`https://lolitalibrary.com/scene/detail/${detail.sence_id}?from_iframe=true`" class="w-full h-full border-0"
           frameborder="0"></iframe>
       </div>
 
@@ -1153,16 +1329,31 @@ const showEditPlan = (e?: MouseEvent) => {
                       笔记：{{ detail.note }}
                     </div>
 
-                    <!-- 是否最爱 -->
-                    <div v-if="detail.is_favorite !== undefined" class="flex items-center gap-2">
-                      <span class="text-sm">是否最爱：</span>
-                      <button v-if="isOwner" @click="setFavorite(detail.is_favorite === 1 ? 0 : 1)" class="text-2xl"
-                        :class="detail.is_favorite === 1 ? 'text-red-500' : 'text-gray-300'">
-                        <UIcon name="i-heroicons-heart-solid" />
-                      </button>
-                      <span v-else class="text-sm">
-                        {{ detail.is_favorite === 1 ? '是' : '否' }}
-                      </span>
+                    <!-- 喜爱级别（0–5 星） -->
+                    <div v-if="detail.is_favorite !== undefined" class="flex flex-wrap items-center gap-2">
+                      <span class="text-sm shrink-0 text-gray-600 dark:text-gray-400">喜爱级别：</span>
+                      <div v-if="isOwner" class="flex flex-wrap items-center gap-2">
+                        <div :class="favoriteNeuPanel">
+                          <button v-for="s in 5" :key="s" type="button"
+                            class="text-2xl leading-none rounded-lg p-1 transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-qhx-primary active:shadow-[inset_2px_2px_6px_rgb(163_177_198/0.5)] dark:active:shadow-[inset_2px_2px_8px_rgb(0_0_0/0.35)]"
+                            :aria-label="`设为 ${s} 星`" @click="setFavoriteLevel(s)">
+                            <UIcon
+                              :name="favoriteLevelDisplay >= s ? 'i-heroicons-star-solid' : 'i-heroicons-star'"
+                              :class="favoriteLevelDisplay >= s ? 'text-amber-500 dark:text-amber-400' : 'text-[#a3adbd] dark:text-gray-500'" />
+                          </button>
+                        </div>
+                        <button v-if="favoriteLevelDisplay > 0" type="button" :class="favoriteNeuMiniBtn"
+                          @click="setFavoriteLevel(0)">
+                          清空
+                        </button>
+                      </div>
+                      <div v-else :class="['inline-flex items-center gap-2', favoriteNeuPanel]">
+                        <UIcon v-for="s in 5" :key="s"
+                          :name="favoriteLevelDisplay >= s ? 'i-heroicons-star-solid' : 'i-heroicons-star'"
+                          class="text-xl"
+                          :class="favoriteLevelDisplay >= s ? 'text-amber-500 dark:text-amber-400' : 'text-[#a3adbd] dark:text-gray-500'" />
+                        <span class="text-sm text-gray-700 dark:text-gray-200">（{{ favoriteLevelDisplay }} 星）</span>
+                      </div>
                     </div>
 
                     <!-- 状态 -->
@@ -1296,7 +1487,13 @@ const showEditPlan = (e?: MouseEvent) => {
                             :src="`${BASE_IMG}${item.clothes_img || ''}${config.config?.image_params || ''}`"
                             class="w-10 h-10 rounded-lg object-cover flex-shrink-0"
                             :alt="item.clothes_note" />
-                          <span class="text-sm truncate flex-1">{{ item.clothes_note || item.library?.name || '未命名' }}</span>
+                          <div class="min-w-0 flex-1 flex flex-col gap-0.5 justify-center">
+                            <span class="text-sm truncate">{{ item.clothes_note || item.library?.name || '未命名' }}</span>
+                            <span
+                              v-if="item.price !== undefined && item.price !== null && item.price !== ''"
+                              class="text-xs font-semibold tabular-nums text-qhx-primary"
+                            >￥{{ item.price }}</span>
+                          </div>
                           <template v-if="isOwner && sortMode">
                             <div class="flex items-center gap-1 flex-shrink-0">
                               <button
@@ -1324,6 +1521,19 @@ const showEditPlan = (e?: MouseEvent) => {
                           <UIcon v-else name="i-heroicons-chevron-right" class="w-4 h-4 text-gray-400 flex-shrink-0" />
                         </li>
                       </ul>
+                    </div>
+                    <div
+                      v-if="includeOutfitPriceBreakdown"
+                      class="rounded-lg bg-gradient-to-r from-qhx-primary/20 via-orange-50 to-amber-50 py-1 text-sm font-semibold leading-snug text-gray-900 dark:from-qhx-primary/35 dark:via-amber-950/50 dark:to-orange-950/40 dark:text-gray-50"
+                    >
+                      <template v-if="includeOutfitPriceBreakdown.segmentPrices.length">
+                        总价：<template v-for="(p, i) in includeOutfitPriceBreakdown.segmentPrices" :key="i">
+                          <template v-if="i > 0"> + </template>
+                          <span class="text-qhx-primary dark:text-qhx-primary">￥{{ p }}</span>
+                        </template>
+                        <span class="text-qhx-primary dark:text-qhx-primary"> = ￥{{ includeOutfitPriceBreakdown.total }}</span>
+                      </template>
+                      <template v-else><span class="text-qhx-primary dark:text-qhx-primary">总价：￥0</span></template>
                     </div>
                     <!-- 来源 -->
                     <div v-if="!detail.library && !detail.origin_shop && detail.origin" class="text-sm">
@@ -1563,9 +1773,13 @@ const showEditPlan = (e?: MouseEvent) => {
                       class="mb-4 overflow-hidden w-full">
                       <!-- 主图 float 左，占 2/3 宽，比例 2:3（高度为附图 3 倍） -->
                       <div class="w-2/3 aspect-[2/3] float-left p-1">
-                        <div class="h-full rounded-xl overflow-hidden shadow-md ring-1 ring-black/5 transition-all duration-200 hover:shadow-lg hover:ring-qhx-primary/20">
+                        <div class="relative h-full rounded-xl overflow-hidden shadow-md ring-1 ring-black/5 transition-all duration-200 hover:shadow-lg hover:ring-qhx-primary/20">
                           <QhxPreviewImage :list="[{ src: detail.clothes_img, alt: detail.clothes_note || '' }]"
                             :preview="[detail.clothes_img]" className="w-full h-full object-cover" />
+                          <ClothesFavoriteCoverOverlay
+                            v-if="detail.is_favorite !== undefined"
+                            :level="favoriteLevelDisplay"
+                          />
                         </div>
                       </div>
                       <!-- 附图 float 右，占 1/3 宽，超过 3 张往下排列 -->
@@ -1603,9 +1817,13 @@ const showEditPlan = (e?: MouseEvent) => {
                       class="mb-4 overflow-hidden w-full">
                       <!-- 主图 float 左，占 2/3 宽，比例 2:3（高度为附图 3 倍） -->
                       <div class="w-2/3 aspect-[2/3] float-left p-1">
-                        <div class="rounded-xl overflow-hidden shadow-md ring-1 ring-black/5 transition-shadow hover:shadow-lg">
+                        <div class="relative rounded-xl overflow-hidden shadow-md ring-1 ring-black/5 transition-shadow hover:shadow-lg">
                           <QhxPreviewImage :list="[{ src: detail.clothes_img, alt: detail.clothes_note || '' }]"
                             :preview="[detail.clothes_img]" className="w-full h-full object-cover" />
+                          <ClothesFavoriteCoverOverlay
+                            v-if="detail.is_favorite !== undefined"
+                            :level="favoriteLevelDisplay"
+                          />
                         </div>
                       </div>
                       <!-- 附图 float 右，占 1/3 宽，超过 3 张往下排列 -->
@@ -1618,9 +1836,14 @@ const showEditPlan = (e?: MouseEvent) => {
                       </div>
                       <div class="clear-both"></div>
                     </div>
-                    <div v-else class="rounded-xl overflow-hidden shadow-md ring-1 ring-black/5 transition-shadow hover:shadow-lg">
+                    <div v-else class="relative rounded-xl overflow-hidden shadow-md ring-1 ring-black/5 transition-shadow hover:shadow-lg">
                       <QhxPreviewImage :list="[{ src: detail.clothes_img, alt: detail.clothes_note || '' }]"
                         :preview="[detail.clothes_img]" className="w-full aspect-[3/4] object-cover" />
+                      <ClothesFavoriteCoverOverlay
+                        v-if="detail.is_favorite !== undefined"
+                        :level="favoriteLevelDisplay"
+                        class="right-[calc(50%-50px)] pointer-events-none"
+                      />
                     </div>
                   </div>
 
@@ -1702,16 +1925,31 @@ const showEditPlan = (e?: MouseEvent) => {
                       笔记：{{ detail.note }}
                     </div>
 
-                    <!-- 是否最爱 -->
-                    <div v-if="detail.is_favorite !== undefined" class="flex items-center gap-2">
-                      <span class="text-sm">是否最爱：</span>
-                      <button v-if="isOwner" @click="setFavorite(detail.is_favorite === 1 ? 0 : 1)" class="text-2xl"
-                        :class="detail.is_favorite === 1 ? 'text-red-500' : 'text-gray-300'">
-                        <UIcon name="i-heroicons-heart-solid" />
-                      </button>
-                      <span v-else class="text-sm">
-                        {{ detail.is_favorite === 1 ? '是' : '否' }}
-                      </span>
+                    <!-- 喜爱级别（0–5 星） -->
+                    <div v-if="detail.is_favorite !== undefined" class="flex flex-wrap items-center gap-2">
+                      <span class="text-sm shrink-0 text-gray-600 dark:text-gray-400">喜爱级别：</span>
+                      <div v-if="isOwner" class="flex flex-wrap items-center gap-2">
+                        <div :class="favoriteNeuPanel">
+                          <button v-for="s in 5" :key="s" type="button"
+                            class="text-2xl leading-none rounded-lg p-1 transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-qhx-primary active:shadow-[inset_2px_2px_6px_rgb(163_177_198/0.5)] dark:active:shadow-[inset_2px_2px_8px_rgb(0_0_0/0.35)]"
+                            :aria-label="`设为 ${s} 星`" @click="setFavoriteLevel(s)">
+                            <UIcon
+                              :name="favoriteLevelDisplay >= s ? 'i-heroicons-star-solid' : 'i-heroicons-star'"
+                              :class="favoriteLevelDisplay >= s ? 'text-amber-500 dark:text-amber-400' : 'text-[#a3adbd] dark:text-gray-500'" />
+                          </button>
+                        </div>
+                        <button v-if="favoriteLevelDisplay > 0" type="button" :class="favoriteNeuMiniBtn"
+                          @click="setFavoriteLevel(0)">
+                          清空
+                        </button>
+                      </div>
+                      <div v-else :class="['inline-flex items-center gap-2', favoriteNeuPanel]">
+                        <UIcon v-for="s in 5" :key="s"
+                          :name="favoriteLevelDisplay >= s ? 'i-heroicons-star-solid' : 'i-heroicons-star'"
+                          class="text-xl"
+                          :class="favoriteLevelDisplay >= s ? 'text-amber-500 dark:text-amber-400' : 'text-[#a3adbd] dark:text-gray-500'" />
+                        <span class="text-sm text-gray-700 dark:text-gray-200">（{{ favoriteLevelDisplay }} 星）</span>
+                      </div>
                     </div>
 
                     <!-- 状态 -->
@@ -1849,7 +2087,13 @@ const showEditPlan = (e?: MouseEvent) => {
                             :src="`${BASE_IMG}${item.clothes_img || ''}${config.config?.image_params || ''}`"
                             class="w-10 h-10 rounded-lg object-cover flex-shrink-0"
                             :alt="item.clothes_note" />
-                          <span class="text-sm truncate flex-1">{{ item.clothes_note || item.library?.name || '未命名' }}</span>
+                          <div class="min-w-0 flex-1 flex flex-col gap-0.5 justify-center">
+                            <span class="text-sm truncate">{{ item.clothes_note || item.library?.name || '未命名' }}</span>
+                            <span
+                              v-if="item.price !== undefined && item.price !== null && item.price !== ''"
+                              class="text-xs font-semibold tabular-nums text-qhx-primary"
+                            >￥{{ item.price }}</span>
+                          </div>
                           <template v-if="isOwner && sortMode">
                             <div class="flex items-center gap-1 flex-shrink-0">
                               <button
@@ -1877,6 +2121,19 @@ const showEditPlan = (e?: MouseEvent) => {
                           <UIcon v-else name="i-heroicons-chevron-right" class="w-4 h-4 text-gray-400 flex-shrink-0" />
                         </li>
                       </ul>
+                    </div>
+                    <div
+                      v-if="includeOutfitPriceBreakdown"
+                      class="rounded-lg bg-gradient-to-r from-qhx-primary/20 via-orange-50 to-amber-50 py-1 text-sm font-semibold leading-snug text-gray-900 dark:from-qhx-primary/35 dark:via-amber-950/50 dark:to-orange-950/40 dark:text-gray-50"
+                    >
+                      <template v-if="includeOutfitPriceBreakdown.segmentPrices.length">
+                        总价：<template v-for="(p, i) in includeOutfitPriceBreakdown.segmentPrices" :key="i">
+                          <template v-if="i > 0"> + </template>
+                          <span class="text-qhx-primary dark:text-qhx-primary">￥{{ p }}</span>
+                        </template>
+                        <span class="text-qhx-primary dark:text-qhx-primary"> = ￥{{ includeOutfitPriceBreakdown.total }}</span>
+                      </template>
+                      <template v-else><span class="text-qhx-primary dark:text-qhx-primary">总价：￥0</span></template>
                     </div>
                     <!-- 尾款计划 -->
                     <div v-if="detail.plan_id || detail.plan" class="border-t pt-3 mt-3">

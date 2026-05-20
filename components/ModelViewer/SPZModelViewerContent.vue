@@ -13,6 +13,7 @@ export interface ModelItem {
     rotation?: [number, number, number] // 旋转
     scale?: [number, number, number] // 缩放
     type?: 'splat' | 'model' // 模型类型，默认为 splat
+    /** Spark 2.0：`type === 'splat'` 时仅 `fileType`、`maxSplats`、`maxSh`、`mobileOptimized` 传入 ThreeCore.loadSplat；勿传 GLTF 的 useDracoLoader。 */
     options?: Record<string, unknown> // 其他选项
 }
 
@@ -67,6 +68,9 @@ const {
     laxianList
 } = useSceneCore()
 
+/** 挂载 WebGL 的容器（避免仅用 id 时在 client-only / 首轮 tick 中取不到 DOM） */
+const sceneViewerEl = ref<HTMLElement | null>(null)
+
 // 同步 autoRotate 到 OrbitControls
 watch([() => props.autoRotate, () => threeCore.value], ([autoRotate, core]) => {
     if (!core?.controls || !('autoRotate' in core.controls)) return
@@ -88,6 +92,8 @@ watch(
         const hasLaxian = newLaxian && newLaxian.length > 0
         if (hasModels || hasLaxian) {
             await nextTick()
+            // client-only / Teleport 等场景下再等一帧，确保挂载点已进入 DOM
+            await nextTick()
             await initThreejs()
         }
     },
@@ -96,12 +102,16 @@ watch(
 
 // 初始化场景
 const initThreejs = async () => {
-    const sceneElement = document.getElementById('spz-scene-viewer')
+    const sceneElement = sceneViewerEl.value
     if (!sceneElement) return
 
     try {
         sceneLoading.value = true
         sceneLoadError.value = null
+
+        if (threeCore.value) {
+            disposeScene(sceneElement)
+        }
 
         // 初始化场景（编辑模式下启用点可视化）
         await initScene(sceneElement, '0', {
@@ -263,7 +273,7 @@ const handleRetry = async () => {
 
 // 组件卸载时清理
 onUnmounted(() => {
-    const sceneElement = document.getElementById('spz-scene-viewer')
+    const sceneElement = sceneViewerEl.value
     if (sceneElement) {
         disposeScene(sceneElement)
     }
@@ -322,7 +332,8 @@ defineExpose({
         <slot name="scene-viewer">
             <div
                 id="spz-scene-viewer"
-                class="w-full h-full bg-white"
+                ref="sceneViewerEl"
+                class="w-full h-full bg-white min-h-[50vh]"
             ></div>
         </slot>
     </div>

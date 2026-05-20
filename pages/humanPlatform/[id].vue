@@ -1,4 +1,5 @@
 <script setup lang="ts">
+// biome-ignore lint/style/useImportType: Vue SFC 供 template 与 InstanceType 使用
 import SPZModelViewerContent from '@/components/ModelViewer/SPZModelViewerContent.vue'
 import QhxModal from '@/components/Qhx/Modal.vue'
 import type { LaxianInterface } from '@/types/sence'
@@ -11,6 +12,7 @@ interface ModelItem {
     rotation?: [number, number, number]
     scale?: [number, number, number]
     type?: 'splat' | 'model'
+    /** Spark 2.0（@sparkjsdev/spark）：`type === 'splat'` 时仅 `fileType`、`maxSplats`、`maxSh`、`mobileOptimized` 会传入 loadSplat；与 GLTF 无关，勿传 useDracoLoader。 */
     options?: Record<string, unknown>
 }
 import { getLibraryVideoById, getLibraryVideo } from '@/api/library'
@@ -35,7 +37,7 @@ const router = useRouter()
 const id = computed(() => (route.params.id as string) ?? '')
 
 // 编辑模式：通过地址栏 edit=1 开启
-const isEditMode = computed(() => route.query.edit ? true : false)
+const isEditMode = computed(() => Boolean(route.query.edit))
 
 // library_id 来自 query 参数，用于获取同图鉴下的所有人台图列表
 const libraryId = computed(() => {
@@ -106,6 +108,20 @@ watch(libraryId, (val) => {
     if (val && layoutReady.value) loadLibraryVideoList()
 }, { immediate: true })
 
+// 同人台站内切换路由 /humanPlatform/:id 时需重新拉取视频（否则会一直显示上一份 modelList）
+watch(
+    () => id.value,
+    (next, prev) => {
+        if (!layoutReady.value || next === prev) return
+        const isDefaultLanding = next === '0' && Boolean(libraryId.value)
+        if (isDefaultLanding) {
+            void initVideoAndList()
+            return
+        }
+        void loadVideoData()
+    }
+)
+
 // 视频数据
 const libraryVideo = ref<LibraryVideo | null>(null)
 const loading = ref(false)
@@ -141,15 +157,16 @@ const loadVideoData = async (videoIdOverride?: number) => {
                 editableLaxianList.value = (Array.isArray(list) ? list : []).map((item) => ({ ...item }))
             }
             // 解析模型地址
+            // Spark 2.0（@sparkjsdev/spark）：点云由 ThreeCore.loadSplat / loadSceneFromJSON 加载。
+            // splat 的 options 仅使用 fileType、maxSplats、maxSh、mobileOptimized（见 utils/threeCore.ts）；
+            // 勿传 GLTF 的 useDracoLoader / dracoDecoderPath，否则会误导维护且对点云无效。
+            // 文档：https://sparkjs.dev/docs/0.1-2.0-migration-guide/
             const modelUrls = libraryVideo.value.addr.split(',').filter(url => url.trim())
             modelList.value = modelUrls.map((url, index) => ({
                 url: url.trim(),
                 type: 'splat' as const,
                 position: [index * 3, 0, 0] as [number, number, number],
-                options: {
-                    useDracoLoader: true,
-                    dracoDecoderPath: '/draco/gltf/'
-                }
+                options: {}
             }))
         } else {
             laxianListFromVideo.value = []
@@ -589,7 +606,6 @@ onUnmounted(() => {
                     <UIcon name="material-symbols:chat-bubble-outline" class="text-lg" />
                     <span class="text-[10px] font-medium leading-tight">吐槽</span>
                 </button>
-                {{ isEditMode }}
             </div>
             <!-- 悬浮人台图列表：有 library_id 时显示，可收缩展开 -->
             <div

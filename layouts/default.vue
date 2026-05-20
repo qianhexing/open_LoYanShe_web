@@ -30,7 +30,7 @@ const { layoutStyle, setLayoutStyle } = useLayoutStyle() // 0 带上下栏；1 �
 const blank_list = [
   'matching/my',
   '/userSpace/', 
-  '/humanPlatform/', '/user/plan', '/user/center', '/post/', '/distributedMaps', '/visualization/wardrobe', '/visualization/shop-cloud', '/rank', '/yearlySummary', '/user/changePassword','/matching/detail','/album/detail', '/album', 'clothes/detail', 'scene/detail', 'wardrobe/detail', 'wardrobe/statistics', 'register', 'lighting-debug', 'timepipe', 'user/edit', '/journal']
+  '/humanPlatform/', '/user/plan', '/user/center', '/post/', '/distributedMaps', '/visualization/wardrobe', '/visualization/shop-cloud', '/rank', '/yearlySummary', '/user/changePassword','/matching/detail','/album/detail', '/album', 'clothes/detail', 'scene/detail', 'wardrobe/detail', 'wardrobe/statistics', 'register', 'lighting-debug', 'timepipe', 'user/edit', '/journal', '/shop/shanzheng', '/library/search', '/features', 'ai/chat']
 const route = useRoute()
 if (route.query?.token) {
   useUserStore().setToken(route.query.token.toString())
@@ -173,6 +173,10 @@ onMounted(async () => {
     }, 500)
     
     configStore.setIsPc(isPC())
+    // 与 SSR 占位宽度 1024 对齐：在客户端首次挂上真实视口与 resize 监听
+    if (typeof window !== 'undefined' && configStore.windowWidth === 1024) {
+      configStore.initMobileDetection()
+    }
     configStore.getConfig()
     if (isInUniApp && uni) {
       isFromMobie.value = true
@@ -305,6 +309,17 @@ onBeforeUnmount(() => {
           </button>
         </div>
         
+        <div class="text-center mt-3 text-xs text-gray-500 dark:text-gray-400">
+          <NuxtLink
+            to="/features"
+            class="text-qhx-primary hover:underline"
+          >
+            功能合集
+          </NuxtLink>
+          <span class="mx-2 text-gray-300 dark:text-gray-600">·</span>
+          <span>全站入口导览</span>
+        </div>
+
         <!-- 版权信息 -->
         <div class="text-center mt-4 text-xs text-gray-500 dark:text-gray-400">
           <p>&copy; 2019-2025 Lo研社. All rights reserved.</p>

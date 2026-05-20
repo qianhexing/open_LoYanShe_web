@@ -120,7 +120,21 @@ import { ref, computed, onMounted, watch } from 'vue'
 import dayjs from 'dayjs'
 import { getLibraryPipeList } from '@/api/library'
 import { BASE_IMG } from '@/utils/ipConfig'
+import { formatLabel } from '@/utils/public'
 import type { LibraryPipe } from '@/types/api'
+
+const configStore = useConfigStore()
+const moneyTypeOptions = computed(() => configStore.config?.money_type ?? [])
+
+/** Canvas 导出：人民币(shop_country=0) 仅「￥金额」；其他国家追加配置中的货币单位标签 */
+const formatCanvasPrice = (price: number | undefined, shopCountry?: number): string => {
+  if (price === undefined || price === null) return ''
+  const country = shopCountry ?? 0
+  const base = `￥${price}`
+  if (country === 0) return base
+  const unit = formatLabel(country, moneyTypeOptions.value)
+  return unit ? `${base} ${unit}` : base
+}
 
 // 状态
 const picked = ref<Date>(new Date())
@@ -296,7 +310,8 @@ const downloadChunk = async (index: number) => {
     ctx.save()
     
     // 准备文字内容
-    const title = `${item.item?.library_price ? `￥${item.item?.library_price}` : ''}${item.item?.name}`
+    const mainCountry = item.item?.shop_country ?? item.item?.shop?.shop_country ?? 0
+    const title = `${item.item?.library_price ? `${formatCanvasPrice(item.item.library_price, mainCountry)} ` : ''}${item.item?.name || ''}`
     const timeText = formatTimeRange(item.start_time, item.end_time)
     const shopName = item.item?.shop?.shop_name || ''
     const hasShopLogo = !!item.item?.shop?.shop_logo
@@ -307,7 +322,7 @@ const downloadChunk = async (index: number) => {
     if (libraryList.length > 0) {
       for (const lib of libraryList) {
         const type = lib.library_type || ''
-        const price = lib.library_price ? `￥${lib.library_price}` : ''
+        const price = lib.library_price ? formatCanvasPrice(lib.library_price, lib.shop_country) : ''
         const text = [type, price].filter(Boolean).join(' ')
         if (text) libraryItems.push(text)
       }

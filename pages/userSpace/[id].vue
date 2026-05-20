@@ -30,7 +30,7 @@
           v-if="hasDisplayBadges"
           class="badge-showcase badge-showcase--has-badges rounded-2xl overflow-hidden relative"
         >
-          <AchievementBadgePhysics :key="displayBadgesKey" :badges="displayBadges" :badge-size="40" :spawn-interval="400" />
+          <AchievementBadgePhysics :key="displayBadgesKey" :badges="displayBadges" :badge-size="40" :spawn-interval="400" motion-preset="wallBounce" />
           <!-- 悬浮在徽章区右上角的配置按钮 -->
           <button
             v-if="isCurrentUser"
@@ -111,7 +111,7 @@
 
         <!-- Tab 栏 -->
         <div class="mt-2">
-          <QhxTabs :tabs="['帖子', '衣柜']" :need_swipe="false" class="bg-transparent">
+          <QhxTabs :tabs="spaceTabs" :need_swipe="false" class="bg-transparent">
             <QhxTabPanel :index="0">
               <template #default="{ isActive }">
                 <!-- 帖子列表 -->
@@ -222,6 +222,87 @@
                       </div>
                     </template>
                   </QhxWaterList>
+                </div>
+              </template>
+            </QhxTabPanel>
+            <QhxTabPanel v-if="showAchieveTab" :index="2">
+              <template #default="{ isActive }">
+                <div v-show="isActive" class="mt-4 space-y-4">
+                  <div v-if="achievementStatsLoading" class="flex justify-center py-8">
+                    <div class="w-8 h-8 border-2 border-pink-200 border-t-pink-500 rounded-full animate-spin" />
+                  </div>
+                  <div
+                    v-else-if="achievementStats"
+                    class="rounded-2xl border border-white/50 dark:border-gray-700 bg-white/70 dark:bg-gray-800/70 backdrop-blur-md p-4 shadow-lg"
+                  >
+                    <div class="text-sm font-semibold text-gray-800 dark:text-gray-100 mb-3 flex items-center gap-2">
+                      <span>✨</span>
+                      成就进度
+                    </div>
+                    <div class="grid grid-cols-2 gap-3 text-center">
+                      <div>
+                        <div class="text-lg font-bold text-pink-600 dark:text-pink-300">
+                          {{ achievementStats.points }}
+                        </div>
+                        <div class="text-xs text-gray-500 dark:text-gray-400">成就点</div>
+                      </div>
+                      <div>
+                        <div class="text-lg font-bold text-gray-800 dark:text-gray-100">
+                          {{ achievementStats.achieved_count }}<span class="text-gray-400">/</span>{{ achievementStats.total_count }}
+                        </div>
+                        <div class="text-xs text-gray-500 dark:text-gray-400">已达成</div>
+                      </div>
+                      <div class="col-span-2">
+                        <div class="h-2 rounded-full bg-gray-200 dark:bg-gray-600 overflow-hidden">
+                          <div
+                            class="h-full bg-pink-500 dark:bg-pink-400 rounded-full transition-all"
+                            :style="{ width: `${achievementStats.progress}%` }"
+                          />
+                        </div>
+                        <div class="text-xs text-gray-500 dark:text-gray-400 mt-1 text-center">
+                          {{ achievementStats.progress }}% 完成
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <div v-if="achieveAlbumsLoading" class="flex justify-center py-12">
+                    <div class="w-8 h-8 border-2 border-pink-200 border-t-pink-500 rounded-full animate-spin" />
+                  </div>
+                  <div v-else-if="achieveAlbumList.length > 0" class="grid grid-cols-2 md:grid-cols-3 gap-3">
+                    <div
+                      v-for="item in achieveAlbumList"
+                      :key="item.album_id"
+                      class="cursor-pointer rounded-2xl overflow-hidden border border-white/50 dark:border-gray-700 bg-white/70 dark:bg-gray-800/70 shadow-lg hover:opacity-90 transition-opacity"
+                      @click="goUserSpaceAlbumDetail(item)"
+                    >
+                      <img
+                        :src="`${BASE_IMG}${item.album_cover || 'static/plan_cover/default.jpg'}`"
+                        :alt="item.album_title"
+                        class="w-full aspect-[4/3] object-cover"
+                        loading="lazy"
+                      />
+                      <div class="p-2 text-sm font-medium text-gray-800 dark:text-gray-100 truncate">
+                        {{ item.album_title }}
+                      </div>
+                    </div>
+                  </div>
+                  <div v-if="hasMoreAchieveAlbums && !achieveAlbumsLoading" class="flex justify-center py-4">
+                    <button
+                      type="button"
+                      :disabled="achieveAlbumsLoadingMore"
+                      class="px-6 py-2 rounded-full bg-pink-100 dark:bg-gray-700 text-pink-600 dark:text-pink-300 text-sm font-medium hover:bg-pink-200 dark:hover:bg-gray-600 transition-colors disabled:opacity-50"
+                      @click="loadMoreAchieveAlbums"
+                    >
+                      {{ achieveAlbumsLoadingMore ? '加载中...' : '加载更多' }}
+                    </button>
+                  </div>
+                  <div
+                    v-if="!achieveAlbumsLoading && achieveAlbumList.length === 0"
+                    class="text-center py-16 text-gray-500 dark:text-gray-400"
+                  >
+                    <div class="text-5xl mb-4">🏆</div>
+                    <p>暂无成就相册</p>
+                  </div>
                 </div>
               </template>
             </QhxTabPanel>
@@ -375,13 +456,14 @@ import { ref, onMounted, computed, watch, inject, type Ref } from 'vue'
 import { getUserSpace, getUserDecoBadges, adminUpgradeUserFormalResident } from '@/api/user'
 import type { UserDecoBadgeItem } from '@/api/user'
 import { getCommunityList } from '@/api/community'
+import { getAlbumList, getAlbumAchievementStats, type AlbumAchievementStats } from '@/api/album'
 import { getWardrobeList, checkWadrobePassword } from '@/api/wardrobe'
 import { parseRichText } from '@/utils/public'
 import SafeRichText from '@/components/SafeRichText.vue'
 import QhxModal from '@/components/Qhx/Modal.vue'
 import { BASE_IMG } from '@/utils/ipConfig'
 import { useUserStore } from '@/stores/user'
-import type { User, Community, UserDeco, Wardrobe } from '@/types/api'
+import type { User, Community, UserDeco, Wardrobe, Album } from '@/types/api'
 import WardrobeItem from '@/components/Wardrobe/WardrobeItem.vue'
 import UserCollectBtn from '@/components/user/CollectBtn.vue'
 
@@ -504,6 +586,17 @@ const spaceUserNeedsFormalUpgrade = computed(() => {
 
 /** 与升级菜单同一判定：access_level >= 1 为正式居民 */
 const isFormalResident = computed(() => !spaceUserNeedsFormalUpgrade.value)
+
+function isUserAchieveVisible(v: unknown): boolean {
+  return v === 1 || v === true
+}
+
+/** 用户资料「展示成就簿」开启时，个人空间显示成就 Tab */
+const showAchieveTab = computed(() => isUserAchieveVisible(userInfo.value?.is_achieve))
+
+const spaceTabs = computed((): string[] =>
+  showAchieveTab.value ? ['帖子', '衣柜', '成就'] : ['帖子', '衣柜'],
+)
 
 type UserSpaceMoreMenuItem = {
   key: string
@@ -756,6 +849,102 @@ const spaceUserId = computed(() => {
 
 const hasMorePosts = computed(() => postList.value.length < postsTotal.value)
 
+const achievementStats = ref<AlbumAchievementStats | null>(null)
+const achievementStatsLoading = ref(false)
+const achieveAlbumList = ref<Album[]>([])
+const achieveAlbumsLoading = ref(false)
+const achieveAlbumsLoadingMore = ref(false)
+const achieveAlbumPage = ref(1)
+const achieveAlbumPageSize = 10
+const achieveAlbumTotal = ref(0)
+
+const hasMoreAchieveAlbums = computed(
+  () => achieveAlbumList.value.length < achieveAlbumTotal.value,
+)
+
+const resetAchievementTab = () => {
+  achievementStats.value = null
+  achievementStatsLoading.value = false
+  achieveAlbumList.value = []
+  achieveAlbumsLoading.value = false
+  achieveAlbumsLoadingMore.value = false
+  achieveAlbumPage.value = 1
+  achieveAlbumTotal.value = 0
+}
+
+const loadAchievementStats = async () => {
+  const uid = spaceUserId.value
+  if (!uid) return
+  achievementStatsLoading.value = true
+  try {
+    achievementStats.value = await getAlbumAchievementStats({ user_id: uid })
+  } catch (e) {
+    console.error('获取成就统计失败:', e)
+    achievementStats.value = null
+  } finally {
+    achievementStatsLoading.value = false
+  }
+}
+
+const loadAchieveAlbums = async (isLoadMore = false) => {
+  const uid = spaceUserId.value
+  if (!uid) return
+  if (isLoadMore) {
+    if (achieveAlbumsLoadingMore.value || achieveAlbumList.value.length >= achieveAlbumTotal.value) return
+    achieveAlbumsLoadingMore.value = true
+  } else {
+    achieveAlbumsLoading.value = true
+    achieveAlbumPage.value = 1
+    achieveAlbumList.value = []
+  }
+  try {
+    const res = await getAlbumList({
+      page: achieveAlbumPage.value,
+      pageSize: achieveAlbumPageSize,
+      parent_id: 0,
+      user_id: uid,
+    })
+    achieveAlbumTotal.value = res.count ?? 0
+    const rows = res.rows ?? []
+    if (isLoadMore) {
+      achieveAlbumList.value.push(...rows)
+    } else {
+      achieveAlbumList.value = rows
+    }
+  } catch (error) {
+    console.error('获取成就相册列表失败:', error)
+    toast.add({
+      title: '获取成就相册失败',
+      description: getErrorMessage(error),
+      icon: 'i-heroicons-x-circle',
+      color: 'red',
+    })
+    if (!isLoadMore) {
+      achieveAlbumList.value = []
+      achieveAlbumTotal.value = 0
+    }
+  } finally {
+    achieveAlbumsLoading.value = false
+    achieveAlbumsLoadingMore.value = false
+  }
+}
+
+const loadMoreAchieveAlbums = async () => {
+  if (!hasMoreAchieveAlbums.value || achieveAlbumsLoadingMore.value) return
+  achieveAlbumPage.value += 1
+  await loadAchieveAlbums(true)
+}
+
+const goUserSpaceAlbumDetail = (album: Album) => {
+  const uid = spaceUserId.value
+  if (!album.album_id) return
+  if (uid) {
+    router.push({ path: `/album/detail/${album.album_id}`, query: { user_id: String(uid) } })
+  } else {
+    router.push(`/album/detail/${album.album_id}`)
+  }
+}
+
 // 加载帖子列表
 const loadPosts = async (isLoadMore = false) => {
   const userId = spaceUserId.value
@@ -808,11 +997,18 @@ watch(userInfo, (info) => {
   if (info?.user_id) {
     loadPosts()
     fetchUserBadges()
+    if (isUserAchieveVisible(info.is_achieve)) {
+      void loadAchievementStats()
+      void loadAchieveAlbums(false)
+    } else {
+      resetAchievementTab()
+    }
   } else {
     postList.value = []
     postsTotal.value = 0
     userBadges.value = []
     displayBadgeStr.value = ''
+    resetAchievementTab()
   }
 }, { immediate: true })
 

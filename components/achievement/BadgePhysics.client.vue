@@ -3,16 +3,22 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onBeforeUnmount } from "vue"
+import { ref, onMounted, onBeforeUnmount, watch } from "vue"
 import * as THREE from "three"
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js"
 import { DRACOLoader } from "three/examples/jsm/loaders/DRACOLoader.js"
 import type { UserDeco } from "@/types/api"
 import { BASE_IMG, BASE_IMG_MODEL } from "@/utils/ipConfig"
 
-const props = defineProps<{
-  badges: UserDeco[]
-}>()
+export type BadgePhysicsMotionPreset = "gravity" | "wallBounce"
+
+const props = withDefaults(
+  defineProps<{
+    badges: UserDeco[]
+    motionPreset?: BadgePhysicsMotionPreset
+  }>(),
+  { motionPreset: "wallBounce" }
+)
 
 function isModelCover(cover: string | undefined): boolean {
   if (!cover) return false
@@ -51,11 +57,13 @@ const PLANE_Z = 0
 const intersectPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), -PLANE_Z)
 const intersectPoint = new THREE.Vector3()
 
-/** 在展示区按下后持续用全局 move/up 驱动拖拽，直至释放 */
-let physicsPointerSession = false
-let lastPointerX = 0
-let lastPointerY = 0
-let hasPointerPos = false
+/** 仅统计为「点击」的最大像素位移，超过则视为滑动/滚动手势，不施力 */
+const TAP_SLOP_PX = 12
+
+let pendingPhysicsTap = false
+let tapDownX = 0
+let tapDownY = 0
+let tapPointerId = -1
 
 let animationId = 0
 let resizeObserver: ResizeObserver | null = null
@@ -67,22 +75,91 @@ const GRAVITY = -6
 const BOUND_SCALE = 0.9
 /** 地板顶略高于视口底，抵消接触求解/无 margin 时的微量穿透，避免前景层底部少数字被 `overflow:hidden` 吃掉 */
 const FLOOR_CONTACT_EPSILON = 0.06
+/** 与视口顶、底对称的可视边距（世界单位）；顶/底各减一个 FLOOR_CONTACT_EPSILON 参与计算，与底部穿透补偿一致 */
+const BOUNDARY_VISUAL_MARGIN = 0.5
 const RANDOM_FORCE = 2.5
 const PUSH_FORCE = 15
-const DRAG_FORCE = 0.8
+/** 碰壁模式：生成时冲量模长区间，便于从同一点向四周散开 */
+const WALL_BOUNCE_SPAWN_IMPULSE_MIN = 5
+const WALL_BOUNCE_SPAWN_IMPULSE_MAX = 12
+/** 碰壁模式：水平速度模长下限，避免阻尼把运动完全磨没 */
+const WALL_BOUNCE_MIN_LINEAR_SPEED = 0.32
+
+/** 运动预设：重力掉落（默认） / 零重力高弹性碰壁回弹 */
+const MOTION_PRESET_CONFIG: Record<
+  BadgePhysicsMotionPreset,
+  {
+    gravityY: number
+    randomForce: number
+    badgeRestitution: number
+    wallRestitution: number
+    friction: number
+    linearDamping: number
+    angularDamping: number
+  }
+> = {
+  gravity: {
+    gravityY: GRAVITY,
+    randomForce: RANDOM_FORCE,
+    badgeRestitution: 0.75,
+    wallRestitution: 0.75,
+    friction: 0.4,
+    linearDamping: 0.15,
+    angularDamping: 0.25,
+  },
+  wallBounce: {
+    gravityY: 0,
+    randomForce: 2.8,
+    badgeRestitution: 0.93,
+    wallRestitution: 0.95,
+    friction: 0.05,
+    linearDamping: 0.008,
+    angularDamping: 0.018,
+  },
+}
+
+function motionCfg(): (typeof MOTION_PRESET_CONFIG)["gravity"] {
+  const p = props.motionPreset
+  return MOTION_PRESET_CONFIG[p] ?? MOTION_PRESET_CONFIG.gravity
+}
+
+function applyMotionPresetToWorld() {
+  if (!physicsWorld || !tempVec3) return
+  const cfg = motionCfg()
+  tempVec3.setValue(0, cfg.gravityY, 0)
+  physicsWorld.setGravity(tempVec3)
+  for (const b of wallBodies) {
+    b.setRestitution(cfg.wallRestitution)
+  }
+  for (const b of bodies) {
+    b.setRestitution(cfg.badgeRestitution)
+    b.setFriction(cfg.friction)
+    b.setDamping(cfg.linearDamping, cfg.angularDamping)
+  }
+}
 
 let boundX = 6
 let boundZ = 4
 let viewHeight = 12
 const viewCenterY = 1.2
 
+/** 玩法区内侧顶/底 Y（承托面顶、侧墙顶/顶盖板底），用于碰壁模式生成与逃逸重置 */
+let playInnerBottomY = 0
+let playInnerTopY = 0
+/** 碰壁模式：生成与意外超出时的重置目标（玩法区竖直中点） */
+let bounceArenaMidY = 0
+
 /** 基准宽高比，该比例下缩放为 1 */
 const TARGET_ASPECT = 16 / 9
+/** 模型相对 16:9 的缩放上限（超宽屏等极端横向比例下避免过大） */
+const MODEL_SCALE_MAX = 1.2
+/** 碰撞盒边界线框，仅调试；默认关闭 */
+const SHOW_BOUNDARY_DEBUG = false
 
 /** 根据容器比例计算缩放系数，16:9 时为 1 */
 function getAspectScale(width: number, height: number): number {
   const aspect = width / height
-  return aspect / TARGET_ASPECT
+  return Math.min(aspect / TARGET_ASPECT, MODEL_SCALE_MAX)
 }
 
 function getCoverUrl(item: UserDeco) {
@@ -121,17 +198,21 @@ function initPhysics() {
 
   tempVec3 = new AmmoLib.btVector3(0, 0, 0)
   zeroVec3 = new AmmoLib.btVector3(0, 0, 0)
-  tempVec3.setValue(0, GRAVITY, 0)
+  tempVec3.setValue(0, motionCfg().gravityY, 0)
   physicsWorld.setGravity(tempVec3)
 }
 
 function createWallDebugVisual(sizeX:number,sizeY:number,sizeZ:number,pos:THREE.Vector3){
+  if (!SHOW_BOUNDARY_DEBUG) return
   const geo=new THREE.BoxGeometry(sizeX,sizeY,sizeZ)
   const edges=new THREE.EdgesGeometry(geo)
-  const line=new THREE.LineSegments(
-    edges,
-    new THREE.LineBasicMaterial({color:0xff6600,linewidth:2})
-  )
+  const mat = new THREE.LineBasicMaterial({
+    color: 0x22ffcc,
+    depthTest: false,
+    toneMapped: false,
+  })
+  const line = new THREE.LineSegments(edges, mat)
+  line.renderOrder = 1000
   line.position.copy(pos)
   scene.add(line)
   boundDebugLines.push(line)
@@ -159,7 +240,7 @@ function createWall(sizeX:number,sizeY:number,sizeZ:number,pos:THREE.Vector3){
   )
 
   const body=new AmmoLib.btRigidBody(rbInfo)
-  body.setRestitution(0.75)
+  body.setRestitution(motionCfg().wallRestitution)
 
   physicsWorld.addRigidBody(body)
   wallBodies.push(body)
@@ -187,27 +268,53 @@ function computeBoundsFromView(width: number, height: number){
 function createBounds(){
 
   const wall=0.5
-  const height=viewHeight * BOUND_SCALE
   const viewBottomY = viewCenterY - viewHeight / 2
-  const floorTopY = viewBottomY + FLOOR_CONTACT_EPSILON
+  const viewTopY = viewCenterY + viewHeight / 2
+  const floorTopY =
+    viewBottomY + FLOOR_CONTACT_EPSILON + BOUNDARY_VISUAL_MARGIN
+  const playTopY =
+    viewTopY - FLOOR_CONTACT_EPSILON - BOUNDARY_VISUAL_MARGIN
+  const height = Math.max(playTopY - floorTopY, 1)
   const floorCenterY = floorTopY - wall / 2
   const wallBottomY = floorTopY
   const wallCenterY = wallBottomY + height / 2
 
-  // floor - 贴视区底部
-  createWall(boundX*2,wall,boundZ*2,new THREE.Vector3(0,floorCenterY,0))
+  playInnerBottomY = floorTopY
+  playInnerTopY = playTopY
+  bounceArenaMidY = (floorTopY + playTopY) / 2
+
+  // floor - 承托面与视口底、侧墙顶与视口顶，各留 BOUNDARY_VISUAL_MARGIN（对称）
+  const floorPos = new THREE.Vector3(0, floorCenterY, 0)
+  createWall(boundX * 2, wall, boundZ * 2, floorPos)
+  createWallDebugVisual(boundX * 2, wall, boundZ * 2, floorPos)
 
   // left
-  createWall(wall,height,boundZ*2,new THREE.Vector3(-boundX,wallCenterY,0))
+  const leftPos = new THREE.Vector3(-boundX, wallCenterY, 0)
+  createWall(wall, height, boundZ * 2, leftPos)
+  createWallDebugVisual(wall, height, boundZ * 2, leftPos)
 
   // right
-  createWall(wall,height,boundZ*2,new THREE.Vector3(boundX,wallCenterY,0))
+  const rightPos = new THREE.Vector3(boundX, wallCenterY, 0)
+  createWall(wall, height, boundZ * 2, rightPos)
+  createWallDebugVisual(wall, height, boundZ * 2, rightPos)
 
   // back
-  createWall(boundX*2,height,wall,new THREE.Vector3(0,wallCenterY,-boundZ))
+  const backPos = new THREE.Vector3(0, wallCenterY, -boundZ)
+  createWall(boundX * 2, height, wall, backPos)
+  createWallDebugVisual(boundX * 2, height, wall, backPos)
 
   // front
-  createWall(boundX*2,height,wall,new THREE.Vector3(0,wallCenterY,boundZ))
+  const frontPos = new THREE.Vector3(0, wallCenterY, boundZ)
+  createWall(boundX * 2, height, wall, frontPos)
+  createWallDebugVisual(boundX * 2, height, wall, frontPos)
+
+  // 碰壁回弹：封顶，与地板对称
+  if (props.motionPreset === "wallBounce") {
+    const ceilingCenterY = playTopY + wall / 2
+    const ceilPos = new THREE.Vector3(0, ceilingCenterY, 0)
+    createWall(boundX * 2, wall, boundZ * 2, ceilPos)
+    createWallDebugVisual(boundX * 2, wall, boundZ * 2, ceilPos)
+  }
 }
 
 function initScene(){
@@ -369,17 +476,32 @@ function createRigidBody(mesh:THREE.Object3D, halfExt?: THREE.Vector3, bodyPos?:
 
   const body=new AmmoLib.btRigidBody(rbInfo)
 
-  body.setFriction(0.4)
-  body.setRestitution(0.75)
+  const cfg = motionCfg()
+  body.setFriction(cfg.friction)
+  body.setRestitution(cfg.badgeRestitution)
 
   body.setDamping(
-    0.15,
-    0.25
+    cfg.linearDamping,
+    cfg.angularDamping
   )
 
   physicsWorld.addRigidBody(body)
 
   bodies.push(body)
+}
+
+function applyWallBounceSpawnKick(body: { activate: () => void; applyCentralImpulse: (v: unknown) => void }) {
+  if (!AmmoLib || props.motionPreset !== "wallBounce") return
+  body.activate()
+  const angle = Math.random() * Math.PI * 2
+  const mag =
+    WALL_BOUNCE_SPAWN_IMPULSE_MIN +
+    Math.random() * (WALL_BOUNCE_SPAWN_IMPULSE_MAX - WALL_BOUNCE_SPAWN_IMPULSE_MIN)
+  const ix = Math.cos(angle) * mag
+  const iy = Math.sin(angle) * mag
+  const imp = new AmmoLib.btVector3(ix, iy, 0)
+  body.applyCentralImpulse(imp)
+  AmmoLib.destroy(imp)
 }
 
 function loadGlbModel(url: string): Promise<{ mesh: THREE.Object3D; size: THREE.Vector3; center: THREE.Vector3 } | null>{
@@ -419,6 +541,15 @@ async function createBadge(deco:UserDeco){
   const cover = deco.foreign?.cover ?? ""
   const isModel = isModelCover(cover)
 
+  const spawnCenter =
+    props.motionPreset === "wallBounce"
+      ? new THREE.Vector3(0, bounceArenaMidY, PLANE_Z)
+      : new THREE.Vector3(
+          (Math.random() - 0.5) * boundX * 1.5,
+          6 + Math.random() * 4,
+          PLANE_Z
+        )
+
   let mesh: THREE.Object3D
   let centerOffset = new THREE.Vector3(0, 0, 0)
 
@@ -442,13 +573,8 @@ async function createBadge(deco:UserDeco){
     const halfExt = loaded.size.clone().multiplyScalar(0.5).multiplyScalar(modelScale)
     mesh.rotation.set(Math.random() * 0.4, Math.random() * 0.4, Math.random() * 0.4)
     const rc = centerOffset.clone().applyQuaternion(mesh.quaternion)
-    const spawnCenter = new THREE.Vector3(
-      (Math.random() - 0.5) * boundX * 1.5,
-      6 + Math.random() * 4,
-      PLANE_Z
-    )
     mesh.position.copy(spawnCenter).sub(rc)
-    const bodyPos = spawnCenter
+    const bodyPos = spawnCenter.clone()
     scene.add(mesh)
     meshes.push(mesh)
     meshCenterOffsets.push(centerOffset.clone())
@@ -459,16 +585,16 @@ async function createBadge(deco:UserDeco){
     const geo = new THREE.SphereGeometry(radius, 32, 32)
     const material = new THREE.MeshBasicMaterial({ map: texture, color: "#ffffff" })
     mesh = new THREE.Mesh(geo, material)
-    mesh.position.set(
-      (Math.random() - 0.5) * boundX * 1.5,
-      6 + Math.random() * 4,
-      PLANE_Z
-    )
+    mesh.position.copy(spawnCenter)
     mesh.rotation.set(Math.random() * 0.4, Math.random() * 0.4, Math.random() * 0.4)
     scene.add(mesh)
     meshes.push(mesh)
     meshCenterOffsets.push(new THREE.Vector3(0, 0, 0))
-    createRigidBody(mesh)
+    createRigidBody(mesh, undefined, spawnCenter.clone())
+  }
+
+  if (props.motionPreset === "wallBounce" && bodies.length > 0) {
+    applyWallBounceSpawnKick(bodies[bodies.length - 1])
   }
 
   mesh.userData = mesh.userData || {}
@@ -512,39 +638,12 @@ function getWorldPointFromPointer(clientX: number, clientY: number): THREE.Vecto
   return raycaster.ray.intersectPlane(intersectPlane, intersectPoint) ? intersectPoint.clone() : null
 }
 
-function applyForceFromPointer(clientX: number, clientY: number, forceX: number, forceY: number) {
+function applyTapImpulseAtScreen(clientX: number, clientY: number) {
+  if (!AmmoLib || !camera || !renderer || !tempVec3) return
+  if (!isPointOverContainer(clientX, clientY)) return
+
   const worldPt = getWorldPointFromPointer(clientX, clientY)
-  if (!worldPt || !AmmoLib || !tempVec3) return
-  const radius = boundX * 0.6
-  for (let i = 0; i < bodies.length; i++) {
-    const body = bodies[i]
-    const trans = body.getWorldTransform()
-    const ox = trans.getOrigin().x()
-    const oy = trans.getOrigin().y()
-    const dx = ox - worldPt.x
-    const dy = oy - worldPt.y
-    const distSq = dx * dx + dy * dy
-    if (distSq < radius * radius) {
-      body.activate()
-      const f = 1 - Math.sqrt(distSq) / radius
-      const vec = new AmmoLib.btVector3(forceX * f, forceY * f, 0)
-      body.applyCentralForce(vec)
-      AmmoLib.destroy(vec)
-    }
-  }
-}
-
-function onGlobalPointerDown(e: PointerEvent) {
-  if (!isPointOverContainer(e.clientX, e.clientY) || !AmmoLib || !camera || !renderer) return
-  if (isInteractiveUiTarget(e.target)) return
-
-  physicsPointerSession = true
-  lastPointerX = e.clientX
-  lastPointerY = e.clientY
-  hasPointerPos = true
-
-  const worldPt = getWorldPointFromPointer(e.clientX, e.clientY)
-  if (!worldPt || !tempVec3) return
+  if (!worldPt) return
 
   raycaster.setFromCamera(mouse, camera)
   const intersects = raycaster.intersectObjects(meshes, true)
@@ -577,43 +676,60 @@ function onGlobalPointerDown(e: PointerEvent) {
   }
 }
 
-function onGlobalPointerUp() {
-  physicsPointerSession = false
-  hasPointerPos = false
+function onGlobalPointerDown(e: PointerEvent) {
+  if (!isPointOverContainer(e.clientX, e.clientY) || !AmmoLib || !camera || !renderer) return
+  if (isInteractiveUiTarget(e.target)) return
+
+  pendingPhysicsTap = true
+  tapDownX = e.clientX
+  tapDownY = e.clientY
+  tapPointerId = e.pointerId
 }
 
 function onGlobalPointerMove(e: PointerEvent) {
-  if (!physicsPointerSession || !AmmoLib || !tempVec3) return
+  if (!pendingPhysicsTap || e.pointerId !== tapPointerId) return
+  const dx = e.clientX - tapDownX
+  const dy = e.clientY - tapDownY
+  if (dx * dx + dy * dy > TAP_SLOP_PX * TAP_SLOP_PX) {
+    pendingPhysicsTap = false
+  }
+}
 
-  if (!hasPointerPos) {
-    lastPointerX = e.clientX
-    lastPointerY = e.clientY
-    hasPointerPos = true
-    return
-  }
-  const dx = (e.clientX - lastPointerX) * DRAG_FORCE
-  const dy = (e.clientY - lastPointerY) * DRAG_FORCE
-  lastPointerX = e.clientX
-  lastPointerY = e.clientY
-  if (Math.abs(dx) > 0.5 || Math.abs(dy) > 0.5) {
-    applyForceFromPointer(e.clientX, e.clientY, dx, -dy)
-  }
+function onGlobalPointerUp(e: PointerEvent) {
+  if (e.pointerId !== tapPointerId) return
+  const shouldTap = pendingPhysicsTap
+  pendingPhysicsTap = false
+  tapPointerId = -1
+  if (!shouldTap) return
+  applyTapImpulseAtScreen(tapDownX, tapDownY)
+}
+
+function onGlobalPointerCancel(e: PointerEvent) {
+  if (e.pointerId !== tapPointerId) return
+  pendingPhysicsTap = false
+  tapPointerId = -1
 }
 
 function updatePhysics(){
   if(!tempVec3) return
 
+  const rf = motionCfg().randomForce
   for(const body of bodies){
-    tempVec3.setValue((Math.random()-0.5)*RANDOM_FORCE,(Math.random()-0.5)*RANDOM_FORCE,0)
+    tempVec3.setValue((Math.random()-0.5)*rf,(Math.random()-0.5)*rf,0)
     body.applyCentralForce(tempVec3)
   }
 
   physicsWorld.stepSimulation(1/60,5)
 
   const viewBottomY = viewCenterY - viewHeight / 2
+  const viewTopY = viewCenterY + viewHeight / 2
   const minY = viewBottomY - 1.5
-  const maxY = viewCenterY + viewHeight / 2 + 4
+  const maxY = viewTopY + 1.5
   const marginX = boundX * 1.4
+
+  const wallBounce = props.motionPreset === "wallBounce"
+  /** 玩法盒外略放宽，检出穿模/数值飞出后拉回中心 */
+  const escapeSlack = 1.0
 
   for(let i=0;i<bodies.length;i++){
 
@@ -629,24 +745,66 @@ function updatePhysics(){
     let py = pos.y()
     const pz = PLANE_Z
 
-    const outOfBounds =
-      px < -marginX || px > marginX ||
-      py < minY || py > maxY
+    let outOfBounds: boolean
+    if (wallBounce) {
+      outOfBounds =
+        px < -boundX - escapeSlack ||
+        px > boundX + escapeSlack ||
+        py < playInnerBottomY - escapeSlack ||
+        py > playInnerTopY + escapeSlack ||
+        Math.abs(pos.z()) > boundZ + escapeSlack
+    } else {
+      outOfBounds =
+        px < -marginX || px > marginX ||
+        py < minY || py > maxY
+    }
 
     if(outOfBounds){
-      px = (Math.random() - 0.5) * boundX * 1.6
-      py = 6 + Math.random() * 4
+      if (wallBounce) {
+        px = 0
+        py = bounceArenaMidY
+      } else {
+        px = (Math.random() - 0.5) * boundX * 1.6
+        py = 6 + Math.random() * 4
+      }
       tempVec3.setValue(px, py, PLANE_Z)
       transform.setOrigin(tempVec3)
       body.setWorldTransform(transform)
-      body.setLinearVelocity(zeroVec3)
-      body.setAngularVelocity(zeroVec3)
+      if (wallBounce) {
+        const a = Math.random() * Math.PI * 2
+        tempVec3.setValue(
+          Math.cos(a) * WALL_BOUNCE_MIN_LINEAR_SPEED,
+          Math.sin(a) * WALL_BOUNCE_MIN_LINEAR_SPEED,
+          0
+        )
+        body.setLinearVelocity(tempVec3)
+        body.setAngularVelocity(zeroVec3)
+      } else {
+        body.setLinearVelocity(zeroVec3)
+        body.setAngularVelocity(zeroVec3)
+      }
     } else {
       tempVec3.setValue(px, py, PLANE_Z)
       transform.setOrigin(tempVec3)
       body.setWorldTransform(transform)
       const vel = body.getLinearVelocity()
-      tempVec3.setValue(vel.x(), vel.y(), 0)
+      let vx = vel.x()
+      let vy = vel.y()
+      if (wallBounce) {
+        const sp = Math.hypot(vx, vy)
+        if (sp < WALL_BOUNCE_MIN_LINEAR_SPEED) {
+          if (sp > 1e-5) {
+            const s = WALL_BOUNCE_MIN_LINEAR_SPEED / sp
+            vx *= s
+            vy *= s
+          } else {
+            const a = Math.random() * Math.PI * 2
+            vx = Math.cos(a) * WALL_BOUNCE_MIN_LINEAR_SPEED
+            vy = Math.sin(a) * WALL_BOUNCE_MIN_LINEAR_SPEED
+          }
+        }
+      }
+      tempVec3.setValue(vx, vy, 0)
       body.setLinearVelocity(tempVec3)
     }
 
@@ -686,6 +844,14 @@ async function spawnBadges(){
   }
 }
 
+watch(
+  () => props.motionPreset,
+  () => {
+    applyMotionPresetToWorld()
+    updateCameraAndBounds()
+  }
+)
+
 onMounted(async()=>{
 
   await initAmmo()
@@ -710,7 +876,7 @@ onMounted(async()=>{
   document.addEventListener("pointerdown", onGlobalPointerDown, true)
   document.addEventListener("pointermove", onGlobalPointerMove, true)
   document.addEventListener("pointerup", onGlobalPointerUp, true)
-  document.addEventListener("pointercancel", onGlobalPointerUp, true)
+  document.addEventListener("pointercancel", onGlobalPointerCancel, true)
 })
 
 onBeforeUnmount(()=>{
@@ -718,7 +884,7 @@ onBeforeUnmount(()=>{
   document.removeEventListener("pointerdown", onGlobalPointerDown, true)
   document.removeEventListener("pointermove", onGlobalPointerMove, true)
   document.removeEventListener("pointerup", onGlobalPointerUp, true)
-  document.removeEventListener("pointercancel", onGlobalPointerUp, true)
+  document.removeEventListener("pointercancel", onGlobalPointerCancel, true)
 
   if(AmmoLib && tempVec3){ AmmoLib.destroy(tempVec3); tempVec3 = null }
   if(AmmoLib && zeroVec3){ AmmoLib.destroy(zeroVec3); zeroVec3 = null }
