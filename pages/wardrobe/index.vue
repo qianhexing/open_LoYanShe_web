@@ -55,7 +55,7 @@ const jumpToWardrobe = (userId: number) => {
   
   if (isInUniApp && typeof uni !== 'undefined' && uni.navigateTo) {
     // UniApp WebView 环境
-    router.push(wardrobeUrl)
+    router.replace(wardrobeUrl)
     // uni.navigateTo({
     //   url: `/pages/wardrobe/wardrobe?user_id=${userId}`,
     //   fail: () => {
@@ -74,7 +74,7 @@ const jumpToWardrobe = (userId: number) => {
       }))
     } else {
       // 普通网页环境
-      router.push(wardrobeUrl)
+      router.replace(wardrobeUrl)
     }
   }
 }

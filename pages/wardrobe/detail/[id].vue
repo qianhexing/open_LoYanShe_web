@@ -887,6 +887,99 @@ const isWardrobeOwner = computed(() => {
   return user.user?.user_id === Number.parseInt(id) && currentWardrobe.value?.user_id === user.user?.user_id
 })
 
+const isInUniAppShell = computed(
+  () =>
+    import.meta.client &&
+    typeof navigator !== 'undefined' &&
+    navigator.userAgent.includes('Html5Plus')
+)
+
+/**
+ * UniApp 衣柜详情「设为首页」：`message_config.home_page` **仅在为 `3` 时表示开启**。
+ * `0`、`1`、未定义或其它任意数字均视为关闭（与功能导航页一致）。
+ */
+const WARDROBE_HOME_PAGE = 3
+const WARDROBE_HOME_PAGE_OFF = 0
+
+function isWardrobeHomeEnabled(homePage: unknown): boolean {
+  if (typeof homePage === 'boolean') return false
+  const n = Number(homePage)
+  return Number.isFinite(n) && n === WARDROBE_HOME_PAGE
+}
+
+function getWardrobeMessageConfigBase(): Record<string, unknown> {
+  const mc = user.user?.message_config
+  if (!mc || typeof mc !== 'object') return {}
+  return { ...(mc as Record<string, unknown>) }
+}
+
+function isWardrobeUserLoggedIn(): boolean {
+  const uid = user.user?.user_id
+  return !(uid == null || !Number.isFinite(Number(uid)))
+}
+
+const wardrobeAsHomeToggle = ref(false)
+const savingWardrobeHome = ref(false)
+const showWardrobeHomeUpdateModal = ref(false)
+
+function syncWardrobeAsHomeToggleFromUser() {
+  wardrobeAsHomeToggle.value = isWardrobeHomeEnabled(
+    getWardrobeMessageConfigBase().home_page
+  )
+}
+
+watch(
+  () => user.user?.message_config,
+  () => {
+    syncWardrobeAsHomeToggleFromUser()
+  },
+  { immediate: true, deep: true }
+)
+
+async function handleWardrobeAsHomeChange(value: boolean) {
+  if (!isWardrobeUserLoggedIn()) {
+    wardrobeAsHomeToggle.value = false
+    toast.add({
+      title: '请先登录',
+      icon: 'i-heroicons-information-circle',
+      color: 'gray'
+    })
+    return
+  }
+  savingWardrobeHome.value = true
+  try {
+    const raw = getWardrobeMessageConfigBase()
+    const merged: Record<string, unknown> = value
+      ? { ...raw, home_page: WARDROBE_HOME_PAGE }
+      : { ...raw, home_page: WARDROBE_HOME_PAGE_OFF }
+    await user.updateUserInfo({
+      message_config: merged
+    })
+    wardrobeAsHomeToggle.value = value
+    if (value) {
+      showWardrobeHomeUpdateModal.value = true
+    } else {
+      toast.add({
+        title: '已取消设为首页',
+        icon: 'i-heroicons-information-circle',
+        color: 'gray'
+      })
+    }
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : '保存失败'
+    wardrobeAsHomeToggle.value = !value
+    toast.add({
+      title: '保存失败',
+      description: msg,
+      icon: 'i-heroicons-x-circle',
+      color: 'red'
+    })
+  } finally {
+    savingWardrobeHome.value = false
+    syncWardrobeAsHomeToggleFromUser()
+  }
+}
+
 /** 衣柜主人已拥有徽章（用于解析 display_badge 展示物理徽章，与 userSpace 一致） */
 function badgeToUserDeco(item: UserDecoBadgeItem): UserDeco {
   const cover = item.cover || item.url || 'static/plan_cover/default.jpg'
@@ -2056,6 +2149,29 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
         </div>
       </div>
     </QhxModal>
+    <QhxModal v-model="showWardrobeHomeUpdateModal">
+      <div class="p-6 w-[min(94vw,420px)] bg-white dark:bg-gray-800 rounded-[10px] shadow-lg">
+        <h3 class="text-base font-bold mb-3 text-gray-800 dark:text-gray-200">设为首页</h3>
+        <p class="text-sm text-gray-700 dark:text-gray-300 mb-4 leading-relaxed">
+          设置首页需要最新 1.6.5 版本 App，请复制下方链接到浏览器中打开并更新。
+        </p>
+        <p class="text-xs break-all rounded-lg bg-gray-50 dark:bg-gray-900/60 px-3 py-2 text-gray-600 dark:text-gray-400 mb-4">
+          https://a.app.qq.com/o/simple.jsp?pkgname=uni.lolita
+        </p>
+        <div class="flex justify-end gap-2">
+          <UButton color="gray" @click="showWardrobeHomeUpdateModal = false">知道了</UButton>
+          <!-- <UButton
+            color="primary"
+            @click="async () => {
+              await navigator.clipboard.writeText('https://a.app.qq.com/o/simple.jsp?pkgname=uni.lolita')
+              toast.add({ title: '链接已复制', icon: 'i-heroicons-check-circle', color: 'green' })
+            }"
+          >
+            复制链接
+          </UButton> -->
+        </div>
+      </div>
+    </QhxModal>
     <QhxModal v-model="showMoreMenu" :trigger-position="moreMenuPosition">
       <div class="p-4 w-[200px] bg-white dark:bg-gray-800 rounded-[10px] shadow-lg">
         <h3 class="text-sm font-bold mb-3 text-gray-800 dark:text-gray-200">更多选项</h3>
@@ -2288,6 +2404,19 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
             <div class="flex flex-col gap-2">
               <!-- 功能按钮 -->
               <div class="flex items-center justify-end gap-1 flex-wrap">
+                <QhxJellyButton v-if="isInUniAppShell">
+                  <div class="h-[46px] text-center px-0.5">
+                    <div class="flex items-center justify-center m-[3px] min-h-[24px]">
+                      <UToggle
+                        v-model="wardrobeAsHomeToggle"
+                        color="primary"
+                        :disabled="savingWardrobeHome"
+                        @update:model-value="handleWardrobeAsHomeChange"
+                      />
+                    </div>
+                    <div class="text-xs whitespace-nowrap">设为首页</div>
+                  </div>
+                </QhxJellyButton>
                 <QhxJellyButton>
                   <div class="h-[46px] text-center px-0.5 cursor-pointer">
                     <div
@@ -2314,6 +2443,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
                     <div class="text-xs">徽章</div>
                   </div>
                 </QhxJellyButton>
+                
                 <QhxJellyButton>
                   <div class="h-[46px] text-center px-0.5  cursor-pointer">
                     <div
