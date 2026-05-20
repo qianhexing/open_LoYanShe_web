@@ -611,8 +611,14 @@ export interface LibraryVideo {
   video_id?: number
   cover?: string
   library?: Library
+  /** 兼容两种存法：仅拉线 / 完整 SceneJSON（含 objects/lighting/background 等） */
   json_data?: {
     laxian_list?: LaxianItem[]
+    objects?: unknown[]
+    lighting?: unknown[]
+    background?: string
+    cameraList?: unknown[]
+    controls?: Record<string, unknown>
   }
 }
 

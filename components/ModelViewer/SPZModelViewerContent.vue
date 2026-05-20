@@ -26,11 +26,17 @@ interface Props {
     autoRotate?: boolean
     /** 编辑模式：拉线列表变更时不触发全量重载，由外部调用 addLaxianToScene 等 */
     editMode?: boolean
+    /** 完整 SceneJSON，传入时优先走 threeCore.loadSceneFromJSON（含灯光/背景/对象），忽略 modelList */
+    sceneJson?: SceneJSON | null
+    /** WebGL 场景背景色（CSS 颜色或 THREE 颜色数值），默认白色，sceneJson.background 会覆盖之 */
+    backgroundColor?: number | string
 }
 
 const props = withDefaults(defineProps<Props>(), {
     autoRotate: false,
     editMode: false,
+    sceneJson: null,
+    backgroundColor: 0xffffff,
     laxianList: () => [
         {
             position: [0, 1, 0] as [number, number, number],
@@ -81,16 +87,18 @@ watch([() => props.autoRotate, () => threeCore.value], ([autoRotate, core]) => {
     (core.controls as { autoRotate: boolean }).autoRotate = !!autoRotate
 }, { immediate: true })
 
-// 监听模型列表和拉线点变化，自动加载（编辑模式下不因 laxianList 变化重载，避免覆盖动态添加）
+// 监听模型列表/场景 JSON/拉线点变化，自动加载（编辑模式下不因 laxianList 变化重载，避免覆盖动态添加）
 watch(
     [
+        () => props.sceneJson,
         () => props.modelList,
         () => (props.editMode ? null : props.laxianList)
     ],
-    async ([newList, newLaxian]) => {
+    async ([newScene, newList, newLaxian]) => {
+        const hasScene = !!newScene && Array.isArray(newScene.objects) && newScene.objects.length > 0
         const hasModels = newList && newList.length > 0
         const hasLaxian = newLaxian && newLaxian.length > 0
-        if (hasModels || hasLaxian) {
+        if (hasScene || hasModels || hasLaxian) {
             await nextTick()
             // client-only / Teleport 等场景下再等一帧，确保挂载点已进入 DOM
             await nextTick()
@@ -120,13 +128,14 @@ const initThreejs = async () => {
             sceneData: null
         })
 
-        // 设置场景背景为白色
+        // 设置场景默认背景色（可由 props.backgroundColor 自定义；若 sceneJson.background 存在则在后续 loadSceneFromJSON 中再次覆盖）
         if (threeCore.value) {
-            threeCore.value.scene.background = new THREE.Color(0xffffff)
+            threeCore.value.scene.background = new THREE.Color(props.backgroundColor)
         }
 
-        // 加载模型列表或拉线点
-        if ((props.modelList.length > 0 || (props.laxianList?.length ?? 0) > 0) && threeCore.value) {
+        // 加载模型列表/完整 SceneJSON/拉线点
+        const hasScene = !!props.sceneJson && Array.isArray(props.sceneJson.objects) && props.sceneJson.objects.length > 0
+        if ((hasScene || props.modelList.length > 0 || (props.laxianList?.length ?? 0) > 0) && threeCore.value) {
             await loadModels()
         }
 
@@ -140,41 +149,61 @@ const initThreejs = async () => {
 
 // 加载模型列表
 const loadModels = async () => {
+    const hasScene = !!props.sceneJson && Array.isArray(props.sceneJson.objects) && props.sceneJson.objects.length > 0
     const hasModels = props.modelList.length > 0
     const hasLaxian = (props.laxianList?.length ?? 0) > 0
-    if (!threeCore.value || (!hasModels && !hasLaxian)) return
+    if (!threeCore.value || (!hasScene && !hasModels && !hasLaxian)) return
 
     try {
-        // 将模型列表转换为 SceneJSON 格式
-        const modelObjects: SceneObjectJSON[] = props.modelList.map((item, index) => {
-            const obj: SceneObjectJSON = {
-                type: item.type || 'splat',
-                url: item.url,
-                position: item.position || [index * 3, 0, 0], // 默认横向排列
+        // 优先使用外部传入的完整 SceneJSON（含灯光/背景/对象等），允许追加 laxian
+        let sceneJSON: SceneJSON
+        if (hasScene) {
+            const externalLaxian: SceneObjectJSON[] = (props.laxianList?.length ? props.laxianList : []).map((item) => ({
+                type: 'laxian' as const,
+                position: item.position || [0, 0, 0],
                 rotation: item.rotation || [0, 0, 0],
                 scale: item.scale || [1, 1, 1],
-                options: item.options || {}
+                title: item.title || '拉线点',
+                laxian_id: item.laxian_id,
+                laxian_type: item.type ?? 0,
+                camera: item.camera
+            }))
+            sceneJSON = {
+                ...(props.sceneJson as SceneJSON),
+                objects: [...(props.sceneJson as SceneJSON).objects, ...externalLaxian]
             }
-            return obj
-        })
+        } else {
+            // 将模型列表转换为 SceneJSON 格式
+            const modelObjects: SceneObjectJSON[] = props.modelList.map((item, index) => {
+                const obj: SceneObjectJSON = {
+                    type: item.type || 'splat',
+                    url: item.url,
+                    position: item.position || [index * 3, 0, 0], // 默认横向排列
+                    rotation: item.rotation || [0, 0, 0],
+                    scale: item.scale || [1, 1, 1],
+                    options: item.options || {}
+                }
+                return obj
+            })
 
-        // 若有拉线点数据，加入 objects
-        const laxianObjects: SceneObjectJSON[] = (props.laxianList?.length ? props.laxianList : []).map((item) => ({
-            type: 'laxian' as const,
-            position: item.position || [0, 0, 0],
-            rotation: item.rotation || [0, 0, 0],
-            scale: item.scale || [1, 1, 1],
-            title: item.title || '拉线点',
-            laxian_id: item.laxian_id,
-            laxian_type: item.type ?? 0,
-            camera: item.camera
-        }))
+            // 若有拉线点数据，加入 objects
+            const laxianObjects: SceneObjectJSON[] = (props.laxianList?.length ? props.laxianList : []).map((item) => ({
+                type: 'laxian' as const,
+                position: item.position || [0, 0, 0],
+                rotation: item.rotation || [0, 0, 0],
+                scale: item.scale || [1, 1, 1],
+                title: item.title || '拉线点',
+                laxian_id: item.laxian_id,
+                laxian_type: item.type ?? 0,
+                camera: item.camera
+            }))
 
-        const sceneJSON: SceneJSON = {
-            objects: [...modelObjects, ...laxianObjects],
-            cameraList: [],
-            background: undefined,
-            lighting: []
+            sceneJSON = {
+                objects: [...modelObjects, ...laxianObjects],
+                cameraList: [],
+                background: undefined,
+                lighting: []
+            }
         }
 
         // 使用 loadSceneFromJSON 加载场景
@@ -188,7 +217,7 @@ const loadModels = async () => {
         await threeCore.value.loadSceneFromJSON(sceneJSON, false, onProgress)
 
         // 调整相机视角，让所有模型都在视野内（带过渡动画）
-        if (threeCore.value && (props.modelList.length > 0 || (props.laxianList?.length ?? 0) > 0)) {
+        if (threeCore.value && (hasScene || props.modelList.length > 0 || (props.laxianList?.length ?? 0) > 0)) {
             adjustCamera(true)
         }
         // 打印场景所有对象
