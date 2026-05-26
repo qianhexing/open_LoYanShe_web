@@ -91,22 +91,22 @@ export function useSceneUndo() {
     }
   }
 
-  /** 执行撤销 */
-  const undo = (scene: Scene): boolean => {
+  /** 执行撤销；成功时返回被恢复的对象 */
+  const undo = (scene: Scene): Object3D | null => {
     const entry = undoStack.value.pop()
-    if (!entry || !scene) return false
+    if (!entry || !scene) return null
 
     if (entry.type === 'transform') {
       const tEntry = entry as TransformUndoEntry
       const obj = findObjectByUuid(scene, tEntry.objectUuid)
       if (obj) {
         applyTransformState(obj, tEntry.state)
-        return true
+        return obj
       }
     }
 
     // 预留：其他类型的 undo 处理
-    return false
+    return null
   }
 
   /** 清空撤销栈 */

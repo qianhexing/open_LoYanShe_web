@@ -24,6 +24,22 @@ import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPa
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js'
 import { GammaCorrectionShader } from 'three/examples/jsm/shaders/GammaCorrectionShader.js'
 import gsap from 'gsap'
+import {
+	normalizeRotationForStorage,
+	resolveAnimationEffect
+} from '@/utils/sceneAnimationPresets'
+import { normalizeSceneObjectLinks } from '@/utils/sceneObjectLink'
+import {
+	collectTopLevelSceneObjectIds,
+	stampSceneObjectId
+} from '@/utils/sceneObjectId'
+import {
+	applyGroupingStepHidden,
+	applySceneStepVisibility,
+	isSceneStepContentRoot,
+	showAllStepManagedObjects,
+	type SceneStepJSON
+} from '@/utils/sceneSteps'
 import { TransformControls } from './TransformControls'
 // import { TransformControls } from 'three/examples/jsm/Addons.js';
 import { installUniformScale, restyleGizmo } from './MyTransformControls'
@@ -49,6 +65,57 @@ import {
 	SplatFileType,
 	SparkRenderer
 } from '@sparkjsdev/spark'
+
+/** 当前 ThreeCore 主渲染后端 */
+export type RendererBackend = 'webgpu' | 'webgl'
+
+/** 色彩风格：二次元/高饱和 vs 默认 PBR */
+export type ColorStyle = 'pbr' | 'anime'
+
+const COLOR_MAP_KEYS = [
+	'map',
+	'emissiveMap',
+	'specularMap',
+	'gradientMap',
+	'matcap',
+	'lightMap'
+] as const
+
+const DATA_MAP_KEYS = [
+	'normalMap',
+	'roughnessMap',
+	'metalnessMap',
+	'aoMap',
+	'bumpMap',
+	'displacementMap',
+	'alphaMap',
+	'clearcoatMap',
+	'clearcoatNormalMap',
+	'sheenColorMap',
+	'iridescenceMap',
+	'thicknessMap',
+	'transmissionMap'
+] as const
+
+function isHdrLikeTextureUrl(url: string): boolean {
+	return /\.(hdr|exr|rad)$/i.test(url)
+}
+
+export function isWebGPURenderer(
+	renderer: THREE.WebGLRenderer | WebGPURenderer
+): renderer is WebGPURenderer {
+	return Boolean((renderer as { isWebGPURenderer?: boolean }).isWebGPURenderer)
+}
+
+async function probeWebGPU(): Promise<boolean> {
+	if (typeof navigator === 'undefined' || !navigator.gpu) return false
+	try {
+		const adapter = await navigator.gpu.requestAdapter()
+		return adapter != null
+	} catch {
+		return false
+	}
+}
 
 /** 已为绝对/协议相对的资源 URL 不再拼接 CDN 前缀（避免 OSS 存的完整域名与 BASE 拼接后请求失效） */
 function resolveAssetUrlWithBase(relOrAbs: string | undefined | null, base: string): string {
@@ -103,6 +170,8 @@ const grid = createGrid()
 export interface SceneEffectJSON {
 	type: 'animation' | 'effect' | 'timeline'
 	cycles?: number // 如果是动画时循环次数 0 为无限循环
+	/** GSAP 动画预设 id，如 translateBy / rotateLoop */
+	preset?: string
 	// 动画特有
 	options?: Record<string, any> // 特效参数
 	// 特效特有
@@ -110,7 +179,7 @@ export interface SceneEffectJSON {
 	id?: number // 如果是动画，数字标识
 
 	// 动画属性
-	properties?: Record<string, number> // 要修改的属性，例如 { "position.x": 5, "rotation.y": 1.57 }
+	properties?: Record<string, number | string> // 如 rotation.y: "+=6.28" 相对旋转
 	duration?: number
 	ease?: string
 	delay?: number
@@ -131,6 +200,8 @@ interface TextureTransform {
 	rotation: number // 单位: 弧度
 }
 export interface SceneObjectJSON {
+	/** 场景内对象稳定唯一标识，保存后再次加载保持不变 */
+	id?: string
 	type:
 		| 'box'
 		| 'sphere'
@@ -175,7 +246,12 @@ export interface SceneObjectJSON {
 	material?: Record<string, any> // 替换过的贴图
 	plugin?: { url: string; options?: Record<string, any> }[] // 插件地址
 	follow?: boolean // 跟随摄像机
+	/** 模型点击关联 [{ type, id }]，见 utils/sceneObjectLink */
+	links?: import('@/utils/sceneObjectLink').SceneObjectLink[]
 }
+
+export type { SceneStepJSON } from '@/utils/sceneSteps'
+
 // 灯光配置接口 - 使用数组存储，用type字段区分类型
 export type LightType =
 	| 'ambient'
@@ -311,6 +387,8 @@ export type LightingConfig = LightConfig[]
 
 export interface SceneJSON {
 	objects: SceneObjectJSON[]
+	/** 多组场景：存在时仅显示当前分组 id 列表中的 mesh */
+	step?: SceneStepJSON[]
 	cameraList?: CameraState[]
 	background?: string
 	lighting?: LightingConfig // 完整的灯光配置
@@ -333,7 +411,10 @@ function isMobileDevice(): boolean {
 /** Spark / GSplat：是否在移动端帧率预设（与 ThreeCore.options.mobileOptimized 一致） */
 function isSparkMobilePerfMode(coreOptions?: {
 	mobileOptimized?: boolean
+	/** 为 false 时不套用移动端性能帽（抗锯齿、DPR 上限等） */
+	mobilePerfCap?: boolean
 }): boolean {
+	if (coreOptions?.mobilePerfCap === false) return false
 	return Boolean(coreOptions?.mobileOptimized) || isMobileDevice()
 }
 
@@ -349,9 +430,16 @@ interface ThreeCoreOptions {
 	enableCSS3DRenderer?: boolean // 新增选项：是否启用CSS3D渲染器
 	editMode?: boolean
 	enableAR?: boolean
+	/** @deprecated 请用 preferWebGPU；显式 false 时强制 WebGL */
 	enableWebGPU?: boolean
+	/** 优先 WebGPU（默认 false，效果稳定后再开启），不可用时自动回退 WebGL */
+	preferWebGPU?: boolean
+	/** 强制 WebGL，跳过 WebGPU 探测 */
+	forceWebGL?: boolean
 	/** 移动端优化：限制 pixelRatio、减少 overdraw，目标 45-60 FPS */
 	mobileOptimized?: boolean
+	/** 为 false 时手机端也按 antialias / pixelRatio 用户设置渲染 */
+	mobilePerfCap?: boolean
 	/**
 	 * 控制器类型：
 	 * - 'orbit'：轨道控制器（默认）
@@ -362,6 +450,11 @@ interface ThreeCoreOptions {
 	 * 是否启用射线点击检测
 	 */
 	enableRaycaster?: boolean
+	/**
+	 * 色彩风格：anime 适合二次元/插画/Lolita（NeutralToneMapping + 略高曝光）
+	 * @default 'pbr'
+	 */
+	colorStyle?: ColorStyle
 }
 
 class ThreeCore {
@@ -369,7 +462,12 @@ class ThreeCore {
 	public scene: THREE.Scene
 	public camera: THREE.PerspectiveCamera | THREE.OrthographicCamera
 	public renderer: THREE.WebGLRenderer | WebGPURenderer
-	public rendererGPU: WebGPURenderer
+	/** 主渲染后端（默认 webgl；preferWebGPU: true 时优先 WebGPU 并失败回退） */
+	public rendererBackend: RendererBackend = 'webgl'
+	/** WebGPU 主渲染时，供 GPUPicker / EffectComposer / Spark 等 WebGL 路径复用 */
+	private webglAux?: THREE.WebGLRenderer
+	/** 主渲染器异步初始化（WebGPU 需 await init） */
+	public rendererReady!: Promise<void>
 	public css3DRenderer?: CSS3DRenderer // CSS3D渲染器
 	// 控制器实例，默认是 OrbitControls，也可以根据配置切换为 FlyControls
 	public controls: any
@@ -387,7 +485,7 @@ class ThreeCore {
 	public qrScanContext?: CanvasRenderingContext2D | null
 	public lastQRScanTime = 0
 	// 渲染顺序计数
-	public renderOrderCount = 0
+	public renderOrderCount = 10000
 	// 光源系统
 	public lights?: {
 		ambient: THREE.AmbientLight
@@ -415,6 +513,8 @@ class ThreeCore {
 	private resizeObserver?: ResizeObserver
 	/** 从正交切回透视时恢复视野角 */
 	private lastPerspectiveFov = 45
+	/** 递增以取消进行中的 loadSceneFromJSON，避免快速切换时叠加 Splat/WASM 实例 */
+	private sceneLoadGeneration = 0
 	public loadedModelURLs: Set<string> // 已加载过的模型地址集合
 	public loadedModels: {
 		model: THREE.Object3D
@@ -422,7 +522,7 @@ class ThreeCore {
 	}[] // 加载成功的模型数组
 	private loadedTextures: Map<string, THREE.Texture> = new Map() // 加载过的贴图
 	private loadingTextures = new Map<string, Promise<THREE.Texture>>() // 正在加载的贴图
-	public effectManager: EffectManager
+	public effectManager!: EffectManager
 	public background: string | null
 	public editMode: boolean
 
@@ -437,6 +537,9 @@ class ThreeCore {
 
 	/** 当前加载的模版根对象（可为 Group/Mesh 等，默认由页面层拆开加入场景） */
 	public loadTemplate: THREE.Object3D[]
+	/** 多组场景配置（来自 SceneJSON.step） */
+	public sceneSteps: SceneStepJSON[] = []
+	public currentStepIndex = 0
 	/**
 	 * 从 loadSceneFromJSON 解析出的、需在页面层挂载 CharacterTypeController 的条目
 	 * 由 takePendingCharacterRehydrations 取出并清空
@@ -461,14 +564,34 @@ class ThreeCore {
 	// 高斯泼溅
 	public splatViewer?: GaussianSplats3D.Viewer
 
+	/** 懒加载且切换时保留：避免每次切换 reinstantiate Spark Wasm */
+	private sparkRenderer?: SparkRenderer
+
+	/** 单例复用 Draco Wasm，切换时 clearSceneContent 不 dispose */
+	private dracoLoader?: DRACOLoader
+	private dracoLoaderPath = '/draco/gltf/'
+
 	/** 编辑模式下显示的相机视点标记（controls.target 位置） */
 	private editTargetMarker?: THREE.Mesh
+
+	/** 当前激活分组内物体的高亮包围盒 */
+	private stepHighlightEntries: {
+		helper: THREE.BoxHelper
+		target: THREE.Object3D
+	}[] = []
+
+	/** 分组切换缩放过渡 */
+	private stepTransitionTweens: gsap.core.Tween[] = []
+	private stepTransitionObjects = new Set<THREE.Object3D>()
 
 	// bloom
 	bloomLayer = new THREE.Layers()
 	bloomPass!: UnrealBloomPass
 	bloomComposer!: EffectComposer
 	finalComposer!: EffectComposer
+	/** bloom / final 各自独立 RenderPass，避免共用 pass 状态导致选中时闪帧 */
+	private bloomScenePass?: RenderPass
+	private finalScenePass?: RenderPass
 	darkMaterial = new THREE.MeshBasicMaterial({ color: 'black' })
 	materials: Record<string, THREE.Material | THREE.Material[]> = {}
 
@@ -483,9 +606,10 @@ class ThreeCore {
 			enableStats: false,
 			pixelRatio: window.devicePixelRatio || 1,
 			enableCSS3DRenderer: false, // 默认不启用CSS3D渲染器
-			enableWebGPU: false,
+			preferWebGPU: false,
 			controlsType: 'orbit',
-			enableRaycaster: false // 默认不启用射线点击
+			enableRaycaster: false, // 默认不启用射线点击
+			colorStyle: 'pbr'
 		}
 		this.editMode = false
 		this.options = { ...defaultOptions, ...options }
@@ -495,7 +619,6 @@ class ThreeCore {
 		this.scene = null!
 		this.camera = null!
 		this.renderer = null!
-		this.rendererGPU = null!
 		this.animationCallbacks = []
 		this.addAnimationFunc = () => {}
 		this.resizeCallbacks = []
@@ -512,6 +635,8 @@ class ThreeCore {
 		this.loadedLibrary = []
 		this.loadedLaxian = []
 		this.loadTemplate = [] // 加载的模版
+		this.sceneSteps = []
+		this.currentStepIndex = 0
 		this.cameraList = []
 		this.background = null
 		this.showbloom = true
@@ -520,9 +645,8 @@ class ThreeCore {
 
 		this.initScene()
 		this.initCamera()
-		this.initRenderer()
+		this.rendererReady = this.setupRenderer()
 		// initAR logic will be called explicitly or inside initAR based on support
-		this.initPicker()
 		// const cloud = this.createCloud()
 		// this.scene.add(cloud)
 		// this.scene.add(grid)
@@ -576,37 +700,11 @@ class ThreeCore {
 		ground.userData.ignorePick = true
 		// this.scene.add(ground);
 
-		this.effectManager = new EffectManager(
-			this.scene,
-			this.camera,
-			this.renderer
-		)
 		const cube = new THREE.Mesh(
 			new THREE.BoxGeometry(),
 			new THREE.MeshStandardMaterial({ color: 'orange' })
 		)
-		// 如果启用了CSS3D渲染器
-		if (this.options.enableCSS3DRenderer) {
-			this.initCSS3DRenderer()
-		}
-		// this.effectManager.addEffect('SnowEffect', this.scene, { count: 8000, onlyOne: true });
-
-		// setTimeout(() => {
-		// 	this.effectManager.removeEffect(this.scene, 'SnowEffect');
-		// 	console.log('删除特效')
-		// }, 6000);
 		this.initLights()
-
-		// if (this.options.enableOrbitControls) {
-		//   this.initOrbitControls();
-		// }
-		this.initOrbitControls()
-		this.initTransformontrols()
-		if (this.options.enableStats) {
-			this.initStats()
-		}
-		this.bloomLayer.set(1) // layer=1 专门给 bloom 对象
-		this.initBloom()
 
 		// this.gizmo = new TransformGizmo(
 		// 	this.scene,
@@ -889,11 +987,9 @@ class ThreeCore {
 	 * @param toneMapping 色调映射类型
 	 */
 	setToneMapping(exposure: number, toneMapping?: THREE.ToneMapping) {
-		if (this.renderer instanceof THREE.WebGLRenderer) {
-			this.renderer.toneMappingExposure = Math.max(0.1, Math.min(3.0, exposure))
-			if (toneMapping !== undefined) {
-				this.renderer.toneMapping = toneMapping
-			}
+		this.renderer.toneMappingExposure = Math.max(0.1, Math.min(3.0, exposure))
+		if (toneMapping !== undefined) {
+			this.renderer.toneMapping = toneMapping
 		}
 	}
 
@@ -905,10 +1001,8 @@ class ThreeCore {
 			ambient: this.lights?.ambient.intensity || 0,
 			directional: this.lights?.directional.intensity || 0,
 			lens: this.lensLight?.intensity || 0,
-			toneMappingExposure:
-				this.renderer instanceof THREE.WebGLRenderer
-					? this.renderer.toneMappingExposure
-					: 1.0,
+			toneMappingExposure: this.renderer.toneMappingExposure,
+			rendererBackend: this.rendererBackend,
 			envMapIntensity: this.envMapIntensity
 		}
 	}
@@ -968,16 +1062,17 @@ class ThreeCore {
 				url,
 				texture => {
 					texture.mapping = THREE.EquirectangularReflectionMapping
+					texture.userData.url = url
+					texture.colorSpace = THREE.LinearSRGBColorSpace
 
-					// 设置为场景环境贴图
 					this.scene.environment = texture
-					this.scene.background = texture // 可选：作为背景
+					this.scene.background = texture
 
 					this.envMap = texture
 					this.envMapIntensity = intensity
 
-					// 更新所有材质的环境贴图
 					this.updateAllMaterialsEnvMap()
+					this.syncSceneColorSpaces()
 
 					console.log('HDR环境贴图加载成功')
 					resolve()
@@ -1007,6 +1102,8 @@ class ThreeCore {
 				url,
 				texture => {
 					texture.mapping = THREE.EquirectangularReflectionMapping
+					texture.userData.url = url
+					texture.colorSpace = THREE.LinearSRGBColorSpace
 
 					this.scene.environment = texture
 					this.scene.background = texture
@@ -1015,6 +1112,7 @@ class ThreeCore {
 					this.envMapIntensity = intensity
 
 					this.updateAllMaterialsEnvMap()
+					this.syncSceneColorSpaces()
 
 					console.log('EXR环境贴图加载成功')
 					resolve()
@@ -1037,6 +1135,7 @@ class ThreeCore {
 		const loader = new THREE.CubeTextureLoader()
 
 		const cubeTexture = loader.load(urls, () => {
+			cubeTexture.colorSpace = THREE.SRGBColorSpace
 			this.scene.environment = cubeTexture
 			this.scene.background = cubeTexture
 
@@ -1044,6 +1143,7 @@ class ThreeCore {
 			this.envMapIntensity = intensity
 
 			this.updateAllMaterialsEnvMap()
+			this.syncSceneColorSpaces()
 
 			console.log('立方体环境贴图设置成功')
 		})
@@ -1120,7 +1220,11 @@ class ThreeCore {
 	}
 
 	private initBloom() {
-		const renderScene = new RenderPass(this.scene, this.camera)
+		if (!this.canUseEffectComposerBloom()) return
+
+		const glRenderer = this.getWebGLRenderer()
+		this.bloomScenePass = new RenderPass(this.scene, this.camera)
+		this.finalScenePass = new RenderPass(this.scene, this.camera)
 
 		this.bloomPass = new UnrealBloomPass(
 			new THREE.Vector2(window.innerWidth, window.innerHeight),
@@ -1129,11 +1233,9 @@ class ThreeCore {
 			1.0
 		)
 
-		this.bloomComposer = new EffectComposer(
-			this.renderer as THREE.WebGLRenderer
-		)
+		this.bloomComposer = new EffectComposer(glRenderer)
 		this.bloomComposer.renderToScreen = false
-		this.bloomComposer.addPass(renderScene)
+		this.bloomComposer.addPass(this.bloomScenePass)
 		this.bloomComposer.addPass(this.bloomPass)
 
 		// finalPass
@@ -1168,10 +1270,8 @@ class ThreeCore {
 			'baseTexture'
 		)
 
-		this.finalComposer = new EffectComposer(
-			this.renderer as THREE.WebGLRenderer
-		)
-		this.finalComposer.addPass(renderScene)
+		this.finalComposer = new EffectComposer(glRenderer)
+		this.finalComposer.addPass(this.finalScenePass)
 		this.finalComposer.addPass(finalPass)
 		const gammaCorrectionShader = new ShaderPass(GammaCorrectionShader)
 		this.finalComposer.addPass(gammaCorrectionShader)
@@ -1235,6 +1335,7 @@ class ThreeCore {
 		})
 		const mesh = new THREE.Mesh(geometry, material)
 		mesh.userData.ignorePick = true
+		mesh.userData.sceneEditorOverlay = true
 		mesh.renderOrder = 99999
 		this.scene.add(mesh)
 		this.editTargetMarker = mesh
@@ -1321,6 +1422,7 @@ class ThreeCore {
 			mat.emissiveIntensity = 0.6
 		}
 		this.allObjects.push(mesh)
+		this.assignSceneObjectId(mesh)
 		if (this.options.enableAR && this.arContentGroup) {
 			this.arContentGroup.add(mesh)
 		} else {
@@ -1504,6 +1606,7 @@ class ThreeCore {
 		// 如果你有旧的 GaussianSplats3D UI，可以先移除
 		// this.removeGaussianSplatUIRoot();
 
+		this.ensureSparkRenderer()
 		// 创建 Spark SplatMesh（Spark 2.0：构造函数同步返回实例，加载完成需 await initialized）
 		const demoSplatUrl = '/model/1.compressed.ply' // ⭐ 改成你的点云文件（.ply / .spz / .rad 等）
 		const demoFileType = inferSplatFileTypeFromUrl(demoSplatUrl)
@@ -1555,7 +1658,7 @@ class ThreeCore {
 
 			threeScene: this.scene,
 			threeCamera: this.camera,
-			threeRenderer: this.renderer
+			threeRenderer: this.getWebGLRenderer()
 		})
 
 		// await loadCompressedGaussian(viewer, '/model/gaussian.bin', {
@@ -1626,7 +1729,7 @@ class ThreeCore {
 
 			threeScene: this.scene,
 			threeCamera: this.camera,
-			threeRenderer: this.renderer
+			threeRenderer: this.getWebGLRenderer()
 		})
 
 		// await loadCompressedGaussian(viewer, '/model/gaussian.bin', {
@@ -1693,7 +1796,6 @@ class ThreeCore {
 				url,
 				texture => {
 					const image = texture.image
-					texture.colorSpace = THREE.SRGBColorSpace
 					if (!image || !image.width || !image.height) {
 						reject(new Error(`图片未能正确加载宽高: ${url}`))
 						return
@@ -1704,13 +1806,8 @@ class ThreeCore {
 					const height = baseWidth * aspect
 
 					const geometry = new THREE.PlaneGeometry(width, height)
-
-					const material = new THREE.MeshBasicMaterial({
-						map: texture,
-						transparent: true,
-						// depthTest: false,
-						side: THREE.DoubleSide
-					})
+					const material = new THREE.MeshBasicMaterial()
+					this.configureImagePlaneMaterial(material, texture)
 					const mesh = new THREE.Mesh(geometry, material)
 					mesh.userData.url = url
 					mesh.userData.type = 'image'
@@ -1871,6 +1968,7 @@ class ThreeCore {
 				const material = new THREE.MeshBasicMaterial({
 					map: texture,
 					transparent: isTransparent,
+					depthWrite: !isTransparent,
 					side: THREE.DoubleSide
 				})
 
@@ -1932,6 +2030,7 @@ class ThreeCore {
 			// biome-ignore lint/style/noNonNullAssertion: <explanation>
 			const existing = this.loadedTextures.get(url)!
 			const cloned = existing.clone()
+			cloned.colorSpace = THREE.SRGBColorSpace
 			cloned.needsUpdate = true
 			return cloned
 		}
@@ -1941,6 +2040,7 @@ class ThreeCore {
 			// biome-ignore lint/style/noNonNullAssertion: <explanation>
 			return this.loadingTextures.get(url)!.then(existing => {
 				const cloned = existing.clone()
+				cloned.colorSpace = THREE.SRGBColorSpace
 				cloned.needsUpdate = true
 				return cloned
 			})
@@ -1953,6 +2053,7 @@ class ThreeCore {
 				url,
 				texture => {
 					texture.userData = { url }
+					texture.colorSpace = THREE.SRGBColorSpace
 					texture.wrapS = THREE.RepeatWrapping
 					texture.wrapT = THREE.RepeatWrapping
 					texture.needsUpdate = true
@@ -2063,6 +2164,114 @@ class ThreeCore {
 			}
 		})
 	}
+	private getMeshMaterials(mesh: THREE.Mesh): THREE.Material[] {
+		return Array.isArray(mesh.material) ? mesh.material : [mesh.material]
+	}
+
+	private isTransparentMaterial(mat: THREE.Material): boolean {
+		if (!mat) return false
+		if (mat.transparent) return true
+		const m = mat as THREE.MeshStandardMaterial & {
+			opacity?: number
+			alphaMap?: THREE.Texture | null
+		}
+		if (m.opacity !== undefined && m.opacity < 1) return true
+		if (m.alphaMap) return true
+		return false
+	}
+
+	private meshHasTransparency(mesh: THREE.Mesh): boolean {
+		return this.getMeshMaterials(mesh).some(mat =>
+			this.isTransparentMaterial(mat)
+		)
+	}
+
+	/** 场景图片平面：alphaTest 镂空 + 深度写入，由深度缓冲决定前后关系 */
+	private configureImagePlaneMaterial(
+		material: THREE.MeshBasicMaterial,
+		texture: THREE.Texture
+	): void {
+		texture.colorSpace = THREE.SRGBColorSpace
+		texture.premultiplyAlpha = false
+		material.map = texture
+		material.transparent = true
+		material.alphaTest = 0.01
+		material.depthWrite = true
+		material.depthTest = true
+		material.side = THREE.DoubleSide
+		material.needsUpdate = true
+	}
+
+	/** 透明物体统一 depthWrite + renderOrder，避免与不透明物体交错时排序错误 */
+	public applyTransparentRenderSettings(
+		object: THREE.Object3D,
+		explicitRenderOrder?: number
+	): void {
+		if (object.userData.type === 'image') return
+
+		if (explicitRenderOrder !== undefined) {
+			object.renderOrder = explicitRenderOrder
+		}
+
+		let groupOrder: number | undefined =
+			explicitRenderOrder !== undefined ? explicitRenderOrder : undefined
+
+		object.traverse(child => {
+			if (!(child instanceof THREE.Mesh)) return
+
+			const hasTransparency = this.meshHasTransparency(child)
+
+			if (!hasTransparency && explicitRenderOrder === undefined) return
+
+			if (hasTransparency) {
+				for (const mat of this.getMeshMaterials(child)) {
+					mat.transparent = true
+					mat.depthWrite = false
+					mat.needsUpdate = true
+				}
+			}
+
+			if (explicitRenderOrder !== undefined) {
+				child.renderOrder = explicitRenderOrder
+				return
+			}
+
+			if (child.userData.renderOrder) {
+				child.renderOrder = child.userData.renderOrder
+				return
+			}
+
+			if (hasTransparency) {
+				if (groupOrder === undefined) {
+					groupOrder = this.renderOrderCount
+					this.renderOrderCount += 10
+					object.renderOrder = groupOrder
+				}
+				child.renderOrder = groupOrder
+			}
+		})
+	}
+
+	public applyUserData(model: THREE.Object3D) {
+		model.traverse(child => {
+			if (child instanceof THREE.Mesh) {
+				if (child.userData.opacity) {
+					child.material.opacity = child.userData.opacity
+					child.material.transparent = true
+				}
+				if (child.userData.transparent) {
+					child.material.transparent = child.userData.transparent
+				}
+				if (child.userData.side) {
+					child.material.side = child.userData.side
+				}
+				if (child.userData.depthTest) {
+					child.material.depthTest = child.userData.depthTest
+				}
+			}
+		})
+		this.applyTransparentRenderSettings(model)
+	}
 	public async loadModel(
 		url: string,
 		options: any = {
@@ -2073,10 +2282,8 @@ class ThreeCore {
 		// 如果已经加载过，直接返回缓存的模型
 		const loader = new GLTFLoader()
 		if (options.useDracoLoader) {
-			const dracoLoader = new DRACOLoader()
 			const decoderPath = options.dracoDecoderPath || '/draco/gltf/'
-			dracoLoader.setDecoderPath(decoderPath)
-			loader.setDRACOLoader(dracoLoader)
+			loader.setDRACOLoader(this.getDracoLoader(decoderPath))
 		}
 		return new Promise((resolve, reject) => {
 			const skipDefaultAnimations = options.skipDefaultAnimations === true
@@ -2097,6 +2304,7 @@ class ThreeCore {
 					})
 					this.mixers.push(mixer)
 				}
+				this.applyUserData(model)
 				resolve(model)
 			} else {
 				loader.load(
@@ -2193,6 +2401,19 @@ class ThreeCore {
 							// )
 						}
 						this.copyMaterial(model)
+						this.applyUserData(model)
+						model.traverse(child => {
+							if (
+								child instanceof THREE.Mesh ||
+								child instanceof THREE.Sprite ||
+								child instanceof THREE.Points ||
+								child instanceof THREE.Line ||
+								child instanceof THREE.LineSegments
+							) {
+								this.syncObjectMaterials(child)
+							}
+						})
+
 						resolve(model)
 					},
 					undefined,
@@ -2300,6 +2521,7 @@ class ThreeCore {
 			fileType === SplatFileType.RAD
 
 		try {
+			this.ensureSparkRenderer()
 			// 使用 Spark SplatMesh 加载（Spark 2.0：移动端对非 RAD 启用 lod + lodScale，配合 SparkRenderer LoD）
 			const splatMesh = new SplatMesh({
 				url,
@@ -2331,6 +2553,7 @@ class ThreeCore {
 			group.userData.url = url
 			group.add(splatMesh)
 
+			this.syncSceneColorSpaces()
 			return group
 		} catch (error) {
 			console.error(`点云模型加载失败：${url}`, error)
@@ -2353,74 +2576,488 @@ class ThreeCore {
 		const device = await adapter.requestDevice()
 		return device
 	}
-	initRenderer() {
-		const sparkMobilePerf = isSparkMobilePerfMode(this.options)
 
-		this.renderer = new THREE.WebGLRenderer({
-			// Spark 文档：GSplat 几乎不受 MSAA 增益；移动端默认关闭 antialias 减轻带宽与片元压力
+	/** 等待主渲染器就绪（WebGPU init 或 WebGL 回退完成后） */
+	whenRendererReady(): Promise<void> {
+		return this.rendererReady
+	}
+
+	private resolvePreferWebGPU(): boolean {
+		if (this.options.forceWebGL) return false
+		if (this.options.enableWebGPU === false) return false
+		if (this.options.preferWebGPU === false) return false
+		return this.options.preferWebGPU ?? false
+	}
+
+	private getRendererSize(): { width: number; height: number } {
+		return {
+			width: this.container
+				? this.container.clientWidth
+				: window.innerWidth,
+			height: this.container
+				? this.container.clientHeight
+				: window.innerHeight
+		}
+	}
+
+	private getEffectivePixelRatio(sparkMobilePerf: boolean): number {
+		const rawPR = this.options.pixelRatio ?? window.devicePixelRatio ?? 1
+		return sparkMobilePerf ? Math.min(rawPR, 2) : rawPR
+	}
+
+	private createWebGLRenderer(sparkMobilePerf: boolean): THREE.WebGLRenderer {
+		return new THREE.WebGLRenderer({
 			antialias:
 				sparkMobilePerf && this.options.antialias !== true
 					? false
 					: Boolean(this.options.antialias),
 			alpha: this.options.alpha
 		})
-		this.renderer.debug.checkShaderErrors = true
-		if (this.options.enableWebGPU) {
-			this.rendererGPU = new WebGPURenderer({
-				antialias: true
-				// device: navigator.gpu?.requestAdapter()?.requestDevice() // 可选手动设置 device
-			})
-			this.rendererGPU.domElement.addEventListener('mousedown', e => {
-				// 将事件传递给底层的WebGL渲染器
-			})
+	}
+
+	private configureRenderer(
+		renderer: THREE.WebGLRenderer | WebGPURenderer,
+		width: number,
+		height: number,
+		sparkMobilePerf: boolean
+	): void {
+		renderer.setPixelRatio(this.getEffectivePixelRatio(sparkMobilePerf))
+		renderer.setSize(width, height)
+		this.applyRendererColorPipeline(renderer)
+
+		if (renderer instanceof THREE.WebGLRenderer) {
+			renderer.debug.checkShaderErrors = true
+			renderer.shadowMap.enabled = true
+			renderer.shadowMap.type = THREE.VSMShadowMap
+			renderer.shadowMap.autoUpdate = true
 		}
 
-		// 移动端：限制 pixelRatio，减轻 GSplat overdraw（Spark 文档）
-		const rawPR = this.options.pixelRatio ?? window.devicePixelRatio ?? 1
-		const pixelRatio = sparkMobilePerf ? Math.min(rawPR, 2) : rawPR
-		this.renderer.setPixelRatio(pixelRatio)
-
-		const width = this.container
-			? this.container.clientWidth
-			: window.innerWidth
-		const height = this.container
-			? this.container.clientHeight
-			: window.innerHeight
-		this.renderer.setSize(width, height)
-
-		// 启用物理正确的光照
-		this.renderer.physicallyCorrectLights = false
-
-		// 色彩空间设置
-		this.renderer.outputColorSpace = THREE.SRGBColorSpace
-		// this.renderer.toneMapping = THREE.LinearToneMapping
-		// this.renderer.toneMapping = THREE.NoToneMapping
-		this.renderer.toneMapping = THREE.ReinhardToneMapping
-
-		this.renderer.toneMappingExposure = 1.0
-
-		// 高质量阴影设置 - 关键配置来避免阴影条纹
-		this.renderer.shadowMap.enabled = true
-		// this.renderer.shadowMap.type = THREE.PCFSoftShadowMap // 使用软阴影
-		this.renderer.shadowMap.type = THREE.VSMShadowMap
-		this.renderer.shadowMap.autoUpdate = true
-
-		// 背景设置
 		if (this.options.enableAR) {
-			this.renderer.xr.enabled = true
+			renderer.xr.enabled = true
 		} else {
-			this.renderer.setClearColor(0x000000, 0) // 背景透明
+			renderer.setClearColor(0x000000, 0)
 		}
-		if (this.options.enableWebGPU) {
-			this.rendererGPU.setSize(width, height)
-		}
-		console.log(this.renderer, '渲染器=======')
+	}
 
-		// SparkRenderer（2.0 文档）：移动端通过 lodSplatScale / lodRenderScale / minSortIntervalMs /
-		// foveation 控制 splat 预算与排序频率；桌面保持 Z-depth 排序与原有观感参数
-		const sparkRenderer = new SparkRenderer({
-			renderer: this.renderer,
-			encodeLinear: true,
+	/** 场景内是否含高斯点云（SplatMesh 或 type=splat 组） */
+	private sceneHasSplats(): boolean {
+		if (!this.scene) return false
+		let has = false
+		this.scene.traverse(obj => {
+			if (has) return
+			if (obj instanceof SplatMesh || obj.userData?.type === 'splat') {
+				has = true
+			}
+		})
+		return has
+	}
+
+	/** 统一主渲染器输出为 sRGB（WebGPU 走内置 _renderOutput，勿叠 PostProcessing） */
+	private applyRendererColorPipeline(
+		renderer: THREE.WebGLRenderer | WebGPURenderer
+	): void {
+		const anime = this.options.colorStyle === 'anime'
+		const hasSplats = this.sceneHasSplats()
+		// 点云与 PBR 网格共用色调映射时略提高曝光，补偿 Reinhard/Neutral 对 splat 的压暗
+		const baseExposure = anime ? 1.15 : 1.0
+		const splatExposureBoost = hasSplats ? (anime ? 1.1 : 1.2) : 1
+
+		renderer.outputColorSpace = THREE.SRGBColorSpace
+		renderer.toneMapping = anime
+			? THREE.NeutralToneMapping
+			: THREE.ReinhardToneMapping
+		renderer.toneMappingExposure = baseExposure * splatExposureBoost
+
+		const canvas = renderer.domElement
+		if (canvas && import.meta.client) {
+			canvas.style.colorSpace = 'srgb'
+		}
+	}
+
+	/** 将颜色贴图设为 SRGB，数据贴图保持 NoColorSpace */
+	private assignTextureColorSpace(
+		texture: THREE.Texture | null | undefined,
+		isColorData: boolean
+	): void {
+		if (!texture) return
+		texture.colorSpace = isColorData
+			? THREE.SRGBColorSpace
+			: THREE.NoColorSpace
+	}
+
+	/** 环境/背景贴图：HDR/EXR 线性，JPG/PNG 等 LDR 用 sRGB */
+	private assignEnvironmentTextureColorSpace(texture: THREE.Texture): void {
+		const url = String((texture.userData as { url?: string })?.url ?? '')
+		texture.colorSpace = isHdrLikeTextureUrl(url)
+			? THREE.LinearSRGBColorSpace
+			: THREE.SRGBColorSpace
+	}
+
+	private syncMaterialTextureColorSpaces(
+		material: THREE.Material | THREE.Material[]
+	): void {
+		const mats = Array.isArray(material) ? material : [material]
+
+		for (const mat of mats) {
+			for (const key of COLOR_MAP_KEYS) {
+				const tex = (mat as Record<string, THREE.Texture | undefined>)[key]
+				this.assignTextureColorSpace(tex, true)
+			}
+			for (const key of DATA_MAP_KEYS) {
+				const tex = (mat as Record<string, THREE.Texture | undefined>)[key]
+				this.assignTextureColorSpace(tex, false)
+			}
+			mat.needsUpdate = true
+		}
+	}
+
+	private syncObjectMaterials(object: THREE.Object3D): void {
+		const meshLike = object as THREE.Mesh & {
+			material?: THREE.Material | THREE.Material[]
+		}
+		if (!meshLike.material) return
+
+		if (Array.isArray(meshLike.material)) {
+			this.syncMaterialTextureColorSpaces(meshLike.material)
+		} else {
+			this.syncMaterialTextureColorSpaces(meshLike.material)
+		}
+	}
+
+	/** 场景加载或切换渲染器后，同步纹理与输出色彩空间 */
+	public syncSceneColorSpaces(): void {
+		if (!this.renderer || !this.scene) return
+
+		this.applyRendererColorPipeline(this.renderer)
+		if (this.webglAux) {
+			this.applyRendererColorPipeline(this.webglAux)
+		}
+
+		if (this.scene.background instanceof THREE.Texture) {
+			this.assignEnvironmentTextureColorSpace(this.scene.background)
+		}
+		if (this.scene.environment instanceof THREE.Texture) {
+			this.assignEnvironmentTextureColorSpace(this.scene.environment)
+		}
+		if (this.envMap) {
+			this.assignEnvironmentTextureColorSpace(this.envMap)
+		}
+
+		this.scene.traverse(object => {
+			if (
+				object instanceof THREE.Mesh ||
+				object instanceof THREE.Sprite ||
+				object instanceof THREE.Points ||
+				object instanceof THREE.Line ||
+				object instanceof THREE.LineSegments
+			) {
+				this.syncObjectMaterials(object)
+			}
+		})
+	}
+
+	/** EffectComposer 仅支持 WebGL 主路径 */
+	private canUseEffectComposerBloom(): boolean {
+		return this.rendererBackend === 'webgl'
+	}
+
+	/** GPUPicker / Bloom / 部分第三方库使用的 WebGL 渲染器 */
+	getWebGLRenderer(): THREE.WebGLRenderer {
+		if (this.renderer instanceof THREE.WebGLRenderer) {
+			return this.renderer
+		}
+		if (!this.webglAux) {
+			const sparkMobilePerf = isSparkMobilePerfMode(this.options)
+			this.webglAux = this.createWebGLRenderer(sparkMobilePerf)
+			const { width, height } = this.getRendererSize()
+			this.configureRenderer(this.webglAux, width, height, sparkMobilePerf)
+			this.webglAux.domElement.style.cssText =
+				'position:absolute;width:0;height:0;opacity:0;pointer-events:none;visibility:hidden;'
+		}
+		return this.webglAux
+	}
+
+	private async renderMainScene(): Promise<void> {
+		if (isWebGPURenderer(this.renderer)) {
+			// 使用渲染器内置 _renderOutput（toneMapping + outputColorSpace），勿叠加 PostProcessing
+			await this.renderer.renderAsync(this.scene, this.camera)
+		} else {
+			this.renderer.render(this.scene, this.camera)
+		}
+	}
+
+	/** 主渲染器是否暴露 shadowMap（当前为 WebGL 主路径） */
+	supportsShadowMap(): boolean {
+		return this.renderer instanceof THREE.WebGLRenderer
+	}
+
+	isShadowMapEnabled(): boolean {
+		return (
+			this.supportsShadowMap() &&
+			(this.renderer as THREE.WebGLRenderer).shadowMap.enabled
+		)
+	}
+
+	setShadowMapEnabled(enabled: boolean): void {
+		if (this.supportsShadowMap()) {
+			;(this.renderer as THREE.WebGLRenderer).shadowMap.enabled = enabled
+		}
+	}
+
+	/** 是否应跳过 Bloom 暗材质替换（变换 Gizmo 等编辑辅助） */
+	private shouldSkipBloomDarken(mesh: THREE.Mesh, obj: THREE.Object3D): boolean {
+		if (obj.userData?.skipBloomDarken) return true
+		let p: THREE.Object3D | null = obj.parent
+		while (p) {
+			if ((p as THREE.Object3D & { isTransformControlsGizmo?: boolean })
+				.isTransformControlsGizmo) {
+				return true
+			}
+			if (p === this.transformControls?._root) return true
+			p = p.parent
+		}
+		return false
+	}
+
+	private applyBloomDarkMaterials(): void {
+		this.materials = {}
+		this.scene.traverse(obj => {
+			if (!(obj as THREE.Mesh).isMesh || obj.userData?.type === 'splat') return
+			const mesh = obj as THREE.Mesh
+			if (this.shouldSkipBloomDarken(mesh, obj)) return
+			if (this.bloomLayer.test(mesh.layers)) return
+			if (this.materials[mesh.uuid] !== undefined) return
+			this.materials[mesh.uuid] = mesh.material
+			mesh.material = this.darkMaterial
+		})
+	}
+
+	private restoreBloomDarkMaterials(): void {
+		this.scene.traverse(obj => {
+			if (!(obj as THREE.Mesh).isMesh || obj.userData?.type === 'splat') return
+			const mesh = obj as THREE.Mesh
+			const stored = this.materials[mesh.uuid]
+			if (stored === undefined) return
+			mesh.material = stored
+			delete this.materials[mesh.uuid]
+		})
+		this.materials = {}
+	}
+
+	/** Bloom 通道渲染期间隐藏 TransformControls，避免 Gizmo 首帧参与辉光合成导致闪屏 */
+	private hideTransformControlsForBloomPass(): () => void {
+		const root = this.transformControls?._root
+		if (!root?.visible) return () => {}
+		root.visible = false
+		return () => {
+			root.visible = true
+		}
+	}
+
+	private updateImageFollowMeshes(): void {
+		if (!this.camera) return
+		this.scene.traverse(obj => {
+			if (
+				obj instanceof THREE.Mesh &&
+				obj.userData.type === 'image' &&
+				obj.userData.follow
+			) {
+				obj.quaternion.copy(this.camera.quaternion)
+			}
+		})
+	}
+
+	/**
+	 * 与动画循环一致的显示渲染（含 Bloom + GammaCorrection），保证截图与画面色彩一致。
+	 */
+	private async renderDisplayFrame(delta: number): Promise<void> {
+		const splatMeshes: Array<{ mesh: THREE.Object3D; wasVisible: boolean }> =
+			[]
+		this.scene.traverse(obj => {
+			if (obj.userData?.type === 'splat' && obj instanceof SplatMesh) {
+				splatMeshes.push({ mesh: obj, wasVisible: obj.visible })
+				obj.visible = false
+				obj.updateMatrixWorld(false)
+				obj.update({
+					renderer: this.renderer as THREE.WebGLRenderer,
+					object: obj as SplatMesh,
+					time: this.clock.getElapsedTime(),
+					viewToWorld: this.camera.matrixWorld.clone(),
+					deltaTime: delta,
+					camera: this.camera,
+					renderSize: new THREE.Vector2(
+						this.renderer.domElement.width,
+						this.renderer.domElement.height
+					),
+					globalEdits: []
+				})
+			}
+		})
+
+		this.updateImageFollowMeshes()
+
+		const useBloomPipeline =
+			this.canUseEffectComposerBloom() &&
+			this.showbloom &&
+			this.bloomComposer &&
+			splatMeshes.length === 0
+
+		let showTransformControls = () => {}
+		if (useBloomPipeline) {
+			showTransformControls = this.hideTransformControlsForBloomPass()
+			this.applyBloomDarkMaterials()
+		}
+
+		try {
+			if (useBloomPipeline) {
+				this.bloomComposer.render()
+			}
+		} finally {
+			if (useBloomPipeline) {
+				this.restoreBloomDarkMaterials()
+				showTransformControls()
+			}
+		}
+
+		for (const { mesh, wasVisible } of splatMeshes) {
+			mesh.visible = wasVisible
+		}
+
+		if (this.renderer.xr.enabled && this.renderer.xr.isPresenting) {
+			await this.renderMainScene()
+		} else if (useBloomPipeline && this.finalComposer) {
+			if (splatMeshes.length > 0) {
+				await this.renderMainScene()
+				this.finalComposer.render()
+			} else {
+				this.finalComposer.render()
+			}
+		} else {
+			await this.renderMainScene()
+		}
+	}
+
+	/**
+	 * 截图前隐藏编辑辅助物（网格、坐标轴、视点球等），返回恢复函数。
+	 */
+	hideEditorOverlaysForCapture(): () => void {
+		const states: Array<{ obj: THREE.Object3D; visible: boolean }> = []
+		const hidden = new Set<THREE.Object3D>()
+
+		const hide = (obj: THREE.Object3D) => {
+			if (hidden.has(obj)) return
+			hidden.add(obj)
+			states.push({ obj, visible: obj.visible })
+			obj.visible = false
+		}
+
+		if (this.editTargetMarker) {
+			hide(this.editTargetMarker)
+		}
+
+		this.scene?.traverse(obj => {
+			if (obj.userData?.sceneEditorOverlay) {
+				hide(obj)
+			}
+		})
+
+		return () => {
+			for (const { obj, visible } of states) {
+				obj.visible = visible
+			}
+		}
+	}
+
+	/** 渲染一帧（截图、导出前调用；与屏幕显示管线一致，含 sRGB / Gamma 校正） */
+	async renderFrame(): Promise<void> {
+		await this.whenRendererReady()
+		this.syncSceneColorSpaces()
+		const delta = this.clock.getDelta()
+		await this.renderDisplayFrame(delta)
+	}
+
+	private finishRendererSetup(): void {
+		this.initPicker()
+		this.effectManager = new EffectManager(
+			this.scene,
+			this.camera,
+			this.getWebGLRenderer()
+		)
+		if (this.options.enableCSS3DRenderer) {
+			this.initCSS3DRenderer()
+		}
+		this.initOrbitControls()
+		this.initTransformontrols()
+		if (this.options.enableStats) {
+			this.initStats()
+		}
+		this.bloomLayer.set(1)
+		if (this.canUseEffectComposerBloom()) {
+			this.initBloom()
+		} else if (this.showbloom && this.rendererBackend === 'webgpu') {
+			console.info(
+				'[ThreeCore] Bloom（EffectComposer）在 WebGPU 下暂不可用，已使用内置 sRGB 输出'
+			)
+		}
+		this.syncSceneColorSpaces()
+	}
+
+	private async setupRenderer(): Promise<void> {
+		const sparkMobilePerf = isSparkMobilePerfMode(this.options)
+		const { width, height } = this.getRendererSize()
+		// WebXR AR 与 EffectComposer 链路仍依赖 WebGL 主渲染
+		const preferWebGPU =
+			this.resolvePreferWebGPU() && !this.options.enableAR
+
+		if (preferWebGPU && (await probeWebGPU())) {
+			try {
+				const gpuRenderer = new WebGPURenderer({
+					antialias:
+						sparkMobilePerf && this.options.antialias !== true
+							? false
+							: Boolean(this.options.antialias),
+					alpha: this.options.alpha,
+					// 与 WebGL 8bit 帧缓冲更接近，减轻透明画布上的发灰
+					colorBufferType: THREE.UnsignedByteType
+				})
+				await gpuRenderer.init()
+				this.configureRenderer(gpuRenderer, width, height, sparkMobilePerf)
+				this.renderer = gpuRenderer
+				this.rendererBackend = 'webgpu'
+				console.info(
+					'[ThreeCore] 使用 WebGPU 渲染器',
+					this.options.colorStyle === 'anime' ? '(anime 色彩)' : ''
+				)
+				this.finishRendererSetup()
+				return
+			} catch (error) {
+				console.warn('[ThreeCore] WebGPU 初始化失败，回退 WebGL', error)
+			}
+		}
+
+		const glRenderer = this.createWebGLRenderer(sparkMobilePerf)
+		this.configureRenderer(glRenderer, width, height, sparkMobilePerf)
+		this.renderer = glRenderer
+		this.rendererBackend = 'webgl'
+		console.info('[ThreeCore] 使用 WebGL 渲染器')
+		this.finishRendererSetup()
+	}
+
+	/**
+	 * 首次加载点云时创建 SparkRenderer；实例在 clearSceneContent 中保留，切换不销毁 Wasm。
+	 */
+	private ensureSparkRenderer(): SparkRenderer {
+		if (this.sparkRenderer) {
+			// 与 Spark 默认一致：画布显示勿 srgbToLinear，避免对已是线性的 splat 颜色二次压暗
+			this.sparkRenderer.encodeLinear = false
+			return this.sparkRenderer
+		}
+		const sparkMobilePerf = isSparkMobilePerfMode(this.options)
+		this.sparkRenderer = new SparkRenderer({
+			// Spark 类型声明为 WebGLRenderer；WebGPU 主渲染时传入主 renderer（运行时由 Spark 适配）
+			renderer: this.renderer as THREE.WebGLRenderer,
+			// 默认 false：仅离屏环境贴图等需 encodeLinear；true 会对 splat 做 srgbToLinear 导致偏暗
+			encodeLinear: false,
 			...(sparkMobilePerf
 				? {
 						sortRadial: true,
@@ -2440,9 +3077,24 @@ class ThreeCore {
 						maxStdDev: Math.sqrt(8)
 					})
 		})
-		this.scene.add(sparkRenderer)
-		// this.container.appendChild(this.rendererGPU.domElement);
+		this.scene.add(this.sparkRenderer)
+		return this.sparkRenderer
 	}
+
+	/** 复用同一 DracoLoader（Wasm），仅在路径变化或整实例 dispose 时重建 */
+	private getDracoLoader(decoderPath = '/draco/gltf/'): DRACOLoader {
+		if (this.dracoLoader && this.dracoLoaderPath === decoderPath) {
+			return this.dracoLoader
+		}
+		if (this.dracoLoader) {
+			this.dracoLoader.dispose()
+		}
+		this.dracoLoader = new DRACOLoader()
+		this.dracoLoader.setDecoderPath(decoderPath)
+		this.dracoLoaderPath = decoderPath
+		return this.dracoLoader
+	}
+
 	initOrbitControls() {
 		if (!this.camera || !this.renderer) return
 
@@ -2682,7 +3334,7 @@ class ThreeCore {
 	initPicker() {
 		this.picker = new GPUPicker(
 			THREE,
-			this.renderer,
+			this.getWebGLRenderer(),
 			this.scene,
 			this.camera,
 			this.idFromObject
@@ -3050,6 +3702,7 @@ class ThreeCore {
 
 		// 更新渲染器
 		this.renderer.setSize(width, height)
+		this.webglAux?.setSize(width, height)
 		this.splatViewer?.renderer.setSize(width, height)
 
 		// 更新CSS3D渲染器
@@ -3159,6 +3812,8 @@ class ThreeCore {
 			this.transformControls.camera = this.camera
 		}
 
+		if (this.bloomScenePass) this.bloomScenePass.camera = this.camera
+		if (this.finalScenePass) this.finalScenePass.camera = this.camera
 		const syncComposerCamera = (composer: EffectComposer) => {
 			for (let i = 0; i < composer.passes.length; i++) {
 				const p = composer.passes[i]
@@ -3259,9 +3914,12 @@ class ThreeCore {
 
 	initWebXRAR() {
 		// 1. 添加 AR 按钮
-		const arButton = ARButton.createButton(this.renderer, {
-			requiredFeatures: ['hit-test']
-		})
+		const arButton = ARButton.createButton(
+			this.renderer as THREE.WebGLRenderer,
+			{
+				requiredFeatures: ['hit-test']
+			}
+		)
 		arButton.style.zIndex = '9999'
 		document.body.appendChild(arButton)
 
@@ -3633,8 +4291,10 @@ class ThreeCore {
 		this.pluginCache.set(url, module.default)
 		return module.default
 	}
-	startAnimationLoop() {
-		const animate = (time?: number, frame?: any) => {
+	async startAnimationLoop() {
+		await this.whenRendererReady()
+
+		const animate = async (time?: number, frame?: any) => {
 			this.uFrame += 1
 			// 如果不是 XR 模式，需要手动 requestAnimationFrame
 			// 如果是 XR 模式，renderer.setAnimationLoop 会处理循环，不需要 requestAnimationFrame
@@ -3720,106 +4380,7 @@ class ThreeCore {
 					p.uniforms.uFrame.value = this.uFrame
 				}
 			})
-			// ⭐️ 渲染流程修改：Bloom 替代原生 WebGL 渲染
-			// 1. 渲染 bloom 通道
-			// 临时隐藏点云模型以优化 Bloom 渲染性能（点云模型渲染耗时，不需要 Bloom 效果）
-			const splatMeshes: Array<{ mesh: THREE.Object3D; wasVisible: boolean }> =
-				[]
-			this.scene.traverse(obj => {
-				if (obj.userData?.type === 'splat' && obj instanceof SplatMesh) {
-					splatMeshes.push({ mesh: obj, wasVisible: obj.visible })
-					obj.visible = false // 临时隐藏点云模型，避免在 Bloom 中渲染
-					// 确保矩阵已更新，避免渲染器在遍历时重新计算
-					obj.updateMatrixWorld(false)
-					// 更新点云模型：viewToWorld 应为 camera.matrixWorld（视空间→世界空间）
-					// 错误使用 objectToView 的逆会导致排序闪烁
-					obj.update({
-						renderer: this.renderer,
-						object: obj as SplatMesh,
-						time: this.clock.getElapsedTime(),
-						viewToWorld: this.camera.matrixWorld.clone(),
-						deltaTime: delta,
-						camera: this.camera,
-						renderSize: new THREE.Vector2(
-							this.renderer.domElement.width,
-							this.renderer.domElement.height
-						),
-						globalEdits: []
-					})
-					return // 跳过点云模型的材质处理
-				}
-				if ((obj as any).isMesh && obj.userData?.type !== 'splat') {
-					const mesh = obj as THREE.Mesh
-					if (!this.bloomLayer.test(mesh.layers)) {
-						this.materials[mesh.uuid] = mesh.material
-						mesh.material = this.darkMaterial
-					}
-					if (obj.parent && obj.parent.isTransformControlsGizmo) {
-						this.materials[mesh.uuid] = mesh.material
-						mesh.material = this.darkMaterial
-					}
-					if (
-						this.camera &&
-						obj instanceof THREE.Mesh &&
-						obj.userData.type === 'image' &&
-						obj.userData.follow
-					) {
-						// 获取图片在世界坐标系中的位置
-						// obj.getWorldPosition(imagePosition)
-
-						// 计算从图片位置指向相机位置的向量
-						// direction.subVectors(this.camera.position, imagePosition).normalize()
-						// console.log(this.camera.position, imagePosition, '方向')
-						// 计算目标旋转（让图片面向相机）
-						// PlaneGeometry 默认朝向 Z 轴正方向
-						// const targetQuaternion = new THREE.Quaternion()
-						// targetQuaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), direction)
-
-						// 使用球面线性插值（SLERP）实现轻微跟随效果
-						// 系数越小，跟随越轻微（0.05 表示每次只旋转 5% 的距离）
-						// obj.quaternion.slerp(targetQuaternion, 0.05)
-						obj.quaternion.copy(this.camera.quaternion)
-					}
-				}
-			})
-			if (this.showbloom && splatMeshes.length === 0) {
-				this.bloomComposer.render()
-			}
-
-			// 恢复点云模型的可见性（在 Bloom 渲染后）
-			for (const { mesh, wasVisible } of splatMeshes) {
-				mesh.visible = wasVisible
-			}
-
-			// 还原材质
-			this.scene.traverse(obj => {
-				if (
-					(obj as any).isMesh &&
-					this.materials[obj.uuid] &&
-					obj.userData?.type !== 'splat'
-				) {
-					const mesh = obj as THREE.Mesh
-					mesh.material = this.materials[mesh.uuid] // 修改点：类型兼容
-					delete this.materials[mesh.uuid]
-				}
-			})
-
-			// AR 模式下通常不需要复杂的 PostProcessing (Composer)，因为要透视背景
-			// 但如果有 Bloom 需求，可以用 finalComposer。
-			// 不过 WebXR 中使用 Composer 可能会有兼容性问题（RenderTarget 大小等）。
-			// 简单起见，AR 模式下直接 render scene
-			if (this.renderer.xr.enabled && this.renderer.xr.isPresenting) {
-				this.renderer.render(this.scene, this.camera)
-			} else {
-				// 2. 合成最终场景
-				// 如果有点云对象，跳过 Final Composer 渲染，直接使用原生渲染器（避免性能问题）
-				if (splatMeshes.length > 0) {
-					this.renderer.render(this.scene, this.camera)
-					this.finalComposer.render()
-				} else {
-					this.finalComposer.render()
-				}
-			}
+			await this.renderDisplayFrame(delta)
 
 			// 渲染 CSS3D 场景（叠加在 WebGL 上）
 			if (this.css3DRenderer) {
@@ -3853,6 +4414,7 @@ class ThreeCore {
 				this.addAnimationFunc()
 			}
 			updateGrid(grid, this.camera)
+			this.updateStepGroupHighlights()
 
 			// 更新 Tween.js（传入毫秒时间戳）
 			TWEEN.update(time || performance.now())
@@ -3870,7 +4432,9 @@ class ThreeCore {
 	}
 
 	// 修改mount方法以支持CSS3D渲染器
-	mount(container: HTMLElement | null) {
+	async mount(container: HTMLElement | null) {
+		await this.whenRendererReady()
+
 		// 先清理之前的容器
 		if (this.container) {
 			if (this.renderer.domElement.parentNode) {
@@ -3900,10 +4464,6 @@ class ThreeCore {
 			if (this.css3DRenderer) {
 				this.container.appendChild(this.css3DRenderer.domElement)
 			}
-			if (this.rendererGPU) {
-				this.container.appendChild(this.rendererGPU.domElement)
-			}
-
 			// 使用ResizeObserver监听容器大小变化
 			this.resizeObserver = new ResizeObserver(() => {
 				this.onContainerResize()
@@ -4129,6 +4689,246 @@ class ThreeCore {
 		}
 		return item
 	}
+
+	/**
+	 * 为即将加入场景的可编辑对象分配 userData.id。
+	 * @param savedId 自 SceneJSON 恢复时传入，保持 id 不变；克隆/新加时不传以生成新 id
+	 */
+	public assignSceneObjectId(
+		obj: THREE.Object3D,
+		savedId?: string | null
+	): string {
+		const reservedIds = collectTopLevelSceneObjectIds(this.scene)
+		return stampSceneObjectId(obj, { savedId, reservedIds })
+	}
+
+	/** 当前场景是否配置了多组 step */
+	public hasSceneSteps(): boolean {
+		return this.sceneSteps.length > 0
+	}
+
+	private getStepManagedRoots(): THREE.Object3D[] {
+		if (this.options.enableAR && this.arContentGroup) {
+			return [...this.arContentGroup.children]
+		}
+		return [...this.scene.children]
+	}
+
+	/** 切换当前显示的分组（仅 step 中 id 列表内的 mesh 可见） */
+	public applySceneStep(
+		stepIndex: number,
+		options?: { animate?: boolean }
+	): number {
+		if (!this.sceneSteps.length) {
+			showAllStepManagedObjects(this.getStepManagedRoots())
+			this.currentStepIndex = 0
+			return 0
+		}
+
+		const index = Math.max(0, Math.min(stepIndex, this.sceneSteps.length - 1))
+		if (options?.animate && index !== this.currentStepIndex) {
+			this.applySceneStepWithAnimation(index)
+			return index
+		}
+
+		this.killStepTransitionAnimations()
+		this.currentStepIndex = applySceneStepVisibility(
+			this.getStepManagedRoots(),
+			this.sceneSteps,
+			index
+		)
+		this.syncStepBaseScalesForVisible()
+		const attached = this.transformControls?.object as THREE.Object3D | undefined
+		if (attached && !attached.visible) {
+			this.transformControls.detach()
+		}
+		return this.currentStepIndex
+	}
+
+	private rememberStepObjectBaseScale(obj: THREE.Object3D): void {
+		obj.userData._stepBaseScale = obj.scale.clone()
+	}
+
+	private getStepObjectBaseScale(obj: THREE.Object3D): THREE.Vector3 {
+		const stored = obj.userData._stepBaseScale as THREE.Vector3 | undefined
+		if (stored) return stored
+		const base = obj.scale.clone()
+		obj.userData._stepBaseScale = base
+		return base
+	}
+
+	private syncStepBaseScalesForVisible(): void {
+		for (const child of this.getStepManagedRoots()) {
+			if (!isSceneStepContentRoot(child) || !child.visible) continue
+			this.rememberStepObjectBaseScale(child)
+		}
+	}
+
+	private killStepTransitionAnimations(): void {
+		for (const obj of this.stepTransitionObjects) {
+			gsap.killTweensOf(obj.scale)
+			const base = this.getStepObjectBaseScale(obj)
+			obj.scale.copy(base)
+		}
+		for (const tween of this.stepTransitionTweens) {
+			tween.kill()
+		}
+		this.stepTransitionTweens = []
+		this.stepTransitionObjects.clear()
+	}
+
+	private trackStepTransitionTween(
+		obj: THREE.Object3D,
+		tween: gsap.core.Tween
+	): void {
+		this.stepTransitionObjects.add(obj)
+		this.stepTransitionTweens.push(tween)
+	}
+
+	private animateStepObjectIn(obj: THREE.Object3D): void {
+		const base = this.getStepObjectBaseScale(obj)
+		gsap.killTweensOf(obj.scale)
+		obj.visible = true
+		obj.scale.set(0, 0, 0)
+		const tween = gsap.to(obj.scale, {
+			x: base.x,
+			y: base.y,
+			z: base.z,
+			duration: 0.5,
+			ease: 'back.out(1.35)',
+			onComplete: () => {
+				this.stepTransitionObjects.delete(obj)
+			}
+		})
+		this.trackStepTransitionTween(obj, tween)
+	}
+
+	private animateStepObjectOut(obj: THREE.Object3D): void {
+		const base = this.getStepObjectBaseScale(obj)
+		gsap.killTweensOf(obj.scale)
+		const tween = gsap.to(obj.scale, {
+			x: 0,
+			y: 0,
+			z: 0,
+			duration: 0.35,
+			ease: 'power2.in',
+			onComplete: () => {
+				obj.visible = false
+				obj.scale.copy(base)
+				this.stepTransitionObjects.delete(obj)
+			}
+		})
+		this.trackStepTransitionTween(obj, tween)
+	}
+
+	private applySceneStepWithAnimation(index: number): void {
+		const fromIndex = this.currentStepIndex
+		this.killStepTransitionAnimations()
+
+		const roots = this.getStepManagedRoots()
+		const toStep = this.sceneSteps[index]
+		const fromStep = this.sceneSteps[fromIndex]
+		const toIds = new Set(toStep?.id ?? [])
+		const fromIds = new Set(fromStep?.id ?? [])
+
+		for (const child of roots) {
+			if (!isSceneStepContentRoot(child)) continue
+			const oid = child.userData?.id
+			if (typeof oid !== 'string' || !oid) continue
+
+			const willShow = toIds.has(oid)
+			const wasShown = fromIds.has(oid)
+
+			if (wasShown && !willShow) {
+				this.animateStepObjectOut(child)
+			} else if (!wasShown && willShow) {
+				this.animateStepObjectIn(child)
+			} else if (willShow) {
+				child.visible = true
+				gsap.killTweensOf(child.scale)
+				child.scale.copy(this.getStepObjectBaseScale(child))
+			} else {
+				child.visible = false
+				gsap.killTweensOf(child.scale)
+				child.scale.copy(this.getStepObjectBaseScale(child))
+			}
+		}
+
+		this.currentStepIndex = index
+		const attached = this.transformControls?.object as THREE.Object3D | undefined
+		if (attached && !attached.visible) {
+			this.transformControls.detach()
+		}
+	}
+
+	/** 编辑分组时临时显示全部对象，便于拖拽分配 */
+	public showAllStepManagedObjects(): void {
+		showAllStepManagedObjects(this.getStepManagedRoots())
+	}
+
+	/** 分组编辑模式：隐藏指定分组内的物体（null 则全部显示） */
+	public applyGroupingStepHidden(hiddenStepIndex: number | null): void {
+		applyGroupingStepHidden(
+			this.getStepManagedRoots(),
+			this.sceneSteps,
+			hiddenStepIndex
+		)
+		const attached = this.transformControls?.object as THREE.Object3D | undefined
+		if (attached && !attached.visible) {
+			this.transformControls.detach()
+		}
+	}
+
+	/** 清除分组高亮包围盒 */
+	public clearStepGroupHighlights(): void {
+		for (const { helper } of this.stepHighlightEntries) {
+			this.scene?.remove(helper)
+			helper.geometry?.dispose()
+			const mat = helper.material
+			if (Array.isArray(mat)) {
+				for (const m of mat) m.dispose()
+			} else {
+				mat?.dispose()
+			}
+		}
+		this.stepHighlightEntries = []
+	}
+
+	/** 高亮指定分组内的场景根对象（按 userData.id 匹配） */
+	public syncStepGroupHighlights(stepIndex: number): void {
+		this.clearStepGroupHighlights()
+		if (!this.sceneSteps.length) return
+
+		const index = Math.max(0, Math.min(stepIndex, this.sceneSteps.length - 1))
+		const step = this.sceneSteps[index]
+		if (!step?.id.length) return
+
+		const idSet = new Set(step.id)
+		const color = 0x34d399
+
+		for (const child of this.getStepManagedRoots()) {
+			if (!isSceneStepContentRoot(child)) continue
+			const oid = child.userData?.id
+			if (typeof oid !== 'string' || !oid || !idSet.has(oid)) continue
+			if (!child.visible) continue
+
+			const helper = new THREE.BoxHelper(child, color)
+			helper.userData.sceneEditorOverlay = true
+			helper.userData.ignorePick = true
+			helper.userData.sceneStepHighlight = true
+			this.scene.add(helper)
+			this.stepHighlightEntries.push({ helper, target: child })
+		}
+	}
+
+	private updateStepGroupHighlights(): void {
+		for (const { helper, target } of this.stepHighlightEntries) {
+			if (target.parent) {
+				helper.update()
+			}
+		}
+	}
+
 	public saveSceneToJSON(): SceneJSON {
 		const objects: SceneObjectJSON[] = []
 		console.log(this.scene.children)
@@ -4211,11 +5011,11 @@ class ThreeCore {
 				obj.position.y,
 				obj.position.z
 			]
-			const rotation: [number, number, number] = [
-				obj.rotation.x,
-				obj.rotation.y,
-				obj.rotation.z
-			]
+			const effects = obj.userData.effect as SceneEffectJSON[] | undefined
+			const rotation: [number, number, number] = normalizeRotationForStorage(
+				[obj.rotation.x, obj.rotation.y, obj.rotation.z],
+				effects
+			)
 			const scale: [number, number, number] = [
 				obj.scale.x,
 				obj.scale.y,
@@ -4229,6 +5029,9 @@ class ThreeCore {
 				rotation,
 				scale,
 				renderOrder
+			}
+			if (typeof obj.userData.id === 'string' && obj.userData.id.length > 0) {
+				jsonObj.id = obj.userData.id
 			}
 
 			// 如果是 box 或 sphere，保存颜色和大小
@@ -4278,12 +5081,15 @@ class ThreeCore {
 				if (obj.userData.options) {
 					jsonObj.options = obj.userData.options
 				}
-				if (obj.userData.effect && obj.userData.effect.length > 0) {
-					jsonObj.effect = obj.userData.effect
-				}
 				if (obj.userData.material) {
 					jsonObj.material = obj.userData.material
 				}
+				if (obj.userData.links?.length) {
+					jsonObj.links = normalizeSceneObjectLinks(obj.userData.links)
+				}
+			}
+			if (obj.userData.effect && obj.userData.effect.length > 0) {
+				jsonObj.effect = obj.userData.effect
 			}
 			if (typeGuess === 'image') {
 				jsonObj.url = obj.userData.url.replace(BASE_IMG, '')
@@ -4341,6 +5147,12 @@ class ThreeCore {
 			objects.push(jsonObj)
 		})
 		const resault: SceneJSON = { objects }
+		if (this.sceneSteps.length > 0) {
+			resault.step = this.sceneSteps.map(s => ({
+				id: [...s.id],
+				...(s.intro?.trim() ? { intro: s.intro.trim() } : {})
+			}))
+		}
 		if (this.cameraList && this.cameraList.length > 0) {
 			resault.cameraList = this.cameraList
 		}
@@ -4889,19 +5701,30 @@ class ThreeCore {
 		mesh: THREE.Mesh | THREE.Object3D,
 		effects: SceneEffectJSON[]
 	) {
-		if (effects.length > 0) {
-			// biome-ignore lint/complexity/noForEach: <explanation>
-			effects.forEach(effect => {
-				if (effect.type === 'effect' && effect.effect_name) {
-					const { options } = effect
-					this.addEffect(
-						{ effect_name: effect.effect_name, effect_id: 0, options },
-						mesh
-					)
-				} else if (effect.type === 'animation' && effect.options) {
-					this.applyAnimation(mesh, effect)
-				}
-			})
+		mesh.userData.effect = effects.map(e => ({ ...e }))
+		if (effects.length === 0) return
+		// biome-ignore lint/complexity/noForEach: <explanation>
+		effects.forEach(effect => {
+			if (effect.type === 'effect' && effect.effect_name) {
+				const { options } = effect
+				this.addEffect(
+					{ effect_name: effect.effect_name, effect_id: 0, options },
+					mesh
+				)
+			}
+		})
+		this.reapplyGsapAnimations(mesh)
+	}
+
+	/** 在物体变换已就绪后重播 GSAP 动效（加载场景、手动改旋转后调用） */
+	reapplyGsapAnimations(obj: THREE.Object3D) {
+		this.killObjectGsapAnimations(obj)
+		const effects = obj.userData.effect as SceneEffectJSON[] | undefined
+		if (!Array.isArray(effects) || effects.length === 0) return
+		for (const effect of effects) {
+			if (effect.type === 'animation' || effect.preset) {
+				this.applyAnimation(obj, effect)
+			}
 		}
 	}
 	// 为模型设置贴图
@@ -4937,7 +5760,9 @@ class ThreeCore {
 						tex.colorSpace = THREE.SRGBColorSpace
 						child.material.map = tex
 						child.material.transparent = true
+						child.material.depthWrite = false
 						child.material.needsUpdate = true
+						this.applyTransparentRenderSettings(mesh)
 					}
 				}
 			} else if (child instanceof THREE.Mesh) {
@@ -4999,48 +5824,88 @@ class ThreeCore {
 			}
 		})
 	}
-	applyAnimation(obj: THREE.Object3D, anim: SceneEffectJSON) {
-		if (anim.type === 'animation') {
-			const props: any = {}
-			for (const key in anim.properties) {
-				const [prop, axis] = key.split('.')
-				if (axis) {
-					props[axis] = anim.properties[key]
-					gsap.to((obj as any)[prop], {
-						...props,
-						duration: anim.duration,
-						ease: anim.ease,
-						delay: anim.delay,
-						repeat: anim.repeat,
-						yoyo: anim.yoyo,
-						repeatDelay: anim.repeatDelay
-					})
-				} else {
-					gsap.to(obj as any, {
-						[prop]: anim.properties[key],
-						duration: anim.duration,
-						ease: anim.ease,
-						delay: anim.delay,
-						repeat: anim.repeat,
-						yoyo: anim.yoyo,
-						repeatDelay: anim.repeatDelay
-					})
-				}
+	/** 停止物体上由本编辑器创建的 GSAP 动画 */
+	killObjectGsapAnimations(obj: THREE.Object3D) {
+		gsap.killTweensOf(obj)
+		gsap.killTweensOf(obj.position)
+		gsap.killTweensOf(obj.rotation)
+		gsap.killTweensOf(obj.scale)
+		const stored = obj.userData._gsapTweens as gsap.core.Tween[] | undefined
+		if (stored?.length) {
+			for (const t of stored) {
+				t.kill()
 			}
-		} else if (anim.type === 'timeline') {
-			const tl = gsap.timeline()
-			// biome-ignore lint/complexity/noForEach: <explanation>
-			anim.children?.forEach(child => {
-				const targetObj = obj // 可以拓展为通过 uuid 查找
-				if (anim.sequence) {
-					tl.add(() => this.applyAnimation(targetObj, child), 0)
-					// tl.to(targetObj, this.applyAnimation(targetObj, child))
-				} else {
-					tl.add(() => this.applyAnimation(targetObj, child), 0)
-				}
-			})
 		}
+		obj.userData._gsapTweens = []
 	}
+
+	applyAnimation(
+		obj: THREE.Object3D,
+		anim: SceneEffectJSON,
+		opts?: { track?: boolean }
+	): gsap.core.Tween[] {
+		const tweens: gsap.core.Tween[] = []
+		if (anim.type === 'timeline') {
+			const tl = gsap.timeline()
+			anim.children?.forEach(child => {
+				const targetObj = obj
+				tl.add(() => {
+					this.applyAnimation(targetObj, child)
+				}, 0)
+			})
+			return tweens
+		}
+		if (anim.type !== 'animation') {
+			return tweens
+		}
+		const resolved = resolveAnimationEffect(anim, obj)
+		const properties = resolved.properties
+		if (!properties || Object.keys(properties).length === 0) {
+			return tweens
+		}
+		const tweenConfig: gsap.TweenVars = {
+			duration: resolved.duration ?? 1,
+			ease: resolved.ease ?? 'power2.inOut',
+			delay: resolved.delay ?? 0,
+			repeat: resolved.repeat ?? 0,
+			yoyo: resolved.yoyo ?? false,
+			repeatDelay: resolved.repeatDelay ?? 0
+		}
+		const axisProps: Record<string, Record<string, number | string>> = {}
+		for (const key in properties) {
+			const [prop, axis] = key.split('.')
+			if (axis) {
+				if (!axisProps[prop]) {
+					axisProps[prop] = {}
+				}
+				axisProps[prop][axis] = properties[key]
+			} else {
+				const tw = gsap.to(obj as gsap.TweenTarget, {
+					[prop]: properties[key],
+					...tweenConfig
+				})
+				tweens.push(tw)
+			}
+		}
+		for (const prop in axisProps) {
+			const tw = gsap.to((obj as any)[prop], {
+				...axisProps[prop],
+				...tweenConfig
+			})
+			tweens.push(tw)
+		}
+		if (opts?.track !== false) {
+			const prev = (obj.userData._gsapTweens as gsap.core.Tween[] | undefined) ?? []
+			obj.userData._gsapTweens = [...prev, ...tweens]
+		}
+		return tweens
+	}
+
+	playAnimationPreview(obj: THREE.Object3D, anim: SceneEffectJSON) {
+		this.killObjectGsapAnimations(obj)
+		return this.applyAnimation(obj, anim, { track: true })
+	}
+
 	public async loadSceneFromJSON(
 		json: SceneJSON,
 		renturGroup = false,
@@ -5089,15 +5954,30 @@ class ThreeCore {
 					this.controls.maxPolarAngle = json.controls.maxPolarAngle
 				}
 			}
+			this.sceneSteps = Array.isArray(json.step)
+				? json.step.map(s => ({
+						id: Array.isArray(s.id) ? [...s.id] : [],
+						...(typeof s.intro === 'string' && s.intro.trim()
+							? { intro: s.intro.trim() }
+							: {})
+					}))
+				: []
+			this.currentStepIndex = 0
 		}
 
 		const total = json.objects.length
 		let current = 0
+		const loadGen = renturGroup ? -1 : this.sceneLoadGeneration
+		const usedObjectIds = renturGroup
+			? new Set<string>()
+			: collectTopLevelSceneObjectIds(this.scene)
 		for (const obj of json.objects) {
+			if (!renturGroup && loadGen !== this.sceneLoadGeneration) {
+				return null
+			}
 			const position = obj.position || [0, 0, 0]
 			const rotation = obj.rotation || [0, 0, 0]
 			const scale = obj.scale || [1, 1, 1]
-			this.renderOrderCount += 10
 			let mesh: THREE.Object3D | null = null
 
 			if (obj.type === 'box') {
@@ -5137,11 +6017,9 @@ class ThreeCore {
 					})
 					mesh = model
 					model.userData.type = 'character'
+					// 
 					if (obj.options) {
 						this.setOptionsModel(mesh, obj.options)
-					}
-					if (obj.effect) {
-						this.setEffectModel(mesh, obj.effect)
 					}
 					if (obj.material) {
 						this.setMaterialModel(mesh, obj.material)
@@ -5179,12 +6057,9 @@ class ThreeCore {
 						// (obj.useDracoLoader && obj.dracoDecoderPath) ? obj.dracoDecoderPath : 'jsm/libs/draco/gltf/',
 					})
 					mesh = model
+					
 					if (obj.options) {
 						this.setOptionsModel(mesh, obj.options)
-					}
-
-					if (obj.effect) {
-						this.setEffectModel(mesh, obj.effect)
 					}
 					if (obj.material) {
 						this.setMaterialModel(mesh, obj.material)
@@ -5314,14 +6189,24 @@ class ThreeCore {
 				}
 			}
 			if (mesh) {
+				stampSceneObjectId(mesh, { savedId: obj.id, reservedIds: usedObjectIds })
 				mesh.position.set(...(position || [0, 0, 0]))
 				mesh.rotation.set(...(rotation || [0, 0, 0]))
 				mesh.scale.set(...(scale || [1, 1, 1]))
-				if (obj.renderOrder) {
-					mesh.renderOrder = obj.renderOrder
+				if (obj.effect?.length) {
+					this.setEffectModel(mesh, obj.effect)
+				}
+				if (obj.type !== 'image') {
+					this.applyTransparentRenderSettings(mesh, obj.renderOrder)
 				}
 				if (obj.follow) {
 					mesh.userData.follow = obj.follow
+				}
+				if (
+					(obj.type === 'model' || obj.type === 'character') &&
+					obj.links?.length
+				) {
+					mesh.userData.links = normalizeSceneObjectLinks(obj.links)
 				}
 				if (obj.type === 'diary') {
 					if (!this.editMode) {
@@ -5383,6 +6268,12 @@ class ThreeCore {
 		if (renturGroup) {
 			return group
 		}
+
+		if (this.sceneSteps.length > 0) {
+			this.applySceneStep(0)
+		}
+
+		this.syncSceneColorSpaces()
 		return null
 	}
 
@@ -5423,61 +6314,328 @@ class ThreeCore {
 
 		return group
 	}
-	clearObject(object: THREE.Object3D) {
-		if (object.isMesh) {
-			if (object.geometry) {
-				object.geometry.dispose() // 释放几何体内存
+	private isPersistentSceneNode(object: THREE.Object3D): boolean {
+		if (this.sparkRenderer && object === this.sparkRenderer) return true
+		if (object instanceof SparkRenderer) return true
+		if (this.editTargetMarker && object === this.editTargetMarker) return true
+		if (this.transformControls?._root) {
+			if (
+				object === this.transformControls._root
+				|| object.parent?.type === 'TransformControls'
+			) {
+				return true
 			}
+		}
+		if (this.lights) {
+			for (const light of Object.values(this.lights)) {
+				if (light === object) return true
+			}
+		}
+		if (this.lensLight === object) return true
+		if (this.arReticle === object) return true
+		if (this.arContentGroup === object) return true
+		return false
+	}
 
-			// 处理材质
-			if (object.material) {
-				// 如果是材质数组
-				if (Array.isArray(object.material)) {
-					object.material.forEach(material => material.dispose())
-				} else {
-					object.material.dispose() // 单个材质
-				}
+	private disposeMaterial(
+		material: THREE.Material | THREE.Material[] | undefined
+	) {
+		if (!material) return
+		if (Array.isArray(material)) {
+			for (const m of material) {
+				m.dispose()
 			}
-			console.log('走到这里了')
-			if (object.parent) {
-				object.parent.remove(object)
+		} else {
+			material.dispose()
+		}
+	}
+
+	/** 释放 Spark SplatMesh（含 packedSplats / WASM 解码缓冲） */
+	private disposeSplatMesh(splat: THREE.Object3D) {
+		const mesh = splat as SplatMesh & {
+			dispose?: () => void
+			packedSplats?: { dispose?: () => void }
+		}
+		try {
+			if (mesh.packedSplats && typeof mesh.packedSplats.dispose === 'function') {
+				mesh.packedSplats.dispose()
+			}
+			if (typeof mesh.dispose === 'function') {
+				mesh.dispose()
+			}
+		} catch (e) {
+			console.warn('SplatMesh dispose failed:', e)
+		}
+	}
+
+	private objectTreeHasSplat(root: THREE.Object3D): boolean {
+		if (root instanceof SplatMesh) return true
+		let found = false
+		root.traverse(obj => {
+			if (!found && obj instanceof SplatMesh) found = true
+		})
+		return found
+	}
+
+	/** 点云增删后通知 Spark 重建/清空累积器，避免按旧 maxSplats 做全量排序卡死 */
+	private notifySparkSplatsChanged(): void {
+		const sr = this.sparkRenderer as
+			| (SparkRenderer & {
+					setDirty?: () => void
+					clearSplats?: () => void
+			  })
+			| undefined
+		if (!sr) return
+		if (!this.sceneHasSplats()) {
+			sr.clearSplats?.()
+		}
+		sr.setDirty?.()
+		this.syncSceneColorSpaces()
+	}
+
+	private scheduleDeferredDispose(root: THREE.Object3D): void {
+		const run = () => {
+			root.traverse(child => {
+				if (this.isPersistentSceneNode(child)) return
+				if (child instanceof SplatMesh) {
+					this.disposeSplatMesh(child)
+				} else {
+					this.disposeMeshLikeNode(child)
+				}
+			})
+		}
+		if (import.meta.client && typeof requestIdleCallback === 'function') {
+			requestIdleCallback(run, { timeout: 150 })
+		} else {
+			queueMicrotask(run)
+		}
+	}
+
+	private disposeMeshLikeNode(child: THREE.Object3D) {
+		if (child instanceof SplatMesh) {
+			this.disposeSplatMesh(child)
+			return
+		}
+		const cssObj = child as CSS3DObject
+		if (cssObj.element?.parentNode) {
+			cssObj.element.parentNode.removeChild(cssObj.element)
+		}
+		if ((child as THREE.Mesh).isMesh || (child as THREE.Points).isPoints) {
+			const mesh = child as THREE.Mesh
+			mesh.geometry?.dispose()
+			this.disposeMaterial(mesh.material)
+		}
+		if ((child as THREE.Line).isLine) {
+			const line = child as THREE.Line
+			line.geometry?.dispose()
+			this.disposeMaterial(line.material)
+		}
+	}
+
+	/**
+	 * 释放并从场景中移除单个对象树（含 Spark SplatMesh / GLTF / 常规 Mesh）
+	 */
+	private disposeSceneObject(object: THREE.Object3D) {
+		if (this.isPersistentSceneNode(object)) return
+
+		object.traverse(child => {
+			if (this.isPersistentSceneNode(child)) return
+			this.disposeMeshLikeNode(child)
+		})
+
+		if (object.parent) {
+			object.parent.remove(object)
+		} else {
+			this.scene?.remove(object)
+		}
+	}
+
+	private disposeAllEffects() {
+		for (const effect of this.effectManager.effects.values()) {
+			try {
+				effect.dispose()
+			} catch (e) {
+				console.warn('Effect dispose failed:', e)
+			}
+		}
+		this.effectManager.effects.clear()
+		this.effectManager.effectsMap.clear()
+	}
+
+	private disposeLoadedModelCache() {
+		for (const entry of this.loadedModels) {
+			if (entry.model.parent) {
+				this.disposeSceneObject(entry.model)
 			} else {
-				this.scene.remove(object)
+				entry.model.traverse(child => {
+					if (!this.isPersistentSceneNode(child)) {
+						this.disposeMeshLikeNode(child)
+					}
+				})
 			}
 		}
 	}
+
+	private disposeTextureCaches() {
+		for (const texture of this.loadedTextures.values()) {
+			texture.dispose()
+		}
+		this.loadedTextures.clear()
+		this.loadingTextures.clear()
+	}
+
+	private disposeAllMatCache() {
+		for (const mat of this.allMat) {
+			this.disposeMaterial(mat)
+		}
+		this.allMat = []
+	}
+
+	private sweepRemovableSceneRoots(extraSeen?: Set<string>) {
+		if (!this.scene) return
+		const seen = extraSeen ?? new Set<string>()
+		const keep = new Set<THREE.Object3D>()
+		this.scene.traverse(obj => {
+			if (this.isPersistentSceneNode(obj)) keep.add(obj)
+		})
+
+		const roots = [...this.scene.children]
+		for (const root of roots) {
+			if (keep.has(root) || seen.has(root.uuid)) continue
+			seen.add(root.uuid)
+			this.disposeSceneObject(root)
+		}
+
+		if (this.arContentGroup) {
+			const arChildren = [...this.arContentGroup.children]
+			for (const child of arChildren) {
+				if (seen.has(child.uuid)) continue
+				seen.add(child.uuid)
+				this.disposeSceneObject(child)
+			}
+		}
+	}
+
+	/**
+	 * 清空已加载的场景内容（模型、拉线、点云等），保留 WebGL 渲染器、相机、OrbitControls、
+	 * SparkRenderer / DRACOLoader（Wasm 单例，切换时不销毁）。
+	 */
+	public clearSceneContent(): void {
+		if (!this.scene) return
+
+		this.sceneLoadGeneration++
+		this.clearStepGroupHighlights()
+
+		if (this.transformControls) {
+			this.transformControls.detach()
+		}
+
+		TWEEN.removeAll()
+		this.killStepTransitionAnimations()
+
+		for (const mixer of this.mixers) {
+			mixer.stopAllAction()
+		}
+		this.mixers = []
+
+		const rootsToRemove: THREE.Object3D[] = [
+			...this.allObjects,
+			...this.loadTemplate,
+			...this.loadedLaxian
+				.map(l => l.object)
+				.filter((o): o is THREE.Object3D => !!o),
+			...this.loadedDiary.map(d => d.object),
+			...this.loadedLibrary
+				.map(l => l.object)
+				.filter((o): o is THREE.Object3D => !!o)
+		]
+
+		const seen = new Set<string>()
+		for (const root of rootsToRemove) {
+			if (!root || seen.has(root.uuid)) continue
+			seen.add(root.uuid)
+			this.disposeSceneObject(root)
+		}
+
+		this.disposeLoadedModelCache()
+		this.sweepRemovableSceneRoots(seen)
+		this.disposeAllEffects()
+		this.disposeTextureCaches()
+		this.disposeAllMatCache()
+
+		for (const mat of Object.values(this.materials)) {
+			this.disposeMaterial(mat)
+		}
+		this.materials = {}
+
+		if (this.scene.background instanceof THREE.Texture) {
+			this.scene.background.dispose()
+			this.scene.background = null
+		}
+		if (this.envMap) {
+			this.envMap.dispose()
+			this.envMap = undefined
+		}
+
+		this.allObjects = []
+		this.loadTemplate = []
+		this.sceneSteps = []
+		this.currentStepIndex = 0
+		this.loadedModels = []
+		this.loadedModelURLs.clear()
+		this.loadedDiary = []
+		this.loadedLibrary = []
+		this.loadedLaxian = []
+		this.pendingCharacterRehydrations = []
+		this.cameraList = []
+		this.renderOrderCount = 10000
+		this.background = null
+		this.activePlugins = []
+		this.notifySparkSplatsChanged()
+	}
+
+	clearObject(object: THREE.Object3D) {
+		if (this.isPersistentSceneNode(object)) return
+		const hadSplat = this.objectTreeHasSplat(object)
+		object.visible = false
+		if (object.parent) {
+			object.parent.remove(object)
+		} else {
+			this.scene?.remove(object)
+		}
+		if (hadSplat) {
+			this.notifySparkSplatsChanged()
+			this.scheduleDeferredDispose(object)
+			return
+		}
+		this.disposeSceneObject(object)
+	}
+
+	/**
+	 * 从场景移除对象树。点云先脱离场景并通知 Spark，再在空闲时释放 Wasm/GPU，避免删除时长时间卡死。
+	 */
 	clearGroup(group: THREE.Group | THREE.Object3D) {
-		// 遍历组的所有子对象
-		while (group.children.length > 0) {
-			const child = group.children[0]
-			// biome-ignore lint/complexity/noForEach: <explanation>
-			group.children.forEach((child: THREE.Object3D) => {
-				// 如果子对象是网格(Mesh)，需要处理其几何体和材质
-				if (child.isMesh) {
-					if (child.geometry) {
-						child.geometry.dispose() // 释放几何体内存
-					}
+		if (!group || !this.scene) return
+		if (this.isPersistentSceneNode(group)) return
 
-					// 处理材质
-					if (child.material) {
-						// 如果是材质数组
-						if (Array.isArray(child.material)) {
-							child.material.forEach(material => material.dispose())
-						} else {
-							child.material.dispose() // 单个材质
-						}
-					}
-				}
-			})
+		const hadSplat = this.objectTreeHasSplat(group)
+		group.visible = false
+		if (group.parent) {
+			group.parent.remove(group)
+		} else {
+			this.scene.remove(group)
+		}
 
-			// 从组中移除子对象
-			group.remove(child)
-			group.parent?.remove(group)
+		if (hadSplat) {
+			this.notifySparkSplatsChanged()
+			this.scheduleDeferredDispose(group)
+			return
 		}
-		if (group.isMesh) {
-			this.clearObject(group)
-		}
-		console.log(this.loadedModels, '加载的模型')
+
+		group.traverse(child => {
+			if (this.isPersistentSceneNode(child)) return
+			this.disposeMeshLikeNode(child)
+		})
 	}
 
 	// 修改dispose方法以清理CSS3D渲染器
@@ -5500,6 +6658,10 @@ class ThreeCore {
 		if (this.renderer) {
 			this.renderer.dispose()
 		}
+		if (this.webglAux) {
+			this.webglAux.dispose()
+			this.webglAux = undefined
+		}
 
 		// 清理CSS3D渲染器的DOM元素
 		if (this.css3DRenderer?.domElement.parentNode) {
@@ -5517,6 +6679,22 @@ class ThreeCore {
 			this.splatViewer = undefined
 		}
 
+		if (this.sparkRenderer) {
+			this.scene?.remove(this.sparkRenderer)
+			const sr = this.sparkRenderer as SparkRenderer & { dispose?: () => void }
+			try {
+				sr.dispose?.()
+			} catch (e) {
+				console.warn('SparkRenderer dispose failed:', e)
+			}
+			this.sparkRenderer = undefined
+		}
+
+		if (this.dracoLoader) {
+			this.dracoLoader.dispose()
+			this.dracoLoader = undefined
+		}
+
 		// 清理编辑模式视点标记
 		if (this.editTargetMarker) {
 			this.editTargetMarker.geometry?.dispose()
@@ -5525,18 +6703,15 @@ class ThreeCore {
 			this.editTargetMarker = undefined
 		}
 
-		// 清理场景
-		while (this.scene.children.length > 0) {
-			const object = this.scene.children[0]
-			if ('geometry' in object) object.geometry.dispose()
-			if ('material' in object) {
-				if (Array.isArray(object.material)) {
-					object.material.forEach(material => material.dispose())
-				} else {
-					object.material.dispose()
-				}
+		// 清理场景中剩余节点（含 SparkRenderer / 灯光）
+		if (this.scene) {
+			const remaining = [...this.scene.children]
+			for (const object of remaining) {
+				object.traverse(child => {
+					this.disposeMeshLikeNode(child)
+				})
+				this.scene.remove(object)
 			}
-			this.scene.remove(object)
 		}
 	}
 }

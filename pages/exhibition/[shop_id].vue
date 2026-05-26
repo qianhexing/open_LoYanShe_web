@@ -322,7 +322,7 @@ onMounted(() => {
             <section class="museum-panel overflow-hidden">
                 <div class="museum-panel-header">
                     <span class="ornament" />
-                    <h3 class="title">展馆主理</h3>
+                    <h3 class="title">展馆店主</h3>
                     <span class="ornament" />
                 </div>
                 <div v-if="shopLoading" class="p-5 flex items-center justify-center min-h-[120px]">
@@ -473,20 +473,21 @@ onMounted(() => {
                 <!-- 3D 区域 -->
                 <client-only>
                     <SPZModelViewerContent
-                        v-if="(sceneJson && sceneJson.objects && sceneJson.objects.length > 0) || modelList.length > 0"
+                        v-show="(sceneJson && sceneJson.objects && sceneJson.objects.length > 0) || modelList.length > 0"
                         :model-list="modelList"
                         :laxian-list="laxianList"
                         :scene-json="sceneJson"
                         :auto-rotate="autoRotate"
                         :background-color="0x140e08"
+                        :show-loading-mask="false"
                     />
-                    <div
+                    <!-- <div
                         v-else
                         class="w-full h-full flex flex-col items-center justify-center text-amber-200/50 font-serif"
                     >
                         <UIcon name="i-heroicons-cube-transparent" class="text-7xl mb-3 text-amber-400/40" />
                         <p class="text-sm tracking-[0.3em]">{{ allVideosLoading || modelLoading ? 'LOADING…' : 'NO EXHIBIT SELECTED' }}</p>
-                    </div>
+                    </div> -->
                 </client-only>
 
                 <!-- 加载错误 -->

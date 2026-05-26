@@ -151,7 +151,7 @@
           <div class="text-center text-sm text-gray-500 dark:text-gray-400">
             {{ $t('register.login_link') }}
             <NuxtLink 
-              to="/" 
+              :to="loginTo"
               class="text-qhx-primary hover:underline ml-1"
             >
               {{ $t('login.login') }}
@@ -188,7 +188,9 @@ useHead({
 const userStore = useUserStore()
 const config = useConfigStore()
 const toast = useToast()
-const router = useRouter()
+const { buildLoginTo, navigateAfterLogin } = useLoginRedirect()
+
+const loginTo = computed(() => buildLoginTo())
 
 // 表单数据
 interface RegisterFormState {
@@ -418,9 +420,7 @@ const onSubmit = async () => {
       color: 'green'
     })
     
-    // 注册成功后跳转到首页
-    window.location.href = '/'
-    await router.push('/')
+    await navigateAfterLogin()
   } catch (error: unknown) {
     toast.add({
       title: '注册失败',

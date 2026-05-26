@@ -7,6 +7,9 @@
 	"header.collection": "フォーラム",
 	"header.teaParty": "オフライン/ティーパーティー",
 
+	"login.title": "おかえりなさい",
+	"login.subtitle": "Lo研社にログイン",
+	"login.register_link": "アカウントをお持ちでないですか？",
 	"login.login": "ログイン",
 	"login.account": "アカウントでログイン",
 	"login.phone": "携帯電話番号",

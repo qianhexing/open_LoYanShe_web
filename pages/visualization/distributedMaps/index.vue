@@ -1762,7 +1762,7 @@ const initThree = async () => {
   });
 
   threeCore.value = core;
-  core.mount(container.value);
+  await core.mount(container.value);
 
   if (core.camera instanceof THREE.PerspectiveCamera) {
     core.camera.fov = 45; 
@@ -2007,7 +2007,7 @@ const initThree = async () => {
   addBackgroundStars();
 
   loading.value = false;
-  core.startAnimationLoop();
+  await core.startAnimationLoop();
 
   const onMouseDown = (event: MouseEvent) => {
     // 记录鼠标按下位置，重置移动标志

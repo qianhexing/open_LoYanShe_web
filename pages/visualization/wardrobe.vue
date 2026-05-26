@@ -1061,7 +1061,7 @@ onMounted(async () => {
   };
 
   core.value = new ThreeCore(options);
-  core.value.mount(canvasContainer.value);
+  await core.value.mount(canvasContainer.value);
 
   // 调整控制器手感
   core.value.controls.autoRotate = false;
@@ -1102,7 +1102,7 @@ onMounted(async () => {
     });
   });
 
-  core.value.startAnimationLoop();
+  await core.value.startAnimationLoop();
 
   // 检测手机端
   checkIsMobile();

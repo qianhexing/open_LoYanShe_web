@@ -239,6 +239,12 @@ export interface Library {
   is_wardrobe?: number;
   examin?: number;
   complete?: boolean;
+  /** 综合评分（总分，0–5） */
+  score?: number;
+  /** 评分人数 */
+  score_number?: number;
+  /** 当前用户是否已评分（与 POST /score/one 未评分时 false 一致，常见 0/1） */
+  is_score?: number | boolean;
 }
 
 /** 相似推荐列表项（与列表/详情 library 结构相近，可带 shop，额外相似度分越大越相似） */
@@ -536,6 +542,9 @@ export interface Community {
   good?: Good[]
   good_count?: number
   collect_count?: number
+  /** 帖子浏览次数（详情接口 / times 统计） */
+  times_count?: number
+  brows_times?: number
   black_list?: BlackList
   comments?: Comment[]
   collect?: Collect
@@ -543,6 +552,7 @@ export interface Community {
   sence_id?: number
   /** 发帖关联的外部实体摘要列表（与 {@link CommunityDetailForeignItem} 对应） */
   foreign_list?: CommunityDetailForeignItem[]
+  custom_style?: Record<string, any>
 }
 
 export interface UserDeco {

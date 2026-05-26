@@ -7,6 +7,9 @@
 	"header.collection": "合集",
 	"header.teaParty": "线下/茶会",
 
+	"login.title": "欢迎回来",
+	"login.subtitle": "登录 Lo研社",
+	"login.register_link": "还没有账号？",
 	"login.login": "登录",
 	"login.account": "登录账号",
 	"login.phone": "手机号",

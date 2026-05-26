@@ -7,6 +7,9 @@
 	"header.collection": "Collection",
 	"header.teaParty": "Offline/Tea Party",
 
+	"login.title": "Welcome Back",
+	"login.subtitle": "Sign in to Lo Research Society",
+	"login.register_link": "Don't have an account?",
 	"login.login": "Login",
 	"login.account": "Login Account",
 	"login.phone": "Phone Number",

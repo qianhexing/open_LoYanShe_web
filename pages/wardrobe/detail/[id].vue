@@ -29,6 +29,8 @@ const page = ref(1)
 const list = ref<WardrobeClothes[]>([])
 const total = ref(0)
 const isLoading = ref(false)
+/** 服饰列表请求序号：丢弃过期响应，避免并发 reload / 切换衣柜导致 loading 卡死 */
+let clothesListFetchSeq = 0
 const tagList = ref<Array<string>>([])
 const isSorting = ref(false) // loading 状态
 const show = ref(true)
@@ -90,15 +92,35 @@ let oldList: { clothes_id: number; sort: number }[] = [];
 const record = ref<Wardrobe | null>(null)
 import WardrobeClothesLongShare from '@/components/Wardrobe/WardrobeClothesLongShare.vue'
 import type ClothesAdd from '@/components/Clothes/ClothesAdd.vue'
+import type ClothesBatchAdd from '@/components/Clothes/ClothesBatchAdd.vue'
 import type WardrobeAddEdit from '@/components/Wardrobe/WardrobeAddEdit.vue'
 import type WardrobeSearch from '@/components/Wardrobe/WardrobeSearch.vue'
 import type WardrobeChoose from '@/components/Wardrobe/WardrobeChoose.vue'
 import type MatchingAddEdit from '@/components/matching/MatchingAddEdit.vue'
 import dayjs from 'dayjs'
 const addEditClothesRef = ref<InstanceType<typeof ClothesAdd> | null>(null)
+const clothesBatchAddRef = ref<InstanceType<typeof ClothesBatchAdd> | null>(null)
 const toast = useToast()
 
 const showBatchStatusModal = ref(false)
+const showBatchSortModal = ref(false)
+/** 批量排序：目标序号（1 起，与封面蒙版一致） */
+const batchSortTargetNo = ref('')
+/** 仅自定义排序（sort_type=0）时可手动调整顺序 */
+const isCustomSortMode = computed(() => (info.value?.sort_type ?? 0) === 0)
+/** 当前列表服饰序号（clothes_id → 1-based） */
+const clothesSortNoMap = computed(() => {
+  const map = new Map<number, number>()
+  list.value.forEach((item, index) => {
+    if (item.clothes_id != null) map.set(item.clothes_id, index + 1)
+  })
+  return map
+})
+const getClothesDisplaySortNo = (item: WardrobeClothes) => {
+  const id = item.clothes_id
+  if (id == null) return 0
+  return clothesSortNoMap.value.get(id) ?? 0
+}
 /** 批量修改拥有状态：与 ClothesAdd 表单项 wardrobe_status 一致 */
 const batchMultipleFormWardrobeStatus = ref<string | null>(null)
 const batchStatusSelectRef = ref<InstanceType<typeof QhxSelect> | null>(null)
@@ -465,9 +487,8 @@ const checkPassword = (wardrobe_id: number) => {
       if (record.value) {
         currentWardrobe.value = record.value
         console.log(currentWardrobe.value, 'currentWardrobe.value')
-        isLoading.value = true
         page.value = 1
-        fetchClothesList()
+        void fetchClothesList()
         router.replace({
           query: {
             ...route.query,
@@ -502,7 +523,6 @@ const onWardrobeListItemClick = (item: Wardrobe) => {
 const changeWardrobe = (item: Wardrobe) => {
   console.log(item, 'item')
   if (currentWardrobe.value?.wardrobe_id === item.wardrobe_id) return
-  if (isLoading.value) return
   if (Number.parseInt(id) !== user.user?.user_id && item.password) {
     if (password.value || password.value === '') {
       showPassword.value = true
@@ -511,12 +531,11 @@ const changeWardrobe = (item: Wardrobe) => {
     return
   }
   currentWardrobe.value = item
-  isLoading.value = true
   page.value = 1
   initFilter()
   selectMode.value = false
   selectedClothesIds.value = new Set()
-  fetchClothesList()
+  void fetchClothesList()
   router.replace({
     query: {
       ...route.query,
@@ -561,7 +580,9 @@ const sortListByAddTimeAsc = (rows: WardrobeClothes[]) =>
   [...rows].sort((a, b) => clothesAddTimeMs(a) - clothesAddTimeMs(b))
 
 const fetchClothesList = async (Ipage: number | null = null, IpageSize: number | null = null) => {
-  if (!currentWardrobe.value || !currentWardrobe.value.wardrobe_id) return
+  if (!currentWardrobe.value?.wardrobe_id) return
+
+  const seq = ++clothesListFetchSeq
   isLoading.value = true
   const resolvedPageSize =
     IpageSize != null && IpageSize > 0
@@ -583,6 +604,8 @@ const fetchClothesList = async (Ipage: number | null = null, IpageSize: number |
   }
   try {
     const response = await getClothesList(params)
+    if (seq !== clothesListFetchSeq) return
+
     const rawRows = response.rows ?? []
     const merged =
       params.page === 1
@@ -606,12 +629,29 @@ const fetchClothesList = async (Ipage: number | null = null, IpageSize: number |
     if (response.info) {
       info.value = response.info
     }
+    if (user.user?.user_id === 1 || user.user?.user_id === 32171) {
+      toast.add({ title: '获取列表成功', color: 'yellow', icon: 'i-heroicons-exclamation-circle' })
+    }
     console.log(response, '衣柜返回值')
   } catch (error) {
+    console.log(error, 'error走了获取错误')
+    if (user.user?.user_id === 1 || user.user?.user_id === 32171) {
+      toast.add({ title: '获取失败', color: 'red', icon: 'i-heroicons-exclamation-circle' })
 
+      toast.add({ title: error, color: 'red', icon: 'i-heroicons-exclamation-circle' })
+    }
+
+    isLoading.value = false
+  } finally {
+    if (user.user?.user_id === 1 || user.user?.user_id === 32171) {
+      toast.add({ title: '整个流程加载完成', color: 'green', icon: 'i-heroicons-exclamation-circle' })
+
+    }
+    // if (seq === clothesListFetchSeq) {
+    //   isLoading.value = false
+    // }
+    isLoading.value = false
   }
-  isLoading.value = false
-
 }
 const copyUrl = async () => {
   const { copyCurrentUrl } = useCopyCurrentUrl();
@@ -636,6 +676,9 @@ const showAddClothes = () => {
   if (addEditClothesRef.value) {
     addEditClothesRef.value.showModel(currentWardrobe.value)
   }
+}
+const showBatchAddClothes = (event?: MouseEvent) => {
+  clothesBatchAddRef.value?.showModel(currentWardrobe.value, event)
 }
 const getWardrobeIdByPoint = (clientX: number, clientY: number): number | null => {
   if (typeof document === 'undefined') return null
@@ -744,27 +787,24 @@ const onDragEnd = async (e: any) => {
   }
 };
 const loadMore = () => {
-  if (timelineMode.value) return
-  console.log('是否在加载', isLoading.value)
-  if (isLoading.value) {
-    return
-  }
-  isLoading.value = true
-  // 加载更多数据
-  handlePageChange(page.value + 1)
+  if (timelineMode.value || isLoading.value) return
+  void handlePageChange(page.value + 1)
 }
 // 页码改变处理函数
 const handlePageChange = async (current: number) => {
+  const prevPage = page.value
   page.value = current
   try {
     await fetchClothesList()
-  } catch (error) {
-    page.value -= 1
+  } catch {
+    page.value = prevPage
   }
 }
 const reload = async () => {
-  const sz = timelineMode.value ? TIMELINE_PAGE_SIZE : pageSize * page.value
-  fetchClothesList(1, sz)
+  const loadedPages = page.value
+  page.value = 1
+  const sz = timelineMode.value ? TIMELINE_PAGE_SIZE : pageSize * loadedPages
+  await fetchClothesList(1, sz)
 }
 const reloadWardrobe = () => {
   reload()
@@ -1363,6 +1403,21 @@ const jumpToMatchingList = () => {
   }
 }
 
+// 跳转到衣柜展馆（仅 PC 端展示入口）
+const jumpToExhibition = () => {
+  const ownerUserId = Number.parseInt(id, 10)
+  if (!ownerUserId) return
+  const query: Record<string, string> = {}
+  if (currentWardrobe.value?.wardrobe_id) {
+    query.wardrobe_id = String(currentWardrobe.value.wardrobe_id)
+  }
+  const pwd = route.query.password
+  if (typeof pwd === 'string' && pwd) {
+    query.password = pwd
+  }
+  navigateTo({ path: `/exhibition/wardrobe/${ownerUserId}`, query })
+}
+
 // 跳转到定制计划页面
 const jumpToPlan = () => {
   showMoreMenu.value = false
@@ -1893,6 +1948,126 @@ const confirmBatchDelete = async () => {
   }
 }
 
+const openBatchSortModal = () => {
+  if (selectedClothesIds.value.size === 0) return
+  if (!isCustomSortMode.value) {
+    toast.add({
+      title: '当前为自动排序',
+      description: '请先在衣柜设置中将排序模式改为「自定义」',
+      color: 'amber',
+      icon: 'i-heroicons-information-circle',
+    })
+    return
+  }
+  const selectedNos = list.value
+    .map((item) => (item.clothes_id != null && selectedClothesIds.value.has(item.clothes_id)
+      ? getClothesDisplaySortNo(item)
+      : 0))
+    .filter((n) => n > 0)
+  batchSortTargetNo.value = selectedNos.length > 0 ? String(Math.min(...selectedNos)) : '1'
+  showBatchSortModal.value = true
+}
+
+/** 将选中项作为连续块移动到目标序号（1-based），块内保持当前相对顺序 */
+function buildListWithBatchSortAtPosition(targetNo: number): WardrobeClothes[] {
+  const selectedSet = selectedClothesIds.value
+  const selected: WardrobeClothes[] = []
+  const unselected: WardrobeClothes[] = []
+  let selectedBeforeTarget = 0
+  for (const item of list.value) {
+    if (item.clothes_id != null && selectedSet.has(item.clothes_id)) {
+      if (getClothesDisplaySortNo(item) < targetNo) selectedBeforeTarget++
+      selected.push(item)
+    } else {
+      unselected.push(item)
+    }
+  }
+  // 先抽出选中项后，插入下标 = 目标序号 - 1 - 目标序号之前已选中的件数
+  const insertIndex = Math.min(
+    Math.max(targetNo - 1 - selectedBeforeTarget, 0),
+    unselected.length,
+  )
+  const result = [...unselected]
+  result.splice(insertIndex, 0, ...selected)
+  return result
+}
+
+/** 与拖拽 onDragEnd 一致：按新下标继承原位置的 sort 值后提交 */
+async function applyListReorderAndSave(newList: WardrobeClothes[]): Promise<boolean> {
+  const oldSnapshot = list.value.map((item, index) => ({
+    clothes_id: item.clothes_id,
+    sort: item.sort ?? index,
+  }))
+  list.value = newList
+  const changed: { clothes_id: number; sort: number }[] = []
+  list.value.forEach((item, newIndex) => {
+    const cid = item.clothes_id
+    if (cid == null) return
+    const oldItem = oldSnapshot[newIndex]
+    if (!oldItem || cid !== oldItem.clothes_id) {
+      changed.push({
+        clothes_id: cid,
+        sort: oldItem?.sort ?? (item.sort ?? newIndex),
+      })
+    }
+  })
+  if (changed.length === 0 || !currentWardrobe.value?.wardrobe_id) return false
+  await sortClothee({
+    wardrobe_id: currentWardrobe.value.wardrobe_id,
+    sort: changed.map((item) => ({
+      clothes_id: item.clothes_id,
+      sort: item.sort,
+    })),
+  })
+  return true
+}
+
+function parseBatchSortTargetNo(raw: string | number | null | undefined): number {
+  if (raw == null || raw === '') return Number.NaN
+  if (typeof raw === 'number') return Number.isFinite(raw) ? Math.trunc(raw) : Number.NaN
+  const s = String(raw).trim()
+  if (!s) return Number.NaN
+  return Number.parseInt(s, 10)
+}
+
+const confirmBatchSort = async () => {
+  if (selectedClothesIds.value.size === 0 || !isCustomSortMode.value) return
+  const max = list.value.length + 1
+  const targetNo = parseBatchSortTargetNo(batchSortTargetNo.value)
+  if (!Number.isFinite(targetNo) || targetNo < 1 || targetNo > max) {
+    toast.add({
+      title: `请输入 1～${max} 之间的序号`,
+      color: 'amber',
+      icon: 'i-heroicons-information-circle',
+    })
+    return
+  }
+  const newList = buildListWithBatchSortAtPosition(targetNo)
+  const unchanged = list.value.every((item, i) => item.clothes_id === newList[i]?.clothes_id)
+  if (unchanged) {
+    toast.add({
+      title: '位置未变化',
+      color: 'gray',
+      icon: 'i-heroicons-information-circle',
+    })
+    showBatchSortModal.value = false
+    return
+  }
+  if (isSorting.value) return
+  isSorting.value = true
+  try {
+    await applyListReorderAndSave(newList)
+    toast.add({ title: '排序已更新', icon: 'i-heroicons-check-circle', color: 'green' })
+    showBatchSortModal.value = false
+  } catch (error) {
+    console.error('批量排序失败:', error)
+    toast.add({ title: '排序更新失败', icon: 'i-heroicons-exclamation-circle', color: 'red' })
+    await reload()
+  } finally {
+    isSorting.value = false
+  }
+}
+
 const showLongShareModal = ref(false)
 
 function openLongShareModal() {
@@ -1952,6 +2127,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
       />
     </div>
     <clothes-add ref="addEditClothesRef" @success="reloadWardrobe"></clothes-add>
+    <clothes-batch-add ref="clothesBatchAddRef" @success="reloadWardrobe"></clothes-batch-add>
     <wardrobe-add-edit ref="addEditWardrobeRef" @success="onWardrobeEditSuccess"></wardrobe-add-edit>
     <AchievementDecoConfigModal
       v-if="isWardrobeOwner && currentWardrobe?.wardrobe_id"
@@ -2118,6 +2294,52 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
             :class="hasAnyCustomBtnTheme && hasCustomBtnBg ? 'hover:opacity-90' : ''"
             :style="customBtnStyle"
             @click="confirmBatchStatus"
+          >
+            确定
+          </UButton>
+        </div>
+      </div>
+    </QhxModal>
+    <QhxModal v-model="showBatchSortModal">
+      <div class="p-6 w-[min(94vw,420px)] bg-white dark:bg-gray-800 rounded-[10px] shadow-lg">
+        <h3 class="text-base font-bold mb-2 text-gray-800 dark:text-gray-200">批量排序</h3>
+        <p class="text-sm text-gray-600 dark:text-gray-400 mb-4">
+          已选 {{ selectedClothesIds.size }} 件，将作为整体移动到封面所示序号。
+        </p>
+        <UFormGroup label="移动到序号">
+          <UInput
+            v-model="batchSortTargetNo"
+            type="number"
+            inputmode="numeric"
+            placeholder="请输入 1～列表总数"
+            class="w-full"
+            :ui="{
+              base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
+              rounded: 'rounded-[10px]',
+              padding: { xs: 'px-4 py-2' },
+              color: {
+                white: {
+                  outline: 'bg-gray-50 dark:bg-gray-800 ring-1 ring-gray-300 dark:ring-gray-600 focus:ring-2 focus:ring-qhx-primary',
+                },
+              },
+            }"
+            @keyup.enter="confirmBatchSort"
+          />
+        </UFormGroup>
+        <div class="flex justify-end gap-2 mt-6">
+          <UButton
+            color="gray"
+            :class="hasAnyCustomBtnTheme && hasCustomBtnBg ? 'hover:opacity-90' : ''"
+            :style="customBtnStyle"
+            @click="showBatchSortModal = false"
+          >
+            取消
+          </UButton>
+          <UButton
+            color="primary"
+            :class="hasAnyCustomBtnTheme && hasCustomBtnBg ? 'hover:opacity-90' : ''"
+            :style="customBtnStyle"
+            @click="confirmBatchSort"
           >
             确定
           </UButton>
@@ -2404,6 +2626,18 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
             <div class="flex flex-col gap-2">
               <!-- 功能按钮 -->
               <div class="flex items-center justify-end gap-1 flex-wrap">
+                <QhxJellyButton v-if="!isMobile">
+                  <div class="h-[46px] text-center px-0.5 cursor-pointer" @click="jumpToExhibition">
+                    <div
+                      class="wardrobe-neu-tool-orb m-[3px] rounded-[50%] h-[24px] w-[24px] flex items-center justify-center"
+                      :class="[!hasCustomBtnBg && 'bg-gradient-to-br from-amber-700 to-amber-900', !hasCustomBtnFont && 'text-white']"
+                      :style="customBtnStyle"
+                    >
+                      <UIcon name="material-symbols:museum-outline" class="text-[16px]" />
+                    </div>
+                    <div class="text-xs whitespace-nowrap">展馆</div>
+                  </div>
+                </QhxJellyButton>
                 <QhxJellyButton v-if="isInUniAppShell">
                   <div class="h-[46px] text-center px-0.5">
                     <div class="flex items-center justify-center m-[3px] min-h-[24px]">
@@ -2597,6 +2831,21 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
               </div>
             </QhxJellyButton>
             <QhxJellyButton>
+              <div
+                class="h-[46px] flex flex-col items-center justify-center px-0.5 cursor-pointer"
+                @click="showBatchAddClothes($event)"
+              >
+                <div
+                  class="wardrobe-neu-tool-orb m-[3px] rounded-[50%] h-[24px] w-[24px] flex items-center justify-center"
+                  :class="[!hasCustomBtnBg && 'bg-qhx-primary', !hasCustomBtnFont && 'text-white']"
+                  :style="customBtnStyle"
+                >
+                  <UIcon name="i-heroicons-squares-plus" class="text-[16px]" />
+                </div>
+                <div class="text-xs text-qhx-text">批量添加</div>
+              </div>
+            </QhxJellyButton>
+            <QhxJellyButton>
               <div class="h-[46px] flex flex-col items-center justify-center px-0.5 cursor-pointer" @click="toggleSortMode">
                 <div
                   class="wardrobe-neu-tool-orb m-[3px] rounded-[50%] h-[24px] w-[24px] flex items-center justify-center"
@@ -2692,7 +2941,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
           :scroll-sensitivity="150"
           :scroll-speed="15"
           :fallback-tolerance="0"
-          :forceFallback="true" :delay="150" :disabled="!sortMode" @start="onDragStart" :move="() => { console.log('移动') }" @end="onDragEnd" v-model="list" item-key="id"
+          :forceFallback="sortMode" :delay="150" :disabled="!sortMode" @start="onDragStart" :move="() => { console.log('移动') }" @end="onDragEnd" v-model="list" item-key="clothes_id"
             animation="300" ghost-class="drag-ghost" chosen-class="drag-chosen" drag-class="dragging"
             class=" flex flex-wrap">
             <template #item="{ element }">
@@ -2775,6 +3024,16 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
                         loading="lazy"
                         @contextmenu.prevent
                       />
+                      <!-- 多选模式：封面蒙版显示当前排序序号 -->
+                      <div
+                        v-if="selectMode && getClothesDisplaySortNo(element)"
+                        class="wardrobe-select-sort-mask absolute inset-0 z-[5] flex items-center justify-center pointer-events-none rounded-xl"
+                        :class="isClothesSelected(element.clothes_id) ? 'wardrobe-select-sort-mask--selected' : ''"
+                      >
+                        <span class="wardrobe-select-sort-no tabular-nums font-bold text-white drop-shadow-[0_1px_4px_rgba(0,0,0,0.6)]">
+                          {{ getClothesDisplaySortNo(element) }}
+                        </span>
+                      </div>
                       <div
                         class="wardrobe-img-touch-shield"
                         :class="{ 'wardrobe-img-touch-shield--sorting': sortMode }"
@@ -3513,7 +3772,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
     <Transition name="select-bar">
       <div
         v-if="selectMode && !timelineMode"
-        class="wardrobe-neu-select-bar fixed bottom-0 left-0 right-0 z-50 flex items-center justify-center gap-2 px-4 py-3 bg-white/95 dark:bg-gray-900/95 backdrop-blur-md safe-area-pb"
+        class="wardrobe-neu-select-bar fixed bottom-0 left-0 right-0 z-50 flex flex-wrap items-center justify-center gap-2 px-3 py-3 bg-white/95 dark:bg-gray-900/95 backdrop-blur-md safe-area-pb"
       >
         <QhxJellyButton>
           <div class="h-[46px] text-center px-0.5 cursor-pointer" @click="onSelectModeSwitchWardrobe">
@@ -3541,6 +3800,25 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
             </div>
             <div class="text-xs text-qhx-text">
               批量状态
+              <span v-if="selectedClothesIds.size > 0">({{ selectedClothesIds.size }})</span>
+            </div>
+          </div>
+        </QhxJellyButton>
+        <QhxJellyButton>
+          <div
+            class="h-[46px] text-center px-0.5 cursor-pointer"
+            :class="selectedClothesIds.size === 0 ? 'cursor-not-allowed opacity-60' : ''"
+            @click="selectedClothesIds.size > 0 && openBatchSortModal()"
+          >
+            <div
+              class="wardrobe-neu-tool-orb m-[3px] rounded-[50%] h-[24px] w-[24px] flex items-center justify-center mx-auto"
+              :class="selectedClothesIds.size > 0 ? [!hasCustomBtnBg && 'bg-qhx-primary', !hasCustomBtnFont && 'text-white'] : [!hasCustomBtnBg && 'bg-qhx-info', !hasCustomBtnFont && 'text-white']"
+              :style="selectedClothesIds.size > 0 ? customBtnStyle : {}"
+            >
+              <UIcon name="icon-park-outline:sort-two" class="text-[16px]" />
+            </div>
+            <div class="text-xs text-qhx-text">
+              批量排序
               <span v-if="selectedClothesIds.size > 0">({{ selectedClothesIds.size }})</span>
             </div>
           </div>
@@ -3928,6 +4206,22 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
 .wardrobe-img-touch-shield--sorting {
   pointer-events: none !important;
   touch-action: auto;
+}
+
+/* 多选模式：封面排序序号蒙版 */
+.wardrobe-select-sort-mask {
+  background: rgba(0, 0, 0, 0.42);
+  backdrop-filter: blur(1px);
+}
+
+.wardrobe-select-sort-mask--selected {
+  background: rgba(0, 0, 0, 0.55);
+  box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.85);
+}
+
+.wardrobe-select-sort-no {
+  font-size: clamp(1.25rem, 8vw, 2rem);
+  line-height: 1;
 }
 
 .wardrobe-detail-img {

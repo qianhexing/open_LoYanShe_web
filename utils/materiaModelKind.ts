@@ -6,7 +6,16 @@ export function isGltfGlbModelMaterial(item: Material): boolean {
   if (o && o.assetKind === 'image') return false
   if (o && o.assetKind === 'model') return true
   const u = (item.materia_url || '').toLowerCase().split('?')[0] || ''
-  return u.endsWith('.glb') || u.endsWith('.gltf')
+  return /\.(glb|gltf)(\?|#|$)/i.test(u)
+}
+
+const SPLAT_URL_RE = /\.(ply|spz|splat|ksplat|rad|zip)(\?|#|$)/i
+
+export function isSplatMaterial(item: Material): boolean {
+  const o = item.options
+  if (o && o.assetKind === 'splat') return true
+  const u = (item.materia_url || '').toLowerCase().split('?')[0] || ''
+  return SPLAT_URL_RE.test(u)
 }
 
 export function materialFileNameFromUrl(url: string): string {

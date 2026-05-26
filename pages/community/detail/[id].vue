@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { Comment, Community, User, UserDeco } from '@/types/api'
 import { getCommunityDetail } from '@/api/community'
+import { getBrowTimeOne, insertBrowTime } from '@/api/brow_time'
 import { getCommentList } from '@/api/comment'
 import { getUserDecoBadges } from '@/api/user'
 import type { UserDecoBadgeItem } from '@/api/user'
@@ -187,6 +188,39 @@ watch(
 
 const commentTotal = computed(() => commentCountData.value?.count ?? 0)
 
+const BROW_TIME_TYPE_COMMUNITY = 'community'
+const browTimeViewCount = ref(0)
+let communityViewRecordTimer: ReturnType<typeof setTimeout> | null = null
+
+async function loadCommunityViewStat() {
+  if (!communityId) return
+  try {
+    const row = await getBrowTimeOne({ id: communityId, type: BROW_TIME_TYPE_COMMUNITY })
+    browTimeViewCount.value = row.count_times ?? 0
+  } catch (e) {
+    if (import.meta.client) {
+      console.error('帖子浏览统计读取失败:', e)
+    }
+  }
+}
+
+async function recordCommunityView() {
+  if (!communityId) return
+  try {
+    await insertBrowTime({ id: communityId, type: BROW_TIME_TYPE_COMMUNITY })
+    await loadCommunityViewStat()
+  } catch (e) {
+    if (import.meta.client) {
+      console.error('帖子浏览统计上报失败:', e)
+    }
+  }
+}
+
+/** 优先用详情接口字段，否则用 /times 统计 */
+const communityViewCount = computed(
+  () => detail.value?.times_count ?? detail.value?.brows_times ?? browTimeViewCount.value
+)
+
 const showCommentModal = ref(false)
 const commentModalRef = ref<{
   showModel: (e: {
@@ -206,18 +240,24 @@ provide(communityCommentSectionRefreshKey, commentSectionRefreshFn)
 const commentUiStore = useCommentUiStore()
 
 onMounted(() => {
-  console.log('onMounted===========', detail.value)
+  void loadCommunityViewStat()
+  communityViewRecordTimer = setTimeout(() => {
+    communityViewRecordTimer = null
+    if (user.user?.user_id === 1) return
+    void recordCommunityView()
+  }, 5000)
   if (!detail.value) {
     getCommunityDetail({ community_id: communityId })
-    .then((res) => {
-      detail.value = res
-    })
-    .catch((err) => {
-      console.error('获取帖子详情失败:', err)
-    })
+      .then((res) => {
+        detail.value = res
+      })
+      .catch((err) => {
+        console.error('获取帖子详情失败:', err)
+      })
   }
 })
 onUnmounted(() => {
+  if (communityViewRecordTimer) clearTimeout(communityViewRecordTimer)
   commentUiStore.clearNewCommentHighlight()
 })
 
@@ -550,6 +590,14 @@ useHead({
                 :collect_count="detail.collect_count ?? 0"
                 :need_judge="true"
               />
+              <div
+                class="flex items-center gap-1 text-gray-500"
+                title="浏览"
+                aria-label="浏览数"
+              >
+                <UIcon name="i-heroicons-eye" class="text-[22px] text-gray-500" />
+                <span class="min-w-[1ch] text-sm tabular-nums">{{ communityViewCount }}</span>
+              </div>
               <div
                 class="flex items-center gap-1 text-gray-500"
                 title="评论"

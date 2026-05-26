@@ -52,6 +52,7 @@ export interface ClothesAllParams {
   wardrobe_id: number
   password?: string
   filter_list?: Record<string, unknown>
+  attributes?: string[] | undefined
 }
 
 /** `/clothes/all` 可能返回仅含 clothes_id / wardrobe_id 的精简项，或 clothes_id 为字符串 */
@@ -88,7 +89,7 @@ export async function getClothesAll(params: ClothesAllParams): Promise<WardrobeC
 }
 
 /** 优先 `/clothes/all`，失败时分页 `/clothes/list` 兜底拼齐 */
-export async function getClothesListAllFallback(params: ClothesAllParams): Promise<WardrobeClothes[]> {
+export async function getClothesListAllFallback(params: ClothesAllParams ): Promise<WardrobeClothes[]> {
   try {
     const rows = await getClothesAll(params)
     return Array.isArray(rows) ? rows : []
@@ -102,7 +103,8 @@ export async function getClothesListAllFallback(params: ClothesAllParams): Promi
         page,
         pageSize,
         password: params.password,
-        filter_list: params.filter_list as Record<string, unknown> | undefined
+        filter_list: params.filter_list as Record<string, unknown> | undefined,
+        attributes: params.attributes as Record<string, unknown> | undefined
       })
       const chunk = res.rows ?? []
       out.push(...chunk)
@@ -152,6 +154,20 @@ export async function insertClothes(
 ): Promise<WardrobeClothes> {
   const response = await use$Post<BaseResponse<WardrobeClothes>>('/clothes/insert', params);
   return response.data;
+}
+
+export type ClothesBatchInsertItem = {
+  clothes_img: string
+  clothes_note?: string
+}
+
+/** 批量新增服饰 */
+export async function insertClothesMultiple(params: {
+  clothes_list: ClothesBatchInsertItem[]
+  wardrobe_id?: number
+}): Promise<boolean> {
+  const response = await use$Post<BaseResponse<boolean>>('/clothes/insert/multiple', params)
+  return response.data
 }
 
 export async function updateClothes(
