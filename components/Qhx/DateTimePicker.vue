@@ -17,17 +17,27 @@
     <!-- 弹窗 -->
     <QhxModal v-model="show" :trigger-position="clickPosition" @close="onClose">
       <div
-        class="datetime-modal w-[95vw] max-w-sm bg-white dark:bg-gray-800 rounded-2xl shadow-xl overflow-hidden border border-gray-200/50 dark:border-gray-700/50"
+        class="datetime-modal w-[95vw] max-w-sm max-h-[min(85vh,calc(100vh-2rem))] flex flex-col bg-white dark:bg-gray-800 rounded-2xl shadow-xl overflow-hidden border border-gray-200/50 dark:border-gray-700/50"
       >
         <!-- 头部 -->
-        <div class="px-4 py-3 border-b border-gray-200/60 dark:border-gray-700">
-          <h3 class="text-base font-semibold text-gray-800 dark:text-gray-100 text-center">
+        <div class="shrink-0 px-4 py-3 border-b border-gray-200/60 dark:border-gray-700 flex items-center justify-between gap-2">
+          <h3 class="text-base font-semibold text-gray-800 dark:text-gray-100">
             选择日期时间
           </h3>
+          <UButton
+            v-if="props.mode === 'date'"
+            size="xs"
+            color="primary"
+            variant="soft"
+            class="shrink-0"
+            @click="goToday"
+          >
+            今日
+          </UButton>
         </div>
 
         <!-- 日期选择区域 -->
-        <div class="p-4">
+        <div class="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4">
           <!-- 年月模式：年 + 月 滚动选择 -->
           <div v-if="props.mode === 'yearmonth'" class="yearmonth-section flex gap-3">
             <QhxScrollPicker
@@ -50,33 +60,21 @@
 
           <!-- 日期模式：日历 + 年月导航 -->
           <div v-else-if="props.mode === 'date'" class="date-section">
-            <div class="calendar-header flex items-center justify-between mb-3">
-              <button
-                type="button"
-                class="nav-btn w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-400 transition-colors"
-                @click="prevMonth"
-              >
-                <UIcon name="i-heroicons-chevron-left" class="w-5 h-5" />
-              </button>
-              <span class="text-sm font-semibold text-gray-800 dark:text-gray-100">
-                {{ currentYear }} 年 {{ currentMonth + 1 }} 月
-              </span>
-              <button
-                type="button"
-                class="nav-btn w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-400 transition-colors"
-                @click="nextMonth"
-              >
-                <UIcon name="i-heroicons-chevron-right" class="w-5 h-5" />
-              </button>
-              <UButton
-                size="xs"
-                color="primary"
-                variant="soft"
-                class="ml-2 shrink-0"
-                @click="goToday"
-              >
-                今日
-              </UButton>
+            <div class="calendar-header flex gap-2 mb-3">
+              <QhxScrollPicker
+                v-model="yearIndex"
+                :items="yearOptions"
+                :item-height="36"
+                :visible-count="5"
+                label-key="label"
+              />
+              <QhxScrollPicker
+                v-model="monthIndex"
+                :items="monthOptions"
+                :item-height="36"
+                :visible-count="5"
+                label-key="label"
+              />
             </div>
             <div class="calendar-weekdays flex">
               <span
@@ -142,7 +140,7 @@
         </div>
 
         <!-- 底部操作 -->
-        <div class="flex gap-2 px-4 py-3 border-t border-gray-200/60 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-900/50">
+        <div class="shrink-0 flex gap-2 px-4 py-3 border-t border-gray-200/60 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-900/50">
           <UButton
             v-if="clearable"
             color="gray"
@@ -257,6 +255,14 @@ watch(yearIndex, (i) => {
 watch(monthIndex, (i) => {
   currentMonth.value = i
 })
+
+watch(
+  () => currentMonth.value,
+  (m) => {
+    if (monthIndex.value !== m) monthIndex.value = m
+  },
+  { immediate: true }
+)
 
 // 时分秒
 const hourOptions: PickerItem[] = Array.from({ length: 24 }, (_, i) => ({

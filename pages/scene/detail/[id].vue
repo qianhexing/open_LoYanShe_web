@@ -2002,15 +2002,6 @@ watchEffect(() => {
     }
 })
 
-const sceneStepSwitcherBottomClass = computed(() => {
-    const operaVisible =
-        clickObject.value
-        && edit_mode.value
-        && !target.value
-        && !animationTarget.value
-    return operaVisible ? 'bottom-[4.75rem] md:bottom-8' : 'bottom-4 md:bottom-6'
-})
-
 function syncSceneStepUi() {
     const core = threeCore.value
     if (!core) return
@@ -2825,6 +2816,10 @@ const sceneOwnerActionTop = computed(() => {
     const bar = configStore.statusBarHeight || 0
     return `calc(0.75rem + max(env(safe-area-inset-top, 0px), ${bar}px))`
 })
+const sceneStepSwitcherTop = computed(() => {
+    const bar = configStore.statusBarHeight || 0
+    return `calc(2.75rem + max(env(safe-area-inset-top, 0px), ${bar}px))`
+})
 useHead({
     title: '3D手账',
     meta: [
@@ -3544,7 +3539,7 @@ useHead({
         <div
             v-if="threeCore?.hasSceneSteps() && !sceneStepGroupingMode"
             class="scene-step-switcher fixed left-1/2 z-[25] flex max-w-[min(100vw-24px,42rem)] -translate-x-1/2 pointer-events-auto"
-            :class="sceneStepSwitcherBottomClass"
+            :style="{ top: sceneStepSwitcherTop }"
         >
             <div
                 class="scene-neu-opera-bar flex w-full items-center gap-1 overflow-x-auto rounded-full p-1.5 backdrop-blur-md scrollbar-hide"
