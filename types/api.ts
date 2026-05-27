@@ -668,6 +668,7 @@ export interface Scene {
   sence_id: number
   user_id:number
   json_data: SceneJSON
+  allow_copy?: number
 }
 
 

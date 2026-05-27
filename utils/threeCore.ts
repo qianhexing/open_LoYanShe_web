@@ -36,9 +36,11 @@ import {
 import {
 	applyGroupingStepHidden,
 	applySceneStepVisibility,
+	isSceneStepCameraJSON,
 	isSceneStepContentRoot,
 	showAllStepManagedObjects,
-	type SceneStepJSON
+	type SceneStepJSON,
+	type SceneStepCameraJSON
 } from '@/utils/sceneSteps'
 import { TransformControls } from './TransformControls'
 // import { TransformControls } from 'three/examples/jsm/Addons.js';
@@ -250,7 +252,7 @@ export interface SceneObjectJSON {
 	links?: import('@/utils/sceneObjectLink').SceneObjectLink[]
 }
 
-export type { SceneStepJSON } from '@/utils/sceneSteps'
+export type { SceneStepJSON, SceneStepCameraJSON } from '@/utils/sceneSteps'
 
 // 灯光配置接口 - 使用数组存储，用type字段区分类型
 export type LightType =
@@ -397,7 +399,8 @@ export interface SceneJSON {
 		maxAzimuthAngle?: number // 控制器水平旋转最大角度（弧度）
 		minPolarAngle?: number // 控制器垂直旋转最小角度（弧度）
 		maxPolarAngle?: number // 控制器垂直旋转最大角度（弧度）
-	}
+	},
+	origin?: number
 }
 
 /** 检测是否为移动设备（用于 Splat 等渲染优化） */
@@ -579,10 +582,19 @@ class ThreeCore {
 		helper: THREE.BoxHelper
 		target: THREE.Object3D
 	}[] = []
+	/** 分组列表点击子 tag 聚焦时的目标 objectId */
+	public stepGroupFocusedObjectId: string | null = null
+	private static readonly STEP_GROUP_HIGHLIGHT_COLOR = 0x34d399
+	private static readonly STEP_GROUP_FOCUS_HIGHLIGHT_COLOR = 0x8b5cf6
 
 	/** 分组切换缩放过渡 */
 	private stepTransitionTweens: gsap.core.Tween[] = []
 	private stepTransitionObjects = new Set<THREE.Object3D>()
+
+	/** 动态裁剪面计算复用对象 */
+	private readonly clipBoundsBox = new THREE.Box3()
+	private readonly clipBoundsSize = new THREE.Vector3()
+	private readonly clipTargetFallback = new THREE.Vector3()
 
 	// bloom
 	bloomLayer = new THREE.Layers()
@@ -2611,7 +2623,9 @@ class ThreeCore {
 				sparkMobilePerf && this.options.antialias !== true
 					? false
 					: Boolean(this.options.antialias),
-			alpha: this.options.alpha
+			alpha: this.options.alpha,
+			// 与动态 near/far 配合，进一步减轻大场景/近距离深度冲突
+			logarithmicDepthBuffer: true
 		})
 	}
 
@@ -3656,6 +3670,55 @@ class ThreeCore {
 		}
 		this.camera.lookAt(0, 0, 0)
 	}
+
+	/**
+	 * 按相机与场景距离收紧 near/far，降低 far/near 比例，缓解近距离 z-fighting（破碎闪烁）。
+	 */
+	updateCameraClipPlanes() {
+		const cam = this.camera
+		if (!(cam instanceof THREE.PerspectiveCamera)) return
+
+		const target =
+			this.controls &&
+			'target' in this.controls &&
+			this.controls.target instanceof THREE.Vector3
+				? this.controls.target
+				: this.clipTargetFallback.set(0, 0, 0)
+
+		const distance = Math.max(cam.position.distanceTo(target), 0.001)
+
+		let sceneRadius = 5
+		this.clipBoundsBox.makeEmpty()
+		if (this.allObjects?.length) {
+			for (const obj of this.allObjects) {
+				if (obj.visible) this.clipBoundsBox.expandByObject(obj)
+			}
+		} else if (this.scene) {
+			this.clipBoundsBox.setFromObject(this.scene)
+		}
+		if (!this.clipBoundsBox.isEmpty()) {
+			this.clipBoundsBox.getSize(this.clipBoundsSize)
+			sceneRadius = Math.max(this.clipBoundsSize.length() * 0.5, 0.5)
+		}
+
+		const near = THREE.MathUtils.clamp(distance * 0.01, 0.001, 5)
+		let far = Math.max(distance + sceneRadius * 2 + 10, near * 50)
+		const maxDepthRatio = 4000
+		far = Math.min(far, near * maxDepthRatio)
+
+		const nearChanged = Math.abs(cam.near - near) > near * 0.05
+		const farChanged = Math.abs(cam.far - far) > far * 0.05
+		if (!nearChanged && !farChanged) return
+
+		cam.near = near
+		cam.far = far
+		cam.updateProjectionMatrix()
+
+		if (this.splatViewer) {
+			this.syncCamera(this.splatViewer)
+		}
+	}
+
 	// 新增方法：初始化CSS3D渲染器
 	initCSS3DRenderer() {
 		this.css3DRenderer = new CSS3DRenderer()
@@ -4336,6 +4399,8 @@ class ThreeCore {
 				}
 			}
 
+			this.updateCameraClipPlanes()
+
 			// 更新高斯泼溅查看器
 			if (this.splatViewer) {
 				this.splatViewer.update()
@@ -4690,6 +4755,42 @@ class ThreeCore {
 		return item
 	}
 
+	public cameraStateToStepCamera(state: CameraState): SceneStepCameraJSON {
+		return {
+			position: [
+				state.position.x,
+				state.position.y,
+				state.position.z
+			],
+			target: [state.target.x, state.target.y, state.target.z],
+			...(typeof state.fov === 'number' ? { fov: state.fov } : {})
+		}
+	}
+
+	private stepCameraToState(
+		camera: SceneStepCameraJSON | undefined
+	): CameraState | null {
+		if (!isSceneStepCameraJSON(camera)) return null
+		return {
+			position: new THREE.Vector3(...camera.position),
+			target: new THREE.Vector3(...camera.target),
+			...(typeof camera.fov === 'number' ? { fov: camera.fov } : {})
+		}
+	}
+
+	/** 切换分组时应用该组保存的镜头（无数据则跳过） */
+	public applySceneStepCamera(
+		stepIndex: number,
+		options?: { animate?: boolean }
+	): void {
+		if (!this.sceneSteps.length || !this.camera) return
+		const index = Math.max(0, Math.min(stepIndex, this.sceneSteps.length - 1))
+		const state = this.stepCameraToState(this.sceneSteps[index]?.camera)
+		if (!state) return
+		const duration = options?.animate === false ? 0 : 1000
+		this.lookAtCameraState(state, duration)
+	}
+
 	/**
 	 * 为即将加入场景的可编辑对象分配 userData.id。
 	 * @param savedId 自 SceneJSON 恢复时传入，保持 id 不变；克隆/新加时不传以生成新 id
@@ -4727,7 +4828,7 @@ class ThreeCore {
 
 		const index = Math.max(0, Math.min(stepIndex, this.sceneSteps.length - 1))
 		if (options?.animate && index !== this.currentStepIndex) {
-			this.applySceneStepWithAnimation(index)
+			this.applySceneStepWithAnimation(index, options)
 			return index
 		}
 
@@ -4742,6 +4843,7 @@ class ThreeCore {
 		if (attached && !attached.visible) {
 			this.transformControls.detach()
 		}
+		this.applySceneStepCamera(index, options)
 		return this.currentStepIndex
 	}
 
@@ -4821,7 +4923,10 @@ class ThreeCore {
 		this.trackStepTransitionTween(obj, tween)
 	}
 
-	private applySceneStepWithAnimation(index: number): void {
+	private applySceneStepWithAnimation(
+		index: number,
+		options?: { animate?: boolean }
+	): void {
 		const fromIndex = this.currentStepIndex
 		this.killStepTransitionAnimations()
 
@@ -4859,6 +4964,7 @@ class ThreeCore {
 		if (attached && !attached.visible) {
 			this.transformControls.detach()
 		}
+		this.applySceneStepCamera(index, options)
 	}
 
 	/** 编辑分组时临时显示全部对象，便于拖拽分配 */
@@ -4880,7 +4986,7 @@ class ThreeCore {
 	}
 
 	/** 清除分组高亮包围盒 */
-	public clearStepGroupHighlights(): void {
+	public clearStepGroupHighlights(resetFocus = true): void {
 		for (const { helper } of this.stepHighlightEntries) {
 			this.scene?.remove(helper)
 			helper.geometry?.dispose()
@@ -4892,11 +4998,14 @@ class ThreeCore {
 			}
 		}
 		this.stepHighlightEntries = []
+		if (resetFocus) {
+			this.stepGroupFocusedObjectId = null
+		}
 	}
 
 	/** 高亮指定分组内的场景根对象（按 userData.id 匹配） */
 	public syncStepGroupHighlights(stepIndex: number): void {
-		this.clearStepGroupHighlights()
+		this.clearStepGroupHighlights(false)
 		if (!this.sceneSteps.length) return
 
 		const index = Math.max(0, Math.min(stepIndex, this.sceneSteps.length - 1))
@@ -4904,7 +5013,9 @@ class ThreeCore {
 		if (!step?.id.length) return
 
 		const idSet = new Set(step.id)
-		const color = 0x34d399
+		const focusedId = this.stepGroupFocusedObjectId
+		const groupColor = ThreeCore.STEP_GROUP_HIGHLIGHT_COLOR
+		const focusColor = ThreeCore.STEP_GROUP_FOCUS_HIGHLIGHT_COLOR
 
 		for (const child of this.getStepManagedRoots()) {
 			if (!isSceneStepContentRoot(child)) continue
@@ -4912,6 +5023,8 @@ class ThreeCore {
 			if (typeof oid !== 'string' || !oid || !idSet.has(oid)) continue
 			if (!child.visible) continue
 
+			const color =
+				focusedId && oid === focusedId ? focusColor : groupColor
 			const helper = new THREE.BoxHelper(child, color)
 			helper.userData.sceneEditorOverlay = true
 			helper.userData.ignorePick = true
@@ -4919,6 +5032,19 @@ class ThreeCore {
 			this.scene.add(helper)
 			this.stepHighlightEntries.push({ helper, target: child })
 		}
+	}
+
+	/** 分组子 tag：镜头聚焦并高亮为紫色线框 */
+	public focusStepGroupMember(stepIndex: number, objectId: string): void {
+		if (!objectId) return
+		const obj = this.getStepManagedRoots().find(
+			child =>
+				isSceneStepContentRoot(child) && child.userData?.id === objectId
+		)
+		if (!obj) return
+		this.stepGroupFocusedObjectId = objectId
+		this.syncStepGroupHighlights(stepIndex)
+		this.lookAtSelectObj([obj])
 	}
 
 	private updateStepGroupHighlights(): void {
@@ -5150,7 +5276,8 @@ class ThreeCore {
 		if (this.sceneSteps.length > 0) {
 			resault.step = this.sceneSteps.map(s => ({
 				id: [...s.id],
-				...(s.intro?.trim() ? { intro: s.intro.trim() } : {})
+				...(s.intro?.trim() ? { intro: s.intro.trim() } : {}),
+				...(isSceneStepCameraJSON(s.camera) ? { camera: s.camera } : {})
 			}))
 		}
 		if (this.cameraList && this.cameraList.length > 0) {
@@ -5959,7 +6086,8 @@ class ThreeCore {
 						id: Array.isArray(s.id) ? [...s.id] : [],
 						...(typeof s.intro === 'string' && s.intro.trim()
 							? { intro: s.intro.trim() }
-							: {})
+							: {}),
+						...(isSceneStepCameraJSON(s.camera) ? { camera: s.camera } : {})
 					}))
 				: []
 			this.currentStepIndex = 0

@@ -36,3 +36,4 @@ skills-lock.json
 /package-lock.json
 utils/ipConfig.ts
 docker
+nginx.conf

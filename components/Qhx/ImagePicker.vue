@@ -103,6 +103,14 @@
         </template>
       </Draggable> -->
     </div>
+
+    <label
+      v-if="!props.disabled"
+      class="flex items-center gap-2 cursor-pointer text-sm text-gray-600 dark:text-gray-400"
+    >
+      <UCheckbox v-model="compressEnabled" />
+      <span>开启图片压缩</span>
+    </label>
   </div>
 </template>
 
@@ -110,6 +118,7 @@
 import Draggable from "vuedraggable"
 import VueEasyLightbox from 'vue-easy-lightbox'
 import { BASE_IMG } from '@/utils/ipConfig'
+import { useImageUploadStore } from '@/stores/imageUpload'
 const emit = defineEmits<(e: 'update:files', value: File[]) => void>()
 
 const props = defineProps<{
@@ -123,6 +132,12 @@ const props = defineProps<{
 // 移动端检测
 const configStore = useConfigStore()
 const isMobile = computed(() => configStore.isMobile)
+
+const imageUploadStore = useImageUploadStore()
+const compressEnabled = computed({
+  get: () => imageUploadStore.compressEnabled,
+  set: (v: boolean) => imageUploadStore.setCompressEnabled(v),
+})
 
 const fileInput = ref<HTMLInputElement | null>(null)
 const files = ref<File[]>([])
@@ -235,29 +250,67 @@ async function toSafeUploadFile(file: File): Promise<File> {
   }
 }
 
-const MAX_BYTES = 3 * 1024 * 1024
-async function under3m(f: File): Promise<File> {
-  if (f.size <= MAX_BYTES) return f
-  let b: ImageBitmap
+const THRESHOLD_BYTES = 2 * 1024 * 1024
+const UNIFORM_MAX_EDGE = 1920
+const UNIFORM_QUALITY = 0.85
+
+function jpegFileName(file: File) {
+  return `${(file.name || 'img').replace(/\.[^.]+$/, '') || 'img'}.jpg`
+}
+
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(2)} MB`
+}
+
+async function loadImageBitmap(f: File): Promise<ImageBitmap | null> {
   try {
-    b = await createImageBitmap(f)
+    return await createImageBitmap(f)
   } catch {
-    return f
+    return null
   }
+}
+
+/** 开启压缩：全部图片按统一质量/尺寸压缩 */
+async function compressUniform(f: File): Promise<File> {
+  const b = await loadImageBitmap(f)
+  if (!b) return f
   const c = document.createElement('canvas')
   const x = c.getContext('2d')
   if (!x) {
     b.close()
     return f
   }
-  const n = `${(f.name || 'img').replace(/\.[^.]+$/, '') || 'img'}.jpg`
+  const maxEdge = Math.max(b.width, b.height)
+  const scale = maxEdge > UNIFORM_MAX_EDGE ? UNIFORM_MAX_EDGE / maxEdge : 1
+  c.width = Math.max(1, (b.width * scale) | 0)
+  c.height = Math.max(1, (b.height * scale) | 0)
+  x.drawImage(b, 0, 0, c.width, c.height)
+  const blob = await new Promise<Blob | null>((r) => c.toBlob(r, 'image/jpeg', UNIFORM_QUALITY))
+  b.close()
+  return blob ? new File([blob], jpegFileName(f), { type: 'image/jpeg' }) : f
+}
+
+/** 关闭压缩：仅当超过 2MB 时迭代压缩至阈值以内 */
+async function compressIfOverThreshold(f: File): Promise<File> {
+  if (f.size <= THRESHOLD_BYTES) return f
+  const b = await loadImageBitmap(f)
+  if (!b) return f
+  const c = document.createElement('canvas')
+  const x = c.getContext('2d')
+  if (!x) {
+    b.close()
+    return f
+  }
+  const n = jpegFileName(f)
   for (let s = 1; s > 0.18; s *= 0.86) {
     for (let q = 0.92; q > 0.42; q -= 0.07) {
       c.width = Math.max(1, (b.width * s) | 0)
       c.height = Math.max(1, (b.height * s) | 0)
       x.drawImage(b, 0, 0, c.width, c.height)
       const blob = await new Promise<Blob | null>((r) => c.toBlob(r, 'image/jpeg', q))
-      if (blob && blob.size <= MAX_BYTES) {
+      if (blob && blob.size <= THRESHOLD_BYTES) {
         b.close()
         return new File([blob], n, { type: 'image/jpeg' })
       }
@@ -267,9 +320,30 @@ async function under3m(f: File): Promise<File> {
   return f
 }
 
+async function processImageFile(f: File, forceCompress: boolean): Promise<File> {
+  const before = f.size
+  const result = forceCompress ? await compressUniform(f) : await compressIfOverThreshold(f)
+  const after = result.size
+  const mode = forceCompress ? '统一压缩' : '超 2MB 压缩'
+  if (before === after) {
+    console.log(`[ImagePicker] ${f.name} | ${mode} | ${formatFileSize(before)} → 未变化`)
+  } else {
+    const savedPct = before > 0 ? (((before - after) / before) * 100).toFixed(1) : '0'
+    console.log(
+      `[ImagePicker] ${f.name} | ${mode} | ${formatFileSize(before)} → ${formatFileSize(after)} (减少 ${formatFileSize(before - after)}, ${savedPct}%)`
+    )
+  }
+  return result
+}
+
 const addFiles = async (newFiles: File[]) => {
   if (props.disabled) return
-  const imageFiles = await Promise.all(newFiles.filter((f) => f.type.startsWith('image/')).map(under3m))
+  imageUploadStore.initFromLocalStorage()
+  const imageFiles = await Promise.all(
+    newFiles
+      .filter((f) => f.type.startsWith('image/'))
+      .map((f) => processImageFile(f, imageUploadStore.compressEnabled))
+  )
   const newPreviews = imageFiles.map((file) => ({
     id: generateId(),
     file,
@@ -330,6 +404,7 @@ const seedFromPaths = (paths: string[]) => {
 }
 
 onMounted(() => {
+  imageUploadStore.initFromLocalStorage()
   if (props.initialImagePaths?.length) {
     seedFromPaths(props.initialImagePaths)
   }

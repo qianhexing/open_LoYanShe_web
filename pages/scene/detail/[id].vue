@@ -529,6 +529,7 @@ function enterSceneStepGroupingMode() {
     }
     bumpSceneObjectRevision()
     refreshSceneStepHighlights()
+    threeCore.value?.applySceneStepCamera(currentSceneStepIndex.value, { animate: false })
 }
 
 function closeSceneStepGroupingIfOpen() {
@@ -1453,6 +1454,166 @@ const lightMenuPosition = ref({ x: 0, y: 0 })
 const currentLightPreset = ref('default')
 
 const showPostModal = ref(false)
+const showMoreMenu = ref(false)
+const moreMenuPosition = ref({ x: 0, y: 0 })
+
+const openMoreMenu = (e: MouseEvent) => {
+    moreMenuPosition.value = {
+        x: e.clientX + 50,
+        y: e.clientY
+    }
+    showMoreMenu.value = true
+}
+
+const openScenePostFromMenu = () => {
+    showMoreMenu.value = false
+    showPostModal.value = true
+}
+
+const handleSceneShareFromMenu = async () => {
+    showMoreMenu.value = false
+    await handleShare()
+}
+
+const replaySceneEditGuideFromMenu = () => {
+    showMoreMenu.value = false
+    replaySceneEditGuide()
+}
+
+const showSceneSettings = ref(false)
+const allowCopyUpdating = ref(false)
+
+const openSceneSettingsFromMenu = () => {
+    showMoreMenu.value = false
+    showSceneSettings.value = true
+}
+
+const hasSceneOrigin = computed(() => {
+    const origin = detail.value?.json_data?.origin
+    return typeof origin === 'number' && Number.isFinite(origin) && origin > 0
+})
+
+const updateSceneAllowCopy = async (val: boolean) => {
+    const sid = Number.parseInt(id, 10)
+    if (!Number.isFinite(sid) || sid <= 0 || !detail.value) return
+    if (allowCopyUpdating.value) return
+    if (val && hasSceneOrigin.value) {
+        toast.add({
+            title: '无法开启',
+            description: '由其他场景克隆而来的场景不可再被克隆',
+            icon: 'i-heroicons-exclamation-circle',
+            color: 'orange'
+        })
+        return
+    }
+
+    const value = val ? 1 : 0
+    allowCopyUpdating.value = true
+    try {
+        await updateScene({ sence_id: sid, allow_copy: value })
+        detail.value.allow_copy = value
+        toast.add({
+            title: '修改成功',
+            icon: 'i-heroicons-check-circle',
+            color: 'green'
+        })
+    } catch (error) {
+        console.error('更新场景设置失败:', error)
+        toast.add({
+            title: '修改失败',
+            icon: 'i-heroicons-exclamation-circle',
+            color: 'red'
+        })
+    } finally {
+        setTimeout(() => {
+            allowCopyUpdating.value = false
+        }, 300)
+    }
+}
+
+const cloneSceneLoading = ref(false)
+const showCloneSceneConfirm = ref(false)
+
+const isSceneOwner = computed(
+    () => detail.value != null && userStore.user?.user_id === detail.value.user_id
+)
+
+const canCloneScene = computed(() => {
+    if (!detail.value || id === '0') return false
+    if (hasSceneOrigin.value) return false
+    if ((detail.value.allow_copy ?? 1) !== 1) return false
+    const json = detail.value.json_data
+    return json != null && Array.isArray(json.objects)
+})
+
+const showSceneCloneAction = computed(
+    () => detail.value != null && canCloneScene.value
+)
+
+const showSceneOwnerActions = computed(
+    () => detail.value != null && !isFromIframeEmbed.value && isSceneOwner.value
+)
+
+function openCloneSceneConfirm() {
+    if (!userStore.user?.user_id) {
+        toast.add({
+            title: '请先登录',
+            description: '登录后可克隆场景到自己的账号',
+            icon: 'i-heroicons-exclamation-circle',
+            color: 'orange'
+        })
+        return
+    }
+    const sourceId = Number.parseInt(id, 10)
+    if (!Number.isFinite(sourceId) || sourceId <= 0 || !detail.value?.json_data) return
+    if (cloneSceneLoading.value || loading.value) return
+    showCloneSceneConfirm.value = true
+}
+
+const cloneScene = async (): Promise<boolean> => {
+    if (!userStore.user?.user_id) {
+        toast.add({
+            title: '请先登录',
+            description: '登录后可克隆场景到自己的账号',
+            icon: 'i-heroicons-exclamation-circle',
+            color: 'orange'
+        })
+        return false
+    }
+    const sourceId = Number.parseInt(id, 10)
+    if (!Number.isFinite(sourceId) || sourceId <= 0 || !detail.value?.json_data) return false
+    if (cloneSceneLoading.value || loading.value) return false
+
+    cloneSceneLoading.value = true
+    try {
+        const json_data = JSON.parse(JSON.stringify(detail.value.json_data)) as SceneJSON
+        json_data.origin = sourceId
+        const res = await insertScene({ json_data })
+        toast.add({
+            title: '克隆成功',
+            description: '正在打开新场景',
+            icon: 'i-heroicons-check-circle',
+            color: 'green'
+        })
+        showCloneSceneConfirm.value = false
+        await navigateTo(`/scene/detail/${res.sence_id}?edit=1`)
+        return true
+    } catch (error) {
+        console.error('克隆场景失败:', error)
+        toast.add({
+            title: '克隆失败',
+            icon: 'i-heroicons-x-circle',
+            color: 'red'
+        })
+        return false
+    } finally {
+        cloneSceneLoading.value = false
+    }
+}
+
+async function confirmCloneScene() {
+    await cloneScene()
+}
 
 const scenePostForeignPk = computed(() => {
     const sid = Number.parseInt(id, 10)
@@ -1965,6 +2126,8 @@ const stampAndAddSceneObject = (obj: THREE.Object3D, savedId?: string) => {
 }
 
 const currentSceneStepIndex = ref(0)
+/** 编辑模式下全览：不按分组隐藏物体，顶部不选中任一阶段 */
+const sceneStepShowAll = ref(false)
 const sceneObjectRevision = ref(0)
 
 function bumpSceneObjectRevision() {
@@ -2005,13 +2168,30 @@ watchEffect(() => {
 function syncSceneStepUi() {
     const core = threeCore.value
     if (!core) return
+    // 分组编辑模式下以面板 activeIndex 为准，勿用 core.currentStepIndex 覆盖（后者未随分组切换更新）
+    if (sceneStepGroupingMode.value) return
     currentSceneStepIndex.value = core.currentStepIndex
+}
+
+function enterSceneStepOverview() {
+    const core = threeCore.value
+    if (!core?.hasSceneSteps()) return
+    if (sceneStepShowAll.value) return
+    sceneStepShowAll.value = true
+    core.showAllStepManagedObjects()
+    clickObject.value = null
+    core.transformControls.detach()
+    showRoleDialog.value = false
+    clearRoleDialogTimer()
+    bumpTextureReplaceableScan()
+    updateLinkBadgeMarkers()
 }
 
 const switchSceneStep = (index: number) => {
     const core = threeCore.value
     if (!core?.hasSceneSteps()) return
-    if (index === currentSceneStepIndex.value) return
+    if (!sceneStepShowAll.value && index === currentSceneStepIndex.value) return
+    sceneStepShowAll.value = false
     const animate = !(edit_mode.value || add_mode.value)
     currentSceneStepIndex.value = core.applySceneStep(index, { animate })
     clickObject.value = null
@@ -2693,6 +2873,7 @@ const initThreejs = async () => {
         bumpSceneObjectRevision()
         if (threeCore.value && (edit_mode.value || add_mode.value)) {
             threeCore.value.showAllStepManagedObjects()
+            sceneStepShowAll.value = true
         }
 
         // 场景加载完成后，灯光配置已经在 loadSceneFromJSON 中自动应用了
@@ -2838,48 +3019,50 @@ useHead({
     <div class="select-none touch-callout-none scene-page-neu"
         :style="{ background: threeCore && threeCore.background && !threeCore.background.startsWith('color:') ? `url(${BASE_IMG}${threeCore.background})` : '', backgroundSize: 'cover' }">
         <div
-            v-if="detail && userStore.user?.user_id === detail?.user_id && !isFromIframeEmbed"
+            v-if="showSceneCloneAction || showSceneOwnerActions"
             class="fixed right-3 z-50 flex items-center gap-1.5"
             :style="{ top: sceneOwnerActionTop }"
         >
             <button
-                v-if="edit_mode || add_mode"
+                v-if="showSceneCloneAction"
                 type="button"
-                title="操作引导"
-                class="scene-neu-action-btn scene-neu-action-btn--compact group"
-                @click="replaySceneEditGuide"
+                title="克隆场景"
+                class="scene-neu-action-btn scene-neu-action-btn--compact group scene-neu-action-btn--emerald"
+                :disabled="cloneSceneLoading"
+                @click="openCloneSceneConfirm"
             >
                 <div
-                    class="scene-neu-action-icon scene-neu-action-icon--compact bg-gradient-to-br from-sky-200/80 to-sky-100/40 dark:from-sky-900/40 dark:to-sky-800/20"
+                    class="scene-neu-action-icon scene-neu-action-icon--compact scene-neu-action-icon--emerald"
                 >
                     <UIcon
-                        name="material-symbols:map-rounded"
-                        class="text-sm text-sky-600 dark:text-sky-400"
+                        v-if="!cloneSceneLoading"
+                        name="material-symbols:content-copy-outline-rounded"
+                        class="text-sm text-emerald-600 dark:text-emerald-400"
+                    />
+                    <UIcon
+                        v-else
+                        name="i-heroicons-arrow-path"
+                        class="text-sm text-emerald-600 dark:text-emerald-400 animate-spin"
                     />
                 </div>
-                <span class="scene-neu-action-label scene-neu-action-label--compact">引导</span>
+                <span class="scene-neu-action-label scene-neu-action-label--compact">克隆</span>
             </button>
             <button
+                v-if="showSceneOwnerActions"
                 type="button"
-                title="发帖分享"
-                class="scene-neu-action-btn scene-neu-action-btn--compact group scene-neu-action-btn--pink"
-                @click="showPostModal = true"
+                title="更多选项"
+                class="scene-neu-action-btn scene-neu-action-btn--compact group"
+                @click="openMoreMenu($event)"
             >
-                <div class="scene-neu-action-icon scene-neu-action-icon--compact scene-neu-action-icon--pink">
-                    <UIcon name="material-symbols:edit-note-rounded" class="text-sm text-pink-600 dark:text-pink-400" />
+                <div
+                    class="scene-neu-action-icon scene-neu-action-icon--compact bg-gradient-to-br from-gray-200/80 to-gray-100/40 dark:from-gray-800/40 dark:to-gray-700/20"
+                >
+                    <UIcon
+                        name="material-symbols:more-horiz"
+                        class="text-sm text-gray-600 dark:text-gray-400"
+                    />
                 </div>
-                <span class="scene-neu-action-label scene-neu-action-label--compact">发帖</span>
-            </button>
-            <button
-                type="button"
-                title="分享"
-                class="scene-neu-action-btn scene-neu-action-btn--compact group scene-neu-action-btn--violet"
-                @click="handleShare"
-            >
-                <div class="scene-neu-action-icon scene-neu-action-icon--compact scene-neu-action-icon--violet">
-                    <UIcon name="ic:round-share" class="text-sm text-violet-600 dark:text-violet-400" />
-                </div>
-                <span class="scene-neu-action-label scene-neu-action-label--compact">分享</span>
+                <span class="scene-neu-action-label scene-neu-action-label--compact">更多</span>
             </button>
         </div>
         <!-- 场景加载状态 -->
@@ -3254,7 +3437,7 @@ useHead({
             id="scene-guide-step-panel"
             class="fixed left-0 z-[20] flex flex-col rounded-r-xl scene-neu-panel backdrop-blur-md overflow-hidden transition-all duration-300 ease-out"
             :class="sceneStepListExpanded
-                ? 'top-1/2 -translate-y-1/2 h-[62vh] w-[100px] min-[756px]:w-[170px] min-[756px]:sm:w-[190px] md:w-[210px] z-[30]'
+                ? 'top-1/2 -translate-y-1/2 h-[62vh] w-[100px] min-[756px]:w-[240px] md:w-[280px] lg:w-[320px] z-[30]'
                 : 'top-[calc(50%+138px)] -translate-y-1/2 h-[40px] w-[36px] sm:w-[38px] scene-neu-panel--collapsed'"
             :data-grouping-active="sceneStepGroupingMode ? '1' : undefined"
         >
@@ -3545,15 +3728,30 @@ useHead({
                 class="scene-neu-opera-bar flex w-full items-center gap-1 overflow-x-auto rounded-full p-1.5 backdrop-blur-md scrollbar-hide"
             >
                 <button
+                    v-if="edit_mode || add_mode"
+                    type="button"
+                    class="scene-neu-opera-chip flex-shrink-0"
+                    :class="sceneStepShowAll ? 'scene-neu-opera-chip--violet' : ''"
+                    title="全览：显示全部模型"
+                    @click="enterSceneStepOverview"
+                >
+                    全览
+                </button>
+                <button
                     v-for="(step, index) in threeCore.sceneSteps"
                     :key="`scene-step-${index}`"
                     type="button"
-                    class="scene-neu-opera-chip max-w-[10rem] flex-shrink-0 truncate"
-                    :class="currentSceneStepIndex === index ? 'scene-neu-opera-chip--violet' : ''"
+                    class="scene-neu-opera-chip max-w-[10rem] flex-shrink-0 inline-flex items-center gap-0.5 truncate"
+                    :class="!sceneStepShowAll && currentSceneStepIndex === index ? 'scene-neu-opera-chip--violet' : ''"
                     :title="step.intro?.trim() || sceneStepLabel(step, index)"
                     @click="switchSceneStep(index)"
                 >
-                    {{ sceneStepLabel(step, index) }}
+                    <UIcon
+                        v-if="step.camera"
+                        name="material-symbols:video-camera-back"
+                        class="shrink-0 text-[11px] opacity-80"
+                    />
+                    <span class="truncate">{{ sceneStepLabel(step, index) }}</span>
                 </button>
             </div>
         </div>
@@ -3655,6 +3853,43 @@ useHead({
             @addImage="onUpdateFiles" @addBackgroun="addBackgroun" @choose-effect="chooseEffect" @addText="addText"
             ref="MaterialRef" :loadTemplate="threeCore && threeCore.loadTemplate.length > 0 ? true : false">
         </SceneMaterial>
+        <QhxModal
+            v-model="showCloneSceneConfirm"
+            :close-on-backdrop="!cloneSceneLoading"
+        >
+            <div
+                class="w-[min(92vw,360px)] rounded-[12px] bg-white p-4 shadow-lg dark:bg-gray-800"
+            >
+                <h3 class="text-base font-semibold text-gray-900 dark:text-gray-100">
+                    确认克隆场景
+                </h3>
+                <p class="mt-2 text-sm leading-relaxed text-gray-600 dark:text-gray-400">
+                    将把当前场景完整复制到你的账号下，并进入编辑模式。是否继续？
+                </p>
+                <div class="mt-4 flex gap-2">
+                    <UButton
+                        variant="outline"
+                        color="gray"
+                        block
+                        class="justify-center"
+                        :disabled="cloneSceneLoading"
+                        @click="showCloneSceneConfirm = false"
+                    >
+                        取消
+                    </UButton>
+                    <UButton
+                        block
+                        class="bg-qhx-primary text-qhx-inverted hover:bg-qhx-primaryHover justify-center"
+                        :loading="cloneSceneLoading"
+                        :disabled="cloneSceneLoading"
+                        @click="confirmCloneScene"
+                    >
+                        确认克隆
+                    </UButton>
+                </div>
+            </div>
+        </QhxModal>
+
         <QhxModal v-model="showDiary" :trigger-position="clickPosition">
             <div class="p-6 w-[400px] bg-white rounded-[10px] max-h-[50vh] overflow-y-auto"
                 v-if="activeDiary && !edit_mode">
@@ -4231,6 +4466,117 @@ useHead({
             </div>
         </QhxModal>
 
+        <QhxModal v-model="showMoreMenu" :trigger-position="moreMenuPosition">
+            <div class="p-4 w-[200px] bg-white dark:bg-gray-800 rounded-[10px] shadow-lg">
+                <h3 class="text-sm font-bold mb-3 text-gray-800 dark:text-gray-200">更多选项</h3>
+
+                <button
+                    v-if="edit_mode || add_mode"
+                    type="button"
+                    class="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors text-left group"
+                    @click="replaySceneEditGuideFromMenu"
+                >
+                    <div
+                        class="w-8 h-8 rounded-lg flex items-center justify-center bg-gradient-to-br from-sky-400 to-sky-500 group-hover:scale-110 transition-transform"
+                    >
+                        <UIcon name="material-symbols:map-rounded" class="text-base text-white" />
+                    </div>
+                    <div class="flex-1">
+                        <div class="text-sm font-medium text-gray-800 dark:text-gray-200">操作引导</div>
+                        <div class="text-xs text-gray-500 dark:text-gray-400">重播编辑操作引导</div>
+                    </div>
+                </button>
+
+                <button
+                    type="button"
+                    class="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors text-left group"
+                    :class="(edit_mode || add_mode) && 'mt-2'"
+                    @click="openScenePostFromMenu"
+                >
+                    <div
+                        class="w-8 h-8 rounded-lg flex items-center justify-center bg-gradient-to-br from-pink-500 to-rose-500 group-hover:scale-110 transition-transform"
+                    >
+                        <UIcon name="material-symbols:edit-note-rounded" class="text-base text-white" />
+                    </div>
+                    <div class="flex-1">
+                        <div class="text-sm font-medium text-gray-800 dark:text-gray-200">发帖分享</div>
+                        <div class="text-xs text-gray-500 dark:text-gray-400">发布到社区</div>
+                    </div>
+                </button>
+
+                <button
+                    type="button"
+                    class="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors text-left group mt-2"
+                    @click="handleSceneShareFromMenu"
+                >
+                    <div
+                        class="w-8 h-8 rounded-lg flex items-center justify-center bg-gradient-to-br from-violet-500 to-purple-500 group-hover:scale-110 transition-transform"
+                    >
+                        <UIcon name="ic:round-share" class="text-base text-white" />
+                    </div>
+                    <div class="flex-1">
+                        <div class="text-sm font-medium text-gray-800 dark:text-gray-200">分享</div>
+                        <div class="text-xs text-gray-500 dark:text-gray-400">复制场景链接</div>
+                    </div>
+                </button>
+
+                <button
+                    v-if="id !== '0'"
+                    type="button"
+                    class="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors text-left group mt-2"
+                    @click="openSceneSettingsFromMenu"
+                >
+                    <div
+                        class="w-8 h-8 rounded-lg flex items-center justify-center bg-gradient-to-br from-gray-500 to-gray-600 group-hover:scale-110 transition-transform"
+                    >
+                        <UIcon name="i-heroicons-cog-6-tooth" class="text-base text-white" />
+                    </div>
+                    <div class="flex-1">
+                        <div class="text-sm font-medium text-gray-800 dark:text-gray-200">设置</div>
+                        <div class="text-xs text-gray-500 dark:text-gray-400">场景权限与克隆</div>
+                    </div>
+                </button>
+            </div>
+        </QhxModal>
+
+        <UModal v-model="showSceneSettings" :ui="{ width: 'max-w-md' }">
+            <UCard>
+                <template #header>
+                    <h3 class="text-lg font-semibold text-gray-800 dark:text-gray-200">场景设置</h3>
+                </template>
+                <div v-if="hasSceneOrigin" class="py-1">
+                    <div class="text-sm font-medium text-gray-800 dark:text-gray-200">允许克隆场景</div>
+                    <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                        本场景由其他场景克隆而来，不可开启克隆权限
+                    </p>
+                </div>
+                <div v-else class="flex items-center justify-between gap-4 py-1">
+                    <div class="flex-1 min-w-0">
+                        <div class="text-sm font-medium text-gray-800 dark:text-gray-200">允许克隆场景</div>
+                        <div class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                            开启后，其他用户可将本场景克隆到自己的账号
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-2 shrink-0">
+                        <UToggle
+                            :model-value="(detail?.allow_copy ?? 1) === 1"
+                            :loading="allowCopyUpdating"
+                            :disabled="allowCopyUpdating"
+                            @update:model-value="updateSceneAllowCopy"
+                        />
+                        <span class="text-xs text-gray-500 dark:text-gray-400 w-8 text-center">
+                            {{ (detail?.allow_copy ?? 1) === 1 ? '开启' : '关闭' }}
+                        </span>
+                    </div>
+                </div>
+                <template #footer>
+                    <div class="flex justify-end">
+                        <UButton color="gray" @click="showSceneSettings = false">关闭</UButton>
+                    </div>
+                </template>
+            </UCard>
+        </UModal>
+
         <!-- 颜色选择器 -->
         <QhxColorPicker ref="colorPickerRef" @choose="setSolidColorBackground" />
 
@@ -4439,6 +4785,10 @@ html.dark .scene-page-neu .scene-neu-panel-toggle--collapsed:hover {
     border-color: color-mix(in srgb, #8b5cf6 35%, var(--scene-neu-border));
 }
 
+.scene-page-neu .scene-neu-action-btn--emerald:hover {
+    border-color: color-mix(in srgb, #10b981 35%, var(--scene-neu-border));
+}
+
 .scene-page-neu .scene-neu-action-icon {
     display: flex;
     height: 2rem;
@@ -4456,6 +4806,13 @@ html.dark .scene-page-neu .scene-neu-panel-toggle--collapsed:hover {
 
 .scene-page-neu .scene-neu-action-icon--pink {
     background: linear-gradient(145deg, rgba(236, 72, 153, 0.22), rgba(244, 114, 182, 0.12));
+    box-shadow:
+        2px 2px 6px rgba(0, 0, 0, 0.1),
+        inset 0 1px 0 rgba(255, 255, 255, 0.55);
+}
+
+.scene-page-neu .scene-neu-action-icon--emerald {
+    background: linear-gradient(145deg, rgba(16, 185, 129, 0.22), rgba(52, 211, 153, 0.12));
     box-shadow:
         2px 2px 6px rgba(0, 0, 0, 0.1),
         inset 0 1px 0 rgba(255, 255, 255, 0.55);

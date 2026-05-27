@@ -1,11 +1,37 @@
 import type * as THREE from 'three'
 
+/** 分组镜头（序列化用三元组，与拉线机位格式一致） */
+export interface SceneStepCameraJSON {
+	position: [number, number, number]
+	target: [number, number, number]
+	fov?: number
+}
+
 /** 场景分组：通过 userData.id 指定本组显示的对象（id 可重复） */
 export interface SceneStepJSON {
 	/** 本组可见的对象 userData.id 列表（允许重复） */
 	id: string[]
 	/** 分组介绍 */
 	intro?: string
+	/** 切换至本组时的镜头机位 */
+	camera?: SceneStepCameraJSON
+}
+
+export function isSceneStepCameraJSON(
+	value: unknown
+): value is SceneStepCameraJSON {
+	if (!value || typeof value !== 'object') return false
+	const cam = value as SceneStepCameraJSON
+	return (
+		Array.isArray(cam.position) &&
+		cam.position.length === 3 &&
+		cam.position.every(n => typeof n === 'number' && Number.isFinite(n)) &&
+		Array.isArray(cam.target) &&
+		cam.target.length === 3 &&
+		cam.target.every(n => typeof n === 'number' && Number.isFinite(n)) &&
+		(cam.fov === undefined ||
+			(typeof cam.fov === 'number' && Number.isFinite(cam.fov)))
+	)
 }
 
 /** 参与分组显隐的用户内容类型（模型/点云/图片等），不含灯光、控制器等 */
@@ -205,6 +231,19 @@ export function resolveStepGroupRoot(
 
 export function labelForStepGroupRoot(obj: THREE.Object3D): string {
 	return sceneObjectStepLabel(obj)
+}
+
+/** 按 userData.id 查找可纳入分组的场景根对象 */
+export function findSceneStepContentByObjectId(
+	roots: readonly THREE.Object3D[],
+	objectId: string
+): THREE.Object3D | null {
+	if (!objectId) return null
+	for (const child of roots) {
+		if (!isSceneStepContentRoot(child)) continue
+		if (child.userData?.id === objectId) return child
+	}
+	return null
 }
 
 export function sceneObjectTypeLabel(type: string): string {

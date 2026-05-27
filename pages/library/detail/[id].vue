@@ -723,6 +723,44 @@ const setLibraryScore = async (score: number) => {
     scoreSaving.value = false
   }
 }
+
+const { copyCurrentUrl } = useCopyCurrentUrl()
+
+const handleShareLink = async () => {
+  try {
+    const result = await copyCurrentUrl()
+    if (result?.success) {
+      toast.add({
+        title: '链接已复制',
+        description: '可将本页链接分享给他人',
+        icon: 'i-heroicons-check-circle',
+        color: 'green',
+      })
+    } else {
+      toast.add({
+        title: '复制失败',
+        description: result?.message || '请手动复制地址栏链接',
+        icon: 'i-heroicons-exclamation-circle',
+        color: 'orange',
+      })
+    }
+  } catch {
+    toast.add({
+      title: '复制失败',
+      icon: 'i-heroicons-x-circle',
+      color: 'red',
+    })
+  }
+}
+
+/** 图鉴缩略图：手机端三列等宽网格，桌面端保持原 flex + 固定尺寸 */
+const libraryThumbGridClass =
+  'library-thumb-grid flex flex-wrap my-2 max-md:grid max-md:grid-cols-3 max-md:gap-2'
+const libraryThumbImgClass =
+  'cursor-pointer ml-3 w-[100px] aspect-square object-cover object-center rounded-[10px] shadow-lg border border-gray-200 max-md:ml-0 max-md:w-full'
+const libraryVideoGridClass =
+  'library-thumb-grid flex flex-wrap pb-3 max-md:grid max-md:grid-cols-3 max-md:gap-2'
+const libraryVideoItemClass = 'w-[100px] mr-3 mb-2 max-md:w-full max-md:mr-0'
 </script>
 <template>
   <div class="container mx-auto p-4 max-md:p-2">
@@ -961,11 +999,11 @@ const setLibraryScore = async (score: number) => {
           <!-- 信息表 -->
           <div v-if="library.size_image" class="mb-4">
             <h3 class="text-sm m-1">信息表</h3>
-            <div class="flex flex-wrap my-2">
+            <div :class="libraryThumbGridClass">
               <QhxPreviewImage
                 :list="library.size_image.split(',').map((image) => { return { src: image + '?x-oss-process=image/quality,q_80/resize,w_300,h_300' } })"
                 :preview="library.size_image.split(',')"
-                :className="'cursor-pointer ml-3 w-[100px] h-[100px]  object-cover rounded-[10px] shadow-lg border border-gray-200'">
+                :className="libraryThumbImgClass">
               </QhxPreviewImage>
             </div>
           </div>
@@ -1070,17 +1108,28 @@ const setLibraryScore = async (score: number) => {
                 </div>
               </div>
             </div>
+            <div class="flex-1 text-center">
+              <button
+                type="button"
+                class="cursor-pointer inline-block"
+                title="复制链接"
+                aria-label="分享：复制当前页链接"
+                @click="handleShareLink"
+              >
+                <UIcon name="ic:round-share" class="text-[26px] text-gray-500" />
+              </button>
+            </div>
             <!-- <div class=" flex-1 text-center">
               <UIcon :name="'i-heroicons-heart-20-solid'" class=" text-[26px] text-[#409EFF] cursor-pointer" @click="captureScreen()"/>
             </div> -->
           </div>
         </div>
       </div>
-      <div class="flex flex-wrap my-2" v-if="library?.detail_image">
+      <div v-if="library?.detail_image" :class="libraryThumbGridClass">
         <QhxPreviewImage
           :list="library.detail_image.split(',').map((image) => { return { src: image + '?x-oss-process=image/quality,q_80/resize,w_300,h_300' } })"
           :preview="library.detail_image.split(',')"
-          :className="'cursor-pointer ml-3 w-[100px] h-[100px]  object-cover rounded-[10px] shadow-lg border border-gray-200'">
+          :className="libraryThumbImgClass">
         </QhxPreviewImage>
       </div>
       <div v-if="shop" class="p-3 px-6">
@@ -1128,14 +1177,14 @@ const setLibraryScore = async (score: number) => {
     <div v-if="library && library_video.length > 0" class="bg-qhx-bg-card rounded-lg shadow-lg mt-3">
       <div class="p-3 max-md:block">
         <h1 class="mb-3 text-lg font-semibold">人台图</h1>
-        <div class="flex flex-wrap pb-3 max-md:justify-center">
-          <div v-for="(item) in library_video" :key="item.video_id" class="w-[100px] mr-3 mb-2">
+        <div :class="libraryVideoGridClass">
+          <div v-for="(item) in library_video" :key="item.video_id" :class="libraryVideoItemClass">
             <div class="relative">
               <!-- 点云类型：点击打开点云弹窗 -->
               <div
                 v-if="item.pk_type === 2"
                 @click="handleVideoClick(item)"
-                class="cursor-pointer ml-3 w-[100px] h-[100px] relative object-cover rounded-[10px] shadow-lg border border-gray-200 overflow-hidden"
+                :class="`${libraryThumbImgClass} relative overflow-hidden`"
               >
                 <img
                   v-if="item.cover"
@@ -1149,7 +1198,7 @@ const setLibraryScore = async (score: number) => {
                 <div class="absolute left-[0px] top-[0px] px-1.5 py-0.5 flex justify-center items-center bg-qhx-primary text-[10px] text-qhx-inverted rounded-[4px] font-semibold">
                   3D
                 </div>
-                <div v-if="item.addr" class="absolute right-[-20px] top-[-10px] w-[20px] h-[20px] flex justify-center items-center bg-qhx-primary text-xs text-qhx-inverted rounded-[50%]">
+                <div v-if="item.addr" class="absolute right-[-20px] top-[-10px] max-md:right-1 max-md:top-1 w-[20px] h-[20px] flex justify-center items-center bg-qhx-primary text-xs text-qhx-inverted rounded-[50%]">
                   {{ item.addr.split(',').length }}
                 </div>
               </div>
@@ -1158,11 +1207,11 @@ const setLibraryScore = async (score: number) => {
                 v-else
                 :list="[{ src: (item.cover || item.addr?.split(',')[0] || '') + '?x-oss-process=image/quality,q_80/resize,w_300,h_300', alt: item.title || library.name }]"
                 :preview="item.cover ? [item.cover] : (item.addr ? item.addr.split(',').map((image) => ({ src: image, title: item.title })) : [])"
-                :className="'cursor-pointer ml-3 w-[100px] h-[100px] relative  object-cover rounded-[10px] shadow-lg border border-gray-200'">
-                <div v-if="item.addr" class=" absolute right-[-20px] top-[-10px] w-[20px] h-[20px] flex justify-center items-center bg-qhx-primary text-xs text-qhx-inverted rounded-[50%]">{{ item.addr.split(',').length }}</div>
+                :className="`${libraryThumbImgClass} relative`">
+                <div v-if="item.addr" class="absolute right-[-20px] top-[-10px] max-md:right-1 max-md:top-1 w-[20px] h-[20px] flex justify-center items-center bg-qhx-primary text-xs text-qhx-inverted rounded-[50%]">{{ item.addr.split(',').length }}</div>
               </QhxPreviewImage>
             </div>
-            <div v-if="item.title" class="ml-3 mt-2 text-xs text-gray-600 dark:text-gray-400 truncate" :title="item.title">{{ item.title }}</div>
+            <div v-if="item.title" class="ml-3 max-md:ml-0 mt-2 text-xs text-gray-600 dark:text-gray-400 truncate" :title="item.title">{{ item.title }}</div>
           </div>
         </div>
       </div>
@@ -1357,6 +1406,21 @@ const setLibraryScore = async (score: number) => {
 /* 滚动条滑块悬停状态 */
 .library-list-wrap::-webkit-scrollbar-thumb:hover {
   background: #ccc;
+}
+
+/* 缩略图 1:1，避免手机端网格内因原图尺寸导致高度不齐 */
+.library-thumb-grid :deep(img) {
+  aspect-ratio: 1 / 1;
+  object-fit: cover;
+  object-position: center;
+}
+
+@media (max-width: 767px) {
+  .library-thumb-grid :deep(img) {
+    display: block;
+    width: 100%;
+    height: auto;
+  }
 }
 
 </style>
