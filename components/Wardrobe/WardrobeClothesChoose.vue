@@ -5,7 +5,7 @@
       <!-- 头部 -->
       <div class="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-700 bg-gradient-to-r from-pink-50 to-purple-50 dark:from-gray-800 dark:to-gray-800 flex-shrink-0">
         <div class="text-lg font-semibold text-gray-800 dark:text-gray-100">
-          选择衣柜服饰
+          {{ multiple ? '选择衣柜服饰（可多选）' : '选择衣柜服饰' }}
         </div>
         <button
           @click="closeModel"
@@ -43,8 +43,8 @@
             </UInput>
           </div>
 
-          <!-- 确认选择 -->
-          <div v-if="choose_item" class="flex justify-between items-center p-3 bg-pink-50 dark:bg-pink-900/20 rounded-xl border-2 border-qhx-primary">
+          <!-- 确认选择（单选） -->
+          <div v-if="!multiple && choose_item" class="flex justify-between items-center p-3 bg-pink-50 dark:bg-pink-900/20 rounded-xl border-2 border-qhx-primary">
             <div class="flex items-center gap-2 flex-1 min-w-0">
               <div class="w-10 h-10 rounded-lg overflow-hidden flex-shrink-0">
                 <img
@@ -63,6 +63,22 @@
               确认选择
             </UButton>
           </div>
+          <!-- 确认选择（多选） -->
+          <div
+            v-else-if="multiple && choose_items.length"
+            class="flex justify-between items-center gap-3 p-3 bg-pink-50 dark:bg-pink-900/20 rounded-xl border-2 border-qhx-primary"
+          >
+            <span class="text-sm font-medium text-gray-800 dark:text-gray-200">
+              已选 {{ choose_items.length }} 件
+              <span v-if="maxCount > 0" class="text-gray-500 dark:text-gray-400">/ 最多 {{ maxCount }} 件</span>
+            </span>
+            <UButton
+              class="bg-qhx-primary text-white flex-shrink-0"
+              @click="confirmChoose"
+            >
+              确认关联
+            </UButton>
+          </div>
         </div>
 
         <!-- 列表区域 -->
@@ -72,9 +88,22 @@
             :key="item.clothes_id"
             @click="chooseClothes(item)"
             class="bg-white dark:bg-gray-700/50 rounded-xl p-2 cursor-pointer transition-all duration-200 hover:shadow-lg hover:scale-[1.01] min-w-0 overflow-hidden border-2 border-transparent"
-            :class="{ 'ring-2 ring-qhx-primary border-qhx-primary': choose_item?.clothes_id === item.clothes_id }"
+            :class="{ 'ring-2 ring-qhx-primary border-qhx-primary': isItemSelected(item) }"
           >
-            <div class="flex gap-3">
+            <div class="flex gap-3 items-center">
+              <div
+                v-if="multiple"
+                class="w-5 h-5 rounded border-2 flex-shrink-0 flex items-center justify-center transition-colors"
+                :class="isItemSelected(item)
+                  ? 'border-qhx-primary bg-qhx-primary'
+                  : 'border-gray-300 dark:border-gray-500'"
+              >
+                <UIcon
+                  v-if="isItemSelected(item)"
+                  name="i-heroicons-check"
+                  class="w-3.5 h-3.5 text-white"
+                />
+              </div>
               <div class="w-16 h-16 rounded-lg overflow-hidden flex-shrink-0">
                 <img
                   :src="`${BASE_IMG}${item.clothes_img || ''}${getImageParams()}`"
@@ -122,8 +151,19 @@ import type { WardrobeClothes } from '@/types/api'
 import { BASE_IMG } from '@/utils/ipConfig'
 import { useConfigStore } from '@/stores/config'
 
+const props = withDefaults(defineProps<{
+  /** 是否允许多选；为 true 时通过 choose-multiple 事件回传 */
+  multiple?: boolean
+  /** 多选模式下最多可选数量，0 表示不限制 */
+  maxCount?: number
+}>(), {
+  multiple: false,
+  maxCount: 0
+})
+
 const emit = defineEmits<{
   choose: [item: WardrobeClothes]
+  'choose-multiple': [items: WardrobeClothes[]]
 }>()
 
 const configStore = useConfigStore()
@@ -135,7 +175,15 @@ const loading = ref(false)
 const total = ref(0)
 const listData = ref<WardrobeClothes[]>([])
 const choose_item = ref<WardrobeClothes | null>(null)
+const choose_items = ref<WardrobeClothes[]>([])
 const clickPosition = ref({ x: 0, y: 0 })
+
+function isItemSelected(item: WardrobeClothes): boolean {
+  if (props.multiple) {
+    return choose_items.value.some((i) => i.clothes_id === item.clothes_id)
+  }
+  return choose_item.value?.clothes_id === item.clothes_id
+}
 
 const getImageParams = () => configStore.config?.image_params || ''
 
@@ -173,10 +221,28 @@ const search = () => {
 }
 
 const chooseClothes = (item: WardrobeClothes) => {
+  if (props.multiple) {
+    const idx = choose_items.value.findIndex((i) => i.clothes_id === item.clothes_id)
+    if (idx >= 0) {
+      choose_items.value.splice(idx, 1)
+      return
+    }
+    if (props.maxCount > 0 && choose_items.value.length >= props.maxCount) {
+      return
+    }
+    choose_items.value.push(item)
+    return
+  }
   choose_item.value = item
 }
 
 const confirmChoose = () => {
+  if (props.multiple) {
+    if (!choose_items.value.length) return
+    emit('choose-multiple', [...choose_items.value])
+    closeModel()
+    return
+  }
   if (!choose_item.value) return
   emit('choose', choose_item.value)
   closeModel()
@@ -209,6 +275,7 @@ const getClothesList = async () => {
 const init = () => {
   keywords.value = ''
   choose_item.value = null
+  choose_items.value = []
   page.value = 1
   listData.value = []
 }
