@@ -378,7 +378,7 @@ useHead({
 </script>
 <template>
   <div
-    class="community-detail-page relative mx-auto px-4 pb-4 max-md:px-0 max-md:pb-2 text-qhx-text"
+    class="community-detail-page bg-qhx-bg-card relative mx-auto px-4 pb-4 max-md:px-0 max-md:pb-2 text-qhx-text"
     :class="detail ? 'pb-[calc(5.5rem+env(safe-area-inset-bottom,0px))]' : ''"
     :style="pageStyle"
   >
@@ -485,7 +485,7 @@ useHead({
               :autoplay="0"
               :arrows="false"
               indicators
-              root-class="!shadow-none rounded-lg bg-transparent h-full max-h-full [&_.qhx-carousel-track]:h-full [&_.qhx-carousel-slide]:h-full"
+              root-class="!shadow-none rounded-[18px] h-full max-h-full [&_.qhx-carousel-track]:h-full [&_.qhx-carousel-slide]:h-full"
             >
               <template #item="{ item }">
                 <img

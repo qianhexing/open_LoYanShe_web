@@ -31,6 +31,7 @@
 import { ref, onMounted, computed } from 'vue'
 import { useUserStore } from '@/stores/user'
 import { getUserMy } from '@/api/user'
+import { getWardrobeList, insertWardrobe } from '@/api/wardrobe'
 import { useConfigStore } from '@/stores/config'
 
 const userStore = useUserStore()
@@ -44,6 +45,19 @@ const showLoginModal = ref(false)
 
 let uni: any
 const port = computed(() => configStore.getPort())
+
+/** 无衣柜时创建默认衣柜（与 ClothesAdd 一致） */
+const ensureAtLeastOneWardrobe = async (userId: number) => {
+  const res = await getWardrobeList({
+    user_id: userId,
+    page: 1,
+    pageSize: 99
+  })
+  const rows = res.rows ?? []
+  if (rows.length === 0) {
+    await insertWardrobe({ wardrobe_name: '默认衣柜' })
+  }
+}
 
 // 跳转到衣柜详情页
 const jumpToWardrobe = (userId: number) => {
@@ -98,7 +112,7 @@ const checkLoginAndJump = async () => {
     try {
       const userInfo = await getUserMy()
       if (userInfo?.user_id) {
-        // 已登录，跳转到自己的衣柜
+        await ensureAtLeastOneWardrobe(userInfo.user_id)
         jumpToWardrobe(userInfo.user_id)
         return
       }
@@ -122,6 +136,7 @@ const handleLoginSuccess = async () => {
     // 重新获取用户信息
     const userInfo = await getUserMy()
     if (userInfo?.user_id) {
+      await ensureAtLeastOneWardrobe(userInfo.user_id)
       jumpToWardrobe(userInfo.user_id)
     }
   } catch (error) {

@@ -425,14 +425,39 @@ const canTexture = computed(() => {
 const MaterialRef = ref<InstanceType<typeof SceneMaterial> | null>(null)
 const SceneTextureEditorRef = ref<InstanceType<typeof SceneTextureEditor> | null>(null)
 
+/** 页面 DOM 背景（响应式；threeCore 为 shallowRef，直接改其 background 不会触发视图更新） */
+const scenePageBackground = ref<string | null>(null)
+
+function syncScenePageBackgroundFromCore() {
+    scenePageBackground.value = threeCore.value?.background ?? null
+}
+
 /** 贴图编辑器默认底图：与根容器背景一致，纯色 color: 不设底图；兼容已是绝对 URL */
 const textureEditorDefaultImageUrl = computed(() => {
-    const bg = threeCore.value?.background
+    const bg = scenePageBackground.value
     if (!bg || typeof bg !== 'string') return ''
     const trimmed = bg.trim()
     if (!trimmed || trimmed.startsWith('color:')) return ''
     if (/^https?:\/\//i.test(trimmed)) return trimmed
     return `${BASE_IMG}${trimmed.replace(/^\//, '')}`
+})
+
+/** 场景页背景：图片/纯色均走 DOM，WebGL 保持透明（避免 scene.background 盖住背面透明图） */
+const scenePageBackgroundStyle = computed(() => {
+    const bg = scenePageBackground.value
+    if (!bg || typeof bg !== 'string') {
+        return { backgroundSize: 'cover' as const }
+    }
+    if (bg.startsWith('color:')) {
+        return {
+            background: bg.slice('color:'.length),
+            backgroundSize: 'cover' as const
+        }
+    }
+    return {
+        background: `url(${BASE_IMG}${bg})`,
+        backgroundSize: 'cover' as const
+    }
 })
 
 const route = useRoute()
@@ -1534,6 +1559,13 @@ const updateSceneAllowCopy = async (val: boolean) => {
 const cloneSceneLoading = ref(false)
 const showCloneSceneConfirm = ref(false)
 
+/** allow_copy：0 不允许，1 允许（接口可能返回字符串） */
+function isSceneAllowCopyEnabled(allowCopy?: number | string | null) {
+    return Number(allowCopy) === 1
+}
+
+const sceneAllowCopyEnabled = computed(() => isSceneAllowCopyEnabled(detail.value?.allow_copy))
+
 const isSceneOwner = computed(
     () => detail.value != null && userStore.user?.user_id === detail.value.user_id
 )
@@ -1541,7 +1573,7 @@ const isSceneOwner = computed(
 const canCloneScene = computed(() => {
     if (!detail.value || id === '0') return false
     if (hasSceneOrigin.value) return false
-    if ((detail.value.allow_copy ?? 1) !== 1) return false
+    if (!sceneAllowCopyEnabled.value) return false
     const json = detail.value.json_data
     return json != null && Array.isArray(json.objects)
 })
@@ -1566,6 +1598,7 @@ function openCloneSceneConfirm() {
     }
     const sourceId = Number.parseInt(id, 10)
     if (!Number.isFinite(sourceId) || sourceId <= 0 || !detail.value?.json_data) return
+    if (!canCloneScene.value) return
     if (cloneSceneLoading.value || loading.value) return
     showCloneSceneConfirm.value = true
 }
@@ -1582,6 +1615,7 @@ const cloneScene = async (): Promise<boolean> => {
     }
     const sourceId = Number.parseInt(id, 10)
     if (!Number.isFinite(sourceId) || sourceId <= 0 || !detail.value?.json_data) return false
+    if (!canCloneScene.value) return false
     if (cloneSceneLoading.value || loading.value) return false
 
     cloneSceneLoading.value = true
@@ -1833,14 +1867,13 @@ const selectSolidColorBackground = () => {
     }
 }
 
-// 设置纯色背景
+// 设置纯色背景（仅 DOM + background 字段，不写入 scene.background，与图片背景一致）
 const setSolidColorBackground = (color: string) => {
     if (!threeCore.value) return
-    // 将颜色字符串转换为 THREE.Color
-    const threeColor = new THREE.Color(color)
-    threeCore.value.scene.background = threeColor
-    // 保存颜色值到 background（使用特殊格式 color:#ffffff 以便区分图片背景）
-    threeCore.value.background = `color:${color}`
+    threeCore.value.scene.background = null
+    const value = `color:${color}`
+    threeCore.value.background = value
+    scenePageBackground.value = value
 }
 
 // 灯光预设配置
@@ -2574,8 +2607,11 @@ const captureSceneImage = async (sence_id: number): Promise<string | null> => {
             canvas.style.colorSpace = 'srgb'
         }
 
-        // 填充白色背景
-        ctx.fillStyle = '#ffffff'
+        const bg = threeCore.value.background
+        ctx.fillStyle =
+            typeof bg === 'string' && bg.startsWith('color:')
+                ? bg.slice('color:'.length)
+                : '#ffffff'
         ctx.fillRect(0, 0, width, height)
 
         // 使用高质量缩放
@@ -2743,6 +2779,7 @@ const onUpdateFiles = async (resault) => {
 const addBackgroun = async (resault) => {
     if (!threeCore.value) return
     threeCore.value.background = resault.file_url
+    scenePageBackground.value = resault.file_url
     // 清除纯色背景
     threeCore.value.scene.background = null
 }
@@ -2867,6 +2904,14 @@ const initThreejs = async () => {
             },
             onSceneStepGroupingPick: (obj) => handleGroupingScenePick(obj)
         })
+        // 兼容旧数据：纯色曾写在 scene.background，迁到 DOM（background: color:#…）
+        if (threeCore.value?.scene.background instanceof THREE.Color) {
+            const hex = `#${threeCore.value.scene.background.getHexString()}`
+            threeCore.value.background = `color:${hex}`
+            threeCore.value.scene.background = null
+        }
+        syncScenePageBackgroundFromCore()
+
         rehydrateSceneCharacterControllers()
         bumpTextureReplaceableScan()
         syncSceneStepUi()
@@ -3016,8 +3061,7 @@ useHead({
 })
 </script>
 <template>
-    <div class="select-none touch-callout-none scene-page-neu"
-        :style="{ background: threeCore && threeCore.background && !threeCore.background.startsWith('color:') ? `url(${BASE_IMG}${threeCore.background})` : '', backgroundSize: 'cover' }">
+    <div class="select-none touch-callout-none scene-page-neu" :style="scenePageBackgroundStyle">
         <div
             v-if="showSceneCloneAction || showSceneOwnerActions"
             class="fixed right-3 z-50 flex items-center gap-1.5"
@@ -3435,52 +3479,74 @@ useHead({
         <div
             v-if="edit_mode || add_mode"
             id="scene-guide-step-panel"
-            class="fixed left-0 z-[20] flex flex-col rounded-r-xl scene-neu-panel backdrop-blur-md overflow-hidden transition-all duration-300 ease-out"
-            :class="sceneStepListExpanded
-                ? 'top-1/2 -translate-y-1/2 h-[62vh] w-[100px] min-[756px]:w-[240px] md:w-[280px] lg:w-[320px] z-[30]'
-                : 'top-[calc(50%+138px)] -translate-y-1/2 h-[40px] w-[36px] sm:w-[38px] scene-neu-panel--collapsed'"
+            class="fixed left-0 z-[20] flex flex-col rounded-r-xl scene-neu-panel backdrop-blur-md overflow-hidden transition-all duration-300 ease-out top-[calc(50%+138px)] -translate-y-1/2 h-[40px] w-[36px] sm:w-[38px] scene-neu-panel--collapsed"
             :data-grouping-active="sceneStepGroupingMode ? '1' : undefined"
         >
             <button
                 type="button"
-                class="scene-neu-panel-toggle scene-neu-panel-toggle--emerald shrink-0 text-emerald-600 dark:text-emerald-400"
-                :class="sceneStepListExpanded
-                    ? 'flex flex-row items-center justify-center gap-1.5 scene-neu-panel-toggle--expanded py-2 px-2'
-                    : 'scene-neu-panel-toggle--collapsed'"
-                :title="sceneStepListExpanded ? '收起列表' : '展开列表'"
+                class="scene-neu-panel-toggle scene-neu-panel-toggle--emerald scene-neu-panel-toggle--collapsed shrink-0 text-emerald-600 dark:text-emerald-400"
+                :class="sceneStepListExpanded ? 'ring-2 ring-emerald-400/50 dark:ring-emerald-500/40' : ''"
+                :title="sceneStepListExpanded ? '收起分组' : '展开分组'"
                 @click="showSceneStepList()"
             >
                 <span class="relative inline-flex shrink-0">
                     <UIcon
-                        :name="sceneStepListExpanded ? 'material-symbols:chevron-right' : 'material-symbols:view-carousel-rounded'"
-                        :class="sceneStepListExpanded ? 'text-xl sm:text-2xl' : 'text-base'"
-                        class="transition-transform"
+                        name="material-symbols:view-carousel-rounded"
+                        class="text-base transition-transform"
                     />
                     <span
                         v-if="threeCore && threeCore.sceneSteps.length > 0"
-                        class="scene-neu-collapsed-badge absolute -right-1 -top-1 flex items-center justify-center rounded-full bg-emerald-500 font-bold leading-none text-white shadow-sm ring-1 ring-white/80 dark:ring-gray-800/90"
-                        :class="sceneStepListExpanded ? 'h-[18px] min-w-[18px] px-0.5 text-[10px]' : 'h-[14px] min-w-[14px] px-0.5 text-[9px]'"
+                        class="scene-neu-collapsed-badge absolute -right-1 -top-1 flex h-[14px] min-w-[14px] items-center justify-center rounded-full bg-emerald-500 px-0.5 text-[9px] font-bold leading-none text-white shadow-sm ring-1 ring-white/80 dark:ring-gray-800/90"
                     >
                         {{ threeCore.sceneSteps.length > 99 ? '99+' : threeCore.sceneSteps.length }}
                     </span>
                 </span>
                 <span class="scene-neu-collapsed-label text-center font-medium leading-tight">分组</span>
             </button>
-            <div
-                v-if="sceneStepListExpanded"
-                class="min-h-0 h-0 flex-1 overflow-y-auto overscroll-contain p-2"
-            >
-                <SceneStepEditor
-                    ref="sceneStepEditorRef"
-                    v-if="threeCore"
-                    :core="threeCore"
-                    v-model:active-index="currentSceneStepIndex"
-                    v-model:hidden-step-index="hiddenGroupingStepIndex"
-                    :object-revision="sceneObjectRevision"
-                    @change="onSceneStepEditorChange"
-                />
-            </div>
         </div>
+        <Transition :name="`drawer-${isMobile ? 'bottom' : 'left'}`">
+            <QhxBottomDrawer
+                v-if="sceneStepListExpanded"
+                :direction="isMobile ? 'bottom' : 'left'"
+                :default-size="isMobile ? 420 : 320"
+                :content-padding="false"
+            >
+                <div class="flex h-full min-h-0 flex-col">
+                    <div class="flex shrink-0 items-center justify-between gap-3 border-b border-gray-200/90 px-4 py-3 dark:border-gray-700/80">
+                        <div class="flex min-w-0 items-center gap-3">
+                            <div
+                                class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-emerald-500/[0.11] ring-1 ring-inset ring-emerald-500/15 dark:bg-emerald-400/10 dark:ring-emerald-400/20"
+                            >
+                                <UIcon name="material-symbols:view-carousel-rounded" class="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
+                            </div>
+                            <div class="min-w-0">
+                                <h3 class="text-base font-semibold text-gray-900 dark:text-gray-100">场景分组</h3>
+                                <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">点击场景物体加入当前分组</p>
+                            </div>
+                        </div>
+                        <button
+                            type="button"
+                            class="group flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-gray-100 dark:hover:bg-gray-700"
+                            aria-label="关闭分组"
+                            @click="closeSceneStepGroupingIfOpen()"
+                        >
+                            <UIcon name="i-heroicons-x-mark" class="text-gray-500 transition-colors group-hover:text-gray-700 dark:text-gray-400 dark:group-hover:text-gray-200" />
+                        </button>
+                    </div>
+                    <div class="min-h-0 flex-1 overflow-y-auto overscroll-contain p-2">
+                        <SceneStepEditor
+                            ref="sceneStepEditorRef"
+                            v-if="threeCore"
+                            :core="threeCore"
+                            v-model:active-index="currentSceneStepIndex"
+                            v-model:hidden-step-index="hiddenGroupingStepIndex"
+                            :object-revision="sceneObjectRevision"
+                            @change="onSceneStepEditorChange"
+                        />
+                    </div>
+                </div>
+            </QhxBottomDrawer>
+        </Transition>
 
         <!-- 五个独立的悬浮列表，展开后居中、固定高度，互不联动，同时只展开一个 -->
         <!-- 素材 -->
@@ -3858,7 +3924,7 @@ useHead({
             :close-on-backdrop="!cloneSceneLoading"
         >
             <div
-                class="w-[min(92vw,360px)] rounded-[12px] bg-white p-4 shadow-lg dark:bg-gray-800"
+                class="w-[min(calc(100vw-2rem),360px)] rounded-[12px] bg-white p-4 shadow-lg dark:bg-gray-800"
             >
                 <h3 class="text-base font-semibold text-gray-900 dark:text-gray-100">
                     确认克隆场景
@@ -3866,20 +3932,18 @@ useHead({
                 <p class="mt-2 text-sm leading-relaxed text-gray-600 dark:text-gray-400">
                     将把当前场景完整复制到你的账号下，并进入编辑模式。是否继续？
                 </p>
-                <div class="mt-4 flex gap-2">
+                <div class="mt-4 flex flex-col gap-2 sm:flex-row">
                     <UButton
                         variant="outline"
                         color="gray"
-                        block
-                        class="justify-center"
+                        class="w-full min-w-0 justify-center sm:flex-1"
                         :disabled="cloneSceneLoading"
                         @click="showCloneSceneConfirm = false"
                     >
                         取消
                     </UButton>
                     <UButton
-                        block
-                        class="bg-qhx-primary text-qhx-inverted hover:bg-qhx-primaryHover justify-center"
+                        class="w-full min-w-0 justify-center bg-qhx-primary text-qhx-inverted hover:bg-qhx-primaryHover sm:flex-1"
                         :loading="cloneSceneLoading"
                         :disabled="cloneSceneLoading"
                         @click="confirmCloneScene"
@@ -4559,13 +4623,13 @@ useHead({
                     </div>
                     <div class="flex items-center gap-2 shrink-0">
                         <UToggle
-                            :model-value="(detail?.allow_copy ?? 1) === 1"
+                            :model-value="sceneAllowCopyEnabled"
                             :loading="allowCopyUpdating"
                             :disabled="allowCopyUpdating"
                             @update:model-value="updateSceneAllowCopy"
                         />
                         <span class="text-xs text-gray-500 dark:text-gray-400 w-8 text-center">
-                            {{ (detail?.allow_copy ?? 1) === 1 ? '开启' : '关闭' }}
+                            {{ sceneAllowCopyEnabled ? '开启' : '关闭' }}
                         </span>
                     </div>
                 </div>

@@ -5283,13 +5283,16 @@ class ThreeCore {
 		if (this.cameraList && this.cameraList.length > 0) {
 			resault.cameraList = this.cameraList
 		}
-		// 保存背景：如果是纯色背景（scene.background 是 THREE.Color），保存颜色值
-		if (this.scene.background instanceof THREE.Color) {
-			// 将 THREE.Color 转换为十六进制字符串
+		// 保存背景：纯色用 color:#hex（DOM 渲染）；兼容旧版 scene.background 为 Color 的场景
+		if (
+			typeof this.background === 'string' &&
+			this.background.startsWith('color:')
+		) {
+			resault.background = this.background
+		} else if (this.scene.background instanceof THREE.Color) {
 			const colorHex = '#' + this.scene.background.getHexString()
 			resault.background = `color:${colorHex}`
 		} else if (this.background) {
-			// 图片背景直接保存 URL
 			resault.background = this.background
 		}
 		// 保存controls配置（跳过 Infinity 值，因为 JSON 不支持）
@@ -6048,17 +6051,12 @@ class ThreeCore {
 				this.cameraList = json.cameraList
 			}
 			if (json.background) {
-				// 检查是否是纯色背景（格式：color:#ffffff）
+				// 纯色与图片背景均走 DOM；WebGL 不设置 scene.background
 				if (json.background.startsWith('color:')) {
-					const colorValue = json.background.replace('color:', '')
-					const threeColor = new THREE.Color(colorValue)
-					this.scene.background = threeColor
-					// 清除图片背景
-					this.background = null
-				} else {
-					// 图片背景
 					this.background = json.background
-					// 清除纯色背景
+					this.scene.background = null
+				} else {
+					this.background = json.background
 					this.scene.background = null
 				}
 			}

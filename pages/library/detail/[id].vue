@@ -763,7 +763,15 @@ const libraryVideoGridClass =
 const libraryVideoItemClass = 'w-[100px] mr-3 mb-2 max-md:w-full max-md:mr-0'
 </script>
 <template>
-  <div class="container mx-auto p-4 max-md:p-2">
+  <div>
+    <!-- 状态栏高度占位（WebView 通过 query statusbar 注入，见 layouts/default） -->
+    <div
+      v-if="config.statusBarHeight > 0"
+      class="shrink-0"
+      aria-hidden="true"
+      :style="{ height: `${config.statusBarHeight}px` }"
+    />
+    <div class="container mx-auto p-4 max-md:p-2">
     <div v-if="library" ref="libraryRef" class="bg-qhx-bg-card rounded-lg shadow-lg" :key="library.library_id">
       <div class="p-3 flex max-md:block max-md:px-1">
         <div class="flex my-2 w-[434px] max-md:w-full relative">
@@ -1382,6 +1390,7 @@ const libraryVideoItemClass = 'w-[100px] mr-3 mb-2 max-md:w-full max-md:mr-0'
         <span class="text-sm font-semibold">{{ isPhysicsDropVisible ? '关闭掉落' : '开启掉落' }}</span>
       </button>
     </div> -->
+    </div>
   </div>
 </template>
 

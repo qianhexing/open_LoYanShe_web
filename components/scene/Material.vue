@@ -150,7 +150,7 @@ const onCustomFileChange = async (e: Event) => {
         cover: uploaded.file_url,
         pk_type: 5,
         pk_id: uploaded.file_id,
-        is_enable: 1,
+        is_enable: 0,
         is_private: 0,
         options: { assetKind: 'image' }
       })
@@ -182,6 +182,7 @@ const onCustomFileChange = async (e: Event) => {
         cover: coverUrl,
         pk_type: 5,
         pk_id: uploaded.file_id,
+        is_enable: 0,
         is_private: 0,
         options: { assetKind: 'model', useDracoLoader: true }
       })

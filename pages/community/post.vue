@@ -1,6 +1,13 @@
 <template>
   <div
     class="community-post-page min-h-[100dvh] bg-gradient-to-b from-slate-50 via-white to-slate-100/90 dark:from-gray-950 dark:via-gray-900 dark:to-gray-950 text-gray-900 dark:text-gray-100">
+    <!-- 状态栏高度占位（WebView 通过 query statusbar 注入，见 layouts/default） -->
+    <div
+      v-if="config.statusBarHeight > 0"
+      class="shrink-0"
+      aria-hidden="true"
+      :style="{ height: `${config.statusBarHeight}px` }"
+    />
 
     <main class="mx-auto max-w-3xl px-4 pb-safe pt-6 md:pb-12 md:pt-8" role="main">
       <!-- 上下文：从外链带来的关联物体 -->
@@ -66,6 +73,7 @@ onMounted(async () => {
 })
 const route = useRoute()
 const router = useRouter()
+const config = useConfigStore()
 
 useHead({
   title: '发帖分享',
