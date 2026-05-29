@@ -12,6 +12,7 @@ import type { optionsInterface } from '@/components/Qhx/Select.vue'
 import { useMatchingDraftStore } from '@/stores/matchingDraft'
 import { useFlyToButton } from '~/composables/useFlyToButton'
 import { BASE_IMG } from '@/utils/ipConfig'
+import { createReusableTemplate, useEventListener, useResizeObserver, useDebounceFn } from '@vueuse/core'
 
 const wardrobeStore = useWardrobeStore()
 const user = useUserStore()
@@ -416,6 +417,123 @@ const preferLiteEffects = computed(() => {
     ((navigator as Navigator & { deviceMemory?: number }).deviceMemory ?? 8) <= 4
   return coarse || lowCores || lowMem
 })
+
+/* ============================================================
+ * 主服饰网格：浏览态行级虚拟滚动
+ * - 浏览态（非排序、非时间轴）只渲染可视行附近的卡片，DOM 节点数从「全量」降到「视口行数」，
+ *   大幅降低样式重算 / 合成 / 内存压力（iPhone 等弱机长列表卡顿主因之一）。
+ * - 排序态保留 vuedraggable 全量渲染（拖拽排序需要完整 DOM），二者通过 createReusableTemplate
+ *   复用同一套卡片模板，避免重复且保留 <style scoped> 样式。
+ * - 复用现有滚动容器（头部信息与列表同滚动），不引入额外滚动区。
+ * ============================================================ */
+/** 可复用卡片模板：排序态(Draggable) 与 浏览态(虚拟网格) 共用同一段卡片 DOM */
+const [DefineClothesCard, ReuseClothesCard] = createReusableTemplate<{ element: WardrobeClothes }>()
+
+/** 主滚动容器（.content-area-height） */
+const scrollRootRef = ref<HTMLElement | null>(null)
+/** 虚拟网格占位容器（撑满总高，保证滚动条正确） */
+const virtualSpacerRef = ref<HTMLElement | null>(null)
+/** 可视卡片所在的内层 wrapper（用于测量单行高度） */
+const virtualWrapperRef = ref<HTMLElement | null>(null)
+/** 实测单行（单卡）高度，初始给经验值，挂载后实测校正 */
+const virtualRowHeight = ref(300)
+/** 滚动容器 scrollTop（rAF 节流写入） */
+const virtualScrollTop = ref(0)
+/** 滚动容器可视高度 */
+const virtualViewportH = ref(0)
+/** 当前每行列数（与模板断点保持一致） */
+const virtualColumns = ref(3)
+/** 网格区块相对滚动内容顶部的偏移（头部高度变化时更新） */
+const virtualListOffsetTop = ref(0)
+/** 上下额外多渲染的行数，滚动时预填充避免白屏 */
+const VIRTUAL_OVERSCAN_ROWS = 4
+
+/** 列数与模板断点一致：<768→3，768–1279→4，1280–1919→6，≥1920→10 */
+function computeVirtualColumns(): number {
+  if (typeof window === 'undefined') return 3
+  const w = window.innerWidth
+  if (w >= 1920) return 10
+  if (w >= 1280) return 6
+  if (w >= 768) return 4
+  return 3
+}
+
+/** 仅浏览态启用虚拟滚动 */
+const virtualEnabled = computed(() => !sortMode.value && !timelineMode.value)
+
+const virtualRowCount = computed(() => Math.ceil(list.value.length / virtualColumns.value))
+const virtualTotalHeight = computed(() => virtualRowCount.value * virtualRowHeight.value)
+
+/** 当前应渲染的卡片区间与纵向偏移 */
+const virtualRange = computed(() => {
+  const cols = virtualColumns.value
+  const rowH = virtualRowHeight.value || 1
+  const totalRows = virtualRowCount.value
+  const relTop = Math.max(0, virtualScrollTop.value - virtualListOffsetTop.value)
+  const startRow = Math.max(0, Math.floor(relTop / rowH) - VIRTUAL_OVERSCAN_ROWS)
+  const visibleRows = Math.ceil((virtualViewportH.value || 0) / rowH) + VIRTUAL_OVERSCAN_ROWS * 2
+  const endRow = Math.min(totalRows, startRow + visibleRows)
+  return {
+    startIndex: startRow * cols,
+    endIndex: endRow * cols,
+    offsetY: startRow * rowH,
+  }
+})
+
+const virtualVisibleItems = computed(() =>
+  virtualEnabled.value ? list.value.slice(virtualRange.value.startIndex, virtualRange.value.endIndex) : [],
+)
+const virtualOffsetY = computed(() => virtualRange.value.offsetY)
+
+/** 测量滚动容器可视高度 */
+function measureVirtualViewport() {
+  const root = scrollRootRef.value
+  if (root) virtualViewportH.value = root.clientHeight
+}
+
+/** 测量网格区块在滚动内容中的偏移（受头部折叠/内容高度影响） */
+function measureVirtualOffset() {
+  const root = scrollRootRef.value
+  const spacer = virtualSpacerRef.value
+  if (!root || !spacer) return
+  const rootRect = root.getBoundingClientRect()
+  const spacerRect = spacer.getBoundingClientRect()
+  virtualListOffsetTop.value = spacerRect.top - rootRect.top + root.scrollTop
+}
+
+/** 测量单行（单卡）高度。卡片高度已通过 CSS 统一，取首个可视卡即可代表整行 */
+function measureVirtualRowHeight() {
+  const wrapper = virtualWrapperRef.value
+  const first = wrapper?.firstElementChild as HTMLElement | null
+  if (!first) return
+  const h = first.getBoundingClientRect().height
+  if (h > 0 && Math.abs(h - virtualRowHeight.value) > 0.5) {
+    virtualRowHeight.value = h
+  }
+}
+
+/** 滚动监听（rAF 节流），更新 scrollTop 与偏移 */
+let virtualRafId: number | null = null
+function onVirtualScroll() {
+  const root = scrollRootRef.value
+  if (!root || virtualRafId != null) return
+  virtualRafId = requestAnimationFrame(() => {
+    virtualRafId = null
+    virtualScrollTop.value = root.scrollTop
+    measureVirtualOffset()
+  })
+}
+
+/** 重新测量（列数 / 视口 / 行高 / 偏移）；窗口尺寸变化时调用 */
+function remeasureVirtual() {
+  virtualColumns.value = computeVirtualColumns()
+  measureVirtualViewport()
+  nextTick(() => {
+    measureVirtualRowHeight()
+    measureVirtualOffset()
+  })
+}
+const remeasureVirtualDebounced = useDebounceFn(remeasureVirtual, 150)
 
 const matchingDraftIdSet = computed(
   () =>
@@ -1520,6 +1638,19 @@ onUnmounted(() => {
   }
 })
 
+/* —— 虚拟滚动监听与重测（useEventListener 会在卸载时自动清理） —— */
+useEventListener(scrollRootRef, 'scroll', onVirtualScroll, { passive: true })
+useEventListener(() => (typeof window !== 'undefined' ? window : null), 'resize', remeasureVirtualDebounced, { passive: true })
+// 内层 wrapper 尺寸变化（行高随图片/字体渲染稳定后变化）时校正行高
+useResizeObserver(virtualWrapperRef, () => measureVirtualRowHeight())
+onMounted(() => {
+  virtualColumns.value = computeVirtualColumns()
+  measureVirtualViewport()
+  nextTick(() => {
+    measureVirtualRowHeight()
+    measureVirtualOffset()
+  })
+})
 useHead({
   title: 'Lolita衣柜',
   meta: [
@@ -1543,6 +1674,18 @@ const collapseState = ref(0)
 const toggleCollapse = () => {
   collapseState.value = (collapseState.value + 1) % 3
 }
+
+// 列表变化 / 头部折叠 / 切换浏览态 / 切换衣柜 时重新测量虚拟滚动的偏移与行高
+watch(
+  () => [list.value.length, collapseState.value, virtualEnabled.value, info.value?.wardrobe_id] as const,
+  () => {
+    if (!virtualEnabled.value) return
+    nextTick(() => {
+      measureVirtualRowHeight()
+      measureVirtualOffset()
+    })
+  },
+)
 
 const toggleTimelineMode = async () => {
   const next = !timelineMode.value
@@ -2628,7 +2771,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
           </template>
         </Draggable>
       </div>
-      <div class="flex-1 content-area-height overflow-y-auto overflow-x-hidden">
+      <div ref="scrollRootRef" class="flex-1 content-area-height overflow-y-auto overflow-x-hidden">
         <!-- 状态栏高度占位 -->
         <div v-if="configStore.statusBarHeight > 0" :style="{ height: `${configStore.statusBarHeight}px` }"></div>
         <div
@@ -2953,124 +3096,154 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
             </QhxTag>
           </QhxJellyButton>
         </div>
+        <!-- 服饰卡片模板：排序态(Draggable) 与 浏览态(虚拟网格) 共用，保留本组件 scoped 样式 -->
+        <DefineClothesCard v-slot="{ element }">
+          <div
+            class="group drag-handle flex flex-col items-center py-[10px] px-[15px] max-md:px-[5px]"
+            :class="preferLiteEffects ? '' : 'transition-transform duration-300 ease-out hover:scale-105'"
+            @mousedown="opearClothesId = element.clothes_id"
+            @touchstart.passive="opearClothesId = element.clothes_id"
+            @click="selectMode ? toggleClothesSelection(element) : jumpToClothes(element)">
+            <div class="wardrobe-neu-item w-full aspect-[1/1] relative">
+              <div
+                class="absolute left-0 top-0 z-10 rounded-tl-[6px] rounded-br-[6px] px-1 py-[1px] text-[10px] leading-none text-white flex items-center"
+                :class="getWardrobeStatusBgClass(element.wardrobe_status)"
+                v-if="element.wardrobe_status">
+                {{ element.wardrobe_status }}
+              </div>
+              <!-- 多选模式：右上角选择框，点击选择/取消选择 -->
+              <div
+                v-if="selectMode && element.clothes_id"
+                class="absolute top-0 right-0 z-10  h-[32px] w-[32px] flex items-center justify-center cursor-pointer transition-all duration-200"
+                @click.stop="toggleClothesSelection(element)"
+              >
+                <div
+                  class="wardrobe-neu-clothes-check w-6 h-6 rounded-md border-2 flex items-center justify-center transition-all duration-200"
+                  :class="isClothesSelected(element.clothes_id) ? (hasCustomBtnBg ? 'border-transparent' : 'bg-qhx-primary border-qhx-primary') : 'border-gray-400 bg-white/80 dark:bg-gray-700/80'"
+                  :style="isClothesSelected(element.clothes_id) && hasCustomBtnBg ? { ...customBtnStyle, borderColor: customStyle?.btnColor } : {}"
+                >
+                  <UIcon v-if="isClothesSelected(element.clothes_id)" name="i-heroicons-check" class="text-sm" :class="!hasCustomBtnFont && 'text-white'" />
+                </div>
+              </div>
+              <!-- 搭配模式：加号添加/删除图标；非搭配模式：喜爱级别 1–5 显示角标（0 不显示） -->
+              <div
+                v-else-if="matchingMode && element.clothes_id"
+                class="absolute top-0 right-0 z-10 h-[32px] w-[32px] flex items-center justify-center cursor-pointer"
+                @click.stop="handleMatchingDraftToggle(element, $event)"
+              >
+                <div
+                  class="wardrobe-neu-tool-orb m-[3px] rounded-[50%] h-[24px] w-[24px] flex items-center justify-center"
+                  :class="isInMatchingDraft(element.clothes_id) ? [!hasCustomBtnBg && 'bg-red-500', !hasCustomBtnFont && 'text-white'] : [!hasCustomBtnBg && 'bg-qhx-primary', !hasCustomBtnFont && 'text-white']"
+                  :style="isInMatchingDraft(element.clothes_id) ? {} : customBtnStyle"
+                >
+                  <UIcon
+                    :name="isInMatchingDraft(element.clothes_id) ? 'i-heroicons-trash' : 'material-symbols:add-2'"
+                    class="text-[16px]"
+                  />
+                </div>
+              </div>
+              <div
+                v-else-if="getClothesFavoriteLevel(element) > 0"
+                class="wardrobe-fav-badge absolute right-0 top-0 z-10 flex items-center gap-px rounded-tr-[6px] rounded-bl-[6px] bg-white/75 px-1 py-[1px] text-[10px] leading-none backdrop-blur-[2px] ring-1 ring-black/10 dark:bg-white/65 dark:ring-white/20"
+                @click.stop="jumpToClothes(element)"
+              >
+                <span class="tabular-nums text-amber-600 dark:text-amber-600">
+                  {{ getClothesFavoriteLevel(element) }}
+                </span>
+                <UIcon
+                  name="i-heroicons-star-solid"
+                  class="h-[1em] w-[1em] shrink-0 text-amber-600 dark:text-amber-600"
+                  aria-hidden="true"
+                />
+              </div>
+              <!-- 颜色列表圆点：封面左下角 -->
+              <div
+                v-if="element.color"
+                class="absolute left-0 bottom-0 z-10 flex flex-wrap gap-0.5 p-1 rounded-bl-xl"
+              >
+                <div
+                  v-for="(c, ci) in element.color.split(',')"
+                  :key="ci"
+                  class="w-3 h-3 rounded-full shadow-sm border border-white/50 dark:border-gray-700/50 shrink-0"
+                  :style="{ backgroundColor: c.trim() }"
+                />
+              </div>
+              <div class="wardrobe-neu-photo relative w-full overflow-hidden rounded-xl border border-gray-200">
+                <img
+                  :src="`${BASE_IMG}${element.clothes_img}?x-oss-process=image/quality,q_100/resize,w_300`"
+                  draggable="false"
+                  class="wardrobe-detail-img block w-full cursor-grab object-cover aspect-[1/1.5] max-md:aspect-[1/1] active:cursor-grabbing"
+                  loading="lazy"
+                  decoding="async"
+                  @contextmenu.prevent
+                />
+                <!-- 多选模式：封面蒙版显示当前排序序号 -->
+                <div
+                  v-if="selectMode && getClothesDisplaySortNo(element)"
+                  class="wardrobe-select-sort-mask absolute inset-0 z-[5] flex items-center justify-center pointer-events-none rounded-xl"
+                  :class="isClothesSelected(element.clothes_id) ? 'wardrobe-select-sort-mask--selected' : ''"
+                >
+                  <span class="wardrobe-select-sort-no tabular-nums font-bold text-white drop-shadow-[0_1px_4px_rgba(0,0,0,0.6)]">
+                    {{ getClothesDisplaySortNo(element) }}
+                  </span>
+                </div>
+                <div
+                  class="wardrobe-img-touch-shield"
+                  :class="{ 'wardrobe-img-touch-shield--sorting': sortMode }"
+                  aria-hidden="true"
+                  @contextmenu.prevent
+                />
+              </div>
+            </div>
+            <!-- 备注固定 2 行高度，保证虚拟滚动各卡片行高一致 -->
+            <div class="mt-2 mx-[2px] min-h-[2.5rem] line-clamp-2 overflow-hidden text-sm font-medium text-center">
+              {{ element.clothes_note }}
+            </div>
+            <!-- 价格固定占位，保证行高一致 -->
+            <div
+              class="mt-2 text-sm text-qhx-primary font-medium text-center w-[120px] min-h-[1.25rem] line-clamp-2 overflow-hidden">
+              <template v-if="element.price">￥ {{ info?.show_price === 2 ? '***' : (element.price || 0) }}</template>
+            </div>
+          </div>
+        </DefineClothesCard>
+
         <div v-if="!timelineMode" class="w-full">
-          <Draggable 
-          :scroll="sortMode"
-          :scroll-sensitivity="150"
-          :scroll-speed="15"
-          :fallback-tolerance="0"
-          :forceFallback="sortMode" :delay="150" :disabled="!sortMode" @start="onDragStart" @end="onDragEnd" v-model="list" item-key="clothes_id"
+          <!-- 浏览态：行级虚拟滚动，仅渲染可视行附近卡片 -->
+          <div
+            v-if="virtualEnabled"
+            ref="virtualSpacerRef"
+            class="relative w-full"
+            :style="{ height: `${virtualTotalHeight}px` }"
+          >
+            <div
+              ref="virtualWrapperRef"
+              class="absolute left-0 right-0 top-0 flex flex-wrap"
+              :style="{ transform: `translateY(${virtualOffsetY}px)` }"
+            >
+              <div
+                v-for="(element, vIdx) in virtualVisibleItems"
+                :key="element.clothes_id ?? `v-${virtualRange.startIndex + vIdx}`"
+                class="wardrobe-clothes-cell wardrobe-clothes-cell--virtual [@media(min-width:1920px)]:w-[calc(100%/10)] xl:w-1/6 md:w-1/4 max-md:w-1/3"
+              >
+                <ReuseClothesCard :element="element" />
+              </div>
+            </div>
+          </div>
+          <!-- 排序态：vuedraggable 全量渲染（拖拽排序需要完整 DOM） -->
+          <Draggable
+            v-else
+            :scroll="sortMode"
+            :scroll-sensitivity="150"
+            :scroll-speed="15"
+            :fallback-tolerance="0"
+            :forceFallback="sortMode" :delay="150" :disabled="!sortMode" @start="onDragStart" @end="onDragEnd" v-model="list" item-key="clothes_id"
             :animation="sortMode ? 300 : 0" ghost-class="drag-ghost" chosen-class="drag-chosen" drag-class="dragging"
             class=" flex flex-wrap">
             <template #item="{ element }">
               <div
                 class="wardrobe-clothes-cell [@media(min-width:1920px)]:w-[calc(100%/10)] xl:w-1/6 md:w-1/4 max-md:w-1/3"
               >
-                <div
-                  class="group drag-handle flex flex-col items-center py-[10px] px-[15px] max-md:px-[5px]"
-                  :class="preferLiteEffects ? '' : 'transition-transform duration-300 ease-out hover:scale-105'"
-                  @mousedown="opearClothesId = element.clothes_id"
-                  @touchstart.passive="opearClothesId = element.clothes_id"
-                  @click="selectMode ? toggleClothesSelection(element) : jumpToClothes(element)">
-                  <div class="wardrobe-neu-item w-full aspect-[1/1] relative">
-                    <div
-                      class="absolute left-0 top-0 z-10 rounded-tl-[6px] rounded-br-[6px] px-1 py-[1px] text-[10px] leading-none text-white flex items-center"
-                      :class="getWardrobeStatusBgClass(element.wardrobe_status)"
-                      v-if="element.wardrobe_status">
-                      {{ element.wardrobe_status }}
-                    </div>
-                    <!-- 多选模式：右上角选择框，点击选择/取消选择 -->
-                    <div
-                      v-if="selectMode && element.clothes_id"
-                      class="absolute top-0 right-0 z-10  h-[32px] w-[32px] flex items-center justify-center cursor-pointer transition-all duration-200"
-                      @click.stop="toggleClothesSelection(element)"
-                    >
-                      <div
-                        class="wardrobe-neu-clothes-check w-6 h-6 rounded-md border-2 flex items-center justify-center transition-all duration-200"
-                        :class="isClothesSelected(element.clothes_id) ? (hasCustomBtnBg ? 'border-transparent' : 'bg-qhx-primary border-qhx-primary') : 'border-gray-400 bg-white/80 dark:bg-gray-700/80'"
-                        :style="isClothesSelected(element.clothes_id) && hasCustomBtnBg ? { ...customBtnStyle, borderColor: customStyle?.btnColor } : {}"
-                      >
-                        <UIcon v-if="isClothesSelected(element.clothes_id)" name="i-heroicons-check" class="text-sm" :class="!hasCustomBtnFont && 'text-white'" />
-                      </div>
-                    </div>
-                    <!-- 搭配模式：加号添加/删除图标；非搭配模式：喜爱级别 1–5 显示角标（0 不显示） -->
-                    <div
-                      v-else-if="matchingMode && element.clothes_id"
-                      class="absolute top-0 right-0 z-10 h-[32px] w-[32px] flex items-center justify-center cursor-pointer"
-                      @click.stop="handleMatchingDraftToggle(element, $event)"
-                    >
-                      <div
-                        class="wardrobe-neu-tool-orb m-[3px] rounded-[50%] h-[24px] w-[24px] flex items-center justify-center"
-                        :class="isInMatchingDraft(element.clothes_id) ? [!hasCustomBtnBg && 'bg-red-500', !hasCustomBtnFont && 'text-white'] : [!hasCustomBtnBg && 'bg-qhx-primary', !hasCustomBtnFont && 'text-white']"
-                        :style="isInMatchingDraft(element.clothes_id) ? {} : customBtnStyle"
-                      >
-                        <UIcon
-                          :name="isInMatchingDraft(element.clothes_id) ? 'i-heroicons-trash' : 'material-symbols:add-2'"
-                          class="text-[16px]"
-                        />
-                      </div>
-                    </div>
-                    <div
-                      v-else-if="getClothesFavoriteLevel(element) > 0"
-                      class="wardrobe-fav-badge absolute right-0 top-0 z-10 flex items-center gap-px rounded-tr-[6px] rounded-bl-[6px] bg-white/75 px-1 py-[1px] text-[10px] leading-none backdrop-blur-[2px] ring-1 ring-black/10 dark:bg-white/65 dark:ring-white/20"
-                      @click.stop="jumpToClothes(element)"
-                    >
-                      <span class="tabular-nums text-amber-600 dark:text-amber-600">
-                        {{ getClothesFavoriteLevel(element) }}
-                      </span>
-                      <UIcon
-                        name="i-heroicons-star-solid"
-                        class="h-[1em] w-[1em] shrink-0 text-amber-600 dark:text-amber-600"
-                        aria-hidden="true"
-                      />
-                    </div>
-                    <!-- 颜色列表圆点：封面左下角 -->
-                    <div
-                      v-if="element.color"
-                      class="absolute left-0 bottom-0 z-10 flex flex-wrap gap-0.5 p-1 rounded-bl-xl"
-                    >
-                      <div
-                        v-for="(c, ci) in element.color.split(',')"
-                        :key="ci"
-                        class="w-3 h-3 rounded-full shadow-sm border border-white/50 dark:border-gray-700/50 shrink-0"
-                        :style="{ backgroundColor: c.trim() }"
-                      />
-                    </div>
-                    <div class="wardrobe-neu-photo relative w-full overflow-hidden rounded-xl border border-gray-200">
-                      <img
-                        :src="`${BASE_IMG}${element.clothes_img}?x-oss-process=image/quality,q_100/resize,w_300`"
-                        draggable="false"
-                        class="wardrobe-detail-img block w-full cursor-grab object-cover aspect-[1/1.5] max-md:aspect-[1/1] active:cursor-grabbing"
-                        loading="lazy"
-                        decoding="async"
-                        @contextmenu.prevent
-                      />
-                      <!-- 多选模式：封面蒙版显示当前排序序号 -->
-                      <div
-                        v-if="selectMode && getClothesDisplaySortNo(element)"
-                        class="wardrobe-select-sort-mask absolute inset-0 z-[5] flex items-center justify-center pointer-events-none rounded-xl"
-                        :class="isClothesSelected(element.clothes_id) ? 'wardrobe-select-sort-mask--selected' : ''"
-                      >
-                        <span class="wardrobe-select-sort-no tabular-nums font-bold text-white drop-shadow-[0_1px_4px_rgba(0,0,0,0.6)]">
-                          {{ getClothesDisplaySortNo(element) }}
-                        </span>
-                      </div>
-                      <div
-                        class="wardrobe-img-touch-shield"
-                        :class="{ 'wardrobe-img-touch-shield--sorting': sortMode }"
-                        aria-hidden="true"
-                        @contextmenu.prevent
-                      />
-                    </div>
-                  </div>
-                  <div class="mt-2 mx-[2px] line-clamp-2 overflow-hidden text-sm font-medium text-center">
-                    {{ element.clothes_note }}
-                  </div>
-                  <div v-if="element.price"
-                    class="mt-2 text-sm text-qhx-primary font-medium text-center w-[120px] line-clamp-2 overflow-hidden">
-                    ￥ {{ info?.show_price === 2 ? '***' : (element.price || 0) }}
-                  </div>
-                </div>
+                <ReuseClothesCard :element="element" />
               </div>
             </template>
           </Draggable>
@@ -3966,6 +4139,13 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
 .wardrobe-clothes-cell {
   content-visibility: auto;
   contain-intrinsic-size: auto 220px;
+}
+
+/* 虚拟滚动网格内的卡片已由 JS 窗口化，关闭 content-visibility：
+   否则屏外 overscan 卡片会被塌缩成 intrinsic-size，导致行高测量错误。 */
+.wardrobe-clothes-cell--virtual {
+  content-visibility: visible;
+  contain-intrinsic-size: none;
 }
 
 /* —— 服饰封面：整体浮起 + 相框内凹 —— */
