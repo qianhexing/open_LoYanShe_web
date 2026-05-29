@@ -2970,7 +2970,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
                   class="group drag-handle flex flex-col items-center py-[10px] px-[15px] max-md:px-[5px]"
                   :class="preferLiteEffects ? '' : 'transition-transform duration-300 ease-out hover:scale-105'"
                   @mousedown="opearClothesId = element.clothes_id"
-                  @touchstart="opearClothesId = element.clothes_id"
+                  @touchstart.passive="opearClothesId = element.clothes_id"
                   @click="selectMode ? toggleClothesSelection(element) : jumpToClothes(element)">
                   <div class="wardrobe-neu-item w-full aspect-[1/1] relative">
                     <div
@@ -3012,7 +3012,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
                     </div>
                     <div
                       v-else-if="getClothesFavoriteLevel(element) > 0"
-                      class="absolute right-0 top-0 z-10 flex items-center gap-px rounded-tr-[6px] rounded-bl-[6px] bg-white/75 px-1 py-[1px] text-[10px] leading-none backdrop-blur-[2px] ring-1 ring-black/10 dark:bg-white/65 dark:ring-white/20"
+                      class="wardrobe-fav-badge absolute right-0 top-0 z-10 flex items-center gap-px rounded-tr-[6px] rounded-bl-[6px] bg-white/75 px-1 py-[1px] text-[10px] leading-none backdrop-blur-[2px] ring-1 ring-black/10 dark:bg-white/65 dark:ring-white/20"
                       @click.stop="jumpToClothes(element)"
                     >
                       <span class="tabular-nums text-amber-600 dark:text-amber-600">
@@ -3990,8 +3990,18 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
   filter: none;
 }
 
-.wardrobe-perf-lite .wardrobe-neu-photo {
+/* 弱机：服饰封面多层 inset 阴影在 content-visibility 滚动入屏时反复重绘，iOS 掉帧主因之一。
+   降级为单层轻阴影，仅保留层次感，去掉昂贵的 inset 重绘。
+   注：用两个根类组合提升特异性，确保压过下方 .wardrobe-page-neu 的重阴影规则。 */
+.wardrobe-perf-lite.wardrobe-page-neu .wardrobe-neu-photo,
+.wardrobe-perf-lite.wardrobe-page-neu .group:hover .wardrobe-neu-photo {
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
   transition: none;
+}
+
+.dark .wardrobe-perf-lite.wardrobe-page-neu .wardrobe-neu-photo,
+.dark .wardrobe-perf-lite.wardrobe-page-neu .group:hover .wardrobe-neu-photo {
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.45);
 }
 
 .wardrobe-perf-lite .wardrobe-neu-tool-orb {
@@ -4000,6 +4010,24 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
 
 .wardrobe-perf-lite .timeline-scroll,
 .wardrobe-perf-lite .wardrobe-neu-select-bar {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+/* 弱机：每张卡片收藏角标的 backdrop-blur 需逐帧回读背景，滚动时极易掉帧。
+   降级为不透明底色，去掉毛玻璃。 */
+.wardrobe-perf-lite .wardrobe-fav-badge {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  background-color: rgba(255, 255, 255, 0.92);
+}
+
+.dark .wardrobe-perf-lite .wardrobe-fav-badge {
+  background-color: rgba(38, 38, 38, 0.92);
+}
+
+/* 弱机：多选蒙版的 backdrop-blur 同样昂贵，去掉模糊仅保留半透明遮罩。 */
+.wardrobe-perf-lite .wardrobe-select-sort-mask {
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
 }
@@ -4130,6 +4158,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
   min-height: 100dvh;
   scrollbar-width: none;
   -ms-overflow-style: none;
+  -webkit-overflow-scrolling: touch;
 }
 
 .content-area-height::-webkit-scrollbar {
