@@ -417,6 +417,16 @@ const preferLiteEffects = computed(() => {
   return coarse || lowCores || lowMem
 })
 
+/**
+ * 服饰封面缩略图：按显示尺寸走 OSS 缩放，避免在列表里加载原图。
+ * iPhone 等移动端一次渲染大量原图会带来高昂的解码与显存开销，是该页卡顿主因。
+ * 与项目其它页面（library/matching 等）保持一致的 x-oss-process 约定。
+ */
+const clothesThumb = (img?: string | null, width = 400, quality = 80) => {
+  if (!img) return ''
+  return `${BASE_IMG}${img}?x-oss-process=image/quality,q_${quality}/resize,w_${width}`
+}
+
 const matchingDraftIdSet = computed(
   () =>
     new Set(
@@ -2102,7 +2112,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
   } else {
     const sourceEl = e?.currentTarget as HTMLElement | null
     const sourceRect = sourceEl?.parentElement?.getBoundingClientRect()
-    const imgSrc = item.clothes_img ? `${BASE_IMG}${item.clothes_img}` : ''
+    const imgSrc = clothesThumb(item.clothes_img, 300)
     addToMatchingDraft(item)
     if (sourceRect && imgSrc) {
       nextTick(() => {
@@ -3038,7 +3048,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
                     </div>
                     <div class="wardrobe-neu-photo relative w-full overflow-hidden rounded-xl border border-gray-200">
                       <img
-                        :src="`${BASE_IMG}${element.clothes_img}`"
+                        :src="clothesThumb(element.clothes_img, 400)"
                         draggable="false"
                         class="wardrobe-detail-img block w-full cursor-grab object-cover aspect-[1/1.5] max-md:aspect-[1/1] active:cursor-grabbing"
                         loading="lazy"
@@ -3213,7 +3223,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
                           <div class="timeline-tarot-image-wrap">
                             <img
                               v-if="node.items[0].clothes_img"
-                              :src="`${BASE_IMG}${node.items[0].clothes_img}`"
+                              :src="clothesThumb(node.items[0].clothes_img, 240)"
                               class="timeline-tarot-img"
                               draggable="false"
                               loading="lazy"
@@ -3278,7 +3288,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
                               <div class="timeline-tarot-image-wrap">
                                 <img
                                   v-if="deck[0].clothes_img"
-                                  :src="`${BASE_IMG}${deck[0].clothes_img}`"
+                                  :src="clothesThumb(deck[0].clothes_img, 240)"
                                   class="timeline-tarot-img"
                                   draggable="false"
                                   loading="lazy"
@@ -3367,7 +3377,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
                                     <div class="timeline-tarot-image-wrap">
                                       <img
                                         v-if="item.clothes_img"
-                                        :src="`${BASE_IMG}${item.clothes_img}`"
+                                        :src="clothesThumb(item.clothes_img, 240)"
                                         class="timeline-tarot-img"
                                         draggable="false"
                                         loading="lazy"
@@ -3601,7 +3611,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
                             class="plan-neu-thumb plan-neu-thumb--round flex-shrink-0 overflow-hidden w-7 h-7"
                           >
                             <img
-                              :src="`${BASE_IMG}${row.clothes_img}`"
+                              :src="clothesThumb(row.clothes_img, 120)"
                               alt=""
                               class="w-full h-full object-cover"
                               draggable="false"
@@ -3730,7 +3740,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
               >
                 <div class="relative w-14 h-14 flex-shrink-0 overflow-hidden rounded-lg bg-gray-200 dark:bg-gray-700">
                   <img
-                    :src="`${BASE_IMG}${item.clothes_img}`"
+                    :src="clothesThumb(item.clothes_img, 160)"
                     class="wardrobe-detail-img h-full w-full object-cover"
                     draggable="false"
                     loading="lazy"
