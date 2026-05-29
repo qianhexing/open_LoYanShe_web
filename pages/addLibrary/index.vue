@@ -361,6 +361,26 @@
           </div>
         </UFormGroup>
 
+        <!-- 尺码 -->
+        <UFormGroup :label="t('addLibrary.size')" name="size" v-if="shouldShowField('size')"
+          :class="getHighlightClass('size')">
+          <UTextarea v-model="library.size" :disabled="isReviewMode" :placeholder="t('addLibrary.size_placeholder')"
+            :rows="3" :ui="{
+              base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
+              rounded: 'rounded-[10px]',
+              padding: { xs: 'px-4 py-2' },
+              color: {
+                white: {
+                  outline: 'bg-gray-50 dark:bg-gray-800 ring-1 ring-gray-300 dark:ring-gray-600 focus:ring-2 focus:ring-qhx-primary'
+                }
+              }
+            }" />
+          <div v-if="isReviewMode && isFieldChanged('size')" class="mt-2 text-sm text-gray-600 dark:text-gray-400">
+            <span class="font-semibold">{{ t('addLibrary.original_value') }}</span>{{ getOriginalValueText('size') ||
+              t('addLibrary.empty') }}
+          </div>
+        </UFormGroup>
+
         <!-- 尺寸图 -->
         <UFormGroup :label="t('addLibrary.size_image')" v-if="shouldShowField('size_image')"
           :class="getHighlightClass('size_image')">

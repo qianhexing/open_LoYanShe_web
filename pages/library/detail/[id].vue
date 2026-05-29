@@ -1004,6 +1004,14 @@ const libraryVideoItemClass = 'w-[100px] mr-3 mb-2 max-md:w-full max-md:mr-0'
               <QhxTag :active="true">{{ library.state }}</QhxTag>
             </p>
           </div>
+          <div v-if="library.size" class="mb-4">
+            <h3 class="text-sm m-1">尺码</h3>
+            <p class="text-xs p-2">
+              <ClientOnly>
+                <SafeRichText :nodes="parseRichText(library.size.replace(/\n/g, '<br>'))" />
+              </ClientOnly>
+            </p>
+          </div>
           <!-- 信息表 -->
           <div v-if="library.size_image" class="mb-4">
             <h3 class="text-sm m-1">信息表</h3>

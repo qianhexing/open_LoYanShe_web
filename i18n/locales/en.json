@@ -152,6 +152,8 @@
 	"addLibrary.select_pattern": "Select Pattern/Part",
 	"addLibrary.color": "Color",
 	"addLibrary.select_color": "Select Color",
+	"addLibrary.size": "Size",
+	"addLibrary.size_placeholder": "Enter size information",
 	"addLibrary.size_image": "Size Chart",
 	"addLibrary.pattern_elements": "Pattern Elements",
 	"addLibrary.select_pattern_elements": "Select Pattern Elements",

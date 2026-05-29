@@ -152,6 +152,8 @@
 	"addLibrary.select_pattern": "选择版型/部位",
 	"addLibrary.color": "颜色",
 	"addLibrary.select_color": "选择颜色",
+	"addLibrary.size": "尺码",
+	"addLibrary.size_placeholder": "请输入尺码信息",
 	"addLibrary.size_image": "尺码表",
 	"addLibrary.pattern_elements": "柄图元素",
 	"addLibrary.select_pattern_elements": "选择柄图元素",
