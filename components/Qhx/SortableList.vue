@@ -170,7 +170,9 @@ function onPointerDown(e: PointerEvent) {
   startX = curX = e.clientX
   startY = curY = e.clientY
 
-  window.addEventListener('pointermove', onPointerMove, { passive: false })
+  // pointermove 设为 passive，保证候选/判定阶段原生滚动依旧顺滑；
+  // 真正进入拖拽后再用非 passive 的 touchmove 阻止滚动（见 beginDrag）。
+  window.addEventListener('pointermove', onPointerMove, { passive: true })
   window.addEventListener('pointerup', onPointerUp, { passive: true })
   window.addEventListener('pointercancel', onPointerCancel, { passive: true })
 
@@ -190,18 +192,17 @@ function onPointerMove(e: PointerEvent) {
   if (candidate && !dragging) {
     const dist = Math.hypot(curX - startX, curY - startY)
     if (e.pointerType === 'touch') {
-      // 长按未到就移动 => 判定为滚动，放弃拖拽
+      // 长按未到就移动 => 判定为滚动，放弃拖拽（不拦截，原生滚动继续）
       if (dist > props.touchTolerance) cleanup(false)
     } else if (dist > props.mouseThreshold) {
       beginDrag()
     }
-    return
   }
+}
 
-  if (dragging) {
-    // 阻止触摸滚动（监听为 passive:false 才生效）
-    e.preventDefault()
-  }
+/** 拖拽中阻止触摸滚动：touchmove 可取消，preventDefault 才能真正阻止页面滚动 */
+function onTouchMoveBlock(e: TouchEvent) {
+  if (dragging) e.preventDefault()
 }
 
 function onPointerUp(e: PointerEvent) {
@@ -253,9 +254,11 @@ function beginDrag() {
   if (props.ghostClass) originalEl.classList.add(...props.ghostClass.split(/\s+/).filter(Boolean))
   draggingKey.value = activeKey
 
-  // 拖拽期间禁用触摸滚动与文本选择
+  // 拖拽期间禁用触摸滚动与文本选择：
+  // touch-action:none 阻止后续手势滚动，非 passive 的 touchmove + preventDefault 阻止当前手势滚动
   containerRef.value.style.touchAction = 'none'
   document.body.style.userSelect = 'none'
+  window.addEventListener('touchmove', onTouchMoveBlock, { passive: false })
 
   emit('start', { index: activeIndex, key: activeKey })
 
@@ -429,6 +432,7 @@ function teardownListeners() {
   window.removeEventListener('pointermove', onPointerMove as EventListener)
   window.removeEventListener('pointerup', onPointerUp as EventListener)
   window.removeEventListener('pointercancel', onPointerCancel as EventListener)
+  window.removeEventListener('touchmove', onTouchMoveBlock as EventListener)
 }
 
 function resetState() {
