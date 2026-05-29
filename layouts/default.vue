@@ -10,7 +10,7 @@ const userStore = useUserStore()
 const configStore = useConfigStore()
 const layoutReady = ref(false)
 const HarmonyOS = ref<string | null>(null)
-const isFromMobie = ref(false)
+const isFromMobie = ref(true)
 provide('layoutReady', layoutReady)
 const times = ref(1)
 const isHome = ref(false)
@@ -29,8 +29,8 @@ const jumpToLoyanshe = () => {
 const { layoutStyle, setLayoutStyle } = useLayoutStyle() // 0 带上下栏；1 空白。页面可调用 setLayoutStyle 覆盖
 const blank_list = [
   'matching/my',
-  '/userSpace/', 
-  '/humanPlatform/', '/user/plan', '/user/center', '/post/', '/distributedMaps', '/visualization/wardrobe', '/visualization/shop-cloud', '/rank', '/yearlySummary', '/user/changePassword','/matching/detail','/album/detail', '/album', 'clothes/detail', 'scene/detail', 'wardrobe/detail', 'wardrobe/statistics', 'register', 'lighting-debug', 'timepipe', 'user/edit', '/journal', '/shop/shanzheng', '/library/search', '/features', 'ai/chat']
+  '/userSpace/', '/exhibition/wardrobe/', '/exhibition/',
+  '/humanPlatform/', '/user/plan', '/user/center', '/post/', '/distributedMaps', '/visualization/wardrobe', '/visualization/shop-cloud', '/rank', '/yearlySummary', '/user/changePassword','/matching/detail','/album/detail', '/album', 'clothes/detail', 'scene/detail', 'wardrobe/detail', 'wardrobe/statistics', 'register', 'login', 'lighting-debug', 'timepipe', 'user/edit', '/journal', '/shop/shanzheng', '/library/search', '/features', 'ai/chat']
 const route = useRoute()
 if (route.query?.token) {
   useUserStore().setToken(route.query.token.toString())
@@ -161,8 +161,10 @@ onMounted(async () => {
     console.error('Failed to load uni-webview-js:', err);
   })
   if (isInUniApp && uni) {
+    isFromMobie.value = true
     configStore.setUniWebviewJs(uni as UniWebviewJsModule)
   } else {
+    isFromMobie.value = false
     configStore.setUniWebviewJs(null)
   }
   console.log(colorMode.value, '颜色模式')
@@ -178,9 +180,6 @@ onMounted(async () => {
       configStore.initMobileDetection()
     }
     configStore.getConfig()
-    if (isInUniApp && uni) {
-      isFromMobie.value = true
-    }
   }
   themeStore.setTheme('light')
   layoutReady.value = true

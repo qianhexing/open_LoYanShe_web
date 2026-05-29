@@ -364,13 +364,16 @@ class TransformControls extends Controls {
 
 		}
 
+		// 现代化默认配色（类 Apple / Blender 风格）
+		this.setColors( 0xff4d4d, 0x4de680, 0x4d9fff, 0xffffff );
+
 	}
 
 	connect( element ) {
 
 		super.connect( element );
 
-		this.domElement.addEventListener( 'pointerdown', this._onPointerDown );
+		this.domElement.addEventListener( 'pointerdown', this._onPointerDown, true );
 		this.domElement.addEventListener( 'pointermove', this._onPointerHover );
 		this.domElement.addEventListener( 'pointerup', this._onPointerUp );
 
@@ -380,7 +383,7 @@ class TransformControls extends Controls {
 
 	disconnect() {
 
-		this.domElement.removeEventListener( 'pointerdown', this._onPointerDown );
+		this.domElement.removeEventListener( 'pointerdown', this._onPointerDown, true );
 		this.domElement.removeEventListener( 'pointermove', this._onPointerHover );
 		this.domElement.removeEventListener( 'pointermove', this._onPointerMove );
 		this.domElement.removeEventListener( 'pointerup', this._onPointerUp );
@@ -420,30 +423,60 @@ class TransformControls extends Controls {
 
 	}
 
+	/**
+	 * 在射线检测前同步 gizmo / 拖拽平面，避免 axis 刚切换时平面朝向滞后导致首帧跳跃。
+	 */
+	_updateDragMatrices() {
+
+		if ( this.camera ) {
+
+			this.camera.updateMatrixWorld();
+
+		}
+
+		if ( this.object ) {
+
+			this.object.updateMatrixWorld();
+
+			if ( this.object.parent ) {
+
+				this.object.parent.updateMatrixWorld();
+
+			}
+
+		}
+
+		this._root.updateMatrixWorld( true );
+
+	}
+
 	pointerDown( pointer ) {
 
 		if ( this.object === undefined || this.dragging === true || ( pointer != null && pointer.button !== 0 ) ) return;
 
 		if ( this.axis !== null ) {
 
+			this._updateDragMatrices();
+
 			if ( pointer !== null ) _raycaster.setFromCamera( pointer, this.camera );
 
 			const planeIntersect = intersectObjectWithRay( this._plane, _raycaster, true );
 
-			if ( planeIntersect ) {
+			if ( ! planeIntersect ) {
 
-				this.object.updateMatrixWorld();
-				this.object.parent.updateMatrixWorld();
-
-				this._positionStart.copy( this.object.position );
-				this._quaternionStart.copy( this.object.quaternion );
-				this._scaleStart.copy( this.object.scale );
-
-				this.object.matrixWorld.decompose( this.worldPositionStart, this.worldQuaternionStart, this._worldScaleStart );
-
-				this.pointStart.copy( planeIntersect.point ).sub( this.worldPositionStart );
+				return;
 
 			}
+
+			this._positionStart.copy( this.object.position );
+			this._quaternionStart.copy( this.object.quaternion );
+			this._scaleStart.copy( this.object.scale );
+
+			this.object.matrixWorld.decompose( this.worldPositionStart, this.worldQuaternionStart, this._worldScaleStart );
+
+			this.pointStart.copy( planeIntersect.point ).sub( this.worldPositionStart );
+			// 首帧位移为零，避免 pointStart 未就绪或与 pointEnd 不一致时瞬移
+			this.pointEnd.copy( this.pointStart );
 
 			this.dragging = true;
 			_mouseDownEvent.mode = this.mode;
@@ -471,6 +504,8 @@ class TransformControls extends Controls {
 		}
 
 		if ( object === undefined || axis === null || this.dragging === false || ( pointer !== null && pointer.button !== - 1 ) ) return;
+
+		this._updateDragMatrices();
 
 		if ( pointer !== null ) _raycaster.setFromCamera( pointer, this.camera );
 
@@ -580,7 +615,8 @@ class TransformControls extends Controls {
 			if ( true ) {
 			// if ( axis.search( 'XYZ' ) !== - 1 ) {
 
-				let d = this.pointEnd.length() / this.pointStart.length();
+				const startLen = Math.max( this.pointStart.length(), 1e-6 );
+				let d = this.pointEnd.length() / startLen;
 
 				if ( this.pointEnd.dot( this.pointStart ) < 0 ) d *= - 1;
 
@@ -826,7 +862,7 @@ class TransformControls extends Controls {
 	 * @param {'translate'|'rotate'|'scale'} mode - The transformation mode to set.
 	 */
 	setMode( mode ) {
-		console.log('设置模式=======', mode)
+
 		this.mode = mode;
 
 	}
@@ -906,7 +942,7 @@ class TransformControls extends Controls {
 		materialLib.yAxisTransparent.color.set( yAxis );
 		materialLib.zAxisTransparent.color.set( zAxis );
 		materialLib.activeTransparent.color.set( active );
-		console.log('设置颜色', active)
+
 		// update color caches
 
 		if ( materialLib.xAxis._color ) materialLib.xAxis._color.set( xAxis );
@@ -937,10 +973,12 @@ function getPointer( event ) {
 	} else {
 
 		const rect = this.domElement.getBoundingClientRect();
+		const w = rect.width || 1;
+		const h = rect.height || 1;
 
 		return {
-			x: ( event.clientX - rect.left ) / rect.width * 2 - 1,
-			y: - ( event.clientY - rect.top ) / rect.height * 2 + 1,
+			x: ( event.clientX - rect.left ) / w * 2 - 1,
+			y: - ( event.clientY - rect.top ) / h * 2 + 1,
 			button: event.button
 		};
 
@@ -956,6 +994,7 @@ function onPointerHover( event ) {
 
 		case 'mouse':
 		case 'pen':
+		case 'touch':
 			this.pointerHover( this._getPointer( event ) );
 			break;
 
@@ -967,6 +1006,15 @@ function onPointerDown( event ) {
 
 	if ( ! this.enabled ) return;
 
+	this.pointerHover( this._getPointer( event ) );
+
+	if ( this.axis !== null ) {
+
+		event.preventDefault();
+		event.stopPropagation();
+
+	}
+
 	if ( ! document.pointerLockElement ) {
 
 		this.domElement.setPointerCapture( event.pointerId );
@@ -975,7 +1023,6 @@ function onPointerDown( event ) {
 
 	this.domElement.addEventListener( 'pointermove', this._onPointerMove );
 
-	this.pointerHover( this._getPointer( event ) );
 	this.pointerDown( this._getPointer( event ) );
 
 }
@@ -983,6 +1030,12 @@ function onPointerDown( event ) {
 function onPointerMove( event ) {
 
 	if ( ! this.enabled ) return;
+
+	if ( this.dragging ) {
+
+		event.preventDefault();
+
+	}
 
 	this.pointerMove( this._getPointer( event ) );
 
@@ -1120,13 +1173,18 @@ class TransformControlsGizmo extends Object3D {
 
 		// shared materials
 
+		const GIZMO_OPACITY_AXIS = 0.9;
+		const GIZMO_OPACITY_PLANE = 0.32;
+		const GIZMO_OPACITY_CENTER = 0.5;
+		const GIZMO_OPACITY_VIEW = 0.22;
+
 		const gizmoMaterial = new MeshBasicMaterial( {
 			depthTest: false,
 			depthWrite: false,
 			fog: false,
 			toneMapped: false,
 			transparent: true,
-			opacity: 0.5
+			opacity: GIZMO_OPACITY_AXIS
 		} );
 
 		const gizmoLineMaterial = new LineBasicMaterial( {
@@ -1134,51 +1192,53 @@ class TransformControlsGizmo extends Object3D {
 			depthWrite: false,
 			fog: false,
 			toneMapped: false,
-			transparent: true
+			transparent: true,
+			opacity: 0.55
 		} );
 
 		// Make unique material for each axis/color
 
 		const matInvisible = gizmoMaterial.clone();
-		matInvisible.opacity = 0.15;
+		matInvisible.opacity = 0.12;
 
 		const matHelper = gizmoLineMaterial.clone();
-		matHelper.opacity = 0.5;
+		matHelper.opacity = 0.45;
 
 		const matRed = gizmoMaterial.clone();
-		matRed.color.setHex( 0xff0000 );
-		// matRed.color.setHex( 0xbcafff );
+		matRed.color.setHex( 0xff4d4d );
 
 		const matGreen = gizmoMaterial.clone();
-		matGreen.color.setHex( 0x00ff00 );
+		matGreen.color.setHex( 0x4de680 );
 
 		const matBlue = gizmoMaterial.clone();
-		matBlue.color.setHex( 0x0000ff );
+		matBlue.color.setHex( 0x4d9fff );
 
 		const matRedTransparent = gizmoMaterial.clone();
-		matRedTransparent.color.setHex( 0xff0000 );
-		matRedTransparent.opacity = 0.5;
+		matRedTransparent.color.setHex( 0xff4d4d );
+		matRedTransparent.opacity = GIZMO_OPACITY_PLANE;
 
 		const matGreenTransparent = gizmoMaterial.clone();
-		matGreenTransparent.color.setHex( 0x00ff00 );
-		matGreenTransparent.opacity = 0.5;
+		matGreenTransparent.color.setHex( 0x4de680 );
+		matGreenTransparent.opacity = GIZMO_OPACITY_PLANE;
 
 		const matBlueTransparent = gizmoMaterial.clone();
-		matBlueTransparent.color.setHex( 0x0000ff );
-		matBlueTransparent.opacity = 0.5;
+		matBlueTransparent.color.setHex( 0x4d9fff );
+		matBlueTransparent.opacity = GIZMO_OPACITY_PLANE;
 
 		const matWhiteTransparent = gizmoMaterial.clone();
-		matWhiteTransparent.opacity = 0.25;
+		matWhiteTransparent.color.setHex( 0xffffff );
+		matWhiteTransparent.opacity = GIZMO_OPACITY_CENTER;
 
 		const matYellowTransparent = gizmoMaterial.clone();
-		matYellowTransparent.color.setHex( 0xffff00 );
-		matYellowTransparent.opacity = 0.25;
+		matYellowTransparent.color.setHex( 0xffffff );
+		matYellowTransparent.opacity = GIZMO_OPACITY_VIEW;
 
 		const matYellow = gizmoMaterial.clone();
-		matYellow.color.setHex( 0xffff00 );
+		matYellow.color.setHex( 0xffffff );
 
 		const matGray = gizmoMaterial.clone();
-		matGray.color.setHex( 0x787878 );
+		matGray.color.setHex( 0x8b95a8 );
+		matGray.opacity = GIZMO_OPACITY_VIEW;
 
 		// materials in the below property are configurable via setColors()
 
@@ -1193,24 +1253,32 @@ class TransformControlsGizmo extends Object3D {
 			activeTransparent: matYellowTransparent
 		};
 
-		// reusable geometry
+		// reusable geometry — 细杆 + 锥头/球头，更接近现代 DCC 工具
 
-		const arrowGeometry = new CylinderGeometry( 0, 0.04, 0.1, 12 );
-		arrowGeometry.translate( 0, 0.05, 0 );
+		const AXIS_LEN = 0.44;
 
-		const scaleHandleGeometry = new BoxGeometry( 0.08, 0.08, 0.08 );
-		scaleHandleGeometry.translate( 0, 0.04, 0 );
+		const arrowHeadGeometry = new CylinderGeometry( 0, 0.05, 0.11, 16 );
+		arrowHeadGeometry.translate( 0, AXIS_LEN, 0 );
+
+		const axisShaftGeometry = new CylinderGeometry( 0.011, 0.011, AXIS_LEN, 12 );
+		axisShaftGeometry.translate( 0, AXIS_LEN * 0.5, 0 );
+
+		const scaleHandleGeometry = new SphereGeometry( 0.052, 16, 12 );
+		scaleHandleGeometry.translate( 0, AXIS_LEN, 0 );
+
+		const scaleShaftGeometry = new CylinderGeometry( 0.009, 0.009, AXIS_LEN, 10 );
+		scaleShaftGeometry.translate( 0, AXIS_LEN * 0.5, 0 );
+
+		const centerHandleGeometry = new BoxGeometry( 0.09, 0.09, 0.09, 2, 2, 2 );
+
+		const centerTranslateGeometry = new SphereGeometry( 0.055, 16, 12 );
 
 		const lineGeometry = new BufferGeometry();
 		lineGeometry.setAttribute( 'position', new Float32BufferAttribute( [ 0, 0, 0,	1, 0, 0 ], 3 ) );
 
-		// const lineGeometry2 = new CylinderGeometry( 0.0075, 0.0075, 0.5, 3 );
-		const lineGeometry2 = new BoxGeometry( 0.08, 0.5, 0.0075 );
-		lineGeometry2.translate( 0, 0.25, 0 );
-
 		function CircleGeometry( radius, arc ) {
 
-			const geometry = new TorusGeometry( radius, 0.03, 3, 64, arc * Math.PI * 2 );
+			const geometry = new TorusGeometry( radius, 0.012, 8, 56, arc * Math.PI * 2 );
 			geometry.rotateY( Math.PI / 2 );
 			geometry.rotateX( Math.PI / 2 );
 			return geometry;
@@ -1233,31 +1301,28 @@ class TransformControlsGizmo extends Object3D {
 
 		const gizmoTranslate = {
 			X: [
-				[ new Mesh( arrowGeometry, matRed ), [ 0.5, 0, 0 ], [ 0, 0, - Math.PI / 2 ]],
-				[ new Mesh( arrowGeometry, matRed ), [ - 0.5, 0, 0 ], [ 0, 0, Math.PI / 2 ]],
-				[ new Mesh( lineGeometry2, matRed ), [ 0, 0, 0 ], [ 0, 0, - Math.PI / 2 ]]
+				[ new Mesh( arrowHeadGeometry, matRed ), null, [ 0, 0, - Math.PI / 2 ]],
+				[ new Mesh( axisShaftGeometry, matRed ), null, [ 0, 0, - Math.PI / 2 ]]
 			],
 			Y: [
-				[ new Mesh( arrowGeometry, matGreen ), [ 0, 0.5, 0 ]],
-				[ new Mesh( arrowGeometry, matGreen ), [ 0, - 0.5, 0 ], [ Math.PI, 0, 0 ]],
-				[ new Mesh( lineGeometry2, matGreen ) ]
+				[ new Mesh( arrowHeadGeometry, matGreen ) ],
+				[ new Mesh( axisShaftGeometry, matGreen ) ]
 			],
 			Z: [
-				[ new Mesh( arrowGeometry, matBlue ), [ 0, 0, 0.5 ], [ Math.PI / 2, 0, 0 ]],
-				[ new Mesh( arrowGeometry, matBlue ), [ 0, 0, - 0.5 ], [ - Math.PI / 2, 0, 0 ]],
-				[ new Mesh( lineGeometry2, matBlue ), null, [ Math.PI / 2, 0, 0 ]]
+				[ new Mesh( arrowHeadGeometry, matBlue ), null, [ Math.PI / 2, 0, 0 ]],
+				[ new Mesh( axisShaftGeometry, matBlue ), null, [ Math.PI / 2, 0, 0 ]]
 			],
 			XYZ: [
-				[ new Mesh( new OctahedronGeometry( 0.1, 0 ), matWhiteTransparent ), [ 0, 0, 0 ]]
+				[ new Mesh( centerTranslateGeometry, matWhiteTransparent ), [ 0, 0, 0 ]]
 			],
 			XY: [
-				[ new Mesh( new BoxGeometry( 0.15, 0.15, 0.01 ), matBlueTransparent ), [ 0.15, 0.15, 0 ]]
+				[ new Mesh( new BoxGeometry( 0.12, 0.12, 0.008 ), matBlueTransparent ), [ 0.12, 0.12, 0 ]]
 			],
 			YZ: [
-				[ new Mesh( new BoxGeometry( 0.15, 0.15, 0.01 ), matRedTransparent ), [ 0, 0.15, 0.15 ], [ 0, Math.PI / 2, 0 ]]
+				[ new Mesh( new BoxGeometry( 0.12, 0.12, 0.008 ), matRedTransparent ), [ 0, 0.12, 0.12 ], [ 0, Math.PI / 2, 0 ]]
 			],
 			XZ: [
-				[ new Mesh( new BoxGeometry( 0.15, 0.15, 0.01 ), matGreenTransparent ), [ 0.15, 0, 0.15 ], [ - Math.PI / 2, 0, 0 ]]
+				[ new Mesh( new BoxGeometry( 0.12, 0.12, 0.008 ), matGreenTransparent ), [ 0.12, 0, 0.12 ], [ - Math.PI / 2, 0, 0 ]]
 			]
 		};
 
@@ -1353,39 +1418,21 @@ class TransformControlsGizmo extends Object3D {
 
 		const gizmoScale = {
 			X: [
-				[ new Mesh( scaleHandleGeometry, matRed ), [ 0.5, 0, 0 ], [ 0, 0, - Math.PI / 2 ]],
-				[ new Mesh( lineGeometry2, matRed ), [ 0, 0, 0 ], [ 0, 0, - Math.PI / 2 ]],
-				[ new Mesh( scaleHandleGeometry, matRed ), [ - 0.5, 0, 0 ], [ 0, 0, Math.PI / 2 ]],
+				[ new Mesh( scaleHandleGeometry, matRed ), null, [ 0, 0, - Math.PI / 2 ]],
+				[ new Mesh( scaleShaftGeometry, matRed ), null, [ 0, 0, - Math.PI / 2 ]],
 			],
 			Y: [
-				[ new Mesh( scaleHandleGeometry, matGreen ), [ 0, 0.5, 0 ]],
-				[ new Mesh( lineGeometry2, matGreen ) ],
-				[ new Mesh( scaleHandleGeometry, matGreen ), [ 0, - 0.5, 0 ], [ 0, 0, Math.PI ]],
+				[ new Mesh( scaleHandleGeometry, matGreen ) ],
+				[ new Mesh( scaleShaftGeometry, matGreen ) ],
 			],
 			Z: [
-				[ new Mesh( scaleHandleGeometry, matBlue ), [ 0, 0, 0.5 ], [ Math.PI / 2, 0, 0 ]],
-				[ new Mesh( lineGeometry2, matBlue ), [ 0, 0, 0 ], [ Math.PI / 2, 0, 0 ]],
-				[ new Mesh( scaleHandleGeometry, matBlue ), [ 0, 0, - 0.5 ], [ - Math.PI / 2, 0, 0 ]]
+				[ new Mesh( scaleHandleGeometry, matBlue ), null, [ Math.PI / 2, 0, 0 ]],
+				[ new Mesh( scaleShaftGeometry, matBlue ), null, [ Math.PI / 2, 0, 0 ]],
 			],
-			// 修改只显示X Y Z轴
-			// XY: [
-			// 	[ new Mesh( new BoxGeometry( 0.15, 0.15, 0.01 ), matBlueTransparent ), [ 0.15, 0.15, 0 ]]
-			// ],
-			// YZ: [
-			// 	[ new Mesh( new BoxGeometry( 0.15, 0.15, 0.01 ), matRedTransparent ), [ 0, 0.15, 0.15 ], [ 0, Math.PI / 2, 0 ]]
-			// ],
-			// XZ: [
-			// 	[ new Mesh( new BoxGeometry( 0.15, 0.15, 0.01 ), matGreenTransparent ), [ 0.15, 0, 0.15 ], [ - Math.PI / 2, 0, 0 ]]
-			// ],
-			// XYZ: [
-			// 	[ new Mesh( new BoxGeometry( 0.1, 0.1, 0.1 ), matWhiteTransparent ) ],
-			// ]
-			// 修改只显示xyz
-			// XYZ: [
-			// 	[ new Mesh( new BoxGeometry( 0.1, 0.1, 0.1 ), matWhiteTransparent ) ],
-			// ]
+			XYZ: [
+				[ new Mesh( centerHandleGeometry, matWhiteTransparent ), [ 0, 0, 0 ]]
+			],
 		};
-		console.log('缩放操纵杆', gizmoScale)
 
 		const pickerScale = {
 			X: [
@@ -1800,17 +1847,15 @@ class TransformControlsGizmo extends Object3D {
 
 			if ( this.enabled && this.axis ) {
 
-				if ( handle.name === this.axis ) {
-					
-					handle.material.color.copy( this.materialLib.active.color );
+				const isActive =
+					handle.name === this.axis ||
+					this.axis.split( '' ).some( function ( a ) {
 
-					handle.material.opacity = 1.0;
+						return handle.name === a;
 
-				} else if ( this.axis.split( '' ).some( function ( a ) {
+					} );
 
-					return handle.name === a;
-
-				} ) ) {
+				if ( isActive ) {
 
 					handle.material.color.copy( this.materialLib.active.color );
 					handle.material.opacity = 1.0;

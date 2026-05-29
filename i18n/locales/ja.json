@@ -7,6 +7,9 @@
 	"header.collection": "フォーラム",
 	"header.teaParty": "オフライン/ティーパーティー",
 
+	"login.title": "おかえりなさい",
+	"login.subtitle": "Lo研社にログイン",
+	"login.register_link": "アカウントをお持ちでないですか？",
 	"login.login": "ログイン",
 	"login.account": "アカウントでログイン",
 	"login.phone": "携帯電話番号",
@@ -149,6 +152,8 @@
 	"addLibrary.select_pattern": "パターン/部位を選択",
 	"addLibrary.color": "カラー",
 	"addLibrary.select_color": "カラーを選択",
+	"addLibrary.size": "サイズ",
+	"addLibrary.size_placeholder": "サイズ情報を入力してください",
 	"addLibrary.size_image": "サイズ表",
 	"addLibrary.pattern_elements": "柄図要素",
 	"addLibrary.select_pattern_elements": "柄図要素を選択",

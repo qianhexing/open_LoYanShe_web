@@ -5,6 +5,7 @@
  */
 import { $fetch } from 'ofetch'
 import { BASE_URL } from '@/utils/ipConfig'
+import { LOGIN_PATH, redirectToLoginPage } from '@/utils/loginRedirect'
 const baseURL = BASE_URL
 interface RequestOptions {
   [key: string]: any;
@@ -43,12 +44,13 @@ async function handleResponse<T>(response: any): Promise<T> {
     console.log(response, '返回参数')
     if (response.code === 401) {
       if (typeof window !== 'undefined') {
-        try {
-          useUserStore().clearToken()
-          /** clearToken 内会 reload；若未执行到则兜底 */
-        } catch {
-          window.location.reload()
-        }
+        const { pathname, search } = window.location
+        const current = pathname + search
+        const redirectTo =
+          pathname === LOGIN_PATH || pathname.startsWith('/register')
+            ? undefined
+            : current
+        void redirectToLoginPage(redirectTo)
       }
       throw new Error(
         response.message || response.msg || '登录已失效，请重新登录'

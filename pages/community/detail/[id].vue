@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { Comment, Community, User, UserDeco } from '@/types/api'
 import { getCommunityDetail } from '@/api/community'
+import { getBrowTimeOne, insertBrowTime } from '@/api/brow_time'
 import { getCommentList } from '@/api/comment'
 import { getUserDecoBadges } from '@/api/user'
 import type { UserDecoBadgeItem } from '@/api/user'
@@ -11,6 +12,7 @@ import {
   type CommentOpenReplyPayload,
   type RefreshCommentRepliesFn,
 } from '@/composables/communityCommentSection'
+import { useCommunityDetailTheme } from '@/composables/useCommunityDetailTheme'
 import { useCopyCurrentUrl } from '@/composables/useCopyCurrentUrl'
 import { useLayoutStyle } from '@/composables/useLayoutStyle'
 import { useCommentUiStore } from '@/stores/commentUi'
@@ -62,6 +64,7 @@ function badgeToUserDeco(item: UserDecoBadgeItem): UserDeco {
 }
 
 const detail = ref<Community | null>(null)
+const { customStyle, customBtnStyle, pageStyle } = useCommunityDetailTheme(detail)
 const authorBadgeRows = ref<UserDecoBadgeItem[]>([])
 
 const fetchAuthorBadges = async () => {
@@ -187,6 +190,39 @@ watch(
 
 const commentTotal = computed(() => commentCountData.value?.count ?? 0)
 
+const BROW_TIME_TYPE_COMMUNITY = 'community'
+const browTimeViewCount = ref(0)
+let communityViewRecordTimer: ReturnType<typeof setTimeout> | null = null
+
+async function loadCommunityViewStat() {
+  if (!communityId) return
+  try {
+    const row = await getBrowTimeOne({ id: communityId, type: BROW_TIME_TYPE_COMMUNITY })
+    browTimeViewCount.value = row.count_times ?? 0
+  } catch (e) {
+    if (import.meta.client) {
+      console.error('帖子浏览统计读取失败:', e)
+    }
+  }
+}
+
+async function recordCommunityView() {
+  if (!communityId) return
+  try {
+    await insertBrowTime({ id: communityId, type: BROW_TIME_TYPE_COMMUNITY })
+    await loadCommunityViewStat()
+  } catch (e) {
+    if (import.meta.client) {
+      console.error('帖子浏览统计上报失败:', e)
+    }
+  }
+}
+
+/** 优先用详情接口字段，否则用 /times 统计 */
+const communityViewCount = computed(
+  () => detail.value?.times_count ?? detail.value?.brows_times ?? browTimeViewCount.value
+)
+
 const showCommentModal = ref(false)
 const commentModalRef = ref<{
   showModel: (e: {
@@ -206,18 +242,24 @@ provide(communityCommentSectionRefreshKey, commentSectionRefreshFn)
 const commentUiStore = useCommentUiStore()
 
 onMounted(() => {
-  console.log('onMounted===========', detail.value)
+  void loadCommunityViewStat()
+  communityViewRecordTimer = setTimeout(() => {
+    communityViewRecordTimer = null
+    if (user.user?.user_id === 1) return
+    void recordCommunityView()
+  }, 5000)
   if (!detail.value) {
     getCommunityDetail({ community_id: communityId })
-    .then((res) => {
-      detail.value = res
-    })
-    .catch((err) => {
-      console.error('获取帖子详情失败:', err)
-    })
+      .then((res) => {
+        detail.value = res
+      })
+      .catch((err) => {
+        console.error('获取帖子详情失败:', err)
+      })
   }
 })
 onUnmounted(() => {
+  if (communityViewRecordTimer) clearTimeout(communityViewRecordTimer)
   commentUiStore.clearNewCommentHighlight()
 })
 
@@ -336,8 +378,9 @@ useHead({
 </script>
 <template>
   <div
-    class="community-detail-page relative mx-auto px-4 pb-4 max-md:px-0 max-md:pb-2"
+    class="community-detail-page bg-qhx-bg-card relative mx-auto px-4 pb-4 max-md:px-0 max-md:pb-2 text-qhx-text"
     :class="detail ? 'pb-[calc(5.5rem+env(safe-area-inset-bottom,0px))]' : ''"
+    :style="pageStyle"
   >
     <!-- 状态栏高度占位（WebView 通过 query statusbar 注入，见 layouts/default） -->
     <!-- <div
@@ -358,10 +401,10 @@ useHead({
         </div>
         <Transition :name="`drawer-${isMobile ? 'bottom' : 'right'}`">
           <QhxBottomDrawer v-if="detail" :direction="isMobile ? 'bottom' : 'right'">
-            <div class="bg-qhx-bg-card">
+            <div>
               <div
                 v-if="detail.user"
-                class="mx-3 max-md:mx-0 mb-1 rounded-lg bg-qhx-bg-card/95 backdrop-blur-sm shadow-sm"
+                class="mx-3 max-md:mx-0 mb-1 rounded-lg bg-[color-mix(in_srgb,var(--card-color)_95%,transparent)] backdrop-blur-sm shadow-sm"
               >
                 <div class="flex items-center justify-between gap-3 p-2">
                   <UserInfo
@@ -395,7 +438,12 @@ useHead({
                   </button>
                   <NuxtLink
                     :to="`/community/edit/${detail.community_id}`"
-                    class="inline-flex items-center gap-0.5 px-2.5 py-1 text-xs font-medium rounded-full bg-qhx-primary text-qhx-inverted hover:bg-qhx-primaryHover transition-colors"
+                    class="inline-flex items-center gap-0.5 px-2.5 py-1 text-xs font-medium rounded-full transition-colors"
+                    :class="[
+                      !customStyle?.btnColor && 'bg-qhx-primary text-qhx-inverted hover:bg-qhx-primaryHover',
+                      customStyle?.btnColor && 'hover:opacity-90',
+                    ]"
+                    :style="customBtnStyle"
                   >
                     编辑
                   </NuxtLink>
@@ -426,7 +474,7 @@ useHead({
       </template>
 
       <template v-else>
-        <div v-if="detail" class="bg-qhx-bg-card rounded-lg shadow-lg flex max-md:block" :key="detail.community_id">
+        <div v-if="detail" class="rounded-lg shadow-lg flex max-md:block" :key="detail.community_id" :style="pageStyle">
           <div
             class="relative w-[700px] max-md:w-full p-3 aspect-[3/4] min-h-0"
             v-if="communityCarouselItems.length"
@@ -437,7 +485,7 @@ useHead({
               :autoplay="0"
               :arrows="false"
               indicators
-              root-class="!shadow-none rounded-lg bg-transparent h-full max-h-full [&_.qhx-carousel-track]:h-full [&_.qhx-carousel-slide]:h-full"
+              root-class="!shadow-none rounded-[18px] h-full max-h-full [&_.qhx-carousel-track]:h-full [&_.qhx-carousel-slide]:h-full"
             >
               <template #item="{ item }">
                 <img
@@ -449,7 +497,12 @@ useHead({
               </template>
             </QhxCarousel>
             <div
-              class="pointer-events-none absolute right-4 top-4 z-10 rounded-md bg-black/55 px-2 py-1 text-xs font-medium tabular-nums text-white shadow-sm backdrop-blur-[2px] max-md:right-3 max-md:top-3"
+              class="pointer-events-none absolute right-4 top-4 z-10 rounded-md px-2 py-1 text-xs font-medium tabular-nums shadow-sm backdrop-blur-[2px] max-md:right-3 max-md:top-3"
+              :class="[
+                !customStyle?.btnColor && 'bg-black/55 hover:bg-black/65 dark:bg-white/20 dark:hover:bg-white/30',
+                !customStyle?.btnFontColor && 'text-white',
+              ]"
+              :style="customBtnStyle"
               aria-live="polite"
               :title="`第 ${communityCarouselIndex + 1} 张，共 ${communityCarouselItems.length} 张`"
               :aria-label="`第 ${communityCarouselIndex + 1} 张，共 ${communityCarouselItems.length} 张`"
@@ -460,7 +513,7 @@ useHead({
           <div class="flex-1">
             <div
               v-if="detail.user"
-              class="mx-3 max-md:mx-1 mb-1 rounded-lg bg-qhx-bg-card/95 backdrop-blur-sm shadow-sm"
+              class="mx-3 max-md:mx-1 mb-1 rounded-lg bg-[color-mix(in_srgb,var(--card-color)_95%,transparent)] backdrop-blur-sm shadow-sm"
             >
               <div class="flex items-center justify-between gap-3 p-2">
                 <UserInfo
@@ -494,7 +547,12 @@ useHead({
                 </button>
                 <NuxtLink
                   :to="`/community/edit/${detail.community_id}`"
-                  class="inline-flex items-center gap-0.5 px-2.5 py-1 text-xs font-medium rounded-full bg-qhx-primary text-qhx-inverted hover:bg-qhx-primaryHover transition-colors"
+                  class="inline-flex items-center gap-0.5 px-2.5 py-1 text-xs font-medium rounded-full transition-colors"
+                  :class="[
+                    !customStyle?.btnColor && 'bg-qhx-primary text-qhx-inverted hover:bg-qhx-primaryHover',
+                    customStyle?.btnColor && 'hover:opacity-90',
+                  ]"
+                  :style="customBtnStyle"
                 >
                   编辑
                 </NuxtLink>
@@ -512,8 +570,8 @@ useHead({
           </div>
         </div>
 
-        <div v-if="detail" class="bg-qhx-bg-card rounded-lg shadow-lg mt-3">
-          <div class="bg-white">
+        <div v-if="detail" class="rounded-lg shadow-lg mt-3">
+          <div>
             <CommentSection
               :key="commentSectionKey"
               :type="'community'"
@@ -527,14 +585,14 @@ useHead({
       </template>
     </div>
 
-    <!-- 底部互动栏：内层与详情/评论区同 container 对齐（PC 与评论区同宽），纯色底 -->
+    <!-- 底部互动栏：内层与详情/评论区同 container 对齐（PC 与评论区同宽）；手机端半透明毛玻璃 -->
     <div
       v-if="detail"
-      class="fixed inset-x-0 bottom-0 z-[100]"
+      class="community-detail-bottom-bar-wrap max-md:bg-[rgba(255,255,255,0.2)] fixed inset-x-0 bottom-0 z-[100]"
     >
       <div class="container mx-auto px-4 pt-2 max-md:px-2">
         <div
-          class="rounded-t-lg border border-b-0 border-gray-200 bg-qhx-bg-card shadow-[0_-4px_20px_rgba(0,0,0,0.06)] px-3 py-2 max-md:px-2 max-md:rounded-none max-md:border-x-0"
+          class="community-detail-bottom-bar rounded-t-lg border border-b-0 border-gray-200 bg-qhx-bg-card shadow-[0_-4px_20px_rgba(0,0,0,0.06)] px-3 py-2 max-md:px-2 max-md:rounded-none max-md:border-x-0 max-md:border-gray-200/60 max-md:shadow-[0_-4px_16px_rgba(0,0,0,0.04)]"
         >
           <div class="flex items-center gap-2 sm:gap-4">
             <div class="flex shrink-0 items-center gap-3 text-gray-600 sm:gap-4">
@@ -550,6 +608,14 @@ useHead({
                 :collect_count="detail.collect_count ?? 0"
                 :need_judge="true"
               />
+              <div
+                class="flex items-center gap-1 text-gray-500"
+                title="浏览"
+                aria-label="浏览数"
+              >
+                <UIcon name="i-heroicons-eye" class="text-[22px] text-gray-500" />
+                <span class="min-w-[1ch] text-sm tabular-nums">{{ communityViewCount }}</span>
+              </div>
               <div
                 class="flex items-center gap-1 text-gray-500"
                 title="评论"
@@ -571,7 +637,7 @@ useHead({
             </div>
             <button
               type="button"
-              class="min-w-0 flex-1 rounded-full border border-gray-200 bg-white px-4 py-2.5 text-left text-sm text-gray-400 shadow-sm transition hover:border-qhx-primary/40 hover:bg-white focus:outline-none focus-visible:ring-2 focus-visible:ring-qhx-primary max-h-[44px]"
+              class="community-detail-bottom-comment min-w-0 flex-1 rounded-full border border-gray-200 bg-white px-4 py-2.5 text-left text-sm text-gray-400 shadow-sm transition hover:border-qhx-primary/40 hover:bg-white focus:outline-none focus-visible:ring-2 focus-visible:ring-qhx-primary max-h-[44px]"
               @click="openCommentComposer"
             >
               写评论…
@@ -626,6 +692,18 @@ useHead({
 @media (max-width: 767px) {
   .community-detail-page {
     padding-top: calc(0.5rem + env(safe-area-inset-top, 0px));
+  }
+
+  /* 底部互动栏：写死白色半透明，避免 bg-qhx-bg-card / Tailwind 透明度修饰符无效 */
+  .community-detail-bottom-bar {
+    background-color: rgba(255, 255, 255, 0.28) !important;
+    -webkit-backdrop-filter: blur(12px);
+    backdrop-filter: blur(12px);
+  }
+
+  .community-detail-bottom-comment {
+    background-color: rgba(255, 255, 255, 0.92);
+    border-color: rgba(229, 231, 235, 0.85);
   }
 }
 </style>

@@ -16,6 +16,7 @@ import { planComplete, deletePlanList } from '@/api/plan'
 import type ClothesAdd from '@/components/Clothes/ClothesAdd.vue'
 import PlanAddEdit from '@/components/Plan/PlanAddEdit.vue'
 import type QhxSelect from '@/components/Qhx/Select.vue'
+import type { optionsInterface } from '@/components/Qhx/Select.vue'
 import type SceneChoose from '@/components/scene/SceneChoose.vue'
 import WardrobeClothesChoose from '@/components/Wardrobe/WardrobeClothesChoose.vue'
 import ClothesFavoriteCoverOverlay from '@/components/Clothes/ClothesFavoriteCoverOverlay.vue'
@@ -88,12 +89,19 @@ const matchingCount = ref(0)
 
 // 组件引用
 const addEditClothesRef = ref<InstanceType<typeof ClothesAdd> | null>(null)
-const numSelectRef = ref<InstanceType<typeof QhxSelect> | null>(null)
-const timesSelectRef = ref<InstanceType<typeof QhxSelect> | null>(null)
+const wardrobeStatusSelectRef = ref<InstanceType<typeof QhxSelect> | null>(null)
 const SceneChooseRef = ref<InstanceType<typeof SceneChoose> | null>(null)
 const wardrobeClothesChooseRef = ref<InstanceType<typeof WardrobeClothesChoose> | null>(null)
 const linkClothesLoading = ref(false)
 const sharedLoading = ref(false)
+
+/** 关联服饰剩余可添加数量（上限 10） */
+const linkClothesRemainingSlots = computed(() => {
+  const count = detail.value?.include_clothes
+    ? detail.value.include_clothes.split(',').filter(Boolean).length
+    : 0
+  return Math.max(0, 10 - count)
+})
 
 // 数字选择器选项
 const numOptions = Array.from({ length: 100 }, (_, i) => ({
@@ -246,7 +254,7 @@ const scheduleMobileSwipeGuide = () => {
     showSwipeGuide.value = true
     const tHide = setTimeout(() => {
       showSwipeGuide.value = false
-    }, 4800)
+    }, 3000)
     swipeGuideTimers.push(tHide)
   }, 2000)
   swipeGuideTimers.push(tShow)
@@ -508,6 +516,57 @@ const updateTimes = async (times: number) => {
   }
 }
 
+/** 拥有状态：与 ClothesAdd / 衣柜批量改状态一致 */
+const wardrobe_status_defaults: optionsInterface[] = [
+  { value: '已拥有', label: '已拥有' },
+  { value: '待补款', label: '待补款' },
+  { value: '已出', label: '已出' },
+]
+const wardrobe_status_options = ref<optionsInterface[]>([...wardrobe_status_defaults])
+
+function refreshWardrobeStatusOptions() {
+  if (wardrobeStore.config?.wardrobe_status?.length) {
+    const fromConfig = wardrobeStore.config.wardrobe_status.map((child) => ({
+      value: child,
+      label: child,
+    }))
+    wardrobe_status_options.value = [
+      ...wardrobe_status_defaults,
+      ...fromConfig.filter((o) => !wardrobe_status_defaults.some((d) => d.label === o.label)),
+    ]
+  } else {
+    wardrobe_status_options.value = [...wardrobe_status_defaults]
+  }
+}
+
+const updateWardrobeStatus = async (wardrobe_status: string | null) => {
+  if (!detail.value || !isOwner.value) return
+  try {
+    await updateClothes({
+      clothes_id: detail.value.clothes_id,
+      wardrobe_status: wardrobe_status ?? undefined,
+    })
+    if (detail.value) {
+      detail.value.wardrobe_status = wardrobe_status ?? undefined
+    }
+  } catch (error) {
+    console.error('更新拥有状态失败:', error)
+  }
+}
+
+const onWardrobeStatusSelect = (select: optionsInterface) => {
+  void updateWardrobeStatus(select.label)
+}
+
+const openWardrobeStatusPicker = (e: MouseEvent) => {
+  refreshWardrobeStatusOptions()
+  wardrobeStatusSelectRef.value?.showPicker(e)
+}
+
+const clearWardrobeStatus = () => {
+  void updateWardrobeStatus(null)
+}
+
 // 跳转到图鉴详情
 const jumpToLibrary = (library: Library) => {
   router.push(`/library/detail/${library.library_id}`)
@@ -565,48 +624,68 @@ const exchangeRate = (shop_country: number | undefined, price: number | undefine
 
 // 打开关联服饰选择
 const openLinkClothesChoose = (e?: MouseEvent) => {
+  if (linkClothesRemainingSlots.value <= 0) {
+    toast.add({ title: '最多关联10条', icon: 'i-heroicons-exclamation-circle', color: 'red' })
+    return
+  }
   wardrobeClothesChooseRef.value?.showModel(e)
 }
 
-// 选择服饰后关联
-const handleLinkClothesChoose = async (clothes: WardrobeClothes) => {
-  if (!detail.value?.clothes_id || !clothes?.clothes_id || linkClothesLoading.value) return
-  if (clothes.clothes_id === detail.value.clothes_id) {
-    toast.add({ title: '不能关联自身', icon: 'i-heroicons-exclamation-circle', color: 'red' })
-    return
-  }
-  const currentInclude = detail.value.include_clothes ? detail.value.include_clothes.split(',') : []
-  if (currentInclude.includes(String(clothes.clothes_id))) {
-    toast.add({ title: '该服饰已关联', icon: 'i-heroicons-exclamation-circle', color: 'red' })
-    return
-  }
+// 多选服饰后批量关联
+const handleLinkClothesChoose = async (clothesList: WardrobeClothes[]) => {
+  if (!detail.value?.clothes_id || !clothesList.length || linkClothesLoading.value) return
+  const selfId = detail.value.clothes_id
+  const currentInclude = detail.value.include_clothes
+    ? detail.value.include_clothes.split(',').filter(Boolean)
+    : []
   if (currentInclude.length >= 10) {
     toast.add({ title: '最多关联10条', icon: 'i-heroicons-exclamation-circle', color: 'red' })
     return
   }
+  const remainingSlots = 10 - currentInclude.length
+  const toLink = clothesList.filter((c) => {
+    if (!c?.clothes_id) return false
+    if (c.clothes_id === selfId) return false
+    if (currentInclude.includes(String(c.clothes_id))) return false
+    return true
+  })
+  if (!toLink.length) {
+    toast.add({ title: '没有可关联的服饰', icon: 'i-heroicons-exclamation-circle', color: 'red' })
+    return
+  }
+  const actualLink = toLink.slice(0, remainingSlots)
+  if (actualLink.length < toLink.length) {
+    toast.add({
+      title: `最多再关联 ${remainingSlots} 条，已选取前 ${actualLink.length} 条`,
+      icon: 'i-heroicons-exclamation-circle',
+      color: 'amber'
+    })
+  }
   linkClothesLoading.value = true
   try {
-    // 自身：新增选中的 clothes_id 到 include_clothes
-    const selfIncludeClothes = detail.value.include_clothes
-      ? `${detail.value.include_clothes},${clothes.clothes_id}`
-      : String(clothes.clothes_id)
+    const newIds = actualLink.map((c) => String(c.clothes_id))
+    const selfIncludeClothes = [...currentInclude, ...newIds].join(',')
     await updateClothes({
-      clothes_id: detail.value.clothes_id,
+      clothes_id: selfId,
       include_clothes: selfIncludeClothes
     })
-    // 被关联对象：新增当前 clothes_id 到其 include_clothes
-    const otherIncludeClothes = clothes.include_clothes
-      ? `${clothes.include_clothes},${detail.value.clothes_id}`
-      : String(detail.value.clothes_id)
-    await updateClothes({
-      clothes_id: clothes.clothes_id,
-      include_clothes: otherIncludeClothes
-    })
+    for (const clothes of actualLink) {
+      const otherIncludeClothes = clothes.include_clothes
+        ? `${clothes.include_clothes},${selfId}`
+        : String(selfId)
+      await updateClothes({
+        clothes_id: clothes.clothes_id,
+        include_clothes: otherIncludeClothes
+      })
+      await addClothesCitation({ clothes_id: clothes.clothes_id }).catch(() => {})
+    }
     await fetchClothesDetail()
-    // 用户通过 include_clothes 引用他人服饰，增加被引用服饰的 citation_count
-    await addClothesCitation({ clothes_id: clothes.clothes_id }).catch(() => {})
-    toast.add({ title: '关联成功', icon: 'i-heroicons-check-circle', color: 'green' })
-  } catch (error) {
+    toast.add({
+      title: actualLink.length > 1 ? `成功关联 ${actualLink.length} 件服饰` : '关联成功',
+      icon: 'i-heroicons-check-circle',
+      color: 'green'
+    })
+  } catch {
     toast.add({ title: '关联失败', icon: 'i-heroicons-exclamation-circle', color: 'red' })
   } finally {
     linkClothesLoading.value = false
@@ -1229,7 +1308,18 @@ const showEditPlan = (e?: MouseEvent) => {
       @insert="onPlanAddSuccess"
       @updated="() => fetchClothesDetail()"
     />
-    <WardrobeClothesChoose ref="wardrobeClothesChooseRef" @choose="handleLinkClothesChoose" />
+    <WardrobeClothesChoose
+      ref="wardrobeClothesChooseRef"
+      multiple
+      :max-count="linkClothesRemainingSlots"
+      @choose-multiple="handleLinkClothesChoose"
+    />
+    <QhxSelect
+      ref="wardrobeStatusSelectRef"
+      :options="wardrobe_status_options"
+      :can-customize="true"
+      @select="onWardrobeStatusSelect"
+    />
 
     <Transition :name="slideTransitionName" mode="out-in">
     <div
@@ -1356,26 +1446,38 @@ const showEditPlan = (e?: MouseEvent) => {
                       </div>
                     </div>
 
-                    <!-- 状态 -->
-                    <div v-if="detail.wardrobe_status" class="text-sm">
-                      状态：{{ detail.wardrobe_status }}
+                    <!-- 拥有状态 -->
+                    <div v-if="isOwner || detail.wardrobe_status" class="flex flex-wrap items-center gap-2">
+                      <span class="text-sm shrink-0 text-gray-600 dark:text-gray-400">拥有状态：</span>
+                      <template v-if="isOwner">
+                        <button
+                          v-if="detail.wardrobe_status"
+                          type="button"
+                          class="cursor-pointer rounded-lg transition-opacity hover:opacity-80 focus:outline-none focus-visible:ring-2 focus-visible:ring-qhx-primary"
+                          @click="openWardrobeStatusPicker($event)"
+                        >
+                          <QhxTag :active="true">{{ detail.wardrobe_status }}</QhxTag>
+                        </button>
+                        <button v-else type="button" :class="favoriteNeuMiniBtn" @click="openWardrobeStatusPicker($event)">
+                          选择状态
+                        </button>
+                        <button
+                          v-if="detail.wardrobe_status"
+                          type="button"
+                          :class="favoriteNeuMiniBtn"
+                          @click="clearWardrobeStatus"
+                        >
+                          清空
+                        </button>
+                      </template>
+                      <span v-else class="text-sm">{{ detail.wardrobe_status }}</span>
                     </div>
 
                     <!-- 拥有数量 -->
                     <div v-if="detail.num !== undefined && detail.num !== null" class="flex items-center gap-2">
                       <span class="text-sm">拥有数量：</span>
                       <div v-if="isOwner" class="flex items-center gap-2">
-                        <UInput v-model.number="detail.num" type="number" :min="1" class="w-20"
-                          @blur="updateNum(detail.num || 1)" :ui="{
-                            base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
-                            rounded: 'rounded-full',
-                            padding: { xs: 'px-4 py-2' },
-                            color: {
-                              white: {
-                                outline: 'bg-gray-50 dark:bg-gray-800 ring-1 ring-gray-300 dark:ring-gray-600 focus:ring-2 focus:ring-qhx-primary'
-                              }
-                            }
-                          }" />
+                        <QhxNumberStepper v-model="detail.num" :min="1" @change="updateNum" />
                       </div>
                       <span v-else class="text-sm">{{ detail.num }}</span>
                     </div>
@@ -1403,17 +1505,7 @@ const showEditPlan = (e?: MouseEvent) => {
                     <div v-if="detail.times !== undefined && detail.times !== null" class="flex items-center gap-2">
                       <span class="text-sm">穿着次数：</span>
                       <div v-if="isOwner" class="flex items-center gap-2">
-                        <UInput v-model.number="detail.times" type="number" :min="0" class="w-20"
-                          @blur="updateTimes(detail.times || 0)" :ui="{
-                            base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
-                            rounded: 'rounded-full',
-                            padding: { xs: 'px-4 py-2' },
-                            color: {
-                              white: {
-                                outline: 'bg-gray-50 dark:bg-gray-800 ring-1 ring-gray-300 dark:ring-gray-600 focus:ring-2 focus:ring-qhx-primary'
-                              }
-                            }
-                          }" />
+                        <QhxNumberStepper v-model="detail.times" :min="0" @change="updateTimes" />
                       </div>
                       <span v-else class="text-sm">{{ detail.times }}</span>
                     </div>
@@ -1952,26 +2044,38 @@ const showEditPlan = (e?: MouseEvent) => {
                       </div>
                     </div>
 
-                    <!-- 状态 -->
-                    <div v-if="detail.wardrobe_status" class="text-sm">
-                      状态：{{ detail.wardrobe_status }}
+                    <!-- 拥有状态 -->
+                    <div v-if="isOwner || detail.wardrobe_status" class="flex flex-wrap items-center gap-2">
+                      <span class="text-sm shrink-0 text-gray-600 dark:text-gray-400">拥有状态：</span>
+                      <template v-if="isOwner">
+                        <button
+                          v-if="detail.wardrobe_status"
+                          type="button"
+                          class="cursor-pointer rounded-lg transition-opacity hover:opacity-80 focus:outline-none focus-visible:ring-2 focus-visible:ring-qhx-primary"
+                          @click="openWardrobeStatusPicker($event)"
+                        >
+                          <QhxTag :active="true">{{ detail.wardrobe_status }}</QhxTag>
+                        </button>
+                        <button v-else type="button" :class="favoriteNeuMiniBtn" @click="openWardrobeStatusPicker($event)">
+                          选择状态
+                        </button>
+                        <button
+                          v-if="detail.wardrobe_status"
+                          type="button"
+                          :class="favoriteNeuMiniBtn"
+                          @click="clearWardrobeStatus"
+                        >
+                          清空
+                        </button>
+                      </template>
+                      <span v-else class="text-sm">{{ detail.wardrobe_status }}</span>
                     </div>
 
                     <!-- 拥有数量 -->
                     <div v-if="detail.num !== undefined && detail.num !== null" class="flex items-center gap-2">
                       <span class="text-sm">拥有数量：</span>
                       <div v-if="isOwner" class="flex items-center gap-2">
-                        <UInput v-model.number="detail.num" type="number" :min="1" class="w-20"
-                          @blur="updateNum(detail.num || 1)" :ui="{
-                            base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
-                            rounded: 'rounded-full',
-                            padding: { xs: 'px-4 py-2' },
-                            color: {
-                              white: {
-                                outline: 'bg-gray-50 dark:bg-gray-800 ring-1 ring-gray-300 dark:ring-gray-600 focus:ring-2 focus:ring-qhx-primary'
-                              }
-                            }
-                          }" />
+                        <QhxNumberStepper v-model="detail.num" :min="1" @change="updateNum" />
                       </div>
                       <span v-else class="text-sm">{{ detail.num }}</span>
                     </div>
@@ -1999,17 +2103,7 @@ const showEditPlan = (e?: MouseEvent) => {
                     <div v-if="detail.times !== undefined && detail.times !== null" class="flex items-center gap-2">
                       <span class="text-sm">穿着次数：</span>
                       <div v-if="isOwner" class="flex items-center gap-2">
-                        <UInput v-model.number="detail.times" type="number" :min="0" class="w-20"
-                          @blur="updateTimes(detail.times || 0)" :ui="{
-                            base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
-                            rounded: 'rounded-full',
-                            padding: { xs: 'px-4 py-2' },
-                            color: {
-                              white: {
-                                outline: 'bg-gray-50 dark:bg-gray-800 ring-1 ring-gray-300 dark:ring-gray-600 focus:ring-2 focus:ring-qhx-primary'
-                              }
-                            }
-                          }" />
+                        <QhxNumberStepper v-model="detail.times" :min="0" @change="updateTimes" />
                       </div>
                       <span v-else class="text-sm">{{ detail.times }}</span>
                     </div>

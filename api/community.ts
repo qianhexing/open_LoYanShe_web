@@ -79,6 +79,8 @@ export interface CommunityInterface {
   display_badge?: string
   /** 社区内开放范围：0 正式居民可见，1 开放，2 仅自己可见 */
   is_open?: number
+  /** 自定义主题 JSON 对象 */
+  custom_style?: Record<string, unknown>
 }
 
 export interface UpdateCommunityParams extends CommunityInterface {

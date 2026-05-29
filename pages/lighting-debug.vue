@@ -54,7 +54,7 @@ useHead({
 })
 
 // 初始化Three.js场景
-const initThreeScene = () => {
+const initThreeScene = async () => {
   if (!sceneContainer.value) return
   
   // 创建ThreeCore实例
@@ -70,10 +70,10 @@ const initThreeScene = () => {
   })
   
   // 挂载到容器
-  threeCore.value.mount(sceneContainer.value)
+  await threeCore.value.mount(sceneContainer.value)
   
   // 启动动画循环
-  threeCore.value.startAnimationLoop()
+  await threeCore.value.startAnimationLoop()
   
   // 添加一些初始模型用于测试光影
   addTestSphere()

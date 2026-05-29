@@ -158,7 +158,7 @@ onUnmounted(() => {
 })
 
 // --- Initialization ---
-function initThree() {
+async function initThree() {
   if (!canvasContainer.value) return
 
   const rect = canvasContainer.value.getBoundingClientRect()
@@ -177,7 +177,7 @@ function initThree() {
     clearColor: 0x000000
   })
 
-  core.mount(canvasContainer.value)
+  await core.mount(canvasContainer.value)
   scene = core.scene
   scene.background = new THREE.Color(0xfdf2f5) 
   
@@ -235,7 +235,7 @@ function initThree() {
     updatePageBending()
   })
 
-  core.startAnimationLoop()
+  await core.startAnimationLoop()
 }
 
 // --- Book Logic ---

@@ -8,6 +8,7 @@
       :initial-img-list="detail.img_list ?? null"
       :initial-type="detail.type ?? '日常交流'"
       :initial-is-open="detail.is_open ?? 1"
+      :initial-custom-style="detail.custom_style ?? null"
       skip-summary-link
     />
   </ClientOnly>

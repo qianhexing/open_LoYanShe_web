@@ -2,6 +2,7 @@ import qhxCore, { type CameraState } from '@/utils/threeCore';
 import * as THREE from 'three';
 import { getSceneId } from '@/api/scene'
 import type { DiaryInterface, LibraryInterface, LaxianInterface } from '@/types/sence'
+import { isSceneObjectEffectivelyVisible } from '@/utils/sceneSteps'
 import type { Scene } from '@/types/api'
 
 export const useSceneCore = () => {
@@ -40,6 +41,14 @@ export const useSceneCore = () => {
         baseUrl: '' // BASE_IMG
     })
 
+    /** 点击带关联的模型时由页面处理（如 QhxModal 详情），返回 true 则不再走默认选中 */
+    let onLinkedObjectPick:
+        | ((obj: THREE.Object3D, ev: MouseEvent | TouchEvent) => boolean)
+        | null = null
+    let onSceneStepGroupingPick:
+        | ((obj: THREE.Object3D, ev: MouseEvent | TouchEvent) => boolean)
+        | null = null
+
     const updateDiaryAndLibraryLists = () => {
         if (!threeCore.value) return
 
@@ -51,6 +60,7 @@ export const useSceneCore = () => {
         if (threeCore.value.loadedDiary && threeCore.value.loadedDiary.length > 0) {
             // biome-ignore lint/complexity/noForEach: <explanation>
             threeCore.value.loadedDiary.forEach((diary) => {
+                if (!isSceneObjectEffectivelyVisible(diary.object)) return
                 const position = threeCore.value!.screenPositionFromObject(diary.object)
                 diary_list.push({ 
                     object: diary.object, 
@@ -67,6 +77,7 @@ export const useSceneCore = () => {
         if (threeCore.value.loadedLibrary && threeCore.value.loadedLibrary.length > 0) {
             // biome-ignore lint/complexity/noForEach: <explanation>
             threeCore.value.loadedLibrary.forEach((library) => {
+                if (!library.object || !isSceneObjectEffectivelyVisible(library.object)) return
                 const position = threeCore.value!.screenPositionFromObject(library.object)
                 library_list.push({ 
                     object: library.object, 
@@ -95,6 +106,7 @@ export const useSceneCore = () => {
             // biome-ignore lint/complexity/noForEach: <explanation>
             threeCore.value.loadedLaxian.forEach((laxian) => {
                 if (!laxian.object) return
+                if (!isSceneObjectEffectivelyVisible(laxian.object)) return
                 const core = threeCore.value!
                 const rawPos = core.screenPositionFromObject(laxian.object)
                 // 镜头与点位重叠时投影可能返回 NaN/Infinity，使用屏幕中心作为 fallback
@@ -132,6 +144,13 @@ export const useSceneCore = () => {
         console.log('点击对象', obj)
         // console.log('点击', obj)
         if (obj) {
+            if (onSceneStepGroupingPick?.(obj, ev)) {
+                if (doubleClickTimer.value) {
+                    clearTimeout(doubleClickTimer.value)
+                    doubleClickTimer.value = null
+                }
+                return
+            }
             if (doubleClickTimer.value) {
                 clearTimeout(doubleClickTimer.value)
                 doubleClickTimer.value = null
@@ -141,27 +160,36 @@ export const useSceneCore = () => {
                     return
                 }
             }
+            if (onSceneStepGroupingPick?.(obj, ev)) {
+                return
+            }
+            if (onLinkedObjectPick?.(obj, ev)) {
+                return
+            }
             if (clickObject.value && clickObject.value[0].uuid === obj.uuid) {
                 // console.log('点到同一个目标')
                 return
             }
+            clickObject.value = [obj]
+            operaPosition.value = threeCore.value.screenPositionFromObject(obj)
             if (config.editMode) {
-                threeCore.value.transformControls.attach(obj)
-                // setMode('translate') // 需要外部处理或者传入回调
-                threeCore.value.showbloom = false
+                // 延后挂载 Gizmo，避免与 Bloom 通道同一事件帧内改场景导致闪屏
+                const target = obj
+                requestAnimationFrame(() => {
+                    const core = threeCore.value
+                    if (!core || clickObject.value?.[0]?.uuid !== target.uuid) return
+                    core.transformControls.attach(target)
+                })
             }
             doubleClickTimer.value = setTimeout(() => {
                 doubleClickTimer.value = null
             }, 300)
-            clickObject.value = [obj]
-            operaPosition.value = threeCore.value.screenPositionFromObject(obj)
 
         } else if (threeCore.value.gizmo?.dragging) {
             // dragging logic
         } else {
             if (config.editMode) {
                 threeCore.value.transformControls.detach()
-                threeCore.value.showbloom = true
             }
             clickObject.value = null
         }
@@ -199,24 +227,51 @@ export const useSceneCore = () => {
         sceneData?: Scene | null,
         enableAR?: boolean,
         enableRaycaster?: boolean
+        graphicsSettings?: {
+            antialias: boolean
+            pixelRatio: number
+            mobilePerfCap: boolean
+        }
+        /** 场景详情等页面可显式开启 WebGPU 主渲染 */
+        preferWebGPU?: boolean
+        /** 二次元/高饱和色彩（NeutralToneMapping + 贴图 sRGB 同步） */
+        colorStyle?: 'pbr' | 'anime'
+        /** 点击带关联模型（浏览态弹详情等） */
+        onLinkedObjectPick?: (
+            obj: THREE.Object3D,
+            ev: MouseEvent | TouchEvent
+        ) => boolean
+        /** 分组模式：点击场景物体加入当前分组，返回 true 则拦截默认选中/关联等行为 */
+        onSceneStepGroupingPick?: (
+            obj: THREE.Object3D,
+            ev: MouseEvent | TouchEvent
+        ) => boolean
     }) => {
         console.log('initScene', options.editMode)
         sceneLoading.value = true
         sceneLoadError.value = null
         config.editMode = options.editMode
         config.baseUrl = options.baseUrl
-
+        onLinkedObjectPick = options.onLinkedObjectPick ?? null
+        onSceneStepGroupingPick = options.onSceneStepGroupingPick ?? null
         try {
+            const gfx = options.graphicsSettings
             const core = new qhxCore({
                 enableCSS3DRenderer: true,
                 alpha: true,
                 editMode: options.editMode,
                 enableAR: options.enableAR,
-                enableRaycaster: options.enableRaycaster
+                enableRaycaster: options.enableRaycaster,
+                preferWebGPU: options.preferWebGPU ?? false,
+                colorStyle: options.colorStyle ?? 'pbr',
+                antialias: gfx?.antialias ?? true,
+                pixelRatio: gfx?.pixelRatio,
+                mobilePerfCap: gfx?.mobilePerfCap ?? true
             })
             threeCore.value = core
-            
-            core.mount(container)
+
+            await core.whenRendererReady()
+            await core.mount(container)
             
             if (options.enableAR) {
                 await core.initAR()
@@ -263,7 +318,7 @@ export const useSceneCore = () => {
             container.addEventListener('pointermove', _onPointerMove)
             container.addEventListener('pointerup', _onPointerUp)
 
-            core.startAnimationLoop()
+            await core.startAnimationLoop()
             core.addAnimationFunc = () => { updateDiaryAndLibraryLists() }
 
             // 控制器变化时更新拉线点遮挡缓存（避免每帧调用 isOccluded）

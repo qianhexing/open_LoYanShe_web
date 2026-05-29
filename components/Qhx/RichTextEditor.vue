@@ -238,6 +238,7 @@
         <WardrobeChoose ref="wardrobeChooseRef" :multiple="false" @choose="onWardrobeInternalLinkChosen" :user_id="userStore.user?.user_id" />
         <WikiOptionsChoose ref="wikiOptionsChooseRef" @choose="onWikiInternalLinkChosen" />
         <ShopChoose ref="shopChooseRef" :multiple="false" @choose="onShopInternalLinkChosen" />
+        <SceneChoose ref="sceneChooseRef" :multiple="false" @choose="onSceneInternalLinkChosen" />
       </div>
     </ClientOnly>
   </div>
@@ -269,7 +270,8 @@ import LibraryChoose from '@/components/library/LibraryChoose.vue'
 import WikiOptionsChoose from '@/components/wiki/wikiOptionsChoose.vue'
 import ShopChoose from '@/components/shop/ShopChoose.vue'
 import WardrobeChoose from '@/components/Wardrobe/WardrobeChoose.vue'
-import type { Community, Library, Shop, User, Wardrobe } from '@/types/api'
+import SceneChoose from '@/components/scene/SceneChoose.vue'
+import type { Community, Library, Scene, Shop, User, Wardrobe } from '@/types/api'
 
 /** 工具栏按钮；传 `toolbar` 时仅渲染列表中的项（不传则粗体/斜体/删除线默认显示，其余由 enable* 控制） */
 export type RichTextToolbarItem =
@@ -397,9 +399,10 @@ const libraryChooseRef = ref<InstanceType<typeof LibraryChoose> | null>(null)
 const wardrobeChooseRef = ref<InstanceType<typeof WardrobeChoose> | null>(null)
 const wikiOptionsChooseRef = ref<InstanceType<typeof WikiOptionsChoose> | null>(null)
 const shopChooseRef = ref<InstanceType<typeof ShopChoose> | null>(null)
+const sceneChooseRef = ref<InstanceType<typeof SceneChoose> | null>(null)
 
 /** 站内链接第一步：可选类型（按需在此数组末尾追加一项即可扩展） */
-type RichTextInternalLinkKind = 'community' | 'library' | 'wardrobe' | 'shop' | 'wiki'
+type RichTextInternalLinkKind = 'community' | 'library' | 'wardrobe' | 'shop' | 'wiki' | 'scene'
 
 const internalLinkPickerOptions = [
   {
@@ -436,6 +439,13 @@ const internalLinkPickerOptions = [
     subtitle: '链到百科词条详情',
     icon: 'material-symbols:import-contacts-rounded',
     iconBg: 'bg-pink-500 dark:bg-pink-600',
+  },
+  {
+    kind: 'scene' as const,
+    title: '场景',
+    subtitle: '链到场景详情页',
+    icon: 'material-symbols:scatter-plot-rounded',
+    iconBg: 'bg-indigo-500 dark:bg-indigo-600',
   },
 ] satisfies readonly { kind: RichTextInternalLinkKind; title: string; subtitle: string; icon: string; iconBg: string }[]
 
@@ -889,6 +899,9 @@ function pickInternalLinkKind(kind: RichTextInternalLinkKind, e: MouseEvent) {
       case 'wiki':
         wikiOptionsChooseRef.value?.showModel({}, e)
         break
+      case 'scene':
+        sceneChooseRef.value?.showModel(e)
+        break
     }
   })
 }
@@ -920,6 +933,14 @@ const onShopInternalLinkChosen = (list: Shop[]) => {
   if (!item?.shop_id) return
   const href = `/shop/detail/${item.shop_id}`
   insertEditorLink(href, (item.shop_name ?? '').trim() || '店铺')
+}
+
+const onSceneInternalLinkChosen = (list: Scene[]) => {
+  const item = list[0]
+  const id = item?.sence_id
+  if (id == null || !Number.isFinite(Number(id))) return
+  const label = (item.sence_desc ?? '').trim() || '场景'
+  insertEditorLink(`/scene/detail/${id}`, label)
 }
 
 const onWikiInternalLinkChosen = (list: { wiki_id?: number | string; wiki_name?: string }[]) => {

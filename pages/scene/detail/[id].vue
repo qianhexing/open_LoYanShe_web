@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { CameraState, SceneObjectJSON, SceneJSON } from '@/utils/threeCore';
+import { sceneStepLabel, pruneSceneObjectIdFromSteps, resolveStepGroupRoot, labelForStepGroupRoot, isSceneStepContentRoot } from '@/utils/sceneSteps';
 import type ThreeCore from '@/utils/threeCore';
 import * as THREE from 'three';
 import { updateScene, insertScene, getSceneId } from '@/api/scene'
@@ -8,6 +9,8 @@ import { insertCommunity } from '@/api/community'
 import type { DiaryInterface, LibraryInterface } from '@/types/sence'
 import type SceneMaterial from '@/components/scene/Material.vue'
 import type SceneTextureEditor from '@/components/scene/TextureEditor.vue'
+import type SceneAnimationEditor from '@/components/scene/SceneAnimationEditor.vue'
+import { isAnimatableSceneObject } from '@/composables/useSceneObjectAnimation'
 import type QhxColorPicker from '@/components/Qhx/ColorPicker.vue'
 import { useSceneStore } from '@/stores/sence'
 import { useConfigStore } from '@/stores/config'
@@ -15,10 +18,35 @@ import { createFont } from '~/api';
 import { uploadFileToOSS } from '@/utils/ossUpload';
 import { useSceneCore } from '@/composables/useSceneCore';
 import { useSceneUndo, type TransformState } from '@/composables/useSceneUndo';
-import YearlySummaryPostModal from '@/components/yearlySummary/PostModal.vue';
+import CommunityPostModal from '@/components/community/CommunityPostModal.vue';
+import SceneViewCube from '@/components/scene/SceneViewCube.vue';
+import SceneStepEditor from '@/components/scene/SceneStepEditor.vue';
+import SceneObjectLinkModal from '@/components/scene/SceneObjectLinkModal.vue';
+import SceneObjectLinkDetailModal from '@/components/scene/SceneObjectLinkDetailModal.vue';
+import type QhxStepGuide from '@/components/Qhx/StepGuide.vue';
+import { useSceneEditGuide } from '@/composables/useSceneEditGuide';
+import type { SceneEditGuidePanelKey, SceneEditGuideStep } from '@/utils/sceneEditGuide';
+import {
+    cloneSceneObjectLinks,
+    collectSceneObjectsWithLinks,
+    getLinkBadgeScreenPosition,
+    getSceneObjectLinks,
+    hasSceneObjectLinks,
+    isLinkableSceneObject,
+    setSceneObjectLinks,
+    type SceneObjectLink
+} from '@/utils/sceneObjectLink';
 import { BASE_IMG_MODEL as BASE_IMG } from '@/utils/ipConfig';
 import { CharacterTypeController } from '@/utils/characterTypeController';
 import type { CharacterTypeConfig } from '@/utils/characterTypeController';
+import {
+    loadSceneGraphicsSettings,
+    resolveRendererPixelRatio,
+    saveSceneGraphicsSettings,
+    settingsFromPreset,
+    type SceneGraphicsPreset
+} from '@/utils/sceneGraphicsSettings';
+import { isGltfGlbModelMaterial, isSplatMaterial } from '@/utils/materiaModelKind';
 // @ts-ignore - 缺少类型定义
 import InfiniteGridHelper from '@plackyfantacky/three.infinitegridhelper';
 
@@ -56,7 +84,20 @@ const roleControllers = ref<CharacterTypeController[]>([])
 /** 左侧独立「动画」面板展开（与右侧列表块一致，与功能栏分离） */
 const roleAnimationListExpanded = ref(false)
 const showRoleAnimation = () => {
-    roleAnimationListExpanded.value = !roleAnimationListExpanded.value
+    closeSceneStepGroupingIfOpen()
+    const wasExpanded = roleAnimationListExpanded.value
+    materialListExpanded.value = false
+    clothingListExpanded.value = false
+    sceneListExpanded.value = false
+    effectListExpanded.value = false
+    templateListExpanded.value = false
+    customListExpanded.value = false
+    textureListExpanded.value = false
+    if (!wasExpanded) {
+        roleAnimationListExpanded.value = true
+    } else {
+        roleAnimationListExpanded.value = false
+    }
 }
 type SceneRoleAnimationEntry = {
     key: string
@@ -271,7 +312,7 @@ const rehydrateSceneCharacterControllers = () => {
 }
 
 /** 角色演示用 GLB（相对 BASE_IMG 的路径） */
-const ROLE_DEMO_GLB_PATH = 'material/02c37fb4069cdb8bd346de657e1adf6c.glb'
+const ROLE_DEMO_GLB_PATH = 'material/4954a62cd251a643fba9dd3761a28359.glb'
 
 /**
  * 加载固定路径的角色示例：按 glTF 内 clip 顺序，第 1 个为主站立、其余为扩展（在左侧「动画」中切换；播完回主站立）
@@ -303,7 +344,7 @@ const loadRoleDemoGlb = async () => {
         if (!clips?.length) {
             const p = getScreenCenter()
             mesh.position.set(p.x, p.y, p.z)
-            threeCore.value.scene.add(mesh)
+            stampAndAddSceneObject(mesh)
             loadedRoleModelUrls.add(modelUrl)
             toast.add({
                 title: '角色示例',
@@ -331,7 +372,7 @@ const loadRoleDemoGlb = async () => {
         mesh.position.set(screen.x, screen.y, screen.z)
         mesh.userData.type = 'character'
         threeCore.value.setOptionsModel(mesh, { characterType: config })
-        threeCore.value.scene.add(mesh)
+        stampAndAddSceneObject(mesh)
         if (threeCore.value.renderer?.domElement && threeCore.value.camera) {
             const ctrl = new CharacterTypeController({
                 core: threeCore.value,
@@ -364,6 +405,11 @@ const loadRoleDemoGlb = async () => {
 let uni: any;
 
 // 判断是否可替换贴图
+const canObjectAnimation = computed(() => {
+    if (!clickObject.value?.length) return false
+    return isAnimatableSceneObject(clickObject.value[0])
+})
+
 const canTexture = computed(() => {
     let flag = false
     if (clickObject.value && clickObject.value.length > 0) {
@@ -379,14 +425,39 @@ const canTexture = computed(() => {
 const MaterialRef = ref<InstanceType<typeof SceneMaterial> | null>(null)
 const SceneTextureEditorRef = ref<InstanceType<typeof SceneTextureEditor> | null>(null)
 
+/** 页面 DOM 背景（响应式；threeCore 为 shallowRef，直接改其 background 不会触发视图更新） */
+const scenePageBackground = ref<string | null>(null)
+
+function syncScenePageBackgroundFromCore() {
+    scenePageBackground.value = threeCore.value?.background ?? null
+}
+
 /** 贴图编辑器默认底图：与根容器背景一致，纯色 color: 不设底图；兼容已是绝对 URL */
 const textureEditorDefaultImageUrl = computed(() => {
-    const bg = threeCore.value?.background
+    const bg = scenePageBackground.value
     if (!bg || typeof bg !== 'string') return ''
     const trimmed = bg.trim()
     if (!trimmed || trimmed.startsWith('color:')) return ''
     if (/^https?:\/\//i.test(trimmed)) return trimmed
     return `${BASE_IMG}${trimmed.replace(/^\//, '')}`
+})
+
+/** 场景页背景：图片/纯色均走 DOM，WebGL 保持透明（避免 scene.background 盖住背面透明图） */
+const scenePageBackgroundStyle = computed(() => {
+    const bg = scenePageBackground.value
+    if (!bg || typeof bg !== 'string') {
+        return { backgroundSize: 'cover' as const }
+    }
+    if (bg.startsWith('color:')) {
+        return {
+            background: bg.slice('color:'.length),
+            backgroundSize: 'cover' as const
+        }
+    }
+    return {
+        background: `url(${BASE_IMG}${bg})`,
+        backgroundSize: 'cover' as const
+    }
 })
 
 const route = useRoute()
@@ -403,8 +474,34 @@ const toast = useToast()
 const userStore = useUserStore()
 const clickPosition = ref({ x: 0, y: 0 })
 const target: Ref<THREE.Mesh | null> = ref(null)
+/** GSAP 物体动效编辑器目标（顶层场景对象） */
+const animationTarget: Ref<THREE.Object3D | null> = ref(null)
+const SceneAnimationEditorRef = ref<InstanceType<typeof SceneAnimationEditor> | null>(null)
 const transformType = ref('translate')
-const showToolbar = ref(true) // 控制工具栏显示/隐藏
+const showToolbar = ref(Boolean(route.query?.edit || route.query?.add)) // 非编辑模式默认收起
+watch([edit_mode, add_mode], ([edit, add]) => {
+    if (!edit && !add) {
+        showToolbar.value = false
+    }
+})
+
+const {
+    showGuide: showSceneEditGuide,
+    guideSteps: sceneEditGuideSteps,
+    guideStorageKey: sceneEditGuideStorageKey,
+    onGuideStepChange,
+    registerGuideLayoutHandlers,
+    replayGuide: replaySceneEditGuide
+} = useSceneEditGuide({
+    editMode: edit_mode,
+    addMode: add_mode,
+    sceneLoading
+})
+const sceneEditGuideRef = ref<InstanceType<typeof QhxStepGuide> | null>(null)
+/** 编辑模式或场景中已有角色时显示左侧「角色」面板 */
+const showRoleAnimationPanel = computed(
+    () => (edit_mode.value || add_mode.value) || sceneRoleAnimationTree.value.length > 0
+)
 // 六个独立的悬浮列表展开状态，互不联动，但同时只展开一个
 const materialListExpanded = ref(false)
 const clothingListExpanded = ref(false)
@@ -414,6 +511,205 @@ const templateListExpanded = ref(false)
 const customListExpanded = ref(false)
 /** 左侧「贴图」面板（动画下方）：列出所有名称含 replace 的可替换 Mesh */
 const textureListExpanded = ref(false)
+/** 左侧「分组」面板：多场景 step 编辑 */
+const sceneStepListExpanded = ref(false)
+/** 分组模式：不隐藏物体，点击场景物体加入当前激活分组 */
+const sceneStepGroupingMode = ref(false)
+/** 分组编辑时临时隐藏的分组索引（同时仅允许一个） */
+const hiddenGroupingStepIndex = ref<number | null>(null)
+const sceneStepEditorRef = ref<InstanceType<typeof SceneStepEditor> | null>(null)
+
+function applyGroupingStepVisibility() {
+    const core = threeCore.value
+    if (!core || !sceneStepGroupingMode.value) return
+    core.applyGroupingStepHidden(hiddenGroupingStepIndex.value)
+    refreshSceneStepHighlights()
+}
+
+function exitSceneStepGroupingMode() {
+    sceneStepGroupingMode.value = false
+    hiddenGroupingStepIndex.value = null
+    threeCore.value?.transformControls.detach()
+    clickObject.value = null
+    if (!edit_mode.value && !add_mode.value && threeCore.value?.hasSceneSteps()) {
+        currentSceneStepIndex.value = threeCore.value.applySceneStep(
+            currentSceneStepIndex.value
+        )
+    } else {
+        threeCore.value?.showAllStepManagedObjects()
+    }
+    refreshSceneStepHighlights()
+}
+
+function enterSceneStepGroupingMode() {
+    sceneStepGroupingMode.value = true
+    hiddenGroupingStepIndex.value = null
+    ensureSceneObjectIdsForSteps()
+    threeCore.value?.showAllStepManagedObjects()
+    threeCore.value?.transformControls.detach()
+    clickObject.value = null
+    if (threeCore.value && threeCore.value.sceneSteps.length === 0) {
+        threeCore.value.sceneSteps = [{ id: [] }]
+        currentSceneStepIndex.value = 0
+    }
+    bumpSceneObjectRevision()
+    refreshSceneStepHighlights()
+    threeCore.value?.applySceneStepCamera(currentSceneStepIndex.value, { animate: false })
+}
+
+function closeSceneStepGroupingIfOpen() {
+    if (!sceneStepListExpanded.value) return
+    sceneStepListExpanded.value = false
+    exitSceneStepGroupingMode()
+}
+
+function handleGroupingScenePick(obj: THREE.Object3D): boolean {
+    if (!sceneStepGroupingMode.value || !threeCore.value) return false
+    const root = resolveStepGroupRoot(obj, threeCore.value.scene)
+    if (!root) {
+        toast.add({
+            title: '无法加入分组',
+            description: '请点选场景中的模型、图片或点云',
+            color: 'amber'
+        })
+        return true
+    }
+    if (!root.userData.id) {
+        threeCore.value.assignSceneObjectId(root)
+    }
+    const ok = sceneStepEditorRef.value?.addObjectFromSceneObject(root) ?? false
+    if (ok) {
+        toast.add({
+            title: '已加入当前分组',
+            description: labelForStepGroupRoot(root),
+            color: 'green'
+        })
+        bumpSceneObjectRevision()
+        applyGroupingStepVisibility()
+    }
+    return true
+}
+
+type GuidePanelsSnapshot = {
+    showToolbar: boolean
+    roleAnimationListExpanded: boolean
+    textureListExpanded: boolean
+    sceneStepListExpanded: boolean
+    materialListExpanded: boolean
+    clothingListExpanded: boolean
+    sceneListExpanded: boolean
+    effectListExpanded: boolean
+    templateListExpanded: boolean
+    customListExpanded: boolean
+}
+
+let guidePanelsSnapshot: GuidePanelsSnapshot | null = null
+
+function collapseAllGuideSideLists() {
+    roleAnimationListExpanded.value = false
+    textureListExpanded.value = false
+    sceneStepListExpanded.value = false
+    materialListExpanded.value = false
+    clothingListExpanded.value = false
+    sceneListExpanded.value = false
+    effectListExpanded.value = false
+    templateListExpanded.value = false
+    customListExpanded.value = false
+}
+
+function expandGuidePanel(panel: SceneEditGuidePanelKey) {
+    collapseAllGuideSideLists()
+    switch (panel) {
+        case 'role':
+            roleAnimationListExpanded.value = true
+            break
+        case 'texture':
+            textureListExpanded.value = true
+            break
+        case 'material':
+            materialListExpanded.value = true
+            break
+        case 'clothing':
+            clothingListExpanded.value = true
+            break
+        case 'scene':
+            sceneListExpanded.value = true
+            break
+        case 'effect':
+            effectListExpanded.value = true
+            break
+        case 'template':
+            templateListExpanded.value = true
+            break
+        case 'custom':
+            customListExpanded.value = true
+            break
+    }
+}
+
+function captureGuidePanelsSnapshot() {
+    guidePanelsSnapshot = {
+        showToolbar: showToolbar.value,
+        roleAnimationListExpanded: roleAnimationListExpanded.value,
+        textureListExpanded: textureListExpanded.value,
+        sceneStepListExpanded: sceneStepListExpanded.value,
+        materialListExpanded: materialListExpanded.value,
+        clothingListExpanded: clothingListExpanded.value,
+        sceneListExpanded: sceneListExpanded.value,
+        effectListExpanded: effectListExpanded.value,
+        templateListExpanded: templateListExpanded.value,
+        customListExpanded: customListExpanded.value
+    }
+}
+
+function restoreGuidePanelsSnapshot() {
+    const snap = guidePanelsSnapshot
+    if (!snap) return
+    showToolbar.value = snap.showToolbar
+    roleAnimationListExpanded.value = snap.roleAnimationListExpanded
+    textureListExpanded.value = snap.textureListExpanded
+    sceneStepListExpanded.value = snap.sceneStepListExpanded
+    materialListExpanded.value = snap.materialListExpanded
+    clothingListExpanded.value = snap.clothingListExpanded
+    sceneListExpanded.value = snap.sceneListExpanded
+    effectListExpanded.value = snap.effectListExpanded
+    templateListExpanded.value = snap.templateListExpanded
+    customListExpanded.value = snap.customListExpanded
+    guidePanelsSnapshot = null
+}
+
+function applySceneGuideStepLayout(step: SceneEditGuideStep) {
+    const layout = step.layout
+    if (!layout) return
+
+    if (layout.collapseAllLists) {
+        collapseAllGuideSideLists()
+        const shouldCollapseToolbar =
+            layout.collapseToolbar !== false && !layout.expandToolbar
+        if (shouldCollapseToolbar) {
+            showToolbar.value = false
+        }
+    }
+    if (layout.expandToolbar) {
+        showToolbar.value = true
+    }
+    if (layout.expandPanel) {
+        expandGuidePanel(layout.expandPanel)
+    }
+}
+
+function scheduleSceneGuideLayoutRefresh() {
+    sceneEditGuideRef.value?.refreshLayout()
+}
+
+registerGuideLayoutHandlers({
+    onOpen: captureGuidePanelsSnapshot,
+    onClose: restoreGuidePanelsSnapshot,
+    onStep: (step) => {
+        applySceneGuideStepLayout(step)
+        scheduleSceneGuideLayoutRefresh()
+    }
+})
 
 /** 遍历场景顶层子树，收集全部可替换贴图网格（与悬浮条「贴图」判定一致） */
 function collectReplaceTextureMeshes(scene: THREE.Scene): THREE.Mesh[] {
@@ -513,7 +809,6 @@ async function pickReplaceMeshFromTextureToolbar(mesh: THREE.Mesh) {
     if (!root) return
 
     core.transformControls.attach(root)
-    core.showbloom = false
     clickObject.value = [root]
     operaPosition.value = core.screenPositionFromObject(root)
     core.lookAtSelectObj([root])
@@ -562,25 +857,182 @@ const showTexture = async () => {
 
     await openTextureEditorForMesh(found)
 }
-const copyModel = async () => {
-    if (!threeCore.value) return
-    if (clickObject.value && clickObject.value.length > 0) {
-        if (clickObject.value[0].userData.url) {
-            if (clickObject.value[0].userData.type === 'model') {
-                const mesh = await threeCore.value.loadModel(clickObject.value[0].userData.url)
-                if (clickObject.value[0].userData.options) {
-                    threeCore.value.setOptionsModel(mesh, clickObject.value[0].userData.options)
-                }
-                threeCore.value.scene.add(mesh)
-                bumpTextureReplaceableScan()
-            }
-        }
-    }
+
+async function flushAnimationEditorMount() {
+    await nextTick()
+    await nextTick()
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
 }
+
+async function openAnimationEditorForObject(obj: THREE.Object3D) {
+    if (animationTarget.value) {
+        animationTarget.value = null
+        await flushAnimationEditorMount()
+    }
+    animationTarget.value = obj
+    await flushAnimationEditorMount()
+    SceneAnimationEditorRef.value?.showPanel()
+}
+
+const showObjectAnimation = async () => {
+    if (!clickObject.value?.length || !threeCore.value) return
+    const root = clickObject.value[0]
+    if (!isAnimatableSceneObject(root)) return
+    await openAnimationEditorForObject(root)
+}
+
+const copySceneObject = async () => {
+    if (!threeCore.value) return
+    if (!clickObject.value?.length) return
+    const source = clickObject.value[0]
+    const t = source.userData.type
+    if (!source.userData.url) return
+
+    if (t === 'image') {
+        const mesh = await threeCore.value.loadImageMesh(source.userData.url)
+        if (source.userData.follow) {
+            mesh.userData.follow = true
+        }
+        mesh.position.copy(source.position)
+        mesh.rotation.copy(source.rotation)
+        mesh.scale.copy(source.scale)
+        stampAndAddSceneObject(mesh)
+        bumpTextureReplaceableScan()
+        return
+    }
+
+    if (t !== 'model' && t !== 'character') return
+
+    const mesh = await threeCore.value.loadModel(source.userData.url)
+    if (source.userData.options) {
+        threeCore.value.setOptionsModel(mesh, source.userData.options)
+    }
+    const links = cloneSceneObjectLinks(getSceneObjectLinks(source))
+    if (links?.length) {
+        mesh.userData.links = links
+    }
+    mesh.position.copy(source.position)
+    mesh.rotation.copy(source.rotation)
+    mesh.scale.copy(source.scale)
+    stampAndAddSceneObject(mesh)
+    bumpTextureReplaceableScan()
+}
+
+const sceneObjectLinkModalRef = ref<InstanceType<typeof SceneObjectLinkModal> | null>(null)
+const sceneLinkDetailModalRef = ref<InstanceType<typeof SceneObjectLinkDetailModal> | null>(null)
+
+const openSceneLinkDetailModal = (
+    obj: THREE.Object3D,
+    ev?: MouseEvent | TouchEvent
+) => {
+    const links = getSceneObjectLinks(obj)
+    if (!links.length) return
+    const pos = (() => {
+        if (ev && 'clientX' in ev) {
+            return { x: ev.clientX, y: ev.clientY }
+        }
+        if (ev && 'changedTouches' in ev && ev.changedTouches[0]) {
+            const t = ev.changedTouches[0]
+            return { x: t.clientX, y: t.clientY }
+        }
+        return undefined
+    })()
+    sceneLinkDetailModalRef.value?.open(links, pos)
+}
+
+const onLinkBadgeClick = (uuid: string, ev: MouseEvent) => {
+    const core = threeCore.value
+    if (!core) return
+    const obj = core.scene.children.find(c => c.uuid === uuid)
+    if (!obj) return
+    openSceneLinkDetailModal(obj, ev)
+}
+
+const sceneOwnerUserId = computed(() => {
+    const uid = detail.value?.user_id
+    return typeof uid === 'number' && uid > 0 ? uid : userStore.user?.user_id ?? 0
+})
+
+const canEditObjectLinks = computed(() => {
+    if (!(edit_mode.value || add_mode.value)) return false
+    const obj = clickObject.value?.[0]
+    return obj ? isLinkableSceneObject(obj) : false
+})
+
+const openObjectLinkEditor = () => {
+    const obj = clickObject.value?.[0]
+    if (!obj) return
+    sceneObjectLinkModalRef.value?.show(getSceneObjectLinks(obj))
+}
+
+const onObjectLinksSave = (links: SceneObjectLink[]) => {
+    const obj = clickObject.value?.[0]
+    if (!obj) return
+    setSceneObjectLinks(obj, links)
+    updateLinkBadgeMarkers()
+    toast.add({
+        title: links.length ? '关联已保存' : '已清除关联',
+        icon: 'i-heroicons-check-circle',
+        color: 'green'
+    })
+}
+
+/** 关联模型屏幕角标（包围盒右上投影） */
+type SceneLinkBadgeMarker = {
+    uuid: string
+    count: number
+    x: number
+    y: number
+}
+
+const linkBadgeMarkers = ref<SceneLinkBadgeMarker[]>([])
+let linkBadgeAnimCb: (() => void) | null = null
+
+const updateLinkBadgeMarkers = () => {
+    const core = threeCore.value
+    if (!import.meta.client || !core?.camera) {
+        linkBadgeMarkers.value = []
+        return
+    }
+    const canvas = core.renderer.domElement
+    const rect = canvas.getBoundingClientRect()
+    if (rect.width <= 0 || rect.height <= 0) {
+        linkBadgeMarkers.value = []
+        return
+    }
+    const markers: SceneLinkBadgeMarker[] = []
+    for (const obj of collectSceneObjectsWithLinks(core.scene)) {
+        const screen = getLinkBadgeScreenPosition(obj, core.camera, {
+            width: rect.width,
+            height: rect.height
+        })
+        if (!screen?.visible) continue
+        const count = getSceneObjectLinks(obj).length
+        if (count <= 0) continue
+        markers.push({
+            uuid: obj.uuid,
+            count,
+            x: rect.left + screen.x,
+            y: rect.top + screen.y
+        })
+    }
+    linkBadgeMarkers.value = markers
+}
+
+const detachLinkBadgeAnimCb = () => {
+    const core = threeCore.value
+    if (!core || !linkBadgeAnimCb) return
+    const idx = core.animationCallbacks.indexOf(linkBadgeAnimCb)
+    if (idx >= 0) core.animationCallbacks.splice(idx, 1)
+    linkBadgeAnimCb = null
+}
+
 const deleteModel = () => {
     if (!threeCore.value) return
     if (clickObject.value && clickObject.value.length > 0) {
         const toRemove = clickObject.value[0]
+        const removedObjectId =
+            typeof toRemove.userData?.id === 'string' ? toRemove.userData.id : ''
         if (toRemove.userData.type === 'diary') {
             const index = threeCore.value.loadedDiary.findIndex((child) => {
                 return clickObject.value && child.object.uuid === toRemove.uuid
@@ -589,6 +1041,10 @@ const deleteModel = () => {
                 threeCore.value.loadedDiary.splice(index, 1)
             }
         }
+        threeCore.value.killObjectGsapAnimations(toRemove)
+        if (animationTarget.value?.uuid === toRemove.uuid) {
+            animationTarget.value = null
+        }
         const evictUrl = detachRoleControllerForObject(toRemove)
         threeCore.value.clearGroup(toRemove)
         if (evictUrl) {
@@ -596,7 +1052,17 @@ const deleteModel = () => {
         }
         clickObject.value = null
         threeCore.value.transformControls.detach()
-        threeCore.value.showbloom = true
+        if (removedObjectId && threeCore.value.hasSceneSteps()) {
+            pruneSceneObjectIdFromSteps(threeCore.value.sceneSteps, removedObjectId)
+            if (!sceneStepGroupingMode.value && !(edit_mode.value || add_mode.value)) {
+                currentSceneStepIndex.value = threeCore.value.applySceneStep(
+                    currentSceneStepIndex.value
+                )
+            }
+            syncSceneStepUi()
+            sceneStepEditorRef.value?.syncFromCore()
+        }
+        bumpSceneObjectRevision()
         bumpTextureReplaceableScan()
     }
 }
@@ -675,6 +1141,7 @@ const resetCamera = (index: number) => {
 
 // 每个按钮独立控制其列表：点击展开时收起其它，点击已展开的则收起
 const showMaterial = () => {
+    closeSceneStepGroupingIfOpen()
     const wasExpanded = materialListExpanded.value
     materialListExpanded.value = false
     clothingListExpanded.value = false
@@ -683,9 +1150,11 @@ const showMaterial = () => {
     templateListExpanded.value = false
     customListExpanded.value = false
     textureListExpanded.value = false
+    roleAnimationListExpanded.value = false
     if (!wasExpanded) materialListExpanded.value = true
 }
 const showClothing = () => {
+    closeSceneStepGroupingIfOpen()
     const wasExpanded = clothingListExpanded.value
     materialListExpanded.value = false
     clothingListExpanded.value = false
@@ -694,9 +1163,11 @@ const showClothing = () => {
     templateListExpanded.value = false
     customListExpanded.value = false
     textureListExpanded.value = false
+    roleAnimationListExpanded.value = false
     if (!wasExpanded) clothingListExpanded.value = true
 }
 const showScene = () => {
+    closeSceneStepGroupingIfOpen()
     const wasExpanded = sceneListExpanded.value
     materialListExpanded.value = false
     clothingListExpanded.value = false
@@ -705,9 +1176,11 @@ const showScene = () => {
     templateListExpanded.value = false
     customListExpanded.value = false
     textureListExpanded.value = false
+    roleAnimationListExpanded.value = false
     if (!wasExpanded) sceneListExpanded.value = true
 }
 const showEffect = () => {
+    closeSceneStepGroupingIfOpen()
     const wasExpanded = effectListExpanded.value
     materialListExpanded.value = false
     clothingListExpanded.value = false
@@ -716,9 +1189,11 @@ const showEffect = () => {
     templateListExpanded.value = false
     customListExpanded.value = false
     textureListExpanded.value = false
+    roleAnimationListExpanded.value = false
     if (!wasExpanded) effectListExpanded.value = true
 }
 const showTemplate = () => {
+    closeSceneStepGroupingIfOpen()
     const wasExpanded = templateListExpanded.value
     materialListExpanded.value = false
     clothingListExpanded.value = false
@@ -727,9 +1202,11 @@ const showTemplate = () => {
     templateListExpanded.value = false
     customListExpanded.value = false
     textureListExpanded.value = false
+    roleAnimationListExpanded.value = false
     if (!wasExpanded) templateListExpanded.value = true
 }
 const showCustom = () => {
+    closeSceneStepGroupingIfOpen()
     const wasExpanded = customListExpanded.value
     materialListExpanded.value = false
     clothingListExpanded.value = false
@@ -738,9 +1215,11 @@ const showCustom = () => {
     templateListExpanded.value = false
     customListExpanded.value = false
     textureListExpanded.value = false
+    roleAnimationListExpanded.value = false
     if (!wasExpanded) customListExpanded.value = true
 }
 const showTextureList = () => {
+    closeSceneStepGroupingIfOpen()
     const wasExpanded = textureListExpanded.value
     materialListExpanded.value = false
     clothingListExpanded.value = false
@@ -749,7 +1228,27 @@ const showTextureList = () => {
     templateListExpanded.value = false
     customListExpanded.value = false
     textureListExpanded.value = false
+    roleAnimationListExpanded.value = false
     if (!wasExpanded) textureListExpanded.value = true
+}
+
+const showSceneStepList = () => {
+    const wasExpanded = sceneStepListExpanded.value
+    materialListExpanded.value = false
+    clothingListExpanded.value = false
+    sceneListExpanded.value = false
+    effectListExpanded.value = false
+    templateListExpanded.value = false
+    customListExpanded.value = false
+    textureListExpanded.value = false
+    roleAnimationListExpanded.value = false
+    if (!wasExpanded) {
+        sceneStepListExpanded.value = true
+        enterSceneStepGroupingMode()
+    } else {
+        sceneStepListExpanded.value = false
+        exitSceneStepGroupingMode()
+    }
 }
 
 const showSettings = ref(false)
@@ -797,6 +1296,39 @@ const cameraTypeOptions = [
     { label: '正交', value: 'orthographic' }
 ]
 
+const sceneGraphicsPreset = ref<SceneGraphicsPreset>(
+    loadSceneGraphicsSettings().preset
+)
+const graphicsPresetOptions = [
+    { label: '省电', value: 'performance' },
+    { label: '均衡', value: 'balanced' },
+    { label: '高清', value: 'high' }
+]
+
+const onGraphicsPresetChange = (preset: string) => {
+    const next = settingsFromPreset(preset as SceneGraphicsPreset)
+    if (next.preset === sceneGraphicsPreset.value) return
+    saveSceneGraphicsSettings(next)
+    if (import.meta.client) {
+        window.location.reload()
+    }
+}
+
+function ensureSceneObjectIdsForSteps() {
+    const core = threeCore.value
+    if (!core) return
+    const roots =
+        core.options.enableAR && core.arContentGroup
+            ? core.arContentGroup.children
+            : core.scene.children
+    for (const child of roots) {
+        if (!isSceneStepContentRoot(child)) continue
+        if (!child.userData?.id) {
+            core.assignSceneObjectId(child)
+        }
+    }
+}
+
 const openSettings = (e: MouseEvent) => {
     clickPosition.value = {
         x: e.clientX + 50,
@@ -804,7 +1336,7 @@ const openSettings = (e: MouseEvent) => {
     }
 
     if (threeCore.value?.renderer) {
-        if (threeCore.value.renderer.shadowMap.enabled) {
+        if (threeCore.value.isShadowMapEnabled()) {
             // 如果开启，保持当前的 shadowQuality 或者默认为 high
             if (!settingsState.shadowQuality || settingsState.shadowQuality === 'off') {
                 settingsState.shadowQuality = 'high'
@@ -855,7 +1387,7 @@ const changeShadowQuality = (val: string) => {
     if (!threeCore.value || !threeCore.value.renderer) return
 
     if (val === 'off') {
-        threeCore.value.renderer.shadowMap.enabled = false
+        threeCore.value.setShadowMapEnabled(false)
         // 强制更新
         threeCore.value.scene.traverse((child) => {
             if ((child as any).isMesh && (child as any).material) {
@@ -869,8 +1401,8 @@ const changeShadowQuality = (val: string) => {
             }
         })
     } else {
-        if (!threeCore.value.renderer.shadowMap.enabled) {
-            threeCore.value.renderer.shadowMap.enabled = true
+        if (!threeCore.value.isShadowMapEnabled()) {
+            threeCore.value.setShadowMapEnabled(true)
             // 开启时也需要强制更新材质
             threeCore.value.scene.traverse((child) => {
                 if ((child as any).isMesh && (child as any).material) {
@@ -947,6 +1479,186 @@ const lightMenuPosition = ref({ x: 0, y: 0 })
 const currentLightPreset = ref('default')
 
 const showPostModal = ref(false)
+const showMoreMenu = ref(false)
+const moreMenuPosition = ref({ x: 0, y: 0 })
+
+const openMoreMenu = (e: MouseEvent) => {
+    moreMenuPosition.value = {
+        x: e.clientX + 50,
+        y: e.clientY
+    }
+    showMoreMenu.value = true
+}
+
+const openScenePostFromMenu = () => {
+    showMoreMenu.value = false
+    showPostModal.value = true
+}
+
+const handleSceneShareFromMenu = async () => {
+    showMoreMenu.value = false
+    await handleShare()
+}
+
+const replaySceneEditGuideFromMenu = () => {
+    showMoreMenu.value = false
+    replaySceneEditGuide()
+}
+
+const showSceneSettings = ref(false)
+const allowCopyUpdating = ref(false)
+
+const openSceneSettingsFromMenu = () => {
+    showMoreMenu.value = false
+    showSceneSettings.value = true
+}
+
+const hasSceneOrigin = computed(() => {
+    const origin = detail.value?.json_data?.origin
+    return typeof origin === 'number' && Number.isFinite(origin) && origin > 0
+})
+
+const updateSceneAllowCopy = async (val: boolean) => {
+    const sid = Number.parseInt(id, 10)
+    if (!Number.isFinite(sid) || sid <= 0 || !detail.value) return
+    if (allowCopyUpdating.value) return
+    if (val && hasSceneOrigin.value) {
+        toast.add({
+            title: '无法开启',
+            description: '由其他场景克隆而来的场景不可再被克隆',
+            icon: 'i-heroicons-exclamation-circle',
+            color: 'orange'
+        })
+        return
+    }
+
+    const value = val ? 1 : 0
+    allowCopyUpdating.value = true
+    try {
+        await updateScene({ sence_id: sid, allow_copy: value })
+        detail.value.allow_copy = value
+        toast.add({
+            title: '修改成功',
+            icon: 'i-heroicons-check-circle',
+            color: 'green'
+        })
+    } catch (error) {
+        console.error('更新场景设置失败:', error)
+        toast.add({
+            title: '修改失败',
+            icon: 'i-heroicons-exclamation-circle',
+            color: 'red'
+        })
+    } finally {
+        setTimeout(() => {
+            allowCopyUpdating.value = false
+        }, 300)
+    }
+}
+
+const cloneSceneLoading = ref(false)
+const showCloneSceneConfirm = ref(false)
+
+/** allow_copy：0 不允许，1 允许（接口可能返回字符串） */
+function isSceneAllowCopyEnabled(allowCopy?: number | string | null) {
+    return Number(allowCopy) === 1
+}
+
+const sceneAllowCopyEnabled = computed(() => isSceneAllowCopyEnabled(detail.value?.allow_copy))
+
+const isSceneOwner = computed(
+    () => detail.value != null && userStore.user?.user_id === detail.value.user_id
+)
+
+const canCloneScene = computed(() => {
+    if (!detail.value || id === '0') return false
+    if (hasSceneOrigin.value) return false
+    if (!sceneAllowCopyEnabled.value) return false
+    const json = detail.value.json_data
+    return json != null && Array.isArray(json.objects)
+})
+
+const showSceneCloneAction = computed(
+    () => detail.value != null && canCloneScene.value
+)
+
+const showSceneOwnerActions = computed(
+    () => detail.value != null && !isFromIframeEmbed.value && isSceneOwner.value
+)
+
+function openCloneSceneConfirm() {
+    if (!userStore.user?.user_id) {
+        toast.add({
+            title: '请先登录',
+            description: '登录后可克隆场景到自己的账号',
+            icon: 'i-heroicons-exclamation-circle',
+            color: 'orange'
+        })
+        return
+    }
+    const sourceId = Number.parseInt(id, 10)
+    if (!Number.isFinite(sourceId) || sourceId <= 0 || !detail.value?.json_data) return
+    if (!canCloneScene.value) return
+    if (cloneSceneLoading.value || loading.value) return
+    showCloneSceneConfirm.value = true
+}
+
+const cloneScene = async (): Promise<boolean> => {
+    if (!userStore.user?.user_id) {
+        toast.add({
+            title: '请先登录',
+            description: '登录后可克隆场景到自己的账号',
+            icon: 'i-heroicons-exclamation-circle',
+            color: 'orange'
+        })
+        return false
+    }
+    const sourceId = Number.parseInt(id, 10)
+    if (!Number.isFinite(sourceId) || sourceId <= 0 || !detail.value?.json_data) return false
+    if (!canCloneScene.value) return false
+    if (cloneSceneLoading.value || loading.value) return false
+
+    cloneSceneLoading.value = true
+    try {
+        const json_data = JSON.parse(JSON.stringify(detail.value.json_data)) as SceneJSON
+        json_data.origin = sourceId
+        const res = await insertScene({ json_data })
+        toast.add({
+            title: '克隆成功',
+            description: '正在打开新场景',
+            icon: 'i-heroicons-check-circle',
+            color: 'green'
+        })
+        showCloneSceneConfirm.value = false
+        await navigateTo(`/scene/detail/${res.sence_id}?edit=1`)
+        return true
+    } catch (error) {
+        console.error('克隆场景失败:', error)
+        toast.add({
+            title: '克隆失败',
+            icon: 'i-heroicons-x-circle',
+            color: 'red'
+        })
+        return false
+    } finally {
+        cloneSceneLoading.value = false
+    }
+}
+
+async function confirmCloneScene() {
+    await cloneScene()
+}
+
+const scenePostForeignPk = computed(() => {
+    const sid = Number.parseInt(id, 10)
+    if (!Number.isFinite(sid)) return undefined
+    return { pk_id: sid, pk_type: 3 }
+})
+
+const scenePostSenceId = computed(() => {
+    const sid = Number.parseInt(id, 10)
+    return Number.isFinite(sid) ? sid : undefined
+})
 
 const showLongTextModal = ref(false)
 const longTextContent = ref('')
@@ -1084,9 +1796,13 @@ const updateLongTextObject = async () => {
 
                 // 添加新 mesh 到原父节点或场景
                 if (parent) {
+                    threeCore.value.assignSceneObjectId(
+                        newMesh,
+                        obj.userData.id as string | undefined
+                    )
                     parent.add(newMesh)
                 } else {
-                    threeCore.value.scene.add(newMesh)
+                    stampAndAddSceneObject(newMesh, obj.userData.id as string | undefined)
                 }
                 // setTimeout(() => {
                 //     clickObject.value = [newMesh]
@@ -1144,18 +1860,20 @@ const selectBackground = () => {
 const selectSolidColorBackground = () => {
     showImageMenu.value = false
     if (colorPickerRef.value) {
-        colorPickerRef.value.showModel()
+        const bg = threeCore.value?.background
+        const initial =
+            typeof bg === 'string' && bg.startsWith('color:') ? bg.slice('color:'.length) : undefined
+        colorPickerRef.value.showModel(undefined, initial)
     }
 }
 
-// 设置纯色背景
+// 设置纯色背景（仅 DOM + background 字段，不写入 scene.background，与图片背景一致）
 const setSolidColorBackground = (color: string) => {
     if (!threeCore.value) return
-    // 将颜色字符串转换为 THREE.Color
-    const threeColor = new THREE.Color(color)
-    threeCore.value.scene.background = threeColor
-    // 保存颜色值到 background（使用特殊格式 color:#ffffff 以便区分图片背景）
-    threeCore.value.background = `color:${color}`
+    threeCore.value.scene.background = null
+    const value = `color:${color}`
+    threeCore.value.background = value
+    scenePageBackground.value = value
 }
 
 // 灯光预设配置
@@ -1355,7 +2073,7 @@ const confirmLongText = async () => {
         // 放到当前视图中心
         const center = getScreenCenter()
         mesh.position.set(center.x, center.y, center.z)
-        threeCore.value.scene.add(mesh)
+        stampAndAddSceneObject(mesh)
 
         // 关闭弹窗并清空内容
         showLongTextModal.value = false
@@ -1390,7 +2108,7 @@ const addDiary = async (form) => {
         type: 'diary'
     })
     mesh.position.set(0, 0, 0)
-    threeCore.value.scene.add(mesh)
+    stampAndAddSceneObject(mesh)
 }
 const clearTemplate = () => {
     if (!threeCore.value) return
@@ -1428,26 +2146,105 @@ const getScreenCenter = () => {
     threeCore.value.camera.getWorldPosition(screenCenter)
     return threeCore.value.controls.target.clone()
 }
+
+/** 写入稳定 userData.id 后加入场景；savedId 用于恢复已保存对象（如编辑长文本） */
+const stampAndAddSceneObject = (obj: THREE.Object3D, savedId?: string) => {
+    if (!threeCore.value) return
+    threeCore.value.assignSceneObjectId(obj, savedId)
+    threeCore.value.scene.add(obj)
+    if (threeCore.value.hasSceneSteps() && !sceneStepGroupingMode.value && !(edit_mode.value || add_mode.value)) {
+        threeCore.value.applySceneStep(threeCore.value.currentStepIndex)
+    }
+    bumpSceneObjectRevision()
+}
+
+const currentSceneStepIndex = ref(0)
+/** 编辑模式下全览：不按分组隐藏物体，顶部不选中任一阶段 */
+const sceneStepShowAll = ref(false)
+const sceneObjectRevision = ref(0)
+
+function bumpSceneObjectRevision() {
+    sceneObjectRevision.value += 1
+}
+
+function shouldShowSceneStepHighlights(): boolean {
+    if (!threeCore.value?.hasSceneSteps()) return false
+    if (!edit_mode.value && !add_mode.value) return false
+    return sceneStepGroupingMode.value
+}
+
+function refreshSceneStepHighlights() {
+    const core = threeCore.value
+    if (!core) return
+    if (!shouldShowSceneStepHighlights()) {
+        core.clearStepGroupHighlights()
+        return
+    }
+    core.syncStepGroupHighlights(currentSceneStepIndex.value)
+}
+
+watchEffect(() => {
+    void sceneObjectRevision.value
+    void currentSceneStepIndex.value
+    void sceneStepGroupingMode.value
+    void hiddenGroupingStepIndex.value
+    void edit_mode.value
+    void add_mode.value
+    if (!threeCore.value) return
+    if (sceneStepGroupingMode.value) {
+        applyGroupingStepVisibility()
+    } else {
+        refreshSceneStepHighlights()
+    }
+})
+
+function syncSceneStepUi() {
+    const core = threeCore.value
+    if (!core) return
+    // 分组编辑模式下以面板 activeIndex 为准，勿用 core.currentStepIndex 覆盖（后者未随分组切换更新）
+    if (sceneStepGroupingMode.value) return
+    currentSceneStepIndex.value = core.currentStepIndex
+}
+
+function enterSceneStepOverview() {
+    const core = threeCore.value
+    if (!core?.hasSceneSteps()) return
+    if (sceneStepShowAll.value) return
+    sceneStepShowAll.value = true
+    core.showAllStepManagedObjects()
+    clickObject.value = null
+    core.transformControls.detach()
+    showRoleDialog.value = false
+    clearRoleDialogTimer()
+    bumpTextureReplaceableScan()
+    updateLinkBadgeMarkers()
+}
+
+const switchSceneStep = (index: number) => {
+    const core = threeCore.value
+    if (!core?.hasSceneSteps()) return
+    if (!sceneStepShowAll.value && index === currentSceneStepIndex.value) return
+    sceneStepShowAll.value = false
+    const animate = !(edit_mode.value || add_mode.value)
+    currentSceneStepIndex.value = core.applySceneStep(index, { animate })
+    clickObject.value = null
+    core.transformControls.detach()
+    showRoleDialog.value = false
+    clearRoleDialogTimer()
+    bumpTextureReplaceableScan()
+    updateLinkBadgeMarkers()
+    refreshSceneStepHighlights()
+}
+
+const onSceneStepEditorChange = () => {
+    syncSceneStepUi()
+    applyGroupingStepVisibility()
+}
 const chooseMaterial = async (item: Material) => {
     if (!threeCore.value) return
-    if (item.pk_type === 1) {
-        sceneStore.setLoading(true)
-        const mesh = await threeCore.value.loadModel(BASE_IMG + item.materia_url, { useDracoLoader: item.options?.useDracoLoader ? item.options.useDracoLoader : true, dracoDecoderPath: '/draco/gltf/' })
-
-        console.log(mesh, '对象')
-        const screenCenter = getScreenCenter()
-        mesh.position.set(screenCenter.x, screenCenter.y, screenCenter.z)
-        if (item.options) {
-            threeCore.value.setOptionsModel(mesh, item.options)
-        }
-        sceneStore.setLoading(false)
-        // setTimeout(() => {
-        //     threeCore.value!.lookAtSelectObj([mesh])
-        // });
-
-        threeCore.value.scene.add(mesh)
-        bumpTextureReplaceableScan()
-    } else if (item.pk_type === 3) {
+    const isModel = isGltfGlbModelMaterial(item)
+    const isSplat = isSplatMaterial(item)
+    if (isSplat) {
         sceneStore.setLoading(true)
         try {
             // 判断是否射线模式，如果不是则切换至射线模式
@@ -1477,7 +2274,7 @@ const chooseMaterial = async (item: Material) => {
             group.userData.materia_id = item.materia_id
             
             // 添加到场景
-            threeCore.value.scene.add(group)
+            stampAndAddSceneObject(group)
             
             // 调整相机视角
             // setTimeout(() => {
@@ -1495,92 +2292,103 @@ const chooseMaterial = async (item: Material) => {
         } finally {
             sceneStore.setLoading(false)
         }
-    } else if (item.pk_type === 5) {
-        const isModel =
-            item.options?.assetKind === 'model'
-            || /\.(glb|gltf)(\?|#|$)/i.test(item.materia_url)
+    } else if (isModel) {
         sceneStore.setLoading(true)
         try {
             const screenCenter = getScreenCenter()
-            if (isModel) {
-                const modelUrl = BASE_IMG + item.materia_url
-                const rawCt = item.options?.characterType as CharacterTypeConfig | undefined
-                const hasCharacterType = Boolean(
-                    rawCt
-                    && typeof rawCt.stand?.primary === 'string'
-                    && rawCt.stand.primary.length > 0
-                )
-                if (hasCharacterType && loadedRoleModelUrls.has(modelUrl)) {
+            const modelUrl = BASE_IMG + item.materia_url
+            const rawCt = item.options?.characterType as CharacterTypeConfig | undefined
+            const hasCharacterType = Boolean(
+                rawCt
+                && typeof rawCt.stand?.primary === 'string'
+                && rawCt.stand.primary.length > 0
+            )
+            if (hasCharacterType && loadedRoleModelUrls.has(modelUrl)) {
+                if (process.client) {
+                    toast.add({
+                        title: '角色',
+                        description: '该模型已作为角色加载，请勿重复添加',
+                        color: 'amber'
+                    })
+                }
+                return
+            }
+            const mesh = await threeCore.value.loadModel(modelUrl, {
+                useDracoLoader: item.options?.useDracoLoader !== false,
+                dracoDecoderPath: '/draco/gltf/',
+                ...(hasCharacterType ? { skipDefaultAnimations: true } : {})
+            })
+            mesh.position.set(screenCenter.x, screenCenter.y, screenCenter.z)
+            if (item.options) {
+                threeCore.value.setOptionsModel(mesh, item.options)
+            }
+            if (hasCharacterType) {
+                mesh.userData.type = 'character'
+            }
+            stampAndAddSceneObject(mesh)
+            if (
+                hasCharacterType
+                && rawCt
+                && threeCore.value.renderer?.domElement
+                && threeCore.value.camera
+            ) {
+                try {
+                    const config: CharacterTypeConfig = {
+                        ...rawCt,
+                        extras: Array.isArray(rawCt.extras) ? rawCt.extras : []
+                    }
+                    const ctrl = new CharacterTypeController({
+                        core: threeCore.value,
+                        root: mesh,
+                        modelUrl,
+                        config
+                    })
+                    ctrl.attachClick(
+                        threeCore.value.renderer.domElement,
+                        threeCore.value.camera
+                    )
+                    ctrl.setOnClick((ctx) => {
+                        openRoleDialogue(config, ctx.controller.root)
+                    })
+                    roleControllers.value.push(ctrl)
+                    loadedRoleModelUrls.add(modelUrl)
+                } catch (roleErr) {
+                    console.error('[characterType] 初始化失败', roleErr)
                     if (process.client) {
                         toast.add({
-                            title: '角色',
-                            description: '该模型已作为角色加载，请勿重复添加',
+                            title: '角色动画',
+                            description: '动作配置与模型不匹配，请检查 clip 名称',
                             color: 'amber'
                         })
                     }
-                    return
                 }
-                const mesh = await threeCore.value.loadModel(modelUrl, {
-                    useDracoLoader: item.options?.useDracoLoader !== false,
-                    dracoDecoderPath: '/draco/gltf/',
-                    ...(hasCharacterType ? { skipDefaultAnimations: true } : {})
-                })
-                mesh.position.set(screenCenter.x, screenCenter.y, screenCenter.z)
-                if (item.options) {
-                    threeCore.value.setOptionsModel(mesh, item.options)
-                }
-                if (hasCharacterType) {
-                    mesh.userData.type = 'character'
-                }
-                threeCore.value.scene.add(mesh)
-                if (
-                    hasCharacterType
-                    && rawCt
-                    && threeCore.value.renderer?.domElement
-                    && threeCore.value.camera
-                ) {
-                    try {
-                        const config: CharacterTypeConfig = {
-                            ...rawCt,
-                            extras: Array.isArray(rawCt.extras) ? rawCt.extras : []
-                        }
-                        const ctrl = new CharacterTypeController({
-                            core: threeCore.value,
-                            root: mesh,
-                            modelUrl,
-                            config
-                        })
-                        ctrl.attachClick(
-                            threeCore.value.renderer.domElement,
-                            threeCore.value.camera
-                        )
-                        ctrl.setOnClick((ctx) => {
-                            openRoleDialogue(config, ctx.controller.root)
-                        })
-                        roleControllers.value.push(ctrl)
-                        loadedRoleModelUrls.add(modelUrl)
-                    } catch (roleErr) {
-                        console.error('[characterType] 初始化失败', roleErr)
-                        if (process.client) {
-                            toast.add({
-                                title: '角色动画',
-                                description: '动作配置与模型不匹配，请检查 clip 名称',
-                                color: 'amber'
-                            })
-                        }
-                    }
-                }
-            } else {
-                const mesh = await threeCore.value.loadImageMesh(BASE_IMG + item.materia_url)
-                mesh.position.set(screenCenter.x, screenCenter.y, screenCenter.z)
-                threeCore.value.scene.add(mesh)
             }
+            bumpTextureReplaceableScan()
         } catch (error) {
-            console.error('加载自定义素材失败:', error)
+            console.error('加载素材失败:', error)
             if (process.client) {
                 toast.add({
                     title: '加载失败',
-                    description: '自定义素材加载失败，请稍后重试',
+                    description: '素材加载失败，请稍后重试',
+                    color: 'red'
+                })
+            }
+        } finally {
+            sceneStore.setLoading(false)
+        }
+    } else {
+        sceneStore.setLoading(true)
+        try {
+            const screenCenter = getScreenCenter()
+            const mesh = await threeCore.value.loadImageMesh(BASE_IMG + item.materia_url)
+            mesh.position.set(screenCenter.x, screenCenter.y, screenCenter.z)
+            stampAndAddSceneObject(mesh)
+        } catch (error) {
+            console.error('加载素材失败:', error)
+            if (process.client) {
+                toast.add({
+                    title: '加载失败',
+                    description: '素材加载失败，请稍后重试',
                     color: 'red'
                 })
             }
@@ -1645,6 +2453,9 @@ const addFlattenedTemplateFromGroup = (
         obj.userData.type = 'template'
         obj.userData.template_id = templateId
         obj.userData.ignorePick = true
+        if (!obj.userData.id) {
+            core.assignSceneObjectId(obj)
+        }
         core.scene.add(obj)
         core.loadTemplate.push(obj)
     }
@@ -1762,9 +2573,10 @@ const captureSceneImage = async (sence_id: number): Promise<string | null> => {
         return null
     }
 
+    const restoreEditorOverlays = threeCore.value.hideEditorOverlaysForCapture()
     try {
-        // 确保场景已渲染
-        threeCore.value.renderer.render(threeCore.value.scene, threeCore.value.camera)
+        // 确保场景已渲染（隐藏网格、坐标轴、视点球等编辑辅助物）
+        await threeCore.value.renderFrame()
 
         // 从渲染器的 canvas 获取数据
         const canvas = threeCore.value.renderer.domElement
@@ -1779,19 +2591,27 @@ const captureSceneImage = async (sence_id: number): Promise<string | null> => {
             height = Math.floor(height * scale)
         }
 
-        // 创建新的 canvas，用于添加白色背景和可能的压缩
+        // 创建新的 canvas，用于添加白色背景和可能的压缩（显式 sRGB，避免从 WebGL 读回时偏灰）
         const finalCanvas = document.createElement('canvas')
         finalCanvas.width = width
         finalCanvas.height = height
-        const ctx = finalCanvas.getContext('2d')
+        finalCanvas.style.colorSpace = 'srgb'
+        const ctx = finalCanvas.getContext('2d', { colorSpace: 'srgb' })
 
         if (!ctx) {
             console.error('无法创建 canvas context')
             return null
         }
 
-        // 填充白色背景
-        ctx.fillStyle = '#ffffff'
+        if (!canvas.style.colorSpace) {
+            canvas.style.colorSpace = 'srgb'
+        }
+
+        const bg = threeCore.value.background
+        ctx.fillStyle =
+            typeof bg === 'string' && bg.startsWith('color:')
+                ? bg.slice('color:'.length)
+                : '#ffffff'
         ctx.fillRect(0, 0, width, height)
 
         // 使用高质量缩放
@@ -1816,6 +2636,8 @@ const captureSceneImage = async (sence_id: number): Promise<string | null> => {
     } catch (error) {
         console.error('生成场景截图失败:', error)
         return null
+    } finally {
+        restoreEditorOverlays()
     }
 }
 
@@ -1952,11 +2774,12 @@ const onUpdateFiles = async (resault) => {
     if (!threeCore.value) return
     const mesh = await threeCore.value.loadImageMesh(BASE_IMG + resault.file_url)
     console.log('当前面片', mesh)
-    threeCore.value.scene.add(mesh)
+    stampAndAddSceneObject(mesh)
 }
 const addBackgroun = async (resault) => {
     if (!threeCore.value) return
     threeCore.value.background = resault.file_url
+    scenePageBackground.value = resault.file_url
     // 清除纯色背景
     threeCore.value.scene.background = null
 }
@@ -1967,10 +2790,14 @@ const addText = async (resault: string) => {
     const mesh = await threeCore.value.addTextToScene(BASE_IMG + font.file_url, charset)
     console.log('文本返回', mesh)
     mesh.userData.url = font.file_url
-    threeCore.value.scene.add(mesh)
+    stampAndAddSceneObject(mesh)
 }
 
 onUnmounted(() => {
+    if (sceneStepListExpanded.value) {
+        sceneStepListExpanded.value = false
+        sceneStepGroupingMode.value = false
+    }
     // 移除变换控件的撤销监听，避免 dispose 后仍被触发
     const listeners = transformUndoListeners.value
     const core = threeCore.value
@@ -1986,6 +2813,8 @@ onUnmounted(() => {
     loadedRoleModelUrls.clear()
     clearRoleDialogTimer()
     showRoleDialog.value = false
+    detachLinkBadgeAnimCb()
+    linkBadgeMarkers.value = []
     disposeScene(document.getElementById('scene') || undefined)
 
     // 恢复 body 样式
@@ -1998,15 +2827,43 @@ onUnmounted(() => {
 
 const setMode = (type: 'translate' | 'scale' | 'rotate') => {
     if (!threeCore.value) return
+    const selected = clickObject.value?.[0]
+    const tc = threeCore.value.transformControls
+    if (selected && tc.object !== selected) {
+        tc.attach(selected)
+    }
     transformType.value = type
-    threeCore.value.transformControls.setMode(type)
+    tc.setMode(type)
+}
+
+function isTypingInForm(target: EventTarget | null): boolean {
+    if (!(target instanceof HTMLElement)) return false
+    if (target.isContentEditable) return true
+    const tag = target.tagName
+    return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT'
+}
+
+function tryTransformHotkey(key: string): boolean {
+    if (sceneStepGroupingMode.value) return false
+    if (!(edit_mode.value || add_mode.value)) return false
+    if (!clickObject.value?.length) return false
+    if (target.value || animationTarget.value || showSceneEditGuide.value) return false
+    const mode =
+        key === 'g' ? 'translate'
+        : key === 'r' ? 'rotate'
+        : key === 's' ? 'scale'
+        : null
+    if (!mode) return false
+    setMode(mode)
+    return true
 }
 
 /** 撤销操作（当前支持移动/缩放/旋转，预留扩展） */
 const handleUndo = () => {
     if (!threeCore.value || !canUndo.value) return
-    const ok = performUndo(threeCore.value.scene)
-    if (ok) {
+    const undoneObj = performUndo(threeCore.value.scene)
+    if (undoneObj) {
+        threeCore.value.reapplyGsapAnimations(undoneObj)
         bumpTextureReplaceableScan()
         toast.add({ title: '已撤销', icon: 'i-heroicons-arrow-uturn-left' })
     }
@@ -2025,14 +2882,44 @@ const initThreejs = async () => {
             (obj: SceneObjectJSON) => obj.type === 'splat'
         ) ?? false
         
+        const gfx = loadSceneGraphicsSettings()
+        sceneGraphicsPreset.value = gfx.preset
         await initScene(sceneElement, id, {
             editMode: edit_mode.value,
             baseUrl: BASE_IMG,
             sceneData: detail.value,
-            enableRaycaster: hasSplatObject
+            enableRaycaster: hasSplatObject,
+            preferWebGPU: false,
+            colorStyle: 'anime',
+            graphicsSettings: {
+                antialias: gfx.antialias,
+                pixelRatio: resolveRendererPixelRatio(gfx),
+                mobilePerfCap: gfx.mobilePerfCap
+            },
+            onLinkedObjectPick: (obj, ev) => {
+                if (edit_mode.value || add_mode.value) return false
+                if (!hasSceneObjectLinks(obj)) return false
+                openSceneLinkDetailModal(obj, ev)
+                return true
+            },
+            onSceneStepGroupingPick: (obj) => handleGroupingScenePick(obj)
         })
+        // 兼容旧数据：纯色曾写在 scene.background，迁到 DOM（background: color:#…）
+        if (threeCore.value?.scene.background instanceof THREE.Color) {
+            const hex = `#${threeCore.value.scene.background.getHexString()}`
+            threeCore.value.background = `color:${hex}`
+            threeCore.value.scene.background = null
+        }
+        syncScenePageBackgroundFromCore()
+
         rehydrateSceneCharacterControllers()
         bumpTextureReplaceableScan()
+        syncSceneStepUi()
+        bumpSceneObjectRevision()
+        if (threeCore.value && (edit_mode.value || add_mode.value)) {
+            threeCore.value.showAllStepManagedObjects()
+            sceneStepShowAll.value = true
+        }
 
         // 场景加载完成后，灯光配置已经在 loadSceneFromJSON 中自动应用了
         // 如果没有保存的灯光配置，使用默认预设
@@ -2053,6 +2940,7 @@ const initThreejs = async () => {
                 }
             }
             const onMouseUp = () => {
+                const obj = (tc as { object?: THREE.Object3D }).object
                 if (pendingTransformState.value) {
                     pushTransformUndo(
                         pendingTransformState.value.objectUuid,
@@ -2060,6 +2948,9 @@ const initThreejs = async () => {
                         '移动/缩放/旋转'
                     )
                     pendingTransformState.value = null
+                }
+                if (obj?.userData?.effect?.length) {
+                    threeCore.value?.reapplyGsapAnimations(obj)
                 }
             }
             tc.addEventListener('mouseDown', onMouseDown)
@@ -2072,6 +2963,7 @@ const initThreejs = async () => {
             // 添加坐标系（AxesHelper）
             const axesHelper = new THREE.AxesHelper(10) // 5 个单位长度
             axesHelper.userData.ignorePick = true // 不参与拾取
+            axesHelper.userData.sceneEditorOverlay = true
             threeCore.value.scene.add(axesHelper)
 
             // 添加无限地面网格（使用 InfiniteGridHelper）
@@ -2085,9 +2977,15 @@ const initThreejs = async () => {
             )
             gridHelper.position.y = 0
             gridHelper.userData.ignorePick = true // 不参与拾取
+            gridHelper.userData.sceneEditorOverlay = true
             threeCore.value.scene.add(gridHelper)
             // 注意：InfiniteGridHelper 会自动跟随相机，不需要手动更新位置
         }
+
+        detachLinkBadgeAnimCb()
+        linkBadgeAnimCb = () => updateLinkBadgeMarkers()
+        threeCore.value.addAnimationCallback(linkBadgeAnimCb)
+        updateLinkBadgeMarkers()
     }
 }
 
@@ -2122,18 +3020,14 @@ onMounted(async () => {
             if (edit_mode.value && canUndo.value) handleUndo()
             return
         }
-        // R 旋转、G 移动、S 缩放（仅编辑模式且未在输入框）
-        if (!isInput && edit_mode.value && clickObject.value?.length) {
+        // R 旋转、G 移动、S 缩放（编辑/新建模式、已选物体、非输入态）
+        if (
+            !isTypingInForm(e.target)
+            && !(e.ctrlKey || e.metaKey || e.altKey)
+        ) {
             const key = e.key.toLowerCase()
-            if (key === 'r') {
+            if ((key === 'g' || key === 'r' || key === 's') && tryTransformHotkey(key)) {
                 e.preventDefault()
-                setMode('rotate')
-            } else if (key === 'g') {
-                e.preventDefault()
-                setMode('translate')
-            } else if (key === 's') {
-                e.preventDefault()
-                setMode('scale')
             }
         }
     }
@@ -2144,6 +3038,14 @@ onMounted(async () => {
 })
 
 const isMobile = computed(() => configStore.isMobile);
+const sceneOwnerActionTop = computed(() => {
+    const bar = configStore.statusBarHeight || 0
+    return `calc(0.75rem + max(env(safe-area-inset-top, 0px), ${bar}px))`
+})
+const sceneStepSwitcherTop = computed(() => {
+    const bar = configStore.statusBarHeight || 0
+    return `calc(2.75rem + max(env(safe-area-inset-top, 0px), ${bar}px))`
+})
 useHead({
     title: '3D手账',
     meta: [
@@ -2159,18 +3061,52 @@ useHead({
 })
 </script>
 <template>
-    <div class="select-none touch-callout-none"
-        :style="{ background: threeCore && threeCore.background && !threeCore.background.startsWith('color:') ? `url(${BASE_IMG}${threeCore.background})` : '', backgroundSize: 'cover' }">
-        <div v-if="detail && userStore.user?.user_id === detail?.user_id && !isFromIframeEmbed"
-            class="fixed top-[60px] right-4 z-50 flex items-center gap-3">
-            <button @click="showPostModal = true"
-                class="bg-white/90 dark:bg-gray-800/90 backdrop-blur-md rounded-full px-4 py-2 shadow-lg border border-white/50 dark:border-gray-700 flex items-center gap-2 hover:bg-pink-50 dark:hover:bg-gray-700 transition-colors">
-                <span class="text-sm font-medium text-gray-700 dark:text-gray-200">发帖分享</span>
+    <div class="select-none touch-callout-none scene-page-neu" :style="scenePageBackgroundStyle">
+        <div
+            v-if="showSceneCloneAction || showSceneOwnerActions"
+            class="fixed right-3 z-50 flex items-center gap-1.5"
+            :style="{ top: sceneOwnerActionTop }"
+        >
+            <button
+                v-if="showSceneCloneAction"
+                type="button"
+                title="克隆场景"
+                class="scene-neu-action-btn scene-neu-action-btn--compact group scene-neu-action-btn--emerald"
+                :disabled="cloneSceneLoading"
+                @click="openCloneSceneConfirm"
+            >
+                <div
+                    class="scene-neu-action-icon scene-neu-action-icon--compact scene-neu-action-icon--emerald"
+                >
+                    <UIcon
+                        v-if="!cloneSceneLoading"
+                        name="material-symbols:content-copy-outline-rounded"
+                        class="text-sm text-emerald-600 dark:text-emerald-400"
+                    />
+                    <UIcon
+                        v-else
+                        name="i-heroicons-arrow-path"
+                        class="text-sm text-emerald-600 dark:text-emerald-400 animate-spin"
+                    />
+                </div>
+                <span class="scene-neu-action-label scene-neu-action-label--compact">克隆</span>
             </button>
-            <button @click="handleShare"
-                class="bg-white/90 dark:bg-gray-800/90 backdrop-blur-md rounded-full px-4 py-2 shadow-lg border border-white/50 dark:border-gray-700 flex items-center gap-2 hover:bg-pink-50 dark:hover:bg-gray-700 transition-colors">
-                <span class="text-xl">🔗</span>
-                <span class="text-sm font-medium text-gray-700 dark:text-gray-200">分享</span>
+            <button
+                v-if="showSceneOwnerActions"
+                type="button"
+                title="更多选项"
+                class="scene-neu-action-btn scene-neu-action-btn--compact group"
+                @click="openMoreMenu($event)"
+            >
+                <div
+                    class="scene-neu-action-icon scene-neu-action-icon--compact bg-gradient-to-br from-gray-200/80 to-gray-100/40 dark:from-gray-800/40 dark:to-gray-700/20"
+                >
+                    <UIcon
+                        name="material-symbols:more-horiz"
+                        class="text-sm text-gray-600 dark:text-gray-400"
+                    />
+                </div>
+                <span class="scene-neu-action-label scene-neu-action-label--compact">更多</span>
             </button>
         </div>
         <!-- 场景加载状态 -->
@@ -2225,92 +3161,109 @@ useHead({
 
         <SceneTextureEditor ref="SceneTextureEditorRef" v-if="target" :target="target"
             :image-url="textureEditorDefaultImageUrl" @close="target = null" />
+        <SceneAnimationEditor
+            v-if="animationTarget && threeCore"
+            ref="SceneAnimationEditorRef"
+            :target="animationTarget"
+            :three-core="threeCore"
+            @close="animationTarget = null"
+        />
+        <SceneObjectLinkModal
+            ref="sceneObjectLinkModalRef"
+            :picker-user-id="sceneOwnerUserId"
+            @save="onObjectLinksSave"
+        />
+        <SceneObjectLinkDetailModal
+            ref="sceneLinkDetailModalRef"
+            :default-user-id="sceneOwnerUserId"
+            :harmony-port="port"
+        />
 
         <!-- 左侧功能栏：仅编辑工具；「动画」见下方独立块，交互与右侧素材/特效等一致 -->
         <div
-            class="fixed left-0 z-[20] flex flex-col overflow-hidden rounded-r-xl border border-gray-200/50 bg-white/95 shadow-lg backdrop-blur-sm transition-all duration-300 ease-out dark:border-gray-600/50 dark:bg-gray-800/95 top-1/2 z-[30] max-h-[75vh] -translate-y-1/2"
-            :class="showToolbar ? 'w-[52px] sm:w-[56px]' : 'w-[44px] sm:w-[48px]'"
+            id="scene-guide-left-toolbar"
+            class="fixed left-0 z-[20] flex flex-col overflow-hidden rounded-r-xl scene-neu-panel backdrop-blur-md transition-all duration-300 ease-out top-1/2 z-[30] max-h-[75vh] -translate-y-1/2"
+            :class="showToolbar ? 'w-[52px] sm:w-[56px]' : 'w-[36px] sm:w-[38px] scene-neu-panel--collapsed'"
         >
             <button
                 type="button"
-                class="shrink-0 flex w-full flex-col items-center justify-center gap-0.5 py-2 px-1 text-gray-600 transition-colors hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700/50"
-                :class="showToolbar ? 'border-b border-gray-100 dark:border-gray-600' : 'min-h-[52px]'"
+                class="scene-neu-toggle-btn shrink-0 flex w-full flex-col items-center justify-center text-gray-600 dark:text-gray-300"
+                :class="showToolbar ? 'scene-neu-toggle-btn--expanded gap-0.5 py-2 px-1' : 'scene-neu-toggle-btn--collapsed'"
                 :title="showToolbar ? '收起' : '展开'"
                 @click="showToolbar = !showToolbar"
             >
                 <UIcon
-                    :name="showToolbar ? 'material-symbols:chevron-right' : 'material-symbols:menu'"
-                    class="text-xl sm:text-2xl transition-transform"
+                    :name="showToolbar ? 'material-symbols:tune-rounded' : 'material-symbols:settings-rounded'"
+                    :class="showToolbar ? 'text-xl sm:text-2xl' : 'text-base'"
+                    class="transition-transform"
                 />
-                <span class="text-center text-[9px] font-medium leading-tight text-gray-700 dark:text-gray-200">
-                    {{ showToolbar ? '收起' : '展开' }}
+                <span
+                    v-if="showToolbar"
+                    class="text-center text-[9px] font-medium leading-tight text-gray-700 dark:text-gray-200"
+                >
+                    收起
                 </span>
             </button>
             <!-- 内容区用 max-h 过渡实现流畅收起，不使用 v-show 避免瞬间消失 -->
             <div
                 class="overflow-hidden transition-[max-height] duration-300 ease-in-out"
-                :class="showToolbar ? 'max-h-[calc(75vh-64px)]' : 'max-h-0'"
+                :class="showToolbar ? 'max-h-[calc(75vh-52px)]' : 'max-h-0'"
             >
                 <div class="overflow-y-auto overscroll-contain p-1.5 space-y-1.5 scrollbar-hide">
                     <!-- 保存 -->
                     <button v-if="edit_mode || add_mode" @click="saveScene"
-                        class="w-full flex flex-col items-center gap-1 p-1.5 rounded-xl hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors group active:scale-95"
+                        class="scene-neu-tool-btn group"
                         title="保存">
-                        <div
-                            class="w-7 h-7 bg-blue-500 dark:bg-blue-600 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform">
+                        <div class="scene-neu-icon-orb scene-neu-icon-orb--blue">
                             <UIcon name="material-symbols:save-rounded" class="text-sm text-white" />
                         </div>
-                        <span class="text-[9px] text-gray-700 dark:text-gray-200 font-medium leading-tight">保存</span>
+                        <span class="scene-neu-tool-label">保存</span>
                     </button>
 
                     <!-- 撤销 -->
                     <button v-if="edit_mode || add_mode" @click="handleUndo"
-                        :class="[canUndo ? 'hover:bg-gray-100 dark:hover:bg-gray-700' : 'opacity-50 cursor-not-allowed', 'w-full flex flex-col items-center gap-1 p-1.5 rounded-xl transition-colors group active:scale-95']"
+                        :class="[canUndo ? '' : 'opacity-50 cursor-not-allowed', 'scene-neu-tool-btn group']"
                         :title="canUndo ? `撤销 (${undoStack.length} 步)` : '暂无可撤销操作'"
                         :disabled="!canUndo">
                         <div class="relative">
-                            <div
-                                class="w-7 h-7 bg-gray-500 dark:bg-gray-600 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform">
+                            <div class="scene-neu-icon-orb scene-neu-icon-orb--gray">
                                 <UIcon name="i-heroicons-arrow-uturn-left" class="text-sm text-white" />
                             </div>
                             <span v-if="undoStack.length > 0"
-                                class="absolute -top-0.5 -right-0.5 min-w-[14px] h-[14px] px-0.5 flex items-center justify-center rounded-full bg-amber-500 text-white text-[10px] font-medium leading-none">
+                                class="scene-neu-badge absolute -top-0.5 -right-0.5 min-w-[14px] h-[14px] px-0.5 flex items-center justify-center rounded-full bg-amber-500 text-white text-[10px] font-medium leading-none">
                                 {{ undoStack.length > 99 ? '99+' : undoStack.length }}
                             </span>
                         </div>
-                        <span class="text-[9px] text-gray-700 dark:text-gray-200 font-medium leading-tight">撤销</span>
+                        <span class="scene-neu-tool-label">撤销</span>
                     </button>
 
                     <!-- 图片 -->
                     <button v-if="edit_mode || add_mode" @click="openImageMenu"
-                        class="w-full flex flex-col items-center gap-1 p-1.5 rounded-xl hover:bg-green-50 dark:hover:bg-green-900/20 transition-colors group active:scale-95"
+                        class="scene-neu-tool-btn group"
                         title="图片">
-                        <div
-                            class="w-7 h-7 bg-green-500 dark:bg-green-600 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform">
+                        <div class="scene-neu-icon-orb scene-neu-icon-orb--green">
                             <UIcon name="material-symbols:add-photo-alternate-rounded" class="text-sm text-white" />
                         </div>
-                        <span class="text-[9px] text-gray-700 dark:text-gray-200 font-medium leading-tight">图片</span>
+                        <span class="scene-neu-tool-label">图片</span>
                     </button>
 
                     <!-- 点位 -->
                     <button v-if="edit_mode || add_mode" @click="openPointMenu"
-                        class="w-full flex flex-col items-center gap-1 p-1.5 rounded-xl hover:bg-amber-50 dark:hover:bg-amber-900/20 transition-colors group active:scale-95"
+                        class="scene-neu-tool-btn group"
                         title="点位">
-                        <div
-                            class="w-7 h-7 bg-amber-500 dark:bg-amber-600 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform">
+                        <div class="scene-neu-icon-orb scene-neu-icon-orb--amber">
                             <UIcon name="material-symbols:location-on-rounded" class="text-sm text-white" />
                         </div>
-                        <span class="text-[9px] text-gray-700 dark:text-gray-200 font-medium leading-tight">点位</span>
+                        <span class="scene-neu-tool-label">点位</span>
                     </button>
                     <!-- 文本 -->
                     <button v-if="edit_mode || add_mode" @click="openTextMenu"
-                        class="w-full flex flex-col items-center gap-1 p-1.5 rounded-xl hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-colors group active:scale-95"
+                        class="scene-neu-tool-btn group"
                         title="文本">
-                        <div
-                            class="w-7 h-7 bg-indigo-500 dark:bg-indigo-600 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform">
+                        <div class="scene-neu-icon-orb scene-neu-icon-orb--indigo">
                             <UIcon name="material-symbols:title-rounded" class="text-sm text-white" />
                         </div>
-                        <span class="text-[9px] text-gray-700 dark:text-gray-200 font-medium leading-tight">文本</span>
+                        <span class="scene-neu-tool-label">文本</span>
                     </button>
 
                     <!-- 素材 -->
@@ -2358,45 +3311,41 @@ useHead({
                     </button> -->
                     <!-- 角色示例（固定 material/02c37...glb，自动识别动画 clip） -->
                     <button v-if="edit_mode || add_mode" type="button" @click="loadRoleDemoGlb"
-                        class="w-full flex flex-col items-center gap-1 p-1.5 rounded-xl hover:bg-cyan-50 dark:hover:bg-cyan-900/20 transition-colors group active:scale-95"
+                        class="scene-neu-tool-btn group"
                         title="加载角色动画示例（material/02c37...glb）">
-                        <div
-                            class="w-7 h-7 bg-cyan-500 dark:bg-cyan-600 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform">
+                        <div class="scene-neu-icon-orb scene-neu-icon-orb--cyan">
                             <UIcon name="material-symbols:face-3" class="text-sm text-white" />
                         </div>
-                        <span class="text-[9px] text-gray-700 dark:text-gray-200 font-medium leading-tight">角色示例</span>
+                        <span class="scene-neu-tool-label">角色示例</span>
                     </button>
 
                     <!-- 记录镜头 -->
                     <button v-if="edit_mode || add_mode" @click="recordCamera"
-                        class="w-full flex flex-col items-center gap-1 p-1.5 rounded-xl hover:bg-rose-50 dark:hover:bg-rose-900/20 transition-colors group active:scale-95"
+                        class="scene-neu-tool-btn group"
                         title="记录镜头">
-                        <div
-                            class="w-7 h-7 bg-rose-500 dark:bg-rose-600 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform">
+                        <div class="scene-neu-icon-orb scene-neu-icon-orb--rose">
                             <UIcon name="material-symbols:videocam-rounded" class="text-sm text-white" />
                         </div>
-                        <span class="text-[9px] text-gray-700 dark:text-gray-200 font-medium leading-tight">记录镜头</span>
+                        <span class="scene-neu-tool-label">记录镜头</span>
                     </button>
                     <!-- 设置 -->
                     <button @click="openSettings"
-                        class="w-full flex flex-col items-center gap-1 p-1.5 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors group active:scale-95"
+                        class="scene-neu-tool-btn group"
                         title="设置">
-                        <div
-                            class="w-7 h-7 bg-gray-500 dark:bg-gray-600 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform">
+                        <div class="scene-neu-icon-orb scene-neu-icon-orb--gray">
                             <UIcon name="material-symbols:settings-rounded" class="text-sm text-white" />
                         </div>
-                        <span class="text-[9px] text-gray-700 dark:text-gray-200 font-medium leading-tight">设置</span>
+                        <span class="scene-neu-tool-label">设置</span>
                     </button>
 
                     <!-- 灯光 -->
                     <button v-if="edit_mode || add_mode" @click="openLightMenu"
-                        class="w-full flex flex-col items-center gap-1 p-1.5 rounded-xl hover:bg-yellow-50 dark:hover:bg-yellow-900/20 transition-colors group active:scale-95"
+                        class="scene-neu-tool-btn group"
                         title="灯光">
-                        <div
-                            class="w-7 h-7 bg-yellow-500 dark:bg-yellow-600 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform">
+                        <div class="scene-neu-icon-orb scene-neu-icon-orb--yellow">
                             <UIcon name="material-symbols:lightbulb-rounded" class="text-sm text-white" />
                         </div>
-                        <span class="text-[9px] text-gray-700 dark:text-gray-200 font-medium leading-tight">灯光</span>
+                        <span class="scene-neu-tool-label">灯光</span>
                     </button>
                 </div>
             </div>
@@ -2404,31 +3353,36 @@ useHead({
 
         <!-- 动画：独立块，布局与右侧「特效/模版」等一致（fixed + 折叠条 + 展开列表） -->
         <div
-            v-if="edit_mode || add_mode"
-            class="fixed left-0 z-[20] flex flex-col rounded-r-xl bg-white/95 shadow-lg backdrop-blur-sm border border-gray-200/50 dark:bg-gray-800/95 dark:border-gray-600/50 overflow-hidden transition-all duration-300 ease-out"
+            v-if="showRoleAnimationPanel"
+            id="scene-guide-role-panel"
+            class="fixed left-0 z-[20] flex flex-col rounded-r-xl scene-neu-panel backdrop-blur-md overflow-hidden transition-all duration-300 ease-out"
             :class="roleAnimationListExpanded
-                ? 'top-1/2 -translate-y-1/2 h-[62vh] w-[170px] sm:w-[190px] md:w-[210px] z-[30]'
-                : 'top-[calc(50%+62px)] -translate-y-1/2 h-[52px] w-[44px] sm:w-[48px]'"
+                ? 'top-1/2 -translate-y-1/2 h-[62vh] w-[100px] min-[756px]:w-[170px] min-[756px]:sm:w-[190px] md:w-[210px] z-[30]'
+                : 'top-[calc(50%+46px)] -translate-y-1/2 h-[40px] w-[36px] sm:w-[38px] scene-neu-panel--collapsed'"
         >
             <button
                 type="button"
-                class="shrink-0 text-violet-600 transition-colors hover:bg-violet-50 dark:text-violet-400 dark:hover:bg-gray-700/50"
+                class="scene-neu-panel-toggle scene-neu-panel-toggle--violet shrink-0 text-violet-600 dark:text-violet-400"
                 :class="roleAnimationListExpanded
-                    ? 'flex flex-row items-center justify-center gap-1.5 border-b border-gray-100 py-2 px-2 dark:border-gray-600'
-                    : 'flex min-h-[52px] flex-col items-center justify-center gap-1 py-2 px-2'"
+                    ? 'flex flex-row items-center justify-center gap-1.5 scene-neu-panel-toggle--expanded py-2 px-2'
+                    : 'scene-neu-panel-toggle--collapsed'"
                 :title="roleAnimationListExpanded ? '收起列表' : '展开列表'"
                 @click="showRoleAnimation()"
             >
                 <UIcon
                     :name="roleAnimationListExpanded ? 'material-symbols:chevron-right' : 'material-symbols:animation-rounded'"
-                    class="text-xl transition-transform sm:text-2xl"
+                    :class="roleAnimationListExpanded ? 'text-xl sm:text-2xl' : 'text-base'"
+                    class="transition-transform"
                 />
-                <span class="text-center text-xs font-medium leading-tight">动画</span>
+                <span class="scene-neu-collapsed-label text-center font-medium leading-tight">角色</span>
             </button>
             <div
                 v-show="roleAnimationListExpanded"
                 class="min-h-0 h-0 flex-1 space-y-2 overflow-y-auto overscroll-contain p-2"
             >
+                <p class="text-[10px] font-medium text-violet-700/80 dark:text-violet-300/80">
+                    glTF 骨骼动画
+                </p>
                 <template v-if="sceneRoleAnimationTree.length">
                     <div
                         v-for="entry in sceneRoleAnimationTree"
@@ -2446,7 +3400,7 @@ useHead({
                                 v-for="clip in entry.clips"
                                 :key="`${entry.key}-${clip}`"
                                 type="button"
-                                class="max-w-full truncate rounded-md bg-violet-100/90 px-1.5 py-0.5 text-[10px] text-violet-900 hover:bg-violet-200/90 dark:bg-violet-900/50 dark:text-violet-100 dark:hover:bg-violet-800/60"
+                                class="scene-neu-chip scene-neu-chip--violet max-w-full truncate px-1.5 py-0.5 text-[10px]"
                                 :title="clip"
                                 @click="pickSceneRoleAnimation(entry.controller, clip)"
                             >
@@ -2467,33 +3421,36 @@ useHead({
         <!-- 贴图：左侧动画下方；列出可替换 Mesh，角标为可替换数量 -->
         <div
             v-if="edit_mode || add_mode"
-            class="fixed left-0 z-[20] flex flex-col rounded-r-xl bg-white/95 shadow-lg backdrop-blur-sm border border-gray-200/50 dark:bg-gray-800/95 dark:border-gray-600/50 overflow-hidden transition-all duration-300 ease-out"
+            id="scene-guide-texture-panel"
+            class="fixed left-0 z-[20] flex flex-col rounded-r-xl scene-neu-panel backdrop-blur-md overflow-hidden transition-all duration-300 ease-out"
             :class="textureListExpanded
-                ? 'top-1/2 -translate-y-1/2 h-[62vh] w-[170px] sm:w-[190px] md:w-[210px] z-[30]'
-                : 'top-[calc(50%+124px)] -translate-y-1/2 h-[52px] w-[44px] sm:w-[48px]'"
+                ? 'top-1/2 -translate-y-1/2 h-[62vh] w-[100px] min-[756px]:w-[170px] min-[756px]:sm:w-[190px] md:w-[210px] z-[30]'
+                : 'top-[calc(50%+92px)] -translate-y-1/2 h-[40px] w-[36px] sm:w-[38px] scene-neu-panel--collapsed'"
         >
             <button
                 type="button"
-                class="shrink-0 text-amber-600 transition-colors hover:bg-amber-50 dark:text-amber-400 dark:hover:bg-gray-700/50"
+                class="scene-neu-panel-toggle scene-neu-panel-toggle--amber shrink-0 text-amber-600 dark:text-amber-400"
                 :class="textureListExpanded
-                    ? 'flex flex-row items-center justify-center gap-1.5 border-b border-gray-100 py-2 px-2 dark:border-gray-600'
-                    : 'flex min-h-[52px] flex-col items-center justify-center gap-1 py-2 px-2'"
+                    ? 'flex flex-row items-center justify-center gap-1.5 scene-neu-panel-toggle--expanded py-2 px-2'
+                    : 'scene-neu-panel-toggle--collapsed'"
                 :title="textureListExpanded ? '收起列表' : '展开列表'"
                 @click="showTextureList()"
             >
                 <span class="relative inline-flex shrink-0">
                     <UIcon
                         :name="textureListExpanded ? 'material-symbols:chevron-right' : 'material-symbols:texture-rounded'"
-                        class="text-xl transition-transform sm:text-2xl"
+                        :class="textureListExpanded ? 'text-xl sm:text-2xl' : 'text-base'"
+                        class="transition-transform"
                     />
                     <span
                         v-if="textureReplaceableMeshes.length > 0"
-                        class="absolute -right-1.5 -top-1 flex h-[18px] min-w-[18px] translate-x-px items-center justify-center rounded-full bg-amber-500 px-0.5 text-[10px] font-bold leading-none text-white shadow-sm ring-2 ring-white dark:ring-gray-800"
+                        class="scene-neu-collapsed-badge absolute -right-1 -top-1 flex items-center justify-center rounded-full bg-amber-500 font-bold leading-none text-white shadow-sm ring-1 ring-white/80 dark:ring-gray-800/90"
+                        :class="textureListExpanded ? 'h-[18px] min-w-[18px] px-0.5 text-[10px]' : 'h-[14px] min-w-[14px] px-0.5 text-[9px]'"
                     >
                         {{ textureReplaceableMeshes.length > 99 ? '99+' : textureReplaceableMeshes.length }}
                     </span>
                 </span>
-                <span class="text-center text-xs font-medium leading-tight">贴图</span>
+                <span class="scene-neu-collapsed-label text-center font-medium leading-tight">贴图</span>
             </button>
             <div
                 v-show="textureListExpanded"
@@ -2509,7 +3466,7 @@ useHead({
                     v-for="m in textureReplaceableMeshes"
                     :key="m.uuid"
                     type="button"
-                    class="w-full truncate rounded-lg bg-amber-50/90 dark:bg-amber-900/25 hover:bg-amber-100/90 dark:hover:bg-amber-900/40 border border-amber-200/60 dark:border-amber-800/50 px-2 py-1.5 text-left text-[11px] text-amber-900 dark:text-amber-100 transition-colors active:scale-[0.98]"
+                    class="scene-neu-list-item scene-neu-list-item--amber w-full truncate px-2 py-1.5 text-left text-[11px] active:scale-[0.98]"
                     :title="textureReplaceableMeshLabel(m)"
                     @click="pickReplaceMeshFromTextureToolbar(m)"
                 >
@@ -2518,28 +3475,102 @@ useHead({
             </div>
         </div>
 
+        <!-- 分组：左侧贴图下方，多场景 step 编辑 -->
+        <div
+            v-if="edit_mode || add_mode"
+            id="scene-guide-step-panel"
+            class="fixed left-0 z-[20] flex flex-col rounded-r-xl scene-neu-panel backdrop-blur-md overflow-hidden transition-all duration-300 ease-out top-[calc(50%+138px)] -translate-y-1/2 h-[40px] w-[36px] sm:w-[38px] scene-neu-panel--collapsed"
+            :data-grouping-active="sceneStepGroupingMode ? '1' : undefined"
+        >
+            <button
+                type="button"
+                class="scene-neu-panel-toggle scene-neu-panel-toggle--emerald scene-neu-panel-toggle--collapsed shrink-0 text-emerald-600 dark:text-emerald-400"
+                :class="sceneStepListExpanded ? 'ring-2 ring-emerald-400/50 dark:ring-emerald-500/40' : ''"
+                :title="sceneStepListExpanded ? '收起分组' : '展开分组'"
+                @click="showSceneStepList()"
+            >
+                <span class="relative inline-flex shrink-0">
+                    <UIcon
+                        name="material-symbols:view-carousel-rounded"
+                        class="text-base transition-transform"
+                    />
+                    <span
+                        v-if="threeCore && threeCore.sceneSteps.length > 0"
+                        class="scene-neu-collapsed-badge absolute -right-1 -top-1 flex h-[14px] min-w-[14px] items-center justify-center rounded-full bg-emerald-500 px-0.5 text-[9px] font-bold leading-none text-white shadow-sm ring-1 ring-white/80 dark:ring-gray-800/90"
+                    >
+                        {{ threeCore.sceneSteps.length > 99 ? '99+' : threeCore.sceneSteps.length }}
+                    </span>
+                </span>
+                <span class="scene-neu-collapsed-label text-center font-medium leading-tight">分组</span>
+            </button>
+        </div>
+        <Transition :name="`drawer-${isMobile ? 'bottom' : 'left'}`">
+            <QhxBottomDrawer
+                v-if="sceneStepListExpanded"
+                :direction="isMobile ? 'bottom' : 'left'"
+                :default-size="isMobile ? 420 : 320"
+                :content-padding="false"
+            >
+                <div class="flex h-full min-h-0 flex-col">
+                    <div class="flex shrink-0 items-center justify-between gap-3 border-b border-gray-200/90 px-4 py-3 dark:border-gray-700/80">
+                        <div class="flex min-w-0 items-center gap-3">
+                            <div
+                                class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-emerald-500/[0.11] ring-1 ring-inset ring-emerald-500/15 dark:bg-emerald-400/10 dark:ring-emerald-400/20"
+                            >
+                                <UIcon name="material-symbols:view-carousel-rounded" class="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
+                            </div>
+                            <div class="min-w-0">
+                                <h3 class="text-base font-semibold text-gray-900 dark:text-gray-100">场景分组</h3>
+                                <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">点击场景物体加入当前分组</p>
+                            </div>
+                        </div>
+                        <button
+                            type="button"
+                            class="group flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-gray-100 dark:hover:bg-gray-700"
+                            aria-label="关闭分组"
+                            @click="closeSceneStepGroupingIfOpen()"
+                        >
+                            <UIcon name="i-heroicons-x-mark" class="text-gray-500 transition-colors group-hover:text-gray-700 dark:text-gray-400 dark:group-hover:text-gray-200" />
+                        </button>
+                    </div>
+                    <div class="min-h-0 flex-1 overflow-y-auto overscroll-contain p-2">
+                        <SceneStepEditor
+                            ref="sceneStepEditorRef"
+                            v-if="threeCore"
+                            :core="threeCore"
+                            v-model:active-index="currentSceneStepIndex"
+                            v-model:hidden-step-index="hiddenGroupingStepIndex"
+                            :object-revision="sceneObjectRevision"
+                            @change="onSceneStepEditorChange"
+                        />
+                    </div>
+                </div>
+            </QhxBottomDrawer>
+        </Transition>
+
         <!-- 五个独立的悬浮列表，展开后居中、固定高度，互不联动，同时只展开一个 -->
         <!-- 素材 -->
         <div
             v-if="edit_mode || add_mode"
-            class="fixed right-0 z-[20] flex flex-col rounded-l-xl bg-white/95 dark:bg-gray-800/95 shadow-lg backdrop-blur-sm border border-gray-200/50 dark:border-gray-600/50 overflow-hidden transition-all duration-300 ease-out"
+            id="scene-guide-right-material"
+            class="fixed right-0 z-[20] flex flex-col rounded-l-xl scene-neu-panel backdrop-blur-md overflow-hidden transition-all duration-300 ease-out"
             :class="materialListExpanded
-                ? 'top-1/2 -translate-y-1/2 h-[62vh] w-[170px] sm:w-[190px] md:w-[210px] z-[30]'
-                : 'top-[calc(50%-124px)] -translate-y-1/2 h-[52px] w-[44px] sm:w-[48px]'"
+                ? 'top-1/2 -translate-y-1/2 h-[62vh] w-[100px] min-[756px]:w-[170px] min-[756px]:sm:w-[190px] md:w-[210px] z-[30]'
+                : 'top-[calc(50%-92px)] -translate-y-1/2 h-[40px] w-[36px] sm:w-[38px] scene-neu-panel--collapsed'"
         >
             <button
                 type="button"
-                class="items-center justify-center gap-1.5 py-2 px-2 shrink-0 text-purple-600 dark:text-purple-400 hover:bg-purple-50 dark:hover:bg-gray-700/50 transition-colors"
-                :class="materialListExpanded ? 'border-b border-gray-100 dark:border-gray-600 flex' : 'min-h-[52px] block leading-[14px]'"
+                class="scene-neu-panel-toggle scene-neu-panel-toggle--purple items-center justify-center gap-1.5 py-2 px-2 shrink-0 text-purple-600 dark:text-purple-400"
+                :class="materialListExpanded ? 'scene-neu-panel-toggle--expanded flex gap-1.5 py-2 px-2' : 'scene-neu-panel-toggle--collapsed'"
                 :title="materialListExpanded ? '收起列表' : '展开列表'"
                 @click="showMaterial()"
             >
                 <UIcon
                     :name="materialListExpanded ? 'material-symbols:chevron-right' : 'carbon:model-alt'"
-                    class="text-xl sm:text-2xl transition-transform"
-                    :class="materialListExpanded ? '' : 'rotate-0'"
+                    :class="materialListExpanded ? 'text-xl sm:text-2xl' : 'text-base'"
+                    class="transition-transform"
                 />
-                <span class="text-xs font-medium sm:inline">素材</span>
+                <span class="scene-neu-collapsed-label font-medium">素材</span>
             </button>
             <div
                 v-show="materialListExpanded"
@@ -2558,24 +3589,24 @@ useHead({
         <!-- 服饰 -->
         <div
             v-if="edit_mode || add_mode"
-            class="fixed right-0 z-[20] flex flex-col rounded-l-xl bg-white/95 dark:bg-gray-800/95 shadow-lg backdrop-blur-sm border border-gray-200/50 dark:border-gray-600/50 overflow-hidden transition-all duration-300 ease-out"
+            class="fixed right-0 z-[20] flex flex-col rounded-l-xl scene-neu-panel backdrop-blur-md overflow-hidden transition-all duration-300 ease-out"
             :class="clothingListExpanded
-                ? 'top-1/2 -translate-y-1/2 h-[62vh] w-[170px] sm:w-[190px] md:w-[210px] z-[30]'
-                : 'top-[calc(50%-62px)] -translate-y-1/2 h-[52px] w-[44px] sm:w-[48px]'"
+                ? 'top-1/2 -translate-y-1/2 h-[62vh] w-[100px] min-[756px]:w-[170px] min-[756px]:sm:w-[190px] md:w-[210px] z-[30]'
+                : 'top-[calc(50%-46px)] -translate-y-1/2 h-[40px] w-[36px] sm:w-[38px] scene-neu-panel--collapsed'"
         >
             <button
                 type="button"
-                class="items-center justify-center gap-1.5 py-2 px-2 shrink-0 text-pink-600 dark:text-pink-400 hover:bg-pink-50 dark:hover:bg-gray-700/50 transition-colors"
-                :class="clothingListExpanded ? 'border-b border-gray-100 dark:border-gray-600 flex' : 'min-h-[52px] block leading-[14px]'"
+                class="scene-neu-panel-toggle scene-neu-panel-toggle--pink items-center justify-center gap-1.5 py-2 px-2 shrink-0 text-pink-600 dark:text-pink-400"
+                :class="clothingListExpanded ? 'scene-neu-panel-toggle--expanded flex gap-1.5 py-2 px-2' : 'scene-neu-panel-toggle--collapsed'"
                 :title="clothingListExpanded ? '收起列表' : '展开列表'"
                 @click="showClothing()"
             >
                 <UIcon
                     :name="clothingListExpanded ? 'material-symbols:chevron-right' : 'material-symbols:checkroom-rounded'"
-                    class="text-xl sm:text-2xl transition-transform"
-                    :class="clothingListExpanded ? '' : 'rotate-0'"
+                    :class="clothingListExpanded ? 'text-xl sm:text-2xl' : 'text-base'"
+                    class="transition-transform"
                 />
-                <span class="text-xs font-medium sm:inline">服饰</span>
+                <span class="scene-neu-collapsed-label font-medium">服饰</span>
             </button>
             <div
                 v-show="clothingListExpanded"
@@ -2594,24 +3625,24 @@ useHead({
         <!-- 场景 -->
         <div
             v-if="edit_mode || add_mode"
-            class="fixed right-0 z-[20] flex flex-col rounded-l-xl bg-white/95 dark:bg-gray-800/95 shadow-lg backdrop-blur-sm border border-gray-200/50 dark:border-gray-600/50 overflow-hidden transition-all duration-300 ease-out"
+            class="fixed right-0 z-[20] flex flex-col rounded-l-xl scene-neu-panel backdrop-blur-md overflow-hidden transition-all duration-300 ease-out"
             :class="sceneListExpanded
-                ? 'top-1/2 -translate-y-1/2 h-[62vh] w-[170px] sm:w-[190px] md:w-[210px] z-[30]'
-                : 'top-1/2 -translate-y-1/2 h-[52px] w-[44px] sm:w-[48px]'"
+                ? 'top-1/2 -translate-y-1/2 h-[62vh] w-[100px] min-[756px]:w-[170px] min-[756px]:sm:w-[190px] md:w-[210px] z-[30]'
+                : 'top-1/2 -translate-y-1/2 h-[40px] w-[36px] sm:w-[38px] scene-neu-panel--collapsed'"
         >
             <button
                 type="button"
-                class="items-center justify-center gap-1.5 py-2 px-2 shrink-0 text-teal-600 dark:text-teal-400 hover:bg-teal-50 dark:hover:bg-gray-700/50 transition-colors"
-                :class="sceneListExpanded ? 'border-b border-gray-100 dark:border-gray-600 flex' : 'min-h-[52px] block leading-[14px]'"
+                class="scene-neu-panel-toggle scene-neu-panel-toggle--teal items-center justify-center gap-1.5 py-2 px-2 shrink-0 text-teal-600 dark:text-teal-400"
+                :class="sceneListExpanded ? 'scene-neu-panel-toggle--expanded flex gap-1.5 py-2 px-2' : 'scene-neu-panel-toggle--collapsed'"
                 :title="sceneListExpanded ? '收起列表' : '展开列表'"
                 @click="showScene()"
             >
                 <UIcon
                     :name="sceneListExpanded ? 'material-symbols:chevron-right' : 'material-symbols:landscape-rounded'"
-                    class="text-xl sm:text-2xl transition-transform"
-                    :class="sceneListExpanded ? '' : 'rotate-0'"
+                    :class="sceneListExpanded ? 'text-xl sm:text-2xl' : 'text-base'"
+                    class="transition-transform"
                 />
-                <span class="text-xs font-medium sm:inline">场景</span>
+                <span class="scene-neu-collapsed-label font-medium">场景</span>
             </button>
             <div
                 v-show="sceneListExpanded"
@@ -2630,24 +3661,24 @@ useHead({
         <!-- 特效 -->
         <div
             v-if="edit_mode || add_mode"
-            class="fixed right-0 z-[20] flex flex-col rounded-l-xl bg-white/95 dark:bg-gray-800/95 shadow-lg backdrop-blur-sm border border-gray-200/50 dark:border-gray-600/50 overflow-hidden transition-all duration-300 ease-out"
+            class="fixed right-0 z-[20] flex flex-col rounded-l-xl scene-neu-panel backdrop-blur-md overflow-hidden transition-all duration-300 ease-out"
             :class="effectListExpanded
-                ? 'top-1/2 -translate-y-1/2 h-[62vh] w-[170px] sm:w-[190px] md:w-[210px] z-[30]'
-                : 'top-[calc(50%+62px)] -translate-y-1/2 h-[52px] w-[44px] sm:w-[48px]'"
+                ? 'top-1/2 -translate-y-1/2 h-[62vh] w-[100px] min-[756px]:w-[170px] min-[756px]:sm:w-[190px] md:w-[210px] z-[30]'
+                : 'top-[calc(50%+46px)] -translate-y-1/2 h-[40px] w-[36px] sm:w-[38px] scene-neu-panel--collapsed'"
         >
             <button
                 type="button"
-                class="items-center justify-center gap-1.5 py-2 px-2 shrink-0 text-orange-600 dark:text-orange-400 hover:bg-orange-50 dark:hover:bg-gray-700/50 transition-colors"
-                :class="effectListExpanded ? 'border-b border-gray-100 dark:border-gray-600 flex' : 'min-h-[52px] block leading-[14px]'"
+                class="scene-neu-panel-toggle scene-neu-panel-toggle--orange items-center justify-center gap-1.5 py-2 px-2 shrink-0 text-orange-600 dark:text-orange-400"
+                :class="effectListExpanded ? 'scene-neu-panel-toggle--expanded flex gap-1.5 py-2 px-2' : 'scene-neu-panel-toggle--collapsed'"
                 :title="effectListExpanded ? '收起列表' : '展开列表'"
                 @click="showEffect()"
             >
                 <UIcon
                     :name="effectListExpanded ? 'material-symbols:chevron-right' : 'icon-park-twotone:effects'"
-                    class="text-xl sm:text-2xl transition-transform"
-                    :class="effectListExpanded ? '' : 'rotate-0'"
+                    :class="effectListExpanded ? 'text-xl sm:text-2xl' : 'text-base'"
+                    class="transition-transform"
                 />
-                <span class="text-xs font-medium sm:inline">特效</span>
+                <span class="scene-neu-collapsed-label font-medium">特效</span>
             </button>
             <div
                 v-show="effectListExpanded"
@@ -2666,24 +3697,24 @@ useHead({
         <!-- 模版 -->
         <div
             v-if="edit_mode || add_mode"
-            class="fixed right-0 z-[20] flex flex-col rounded-l-xl bg-white/95 dark:bg-gray-800/95 shadow-lg backdrop-blur-sm border border-gray-200/50 dark:border-gray-600/50 overflow-hidden transition-all duration-300 ease-out"
+            class="fixed right-0 z-[20] flex flex-col rounded-l-xl scene-neu-panel backdrop-blur-md overflow-hidden transition-all duration-300 ease-out"
             :class="templateListExpanded
-                ? 'top-1/2 -translate-y-1/2 h-[62vh] w-[170px] sm:w-[190px] md:w-[210px] z-[30]'
-                : 'top-[calc(50%+124px)] -translate-y-1/2 h-[52px] w-[44px] sm:w-[48px]'"
+                ? 'top-1/2 -translate-y-1/2 h-[62vh] w-[100px] min-[756px]:w-[170px] min-[756px]:sm:w-[190px] md:w-[210px] z-[30]'
+                : 'top-[calc(50%+92px)] -translate-y-1/2 h-[40px] w-[36px] sm:w-[38px] scene-neu-panel--collapsed'"
         >
             <button
                 type="button"
-                class="items-center justify-center gap-1.5 py-2 px-2 shrink-0 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-gray-700/50 transition-colors"
-                :class="templateListExpanded ? 'border-b border-gray-100 dark:border-gray-600 flex' : 'min-h-[52px] block leading-[14px]'"
+                class="scene-neu-panel-toggle scene-neu-panel-toggle--blue items-center justify-center gap-1.5 py-2 px-2 shrink-0 text-blue-600 dark:text-blue-400"
+                :class="templateListExpanded ? 'scene-neu-panel-toggle--expanded flex gap-1.5 py-2 px-2' : 'scene-neu-panel-toggle--collapsed'"
                 :title="templateListExpanded ? '收起列表' : '展开列表'"
                 @click="showTemplate()"
             >
                 <UIcon
                     :name="templateListExpanded ? 'material-symbols:chevron-right' : 'material-symbols:dashboard-rounded'"
-                    class="text-xl sm:text-2xl transition-transform"
-                    :class="templateListExpanded ? '' : 'rotate-0'"
+                    :class="templateListExpanded ? 'text-xl sm:text-2xl' : 'text-base'"
+                    class="transition-transform"
                 />
-                <span class="text-xs font-medium sm:inline">模版</span>
+                <span class="scene-neu-collapsed-label font-medium">模版</span>
             </button>
             <div
                 v-show="templateListExpanded"
@@ -2702,24 +3733,24 @@ useHead({
         <!-- 自定义 -->
         <div
             v-if="edit_mode || add_mode"
-            class="fixed right-0 z-[20] flex flex-col rounded-l-xl bg-white/95 dark:bg-gray-800/95 shadow-lg backdrop-blur-sm border border-gray-200/50 dark:border-gray-600/50 overflow-hidden transition-all duration-300 ease-out"
+            class="fixed right-0 z-[20] flex flex-col rounded-l-xl scene-neu-panel backdrop-blur-md overflow-hidden transition-all duration-300 ease-out"
             :class="customListExpanded
-                ? 'top-1/2 -translate-y-1/2 h-[62vh] w-[170px] sm:w-[190px] md:w-[210px] z-[30]'
-                : 'top-[calc(50%+186px)] -translate-y-1/2 h-[52px] w-[44px] sm:w-[48px]'"
+                ? 'top-1/2 -translate-y-1/2 h-[62vh] w-[100px] min-[756px]:w-[170px] min-[756px]:sm:w-[190px] md:w-[210px] z-[30]'
+                : 'top-[calc(50%+138px)] -translate-y-1/2 h-[40px] w-[36px] sm:w-[38px] scene-neu-panel--collapsed'"
         >
             <button
                 type="button"
-                class="items-center justify-center gap-1.5 py-2 px-2 shrink-0 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-gray-700/50 transition-colors"
-                :class="customListExpanded ? 'border-b border-gray-100 dark:border-gray-600 flex' : 'min-h-[52px] block leading-[14px]'"
+                class="scene-neu-panel-toggle scene-neu-panel-toggle--indigo items-center justify-center gap-1.5 py-2 px-2 shrink-0 text-indigo-600 dark:text-indigo-400"
+                :class="customListExpanded ? 'scene-neu-panel-toggle--expanded flex gap-1.5 py-2 px-2' : 'scene-neu-panel-toggle--collapsed'"
                 :title="customListExpanded ? '收起列表' : '展开列表'"
                 @click="showCustom()"
             >
                 <UIcon
                     :name="customListExpanded ? 'material-symbols:chevron-right' : 'material-symbols:extension-rounded'"
-                    class="text-xl sm:text-2xl transition-transform"
-                    :class="customListExpanded ? '' : 'rotate-0'"
+                    :class="customListExpanded ? 'text-xl sm:text-2xl' : 'text-base'"
+                    class="transition-transform"
                 />
-                <span class="text-xs font-medium sm:inline">自定义</span>
+                <span class="scene-neu-collapsed-label font-medium">自定义</span>
             </button>
             <div
                 v-show="customListExpanded"
@@ -2737,8 +3768,62 @@ useHead({
         </div>
 
         <div style="height: 100vh; width: 100vw; overflow: hidden; " id="scene"></div>
+        <div
+            v-if="linkBadgeMarkers.length"
+            class="scene-link-badge-layer pointer-events-none fixed inset-0 z-[15]"
+            aria-hidden="false"
+        >
+            <button
+                v-for="badge in linkBadgeMarkers"
+                :key="badge.uuid"
+                type="button"
+                class="scene-link-badge pointer-events-auto"
+                :style="{ left: `${badge.x}px`, top: `${badge.y}px` }"
+                :title="`关联 ${badge.count} 项，点击查看`"
+                @click.stop="onLinkBadgeClick(badge.uuid, $event)"
+            >
+                {{ badge.count }}
+            </button>
+        </div>
+        <div
+            v-if="threeCore?.hasSceneSteps() && !sceneStepGroupingMode"
+            class="scene-step-switcher fixed left-1/2 z-[25] flex max-w-[min(100vw-24px,42rem)] -translate-x-1/2 pointer-events-auto"
+            :style="{ top: sceneStepSwitcherTop }"
+        >
+            <div
+                class="scene-neu-opera-bar flex w-full items-center gap-1 overflow-x-auto rounded-full p-1.5 backdrop-blur-md scrollbar-hide"
+            >
+                <button
+                    v-if="edit_mode || add_mode"
+                    type="button"
+                    class="scene-neu-opera-chip flex-shrink-0"
+                    :class="sceneStepShowAll ? 'scene-neu-opera-chip--violet' : ''"
+                    title="全览：显示全部模型"
+                    @click="enterSceneStepOverview"
+                >
+                    全览
+                </button>
+                <button
+                    v-for="(step, index) in threeCore.sceneSteps"
+                    :key="`scene-step-${index}`"
+                    type="button"
+                    class="scene-neu-opera-chip max-w-[10rem] flex-shrink-0 inline-flex items-center gap-0.5 truncate"
+                    :class="!sceneStepShowAll && currentSceneStepIndex === index ? 'scene-neu-opera-chip--violet' : ''"
+                    :title="step.intro?.trim() || sceneStepLabel(step, index)"
+                    @click="switchSceneStep(index)"
+                >
+                    <UIcon
+                        v-if="step.camera"
+                        name="material-symbols:video-camera-back"
+                        class="shrink-0 text-[11px] opacity-80"
+                    />
+                    <span class="truncate">{{ sceneStepLabel(step, index) }}</span>
+                </button>
+            </div>
+        </div>
+        <SceneViewCube :core="threeCore" :enabled="edit_mode" />
         <div class="opera fixed z-20 md:flex items-center whitespace-nowrap"
-            v-show="clickObject && edit_mode && !target" :class="[
+            v-show="clickObject && edit_mode && !sceneStepGroupingMode && !target && !animationTarget" :class="[
                 'md:absolute md:top-auto md:bottom-auto md:left-auto md:right-auto',
                 'fixed bottom-4 left-1/2 -translate-x-1/2 w-[calc(100%-32px)] md:w-auto md:translate-x-0 md:static'
             ]"
@@ -2747,31 +3832,44 @@ useHead({
                 
             </QhxJellyButton> -->
             <div
-                class="opera p-3 bg-qhx-bg-card rounded-[30px] z-20 h-[60px] flex items-center whitespace-nowrap overflow-x-auto scrollbar-hide w-full md:w-auto shadow-lg border border-gray-100 dark:border-gray-700">
-                <div class=" cursor-pointer px-3 flex-shrink-0" @click="setMode('translate')"
+                class="scene-neu-opera-bar opera p-1.5 backdrop-blur-md rounded-full z-20 flex items-center whitespace-nowrap overflow-x-auto scrollbar-hide w-full md:w-auto gap-0.5">
+                <div class="scene-neu-opera-chip flex-shrink-0" @click="setMode('translate')"
                     v-show="transformType !== 'translate'">移动</div>
-                <div class=" cursor-pointer px-3 flex-shrink-0" @click="setMode('rotate')"
+                <div class="scene-neu-opera-chip flex-shrink-0" @click="setMode('rotate')"
                     v-show="transformType !== 'rotate'">
                     旋转</div>
-                <div class=" cursor-pointer px-3 flex-shrink-0" @click="setMode('scale')"
+                <div class="scene-neu-opera-chip flex-shrink-0" @click="setMode('scale')"
                     v-show="transformType !== 'scale'">缩放
                 </div>
-                <div class=" cursor-pointer px-3 flex-shrink-0" @click.stop="openObjectSettings"
+                <div class="scene-neu-opera-chip flex-shrink-0" @click.stop="openObjectSettings"
                     v-if="clickObject && (clickObject[0].userData.type === 'image' || clickObject[0].userData.type === '3Dtext' || clickObject[0].userData.type === 'longtext')">
                     设置
                 </div>
-                <div class=" cursor-pointer px-3 flex-shrink-0" @click.stop="copyModel()"
-                    v-if="clickObject && clickObject[0].userData.type === 'model'">复制</div>
-                <div class=" cursor-pointer px-3 flex-shrink-0" @click.stop="showTexture()" v-if="canTexture">贴图</div>
-                <div class=" cursor-pointer px-3 flex-shrink-0 text-red-500" @click.stop="deleteModel()">删除</div>
+                <div class="scene-neu-opera-chip flex-shrink-0" @click.stop="copySceneObject()"
+                    v-if="clickObject && (clickObject[0].userData.type === 'model' || clickObject[0].userData.type === 'character' || clickObject[0].userData.type === 'image')">复制</div>
+                <div
+                    class="scene-neu-opera-chip scene-neu-opera-chip--violet flex-shrink-0"
+                    v-if="canEditObjectLinks"
+                    @click.stop="openObjectLinkEditor"
+                >
+                    关联
+                </div>
+                <div class="scene-neu-opera-chip flex-shrink-0" @click.stop="showTexture()" v-if="canTexture">贴图</div>
+                <div
+                    class="scene-neu-opera-chip scene-neu-opera-chip--violet flex-shrink-0"
+                    v-if="canObjectAnimation"
+                    @click.stop="showObjectAnimation()"
+                >
+                    动效
+                </div>
+                <div class="scene-neu-opera-chip scene-neu-opera-chip--danger flex-shrink-0" @click.stop="deleteModel()">删除</div>
             </div>
         </div>
-        <div class="camera-list fixed z-10 right-[10px] bottom-0 w-[40px] h-auto max-h-full" v-if="threeCore">
+        <div id="scene-guide-camera-list" class="camera-list fixed z-10 right-[10px] bottom-0 w-[40px] h-auto max-h-full" v-if="threeCore">
             <div class=" relative flex justify-center" v-for="(camera_list, index) in threeCore.cameraList">
                 <QhxJellyButton>
                     <div class="text-center cursor-pointer" @click="lookAtCameraState(camera_list)">
-                        <div class=" relative m-[5px] mx-auto text-white rounded-[50%] h-[30px] w-[30px] bg-qhx-primary flex items-center justify-center"
-                            style="font-size: 22px">
+                        <div class="scene-neu-camera-orb relative m-[5px] mx-auto text-white rounded-[50%] h-[30px] w-[30px] flex items-center justify-center">
                             <div
                                 class="text-[#000] absolute left-0 top-0 h-[30px] w-[30px] flex items-center justify-center z-[1] text-[10px]">
                                 {{ index + 1 }}</div>
@@ -2782,16 +3880,14 @@ useHead({
                 <div v-if="edit_mode" class=" absolute right-[50px] top-0 flex">
                     <QhxJellyButton>
                         <div class="text-center cursor-pointer mr-2" @click="deleteCamera(index)">
-                            <div class=" m-[5px] mx-auto text-white rounded-[50%] h-[30px] w-[30px] bg-qhx-primary flex items-center justify-center"
-                                style="font-size: 22px">
+                            <div class="scene-neu-camera-orb m-[5px] mx-auto text-white rounded-[50%] h-[30px] w-[30px] flex items-center justify-center">
                                 <UIcon name="ant-design:close-outlined" class="text-[22px] text-[#ffffff]" />
                             </div>
                         </div>
                     </QhxJellyButton>
                     <QhxJellyButton>
                         <div class="text-center cursor-pointer" @click="resetCamera(index)">
-                            <div class=" m-[5px] mx-auto text-white rounded-[50%] h-[30px] w-[30px] bg-qhx-primary flex items-center justify-center"
-                                style="font-size: 22px">
+                            <div class="scene-neu-camera-orb m-[5px] mx-auto text-white rounded-[50%] h-[30px] w-[30px] flex items-center justify-center">
                                 <UIcon name="ri:reset-right-line" class="text-[22px] text-[#ffffff]" />
                             </div>
                         </div>
@@ -2823,6 +3919,41 @@ useHead({
             @addImage="onUpdateFiles" @addBackgroun="addBackgroun" @choose-effect="chooseEffect" @addText="addText"
             ref="MaterialRef" :loadTemplate="threeCore && threeCore.loadTemplate.length > 0 ? true : false">
         </SceneMaterial>
+        <QhxModal
+            v-model="showCloneSceneConfirm"
+            :close-on-backdrop="!cloneSceneLoading"
+        >
+            <div
+                class="w-[min(calc(100vw-2rem),360px)] rounded-[12px] bg-white p-4 shadow-lg dark:bg-gray-800"
+            >
+                <h3 class="text-base font-semibold text-gray-900 dark:text-gray-100">
+                    确认克隆场景
+                </h3>
+                <p class="mt-2 text-sm leading-relaxed text-gray-600 dark:text-gray-400">
+                    将把当前场景完整复制到你的账号下，并进入编辑模式。是否继续？
+                </p>
+                <div class="mt-4 flex flex-col gap-2 sm:flex-row">
+                    <UButton
+                        variant="outline"
+                        color="gray"
+                        class="w-full min-w-0 justify-center sm:flex-1"
+                        :disabled="cloneSceneLoading"
+                        @click="showCloneSceneConfirm = false"
+                    >
+                        取消
+                    </UButton>
+                    <UButton
+                        class="w-full min-w-0 justify-center bg-qhx-primary text-qhx-inverted hover:bg-qhx-primaryHover sm:flex-1"
+                        :loading="cloneSceneLoading"
+                        :disabled="cloneSceneLoading"
+                        @click="confirmCloneScene"
+                    >
+                        确认克隆
+                    </UButton>
+                </div>
+            </div>
+        </QhxModal>
+
         <QhxModal v-model="showDiary" :trigger-position="clickPosition">
             <div class="p-6 w-[400px] bg-white rounded-[10px] max-h-[50vh] overflow-y-auto"
                 v-if="activeDiary && !edit_mode">
@@ -2910,40 +4041,52 @@ useHead({
         </QhxModal>
         <Transition :name="`drawer-${isMobile ? 'bottom' : 'right'}`">
             <QhxBottomDrawer v-if="showSettings" :direction="isMobile ? 'bottom' : 'right'" :default-size="isMobile ? 500 : 450">
-            <div class="py-2">
-                <div class="flex items-center justify-between mb-4">
-                    <h3 class="text-base font-bold text-gray-800 dark:text-gray-200">场景设置</h3>
+            <div class="py-1 space-y-5">
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center gap-3 min-w-0">
+                        <div
+                            class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-500/[0.11] ring-1 ring-inset ring-slate-400/20 dark:bg-slate-400/10 dark:ring-slate-500/25"
+                        >
+                            <UIcon name="material-symbols:settings-rounded" class="h-5 w-5 text-slate-600 dark:text-slate-300" />
+                        </div>
+                        <div class="min-w-0">
+                            <h3 class="text-base font-semibold text-gray-900 dark:text-gray-100">场景设置</h3>
+                            <p class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">光影与控制器</p>
+                        </div>
+                    </div>
                     <button
+                        type="button"
                         @click="showSettings = false"
-                        class="w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors group"
+                        class="w-9 h-9 flex items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors group shrink-0"
+                        aria-label="关闭设置"
                     >
                         <UIcon name="i-heroicons-x-mark" class="text-gray-500 dark:text-gray-400 group-hover:text-gray-700 dark:group-hover:text-gray-200 transition-colors" />
                     </button>
                 </div>
 
                 <!-- 光影设置区域 -->
-                <div class="mb-6">
-                    <h4 class="text-sm font-semibold mb-3 text-gray-800 dark:text-gray-200">光影设置</h4>
+                <section class="space-y-4 rounded-2xl border border-gray-200/90 bg-gray-50/50 p-4 dark:border-gray-600/80 dark:bg-gray-800/40 md:p-5">
+                    <h4 class="text-sm font-semibold text-gray-800 dark:text-gray-200">光影设置</h4>
 
                     <!-- 摄像机类型 -->
-                    <div class="mb-4">
-                        <div class="text-sm text-gray-700 dark:text-gray-300 mb-2">摄像机类型</div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">摄像机类型</label>
                         <USelect v-model="settingsState.cameraType" :options="cameraTypeOptions"
                             option-attribute="label" @update:model-value="changeCameraType" color="white" />
                     </div>
                     
                     <!-- 阴影质量 -->
-                    <div class="mb-4">
-                        <div class="text-sm text-gray-700 dark:text-gray-300 mb-2">阴影质量</div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">阴影质量</label>
                         <USelect v-model="settingsState.shadowQuality" :options="shadowQualityOptions"
                             option-attribute="label" @update:model-value="changeShadowQuality" color="white" />
                     </div>
 
                     <!-- 镜头角度（仅透视相机） -->
-                    <div class="mb-2" v-if="settingsState.cameraType === 'perspective'">
+                    <div v-if="settingsState.cameraType === 'perspective'">
                         <div class="flex justify-between mb-2">
-                            <span class="text-sm text-gray-700 dark:text-gray-300">镜头角度</span>
-                            <span class="text-xs text-gray-500">{{ Math.round(settingsState.fov) }}°</span>
+                            <label class="text-sm font-medium text-gray-700 dark:text-gray-300">镜头角度</label>
+                            <span class="text-xs font-mono text-gray-500 dark:text-gray-400">{{ Math.round(settingsState.fov) }}°</span>
                         </div>
                         <URange v-model="settingsState.fov" :min="10" :max="120" :step="1"
                             @update:model-value="changeFov" />
@@ -2968,52 +4111,73 @@ useHead({
                         <URange v-model="settingsState.lightElevation" :min="0" :max="90" :step="1"
                             @update:model-value="updateLightPosition" />
                     </div>
-                </div>
+                </section>
 
-                <!-- 控制器设置区域 - 仅在编辑模式下显示 -->
-                <template v-if="edit_mode || add_mode">
-                    <div class="border-t border-gray-200 dark:border-gray-700 pt-4">
-                        <h4 class="text-sm font-semibold mb-3 text-gray-800 dark:text-gray-200">控制器设置</h4>
-                        
-                        <!-- 水平旋转角度范围 -->
-                        <div class="mb-4">
-                            <div class="flex justify-between mb-2">
-                                <span class="text-sm text-gray-700 dark:text-gray-300">水平旋转角度范围</span>
-                                <span class="text-xs text-gray-500">
-                                    {{ Math.round(settingsState.minAzimuthAngle) }}° ~ {{ Math.round(settingsState.maxAzimuthAngle) }}°
-                                </span>
-                            </div>
-                            <QhxDualRange
-                                v-model="azimuthRange"
-                                :min="-180"
-                                :max="180"
-                                :step="1"
-                            />
-                        </div>
-
-                        <!-- 垂直旋转角度范围 -->
-                        <div class="mb-2">
-                            <div class="flex justify-between mb-2">
-                                <span class="text-sm text-gray-700 dark:text-gray-300">垂直旋转角度范围</span>
-                                <span class="text-xs text-gray-500">
-                                    {{ Math.round(settingsState.minPolarAngle) }}° ~ {{ Math.round(settingsState.maxPolarAngle) }}°
-                                </span>
-                            </div>
-                            <QhxDualRange
-                                v-model="polarRange"
-                                :min="0"
-                                :max="180"
-                                :step="1"
-                            />
-                        </div>
+                <section class="space-y-4 rounded-2xl border border-gray-200/90 bg-gray-50/50 p-4 dark:border-gray-600/80 dark:bg-gray-800/40 md:p-5">
+                    <div>
+                        <h4 class="text-sm font-semibold text-gray-800 dark:text-gray-200">画质设置</h4>
+                        <p class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">切换后将刷新页面并保存到本机</p>
                     </div>
-                </template>
+
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">画质预设</label>
+                        <USelect
+                            :model-value="sceneGraphicsPreset"
+                            :options="graphicsPresetOptions"
+                            option-attribute="label"
+                            value-attribute="value"
+                            color="white"
+                            @update:model-value="onGraphicsPresetChange"
+                        />
+                    </div>
+                </section>
+
+                <section v-if="edit_mode || add_mode" class="space-y-4 rounded-2xl border border-gray-200/90 bg-gray-50/50 p-4 dark:border-gray-600/80 dark:bg-gray-800/40 md:p-5">
+                    <h4 class="text-sm font-semibold text-gray-800 dark:text-gray-200">控制器设置</h4>
+
+                    <!-- 水平旋转角度范围 -->
+                    <div>
+                        <div class="flex justify-between mb-2">
+                            <label class="text-sm font-medium text-gray-700 dark:text-gray-300">水平旋转角度范围</label>
+                            <span class="text-xs font-mono text-gray-500 dark:text-gray-400">
+                                {{ Math.round(settingsState.minAzimuthAngle) }}° ~ {{ Math.round(settingsState.maxAzimuthAngle) }}°
+                            </span>
+                        </div>
+                        <QhxDualRange
+                            v-model="azimuthRange"
+                            :min="-180"
+                            :max="180"
+                            :step="1"
+                        />
+                    </div>
+
+                    <!-- 垂直旋转角度范围 -->
+                    <div>
+                        <div class="flex justify-between mb-2">
+                            <label class="text-sm font-medium text-gray-700 dark:text-gray-300">垂直旋转角度范围</label>
+                            <span class="text-xs font-mono text-gray-500 dark:text-gray-400">
+                                {{ Math.round(settingsState.minPolarAngle) }}° ~ {{ Math.round(settingsState.maxPolarAngle) }}°
+                            </span>
+                        </div>
+                        <QhxDualRange
+                            v-model="polarRange"
+                            :min="0"
+                            :max="180"
+                            :step="1"
+                        />
+                    </div>
+                </section>
             </div>
         </QhxBottomDrawer>
         </Transition>
         <QhxModal v-model="showObjectSettings" :trigger-position="clickPosition">
-            <div class="p-6 w-[400px] bg-white dark:bg-gray-800 rounded-[10px] shadow-lg">
-                <h3 class="text-base font-bold mb-4 text-gray-800 dark:text-gray-200">物体设置</h3>
+            <div class="p-6 w-[min(92vw,420px)] bg-white dark:bg-gray-800 rounded-2xl shadow-xl border border-gray-200/80 dark:border-gray-700/80">
+                <div class="flex items-center gap-3 mb-5">
+                    <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-violet-500/[0.11] ring-1 ring-inset ring-violet-500/15 dark:bg-violet-400/10 dark:ring-violet-400/20">
+                        <UIcon name="material-symbols:tune-rounded" class="h-5 w-5 text-violet-600 dark:text-violet-400" />
+                    </div>
+                    <h3 class="text-base font-semibold text-gray-900 dark:text-gray-100">物体设置</h3>
+                </div>
 
                 <!-- 3D文本设置 -->
                 <template v-if="clickObject && clickObject[0] && clickObject[0].userData.type === '3Dtext'">
@@ -3141,30 +4305,32 @@ useHead({
             </div>
         </QhxModal>
         <QhxModal v-model="showLongTextModal" :trigger-position="longTextModalPosition">
-            <div class="p-6 w-[500px] bg-white dark:bg-gray-800 rounded-[10px] shadow-lg">
-                <h3 class="text-base font-bold mb-4 text-gray-800 dark:text-gray-200">添加长文本</h3>
-                
-                <div class="mb-4">
-                    <div class="text-sm text-gray-700 dark:text-gray-300 mb-2">文本内容</div>
-                    <UTextarea 
-                        v-model="longTextContent" 
-                        placeholder="请输入长文本内容（支持多行）" 
-                        :rows="8"
-                        class="flex-1 focus:ring-0" 
-                        :ui="{
-                            base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
-                            rounded: 'rounded-[10px]',
-                            padding: { xs: 'px-4 py-2' },
-                            color: {
-                                white: {
-                                    outline: 'bg-gray-50 dark:bg-gray-800 ring-1 ring-gray-300 dark:ring-gray-600 focus:ring-2 focus:ring-qhx-primary'
+            <div class="flex flex-col w-[min(92vw,500px)] h-[min(72vh,480px)] p-4 sm:p-6 bg-white dark:bg-gray-800 rounded-[10px] shadow-lg overflow-hidden">
+                <h3 class="text-base font-bold mb-3 sm:mb-4 text-gray-800 dark:text-gray-200 shrink-0">添加长文本</h3>
+
+                <div class="mb-4 flex-1 min-h-0 flex flex-col">
+                    <div class="text-sm text-gray-700 dark:text-gray-300 mb-2 shrink-0">文本内容</div>
+                    <div class="flex-1 min-h-0 [&_textarea]:h-full [&_textarea]:min-h-0 [&_textarea]:resize-none">
+                        <UTextarea
+                            v-model="longTextContent"
+                            placeholder="请输入长文本内容（支持多行）"
+                            :rows="1"
+                            class="h-full focus:ring-0"
+                            :ui="{
+                                base: 'h-full min-h-0 focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
+                                rounded: 'rounded-[10px]',
+                                padding: { xs: 'px-4 py-2' },
+                                color: {
+                                    white: {
+                                        outline: 'bg-gray-50 dark:bg-gray-800 ring-1 ring-gray-300 dark:ring-gray-600 focus:ring-2 focus:ring-qhx-primary'
+                                    }
                                 }
-                            }
-                        }" 
-                    />
+                            }"
+                        />
+                    </div>
                 </div>
 
-                <div class="flex gap-3 justify-end">
+                <div class="flex gap-3 justify-end shrink-0">
                     <UButton 
                         color="gray" 
                         variant="outline" 
@@ -3364,15 +4530,142 @@ useHead({
             </div>
         </QhxModal>
 
+        <QhxModal v-model="showMoreMenu" :trigger-position="moreMenuPosition">
+            <div class="p-4 w-[200px] bg-white dark:bg-gray-800 rounded-[10px] shadow-lg">
+                <h3 class="text-sm font-bold mb-3 text-gray-800 dark:text-gray-200">更多选项</h3>
+
+                <button
+                    v-if="edit_mode || add_mode"
+                    type="button"
+                    class="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors text-left group"
+                    @click="replaySceneEditGuideFromMenu"
+                >
+                    <div
+                        class="w-8 h-8 rounded-lg flex items-center justify-center bg-gradient-to-br from-sky-400 to-sky-500 group-hover:scale-110 transition-transform"
+                    >
+                        <UIcon name="material-symbols:map-rounded" class="text-base text-white" />
+                    </div>
+                    <div class="flex-1">
+                        <div class="text-sm font-medium text-gray-800 dark:text-gray-200">操作引导</div>
+                        <div class="text-xs text-gray-500 dark:text-gray-400">重播编辑操作引导</div>
+                    </div>
+                </button>
+
+                <button
+                    type="button"
+                    class="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors text-left group"
+                    :class="(edit_mode || add_mode) && 'mt-2'"
+                    @click="openScenePostFromMenu"
+                >
+                    <div
+                        class="w-8 h-8 rounded-lg flex items-center justify-center bg-gradient-to-br from-pink-500 to-rose-500 group-hover:scale-110 transition-transform"
+                    >
+                        <UIcon name="material-symbols:edit-note-rounded" class="text-base text-white" />
+                    </div>
+                    <div class="flex-1">
+                        <div class="text-sm font-medium text-gray-800 dark:text-gray-200">发帖分享</div>
+                        <div class="text-xs text-gray-500 dark:text-gray-400">发布到社区</div>
+                    </div>
+                </button>
+
+                <button
+                    type="button"
+                    class="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors text-left group mt-2"
+                    @click="handleSceneShareFromMenu"
+                >
+                    <div
+                        class="w-8 h-8 rounded-lg flex items-center justify-center bg-gradient-to-br from-violet-500 to-purple-500 group-hover:scale-110 transition-transform"
+                    >
+                        <UIcon name="ic:round-share" class="text-base text-white" />
+                    </div>
+                    <div class="flex-1">
+                        <div class="text-sm font-medium text-gray-800 dark:text-gray-200">分享</div>
+                        <div class="text-xs text-gray-500 dark:text-gray-400">复制场景链接</div>
+                    </div>
+                </button>
+
+                <button
+                    v-if="id !== '0'"
+                    type="button"
+                    class="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors text-left group mt-2"
+                    @click="openSceneSettingsFromMenu"
+                >
+                    <div
+                        class="w-8 h-8 rounded-lg flex items-center justify-center bg-gradient-to-br from-gray-500 to-gray-600 group-hover:scale-110 transition-transform"
+                    >
+                        <UIcon name="i-heroicons-cog-6-tooth" class="text-base text-white" />
+                    </div>
+                    <div class="flex-1">
+                        <div class="text-sm font-medium text-gray-800 dark:text-gray-200">设置</div>
+                        <div class="text-xs text-gray-500 dark:text-gray-400">场景权限与克隆</div>
+                    </div>
+                </button>
+            </div>
+        </QhxModal>
+
+        <UModal v-model="showSceneSettings" :ui="{ width: 'max-w-md' }">
+            <UCard>
+                <template #header>
+                    <h3 class="text-lg font-semibold text-gray-800 dark:text-gray-200">场景设置</h3>
+                </template>
+                <div v-if="hasSceneOrigin" class="py-1">
+                    <div class="text-sm font-medium text-gray-800 dark:text-gray-200">允许克隆场景</div>
+                    <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                        本场景由其他场景克隆而来，不可开启克隆权限
+                    </p>
+                </div>
+                <div v-else class="flex items-center justify-between gap-4 py-1">
+                    <div class="flex-1 min-w-0">
+                        <div class="text-sm font-medium text-gray-800 dark:text-gray-200">允许克隆场景</div>
+                        <div class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                            开启后，其他用户可将本场景克隆到自己的账号
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-2 shrink-0">
+                        <UToggle
+                            :model-value="sceneAllowCopyEnabled"
+                            :loading="allowCopyUpdating"
+                            :disabled="allowCopyUpdating"
+                            @update:model-value="updateSceneAllowCopy"
+                        />
+                        <span class="text-xs text-gray-500 dark:text-gray-400 w-8 text-center">
+                            {{ sceneAllowCopyEnabled ? '开启' : '关闭' }}
+                        </span>
+                    </div>
+                </div>
+                <template #footer>
+                    <div class="flex justify-end">
+                        <UButton color="gray" @click="showSceneSettings = false">关闭</UButton>
+                    </div>
+                </template>
+            </UCard>
+        </UModal>
+
         <!-- 颜色选择器 -->
         <QhxColorPicker ref="colorPickerRef" @choose="setSolidColorBackground" />
 
         <!-- 发帖弹窗 -->
         <ClientOnly>
-            <YearlySummaryPostModal v-model="showPostModal" :sence-id="Number.parseInt(id)"
-                :scene-cover-relative-path="detail?.sence_cover ?? ''" :skip-summary-link="true"
-                @success="handlePostSuccess" />
+            <CommunityPostModal
+                v-model="showPostModal"
+                :foreign-pk="scenePostForeignPk"
+                :sence-id="scenePostSenceId"
+                :scene-cover-relative-path="detail?.sence_cover ?? ''"
+                initial-type="3D"
+                modal-title="发帖分享"
+                :skip-summary-link="true"
+                :success-redirect="false"
+                @success="handlePostSuccess"
+            />
         </ClientOnly>
+
+        <QhxStepGuide
+            ref="sceneEditGuideRef"
+            v-model="showSceneEditGuide"
+            :steps="sceneEditGuideSteps"
+            :storage-key="sceneEditGuideStorageKey"
+            @step-change="onGuideStepChange"
+        />
     </div>
 </template>
 <style>
@@ -3406,6 +4699,945 @@ useHead({
     .scrollbar-hide {
         max-height: calc(100vh - 2rem);
     }
+}
+
+/* 场景页：拟态 + 半透明玻璃（工具栏 / 侧栏 / 操作条 / 顶栏按钮） */
+.scene-page-neu {
+    --scene-neu-soft: rgba(255, 255, 255, 0.58);
+    --scene-neu-deep: rgba(0, 0, 0, 0.13);
+    --scene-neu-inset: rgba(255, 255, 255, 0.42);
+    --scene-neu-glass: rgba(255, 255, 255, 0.58);
+    --scene-neu-border: rgba(255, 255, 255, 0.38);
+}
+
+html.dark .scene-page-neu {
+    --scene-neu-soft: rgba(255, 255, 255, 0.07);
+    --scene-neu-deep: rgba(0, 0, 0, 0.5);
+    --scene-neu-inset: rgba(255, 255, 255, 0.08);
+    --scene-neu-glass: rgba(38, 40, 48, 0.68);
+    --scene-neu-border: rgba(255, 255, 255, 0.09);
+}
+
+.scene-page-neu .scene-neu-panel {
+    background: var(--scene-neu-glass);
+    border: 1px solid var(--scene-neu-border);
+    box-shadow:
+        8px 6px 20px var(--scene-neu-deep),
+        -5px -4px 14px var(--scene-neu-soft),
+        inset 0 1px 0 var(--scene-neu-inset),
+        inset 1px 0 0 rgba(255, 255, 255, 0.22);
+}
+
+html.dark .scene-page-neu .scene-neu-panel {
+    box-shadow:
+        8px 8px 24px var(--scene-neu-deep),
+        -4px -3px 12px var(--scene-neu-soft),
+        inset 0 1px 0 var(--scene-neu-inset),
+        inset 1px 0 0 rgba(255, 255, 255, 0.04),
+        inset -2px 0 4px rgba(0, 0, 0, 0.35);
+}
+
+/* 侧栏收缩态：更透的玻璃拟态、更小占位 */
+.scene-page-neu .scene-neu-panel--collapsed {
+    background: rgba(255, 255, 255, 0.34);
+    border-color: rgba(255, 255, 255, 0.22);
+    backdrop-filter: blur(16px) saturate(1.15);
+    -webkit-backdrop-filter: blur(16px) saturate(1.15);
+    box-shadow:
+        3px 2px 10px rgba(0, 0, 0, 0.08),
+        -2px -2px 7px rgba(255, 255, 255, 0.5),
+        inset 0 1px 0 rgba(255, 255, 255, 0.5),
+        inset 1px 0 0 rgba(255, 255, 255, 0.18);
+}
+
+html.dark .scene-page-neu .scene-neu-panel--collapsed {
+    background: rgba(30, 32, 40, 0.42);
+    border-color: rgba(255, 255, 255, 0.06);
+    box-shadow:
+        4px 4px 14px rgba(0, 0, 0, 0.38),
+        -2px -2px 6px rgba(255, 255, 255, 0.03),
+        inset 0 1px 0 rgba(255, 255, 255, 0.05),
+        inset -1px 0 2px rgba(0, 0, 0, 0.22);
+}
+
+.scene-page-neu .scene-neu-panel-toggle--collapsed {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.125rem;
+    min-height: 40px;
+    width: 100%;
+    padding: 0.25rem 0.125rem;
+}
+
+.scene-page-neu .scene-neu-panel-toggle--collapsed:hover {
+    background: rgba(255, 255, 255, 0.14);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35);
+}
+
+html.dark .scene-page-neu .scene-neu-panel-toggle--collapsed:hover {
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.scene-page-neu .scene-neu-panel-toggle--expanded .scene-neu-collapsed-label {
+    font-size: 0.75rem;
+    line-height: 1.25;
+}
+
+.scene-page-neu .scene-neu-panel-toggle--collapsed .scene-neu-collapsed-label {
+    font-size: 8px;
+    line-height: 1;
+    letter-spacing: 0.02em;
+    opacity: 0.9;
+}
+
+.scene-page-neu .scene-neu-toggle-btn--collapsed {
+    min-height: 40px;
+    padding: 0.25rem 0.125rem;
+    gap: 0.125rem;
+}
+
+.scene-page-neu .scene-neu-toggle-btn--collapsed:hover {
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.4);
+}
+
+.scene-page-neu .scene-neu-collapsed-badge {
+    box-shadow:
+        1px 1px 4px rgba(0, 0, 0, 0.18),
+        inset 0 1px 0 rgba(255, 255, 255, 0.28);
+}
+
+/* 顶栏：发帖 / 分享 */
+.scene-page-neu .scene-neu-action-btn {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    border-radius: 9999px;
+    padding: 0.5rem 1rem 0.5rem 0.5rem;
+    border: 1px solid var(--scene-neu-border);
+    background: var(--scene-neu-glass);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    transition: box-shadow 0.2s ease, transform 0.18s ease, border-color 0.2s ease;
+    box-shadow:
+        5px 5px 14px var(--scene-neu-deep),
+        -3px -3px 10px var(--scene-neu-soft),
+        inset 0 1px 0 var(--scene-neu-inset);
+}
+
+.scene-page-neu .scene-neu-action-btn:hover {
+    transform: translateY(-1px);
+    box-shadow:
+        6px 7px 16px var(--scene-neu-deep),
+        -4px -4px 12px var(--scene-neu-soft),
+        inset 0 1px 0 var(--scene-neu-inset);
+}
+
+.scene-page-neu .scene-neu-action-btn:active {
+    transform: translateY(0) scale(0.98);
+    box-shadow:
+        inset 3px 3px 9px var(--scene-neu-deep),
+        inset -2px -2px 6px var(--scene-neu-soft);
+}
+
+.scene-page-neu .scene-neu-action-btn--pink:hover {
+    border-color: color-mix(in srgb, #ec4899 35%, var(--scene-neu-border));
+}
+
+.scene-page-neu .scene-neu-action-btn--violet:hover {
+    border-color: color-mix(in srgb, #8b5cf6 35%, var(--scene-neu-border));
+}
+
+.scene-page-neu .scene-neu-action-btn--emerald:hover {
+    border-color: color-mix(in srgb, #10b981 35%, var(--scene-neu-border));
+}
+
+.scene-page-neu .scene-neu-action-icon {
+    display: flex;
+    height: 2rem;
+    width: 2rem;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    border-radius: 9999px;
+    transition: transform 0.2s ease;
+}
+
+.scene-page-neu .scene-neu-action-btn:hover .scene-neu-action-icon {
+    transform: scale(1.05);
+}
+
+.scene-page-neu .scene-neu-action-icon--pink {
+    background: linear-gradient(145deg, rgba(236, 72, 153, 0.22), rgba(244, 114, 182, 0.12));
+    box-shadow:
+        2px 2px 6px rgba(0, 0, 0, 0.1),
+        inset 0 1px 0 rgba(255, 255, 255, 0.55);
+}
+
+.scene-page-neu .scene-neu-action-icon--emerald {
+    background: linear-gradient(145deg, rgba(16, 185, 129, 0.22), rgba(52, 211, 153, 0.12));
+    box-shadow:
+        2px 2px 6px rgba(0, 0, 0, 0.1),
+        inset 0 1px 0 rgba(255, 255, 255, 0.55);
+}
+
+.scene-page-neu .scene-neu-action-icon--violet {
+    background: linear-gradient(145deg, rgba(139, 92, 246, 0.22), rgba(167, 139, 250, 0.12));
+    box-shadow:
+        2px 2px 6px rgba(0, 0, 0, 0.1),
+        inset 0 1px 0 rgba(255, 255, 255, 0.55);
+}
+
+.scene-page-neu .scene-neu-action-label {
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: rgb(31 41 55);
+}
+
+html.dark .scene-page-neu .scene-neu-action-label {
+    color: rgb(243 244 246);
+}
+
+/* 顶栏紧凑态：与侧栏收缩条一致的半透明拟态 */
+.scene-page-neu .scene-neu-action-btn--compact {
+    gap: 0.375rem;
+    padding: 0.3rem 0.55rem 0.3rem 0.3rem;
+    border-radius: 0.625rem;
+    background: rgba(255, 255, 255, 0.34);
+    border-color: rgba(255, 255, 255, 0.22);
+    backdrop-filter: blur(16px) saturate(1.15);
+    -webkit-backdrop-filter: blur(16px) saturate(1.15);
+    box-shadow:
+        3px 2px 10px rgba(0, 0, 0, 0.08),
+        -2px -2px 7px rgba(255, 255, 255, 0.5),
+        inset 0 1px 0 rgba(255, 255, 255, 0.5),
+        inset 1px 0 0 rgba(255, 255, 255, 0.18);
+}
+
+html.dark .scene-page-neu .scene-neu-action-btn--compact {
+    background: rgba(30, 32, 40, 0.42);
+    border-color: rgba(255, 255, 255, 0.06);
+    box-shadow:
+        4px 4px 14px rgba(0, 0, 0, 0.38),
+        -2px -2px 6px rgba(255, 255, 255, 0.03),
+        inset 0 1px 0 rgba(255, 255, 255, 0.05),
+        inset -1px 0 2px rgba(0, 0, 0, 0.22);
+}
+
+.scene-page-neu .scene-neu-action-btn--compact:hover {
+    transform: translateY(-1px);
+    background: rgba(255, 255, 255, 0.42);
+    box-shadow:
+        4px 3px 12px rgba(0, 0, 0, 0.1),
+        -2px -2px 8px rgba(255, 255, 255, 0.55),
+        inset 0 1px 0 rgba(255, 255, 255, 0.55);
+}
+
+html.dark .scene-page-neu .scene-neu-action-btn--compact:hover {
+    background: rgba(36, 38, 48, 0.52);
+}
+
+.scene-page-neu .scene-neu-action-btn--compact:active {
+    transform: scale(0.97);
+    box-shadow:
+        inset 2px 2px 7px rgba(0, 0, 0, 0.12),
+        inset -1px -1px 4px rgba(255, 255, 255, 0.35);
+}
+
+.scene-page-neu .scene-neu-action-icon--compact {
+    height: 1.5rem;
+    width: 1.5rem;
+}
+
+.scene-page-neu .scene-neu-action-label--compact {
+    font-size: 10px;
+    font-weight: 600;
+    line-height: 1;
+    letter-spacing: 0.02em;
+}
+
+/* 左侧栏展开钮 */
+.scene-page-neu .scene-neu-toggle-btn {
+    transition: background 0.2s ease, box-shadow 0.2s ease;
+}
+
+.scene-page-neu .scene-neu-toggle-btn:hover {
+    background: rgba(255, 255, 255, 0.18);
+}
+
+html.dark .scene-page-neu .scene-neu-toggle-btn:hover {
+    background: rgba(255, 255, 255, 0.06);
+}
+
+.scene-page-neu .scene-neu-toggle-btn--expanded {
+    border-bottom: 1px solid color-mix(in srgb, var(--scene-neu-border) 80%, transparent);
+    box-shadow: inset 0 -1px 0 rgba(0, 0, 0, 0.04);
+}
+
+/* 左侧工具钮 */
+.scene-page-neu .scene-neu-tool-btn {
+    display: flex;
+    width: 100%;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.375rem;
+    border-radius: 0.75rem;
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    transition: box-shadow 0.2s ease, transform 0.18s ease, background 0.2s ease;
+}
+
+.scene-page-neu .scene-neu-tool-btn:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.22);
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.35),
+        2px 2px 6px rgba(0, 0, 0, 0.06);
+}
+
+html.dark .scene-page-neu .scene-neu-tool-btn:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.06);
+}
+
+.scene-page-neu .scene-neu-tool-btn:active:not(:disabled) {
+    transform: scale(0.95);
+    box-shadow:
+        inset 2px 2px 7px var(--scene-neu-deep),
+        inset -1px -1px 4px var(--scene-neu-soft);
+}
+
+.scene-page-neu .scene-neu-tool-label {
+    font-size: 9px;
+    font-weight: 500;
+    line-height: 1.2;
+    color: rgb(55 65 81);
+}
+
+html.dark .scene-page-neu .scene-neu-tool-label {
+    color: rgb(229 231 235);
+}
+
+.scene-page-neu .scene-neu-icon-orb {
+    display: flex;
+    width: 1.75rem;
+    height: 1.75rem;
+    align-items: center;
+    justify-content: center;
+    border-radius: 9999px;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.scene-page-neu .scene-neu-tool-btn:hover:not(:disabled) .scene-neu-icon-orb {
+    transform: scale(1.08);
+}
+
+.scene-page-neu .scene-neu-icon-orb--blue {
+    background: linear-gradient(145deg, rgba(59, 130, 246, 0.88), rgba(37, 99, 235, 0.72));
+    box-shadow: 3px 3px 8px rgba(0, 0, 0, 0.16), -2px -2px 6px rgba(255, 255, 255, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.35);
+}
+
+.scene-page-neu .scene-neu-icon-orb--gray {
+    background: linear-gradient(145deg, rgba(107, 114, 128, 0.9), rgba(75, 85, 99, 0.75));
+    box-shadow: 3px 3px 8px rgba(0, 0, 0, 0.16), -2px -2px 6px rgba(255, 255, 255, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.3);
+}
+
+.scene-page-neu .scene-neu-icon-orb--green {
+    background: linear-gradient(145deg, rgba(34, 197, 94, 0.88), rgba(22, 163, 74, 0.72));
+    box-shadow: 3px 3px 8px rgba(0, 0, 0, 0.16), -2px -2px 6px rgba(255, 255, 255, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.35);
+}
+
+.scene-page-neu .scene-neu-icon-orb--amber {
+    background: linear-gradient(145deg, rgba(245, 158, 11, 0.9), rgba(217, 119, 6, 0.75));
+    box-shadow: 3px 3px 8px rgba(0, 0, 0, 0.16), -2px -2px 6px rgba(255, 255, 255, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.35);
+}
+
+.scene-page-neu .scene-neu-icon-orb--indigo {
+    background: linear-gradient(145deg, rgba(99, 102, 241, 0.9), rgba(79, 70, 229, 0.75));
+    box-shadow: 3px 3px 8px rgba(0, 0, 0, 0.16), -2px -2px 6px rgba(255, 255, 255, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.35);
+}
+
+.scene-page-neu .scene-neu-icon-orb--cyan {
+    background: linear-gradient(145deg, rgba(6, 182, 212, 0.9), rgba(8, 145, 178, 0.75));
+    box-shadow: 3px 3px 8px rgba(0, 0, 0, 0.16), -2px -2px 6px rgba(255, 255, 255, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.35);
+}
+
+.scene-page-neu .scene-neu-icon-orb--rose {
+    background: linear-gradient(145deg, rgba(244, 63, 94, 0.9), rgba(225, 29, 72, 0.75));
+    box-shadow: 3px 3px 8px rgba(0, 0, 0, 0.16), -2px -2px 6px rgba(255, 255, 255, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.35);
+}
+
+.scene-page-neu .scene-neu-icon-orb--yellow {
+    background: linear-gradient(145deg, rgba(234, 179, 8, 0.92), rgba(202, 138, 4, 0.78));
+    box-shadow: 3px 3px 8px rgba(0, 0, 0, 0.16), -2px -2px 6px rgba(255, 255, 255, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.35);
+}
+
+.scene-page-neu .scene-neu-badge {
+    box-shadow:
+        2px 2px 5px rgba(0, 0, 0, 0.2),
+        inset 0 1px 0 rgba(255, 255, 255, 0.35);
+}
+
+/* 侧栏折叠头 */
+.scene-page-neu .scene-neu-panel-toggle {
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    transition: background 0.2s ease, box-shadow 0.2s ease;
+}
+
+.scene-page-neu .scene-neu-panel-toggle:hover:not(.scene-neu-panel-toggle--collapsed) {
+    background: rgba(255, 255, 255, 0.2);
+}
+
+html.dark .scene-page-neu .scene-neu-panel-toggle:hover {
+    background: rgba(255, 255, 255, 0.06);
+}
+
+.scene-page-neu .scene-neu-panel-toggle--expanded {
+    border-bottom: 1px solid color-mix(in srgb, var(--scene-neu-border) 85%, transparent);
+    box-shadow: inset 0 -1px 0 rgba(0, 0, 0, 0.04);
+}
+
+/* 动画 clip / 贴图列表项 */
+.scene-page-neu .scene-neu-chip {
+    border-radius: 0.375rem;
+    border: 1px solid transparent;
+    cursor: pointer;
+    transition: box-shadow 0.18s ease, transform 0.16s ease;
+    box-shadow:
+        2px 2px 6px rgba(0, 0, 0, 0.1),
+        -1px -1px 4px rgba(255, 255, 255, 0.5),
+        inset 0 1px 0 rgba(255, 255, 255, 0.45);
+}
+
+.scene-page-neu .scene-neu-chip--violet {
+    background: color-mix(in srgb, #8b5cf6 18%, rgba(255, 255, 255, 0.55));
+    color: rgb(76 29 149);
+    border-color: color-mix(in srgb, #8b5cf6 22%, transparent);
+}
+
+html.dark .scene-page-neu .scene-neu-chip--violet {
+    background: color-mix(in srgb, #6d28d9 35%, rgba(30, 32, 40, 0.75));
+    color: rgb(237 233 254);
+}
+
+.scene-page-neu .scene-neu-chip:active {
+    transform: scale(0.97);
+    box-shadow: inset 2px 2px 5px rgba(0, 0, 0, 0.12);
+}
+
+.scene-page-neu .scene-neu-list-item {
+    border-radius: 0.5rem;
+    cursor: pointer;
+    transition: box-shadow 0.18s ease, transform 0.16s ease;
+}
+
+.scene-page-neu .scene-neu-list-item--amber {
+    background: color-mix(in srgb, #f59e0b 14%, rgba(255, 255, 255, 0.5));
+    color: rgb(120 53 15);
+    border: 1px solid color-mix(in srgb, #f59e0b 28%, transparent);
+    box-shadow:
+        3px 3px 8px rgba(0, 0, 0, 0.08),
+        inset 0 1px 0 rgba(255, 255, 255, 0.4);
+}
+
+html.dark .scene-page-neu .scene-neu-list-item--amber {
+    background: color-mix(in srgb, #b45309 28%, rgba(30, 32, 40, 0.72));
+    color: rgb(254 243 199);
+    border-color: color-mix(in srgb, #d97706 35%, transparent);
+}
+
+.scene-page-neu .scene-neu-list-item--amber:hover {
+    box-shadow:
+        4px 4px 10px rgba(0, 0, 0, 0.1),
+        inset 0 1px 0 rgba(255, 255, 255, 0.5);
+}
+
+/* 关联详情弹窗（Teleport 到 body，自带 scene-page-neu 以复用拟态变量） */
+.scene-page-neu.scene-link-detail-shell {
+    --scene-neu-soft: rgba(255, 255, 255, 0.58);
+    --scene-neu-deep: rgba(0, 0, 0, 0.13);
+    --scene-neu-inset: rgba(255, 255, 255, 0.42);
+    --scene-neu-glass: rgba(255, 255, 255, 0.58);
+    --scene-neu-border: rgba(255, 255, 255, 0.38);
+    width: min(95vw, 22rem);
+    max-height: 85vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    border-radius: 1rem;
+    background: var(--scene-neu-glass);
+    border: 1px solid var(--scene-neu-border);
+    backdrop-filter: blur(14px) saturate(1.12);
+    -webkit-backdrop-filter: blur(14px) saturate(1.12);
+    box-shadow:
+        8px 8px 24px var(--scene-neu-deep),
+        -5px -5px 14px var(--scene-neu-soft),
+        inset 0 1px 0 var(--scene-neu-inset);
+}
+
+html.dark .scene-page-neu.scene-link-detail-shell {
+    --scene-neu-soft: rgba(255, 255, 255, 0.07);
+    --scene-neu-deep: rgba(0, 0, 0, 0.5);
+    --scene-neu-inset: rgba(255, 255, 255, 0.08);
+    --scene-neu-glass: rgba(38, 40, 48, 0.72);
+    --scene-neu-border: rgba(255, 255, 255, 0.09);
+}
+
+.scene-page-neu .scene-link-detail-head {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.875rem 1rem;
+    border-bottom: 1px solid color-mix(in srgb, var(--scene-neu-border) 90%, transparent);
+    box-shadow: inset 0 -1px 0 rgba(0, 0, 0, 0.04);
+}
+
+.scene-page-neu .scene-link-detail-head__title {
+    font-size: 1rem;
+    font-weight: 700;
+    color: rgb(31 41 55);
+    line-height: 1.3;
+}
+
+html.dark .scene-page-neu .scene-link-detail-head__title {
+    color: rgb(243 244 246);
+}
+
+.scene-page-neu .scene-link-detail-head__sub {
+    margin-top: 0.125rem;
+    font-size: 0.75rem;
+    color: rgb(107 114 128);
+}
+
+html.dark .scene-page-neu .scene-link-detail-head__sub {
+    color: rgb(156 163 175);
+}
+
+.scene-page-neu .scene-link-detail-close {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 2rem;
+    height: 2rem;
+    border-radius: 9999px;
+    border: 1px solid var(--scene-neu-border);
+    background: color-mix(in srgb, #fff 50%, transparent);
+    color: rgb(75 85 99);
+    cursor: pointer;
+    transition: transform 0.16s ease, box-shadow 0.18s ease;
+    box-shadow:
+        2px 2px 5px rgba(0, 0, 0, 0.08),
+        inset 0 1px 0 rgba(255, 255, 255, 0.4);
+}
+
+html.dark .scene-page-neu .scene-link-detail-close {
+    color: rgb(209 213 219);
+    background: color-mix(in srgb, #fff 6%, rgba(50, 52, 60, 0.65));
+}
+
+.scene-page-neu .scene-link-detail-close:hover {
+    transform: scale(1.05);
+}
+
+.scene-page-neu .scene-link-detail-close:active {
+    transform: scale(0.94);
+    box-shadow: inset 2px 2px 5px rgba(0, 0, 0, 0.12);
+}
+
+.scene-page-neu .scene-link-detail-body {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 0.875rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.scene-page-neu .scene-link-detail-loading,
+.scene-page-neu .scene-link-detail-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 2rem 1rem;
+    text-align: center;
+}
+
+.scene-page-neu .scene-link-detail-card {
+    padding: 0.75rem;
+    border-radius: 0.875rem;
+    background: color-mix(in srgb, #fff 42%, transparent);
+    border: 1px solid var(--scene-neu-border);
+    box-shadow:
+        4px 4px 12px var(--scene-neu-deep),
+        -2px -2px 8px var(--scene-neu-soft),
+        inset 0 1px 0 var(--scene-neu-inset);
+}
+
+html.dark .scene-page-neu .scene-link-detail-card {
+    background: color-mix(in srgb, #fff 5%, rgba(44, 46, 54, 0.75));
+}
+
+.scene-page-neu .scene-link-detail-card__badge {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.625rem;
+}
+
+.scene-page-neu .scene-link-detail-card__type {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: rgb(55 65 81);
+}
+
+html.dark .scene-page-neu .scene-link-detail-card__type {
+    color: rgb(229 231 235);
+}
+
+.scene-page-neu .scene-link-detail-card__error {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.5rem;
+    padding: 0.5rem 0.625rem;
+    margin-bottom: 0.5rem;
+    border-radius: 0.5rem;
+    font-size: 0.8125rem;
+    color: rgb(185 28 28);
+    background: color-mix(in srgb, #ef4444 10%, #fff);
+    border: 1px solid color-mix(in srgb, #ef4444 25%, transparent);
+}
+
+html.dark .scene-page-neu .scene-link-detail-card__error {
+    color: rgb(252 165 165);
+    background: color-mix(in srgb, #b91c1c 22%, transparent);
+}
+
+.scene-page-neu .scene-link-detail-card__polaroid {
+    display: flex;
+    gap: 0.75rem;
+    margin-bottom: 0.625rem;
+}
+
+.scene-page-neu .scene-link-detail-card__cover {
+    width: 5.25rem;
+    height: 5.25rem;
+    flex-shrink: 0;
+    object-fit: cover;
+    border-radius: 0.625rem;
+    border: 1px solid color-mix(in srgb, var(--scene-neu-border) 80%, #e5e7eb);
+    box-shadow:
+        3px 3px 8px rgba(0, 0, 0, 0.12),
+        inset 0 1px 0 rgba(255, 255, 255, 0.5);
+}
+
+.scene-page-neu .scene-link-detail-card__meta {
+    flex: 1;
+    min-width: 0;
+}
+
+.scene-page-neu .scene-link-detail-card__name {
+    font-size: 0.9375rem;
+    font-weight: 700;
+    color: rgb(17 24 39);
+    line-height: 1.35;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+html.dark .scene-page-neu .scene-link-detail-card__name {
+    color: rgb(243 244 246);
+}
+
+.scene-page-neu .scene-link-detail-card__desc {
+    margin-top: 0.25rem;
+    font-size: 0.8125rem;
+    line-height: 1.45;
+    color: rgb(107 114 128);
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+html.dark .scene-page-neu .scene-link-detail-card__desc {
+    color: rgb(156 163 175);
+}
+
+.scene-page-neu .scene-link-detail-card__tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    margin-top: 0.4rem;
+}
+
+.scene-page-neu .scene-link-detail-tag {
+    font-size: 0.6875rem;
+    font-weight: 500;
+    padding: 0.2rem 0.5rem;
+    border-radius: 9999px;
+    color: rgb(91 33 182);
+    background: color-mix(in srgb, #8b5cf6 14%, rgba(255, 255, 255, 0.7));
+    border: 1px solid color-mix(in srgb, #8b5cf6 22%, transparent);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45);
+}
+
+html.dark .scene-page-neu .scene-link-detail-tag {
+    color: rgb(216 180 254);
+    background: color-mix(in srgb, #6d28d9 30%, transparent);
+}
+
+.scene-page-neu .scene-link-detail-tag--amber {
+    color: rgb(146 64 14);
+    background: color-mix(in srgb, #f59e0b 16%, rgba(255, 255, 255, 0.7));
+    border-color: color-mix(in srgb, #f59e0b 28%, transparent);
+}
+
+html.dark .scene-page-neu .scene-link-detail-tag--amber {
+    color: rgb(253 230 138);
+    background: color-mix(in srgb, #d97706 28%, transparent);
+}
+
+.scene-page-neu .scene-link-detail-tag--price {
+    font-weight: 700;
+}
+
+.scene-page-neu .scene-link-detail-card__empty {
+    padding: 0.75rem 0;
+    text-align: center;
+    font-size: 0.8125rem;
+    color: rgb(156 163 175);
+    margin-bottom: 0.5rem;
+}
+
+.scene-page-neu .scene-link-detail-card__action {
+    display: inline-flex;
+    align-items: center;
+    margin-top: 0.125rem;
+}
+
+/* 关联编辑弹窗 */
+.scene-page-neu .scene-link-edit-hint {
+    font-size: 0.8125rem;
+    line-height: 1.45;
+    color: rgb(107 114 128);
+    margin: 0;
+}
+
+html.dark .scene-page-neu .scene-link-edit-hint {
+    color: rgb(156 163 175);
+}
+
+.scene-page-neu .scene-link-edit-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.scene-page-neu .scene-link-edit-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 0.625rem;
+    border-radius: 0.75rem;
+    background: color-mix(in srgb, #fff 42%, transparent);
+    border: 1px solid var(--scene-neu-border);
+    box-shadow:
+        3px 3px 8px var(--scene-neu-deep),
+        inset 0 1px 0 var(--scene-neu-inset);
+}
+
+html.dark .scene-page-neu .scene-link-edit-row {
+    background: color-mix(in srgb, #fff 5%, rgba(44, 46, 54, 0.75));
+}
+
+.scene-page-neu .scene-link-edit-row__orb {
+    width: 1.75rem;
+    height: 1.75rem;
+}
+
+.scene-page-neu .scene-link-edit-row__id {
+    flex: 1;
+    min-width: 0;
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: rgb(31 41 55);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+html.dark .scene-page-neu .scene-link-edit-row__id {
+    color: rgb(243 244 246);
+}
+
+.scene-page-neu .scene-link-edit-row__remove {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 2rem;
+    height: 2rem;
+    border-radius: 9999px;
+    border: none;
+    background: color-mix(in srgb, #ef4444 12%, transparent);
+    color: rgb(185 28 28);
+    cursor: pointer;
+    transition: transform 0.16s ease, background 0.18s ease;
+}
+
+html.dark .scene-page-neu .scene-link-edit-row__remove {
+    color: rgb(252 165 165);
+    background: color-mix(in srgb, #b91c1c 28%, transparent);
+}
+
+.scene-page-neu .scene-link-edit-row__remove:hover {
+    transform: scale(1.06);
+}
+
+.scene-page-neu .scene-link-edit-row__remove:active {
+    transform: scale(0.92);
+}
+
+.scene-page-neu .scene-link-edit-foot {
+    display: flex;
+    gap: 0.5rem;
+    padding: 0.75rem 0.875rem;
+    border-top: 1px solid color-mix(in srgb, var(--scene-neu-border) 90%, transparent);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35);
+}
+
+html.dark .scene-page-neu .scene-link-edit-foot {
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+/* 模型关联角标（包围盒右上屏幕投影） */
+.scene-page-neu .scene-link-badge {
+    position: fixed;
+    z-index: 15;
+    min-width: 1.25rem;
+    height: 1.25rem;
+    padding: 0 0.35rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 9999px;
+    font-size: 0.6875rem;
+    font-weight: 700;
+    line-height: 1;
+    color: #fff;
+    background: linear-gradient(145deg, #8b5cf6, #6d28d9);
+    border: 1.5px solid rgba(255, 255, 255, 0.9);
+    box-shadow:
+        0 2px 8px rgba(109, 40, 217, 0.45),
+        0 1px 2px rgba(0, 0, 0, 0.2);
+    transform: translate(2px, -2px);
+    cursor: pointer;
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.scene-page-neu .scene-link-badge:hover {
+    transform: translate(2px, -2px) scale(1.06);
+}
+
+.scene-page-neu .scene-link-badge:active {
+    transform: translate(2px, -2px) scale(0.96);
+}
+
+/* 选中对象操作条 */
+.scene-page-neu .scene-neu-opera-bar {
+    background: var(--scene-neu-glass);
+    border: 1px solid var(--scene-neu-border);
+    box-shadow:
+        6px 6px 18px var(--scene-neu-deep),
+        -4px -4px 12px var(--scene-neu-soft),
+        inset 0 1px 0 var(--scene-neu-inset);
+}
+
+.scene-page-neu .scene-neu-opera-chip {
+    cursor: pointer;
+    padding: 0.375rem 0.75rem;
+    border-radius: 9999px;
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: rgb(55 65 81);
+    transition: box-shadow 0.18s ease, transform 0.16s ease, background 0.18s ease;
+    box-shadow:
+        2px 2px 5px rgba(0, 0, 0, 0.08),
+        -1px -1px 4px rgba(255, 255, 255, 0.45),
+        inset 0 1px 0 rgba(255, 255, 255, 0.35);
+    background: color-mix(in srgb, #fff 55%, transparent);
+}
+
+html.dark .scene-page-neu .scene-neu-opera-chip {
+    color: rgb(229 231 235);
+    background: color-mix(in srgb, #fff 8%, rgba(50, 52, 60, 0.65));
+    box-shadow:
+        2px 2px 6px rgba(0, 0, 0, 0.35),
+        inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.scene-page-neu .scene-neu-opera-chip:hover {
+    transform: translateY(-1px);
+}
+
+.scene-page-neu .scene-neu-opera-chip:active {
+    transform: scale(0.96);
+    box-shadow: inset 2px 2px 6px rgba(0, 0, 0, 0.12);
+}
+
+.scene-page-neu .scene-neu-opera-chip--violet {
+    color: rgb(109 40 217);
+    background: color-mix(in srgb, #8b5cf6 16%, rgba(255, 255, 255, 0.55));
+}
+
+html.dark .scene-page-neu .scene-neu-opera-chip--violet {
+    color: rgb(196 181 253);
+    background: color-mix(in srgb, #6d28d9 32%, rgba(40, 42, 50, 0.7));
+}
+
+.scene-page-neu .scene-neu-opera-chip--danger {
+    color: rgb(220 38 38);
+    background: color-mix(in srgb, #ef4444 14%, rgba(255, 255, 255, 0.55));
+}
+
+html.dark .scene-page-neu .scene-neu-opera-chip--danger {
+    color: rgb(252 165 165);
+    background: color-mix(in srgb, #b91c1c 28%, rgba(40, 42, 50, 0.7));
+}
+
+/* 镜头列表圆钮 */
+.scene-page-neu .scene-neu-camera-orb {
+    background: linear-gradient(145deg, color-mix(in srgb, var(--qhx-primary, #a855f7) 92%, #fff), color-mix(in srgb, var(--qhx-primary, #9333ea) 78%, #000));
+    box-shadow:
+        4px 5px 11px rgba(0, 0, 0, 0.22),
+        -2px -3px 9px rgba(255, 255, 255, 0.35),
+        inset 0 1.5px 0 rgba(255, 255, 255, 0.38),
+        inset 0 -1px 0 rgba(0, 0, 0, 0.1);
+    transition: box-shadow 0.2s ease, transform 0.18s ease;
+}
+
+.scene-page-neu .scene-neu-camera-orb:active {
+    transform: scale(0.94);
+    box-shadow:
+        inset 3px 3px 9px rgba(0, 0, 0, 0.28),
+        inset -1px -1px 4px rgba(255, 255, 255, 0.12);
+}
+
+html.dark .scene-page-neu .scene-neu-camera-orb {
+    box-shadow:
+        4px 5px 14px rgba(0, 0, 0, 0.52),
+        -2px -2px 7px rgba(255, 255, 255, 0.06),
+        inset 0 1.5px 0 rgba(255, 255, 255, 0.12),
+        inset 0 -1px 0 rgba(0, 0, 0, 0.28);
 }
 
 .role-dialogue-fx-enter-active,

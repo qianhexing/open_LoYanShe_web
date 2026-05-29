@@ -112,6 +112,12 @@
             @select="onIsOpenSelect"
           />
 
+          <!-- 自定义主题 -->
+          <CommunityCustomStyleForm
+            ref="customStyleFormRef"
+            v-model="customStyle"
+          />
+
           <!-- 按钮组 -->
           <div class="flex gap-4 pt-4">
             <button
@@ -154,7 +160,15 @@ import { useUserStore } from '@/stores/user'
 import type { Community } from '@/types/api'
 import type QhxImagePicker from '@/components/Qhx/ImagePicker.vue'
 import type { default as QhxSelect, optionsInterface } from '@/components/Qhx/Select.vue'
+// biome-ignore lint/style/useImportType: Vue SFC 组件供模板与 InstanceType 使用
+import CommunityCustomStyleForm from '@/components/community/CommunityCustomStyleForm.vue'
 import { uploadImageOSS } from '@/utils/ossUpload'
+import {
+  parseCommunityCustomStyle,
+  serializeCommunityCustomStyle,
+  hasCommunityCustomStyle
+} from '@/utils/communityCustomStyle'
+import type { CommunityCustomStyle } from '@/utils/communityCustomStyle'
 
 interface Props {
   userId?: number
@@ -182,6 +196,8 @@ interface Props {
   editorMinHeight?: number
   /** 整页模式下富文本最大高度 */
   editorMaxHeight?: number
+  /** 编辑时初始 custom_style */
+  initialCustomStyle?: Record<string, unknown> | string | null
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -198,7 +214,8 @@ const props = withDefaults(defineProps<Props>(), {
   editorMinHeightEmbedded: 220,
   editorMaxHeightEmbedded: 320,
   editorMinHeight: 300,
-  editorMaxHeight: 400
+  editorMaxHeight: 400,
+  initialCustomStyle: null
 })
 
 const isOpenDisplayOptions = [
@@ -261,6 +278,11 @@ const submitting = ref(false)
 const imagePickerRef = ref<InstanceType<typeof QhxImagePicker> | null>(null)
 const richTextEditorRef = ref<InstanceType<typeof QhxRichTextEditor> | null>(null)
 const isOpenSelectRef = ref<InstanceType<typeof QhxSelect> | null>(null)
+const customStyleFormRef = ref<InstanceType<typeof CommunityCustomStyleForm> | null>(null)
+
+const customStyle = ref<CommunityCustomStyle>(
+  parseCommunityCustomStyle(props.initialCustomStyle)
+)
 
 const formData = ref({
   title: props.initialTitle,
@@ -300,12 +322,19 @@ function onIsOpenSelect(sel: optionsInterface | { label: string; value: string }
 
 watch(
   () =>
-    [props.communityId, props.initialTitle, props.initialContent, props.initialIsOpen] as const,
+    [
+      props.communityId,
+      props.initialTitle,
+      props.initialContent,
+      props.initialIsOpen,
+      props.initialCustomStyle
+    ] as const,
   () => {
     if (!isEditMode.value) return
     formData.value.title = props.initialTitle
     formData.value.content = props.initialContent
     formData.value.is_open = normalizeInitialIsOpen(props.initialIsOpen)
+    customStyle.value = parseCommunityCustomStyle(props.initialCustomStyle)
   },
   { immediate: true }
 )
@@ -406,12 +435,38 @@ const handleSubmit = async () => {
       }
     }
 
+    // 自定义主题：上传背景图并格式化为 JSON 对象
+    const stylePayload = { ...customStyle.value }
+    const bgPicker = customStyleFormRef.value?.getBackgroundPicker()
+    if (bgPicker?.previewImages.length) {
+      const bgImg = bgPicker.previewImages[0]
+      if (bgImg && typeof bgImg === 'object' && 'url' in bgImg) {
+        try {
+          stylePayload.background = await fetchUpload(bgImg as { file?: File; url: string })
+        } catch {
+          toast.add({
+            title: '背景图上传失败',
+            description: '请检查图片后重试',
+            icon: 'i-heroicons-x-circle',
+            color: 'red'
+          })
+          submitting.value = false
+          return
+        }
+      }
+    } else {
+      stylePayload.background = null
+    }
+
     const params: CommunityInterface = {
       title: formData.value.title,
       content: finalContent,
       type: props.initialType || '日常交流',
       img_list: imgList.length > 0 ? imgList.join() : null,
-      is_open: formData.value.is_open
+      is_open: formData.value.is_open,
+      custom_style: hasCommunityCustomStyle(stylePayload)
+        ? serializeCommunityCustomStyle(stylePayload)
+        : undefined
     }
 
     let community: Community
