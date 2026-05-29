@@ -114,6 +114,7 @@ let originalEl: HTMLElement | null = null
 let delayTimer: ReturnType<typeof setTimeout> | null = null
 let loopRaf: number | null = null
 let reordering = false
+let lastReorderAt = 0
 let scrollEl: HTMLElement | null = null
 
 const EASING = 'cubic-bezier(0.2, 0, 0, 1)'
@@ -294,8 +295,14 @@ function stepAutoScroll() {
   }
 }
 
+function now() {
+  return typeof performance !== 'undefined' ? performance.now() : Date.now()
+}
+
 function hitTest() {
   if (!cloneEl) return
+  // 重排冷却：FLIP 动画期间不再命中，避免命中到正在位移的元素而来回抖动
+  if (now() - lastReorderAt < props.animation) return
   const hit = document.elementFromPoint(curX, curY)
   const itemEl = findItemEl(hit)
   if (!itemEl) return
@@ -350,21 +357,10 @@ async function performReorder(from: number, to: number) {
     }
   }
 
-  // 占位原节点位置已变，重设克隆基准，保证继续跟手不跳变
-  if (originalEl && cloneEl) {
-    const r = originalEl.getBoundingClientRect()
-    // 视觉位置不变：baseLeft + (curX-startX) 应保持等于克隆当前位置
-    // 重设 base 到新占位位置，并把 start 偏移补偿进去
-    const visualLeft = baseLeft + (curX - startX)
-    const visualTop = baseTop + (curY - startY)
-    baseLeft = r.left
-    baseTop = r.top
-    startX = curX - (visualLeft - baseLeft)
-    startY = curY - (visualTop - baseTop)
-    updateClonePosition()
-  }
-
+  // 注意：克隆始终以「拖拽起点」为基准用 transform 跟手（fixed 定位、viewport 坐标），
+  // 占位节点位置变化不影响克隆跟手，无需重算基准；重算反而会让克隆跳变并引发回弹。
   reordering = false
+  lastReorderAt = now()
 }
 
 function finishDrag(e: PointerEvent) {
@@ -382,7 +378,11 @@ function finishDrag(e: PointerEvent) {
     originalEvent: e,
   }
 
-  // 落位动画：克隆平滑回到占位最终位置后移除
+  // 立即恢复交互（滚动 / 选择），ghost 在落位动画结束后再移除
+  restoreInteraction()
+  draggingKey.value = null
+
+  // 落位动画：克隆平滑回到占位最终位置后移除（捕获 origin，避免 resetState 置空后取不到）
   const clone = cloneEl
   const origin = originalEl
   if (clone && origin) {
@@ -397,13 +397,13 @@ function finishDrag(e: PointerEvent) {
       done = true
       clone.removeEventListener('transitionend', finalize)
       clone.remove()
-      restoreOriginal()
+      removeGhost(origin)
     }
     clone.addEventListener('transitionend', finalize)
     setTimeout(finalize, props.animation + 80)
   } else {
     if (clone) clone.remove()
-    restoreOriginal()
+    removeGhost(origin)
   }
   cloneEl = null
 
@@ -412,13 +412,17 @@ function finishDrag(e: PointerEvent) {
   resetState()
 }
 
-function restoreOriginal() {
-  if (originalEl && props.ghostClass) {
-    originalEl.classList.remove(...props.ghostClass.split(/\s+/).filter(Boolean))
+/** 移除指定节点的 ghost 占位样式 */
+function removeGhost(el: HTMLElement | null) {
+  if (el && props.ghostClass) {
+    el.classList.remove(...props.ghostClass.split(/\s+/).filter(Boolean))
   }
-  draggingKey.value = null
+}
+
+/** 恢复拖拽期间禁用的页面交互 */
+function restoreInteraction() {
   if (containerRef.value) containerRef.value.style.touchAction = ''
-  document.body.style.userSelect = ''
+  if (typeof document !== 'undefined') document.body.style.userSelect = ''
 }
 
 function teardownListeners() {
@@ -445,7 +449,9 @@ function cleanup(_dragged: boolean) {
     cloneEl.remove()
     cloneEl = null
   }
-  restoreOriginal()
+  removeGhost(originalEl)
+  draggingKey.value = null
+  restoreInteraction()
   teardownListeners()
   resetState()
 }

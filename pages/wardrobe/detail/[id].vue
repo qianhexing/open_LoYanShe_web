@@ -3225,7 +3225,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
             item-key="clothes_id"
             class="flex flex-wrap"
             item-class="wardrobe-clothes-cell [@media(min-width:1920px)]:w-[calc(100%/10)] xl:w-1/6 md:w-1/4 max-md:w-1/3"
-            :animation="260"
+            :animation="200"
             :delay="140"
             :get-scroll-container="() => scrollRootRef"
             @start="onDragStart"
