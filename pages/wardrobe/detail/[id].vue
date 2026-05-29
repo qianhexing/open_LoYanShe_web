@@ -3038,7 +3038,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
                     </div>
                     <div class="wardrobe-neu-photo relative w-full overflow-hidden rounded-xl border border-gray-200">
                       <img
-                        :src="`${BASE_IMG}${element.clothes_img}`"
+                        :src="`${BASE_IMG}${element.clothes_img}?x-oss-process=image/quality,q_100/resize,w_300`"
                         draggable="false"
                         class="wardrobe-detail-img block w-full cursor-grab object-cover aspect-[1/1.5] max-md:aspect-[1/1] active:cursor-grabbing"
                         loading="lazy"
@@ -3213,7 +3213,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
                           <div class="timeline-tarot-image-wrap">
                             <img
                               v-if="node.items[0].clothes_img"
-                              :src="`${BASE_IMG}${node.items[0].clothes_img}`"
+                              :src="`${BASE_IMG}${node.items[0].clothes_img}?x-oss-process=image/quality,q_100/resize,w_300`"
                               class="timeline-tarot-img"
                               draggable="false"
                               loading="lazy"
@@ -3278,7 +3278,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
                               <div class="timeline-tarot-image-wrap">
                                 <img
                                   v-if="deck[0].clothes_img"
-                                  :src="`${BASE_IMG}${deck[0].clothes_img}`"
+                                  :src="`${BASE_IMG}${deck[0].clothes_img}?x-oss-process=image/quality,q_100/resize,w_300`"
                                   class="timeline-tarot-img"
                                   draggable="false"
                                   loading="lazy"
@@ -3367,7 +3367,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
                                     <div class="timeline-tarot-image-wrap">
                                       <img
                                         v-if="item.clothes_img"
-                                        :src="`${BASE_IMG}${item.clothes_img}`"
+                                        :src="`${BASE_IMG}${item.clothes_img}?x-oss-process=image/quality,q_100/resize,w_300`"
                                         class="timeline-tarot-img"
                                         draggable="false"
                                         loading="lazy"
@@ -3601,7 +3601,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
                             class="plan-neu-thumb plan-neu-thumb--round flex-shrink-0 overflow-hidden w-7 h-7"
                           >
                             <img
-                              :src="`${BASE_IMG}${row.clothes_img}`"
+                              :src="`${BASE_IMG}${row.clothes_img}?x-oss-process=image/quality,q_100/resize,w_300`"
                               alt=""
                               class="w-full h-full object-cover"
                               draggable="false"
@@ -3730,7 +3730,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
               >
                 <div class="relative w-14 h-14 flex-shrink-0 overflow-hidden rounded-lg bg-gray-200 dark:bg-gray-700">
                   <img
-                    :src="`${BASE_IMG}${item.clothes_img}`"
+                    :src="`${BASE_IMG}${item.clothes_img}?x-oss-process=image/quality,q_100/resize,w_300`"
                     class="wardrobe-detail-img h-full w-full object-cover"
                     draggable="false"
                     loading="lazy"
