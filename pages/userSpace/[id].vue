@@ -1,7 +1,10 @@
 <template>
-  <div class="min-h-screen bg-[#fff8f8] dark:bg-[#1a1a1a] relative overflow-hidden font-serif">
-    <!-- 动态背景 -->
-    <div class="fixed inset-0 pointer-events-none z-0">
+  <div
+    ref="pageRoot"
+    class="min-h-screen bg-[#fff8f8] dark:bg-[#1a1a1a] relative overflow-hidden font-serif"
+  >
+    <!-- 动态背景（带视差层） -->
+    <div ref="bgLayer" class="fixed inset-0 pointer-events-none z-0 will-change-transform">
       <div class="absolute top-0 left-0 w-full h-full bg-[url('https://lolitalibrary.com/assets/img/pattern-dot.png')] opacity-[0.03] dark:opacity-[0.05]"></div>
       <div class="absolute -top-[20%] -right-[10%] w-[800px] h-[800px] bg-gradient-to-br from-pink-200/30 to-purple-200/30 dark:from-pink-900/20 dark:to-purple-900/20 rounded-full blur-3xl animate-blob"></div>
       <div class="absolute top-[40%] -left-[10%] w-[600px] h-[600px] bg-gradient-to-tr from-blue-200/20 to-pink-200/20 dark:from-blue-900/10 dark:to-pink-900/10 rounded-full blur-3xl animate-blob animation-delay-2000"></div>
@@ -18,51 +21,79 @@
         <p class="mt-4 text-pink-400 dark:text-pink-300 tracking-widest text-sm uppercase">加载中...</p>
       </div>
     </template>
+
     <template v-else-if="userInfo">
       <div class="relative z-10 pb-32">
-      <!-- 徽章区（有徽章时缩小）+ 用户信息（始终完整显示在下方） -->
-      <div class="max-w-4xl mx-auto px-1 md:px-8 pt-2 flex flex-col gap-2">
-        <div
-          v-if="configStore.statusBarHeight > 0":style="{ height: `${configStore.statusBarHeight}px` }"
-        />
-        <!-- 徽章物理展示：有徽章时显示（缩小区域） -->
-        <div
-          v-if="hasDisplayBadges"
-          class="badge-showcase badge-showcase--has-badges rounded-2xl overflow-hidden relative"
-        >
-          <AchievementBadgePhysics :key="displayBadgesKey" :badges="displayBadges" :badge-size="40" :spawn-interval="400" motion-preset="wallBounce" />
-          <!-- 悬浮在徽章区右上角的配置按钮 -->
-          <button
-            v-if="isCurrentUser"
-            type="button"
-            class="absolute top-2 right-2 z-10 flex items-center gap-1.5 rounded-full pl-2 pr-3 py-1.5 bg-white/80 dark:bg-gray-800/80 shadow-md border border-gray-200/60 dark:border-gray-600/60 text-pink-500 hover:bg-pink-50 dark:hover:bg-gray-700/80 transition-colors backdrop-blur-sm"
-            @click="openDecoConfig"
-          >
-            <UIcon name="i-heroicons-cog-6-tooth" class="w-5 h-5 flex-shrink-0" />
-            <span class="text-sm font-medium">配置徽章</span>
-          </button>
-        </div>
+        <div class="max-w-4xl mx-auto px-2 md:px-8 pt-2 flex flex-col gap-3">
+          <div
+            v-if="configStore.statusBarHeight > 0"
+            :style="{ height: `${configStore.statusBarHeight}px` }"
+          />
 
-        <!-- 用户信息卡片：始终完整显示（参考下方帖子卡片样式） -->
-        <div class="user-info-card rounded-2xl overflow-hidden backdrop-blur-md shadow-lg border border-white/50 dark:border-gray-700 bg-white/45 dark:bg-gray-800/45 flex flex-col px-4 py-4 md:px-6 md:py-5">
-          <div class="flex items-center gap-4 md:gap-5">
-            <UserFace :user="userInfo" size="mini" class="flex-shrink-0 scale-125" />
-            <div class="flex-1 min-w-0">
-              <div class="flex items-center justify-between gap-2 mb-1">
-                <div class="flex items-center gap-2 min-w-0 flex-1">
-                  <h1 class="text-lg md:text-xl font-bold text-gray-800 dark:text-gray-100 truncate">
-                    {{ userInfo.user_name || '未设置昵称' }}
-                  </h1>
-                  <QhxTag
-                    :active="isFormalResident"
-                    class="text-xs flex-shrink-0 whitespace-nowrap"
-                  >
-                    {{ isFormalResident ? '正式居民' : '临时居民' }}
-                  </QhxTag>
+          <!-- ===== Hero 个人信息卡 ===== -->
+          <section
+            ref="heroRef"
+            class="hero-card relative rounded-3xl overflow-hidden shadow-xl border border-white/60 dark:border-gray-700/70 bg-white/55 dark:bg-gray-800/55 backdrop-blur-xl"
+          >
+            <!-- 顶部 Banner：有徽章时展示徽章物理动画，否则渐变装饰 -->
+            <div
+              class="hero-banner relative w-full overflow-hidden"
+              :class="hasDisplayBadges ? 'h-[120px] md:h-[150px]' : 'h-[96px] md:h-[120px]'"
+            >
+              <template v-if="hasDisplayBadges">
+                <div class="absolute inset-0 hero-banner-bg">
+                  <AchievementBadgePhysics
+                    :key="displayBadgesKey"
+                    :badges="displayBadges"
+                    :badge-size="40"
+                    :spawn-interval="400"
+                    motion-preset="wallBounce"
+                  />
                 </div>
+              </template>
+              <template v-else>
+                <div class="absolute inset-0 bg-gradient-to-br from-pink-300/70 via-rose-200/60 to-purple-300/70 dark:from-pink-800/40 dark:via-rose-900/30 dark:to-purple-800/40"></div>
+                <div class="absolute inset-0 bg-[url('https://lolitalibrary.com/assets/img/pattern-dot.png')] opacity-[0.08]"></div>
+                <span class="hero-spark absolute left-[12%] top-[28%] text-2xl select-none">✨</span>
+                <span class="hero-spark absolute right-[16%] top-[20%] text-xl select-none">🎀</span>
+                <span class="hero-spark absolute right-[34%] bottom-[18%] text-lg select-none">💗</span>
+              </template>
+
+              <!-- 渐隐遮罩，保证头像/文字可读 -->
+              <div class="absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-white/70 dark:from-gray-800/70 to-transparent pointer-events-none"></div>
+
+              <!-- 配置徽章按钮 -->
+              <button
+                v-if="isCurrentUser"
+                type="button"
+                class="absolute top-3 right-3 z-20 flex items-center gap-1.5 rounded-full pl-2 pr-3 py-1.5 bg-white/85 dark:bg-gray-800/85 shadow-md border border-gray-200/60 dark:border-gray-600/60 text-pink-500 hover:bg-pink-50 dark:hover:bg-gray-700/85 transition-colors backdrop-blur-sm"
+                @click="openDecoConfig"
+              >
+                <UIcon name="i-heroicons-cog-6-tooth" class="w-5 h-5 flex-shrink-0" />
+                <span class="text-sm font-medium">配置徽章</span>
+              </button>
+            </div>
+
+            <!-- 卡片主体 -->
+            <div class="relative px-4 md:px-7 pb-5">
+              <!-- 头像（叠在 banner 上） -->
+              <div class="flex items-end justify-between gap-3 -mt-10 md:-mt-12 mb-3">
+                <div class="hero-avatar relative flex-shrink-0">
+                  <div class="w-20 h-20 md:w-24 md:h-24 rounded-full ring-4 ring-white dark:ring-gray-800 shadow-lg bg-white dark:bg-gray-800 overflow-hidden flex items-center justify-center">
+                    <UserFace :user="userInfo" size="mini" class="scale-[2] md:scale-[2.4]" />
+                  </div>
+                  <span
+                    v-if="userInfo.level"
+                    class="absolute -bottom-1 -right-1 z-10 px-2 py-0.5 rounded-full text-[10px] font-bold text-white bg-gradient-to-r from-pink-500 to-purple-500 shadow"
+                  >
+                    Lv.{{ userInfo.level }}
+                  </span>
+                </div>
+
+                <!-- 操作区 -->
                 <div
                   v-if="showUserSpaceHeaderActions"
-                  class="flex items-center gap-2 flex-shrink-0"
+                  class="flex items-center gap-2 pb-1"
                 >
                   <div v-if="!isCurrentUser && spaceUserId">
                     <UserCollectBtn
@@ -77,7 +108,7 @@
                   <button
                     v-if="userSpaceMoreMenuItems.length"
                     type="button"
-                    class="flex items-center gap-1 rounded-full px-2 py-1.5 text-sm hover:bg-pink-100 dark:hover:bg-gray-600 transition-colors text-gray-800 dark:text-gray-100"
+                    class="flex items-center gap-1 rounded-full px-3 py-1.5 text-sm bg-white/70 dark:bg-gray-700/70 hover:bg-pink-100 dark:hover:bg-gray-600 transition-colors text-gray-800 dark:text-gray-100 shadow-sm border border-white/60 dark:border-gray-600/60"
                     @click="openUserSpaceMoreMenu"
                   >
                     <UIcon name="i-heroicons-ellipsis-vertical" class="w-4 h-4 text-pink-500 dark:text-pink-400" />
@@ -85,247 +116,291 @@
                   </button>
                 </div>
               </div>
-                  <div v-if="userInfo.signature" class="signature-preview">
-                    <div
-                      class="text-gray-600 dark:text-gray-300 text-sm italic line-clamp-3 cursor-pointer hover:bg-white/20 dark:hover:bg-gray-700/20 rounded px-1 -mx-1 py-0.5 -my-0.5 transition-colors"
-                      @click="showSignatureModal = true"
-                    >
-                      <SafeRichText :nodes="signatureNodes" />
-                    </div>
+
+              <!-- 昵称 + 身份 -->
+              <div class="hero-headline">
+                <div class="flex items-center gap-2 min-w-0 flex-wrap">
+                  <h1 class="text-xl md:text-2xl font-bold text-gray-800 dark:text-gray-100 truncate max-w-full">
+                    {{ userInfo.user_name || '未设置昵称' }}
+                  </h1>
+                  <QhxTag
+                    :active="isFormalResident"
+                    class="text-xs flex-shrink-0 whitespace-nowrap"
+                  >
+                    {{ isFormalResident ? '正式居民' : '临时居民' }}
+                  </QhxTag>
+                </div>
+
+                <!-- 签名 -->
+                <div v-if="userInfo.signature" class="signature-preview mt-1.5">
+                  <div
+                    class="text-gray-600 dark:text-gray-300 text-sm italic line-clamp-2 cursor-pointer hover:bg-white/30 dark:hover:bg-gray-700/30 rounded px-1 -mx-1 py-0.5 transition-colors"
+                    @click="showSignatureModal = true"
+                  >
+                    <SafeRichText :nodes="signatureNodes" />
                   </div>
-                  <p v-else class="text-gray-400 dark:text-gray-500 text-xs">
-                    暂无签名
-                  </p>
-                  <!-- 主风格标签 -->
-                  <div v-if="userInfo.main_style?.length" class="flex flex-nowrap gap-2 mt-2 overflow-x-auto min-w-0 scrollbar-thin">
-                    <QhxTag v-for="(style, idx) in userInfo.main_style" :key="idx" class="text-xs flex-shrink-0"># {{ getStyleLabel(style) }}</QhxTag>
-                  </div>
-                  <!-- 位置 -->
-                  <div v-if="(userInfo.show_area && (userInfo.province || userInfo.city)) || (isCurrentUser && !userInfo.main_style?.length)" class="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                    <span v-if="userInfo.show_area && (userInfo.province || userInfo.city)">📍 {{ [userInfo.province, userInfo.city].filter(Boolean).join(' ') }}</span>
-                    <span v-else-if="isCurrentUser">未设置</span>
-                  </div>
+                </div>
+                <p v-else class="text-gray-400 dark:text-gray-500 text-xs mt-1.5">
+                  这位 Lo 娘还没有留下签名~
+                </p>
+              </div>
+
+              <!-- 风格标签 + 地区 -->
+              <div
+                v-if="userInfo.main_style?.length || (userInfo.show_area && (userInfo.province || userInfo.city)) || isCurrentUser"
+                class="flex flex-wrap items-center gap-2 mt-3"
+              >
+                <QhxTag
+                  v-for="(style, idx) in userInfo.main_style || []"
+                  :key="idx"
+                  class="hero-tag text-xs"
+                ># {{ getStyleLabel(style) }}</QhxTag>
+                <span
+                  v-if="userInfo.show_area && (userInfo.province || userInfo.city)"
+                  class="hero-tag text-xs text-gray-500 dark:text-gray-400 inline-flex items-center gap-0.5"
+                >📍 {{ [userInfo.province, userInfo.city].filter(Boolean).join(' ') }}</span>
+                <span
+                  v-else-if="isCurrentUser && !userInfo.main_style?.length"
+                  class="hero-tag text-xs text-gray-400 dark:text-gray-500"
+                >未设置风格与地区</span>
+              </div>
+
+              <!-- 数据统计 -->
+              <div class="mt-4 grid gap-2" :class="spaceStats.length >= 4 ? 'grid-cols-4' : 'grid-cols-3'">
+                <div
+                  v-for="stat in spaceStats"
+                  :key="stat.key"
+                  class="stat-item flex flex-col items-center justify-center rounded-2xl py-2.5 px-1 bg-white/45 dark:bg-gray-700/40 border border-white/50 dark:border-gray-600/40"
+                >
+                  <span class="text-base md:text-lg font-bold text-pink-600 dark:text-pink-300 tabular-nums">
+                    {{ formatStat(displayedStats[stat.key] ?? 0) }}
+                  </span>
+                  <span class="text-[11px] md:text-xs text-gray-500 dark:text-gray-400 mt-0.5">{{ stat.label }}</span>
                 </div>
               </div>
             </div>
+          </section>
 
-        <!-- Tab 栏 -->
-        <div class="mt-2">
-          <QhxTabs :tabs="spaceTabs" :need_swipe="false" class="bg-transparent">
-            <QhxTabPanel :index="0">
-              <template #default="{ isActive }">
-                <!-- 帖子列表 -->
-                <div v-show="isActive" class="mt-4 space-y-4">
-                  <div v-if="postsLoading" class="flex justify-center py-12">
-                    <div class="w-8 h-8 border-2 border-pink-200 border-t-pink-500 rounded-full animate-spin"></div>
-                  </div>
-                  <div v-else-if="postList.length > 0" class="space-y-4">
-                    <div
-                      v-for="post in postList"
-                      :key="post.community_id"
-                      class="bg-white/70 dark:bg-gray-800/70 backdrop-blur-md rounded-2xl overflow-hidden shadow-lg border border-white/50 dark:border-gray-700"
-                    >
-                      <CommunityItem :item="post" :size="'big'" />
+          <!-- ===== Tab 区 ===== -->
+          <div class="space-tabs mt-2">
+            <QhxTabs :tabs="spaceTabs" :need_swipe="false" class="bg-transparent">
+              <QhxTabPanel :index="0">
+                <template #default="{ isActive }">
+                  <!-- 帖子列表 -->
+                  <div v-show="isActive" ref="postsListRef" class="mt-4 space-y-4">
+                    <div v-if="postsLoading" class="flex justify-center py-12">
+                      <div class="w-8 h-8 border-2 border-pink-200 border-t-pink-500 rounded-full animate-spin"></div>
                     </div>
-                    <div v-if="hasMorePosts" class="flex justify-center py-4">
-                      <button
-                        @click="loadMorePosts"
-                        :disabled="postsLoadingMore"
-                        class="px-6 py-2 rounded-full bg-pink-100 dark:bg-gray-700 text-pink-600 dark:text-pink-300 text-sm font-medium hover:bg-pink-200 dark:hover:bg-gray-600 transition-colors disabled:opacity-50"
+                    <div v-else-if="postList.length > 0" class="space-y-4">
+                      <div
+                        v-for="post in postList"
+                        :key="post.community_id"
+                        class="post-reveal bg-white/70 dark:bg-gray-800/70 backdrop-blur-md rounded-2xl overflow-hidden shadow-lg border border-white/50 dark:border-gray-700"
                       >
-                        {{ postsLoadingMore ? '加载中...' : '加载更多' }}
+                        <CommunityItem :item="post" :size="'big'" />
+                      </div>
+                      <div v-if="hasMorePosts" class="flex justify-center py-4">
+                        <button
+                          @click="loadMorePosts"
+                          :disabled="postsLoadingMore"
+                          class="px-6 py-2 rounded-full bg-pink-100 dark:bg-gray-700 text-pink-600 dark:text-pink-300 text-sm font-medium hover:bg-pink-200 dark:hover:bg-gray-600 transition-colors disabled:opacity-50"
+                        >
+                          {{ postsLoadingMore ? '加载中...' : '加载更多' }}
+                        </button>
+                      </div>
+                    </div>
+                    <div v-else class="text-center py-16 text-gray-500 dark:text-gray-400">
+                      <div class="text-5xl mb-4">📝</div>
+                      <p>暂无帖子</p>
+                    </div>
+                  </div>
+                </template>
+              </QhxTabPanel>
+              <QhxTabPanel :index="1">
+                <template #default="{ isActive }">
+                  <!-- 衣柜列表 -->
+                  <div v-show="isActive" class="mt-4">
+                    <QhxWaterList
+                      v-if="layoutReady && isActive"
+                      :fetch-data="async (page, pageSize) => {
+                        const userId = spaceUserId
+                        if (!userId) {
+                          return { rows: [], count: 0 }
+                        }
+                        try {
+                          const res = await getWardrobeList({
+                            user_id: userId,
+                            page,
+                            pageSize,
+                          })
+                          const rows = (res.rows ?? []).map((w) => ({ ...w, user_id: w.user_id ?? userId }))
+                          return { rows, count: res.count ?? 0 }
+                        } catch (error) {
+                          console.error('获取衣柜列表失败:', error)
+                          toast.add({
+                            title: '获取衣柜失败',
+                            description: getErrorMessage(error),
+                            icon: 'i-heroicons-x-circle',
+                            color: 'red',
+                          })
+                          return { rows: [], count: 0 }
+                        }
+                      }"
+                      :columns="4"
+                      :item-key="1"
+                      :columns_768="2"
+                      :enable-waterfall="true"
+                      :enable-load-more="true"
+                    >
+                      <template #default="{ item, debouncedApplyLayout }">
+                        <div class="px-2 pb-4">
+                          <div class="relative bg-white/70 dark:bg-gray-800/70 backdrop-blur-md rounded-2xl overflow-hidden shadow-lg border border-white/50 dark:border-gray-700 p-2 transition-transform duration-300 hover:-translate-y-1">
+                            <template v-if="!isCurrentUser && (item.is_private === 1 || item.password)">
+                              <!-- 隐私衣柜：点击弹出密码弹窗；封面加载后触发瀑布流重算（WaterList 内已 debounce） -->
+                              <div
+                                class="relative cursor-pointer"
+                                @click="openWardrobePasswordModal(item, $event)"
+                              >
+                                <img
+                                  :src="`${BASE_IMG}${item.wardrobe_cover || 'static/plan_cover/default.jpg'}`"
+                                  :alt="item.wardrobe_name"
+                                  class="w-full rounded-[10px] border border-gray-200 dark:border-gray-600 my-2 opacity-60"
+                                  loading="lazy"
+                                  @load="debouncedApplyLayout"
+                                />
+                                <div class="absolute inset-0 flex flex-col items-center justify-center bg-gray-900/50 dark:bg-gray-900/60 rounded-[10px]">
+                                  <UIcon name="i-heroicons-lock-closed" class="w-10 h-10 text-white/95 mb-1" />
+                                  <span class="text-xs text-white/95">隐私衣柜</span>
+                                </div>
+                                <h3 class="text-base font-semibold text-gray-900 dark:text-gray-100 truncate w-full">
+                                  {{ item.wardrobe_name }}
+                                </h3>
+                              </div>
+                            </template>
+                            <WardrobeItem
+                              v-else
+                              :item="item"
+                              :size="'big'"
+                              :need-jump="true"
+                              @image-load="debouncedApplyLayout"
+                            />
+                          </div>
+                        </div>
+                      </template>
+                      <template #empty>
+                        <div class="text-center py-16 text-gray-500 dark:text-gray-400">
+                          <div class="text-5xl mb-4">👗</div>
+                          <p>暂无衣柜</p>
+                        </div>
+                      </template>
+                    </QhxWaterList>
+                  </div>
+                </template>
+              </QhxTabPanel>
+              <QhxTabPanel v-if="showAchieveTab" :index="2">
+                <template #default="{ isActive }">
+                  <div v-show="isActive" ref="achieveListRef" class="mt-4 space-y-4">
+                    <div v-if="achievementStatsLoading" class="flex justify-center py-8">
+                      <div class="w-8 h-8 border-2 border-pink-200 border-t-pink-500 rounded-full animate-spin" />
+                    </div>
+                    <div
+                      v-else-if="achievementStats"
+                      class="rounded-2xl border border-white/50 dark:border-gray-700 bg-white/70 dark:bg-gray-800/70 backdrop-blur-md p-4 shadow-lg"
+                    >
+                      <div class="text-sm font-semibold text-gray-800 dark:text-gray-100 mb-3 flex items-center gap-2">
+                        <span>✨</span>
+                        成就进度
+                      </div>
+                      <div class="grid grid-cols-2 gap-3 text-center">
+                        <div>
+                          <div class="text-lg font-bold text-pink-600 dark:text-pink-300">
+                            {{ achievementStats.points }}
+                          </div>
+                          <div class="text-xs text-gray-500 dark:text-gray-400">成就点</div>
+                        </div>
+                        <div>
+                          <div class="text-lg font-bold text-gray-800 dark:text-gray-100">
+                            {{ achievementStats.achieved_count }}<span class="text-gray-400">/</span>{{ achievementStats.total_count }}
+                          </div>
+                          <div class="text-xs text-gray-500 dark:text-gray-400">已达成</div>
+                        </div>
+                        <div class="col-span-2">
+                          <div class="h-2 rounded-full bg-gray-200 dark:bg-gray-600 overflow-hidden">
+                            <div
+                              ref="achieveProgressBar"
+                              class="h-full bg-gradient-to-r from-pink-500 to-purple-500 dark:from-pink-400 dark:to-purple-400 rounded-full"
+                              :style="{ width: `${achievementStats.progress}%` }"
+                            />
+                          </div>
+                          <div class="text-xs text-gray-500 dark:text-gray-400 mt-1 text-center">
+                            {{ achievementStats.progress }}% 完成
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                    <div v-if="achieveAlbumsLoading" class="flex justify-center py-12">
+                      <div class="w-8 h-8 border-2 border-pink-200 border-t-pink-500 rounded-full animate-spin" />
+                    </div>
+                    <div v-else-if="achieveAlbumList.length > 0" class="grid grid-cols-2 md:grid-cols-3 gap-3">
+                      <div
+                        v-for="item in achieveAlbumList"
+                        :key="item.album_id"
+                        class="album-reveal cursor-pointer rounded-2xl overflow-hidden border border-white/50 dark:border-gray-700 bg-white/70 dark:bg-gray-800/70 shadow-lg hover:-translate-y-1 transition-transform duration-300"
+                        @click="goUserSpaceAlbumDetail(item)"
+                      >
+                        <img
+                          :src="`${BASE_IMG}${item.album_cover || 'static/plan_cover/default.jpg'}`"
+                          :alt="item.album_title"
+                          class="w-full aspect-[4/3] object-cover"
+                          loading="lazy"
+                        />
+                        <div class="p-2 text-sm font-medium text-gray-800 dark:text-gray-100 truncate">
+                          {{ item.album_title }}
+                        </div>
+                      </div>
+                    </div>
+                    <div v-if="hasMoreAchieveAlbums && !achieveAlbumsLoading" class="flex justify-center py-4">
+                      <button
+                        type="button"
+                        :disabled="achieveAlbumsLoadingMore"
+                        class="px-6 py-2 rounded-full bg-pink-100 dark:bg-gray-700 text-pink-600 dark:text-pink-300 text-sm font-medium hover:bg-pink-200 dark:hover:bg-gray-600 transition-colors disabled:opacity-50"
+                        @click="loadMoreAchieveAlbums"
+                      >
+                        {{ achieveAlbumsLoadingMore ? '加载中...' : '加载更多' }}
                       </button>
                     </div>
-                  </div>
-                  <div v-else class="text-center py-16 text-gray-500 dark:text-gray-400">
-                    <div class="text-5xl mb-4">📝</div>
-                    <p>暂无帖子</p>
-                  </div>
-                </div>
-              </template>
-            </QhxTabPanel>
-            <QhxTabPanel :index="1">
-              <template #default="{ isActive }">
-                <!-- 衣柜列表 -->
-                <div v-show="isActive" class="mt-4">
-                  <QhxWaterList
-                    v-if="layoutReady && isActive"
-                    :fetch-data="async (page, pageSize) => {
-                      const userId = spaceUserId
-                      if (!userId) {
-                        return { rows: [], count: 0 }
-                      }
-                      try {
-                        const res = await getWardrobeList({
-                          user_id: userId,
-                          page,
-                          pageSize,
-                        })
-                        const rows = (res.rows ?? []).map((w) => ({ ...w, user_id: w.user_id ?? userId }))
-                        return { rows, count: res.count ?? 0 }
-                      } catch (error) {
-                        console.error('获取衣柜列表失败:', error)
-                        toast.add({
-                          title: '获取衣柜失败',
-                          description: getErrorMessage(error),
-                          icon: 'i-heroicons-x-circle',
-                          color: 'red',
-                        })
-                        return { rows: [], count: 0 }
-                      }
-                    }"
-                    :columns="4"
-                    :item-key="1"
-                    :columns_768="2"
-                    :enable-waterfall="true"
-                    :enable-load-more="true"
-                  >
-                    <template #default="{ item, debouncedApplyLayout }">
-                      <div class="px-2 pb-4">
-                        <div class="relative bg-white/70 dark:bg-gray-800/70 backdrop-blur-md rounded-2xl overflow-hidden shadow-lg border border-white/50 dark:border-gray-700 p-2">
-                          <template v-if="!isCurrentUser && (item.is_private === 1 || item.password)">
-                            <!-- 隐私衣柜：点击弹出密码弹窗；封面加载后触发瀑布流重算（WaterList 内已 debounce） -->
-                            <div
-                              class="relative cursor-pointer"
-                              @click="openWardrobePasswordModal(item, $event)"
-                            >
-                              <img
-                                :src="`${BASE_IMG}${item.wardrobe_cover || 'static/plan_cover/default.jpg'}`"
-                                :alt="item.wardrobe_name"
-                                class="w-full rounded-[10px] border border-gray-200 dark:border-gray-600 my-2 opacity-60"
-                                loading="lazy"
-                                @load="debouncedApplyLayout"
-                              />
-                              <div class="absolute inset-0 flex flex-col items-center justify-center bg-gray-900/50 dark:bg-gray-900/60 rounded-[10px]">
-                                <UIcon name="i-heroicons-lock-closed" class="w-10 h-10 text-white/95 mb-1" />
-                                <span class="text-xs text-white/95">隐私衣柜</span>
-                              </div>
-                              <h3 class="text-base font-semibold text-gray-900 dark:text-gray-100 truncate w-full">
-                                {{ item.wardrobe_name }}
-                              </h3>
-                            </div>
-                          </template>
-                          <WardrobeItem
-                            v-else
-                            :item="item"
-                            :size="'big'"
-                            :need-jump="true"
-                            @image-load="debouncedApplyLayout"
-                          />
-                        </div>
-                      </div>
-                    </template>
-                    <template #empty>
-                      <div class="text-center py-16 text-gray-500 dark:text-gray-400">
-                        <div class="text-5xl mb-4">👗</div>
-                        <p>暂无衣柜</p>
-                      </div>
-                    </template>
-                  </QhxWaterList>
-                </div>
-              </template>
-            </QhxTabPanel>
-            <QhxTabPanel v-if="showAchieveTab" :index="2">
-              <template #default="{ isActive }">
-                <div v-show="isActive" class="mt-4 space-y-4">
-                  <div v-if="achievementStatsLoading" class="flex justify-center py-8">
-                    <div class="w-8 h-8 border-2 border-pink-200 border-t-pink-500 rounded-full animate-spin" />
-                  </div>
-                  <div
-                    v-else-if="achievementStats"
-                    class="rounded-2xl border border-white/50 dark:border-gray-700 bg-white/70 dark:bg-gray-800/70 backdrop-blur-md p-4 shadow-lg"
-                  >
-                    <div class="text-sm font-semibold text-gray-800 dark:text-gray-100 mb-3 flex items-center gap-2">
-                      <span>✨</span>
-                      成就进度
-                    </div>
-                    <div class="grid grid-cols-2 gap-3 text-center">
-                      <div>
-                        <div class="text-lg font-bold text-pink-600 dark:text-pink-300">
-                          {{ achievementStats.points }}
-                        </div>
-                        <div class="text-xs text-gray-500 dark:text-gray-400">成就点</div>
-                      </div>
-                      <div>
-                        <div class="text-lg font-bold text-gray-800 dark:text-gray-100">
-                          {{ achievementStats.achieved_count }}<span class="text-gray-400">/</span>{{ achievementStats.total_count }}
-                        </div>
-                        <div class="text-xs text-gray-500 dark:text-gray-400">已达成</div>
-                      </div>
-                      <div class="col-span-2">
-                        <div class="h-2 rounded-full bg-gray-200 dark:bg-gray-600 overflow-hidden">
-                          <div
-                            class="h-full bg-pink-500 dark:bg-pink-400 rounded-full transition-all"
-                            :style="{ width: `${achievementStats.progress}%` }"
-                          />
-                        </div>
-                        <div class="text-xs text-gray-500 dark:text-gray-400 mt-1 text-center">
-                          {{ achievementStats.progress }}% 完成
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                  <div v-if="achieveAlbumsLoading" class="flex justify-center py-12">
-                    <div class="w-8 h-8 border-2 border-pink-200 border-t-pink-500 rounded-full animate-spin" />
-                  </div>
-                  <div v-else-if="achieveAlbumList.length > 0" class="grid grid-cols-2 md:grid-cols-3 gap-3">
                     <div
-                      v-for="item in achieveAlbumList"
-                      :key="item.album_id"
-                      class="cursor-pointer rounded-2xl overflow-hidden border border-white/50 dark:border-gray-700 bg-white/70 dark:bg-gray-800/70 shadow-lg hover:opacity-90 transition-opacity"
-                      @click="goUserSpaceAlbumDetail(item)"
+                      v-if="!achieveAlbumsLoading && achieveAlbumList.length === 0"
+                      class="text-center py-16 text-gray-500 dark:text-gray-400"
                     >
-                      <img
-                        :src="`${BASE_IMG}${item.album_cover || 'static/plan_cover/default.jpg'}`"
-                        :alt="item.album_title"
-                        class="w-full aspect-[4/3] object-cover"
-                        loading="lazy"
-                      />
-                      <div class="p-2 text-sm font-medium text-gray-800 dark:text-gray-100 truncate">
-                        {{ item.album_title }}
-                      </div>
+                      <div class="text-5xl mb-4">🏆</div>
+                      <p>暂无成就相册</p>
                     </div>
                   </div>
-                  <div v-if="hasMoreAchieveAlbums && !achieveAlbumsLoading" class="flex justify-center py-4">
-                    <button
-                      type="button"
-                      :disabled="achieveAlbumsLoadingMore"
-                      class="px-6 py-2 rounded-full bg-pink-100 dark:bg-gray-700 text-pink-600 dark:text-pink-300 text-sm font-medium hover:bg-pink-200 dark:hover:bg-gray-600 transition-colors disabled:opacity-50"
-                      @click="loadMoreAchieveAlbums"
-                    >
-                      {{ achieveAlbumsLoadingMore ? '加载中...' : '加载更多' }}
-                    </button>
-                  </div>
-                  <div
-                    v-if="!achieveAlbumsLoading && achieveAlbumList.length === 0"
-                    class="text-center py-16 text-gray-500 dark:text-gray-400"
-                  >
-                    <div class="text-5xl mb-4">🏆</div>
-                    <p>暂无成就相册</p>
-                  </div>
-                </div>
-              </template>
-            </QhxTabPanel>
-          </QhxTabs>
+                </template>
+              </QhxTabPanel>
+            </QhxTabs>
+          </div>
         </div>
       </div>
-    </div>
     </template>
+
     <template v-else-if="!loading && !userInfo">
-    <div class="relative z-10 flex flex-col items-center justify-center min-h-screen p-4 text-center">
-      <div class="bg-white/80 dark:bg-gray-800/80 backdrop-blur-md p-8 rounded-[2rem] shadow-xl border border-white/50 dark:border-gray-700 max-w-md w-full">
-        <div class="text-6xl mb-6">😕</div>
-        <h2 class="text-2xl font-bold text-gray-800 dark:text-gray-100 mb-4">用户不存在</h2>
-        <p class="text-gray-600 dark:text-gray-300 mb-8">抱歉，找不到该用户信息。</p>
-        <button 
-          @click="router.back()"
-          class="px-8 py-3 bg-pink-500 hover:bg-pink-600 text-white rounded-full font-bold transition-colors shadow-lg shadow-pink-500/30"
-        >
-          返回
-        </button>
+      <div class="relative z-10 flex flex-col items-center justify-center min-h-screen p-4 text-center">
+        <div class="bg-white/80 dark:bg-gray-800/80 backdrop-blur-md p-8 rounded-[2rem] shadow-xl border border-white/50 dark:border-gray-700 max-w-md w-full">
+          <div class="text-6xl mb-6">😕</div>
+          <h2 class="text-2xl font-bold text-gray-800 dark:text-gray-100 mb-4">用户不存在</h2>
+          <p class="text-gray-600 dark:text-gray-300 mb-8">抱歉，找不到该用户信息。</p>
+          <button
+            @click="router.back()"
+            class="px-8 py-3 bg-pink-500 hover:bg-pink-600 text-white rounded-full font-bold transition-colors shadow-lg shadow-pink-500/30"
+          >
+            返回
+          </button>
+        </div>
       </div>
-    </div>
     </template>
+
     <!-- 配置徽章弹窗 -->
     <AchievementDecoConfigModal
       v-if="isCurrentUser"
@@ -372,12 +447,6 @@
             </div>
           </div>
         </div>
-        <!-- 底部 -->
-        <!-- <div class="flex-shrink-0 px-5 py-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-800/50">
-          <UButton class="w-full" color="gray" variant="soft" size="sm" @click="showSignatureModal = false">
-            关闭
-          </UButton>
-        </div> -->
       </div>
     </QhxModal>
 
@@ -452,7 +521,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, computed, watch, inject, type Ref } from 'vue'
+import { ref, reactive, onMounted, onUnmounted, computed, watch, inject, nextTick, type Ref } from 'vue'
 import { getUserSpace, getUserDecoBadges, adminUpgradeUserFormalResident } from '@/api/user'
 import type { UserDecoBadgeItem } from '@/api/user'
 import { getCommunityList } from '@/api/community'
@@ -524,6 +593,7 @@ const router = useRouter()
 const userStore = useUserStore()
 const toast = useToast()
 const configStore = useConfigStore()
+const { $gsap, $ScrollTrigger } = useNuxtApp()
 const loading = ref(true)
 const userInfo = ref<(User & {
   signature?: string
@@ -793,9 +863,9 @@ const confirmWardrobePassword = async () => {
 const loadUserInfo = async () => {
   try {
     loading.value = true
-    
+
     const userId = route.params.id ? Number.parseInt(route.params.id as string) : null
-    
+
     if (!userId || Number.isNaN(userId)) {
       toast.add({
         title: '参数错误',
@@ -820,6 +890,10 @@ const loadUserInfo = async () => {
     userInfo.value = null
   } finally {
     loading.value = false
+    if (userInfo.value) {
+      await nextTick()
+      playHeroIntro()
+    }
   }
 }
 
@@ -848,6 +922,23 @@ const spaceUserId = computed(() => {
 })
 
 const hasMorePosts = computed(() => postList.value.length < postsTotal.value)
+
+// 衣柜数量（用于统计展示，轻量请求获取 count）
+const wardrobeCount = ref(0)
+const fetchWardrobeCount = async () => {
+  const uid = spaceUserId.value
+  if (!uid) {
+    wardrobeCount.value = 0
+    return
+  }
+  try {
+    const res = await getWardrobeList({ user_id: uid, page: 1, pageSize: 1 })
+    wardrobeCount.value = res.count ?? 0
+  } catch (e) {
+    console.error('获取衣柜数量失败:', e)
+    wardrobeCount.value = 0
+  }
+}
 
 const achievementStats = ref<AlbumAchievementStats | null>(null)
 const achievementStatsLoading = ref(false)
@@ -997,6 +1088,7 @@ watch(userInfo, (info) => {
   if (info?.user_id) {
     loadPosts()
     fetchUserBadges()
+    fetchWardrobeCount()
     if (isUserAchieveVisible(info.is_achieve)) {
       void loadAchievementStats()
       void loadAchieveAlbums(false)
@@ -1008,9 +1100,181 @@ watch(userInfo, (info) => {
     postsTotal.value = 0
     userBadges.value = []
     displayBadgeStr.value = ''
+    wardrobeCount.value = 0
     resetAchievementTab()
   }
 }, { immediate: true })
+
+/* ============================================================
+ * 统计数据 + GSAP 动画
+ * ========================================================== */
+
+const spaceStats = computed(() => {
+  const list: Array<{ key: string; label: string; value: number }> = [
+    { key: 'posts', label: '帖子', value: postsTotal.value },
+    { key: 'wardrobe', label: '衣柜', value: wardrobeCount.value },
+  ]
+  if (showAchieveTab.value) {
+    list.push({ key: 'points', label: '成就点', value: achievementStats.value?.points ?? 0 })
+  }
+  list.push({ key: 'fans', label: '粉丝', value: userInfo.value?.collect_count ?? 0 })
+  return list
+})
+
+const displayedStats = reactive<Record<string, number>>({})
+
+const formatStat = (n: number): string => {
+  if (n >= 10000) return `${(n / 10000).toFixed(n % 10000 === 0 ? 0 : 1)}w`
+  return n.toLocaleString('zh-CN')
+}
+
+const prefersReducedMotion = () =>
+  typeof window !== 'undefined' &&
+  window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+
+// DOM 引用
+const pageRoot = ref<HTMLElement | null>(null)
+const bgLayer = ref<HTMLElement | null>(null)
+const heroRef = ref<HTMLElement | null>(null)
+const postsListRef = ref<HTMLElement | null>(null)
+const achieveListRef = ref<HTMLElement | null>(null)
+const achieveProgressBar = ref<HTMLElement | null>(null)
+
+let heroIntroPlayed = false
+let parallaxTween: gsap.core.Tween | null = null
+const revealTriggers: any[] = []
+
+// 数字滚动动画：值变化时平滑增长
+const animateStats = () => {
+  const stats = spaceStats.value
+  if (!$gsap || prefersReducedMotion()) {
+    for (const s of stats) displayedStats[s.key] = s.value
+    return
+  }
+  for (const s of stats) {
+    const from = displayedStats[s.key] ?? 0
+    if (from === s.value) {
+      displayedStats[s.key] = s.value
+      continue
+    }
+    const obj = { v: from }
+    $gsap.to(obj, {
+      v: s.value,
+      duration: 1.1,
+      ease: 'power2.out',
+      onUpdate: () => {
+        displayedStats[s.key] = Math.round(obj.v)
+      },
+    })
+  }
+}
+
+watch(
+  spaceStats,
+  () => {
+    nextTick(animateStats)
+  },
+  { deep: true },
+)
+
+// Hero 入场动画（仅首屏播放一次）
+const playHeroIntro = () => {
+  if (heroIntroPlayed) {
+    setupParallax()
+    return
+  }
+  if (!$gsap || !heroRef.value) {
+    heroIntroPlayed = true
+    return
+  }
+  heroIntroPlayed = true
+
+  if (prefersReducedMotion()) {
+    setupParallax()
+    return
+  }
+
+  const scope = pageRoot.value || undefined
+  $gsap.context(() => {
+    const tl = $gsap.timeline({ defaults: { ease: 'power3.out' } })
+    tl.from(heroRef.value, { y: 40, autoAlpha: 0, duration: 0.7 })
+      .from('.hero-banner', { autoAlpha: 0, scale: 1.06, duration: 0.8 }, '<')
+      .from('.hero-avatar', { scale: 0.5, autoAlpha: 0, duration: 0.7, ease: 'back.out(1.7)' }, '-=0.45')
+      .from('.hero-headline > *', { y: 16, autoAlpha: 0, stagger: 0.08, duration: 0.5 }, '-=0.3')
+      .from('.hero-tag', { y: 10, autoAlpha: 0, stagger: 0.05, duration: 0.4 }, '-=0.25')
+      .from('.stat-item', { y: 14, autoAlpha: 0, stagger: 0.07, duration: 0.45 }, '-=0.2')
+      .from('.space-tabs', { y: 16, autoAlpha: 0, duration: 0.5 }, '-=0.15')
+  }, scope)
+
+  setupParallax()
+}
+
+// 背景视差（仅桌面端且未开启减弱动效时）
+const setupParallax = () => {
+  if (!$gsap || !$ScrollTrigger || !bgLayer.value || !pageRoot.value) return
+  if (prefersReducedMotion()) return
+  if (typeof window === 'undefined' || window.innerWidth < 768) return
+  if (parallaxTween) return
+  parallaxTween = $gsap.to(bgLayer.value, {
+    yPercent: 10,
+    ease: 'none',
+    scrollTrigger: {
+      trigger: pageRoot.value,
+      start: 'top top',
+      end: 'bottom top',
+      scrub: true,
+    },
+  })
+}
+
+// 列表滚动渐显：使用 ScrollTrigger.batch，仅处理尚未处理过的元素
+const revealItems = (root: HTMLElement | null, selector: string) => {
+  if (!$gsap || !$ScrollTrigger || !root) return
+  if (prefersReducedMotion()) return
+  const els = Array.from(
+    root.querySelectorAll(`${selector}:not([data-revealed])`),
+  ) as HTMLElement[]
+  if (!els.length) return
+  for (const el of els) el.setAttribute('data-revealed', '1')
+  $gsap.set(els, { autoAlpha: 0, y: 28 })
+  const triggers = $ScrollTrigger.batch(els, {
+    start: 'top bottom-=40',
+    once: true,
+    onEnter: (batch: Element[]) => {
+      $gsap.to(batch, {
+        autoAlpha: 1,
+        y: 0,
+        duration: 0.55,
+        stagger: 0.08,
+        ease: 'power2.out',
+        overwrite: true,
+      })
+    },
+  })
+  if (Array.isArray(triggers)) revealTriggers.push(...triggers)
+}
+
+// 帖子变化后触发渐显
+watch(
+  () => postList.value.length,
+  () => {
+    nextTick(() => {
+      revealItems(postsListRef.value, '.post-reveal')
+      $ScrollTrigger?.refresh()
+    })
+  },
+)
+
+// 成就相册变化后触发渐显
+watch(
+  () => achieveAlbumList.value.length,
+  () => {
+    nextTick(() => {
+      revealItems(achieveListRef.value, '.album-reveal')
+      $ScrollTrigger?.refresh()
+    })
+  },
+)
 
 onMounted(() => {
   if (layoutReady.value) {
@@ -1028,6 +1292,13 @@ watch(() => route.params.id, () => {
   loadUserInfo()
 })
 
+onUnmounted(() => {
+  parallaxTween?.scrollTrigger?.kill()
+  parallaxTween?.kill()
+  parallaxTween = null
+  for (const t of revealTriggers) t?.kill?.()
+  revealTriggers.length = 0
+})
 
 useHead({
   title: computed(() => {
@@ -1056,32 +1327,39 @@ useHead({
   animation-delay: 4s;
 }
 
-/* 徽章展示区 - 用户信息悬浮其上，缩减高度 */
-.badge-showcase {
-  width: 100%;
-  aspect-ratio: 16 / 9;
-  min-height: 140px;
-  background: linear-gradient(180deg, rgba(255, 248, 248, 0.95) 0%, rgba(254, 242, 242, 0.85) 50%, rgba(255, 250, 250, 0.95) 100%);
-  overflow: hidden;
-}
-/* 签名预览：预留 3 行以上空间，内层 div 已有 line-clamp-3 */
-.signature-preview {
-  min-height: 4.5rem;
+/* Hero 卡片 */
+.hero-card {
+  isolation: isolate;
 }
 
-.dark .badge-showcase {
+/* 徽章 banner 背景：与卡片主题统一 */
+.hero-banner-bg {
+  background: linear-gradient(180deg, rgba(255, 248, 248, 0.95) 0%, rgba(254, 242, 242, 0.85) 50%, rgba(255, 250, 250, 0.95) 100%);
+}
+.dark .hero-banner-bg {
   background: linear-gradient(180deg, rgba(30, 30, 30, 0.95) 0%, rgba(40, 35, 40, 0.85) 50%, rgba(35, 30, 35, 0.95) 100%);
 }
 
-/* 有徽章时：缩小徽章展示区域 */
-.badge-showcase--has-badges {
-  aspect-ratio: 4 / 1;
-  min-height: 100px;
+/* banner 装饰 emoji 漂浮 */
+.hero-spark {
+  animation: floatSpark 4s ease-in-out infinite;
+}
+.hero-spark:nth-child(4) { animation-delay: 0.8s; }
+.hero-spark:nth-child(5) { animation-delay: 1.6s; }
+@keyframes floatSpark {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  50% { transform: translateY(-8px) rotate(6deg); }
 }
 
-/* 有徽章时：缩小徽章展示区域 */
-.badge-showcase--has-badges {
-  aspect-ratio: 16 / 6;
-  min-height: 100px;
+/* 签名预览 */
+.signature-preview {
+  min-height: 1.5rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-blob,
+  .hero-spark {
+    animation: none !important;
+  }
 }
 </style>
