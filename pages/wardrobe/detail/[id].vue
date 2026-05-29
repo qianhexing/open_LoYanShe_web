@@ -5,7 +5,6 @@ import type { UserDecoBadgeItem } from '@/api/user'
 import { getWardrobeList, getClothesList, sortClothee, changeWardrobeClothes, changeWardrobeClothesBatch, deleteClothesByIds, updateClothesIds, checkWadrobePassword, sortWardrobe, updateWardrobe, deleteWardrobe } from '@/api/wardrobe'
 import { getPlanListWardrobe, planComplete } from '@/api/plan'
 import type { ClothesParams } from '@/api/wardrobe'
-import Draggable from "vuedraggable"
 import { useCopyCurrentUrl } from '~/composables/useCopyCurrentUrl';
 import type QhxSelect from '@/components/Qhx/Select.vue'
 import type { optionsInterface } from '@/components/Qhx/Select.vue'
@@ -422,11 +421,11 @@ const preferLiteEffects = computed(() => {
  * 主服饰网格：浏览态行级虚拟滚动
  * - 浏览态（非排序、非时间轴）只渲染可视行附近的卡片，DOM 节点数从「全量」降到「视口行数」，
  *   大幅降低样式重算 / 合成 / 内存压力（iPhone 等弱机长列表卡顿主因之一）。
- * - 排序态保留 vuedraggable 全量渲染（拖拽排序需要完整 DOM），二者通过 createReusableTemplate
+ * - 排序态用自研 QhxSortableList 全量渲染（拖拽排序需要完整 DOM），二者通过 createReusableTemplate
  *   复用同一套卡片模板，避免重复且保留 <style scoped> 样式。
  * - 复用现有滚动容器（头部信息与列表同滚动），不引入额外滚动区。
  * ============================================================ */
-/** 可复用卡片模板：排序态(Draggable) 与 浏览态(虚拟网格) 共用同一段卡片 DOM */
+/** 可复用卡片模板：排序态(QhxSortableList) 与 浏览态(虚拟网格) 共用同一段卡片 DOM */
 const [DefineClothesCard, ReuseClothesCard] = createReusableTemplate<{ element: WardrobeClothes }>()
 
 /** 主滚动容器（.content-area-height） */
@@ -445,8 +444,19 @@ const virtualViewportH = ref(0)
 const virtualColumns = ref(3)
 /** 网格区块相对滚动内容顶部的偏移（头部高度变化时更新） */
 const virtualListOffsetTop = ref(0)
-/** 上下额外多渲染的行数，滚动时预填充避免白屏 */
-const VIRTUAL_OVERSCAN_ROWS = 4
+/** 上下额外多渲染的行数：适当增大，回滚时近距离行不被卸载，避免图片重新加载 */
+const VIRTUAL_OVERSCAN_ROWS = 6
+
+/**
+ * 已加载图片 URL 记录（普通 Set，不参与响应式，避免无谓 re-render）。
+ * 卡片因虚拟滚动卸载后再次进入视口时，已加载过的图用 eager 立即从缓存出图，消除“回滚重新加载”的闪烁。
+ */
+const wardrobeLoadedImgKeys = new Set<string>()
+const markWardrobeImgLoaded = (key?: string | null) => {
+  if (key) wardrobeLoadedImgKeys.add(key)
+}
+const wardrobeImgLoadingMode = (key?: string | null): 'eager' | 'lazy' =>
+  key && wardrobeLoadedImgKeys.has(key) ? 'eager' : 'lazy'
 
 /** 列数与模板断点一致：<768→3，768–1279→4，1280–1919→6，≥1920→10 */
 function computeVirtualColumns(): number {
@@ -850,70 +860,48 @@ const fetchWardrobeClothes = async (clothesId: number, wardrobeId: number) => {
   isSorting.value = false
 }
 // 服饰拖拽部分(*^▽^*)
-const onDragStart = (e) => {
+const onDragStart = () => {
   oldList = list.value.map((item, index) => ({ clothes_id: item.clothes_id, sort: item.sort || index }));
 };
-const onDragEnd = async (e: any) => {
+/** QhxSortableList 的 end 事件载荷：{ oldIndex, newIndex, key, clientX, clientY, originalEvent } */
+const onDragEnd = async (payload?: { clientX?: number; clientY?: number }) => {
   if (isSorting.value) return; // 防止重复提交
   isSorting.value = true;
-  console.log('拖拽结束', opearClothesId.value)
-  // 获取正在拖拽的服饰ID
-  const clothesId = e.originalEvent.target.dataset.clothesId
-  if (e.originalEvent.type === 'touchend' && e.originalEvent.changedTouches.length > 0) {
-    const touch = e.originalEvent.changedTouches[0];
-    console.log('touch', touch)
-    const clientX = touch.clientX
-    const clientY = touch.clientY
-    const wardrobeId = getWardrobeIdByPoint(clientX, clientY)
-    if (wardrobeId && wardrobeId !== currentWardrobe.value?.wardrobe_id && opearClothesId.value) {
-      console.log('是衣柜', wardrobeId)
-      await fetchWardrobeClothes(opearClothesId.value, wardrobeId)
-      return
-    }
-  } else {
-    const isWardrobe = e.originalEvent.target.className.includes('wardrobe-name')
-    if (isWardrobe) {
-      const wardrobeId = e.originalEvent.target.dataset.wardrobeId
-      console.log('是衣柜', wardrobeId)
-      if (wardrobeId !== currentWardrobe.value?.wardrobe_id && opearClothesId.value) {
+  try {
+    // 落点命中左侧衣柜名 => 将服饰移动到该衣柜（鼠标 / 触摸统一用坐标命中）
+    const clientX = payload?.clientX
+    const clientY = payload?.clientY
+    if (clientX != null && clientY != null) {
+      const wardrobeId = getWardrobeIdByPoint(clientX, clientY)
+      if (wardrobeId && wardrobeId !== currentWardrobe.value?.wardrobe_id && opearClothesId.value) {
         await fetchWardrobeClothes(opearClothesId.value, wardrobeId)
         return
       }
     }
-  }
-  try {
-    // 找出变化的元素
+    // 找出位置发生变化的元素并持久化排序
     const changed: { clothes_id: number; sort: number }[] = [];
-
     list.value.forEach((item, newIndex) => {
       const oldItem = oldList[newIndex];
-
-      // 如果当前位置的 id 不一样，说明发生了位置变化
       if (!oldItem || item.clothes_id !== oldItem.clothes_id) {
         changed.push({
           clothes_id: item.clothes_id,
-          // 取 "变化前同一位置的 sort"
           sort: oldItem?.sort ?? item.sort,
         });
       }
     });
 
-    if (changed.length > 0 && currentWardrobe.value) {
-      if (!currentWardrobe.value.wardrobe_id) return
+    if (changed.length > 0 && currentWardrobe.value?.wardrobe_id) {
       const params = {
-        wardrobe_id: currentWardrobe.value?.wardrobe_id,
+        wardrobe_id: currentWardrobe.value.wardrobe_id,
         sort: changed.map((item) => ({
           clothes_id: item.clothes_id,
           sort: item.sort,
         })),
       };
-
       await sortClothee(params);
-      // useToast().success("排序已更新")
     }
   } catch (error) {
     console.error("排序更新失败:", error);
-    // useToast().error("排序更新失败")
   } finally {
     isSorting.value = false;
   }
@@ -2718,8 +2706,8 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
             </div>
           </QhxJellyButton>
         </div>
-        <Draggable :forceFallback="true" :delay="150" :disabled="!sortMode" v-model="wardrobeList" item-key="wardrobe_id" animation="250" ghost-class="drag-ghost"
-          chosen-class="drag-chosen" drag-class="dragging" @end="onWardrobeDragEnd">
+        <QhxSortableList :disabled="!sortMode" v-model="wardrobeList" item-key="wardrobe_id" :animation="250" :delay="150"
+          @end="onWardrobeDragEnd">
           <template #item="{ element }">
             <div>
               <div class="relative group-item">
@@ -2769,7 +2757,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
               </div>
             </div>
           </template>
-        </Draggable>
+        </QhxSortableList>
       </div>
       <div ref="scrollRootRef" class="flex-1 content-area-height overflow-y-auto overflow-x-hidden">
         <!-- 状态栏高度占位 -->
@@ -3096,7 +3084,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
             </QhxTag>
           </QhxJellyButton>
         </div>
-        <!-- 服饰卡片模板：排序态(Draggable) 与 浏览态(虚拟网格) 共用，保留本组件 scoped 样式 -->
+        <!-- 服饰卡片模板：排序态(QhxSortableList) 与 浏览态(虚拟网格) 共用，保留本组件 scoped 样式 -->
         <DefineClothesCard v-slot="{ element }">
           <div
             class="group drag-handle flex flex-col items-center py-[10px] px-[15px] max-md:px-[5px]"
@@ -3173,8 +3161,9 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
                   :src="`${BASE_IMG}${element.clothes_img}?x-oss-process=image/quality,q_100/resize,w_300`"
                   draggable="false"
                   class="wardrobe-detail-img block w-full cursor-grab object-cover aspect-[1/1.5] max-md:aspect-[1/1] active:cursor-grabbing"
-                  loading="lazy"
+                  :loading="wardrobeImgLoadingMode(element.clothes_img)"
                   decoding="async"
+                  @load="markWardrobeImgLoaded(element.clothes_img)"
                   @contextmenu.prevent
                 />
                 <!-- 多选模式：封面蒙版显示当前排序序号 -->
@@ -3229,24 +3218,23 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
               </div>
             </div>
           </div>
-          <!-- 排序态：vuedraggable 全量渲染（拖拽排序需要完整 DOM） -->
-          <Draggable
+          <!-- 排序态：自研高性能拖拽排序（QhxSortableList，无 vuedraggable） -->
+          <QhxSortableList
             v-else
-            :scroll="sortMode"
-            :scroll-sensitivity="150"
-            :scroll-speed="15"
-            :fallback-tolerance="0"
-            :forceFallback="sortMode" :delay="150" :disabled="!sortMode" @start="onDragStart" @end="onDragEnd" v-model="list" item-key="clothes_id"
-            :animation="sortMode ? 300 : 0" ghost-class="drag-ghost" chosen-class="drag-chosen" drag-class="dragging"
-            class=" flex flex-wrap">
+            v-model="list"
+            item-key="clothes_id"
+            class="flex flex-wrap"
+            item-class="wardrobe-clothes-cell [@media(min-width:1920px)]:w-[calc(100%/10)] xl:w-1/6 md:w-1/4 max-md:w-1/3"
+            :animation="260"
+            :delay="140"
+            :get-scroll-container="() => scrollRootRef"
+            @start="onDragStart"
+            @end="onDragEnd"
+          >
             <template #item="{ element }">
-              <div
-                class="wardrobe-clothes-cell [@media(min-width:1920px)]:w-[calc(100%/10)] xl:w-1/6 md:w-1/4 max-md:w-1/3"
-              >
-                <ReuseClothesCard :element="element" />
-              </div>
+              <ReuseClothesCard :element="element" />
             </template>
-          </Draggable>
+          </QhxSortableList>
         </div>
         <QhxLoading v-if="!timelineMode" :loading="isLoading" :page="page" :total="total" :page-size="pageSize" @load-more="loadMore">
         </QhxLoading>
@@ -4135,15 +4123,16 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
     inset -2px 0 4px rgba(0, 0, 0, 0.38);
 }
 
-/* 列表格：滚动时跳过屏外绘制（旧 iOS 滚动卡顿主要优化之一） */
-.wardrobe-clothes-cell {
+/* 列表格：滚动时跳过屏外绘制（旧 iOS 滚动卡顿主要优化之一）。
+   用 :global 以便同时作用于「浏览态虚拟网格(页面渲染)」与「排序态 QhxSortableList(子组件渲染)」的格子。 */
+:global(.wardrobe-clothes-cell) {
   content-visibility: auto;
   contain-intrinsic-size: auto 220px;
 }
 
 /* 虚拟滚动网格内的卡片已由 JS 窗口化，关闭 content-visibility：
    否则屏外 overscan 卡片会被塌缩成 intrinsic-size，导致行高测量错误。 */
-.wardrobe-clothes-cell--virtual {
+:global(.wardrobe-clothes-cell--virtual) {
   content-visibility: visible;
   contain-intrinsic-size: none;
 }
@@ -4463,7 +4452,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
   touch-action: manipulation;
 }
 
-/* 排序模式：遮罩参与命中会导致 vuedraggable(forceFallback) 拖拽错位，改为穿透到下层由 .drag-handle 承接 */
+/* 排序模式：遮罩穿透命中，便于 QhxSortableList 的指针拖拽与落点检测 */
 .wardrobe-img-touch-shield--sorting {
   pointer-events: none !important;
   touch-action: auto;
