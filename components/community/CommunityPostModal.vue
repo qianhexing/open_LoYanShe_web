@@ -21,6 +21,23 @@
         </button>
       </div>
       <div class="flex-1 overflow-y-auto min-h-0 p-4 md:p-6">
+        <div
+          v-if="sceneContextLabel"
+          class="mb-5 flex gap-3 rounded-2xl border border-violet-200/70 bg-violet-50/60 px-4 py-3 text-sm dark:border-violet-800/60 dark:bg-violet-950/35"
+        >
+          <div
+            class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/90 ring-1 ring-violet-200/70 dark:bg-gray-900/70 dark:ring-violet-700/45"
+            aria-hidden="true"
+          >
+            <UIcon name="material-symbols:view-in-ar-rounded" class="h-5 w-5 text-violet-600 dark:text-violet-400" />
+          </div>
+          <div class="min-w-0 pt-0.5">
+            <p class="font-semibold text-violet-900 dark:text-violet-100">关联 3D 场景</p>
+            <p class="mt-0.5 text-xs leading-relaxed text-violet-800/85 dark:text-violet-200/85">
+              {{ sceneContextLabel }}
+            </p>
+          </div>
+        </div>
         <ClientOnly>
           <CommunityPostEditor
             v-if="open"
@@ -30,6 +47,8 @@
             :foreign-pk="foreignResolved"
             :initial-type="initialType"
             :initial-is-open="initialIsOpen"
+            :sence-id="senceId"
+            :scene-cover-relative-path="sceneCoverRelativePath"
             @success="onEditorSuccess"
             @cancel="onEditorCancel"
           />
@@ -69,6 +88,10 @@ const props = withDefaults(
     modalTitle?: string
     /** 点击遮罩关闭；发帖场景默认关闭须点标题栏 ✕ / 编辑器取消 */
     closeOnBackdrop?: boolean
+    /** 场景 ID：嵌入 iframe、写入 sence_id、预填封面 */
+    senceId?: number
+    /** 场景封面相对路径 */
+    sceneCoverRelativePath?: string
   }>(),
   {
     foreignPk: undefined,
@@ -81,7 +104,9 @@ const props = withDefaults(
     successRedirect: '/community',
     navigateBackOnDismiss: false,
     modalTitle: '发帖分享',
-    closeOnBackdrop: false
+    closeOnBackdrop: false,
+    senceId: undefined,
+    sceneCoverRelativePath: undefined
   }
 )
 
@@ -106,6 +131,12 @@ const closedBySuccess = ref(false)
 const foreignResolved = computed(() =>
   resolveCommunityPostForeignPk(props.foreignPk, props.pk_id ?? undefined, props.pk_type ?? undefined)
 )
+
+const sceneContextLabel = computed(() => {
+  if (props.senceId == null || !Number.isFinite(props.senceId)) return null
+  const title = props.modalTitle === '发帖分享' ? '搭配场景' : '场景'
+  return `${title} #${props.senceId} · 发布成功后将自动嵌入 3D 场景预览`
+})
 
 function centerTrigger() {
   if (typeof window === 'undefined') return { x: 0, y: 0 }

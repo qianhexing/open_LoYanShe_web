@@ -361,7 +361,7 @@ const createPointCloud = () => {
   scene.add(focusRing);
 };
 
-const initThree = () => {
+const initThree = async () => {
   if (!container.value) return;
 
   const core = new ThreeCore({
@@ -376,8 +376,8 @@ const initThree = () => {
   core.camera.lookAt(0, 0, 0);
 
   threeCore.value = core;
-  core.mount(container.value);
-  core.startAnimationLoop();
+  await core.mount(container.value);
+  await core.startAnimationLoop();
 
   // Raycaster setup
   const raycaster = new THREE.Raycaster();

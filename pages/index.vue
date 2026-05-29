@@ -97,7 +97,7 @@ const loadLibrary = async () => {
 	threeCore.scene.add(Group)
 	console.log('模型', model)
 }
-const initThreejs = () => {
+const initThreejs = async () => {
 	// 先初始化移动端检测（与 scene/detail/[id].vue 保持一致）
 	configStore.initMobileDetection()
 
@@ -107,11 +107,11 @@ const initThreejs = () => {
 	})
 
 	// 挂载到DOM
-	threeCore.mount(document.getElementById('three-container'));
+	await threeCore.mount(document.getElementById('three-container'));
 
 	// 如果是手机端，关闭阴影（逻辑参考 scene/detail/[id].vue 的 changeShadowQuality('off')）
-	if (configStore.isMobile && threeCore.renderer) {
-		threeCore.renderer.shadowMap.enabled = false
+	if (configStore.isMobile) {
+		threeCore.setShadowMapEnabled(false)
 		// 同时关闭主光/镜头光阴影，避免多余开销
 		if (threeCore.lights?.directional) {
 			threeCore.lights.directional.castShadow = false
@@ -128,7 +128,7 @@ const initThreejs = () => {
 	threeCore.scene.background = new THREE.Color('#ffddf2')
 	// threeCore.controls.autoRotate = true
 	// 开始渲染循环
-	threeCore.startAnimationLoop();
+	await threeCore.startAnimationLoop();
 }
 const mouse = new THREE.Vector2();
 const throttledMouseMove = throttle((event: MouseEvent) => {

@@ -497,9 +497,10 @@ const getStylePercentage = (value: number): string => {
   return ((value / total) * 100).toFixed(1)
 }
 
+const { buildLoginTo } = useLoginRedirect()
+
 const handleLogin = () => {
-    // 假设有登录页路由 /login，或者触发全局登录弹窗
-    router.push('/login')
+    router.push(buildLoginTo())
 }
 
 // 切换年度总结公开状态

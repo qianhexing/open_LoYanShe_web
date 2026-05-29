@@ -18,6 +18,7 @@ export async function updateScene(
     sence_id: number,
     json_data?: SceneJSON
     sence_cover?: string
+    allow_copy?: number
   }
 ): Promise<Scene> {
   const response = await use$Post<BaseResponse<Scene>>(

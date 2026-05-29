@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { Library, LibrarySimilarItem, PaginationResponse, Shop, LibraryVideo, LibraryPipe, Community } from '@/types/api';
+import type { Library, LibrarySimilarItem, PaginationResponse, Shop, LibraryVideo, LibraryPipe, Community, User } from '@/types/api';
 import { getLibraryDetail, getLibraryList, getLibraryVideo, getLibraryPipeListAll, getLibrarySimilar } from '@/api/library'
 import html2canvas from 'html2canvas';
 import QhxTag from '~/components/Qhx/Tag.vue';
@@ -14,6 +14,14 @@ import PhysicsDrop from '@/components/PhysicsDrop.client.vue'
 import { getWikiDetail, type WikiDetailParams } from '@/api/wiki'
 import SPZModelViewer from '@/components/ModelViewer/SPZModelViewer.vue'
 import { insertCommunityForeign } from '@/api/community'
+import { getScoreOne, insertScore, type ScoreRecord } from '@/api/score'
+import {
+  clampUserLibraryScore,
+  formatLibraryScoreLabel,
+  getScoreCaption,
+  normalizeAggregateScore,
+  starFillRatio
+} from '@/utils/libraryScore'
 import type { CommunityPostForeignContext } from '@/utils/communityPost'
 const user = useUserStore()
 const config = useConfigStore()
@@ -39,6 +47,7 @@ const { data } = await useAsyncData('libraryDeatil', () => {
 const library = ref<Library | null>(null)
 const libraryRef = ref(null)
 const shop = ref<Shop | null>(null)
+const uploadUser = ref<User | null>(null)
 const style_list = ref<Wiki[]>([])
 const parent = ref<Library | null>(null)
 const child_list = ref<Library[]>([])
@@ -49,6 +58,7 @@ library.value = data.value?.library ?? null
 style_list.value = data.value?.style_list ?? []
 parent.value = data.value?.parent ?? null
 shop.value = data.value?.shop ?? null
+uploadUser.value = data.value?.upload_user ?? null
 
 const libraryReturnForeignPk = computed((): CommunityPostForeignContext | null => {
   const lid = library.value?.library_id
@@ -241,6 +251,7 @@ onMounted(async () => {
       style_list.value = detail.style_list ?? []
       parent.value = detail.parent ?? null
       shop.value = detail.shop ?? null
+      uploadUser.value = detail.upload_user ?? null
     } catch {
       // SSR 或首次 useAsyncData 异常时客户端补拉失败则保持空状态
     }
@@ -587,9 +598,180 @@ const togglePhysicsDrop = () => {
     localStorage.setItem(PHYSICS_DROP_VISIBLE_KEY, String(isPhysicsDropVisible.value))
   }
 }
+
+const userLibraryScore = ref<number | null>(null)
+const userScoreRecord = ref<ScoreRecord | null>(null)
+const userScoreLoading = ref(false)
+const scoreSaving = ref(false)
+const scoreHoverPreview = ref<number | null>(null)
+
+const fetchMyLibraryScore = async () => {
+  const lid = library.value?.library_id
+  if (!user.token || lid == null) {
+    userLibraryScore.value = null
+    userScoreRecord.value = null
+    return
+  }
+  userScoreLoading.value = true
+  try {
+    const res = await getScoreOne({ id: lid, type: 'library' })
+    if (res === false) {
+      userLibraryScore.value = null
+      userScoreRecord.value = null
+      if (library.value) {
+        library.value.is_score = 0
+      }
+    } else {
+      userScoreRecord.value = res
+      userLibraryScore.value = clampUserLibraryScore(res.score)
+      if (library.value) {
+        library.value.is_score = 1
+      }
+    }
+  } catch (error) {
+    console.error('获取我的评分失败:', error)
+    userLibraryScore.value = null
+    userScoreRecord.value = null
+  } finally {
+    userScoreLoading.value = false
+  }
+}
+
+watch(
+  () => [user.token, library.value?.library_id] as const,
+  ([token, lid]) => {
+    if (!import.meta.client) return
+    if (token && lid != null) {
+      void fetchMyLibraryScore()
+    } else {
+      userLibraryScore.value = null
+      userScoreRecord.value = null
+    }
+  },
+  { immediate: true }
+)
+
+const scoreDisplay = computed(() => userLibraryScore.value ?? 0)
+const scoreUiValue = computed(() => scoreHoverPreview.value ?? scoreDisplay.value)
+const scoreCaption = computed(() =>
+  scoreUiValue.value >= 1 ? getScoreCaption(scoreUiValue.value) : ''
+)
+
+const libraryScoreStats = computed(() => {
+  const lib = library.value
+  if (!lib) return { total: null as number | null, count: 0 }
+  const count = Number(lib.score_number) || 0
+  const total = lib.score
+  if (total == null || !Number.isFinite(Number(total)) || count <= 0) {
+    return { total: null, count }
+  }
+  return { total: normalizeAggregateScore(Number(total)), count }
+})
+
+const applyLibraryScoreFields = (src: Library) => {
+  if (!library.value) return
+  library.value.score = src.score
+  library.value.score_number = src.score_number
+  if (src.is_score !== undefined) {
+    library.value.is_score = src.is_score
+  }
+}
+
+const setLibraryScore = async (score: number) => {
+  if (!user.token) {
+    toast.add({
+      title: '请先登录',
+      icon: 'i-heroicons-exclamation-circle',
+      color: 'orange'
+    })
+    return
+  }
+  const lid = library.value?.library_id
+  if (lid == null || scoreSaving.value) return
+  const next = clampUserLibraryScore(score)
+  scoreHoverPreview.value = null
+  scoreSaving.value = true
+  try {
+    await insertScore({ id: lid, type: 'library', score: next })
+    userLibraryScore.value = next
+    if (library.value) {
+      library.value.is_score = 1
+    }
+    await fetchMyLibraryScore()
+    const refreshed = await getLibraryDetail({ library_id: lid })
+    if (refreshed.library) {
+      applyLibraryScoreFields(refreshed.library)
+    }
+    if (refreshed.upload_user !== undefined) {
+      uploadUser.value = refreshed.upload_user ?? null
+    }
+    // toast.add({
+    //   title: `已评为 ${formatLibraryScoreLabel(next)} 星 · ${getScoreCaption(next)}`,
+    //   icon: 'i-heroicons-check-circle',
+    //   color: 'green'
+    // })
+  } catch (error: unknown) {
+    console.error('评分失败:', error)
+    const msg = error instanceof Error ? error.message : '请稍后重试'
+    toast.add({
+      title: '评分失败',
+      description: msg,
+      icon: 'i-heroicons-x-circle',
+      color: 'red'
+    })
+  } finally {
+    scoreSaving.value = false
+  }
+}
+
+const { copyCurrentUrl } = useCopyCurrentUrl()
+
+const handleShareLink = async () => {
+  try {
+    const result = await copyCurrentUrl()
+    if (result?.success) {
+      toast.add({
+        title: '链接已复制',
+        description: '可将本页链接分享给他人',
+        icon: 'i-heroicons-check-circle',
+        color: 'green',
+      })
+    } else {
+      toast.add({
+        title: '复制失败',
+        description: result?.message || '请手动复制地址栏链接',
+        icon: 'i-heroicons-exclamation-circle',
+        color: 'orange',
+      })
+    }
+  } catch {
+    toast.add({
+      title: '复制失败',
+      icon: 'i-heroicons-x-circle',
+      color: 'red',
+    })
+  }
+}
+
+/** 图鉴缩略图：手机端三列等宽网格，桌面端保持原 flex + 固定尺寸 */
+const libraryThumbGridClass =
+  'library-thumb-grid flex flex-wrap my-2 max-md:grid max-md:grid-cols-3 max-md:gap-2'
+const libraryThumbImgClass =
+  'cursor-pointer ml-3 w-[100px] aspect-square object-cover object-center rounded-[10px] shadow-lg border border-gray-200 max-md:ml-0 max-md:w-full'
+const libraryVideoGridClass =
+  'library-thumb-grid flex flex-wrap pb-3 max-md:grid max-md:grid-cols-3 max-md:gap-2'
+const libraryVideoItemClass = 'w-[100px] mr-3 mb-2 max-md:w-full max-md:mr-0'
 </script>
 <template>
-  <div class="container mx-auto p-4 max-md:p-2">
+  <div>
+    <!-- 状态栏高度占位（WebView 通过 query statusbar 注入，见 layouts/default） -->
+    <div
+      v-if="config.statusBarHeight > 0"
+      class="shrink-0"
+      aria-hidden="true"
+      :style="{ height: `${config.statusBarHeight}px` }"
+    />
+    <div class="container mx-auto p-4 max-md:p-2">
     <div v-if="library" ref="libraryRef" class="bg-qhx-bg-card rounded-lg shadow-lg" :key="library.library_id">
       <div class="p-3 flex max-md:block max-md:px-1">
         <div class="flex my-2 w-[434px] max-md:w-full relative">
@@ -657,39 +839,96 @@ const togglePhysicsDrop = () => {
               </p>
             </div>
           </div>
-          <div v-if="library.state === '预约中'" class="mb-4">
-            <h3 class="text-sm m-1">预约时间</h3>
-            <p class="text-xs">
-              <QhxTag :active="true">{{ dayjs(library.start_time).format('YYYY-MM-DD HH:mm') }}</QhxTag>
-              <span>-</span>
-              <QhxTag :active="true">{{ dayjs(library.end_time).format('YYYY-MM-DD HH:mm') }}</QhxTag>
+
+          <!-- 评分（状态上方，样式参考数字展馆铭牌） -->
+          <div class="mb-4 flex flex-wrap items-center gap-x-3 gap-y-2">
+            <p
+              v-if="libraryScoreStats.count > 0 && libraryScoreStats.total != null"
+              class="text-[18px] font-serif ml-[10px] tracking-wide text-amber-800/80 dark:text-amber-200/80"
+            >
+              总分
+              <span class="font-semibold text-amber-600 dark:text-amber-400">{{ formatLibraryScoreLabel(libraryScoreStats.total) }}</span>
+              <span class="text-amber-700/40 dark:text-amber-300/40 mx-1">·</span>
+              {{ libraryScoreStats.count }} 人评分
+            </p>
+            <p v-else class="text-xs font-serif text-gray-500 dark:text-gray-500">暂无评分</p>
+            <p
+              v-if="libraryScoreStats.count > 0 && libraryScoreStats.total != null"
+              class="text-[18px] font-serif ml-[10px] tracking-wide text-amber-800/80 dark:text-amber-200/80"
+            >
+            <!-- 评分评语 夯爆了  -->
+            {{ getScoreCaption(libraryScoreStats.total) }}
             </p>
           </div>
-          <div v-else-if="library.state === '尾款中'" class="mb-4">
-            <h3 class="text-sm m-1">尾款时间</h3>
-            <p class="text-xs">
-              <QhxTag :active="true">{{ dayjs(library.arrears_start).format('YYYY-MM-DD HH:mm') }}</QhxTag>
-              <span>-</span>
-              <QhxTag :active="true">{{ dayjs(library.arrears_end).format('YYYY-MM-DD HH:mm') }}</QhxTag>
-            </p>
-          </div>
-          <div v-else class="mb-4">
-            <h3 class="text-sm m-1">状态</h3>
-            <p class="text-xs">
-              <QhxTag :active="true">{{ library.state }}</QhxTag>
-            </p>
-          </div>
-          <!-- 信息表 -->
-          <div v-if="library.size_image" class="mb-4">
-            <h3 class="text-sm m-1">信息表</h3>
-            <div class="flex flex-wrap my-2">
-              <QhxPreviewImage
-                :list="library.size_image.split(',').map((image) => { return { src: image + '?x-oss-process=image/quality,q_80/resize,w_300,h_300' } })"
-                :preview="library.size_image.split(',')"
-                :className="'cursor-pointer ml-3 w-[100px] h-[100px]  object-cover rounded-[10px] shadow-lg border border-gray-200'">
-              </QhxPreviewImage>
+          <div
+              v-if="user.token"
+              class="inline-flex flex-wrap items-center gap-2 rounded-lg border border-amber-400/35 bg-amber-500/[0.06] px-2 py-1.5 shadow-[0_0_12px_rgba(212,175,55,0.08)] dark:border-amber-400/25 dark:bg-amber-500/10"
+              :class="(scoreSaving || userScoreLoading) ? 'pointer-events-none opacity-60' : ''"
+            >
+              <div class="inline-flex items-center gap-0.5">
+                <div
+                  v-for="s in 5"
+                  :key="s"
+                  class="relative inline-flex h-7 w-7 shrink-0 items-center justify-center"
+                  @mouseleave="scoreHoverPreview = null"
+                >
+                  <UIcon name="i-heroicons-star" class="h-7 w-7 text-amber-200/70 dark:text-stone-500" />
+                  <UIcon
+                    v-if="starFillRatio(s, scoreUiValue) > 0"
+                    name="i-heroicons-star-solid"
+                    class="pointer-events-none absolute inset-0 h-7 w-7 text-amber-500 dark:text-amber-400"
+                    :style="starFillRatio(s, scoreUiValue) === 0.5 ? { clipPath: 'inset(0 50% 0 0)' } : undefined"
+                  />
+                  <button
+                    v-if="s > 1"
+                    type="button"
+                    class="absolute left-0 top-0 z-10 h-full w-1/2 rounded-l focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/60"
+                    :aria-label="`设为 ${formatLibraryScoreLabel(s - 0.5)} 星`"
+                    @mouseenter="scoreHoverPreview = s - 0.5"
+                    @focus="scoreHoverPreview = s - 0.5"
+                    @blur="scoreHoverPreview = null"
+                    @click="setLibraryScore(s - 0.5)"
+                  />
+                  <button
+                    type="button"
+                    class="absolute top-0 z-10 h-full rounded-r focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/60"
+                    :class="s > 1 ? 'right-0 w-1/2' : 'inset-0 w-full'"
+                    :aria-label="`设为 ${s} 星`"
+                    @mouseenter="scoreHoverPreview = s"
+                    @focus="scoreHoverPreview = s"
+                    @blur="scoreHoverPreview = null"
+                    @click="setLibraryScore(s)"
+                  />
+                </div>
+              </div>
+              <span
+                v-if="scoreCaption"
+                class="shrink-0 px-1.5 py-0.5 text-[11px] font-serif tracking-wider rounded border border-amber-400/35 text-amber-800/90 bg-amber-400/5 dark:border-amber-400/30 dark:text-amber-100/90"
+              >
+                {{ scoreCaption }}
+              </span>
             </div>
-          </div>
+            <div
+              v-else-if="scoreDisplay >= 1"
+              class="inline-flex items-center gap-2 rounded-lg border border-amber-400/35 bg-amber-500/[0.06] px-2 py-1.5 dark:border-amber-400/25 dark:bg-amber-500/10"
+            >
+              <div class="inline-flex items-center gap-0.5">
+                <div
+                  v-for="s in 5"
+                  :key="s"
+                  class="relative inline-flex h-6 w-6 items-center justify-center"
+                >
+                  <UIcon name="i-heroicons-star" class="h-6 w-6 text-amber-200/70 dark:text-stone-500" />
+                  <UIcon
+                    v-if="starFillRatio(s, scoreDisplay) > 0"
+                    name="i-heroicons-star-solid"
+                    class="absolute inset-0 h-6 w-6 text-amber-500 dark:text-amber-400"
+                    :style="starFillRatio(s, scoreDisplay) === 0.5 ? { clipPath: 'inset(0 50% 0 0)' } : undefined"
+                  />
+                </div>
+              </div>
+            </div>
+
           <!-- 主题 -->
           <div v-if="library.theme" class="mb-1">
             <h3 class="text-sm m-1">主题</h3>
@@ -740,6 +979,48 @@ const togglePhysicsDrop = () => {
               <QhxTag v-for="(tags, index) in library.color.split(',')" :key="index">
                 {{ tags }}
               </QhxTag>
+            </div>
+          </div>
+
+          <div v-if="library.state === '预约中'" class="mb-4">
+            <h3 class="text-sm m-1">预约时间</h3>
+            <p class="text-xs">
+              <QhxTag :active="true">{{ dayjs(library.start_time).format('YYYY-MM-DD HH:mm') }}</QhxTag>
+              <span>-</span>
+              <QhxTag :active="true">{{ dayjs(library.end_time).format('YYYY-MM-DD HH:mm') }}</QhxTag>
+            </p>
+          </div>
+          <div v-else-if="library.state === '尾款中'" class="mb-4">
+            <h3 class="text-sm m-1">尾款时间</h3>
+            <p class="text-xs">
+              <QhxTag :active="true">{{ dayjs(library.arrears_start).format('YYYY-MM-DD HH:mm') }}</QhxTag>
+              <span>-</span>
+              <QhxTag :active="true">{{ dayjs(library.arrears_end).format('YYYY-MM-DD HH:mm') }}</QhxTag>
+            </p>
+          </div>
+          <div v-else class="mb-4">
+            <h3 class="text-sm m-1">状态</h3>
+            <p class="text-xs">
+              <QhxTag :active="true">{{ library.state }}</QhxTag>
+            </p>
+          </div>
+          <div v-if="library.size" class="mb-4">
+            <h3 class="text-sm m-1">尺码</h3>
+            <p class="text-xs p-2">
+              <ClientOnly>
+                <SafeRichText :nodes="parseRichText(library.size.replace(/\n/g, '<br>'))" />
+              </ClientOnly>
+            </p>
+          </div>
+          <!-- 信息表 -->
+          <div v-if="library.size_image" class="mb-4">
+            <h3 class="text-sm m-1">信息表</h3>
+            <div :class="libraryThumbGridClass">
+              <QhxPreviewImage
+                :list="library.size_image.split(',').map((image) => { return { src: image + '?x-oss-process=image/quality,q_80/resize,w_300,h_300' } })"
+                :preview="library.size_image.split(',')"
+                :className="libraryThumbImgClass">
+              </QhxPreviewImage>
             </div>
           </div>
 
@@ -821,6 +1102,7 @@ const togglePhysicsDrop = () => {
             <h3 class="text-sm m-1">尺码</h3>
             <p class="text-xs p-2">{{ library.size }}</p>
           </div>
+
           <div class="flex justify-center">
             <div class=" flex-1 text-center">
               <UserGoodBtn :pk_type="2" :pk_id="library.library_id" :good_count="library.good_count" :need_judge="true">
@@ -842,22 +1124,40 @@ const togglePhysicsDrop = () => {
                 </div>
               </div>
             </div>
+            <div class="flex-1 text-center">
+              <button
+                type="button"
+                class="cursor-pointer inline-block"
+                title="复制链接"
+                aria-label="分享：复制当前页链接"
+                @click="handleShareLink"
+              >
+                <UIcon name="ic:round-share" class="text-[26px] text-gray-500" />
+              </button>
+            </div>
             <!-- <div class=" flex-1 text-center">
               <UIcon :name="'i-heroicons-heart-20-solid'" class=" text-[26px] text-[#409EFF] cursor-pointer" @click="captureScreen()"/>
             </div> -->
           </div>
         </div>
       </div>
-      <div class="flex flex-wrap my-2" v-if="library?.detail_image">
+      <div v-if="library?.detail_image" :class="libraryThumbGridClass">
         <QhxPreviewImage
           :list="library.detail_image.split(',').map((image) => { return { src: image + '?x-oss-process=image/quality,q_80/resize,w_300,h_300' } })"
           :preview="library.detail_image.split(',')"
-          :className="'cursor-pointer ml-3 w-[100px] h-[100px]  object-cover rounded-[10px] shadow-lg border border-gray-200'">
+          :className="libraryThumbImgClass">
         </QhxPreviewImage>
       </div>
       <div v-if="shop" class="p-3 px-6">
-        <ShopItem :item="shop" size="small"></ShopItem>
+        <ShopItem v-if="shop" :item="shop" size="small" />
       </div>
+      <div
+          v-if="uploadUser"
+          class="p-3 px-8"
+        >
+          <p class="text-xs text-gray-500 dark:text-gray-400 mb-2">上传用户</p>
+          <UserInfo :user="uploadUser" :need-jump="true" size="mini" />
+        </div>
     </div>
     <div v-if="library && (similarLoading || similarRows.length > 0)" class="bg-qhx-bg-card rounded-lg shadow-lg mt-3 p-3 max-md:p-2">
       <h2 class="mb-3 text-lg font-semibold">相似推荐</h2>
@@ -893,14 +1193,14 @@ const togglePhysicsDrop = () => {
     <div v-if="library && library_video.length > 0" class="bg-qhx-bg-card rounded-lg shadow-lg mt-3">
       <div class="p-3 max-md:block">
         <h1 class="mb-3 text-lg font-semibold">人台图</h1>
-        <div class="flex flex-wrap pb-3 max-md:justify-center">
-          <div v-for="(item) in library_video" :key="item.video_id" class="w-[100px] mr-3 mb-2">
+        <div :class="libraryVideoGridClass">
+          <div v-for="(item) in library_video" :key="item.video_id" :class="libraryVideoItemClass">
             <div class="relative">
               <!-- 点云类型：点击打开点云弹窗 -->
               <div
                 v-if="item.pk_type === 2"
                 @click="handleVideoClick(item)"
-                class="cursor-pointer ml-3 w-[100px] h-[100px] relative object-cover rounded-[10px] shadow-lg border border-gray-200 overflow-hidden"
+                :class="`${libraryThumbImgClass} relative overflow-hidden`"
               >
                 <img
                   v-if="item.cover"
@@ -914,7 +1214,7 @@ const togglePhysicsDrop = () => {
                 <div class="absolute left-[0px] top-[0px] px-1.5 py-0.5 flex justify-center items-center bg-qhx-primary text-[10px] text-qhx-inverted rounded-[4px] font-semibold">
                   3D
                 </div>
-                <div v-if="item.addr" class="absolute right-[-20px] top-[-10px] w-[20px] h-[20px] flex justify-center items-center bg-qhx-primary text-xs text-qhx-inverted rounded-[50%]">
+                <div v-if="item.addr" class="absolute right-[-20px] top-[-10px] max-md:right-1 max-md:top-1 w-[20px] h-[20px] flex justify-center items-center bg-qhx-primary text-xs text-qhx-inverted rounded-[50%]">
                   {{ item.addr.split(',').length }}
                 </div>
               </div>
@@ -923,11 +1223,11 @@ const togglePhysicsDrop = () => {
                 v-else
                 :list="[{ src: (item.cover || item.addr?.split(',')[0] || '') + '?x-oss-process=image/quality,q_80/resize,w_300,h_300', alt: item.title || library.name }]"
                 :preview="item.cover ? [item.cover] : (item.addr ? item.addr.split(',').map((image) => ({ src: image, title: item.title })) : [])"
-                :className="'cursor-pointer ml-3 w-[100px] h-[100px] relative  object-cover rounded-[10px] shadow-lg border border-gray-200'">
-                <div v-if="item.addr" class=" absolute right-[-20px] top-[-10px] w-[20px] h-[20px] flex justify-center items-center bg-qhx-primary text-xs text-qhx-inverted rounded-[50%]">{{ item.addr.split(',').length }}</div>
+                :className="`${libraryThumbImgClass} relative`">
+                <div v-if="item.addr" class="absolute right-[-20px] top-[-10px] max-md:right-1 max-md:top-1 w-[20px] h-[20px] flex justify-center items-center bg-qhx-primary text-xs text-qhx-inverted rounded-[50%]">{{ item.addr.split(',').length }}</div>
               </QhxPreviewImage>
             </div>
-            <div v-if="item.title" class="ml-3 mt-2 text-xs text-gray-600 dark:text-gray-400 truncate" :title="item.title">{{ item.title }}</div>
+            <div v-if="item.title" class="ml-3 max-md:ml-0 mt-2 text-xs text-gray-600 dark:text-gray-400 truncate" :title="item.title">{{ item.title }}</div>
           </div>
         </div>
       </div>
@@ -1098,6 +1398,7 @@ const togglePhysicsDrop = () => {
         <span class="text-sm font-semibold">{{ isPhysicsDropVisible ? '关闭掉落' : '开启掉落' }}</span>
       </button>
     </div> -->
+    </div>
   </div>
 </template>
 
@@ -1122,6 +1423,21 @@ const togglePhysicsDrop = () => {
 /* 滚动条滑块悬停状态 */
 .library-list-wrap::-webkit-scrollbar-thumb:hover {
   background: #ccc;
+}
+
+/* 缩略图 1:1，避免手机端网格内因原图尺寸导致高度不齐 */
+.library-thumb-grid :deep(img) {
+  aspect-ratio: 1 / 1;
+  object-fit: cover;
+  object-position: center;
+}
+
+@media (max-width: 767px) {
+  .library-thumb-grid :deep(img) {
+    display: block;
+    width: 100%;
+    height: auto;
+  }
 }
 
 </style>

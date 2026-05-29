@@ -17,6 +17,12 @@ export interface ModelItem {
     options?: Record<string, unknown> // 其他选项
 }
 
+/** 场景加载状态（同步给父级） */
+export interface SceneLoadState {
+    loading: boolean
+    progress: { current: number; total: number }
+    error: string | null
+}
 
 interface Props {
     modelList: ModelItem[]
@@ -26,11 +32,20 @@ interface Props {
     autoRotate?: boolean
     /** 编辑模式：拉线列表变更时不触发全量重载，由外部调用 addLaxianToScene 等 */
     editMode?: boolean
+    /** 完整 SceneJSON，传入时优先走 threeCore.loadSceneFromJSON（含灯光/背景/对象），忽略 modelList */
+    sceneJson?: SceneJSON | null
+    /** WebGL 场景背景色（CSS 颜色或 THREE 颜色数值），默认白色，sceneJson.background 会覆盖之 */
+    backgroundColor?: number | string
+    /** 是否显示加载中遮罩；为 false 时仅隐藏加载态，加载失败提示仍会显示 */
+    showLoadingMask?: boolean
 }
 
 const props = withDefaults(defineProps<Props>(), {
     autoRotate: false,
     editMode: false,
+    sceneJson: null,
+    backgroundColor: 0xffffff,
+    showLoadingMask: true,
     laxianList: () => [
         {
             position: [0, 1, 0] as [number, number, number],
@@ -55,11 +70,32 @@ const props = withDefaults(defineProps<Props>(), {
         }
     ] as LaxianItem[]
 })
-console.log(props.laxianList, '默认拉线点')
+
+const emit = defineEmits<{
+    /** 加载中 / 进度 / 错误 任一变化时触发 */
+    'load-state-change': [state: SceneLoadState]
+}>()
+
 // 场景相关状态
 const sceneLoading = ref(false)
 const sceneLoadProgress = ref({ current: 0, total: 0 })
 const sceneLoadError = ref<string | null>(null)
+
+const syncLoadStateToParent = () => {
+    emit('load-state-change', {
+        loading: sceneLoading.value,
+        progress: {
+            current: sceneLoadProgress.value.current,
+            total: sceneLoadProgress.value.total
+        },
+        error: sceneLoadError.value
+    })
+}
+
+watch([sceneLoading, sceneLoadProgress, sceneLoadError], syncLoadStateToParent, {
+    deep: true,
+    immediate: true
+})
 
 const {
     threeCore,
@@ -71,6 +107,21 @@ const {
 /** 挂载 WebGL 的容器（避免仅用 id 时在 client-only / 首轮 tick 中取不到 DOM） */
 const sceneViewerEl = ref<HTMLElement | null>(null)
 
+/** 切换代次：递增后取消进行中的 loadModels，避免 Wasm / 场景叠加 */
+let viewerLoadGeneration = 0
+
+const waitAnimationFrames = (count = 2) =>
+    new Promise<void>(resolve => {
+        const step = (left: number) => {
+            if (left <= 0) {
+                resolve()
+                return
+            }
+            requestAnimationFrame(() => step(left - 1))
+        }
+        step(count)
+    })
+
 // 同步 autoRotate 到 OrbitControls
 watch([() => props.autoRotate, () => threeCore.value], ([autoRotate, core]) => {
     if (!core?.controls || !('autoRotate' in core.controls)) return
@@ -80,25 +131,6 @@ watch([() => props.autoRotate, () => threeCore.value], ([autoRotate, core]) => {
     }
     (core.controls as { autoRotate: boolean }).autoRotate = !!autoRotate
 }, { immediate: true })
-
-// 监听模型列表和拉线点变化，自动加载（编辑模式下不因 laxianList 变化重载，避免覆盖动态添加）
-watch(
-    [
-        () => props.modelList,
-        () => (props.editMode ? null : props.laxianList)
-    ],
-    async ([newList, newLaxian]) => {
-        const hasModels = newList && newList.length > 0
-        const hasLaxian = newLaxian && newLaxian.length > 0
-        if (hasModels || hasLaxian) {
-            await nextTick()
-            // client-only / Teleport 等场景下再等一帧，确保挂载点已进入 DOM
-            await nextTick()
-            await initThreejs()
-        }
-    },
-    { immediate: true }
-)
 
 // 初始化场景
 const initThreejs = async () => {
@@ -120,13 +152,14 @@ const initThreejs = async () => {
             sceneData: null
         })
 
-        // 设置场景背景为白色
+        // 设置场景默认背景色（可由 props.backgroundColor 自定义；若 sceneJson.background 存在则在后续 loadSceneFromJSON 中再次覆盖）
         if (threeCore.value) {
-            threeCore.value.scene.background = new THREE.Color(0xffffff)
+            threeCore.value.scene.background = new THREE.Color(props.backgroundColor)
         }
 
-        // 加载模型列表或拉线点
-        if ((props.modelList.length > 0 || (props.laxianList?.length ?? 0) > 0) && threeCore.value) {
+        // 加载模型列表/完整 SceneJSON/拉线点
+        const hasScene = !!props.sceneJson && Array.isArray(props.sceneJson.objects) && props.sceneJson.objects.length > 0
+        if ((hasScene || props.modelList.length > 0 || (props.laxianList?.length ?? 0) > 0) && threeCore.value) {
             await loadModels()
         }
 
@@ -140,41 +173,63 @@ const initThreejs = async () => {
 
 // 加载模型列表
 const loadModels = async () => {
+    const hasScene = !!props.sceneJson && Array.isArray(props.sceneJson.objects) && props.sceneJson.objects.length > 0
     const hasModels = props.modelList.length > 0
     const hasLaxian = (props.laxianList?.length ?? 0) > 0
-    if (!threeCore.value || (!hasModels && !hasLaxian)) return
+    if (!threeCore.value || (!hasScene && !hasModels && !hasLaxian)) return
+
+    const loadGen = viewerLoadGeneration
 
     try {
-        // 将模型列表转换为 SceneJSON 格式
-        const modelObjects: SceneObjectJSON[] = props.modelList.map((item, index) => {
-            const obj: SceneObjectJSON = {
-                type: item.type || 'splat',
-                url: item.url,
-                position: item.position || [index * 3, 0, 0], // 默认横向排列
+        // 优先使用外部传入的完整 SceneJSON（含灯光/背景/对象等），允许追加 laxian
+        let sceneJSON: SceneJSON
+        if (hasScene) {
+            const externalLaxian: SceneObjectJSON[] = (props.laxianList?.length ? props.laxianList : []).map((item) => ({
+                type: 'laxian' as const,
+                position: item.position || [0, 0, 0],
                 rotation: item.rotation || [0, 0, 0],
                 scale: item.scale || [1, 1, 1],
-                options: item.options || {}
+                title: item.title || '拉线点',
+                laxian_id: item.laxian_id,
+                laxian_type: item.type ?? 0,
+                camera: item.camera
+            }))
+            sceneJSON = {
+                ...(props.sceneJson as SceneJSON),
+                objects: [...(props.sceneJson as SceneJSON).objects, ...externalLaxian]
             }
-            return obj
-        })
+        } else {
+            // 将模型列表转换为 SceneJSON 格式
+            const modelObjects: SceneObjectJSON[] = props.modelList.map((item, index) => {
+                const obj: SceneObjectJSON = {
+                    type: item.type || 'splat',
+                    url: item.url,
+                    position: item.position || [index * 3, 0, 0], // 默认横向排列
+                    rotation: item.rotation || [0, 0, 0],
+                    scale: item.scale || [1, 1, 1],
+                    options: item.options || {}
+                }
+                return obj
+            })
 
-        // 若有拉线点数据，加入 objects
-        const laxianObjects: SceneObjectJSON[] = (props.laxianList?.length ? props.laxianList : []).map((item) => ({
-            type: 'laxian' as const,
-            position: item.position || [0, 0, 0],
-            rotation: item.rotation || [0, 0, 0],
-            scale: item.scale || [1, 1, 1],
-            title: item.title || '拉线点',
-            laxian_id: item.laxian_id,
-            laxian_type: item.type ?? 0,
-            camera: item.camera
-        }))
+            // 若有拉线点数据，加入 objects
+            const laxianObjects: SceneObjectJSON[] = (props.laxianList?.length ? props.laxianList : []).map((item) => ({
+                type: 'laxian' as const,
+                position: item.position || [0, 0, 0],
+                rotation: item.rotation || [0, 0, 0],
+                scale: item.scale || [1, 1, 1],
+                title: item.title || '拉线点',
+                laxian_id: item.laxian_id,
+                laxian_type: item.type ?? 0,
+                camera: item.camera
+            }))
 
-        const sceneJSON: SceneJSON = {
-            objects: [...modelObjects, ...laxianObjects],
-            cameraList: [],
-            background: undefined,
-            lighting: []
+            sceneJSON = {
+                objects: [...modelObjects, ...laxianObjects],
+                cameraList: [],
+                background: undefined,
+                lighting: []
+            }
         }
 
         // 使用 loadSceneFromJSON 加载场景
@@ -187,13 +242,14 @@ const loadModels = async () => {
 
         await threeCore.value.loadSceneFromJSON(sceneJSON, false, onProgress)
 
+        if (loadGen !== viewerLoadGeneration) return
+
         // 调整相机视角，让所有模型都在视野内（带过渡动画）
-        if (threeCore.value && (props.modelList.length > 0 || (props.laxianList?.length ?? 0) > 0)) {
+        if (threeCore.value && (hasScene || props.modelList.length > 0 || (props.laxianList?.length ?? 0) > 0)) {
             adjustCamera(true)
         }
-        // 打印场景所有对象
-
     } catch (error) {
+        if (loadGen !== viewerLoadGeneration) return
         console.error('加载模型失败:', error)
         sceneLoadError.value = error instanceof Error ? error.message : '加载模型失败'
     }
@@ -265,10 +321,93 @@ const focusLaxianCamera = (item: LaxianInterface) => {
     }
 }
 
-// 重试加载
+/** 清空场景内容，不销毁 WebGL 渲染上下文与 Wasm 单例 */
+const clearSceneContent = () => {
+    viewerLoadGeneration++
+    if (!threeCore.value) return
+    threeCore.value.clearSceneContent()
+    sceneLoadProgress.value = { current: 0, total: 0 }
+    sceneLoadError.value = null
+}
+
+/** 保留 WebGL 上下文：清空场景并按当前 props 重新加载 */
+const reloadSceneKeepWebGL = async () => {
+    const sceneElement = sceneViewerEl.value
+    if (!sceneElement) return
+
+    try {
+        sceneLoading.value = true
+        sceneLoadError.value = null
+
+        if (!threeCore.value) {
+            await initThreejs()
+            return
+        }
+
+        clearSceneContent()
+        const loadGen = viewerLoadGeneration
+
+        await waitAnimationFrames(2)
+
+        if (loadGen !== viewerLoadGeneration) return
+
+        if (threeCore.value) {
+            threeCore.value.scene.background = new THREE.Color(props.backgroundColor)
+        }
+
+        const hasScene =
+            !!props.sceneJson
+            && Array.isArray(props.sceneJson.objects)
+            && props.sceneJson.objects.length > 0
+        const hasModels = props.modelList.length > 0
+        const hasLaxian = (props.laxianList?.length ?? 0) > 0
+        if ((hasScene || hasModels || hasLaxian) && threeCore.value) {
+            await loadModels()
+        }
+
+        if (loadGen !== viewerLoadGeneration) return
+        sceneLoading.value = false
+    } catch (error) {
+        console.error('重新加载场景失败:', error)
+        sceneLoadError.value = error instanceof Error ? error.message : '重新加载场景失败'
+        sceneLoading.value = false
+    }
+}
+
+// 监听模型列表/场景 JSON/拉线点变化（已有 WebGL 时复用上下文重载，无数据时仅清空）
+watch(
+    [
+        () => props.sceneJson,
+        () => props.modelList,
+        () => (props.editMode ? null : props.laxianList)
+    ],
+    async ([newScene, newList, newLaxian]) => {
+        const hasScene = !!newScene && Array.isArray(newScene.objects) && newScene.objects.length > 0
+        const hasModels = newList && newList.length > 0
+        const hasLaxian = newLaxian && newLaxian.length > 0
+        if (hasScene || hasModels || hasLaxian) {
+            await nextTick()
+            await nextTick()
+            if (threeCore.value) {
+                await reloadSceneKeepWebGL()
+            } else {
+                await initThreejs()
+            }
+        } else if (threeCore.value) {
+            clearSceneContent()
+        }
+    },
+    { immediate: true }
+)
+
+// 重试加载（已有 WebGL 时复用 Wasm，不 disposeScene 重建）
 const handleRetry = async () => {
     sceneLoadError.value = null
-    await initThreejs()
+    if (threeCore.value) {
+        await reloadSceneKeepWebGL()
+    } else {
+        await initThreejs()
+    }
 }
 
 // 组件卸载时清理
@@ -289,7 +428,9 @@ defineExpose({
     modelCount: computed(() => props.modelList.length),
     laxianList,
     focusLaxianCamera,
-    getThreeCore
+    getThreeCore,
+    clearSceneContent,
+    reloadSceneKeepWebGL
 })
 </script>
 
@@ -297,7 +438,7 @@ defineExpose({
     <div class="w-full h-full relative overflow-hidden">
         <!-- 加载状态 -->
         <div
-            v-if="sceneLoading || sceneLoadError"
+            v-if="(showLoadingMask && sceneLoading) || sceneLoadError"
             class="absolute inset-0 flex flex-col items-center justify-center bg-white/90 dark:bg-gray-900/90 backdrop-blur-sm z-50"
         >
             <!-- 加载中 -->

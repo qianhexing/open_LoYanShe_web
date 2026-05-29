@@ -1,5 +1,5 @@
-import type { BaseResponse, PaginationParams, PaginationResponse, Library, LibrarySimilarItem, FilterList, Shop, LibraryVideo, LibraryPipe } from '@/types/api';
-import type { Wiki, User } from '@/types/api'
+import type { BaseResponse, PaginationParams, PaginationResponse, Library, LibrarySimilarItem, FilterList, Shop, LibraryVideo, LibraryPipe, User } from '@/types/api';
+import type { Wiki } from '@/types/api'
 interface SearchParams extends PaginationParams {
   keyword?: string | null  // 可选字段
   filter_list?: FilterList[]
@@ -38,6 +38,8 @@ interface DetailResponse extends PaginationParams {
   parent?: Library
   shop?: Shop
   style_list?: Wiki[]
+  /** 图鉴上传者 */
+  upload_user?: User
 }
 export async function getLibraryDetail(
   params: DetailParams
