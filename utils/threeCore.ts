@@ -2495,6 +2495,7 @@ class ThreeCore {
 	 * @param url 点云文件URL
 	 * @param options 加载选项
 	 * @param options.fileType 可选。若 URL 含可识别扩展名（.ply / .spz / .splat / .ksplat / .rad / .zip 等）则优先按后缀选择（Spark 2 的 LoD 链 .rad 对应 RAD）；仅当路径无法推断时使用本字段，仍未设置则交由 Spark 自动检测
+	 * @param options.paged 可选。`.rad` 流式加载（含 `--rad-chunked` 生成的 .radc 分片）；未传时对 .rad 默认 true
 	 * @param options.mobileOptimized 可选：更强一档移动端预设（更低 maxSplats / lodScale）；未传时在手机仍会套用 Spark 移动端渲染预设
 	 * @returns Promise<THREE.Group> 包含点云模型的组
 	 */
@@ -2504,6 +2505,8 @@ class ThreeCore {
 			fileType?: SplatFileType
 			maxSplats?: number
 			maxSh?: number
+			/** Spark 2.0：.rad 头 + .radc 分片流式（paged）；对非 .rad 无效 */
+			paged?: boolean
 			/** 移动端优化预设：限制 splats、SH1、中等高斯尺寸，目标稳定 45-60 FPS */
 			mobileOptimized?: boolean
 		} = {}
@@ -2512,6 +2515,7 @@ class ThreeCore {
 			fileType: explicitFileType,
 			maxSplats: rawMaxSplats = 500000,
 			maxSh: rawMaxSh = 2,
+			paged: explicitPaged,
 			mobileOptimized = false
 		} = options
 
@@ -2531,6 +2535,9 @@ class ThreeCore {
 		// Spark 2：预构建的 .rad 已带 LoD 树，无需再开 lod（见 spark 文档 LoD getting started）
 		const skipRuntimeLod =
 			fileType === SplatFileType.RAD
+		// .rad + paged：按需拉取 .radc 分片，渐进细化（build-lod --rad-chunked）
+		const usePaged =
+			explicitPaged ?? (fileType === SplatFileType.RAD || inferredFileType === SplatFileType.RAD)
 
 		try {
 			this.ensureSparkRenderer()
@@ -2539,6 +2546,7 @@ class ThreeCore {
 				url,
 				...(fileType !== undefined ? { fileType } : {}),
 				maxSplats,
+				...(usePaged ? { paged: true } : {}),
 				...(wantsMobileSplat && !skipRuntimeLod
 					? {
 							lod: true,
@@ -2553,6 +2561,7 @@ class ThreeCore {
 			splatMesh.userData.type = 'splat'
 			splatMesh.userData.url = url
 			splatMesh.userData.mobileOptimized = mobileOptimized
+			splatMesh.userData.paged = usePaged
 			splatMesh.castShadow = false
 			splatMesh.quaternion.set(1, 0, 0, 0)
 			splatMesh.receiveShadow = false
@@ -6251,10 +6260,12 @@ class ThreeCore {
 					const url = resolveAssetUrlWithBase(obj.url, BASE_IMG)
 
 					// mobileOptimized：更强解码档位（40k splats）；手机默认仅依赖 UA，也可在 JSON 显式关闭
+					// paged：.rad 流式 + .radc 分片；未传时 loadSplat 对 .rad 默认开启
 					const splatOptions = {
 						fileType: obj.options?.fileType,
 						maxSplats: obj.options?.maxSplats || 50000,
 						maxSh: obj.options?.maxSh || 2,
+						paged: obj.options?.paged,
 						mobileOptimized:
 							obj.options?.mobileOptimized ?? isMobileDevice()
 					}

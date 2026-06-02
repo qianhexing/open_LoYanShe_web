@@ -46,7 +46,7 @@ import {
     settingsFromPreset,
     type SceneGraphicsPreset
 } from '@/utils/sceneGraphicsSettings';
-import { isGltfGlbModelMaterial, isSplatMaterial } from '@/utils/materiaModelKind';
+import { isGltfGlbModelMaterial, isRadLodSplatUrl, isSplatMaterial, isSplatUrl } from '@/utils/materiaModelKind';
 // @ts-ignore - 缺少类型定义
 import InfiniteGridHelper from '@plackyfantacky/three.infinitegridhelper';
 
@@ -2255,12 +2255,16 @@ const chooseMaterial = async (item: Material) => {
             // 获取屏幕中心坐标
             const screenCenter = getScreenCenter()
             
-            // 使用封装的 loadSplat 方法加载点云
+            // Spark 2.0：.rad 头 + paged 流式拉取 .radc 分片（build-lod --rad-chunked）
             const url = BASE_IMG + item.materia_url
             const splatOptions = {
                 fileType: item.options?.fileType || undefined,
                 maxSplats: item.options?.maxSplats || undefined,
-                maxSh: item.options?.maxSh || undefined
+                maxSh: item.options?.maxSh || undefined,
+                paged:
+                    item.options?.paged ??
+                    isRadLodSplatUrl(item.materia_url || ''),
+                mobileOptimized: item.options?.mobileOptimized
             }
             
             const group = await threeCore.value.loadSplat(url, splatOptions)
@@ -2877,9 +2881,10 @@ const lookAtCameraState = (item: CameraState) => {
 const initThreejs = async () => {
     const sceneElement = document.getElementById('scene')
     if (sceneElement) {
-        // 判断场景数据中是否有点云类型的对象
+        // 判断场景数据中是否有点云（含 .rad / .radc 流式链路的 .rad 头文件）
         const hasSplatObject = detail.value?.json_data?.objects?.some(
-            (obj: SceneObjectJSON) => obj.type === 'splat'
+            (obj: SceneObjectJSON) =>
+                obj.type === 'splat' || Boolean(obj.url && isSplatUrl(obj.url))
         ) ?? false
         
         const gfx = loadSceneGraphicsSettings()

@@ -15,6 +15,7 @@ export interface MatchingListItem {
   create_time?: Date
   update_time?: Date
   user_id?: number
+  season?: string
   [key: string]: unknown
 }
 

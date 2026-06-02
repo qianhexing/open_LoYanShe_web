@@ -1,7 +1,5 @@
 <template>
   <div class="space-y-4">
-    <input ref="fileInput" type="file" accept="image/*" :multiple="multiple" class="hidden" @change="handleFiles" />
-
     <!-- 拖拽上传区 -->
     <div v-if="!props.disabled && !isMobile"
       class="w-full border-2 border-dashed border-gray-300 p-4 text-center rounded-lg" @dragover.prevent
@@ -43,14 +41,37 @@
             <div
               class="flex flex-col items-center transition-transform duration-300 ease-out hover:scale-105 py-[10px] px-[15px] max-md:px-[5px]"
             >
-              <button
-                type="button"
-                class="w-full aspect-[1/1] relative shadow-xl rounded-xl border border-gray-200 bg-gray-50/90 flex flex-col items-center justify-center gap-1.5 text-gray-500 hover:text-qhx-primary hover:bg-qhx-primary/5 hover:border-qhx-primary/35 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-qhx-primary/50 focus-visible:ring-offset-2"
-                @click="triggerInput"
+              <div
+                class="w-full aspect-[1/1] relative shadow-xl rounded-xl border border-gray-200 bg-gray-50/90 overflow-hidden"
               >
-                <UIcon class="size-9 text-qhx-primary/80" name="i-heroicons-photo" />
-                <span class="text-xs font-medium px-1 text-center leading-tight">选择图片</span>
-              </button>
+                <input
+                  ref="fileInput"
+                  type="file"
+                  :accept="fileAccept"
+                  :multiple="multiple"
+                  :class="isMobile
+                    ? 'absolute inset-0 z-10 h-full w-full cursor-pointer opacity-0 touch-manipulation'
+                    : 'hidden'"
+                  @change="handleFiles"
+                />
+                <button
+                  v-if="!isMobile"
+                  type="button"
+                  class="absolute inset-0 flex flex-col items-center justify-center gap-1.5 text-gray-500 hover:text-qhx-primary hover:bg-qhx-primary/5 hover:border-qhx-primary/35 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-qhx-primary/50 focus-visible:ring-offset-2"
+                  @click="triggerInput"
+                >
+                  <UIcon class="size-9 text-qhx-primary/80" name="i-heroicons-photo" />
+                  <span class="text-xs font-medium px-1 text-center leading-tight">选择图片</span>
+                </button>
+                <div
+                  v-else
+                  class="absolute inset-0 flex flex-col items-center justify-center gap-1.5 text-gray-500 pointer-events-none"
+                  aria-hidden="true"
+                >
+                  <UIcon class="size-9 text-qhx-primary/80" name="i-heroicons-photo" />
+                  <span class="text-xs font-medium px-1 text-center leading-tight">选择图片</span>
+                </div>
+              </div>
             </div>
           </div>
         </template>
@@ -132,6 +153,13 @@ const props = defineProps<{
 // 移动端检测
 const configStore = useConfigStore()
 const isMobile = computed(() => configStore.isMobile)
+
+/** 移动端用具体图片 MIME，减少系统弹出「选择文件/浏览」导致进文件管理器 */
+const fileAccept = computed(() =>
+  isMobile.value
+    ? 'image/jpeg,image/jpg,image/png,image/gif,image/webp,image/heic,image/heif'
+    : 'image/*'
+)
 
 const imageUploadStore = useImageUploadStore()
 const compressEnabled = computed({
@@ -336,12 +364,19 @@ async function processImageFile(f: File, forceCompress: boolean): Promise<File> 
   return result
 }
 
+const IMAGE_EXT_RE = /\.(jpe?g|png|gif|webp|heic|heif|bmp|avif)$/i
+
+function isImageFile(f: File) {
+  if (f.type.startsWith('image/')) return true
+  return IMAGE_EXT_RE.test(f.name)
+}
+
 const addFiles = async (newFiles: File[]) => {
   if (props.disabled) return
   imageUploadStore.initFromLocalStorage()
   const imageFiles = await Promise.all(
     newFiles
-      .filter((f) => f.type.startsWith('image/'))
+      .filter(isImageFile)
       .map((f) => processImageFile(f, imageUploadStore.compressEnabled))
   )
   const newPreviews = imageFiles.map((file) => ({

@@ -45,6 +45,20 @@
           </div>
         </UFormGroup>
 
+        <!-- 适宜季节 -->
+        <UFormGroup label="适宜季节">
+          <USelectMenu
+            v-model="form.season"
+            :options="seasonOptions"
+            placeholder="请选择季节"
+            multiple
+            value-attribute="value"
+            option-attribute="label"
+            class="flex-1"
+            :ui="inputUi"
+          />
+        </UFormGroup>
+
         <!-- 服饰列表 -->
         <UFormGroup label="服饰列表">
           <div v-if="form.list.length === 0" class="text-sm text-gray-500 py-2">暂无服饰，请从衣柜搭配模式添加或点击下方按钮选择</div>
@@ -148,6 +162,13 @@ interface MainStyleOption {
   value: number
 }
 
+const seasonOptions = [
+  { value: '春', label: '春' },
+  { value: '夏', label: '夏' },
+  { value: '秋', label: '秋' },
+  { value: '冬', label: '冬' }
+]
+
 const show = ref(false)
 const emit = defineEmits<{ success: [] }>()
 const toast = useToast()
@@ -179,6 +200,7 @@ const form = ref({
   open_community: false,
   open_tags: false,
   main_style: [] as MainStyleOption[],
+  season: [] as string[],
   list: [] as WardrobeClothes[]
 })
 
@@ -218,7 +240,7 @@ const closeModel = () => {
   editingId.value = null
 }
 
-const showModel = (list: WardrobeClothes[], item?: { matching_id: number; note?: string; cover?: string; appointment_time?: string; is_private?: number; open_community?: number; open_tags?: number; main_style?: string }) => {
+const showModel = (list: WardrobeClothes[], item?: { matching_id: number; note?: string; cover?: string; appointment_time?: string; is_private?: number; open_community?: number; open_tags?: number; main_style?: string; season?: string }) => {
   form.value.list = [...list]
   form.value.note = ''
   form.value.cover = ''
@@ -227,6 +249,7 @@ const showModel = (list: WardrobeClothes[], item?: { matching_id: number; note?:
   form.value.open_community = false
   form.value.open_tags = false
   form.value.main_style = []
+  form.value.season = []
 
   if (item) {
     editingId.value = item.matching_id
@@ -241,6 +264,9 @@ const showModel = (list: WardrobeClothes[], item?: { matching_id: number; note?:
       form.value.main_style = labels
         .map((label) => mainStyleOptions.value.find((o) => o.label === label))
         .filter((o): o is MainStyleOption => o != null)
+    }
+    if (item.season) {
+      form.value.season = item.season.split(',').filter(Boolean)
     }
     nextTick(() => {
       if (item.cover && coverRef.value) {
@@ -276,7 +302,7 @@ const getCoverPath = (path?: string) => {
 }
 
 const buildParams = (forEdit: boolean) => {
-  const { note, cover, appointment_time, is_private, open_community, open_tags, main_style, list } = form.value
+  const { note, cover, appointment_time, is_private, open_community, open_tags, main_style, season, list } = form.value
   const params: Record<string, unknown> = {
     note,
     cover: cover || null,
@@ -284,7 +310,8 @@ const buildParams = (forEdit: boolean) => {
     is_private: is_private === false ? 0 : 1,
     open_community: open_community === false ? 0 : 1,
     open_tags: open_tags === false ? 0 : 1,
-    main_style: main_style.length > 0 ? main_style.map((e) => e.label).join(',') : null
+    main_style: main_style.length > 0 ? main_style.map((e) => e.label).join(',') : null,
+    season: season.length > 0 ? season.join(',') : null
   }
   if (forEdit) {
     params.list = list.map((item) => ({

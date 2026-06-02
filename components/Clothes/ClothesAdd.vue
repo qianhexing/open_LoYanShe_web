@@ -161,6 +161,13 @@ const wardrobeSelectOptions = ref<optionsInterface[]>([])
 const wardrobeListCached = ref<Wardrobe[]>([])
 const showSceneChooseModal = ref(false)
 const sceneChooseClickPosition = ref({ x: 0, y: 0 })
+const showColorListModal = ref(false)
+const colorListClickPosition = ref({ x: 0, y: 0 })
+const wardrobeColors = computed(() => {
+  const list = wardrobeStore.config?.color_list
+  if (!list?.length) return []
+  return list
+})
 const plan = ref<PlanList | null>(null)
 const planAddEditClickPosition = ref({ x: 0, y: 0 })
 
@@ -918,10 +925,52 @@ const showModel = async (
   await applyShowModelPayload(item, isCopy)
 }
 
-const showColorPicker = () => {
-  if (ColorPickerRef.value) {
-    ColorPickerRef.value.showModel()
+const handleColorListClose = () => {
+  showColorListModal.value = false
+}
+
+const openCustomColorPicker = (event?: MouseEvent) => {
+  showColorListModal.value = false
+  nextTick(() => {
+    if (!ColorPickerRef.value) return
+    const e =
+      event ??
+      ({
+        clientX: colorListClickPosition.value.x,
+        clientY: colorListClickPosition.value.y
+      } as MouseEvent)
+    ColorPickerRef.value.showModel(e)
+  })
+}
+
+const pickWardrobeColor = (hex: string) => {
+  chooseColor(hex)
+  showColorListModal.value = false
+}
+
+const showColorPicker = async (event?: MouseEvent) => {
+  if (event) {
+    colorListClickPosition.value = {
+      x: event.clientX,
+      y: event.clientY
+    }
+  } else if (typeof window !== 'undefined') {
+    colorListClickPosition.value = {
+      x: window.innerWidth / 2,
+      y: window.innerHeight / 2
+    }
   }
+
+  if (!wardrobeStore.config) {
+    await wardrobeStore.getWardrobeConfig()
+  }
+
+  if (wardrobeColors.value.length > 0) {
+    showColorListModal.value = true
+    return
+  }
+
+  openCustomColorPicker(event)
 }
 
 const openCoverImageColorPicker = (e?: MouseEvent) => {
@@ -1824,7 +1873,7 @@ defineExpose({
                 size="xs"
                 color="primary"
                 class="bg-qhx-primary text-qhx-inverted hover:bg-qhx-primaryHover"
-                @click="showColorPicker"
+                @click="(e: MouseEvent) => showColorPicker(e)"
               >
                 选择颜色
               </UButton>
@@ -2108,6 +2157,50 @@ defineExpose({
       @updated="onPlanUpdated"
     />
     
+    <!-- 衣柜预设颜色选择 -->
+    <QhxModal
+      v-model="showColorListModal"
+      :trigger-position="colorListClickPosition"
+      :close-on-backdrop="false"
+      @close="handleColorListClose"
+    >
+      <div class="w-[90vw] max-w-md bg-white dark:bg-gray-800 rounded-2xl shadow-2xl overflow-hidden flex flex-col border border-gray-200/50 dark:border-gray-700/50">
+        <div class="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-700">
+          <h3 class="text-lg font-semibold text-gray-900 dark:text-gray-100">选择颜色</h3>
+          <button
+            type="button"
+            class="w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+            @click="handleColorListClose"
+          >
+            <UIcon name="i-heroicons-x-mark" class="text-gray-500 dark:text-gray-400" />
+          </button>
+        </div>
+        <div class="p-6">
+          <p class="text-sm text-gray-600 dark:text-gray-400 mb-4">为了方便检索，请优先选择衣柜内已有的颜色</p>
+          <div class="flex flex-wrap gap-2 items-center">
+            <button
+              type="button"
+              class="w-[35px] h-[35px] rounded-lg shrink-0 flex flex-col items-center justify-center gap-0 cursor-pointer transition-all hover:opacity-80 bg-gray-50 dark:bg-gray-700/80 ring-1 ring-gray-200/80 dark:ring-gray-600 hover:ring-qhx-primary/50 dark:hover:ring-qhx-primary/50"
+              @click="openCustomColorPicker()"
+            >
+              <span class="text-[10px] leading-[12px] font-medium text-gray-700 dark:text-gray-200">自选</span>
+              <span class="text-[10px] leading-[12px] font-medium text-gray-700 dark:text-gray-200">颜色</span>
+            </button>
+            <div
+              v-for="(color, index) in wardrobeColors"
+              :key="index"
+              :style="{ background: color, width: '35px', height: '35px', borderRadius: '8px' }"
+              class="cursor-pointer hover:opacity-80 transition-opacity ring-1 ring-gray-200/80 dark:ring-gray-600"
+              role="button"
+              tabindex="0"
+              @click="pickWardrobeColor(color)"
+              @keydown.enter="pickWardrobeColor(color)"
+            />
+          </div>
+        </div>
+      </div>
+    </QhxModal>
+
     <!-- 场景选择对话框 -->
     <QhxModal v-model="showSceneChooseModal" :trigger-position="sceneChooseClickPosition" :close-on-backdrop="false" @close="handleSceneChooseClose">
       <div class="w-[90vw] max-w-md bg-white dark:bg-gray-800 rounded-2xl shadow-2xl overflow-hidden flex flex-col backdrop-blur-xl border border-gray-200/50 dark:border-gray-700/50">

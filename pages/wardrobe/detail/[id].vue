@@ -91,14 +91,14 @@ let oldList: { clothes_id: number; sort: number }[] = [];
 const record = ref<Wardrobe | null>(null)
 import WardrobeClothesLongShare from '@/components/Wardrobe/WardrobeClothesLongShare.vue'
 import type ClothesAdd from '@/components/Clothes/ClothesAdd.vue'
-import type ClothesBatchAdd from '@/components/Clothes/ClothesBatchAdd.vue'
+import type ClothesBatchAddEntry from '@/components/Clothes/ClothesBatchAddEntry.vue'
 import type WardrobeAddEdit from '@/components/Wardrobe/WardrobeAddEdit.vue'
 import type WardrobeSearch from '@/components/Wardrobe/WardrobeSearch.vue'
 import type WardrobeChoose from '@/components/Wardrobe/WardrobeChoose.vue'
 import type MatchingAddEdit from '@/components/matching/MatchingAddEdit.vue'
 import dayjs from 'dayjs'
 const addEditClothesRef = ref<InstanceType<typeof ClothesAdd> | null>(null)
-const clothesBatchAddRef = ref<InstanceType<typeof ClothesBatchAdd> | null>(null)
+const clothesBatchAddEntryRef = ref<InstanceType<typeof ClothesBatchAddEntry> | null>(null)
 const toast = useToast()
 
 const showBatchStatusModal = ref(false)
@@ -534,6 +534,14 @@ function onVirtualScroll() {
   })
 }
 
+/** 切换衣柜后回到主内容区顶部（同步 virtualScrollTop，避免虚拟列表仍按旧滚动位置切片） */
+function scrollWardrobeContentToTop() {
+  const root = scrollRootRef.value
+  if (root) root.scrollTop = 0
+  virtualScrollTop.value = 0
+  nextTick(measureVirtualOffset)
+}
+
 /** 重新测量（列数 / 视口 / 行高 / 偏移）；窗口尺寸变化时调用 */
 function remeasureVirtual() {
   virtualColumns.value = computeVirtualColumns()
@@ -643,6 +651,7 @@ const checkPassword = (wardrobe_id: number) => {
         currentWardrobe.value = record.value
         console.log(currentWardrobe.value, 'currentWardrobe.value')
         page.value = 1
+        scrollWardrobeContentToTop()
         void fetchClothesList()
         router.replace({
           query: {
@@ -686,6 +695,7 @@ const changeWardrobe = (item: Wardrobe) => {
     return
   }
   currentWardrobe.value = item
+  scrollWardrobeContentToTop()
   page.value = 1
   initFilter()
   selectMode.value = false
@@ -820,7 +830,7 @@ const showAddClothes = () => {
   }
 }
 const showBatchAddClothes = (event?: MouseEvent) => {
-  clothesBatchAddRef.value?.showModel(currentWardrobe.value, event)
+  clothesBatchAddEntryRef.value?.showModel(currentWardrobe.value, event)
 }
 const getWardrobeIdByPoint = (clientX: number, clientY: number): number | null => {
   if (typeof document === 'undefined') return null
@@ -2276,7 +2286,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
       />
     </div>
     <clothes-add ref="addEditClothesRef" @success="reloadWardrobe"></clothes-add>
-    <clothes-batch-add ref="clothesBatchAddRef" @success="reloadWardrobe"></clothes-batch-add>
+    <clothes-batch-add-entry ref="clothesBatchAddEntryRef" @success="reloadWardrobe"></clothes-batch-add-entry>
     <wardrobe-add-edit ref="addEditWardrobeRef" @success="onWardrobeEditSuccess"></wardrobe-add-edit>
     <AchievementDecoConfigModal
       v-if="isWardrobeOwner && currentWardrobe?.wardrobe_id"

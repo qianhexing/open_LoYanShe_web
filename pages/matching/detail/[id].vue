@@ -620,6 +620,17 @@ useHead({
               </span>
             </div>
 
+            <div v-if="detail.season" class="mt-3 flex flex-wrap items-center gap-2">
+              <span class="text-sm text-[#8a6f7d] dark:text-pink-300/85">季节：</span>
+              <span
+                v-for="(seasonItem, index) in detail.season.split(',')"
+                :key="index"
+                class="rounded-full bg-[var(--neu-raised)] px-2.5 py-1 text-xs font-medium text-[#6b4f5f] shadow-[3px_3px_8px_var(--neu-shadow-d),-2px_-2px_8px_var(--neu-shadow-l),inset_0_1px_0_rgba(255,255,255,0.45)] dark:text-pink-200"
+              >
+                {{ seasonItem }}
+              </span>
+            </div>
+
           </div>
         </div>
 

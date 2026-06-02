@@ -12,6 +12,8 @@ interface ExtendedWardrobeClothes extends WardrobeClothes {
 }
 import { getClothesDetail, getClothesListAllFallback, parseClothesIdsFromRows, updateClothes, deteleClothes, addClothesCitation } from '@/api/wardrobe'
 import { getCommunityForeignList, insertCommunityForeign } from '@/api/community'
+import { getMatchingListListVisitor, type MatchingListItem } from '@/api/matching_list'
+import type MatchingAddEdit from '@/components/matching/MatchingAddEdit.vue'
 import { planComplete, deletePlanList } from '@/api/plan'
 import type ClothesAdd from '@/components/Clothes/ClothesAdd.vue'
 import PlanAddEdit from '@/components/Plan/PlanAddEdit.vue'
@@ -86,6 +88,47 @@ const sceneChooseClickPosition = ref({ x: 0, y: 0 })
 const selectedClothes = ref<WardrobeClothes | null>(null)
 const memoryCount = ref(0)
 const matchingCount = ref(0)
+const showMatchingListModal = ref(false)
+const matchingListRefreshKey = ref(0)
+const matchingListLoading = ref(false)
+const matchingListItems = ref<MatchingListItem[]>([])
+const matchingListPage = ref(1)
+const matchingListTotal = ref(0)
+const MATCHING_LIST_PAGE_SIZE = 20
+const matchingAddEditRef = ref<InstanceType<typeof MatchingAddEdit> | null>(null)
+const FAB_ACTIONS_STORAGE_KEY = 'clothes-detail-fab-actions-expanded'
+/** 记忆/搭配悬浮按钮组是否展开（localStorage 持久化） */
+const fabActionsExpanded = ref(true)
+const fabTotalBadgeCount = computed(() => memoryCount.value + matchingCount.value)
+
+function restoreFabActionsExpanded() {
+  if (!import.meta.client || typeof localStorage === 'undefined') return
+  try {
+    const v = localStorage.getItem(FAB_ACTIONS_STORAGE_KEY)
+    if (v !== null) fabActionsExpanded.value = v === '1'
+  } catch {
+    /* 忽略读取失败 */
+  }
+}
+
+function persistFabActionsExpanded(expanded: boolean) {
+  if (!import.meta.client || typeof localStorage === 'undefined') return
+  try {
+    localStorage.setItem(FAB_ACTIONS_STORAGE_KEY, expanded ? '1' : '0')
+  } catch {
+    /* 忽略写入失败 */
+  }
+}
+
+function toggleFabActions() {
+  fabActionsExpanded.value = !fabActionsExpanded.value
+}
+
+restoreFabActionsExpanded()
+
+watch(fabActionsExpanded, (expanded) => {
+  persistFabActionsExpanded(expanded)
+})
 
 // 组件引用
 const addEditClothesRef = ref<InstanceType<typeof ClothesAdd> | null>(null)
@@ -875,6 +918,154 @@ const onMatchingCountChange = (count: number) => {
   matchingCount.value = count
 }
 
+const clothesMatchingFilterList = computed(() => {
+  const id = clothesMemoryPkId.value
+  if (id == null) return undefined
+  return [{ field: 'clothes_id', value: id }]
+})
+
+function getMatchingCover(item: MatchingListItem): string {
+  if (item.cover) return item.cover
+  if (item.clothes_list?.length && item.clothes_list[0].clothes_img) {
+    return item.clothes_list[0].clothes_img
+  }
+  if (item.library_list?.length) {
+    const lib = item.library_list[0]
+    return lib.cover ?? lib.square_cover ?? ''
+  }
+  return ''
+}
+
+function parseMatchingSeasons(season?: string | null): string[] {
+  if (!season) return []
+  return season.split(',').map((s) => s.trim()).filter(Boolean)
+}
+
+const MATCHING_SEASON_THEME_CLASS: Record<string, string> = {
+  春: 'matching-season-badge--spring',
+  夏: 'matching-season-badge--summer',
+  秋: 'matching-season-badge--autumn',
+  冬: 'matching-season-badge--winter'
+}
+
+function getMatchingSeasonThemeClass(season: string): string {
+  return MATCHING_SEASON_THEME_CLASS[season] ?? 'matching-season-badge--default'
+}
+
+function getMatchingSingleSeasonClass(season: string): string {
+  return `matching-season-badge matching-season-badge--single ${getMatchingSeasonThemeClass(season)}`
+}
+
+function getMatchingMultiSeasonClass(season: string): string {
+  return `matching-season-badge matching-season-badge--multi ${getMatchingSeasonThemeClass(season)}`
+}
+
+const fetchMatchingListCount = async () => {
+  const clothesId = clothesMemoryPkId.value
+  if (clothesId == null) return
+  try {
+    const res = await getMatchingListListVisitor({
+      page: 1,
+      pageSize: 1,
+      keyword: '',
+      filter_list: clothesMatchingFilterList.value as unknown as Record<string, unknown>
+    })
+    matchingCount.value = res.count ?? 0
+    onMatchingCountChange(matchingCount.value)
+  } catch {
+    /* 保持原数量 */
+  }
+}
+
+const fetchMatchingList = async (reset = false) => {
+  const clothesId = clothesMemoryPkId.value
+  if (clothesId == null || matchingListLoading.value) return
+  if (reset) {
+    matchingListPage.value = 1
+    matchingListItems.value = []
+  }
+  matchingListLoading.value = true
+  try {
+    const res = await getMatchingListListVisitor({
+      page: matchingListPage.value,
+      pageSize: MATCHING_LIST_PAGE_SIZE,
+      keyword: '',
+      filter_list: clothesMatchingFilterList.value as unknown as Record<string, unknown>
+    })
+    matchingListTotal.value = res.count ?? 0
+    onMatchingCountChange(matchingListTotal.value)
+    const rows = res.rows ?? []
+    if (reset || matchingListPage.value === 1) {
+      matchingListItems.value = rows
+    } else {
+      matchingListItems.value.push(...rows)
+    }
+  } catch {
+    toast.add({
+      title: '加载搭配列表失败',
+      icon: 'i-heroicons-exclamation-circle',
+      color: 'red'
+    })
+  } finally {
+    matchingListLoading.value = false
+  }
+}
+
+const loadMoreMatchingList = () => {
+  if (matchingListLoading.value) return
+  if (matchingListItems.value.length >= matchingListTotal.value) return
+  matchingListPage.value += 1
+  void fetchMatchingList()
+}
+
+const jumpToMatchingDetail = (item: MatchingListItem) => {
+  const isInUniApp =
+    typeof window !== 'undefined' &&
+    navigator.userAgent.includes('Html5Plus')
+  if (!item.matching_id) return
+  if (isInUniApp && typeof uni !== 'undefined' && uni.navigateTo) {
+    uni.navigateTo({
+      url: `/pages/common/outerLink2?url=https://lolitalibrary.com/matching/detail/${item.matching_id}`
+    })
+  } else if (port.value) {
+    port.value.postMessage(JSON.stringify({
+      type: 'jump',
+      path: 'Outlink',
+      params: { url: `https://lolitalibrary.com/matching/detail/${item.matching_id}` }
+    }))
+  } else {
+    window.open(`/matching/detail/${item.matching_id}`, '_blank')
+  }
+}
+
+function openNewMatching(e?: MouseEvent) {
+  if (!user.token) {
+    toast.add({
+      title: '请先登录',
+      icon: 'i-heroicons-exclamation-circle',
+      color: 'orange'
+    })
+    return
+  }
+  const d = detail.value
+  if (!d?.clothes_id) return
+  showMatchingListModal.value = false
+  matchingAddEditRef.value?.showModel([{
+    clothes_id: d.clothes_id,
+    clothes_img: d.clothes_img,
+    clothes_note: d.clothes_note,
+    library_id: d.library_id
+  }])
+}
+
+function onMatchingAddSuccess() {
+  matchingListRefreshKey.value += 1
+  void fetchMatchingListCount()
+  if (showMatchingListModal.value) {
+    void fetchMatchingList(true)
+  }
+}
+
 onMounted(async () => {
   const isInUniApp =
     typeof window !== 'undefined' &&
@@ -883,6 +1074,7 @@ onMounted(async () => {
     void wardrobeStore.getWardrobeConfig()
   }
   void fetchMemoryListCount()
+  void fetchMatchingListCount()
   setTimeout(async () => {
     await fetchClothesDetail()
   })
@@ -893,7 +1085,9 @@ watch(
   (newId, oldId) => {
     if (newId === oldId) return
     memoryCount.value = 0
+    matchingCount.value = 0
     void fetchMemoryListCount()
+    void fetchMatchingListCount()
     detail.value = null
     void fetchClothesDetail()
   }
@@ -901,6 +1095,14 @@ watch(
 
 watch(showMemoryListModal, (open) => {
   if (!open) void fetchMemoryListCount()
+})
+
+watch(showMatchingListModal, (open) => {
+  if (open) {
+    void fetchMatchingList(true)
+  } else {
+    void fetchMatchingListCount()
+  }
 })
 
 useHead({
@@ -1187,21 +1389,63 @@ const showEditPlan = (e?: MouseEvent) => {
 
 <template>
   <div>
-    <button
+    <div
       v-if="detail"
-      type="button"
-      class="fixed top-20 right-3 max-md:top-16 max-md:right-2 z-[60] rounded-full bg-qhx-primary text-white shadow-md shadow-qhx-primary/20 pl-2 pr-2.5 py-1.5 text-xs font-medium ring-1 ring-white/20 transition hover:brightness-110 active:scale-[0.98]"
-      @click="showMemoryListModal = true"
+      class="clothes-fab-stack fixed top-20 right-3 max-md:top-16 max-md:right-2 z-[60] flex flex-col items-end gap-1.5"
     >
-      <span class="relative inline-flex items-center gap-1">
-        <UIcon name="i-heroicons-sparkles" class="w-4 h-4 shrink-0" />
-        记忆
+      <button
+        type="button"
+        class="clothes-fab-btn clothes-fab-btn--toggle relative inline-flex items-center justify-center rounded-full bg-qhx-primary text-white shadow-md shadow-qhx-primary/20 px-2 py-1.5 text-xs font-medium ring-1 ring-white/20 transition hover:brightness-110 active:scale-[0.98]"
+        :aria-expanded="fabActionsExpanded"
+        :aria-label="fabActionsExpanded ? '收起记忆与搭配' : '展开记忆与搭配'"
+        @click="toggleFabActions"
+      >
+        <UIcon
+          name="i-heroicons-chevron-down-20-solid"
+          class="clothes-fab-toggle-icon h-3.5 w-3.5 shrink-0"
+          :class="{ 'clothes-fab-toggle-icon--expanded': fabActionsExpanded }"
+        />
         <span
-          v-if="memoryCount > 0"
-          class="absolute -top-2.5 -right-3 z-10 flex min-h-4 min-w-4 translate-x-px -translate-y-px items-center justify-center rounded-full bg-red-500 px-0.5 text-[9px] font-bold leading-none text-white shadow-sm ring-1 ring-white dark:ring-gray-900"
-        >{{ memoryCount > 99 ? '99+' : memoryCount }}</span>
-      </span>
-    </button>
+          v-if="!fabActionsExpanded && fabTotalBadgeCount > 0"
+          class="clothes-fab-badge absolute -top-2.5 -right-3 z-10 flex min-h-4 min-w-4 translate-x-px -translate-y-px items-center justify-center rounded-full bg-red-500 px-0.5 text-[9px] font-bold leading-none text-white shadow-sm ring-1 ring-white dark:ring-gray-900"
+        >{{ fabTotalBadgeCount > 99 ? '99+' : fabTotalBadgeCount }}</span>
+      </button>
+      <Transition name="clothes-fab-panel">
+        <div
+          v-if="fabActionsExpanded"
+          class="clothes-fab-actions-panel flex flex-col items-end gap-1.5"
+        >
+          <button
+            type="button"
+            class="clothes-fab-btn clothes-fab-btn--action rounded-full bg-qhx-primary text-white shadow-md shadow-qhx-primary/20 pl-2 pr-2.5 py-1.5 text-xs font-medium ring-1 ring-white/20 transition hover:brightness-110 active:scale-[0.98]"
+            @click="showMemoryListModal = true"
+          >
+            <span class="relative inline-flex items-center gap-1">
+              <UIcon name="i-heroicons-sparkles" class="w-4 h-4 shrink-0" />
+              记忆
+              <span
+                v-if="memoryCount > 0"
+                class="clothes-fab-badge absolute -top-2.5 -right-3 z-10 flex min-h-4 min-w-4 translate-x-px -translate-y-px items-center justify-center rounded-full bg-red-500 px-0.5 text-[9px] font-bold leading-none text-white shadow-sm ring-1 ring-white dark:ring-gray-900"
+              >{{ memoryCount > 99 ? '99+' : memoryCount }}</span>
+            </span>
+          </button>
+          <button
+            type="button"
+            class="clothes-fab-btn clothes-fab-btn--action rounded-full bg-qhx-primary text-white shadow-md shadow-qhx-primary/20 pl-2 pr-2.5 py-1.5 text-xs font-medium ring-1 ring-white/20 transition hover:brightness-110 active:scale-[0.98]"
+            @click="showMatchingListModal = true"
+          >
+            <span class="relative inline-flex items-center gap-1">
+              <UIcon name="material-symbols:style" class="w-4 h-4 shrink-0" />
+              搭配
+              <span
+                v-if="matchingCount > 0"
+                class="clothes-fab-badge absolute -top-2.5 -right-3 z-10 flex min-h-4 min-w-4 translate-x-px -translate-y-px items-center justify-center rounded-full bg-red-500 px-0.5 text-[9px] font-bold leading-none text-white shadow-sm ring-1 ring-white dark:ring-gray-900"
+              >{{ matchingCount > 99 ? '99+' : matchingCount }}</span>
+            </span>
+          </button>
+        </div>
+      </Transition>
+    </div>
 
     <Transition name="clothes-swipe-guide">
       <div
@@ -1241,7 +1485,7 @@ const showEditPlan = (e?: MouseEvent) => {
             <UIcon name="i-heroicons-x-mark" class="w-5 h-5" />
           </button>
         </div>
-        <div class="p-4 md:p-6 overflow-y-auto flex-1 min-h-0">
+        <div class="p-2 md:p-6 overflow-y-auto flex-1 min-h-0">
           <p class="text-sm text-gray-500 dark:text-gray-400 text-center mb-3">
             发帖记录你与小裙子之间的美好记忆
           </p>
@@ -1280,6 +1524,116 @@ const showEditPlan = (e?: MouseEvent) => {
       </div>
     </QhxModal>
 
+    <QhxModal v-model="showMatchingListModal">
+      <div
+        class="w-[95vw] max-w-3xl h-[90vh] max-h-[90vh] bg-white dark:bg-gray-800 rounded-2xl shadow-2xl overflow-hidden flex flex-col border border-gray-200/50 dark:border-gray-700/50 backdrop-blur-xl"
+      >
+        <div
+          class="flex items-center justify-between px-4 py-3 md:px-6 md:py-4 border-b border-gray-200 dark:border-gray-700 flex-shrink-0 bg-gradient-to-r from-purple-50/90 to-pink-50/80 dark:from-gray-800 dark:to-gray-800"
+        >
+          <h3 class="text-base md:text-lg font-semibold text-gray-900 dark:text-gray-100">搭配</h3>
+          <button
+            type="button"
+            class="w-9 h-9 flex items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500"
+            aria-label="关闭"
+            @click="showMatchingListModal = false"
+          >
+            <UIcon name="i-heroicons-x-mark" class="w-5 h-5" />
+          </button>
+        </div>
+        <div class="p-2 md:p-6 overflow-y-auto flex-1 min-h-0">
+          <p class="text-sm text-gray-500 dark:text-gray-400 text-center mb-3">
+            包含本条裙子的搭配清单
+          </p>
+          <div class="flex flex-wrap gap-2 justify-center mb-4">
+            <UButton
+              color="primary"
+              size="sm"
+              icon="i-heroicons-plus"
+              :disabled="clothesMemoryPkId == null"
+              @click="openNewMatching($event)"
+            >
+              新建搭配
+            </UButton>
+          </div>
+          <div
+            v-if="matchingListLoading && matchingListItems.length === 0"
+            class="flex flex-col items-center justify-center gap-3 py-16 text-gray-500"
+          >
+            <UIcon name="i-heroicons-arrow-path" class="w-8 h-8 animate-spin" />
+            <span class="text-sm">加载中…</span>
+          </div>
+          <div
+            v-else-if="matchingListItems.length === 0"
+            class="text-center py-12 text-sm text-gray-500 dark:text-gray-400"
+          >
+            暂无包含本条裙子的搭配
+          </div>
+          <div v-else :key="matchingListRefreshKey" class="space-y-3">
+            <div
+              v-for="item in matchingListItems"
+              :key="item.matching_id"
+              class="flex gap-3 p-3 rounded-xl bg-gray-50 dark:bg-gray-900/50 border border-gray-200/60 dark:border-gray-700/60 cursor-pointer transition hover:ring-2 hover:ring-qhx-primary/30"
+              @click="jumpToMatchingDetail(item)"
+            >
+              <div class="relative w-20 h-20 shrink-0 rounded-lg overflow-hidden bg-gray-200 dark:bg-gray-700">
+                <img
+                  v-if="getMatchingCover(item)"
+                  :src="`${BASE_IMG}${getMatchingCover(item)}?x-oss-process=image/quality,q_80/resize,w_200`"
+                  :alt="item.note || '搭配'"
+                  class="w-full h-full object-cover"
+                />
+                <div
+                  v-else
+                  class="w-full h-full flex items-center justify-center text-gray-400"
+                >
+                  <UIcon name="material-symbols:style" class="text-2xl" />
+                </div>
+                <div
+                  v-if="parseMatchingSeasons(item.season).length > 0"
+                  class="absolute left-1 top-1 z-10 flex max-w-[calc(100%-0.5rem)] flex-wrap gap-0.5"
+                >
+                  <span
+                    v-if="parseMatchingSeasons(item.season).length === 1"
+                    :class="getMatchingSingleSeasonClass(parseMatchingSeasons(item.season)[0])"
+                  >
+                    {{ parseMatchingSeasons(item.season)[0] }}
+                  </span>
+                  <span
+                    v-for="(seasonItem, seasonIndex) in parseMatchingSeasons(item.season)"
+                    v-else
+                    :key="`${item.matching_id}-season-${seasonIndex}`"
+                    :class="getMatchingMultiSeasonClass(seasonItem)"
+                  >
+                    {{ seasonItem }}
+                  </span>
+                </div>
+              </div>
+              <div class="flex-1 min-w-0">
+                <div class="font-medium text-gray-900 dark:text-gray-100 line-clamp-1">
+                  {{ item.note || '未命名搭配' }}
+                </div>
+                <div v-if="item.main_style" class="mt-1 text-xs text-qhx-primary dark:text-pink-300 line-clamp-1">
+                  {{ item.main_style.split(',').map((s) => `★${s}`).join(' ') }}
+                </div>
+              </div>
+            </div>
+            <div v-if="matchingListItems.length < matchingListTotal" class="flex justify-center pt-2">
+              <UButton
+                variant="soft"
+                color="gray"
+                size="sm"
+                :loading="matchingListLoading"
+                @click="loadMoreMatchingList"
+              >
+                加载更多
+              </UButton>
+            </div>
+          </div>
+        </div>
+      </div>
+    </QhxModal>
+
     <CommunityChoose
       ref="memoryCommunityChooseRef"
       :only-mine="true"
@@ -1287,6 +1641,8 @@ const showEditPlan = (e?: MouseEvent) => {
       placeholder="搜索我的帖子..."
       @choose="onMemoryCommunityChosen"
     />
+
+    <MatchingAddEdit ref="matchingAddEditRef" @success="onMatchingAddSuccess" />
 
     <CommunityPostModal
       ref="clothesMemoryPostModalRef"
@@ -2781,5 +3137,148 @@ const showEditPlan = (e?: MouseEvent) => {
   50% {
     transform: translateX(14px) rotate(8deg);
   }
+}
+
+/* 记忆/搭配悬浮按钮：展开收起 */
+.clothes-fab-stack {
+  transform-origin: top right;
+}
+
+.clothes-fab-panel-enter-active,
+.clothes-fab-panel-leave-active {
+  transition:
+    opacity 0.28s cubic-bezier(0.22, 1, 0.36, 1),
+    transform 0.32s cubic-bezier(0.22, 1, 0.36, 1),
+    max-height 0.34s cubic-bezier(0.22, 1, 0.36, 1);
+  overflow: hidden;
+  transform-origin: top right;
+}
+
+.clothes-fab-panel-enter-from,
+.clothes-fab-panel-leave-to {
+  opacity: 0;
+  transform: translateY(-10px) scale(0.94);
+  max-height: 0;
+}
+
+.clothes-fab-panel-enter-to,
+.clothes-fab-panel-leave-from {
+  max-height: 7rem;
+}
+
+.clothes-fab-panel-enter-active .clothes-fab-btn--action {
+  transition:
+    opacity 0.26s cubic-bezier(0.22, 1, 0.36, 1),
+    transform 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.clothes-fab-panel-leave-active .clothes-fab-btn--action {
+  transition:
+    opacity 0.18s ease,
+    transform 0.2s ease;
+}
+
+.clothes-fab-panel-enter-from .clothes-fab-btn--action,
+.clothes-fab-panel-leave-to .clothes-fab-btn--action {
+  opacity: 0;
+  transform: translateY(-6px);
+}
+
+.clothes-fab-panel-enter-active .clothes-fab-btn--action:nth-child(1) {
+  transition-delay: 0.05s;
+}
+
+.clothes-fab-panel-enter-active .clothes-fab-btn--action:nth-child(2) {
+  transition-delay: 0.11s;
+}
+
+.clothes-fab-panel-leave-active .clothes-fab-btn--action:nth-child(2) {
+  transition-delay: 0s;
+}
+
+.clothes-fab-panel-leave-active .clothes-fab-btn--action:nth-child(1) {
+  transition-delay: 0.04s;
+}
+
+.clothes-fab-toggle-icon {
+  transition: transform 0.32s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.clothes-fab-toggle-icon--expanded {
+  transform: rotate(180deg);
+}
+
+/* 搭配列表封面季节角标 */
+.matching-season-badge {
+  line-height: 1.2;
+  white-space: nowrap;
+  box-shadow:
+    0 1px 3px rgb(0 0 0 / 0.18),
+    0 0 0 1px rgb(255 255 255 / 0.55);
+}
+
+.matching-season-badge--single {
+  padding: 0.125rem 0.5rem;
+  border-radius: 9999px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.matching-season-badge--multi {
+  padding: 0.0625rem 0.3125rem;
+  border-radius: 0.25rem;
+  font-size: 9px;
+  font-weight: 600;
+}
+
+.matching-season-badge--spring {
+  background: linear-gradient(135deg, #bbf7d0 0%, #fbcfe8 100%);
+  color: #166534;
+}
+
+.matching-season-badge--summer {
+  background: linear-gradient(135deg, #fde047 0%, #fb923c 100%);
+  color: #92400e;
+}
+
+.matching-season-badge--autumn {
+  background: linear-gradient(135deg, #fdba74 0%, #ea580c 100%);
+  color: #78350f;
+}
+
+.matching-season-badge--winter {
+  background: linear-gradient(135deg, #bfdbfe 0%, #e0e7ff 100%);
+  color: #1e3a8a;
+}
+
+.matching-season-badge--default {
+  background: rgb(255 255 255 / 0.92);
+  color: #374151;
+}
+
+.dark .matching-season-badge--spring {
+  background: linear-gradient(135deg, rgb(22 101 52 / 0.85) 0%, rgb(157 23 77 / 0.75) 100%);
+  color: #ecfdf5;
+}
+
+.dark .matching-season-badge--summer {
+  background: linear-gradient(135deg, rgb(161 98 7 / 0.9) 0%, rgb(234 88 12 / 0.85) 100%);
+  color: #fef9c3;
+}
+
+.dark .matching-season-badge--autumn {
+  background: linear-gradient(135deg, rgb(154 52 18 / 0.9) 0%, rgb(180 83 9 / 0.85) 100%);
+  color: #ffedd5;
+}
+
+.dark .matching-season-badge--winter {
+  background: linear-gradient(135deg, rgb(30 58 138 / 0.9) 0%, rgb(51 65 85 / 0.85) 100%);
+  color: #dbeafe;
+}
+
+.dark .matching-season-badge--default {
+  background: rgb(31 41 55 / 0.92);
+  color: #e5e7eb;
 }
 </style>

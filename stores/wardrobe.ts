@@ -31,6 +31,8 @@ export const useWardrobeStore = defineStore('wardrobe', {
         // biome-ignore lint/complexity/noForEach: <explanation>
         response.clothes_part.forEach((child) => { child.split(',').forEach((item2) => {clothes_part.push(item2)}) })
         data.clothes_part = [...new Set(clothes_part)]
+
+        data.color_list = [...new Set(response.color_list)]
         this.config = data
         return data
       } catch (err) {

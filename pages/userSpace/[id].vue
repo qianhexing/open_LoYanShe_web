@@ -178,6 +178,20 @@
                   <span class="text-[11px] md:text-xs text-gray-500 dark:text-gray-400 mt-0.5">{{ stat.label }}</span>
                 </div>
               </div>
+
+              <!-- 功能栏：快捷入口，横向滚动隐藏滚动条 -->
+              <div class="hero-action-bar mt-3 -mx-1 px-1">
+                <div class="hero-action-bar__scroll flex gap-2 overflow-x-auto overscroll-x-contain">
+                  <button
+                    type="button"
+                    class="hero-action-bar__item hero-action-bar__action flex-shrink-0 inline-flex items-center gap-2 rounded-2xl py-2 px-4 border border-pink-200/70 dark:border-pink-700/50 bg-gradient-to-br from-pink-50/90 to-purple-50/90 dark:from-pink-900/35 dark:to-purple-900/35 hover:from-pink-100 dark:hover:from-pink-900/50 hover:to-purple-100 dark:hover:to-purple-900/50 transition-colors active:scale-[0.98]"
+                    @click="openCareerStatsModal"
+                  >
+                    <UIcon name="i-heroicons-chart-bar-square" class="w-5 h-5 text-pink-500 dark:text-pink-300 flex-shrink-0" />
+                    <span class="text-sm font-medium text-pink-600 dark:text-pink-300 whitespace-nowrap">生涯统计</span>
+                  </button>
+                </div>
+              </div>
             </div>
           </section>
 
@@ -187,7 +201,7 @@
               <QhxTabPanel :index="0">
                 <template #default="{ isActive }">
                   <!-- 帖子列表 -->
-                  <div v-show="isActive" ref="postsListRef" class="mt-4 space-y-4">
+                  <div v-show="isActive" ref="postsListRef" class="space-tab-panel mt-4 space-y-4">
                     <div v-if="postsLoading" class="flex justify-center py-12">
                       <div class="w-8 h-8 border-2 border-pink-200 border-t-pink-500 rounded-full animate-spin"></div>
                     </div>
@@ -219,7 +233,7 @@
               <QhxTabPanel :index="1">
                 <template #default="{ isActive }">
                   <!-- 衣柜列表 -->
-                  <div v-show="isActive" class="mt-4">
+                  <div v-show="isActive" class="space-tab-panel mt-4">
                     <QhxWaterList
                       v-if="layoutReady && isActive"
                       :fetch-data="async (page, pageSize) => {
@@ -299,7 +313,7 @@
               </QhxTabPanel>
               <QhxTabPanel v-if="showAchieveTab" :index="2">
                 <template #default="{ isActive }">
-                  <div v-show="isActive" ref="achieveListRef" class="mt-4 space-y-4">
+                  <div v-show="isActive" ref="achieveListRef" class="space-tab-panel mt-4 space-y-4">
                     <div v-if="achievementStatsLoading" class="flex justify-center py-8">
                       <div class="w-8 h-8 border-2 border-pink-200 border-t-pink-500 rounded-full animate-spin" />
                     </div>
@@ -491,6 +505,132 @@
       </div>
     </QhxModal>
 
+    <!-- 生涯统计弹窗 -->
+    <QhxModal v-model="showCareerStatsModal" @close="showCareerStatsModal = false">
+      <div class="w-[95vw] max-w-lg max-h-[88vh] bg-white dark:bg-gray-800 rounded-2xl shadow-2xl overflow-hidden flex flex-col border border-gray-200/50 dark:border-gray-700/50">
+        <div class="flex items-center justify-between px-5 py-4 border-b border-gray-200 dark:border-gray-700 bg-gradient-to-r from-pink-50 to-purple-50 dark:from-gray-800 dark:to-gray-800 flex-shrink-0">
+          <h3 class="text-lg font-semibold text-gray-800 dark:text-gray-100 flex items-center gap-2">
+            <span class="text-pink-500">📊</span>
+            生涯统计
+          </h3>
+          <button
+            type="button"
+            class="w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+            @click="showCareerStatsModal = false"
+          >
+            <UIcon name="i-heroicons-x-mark" class="w-5 h-5 text-gray-500 dark:text-gray-400" />
+          </button>
+        </div>
+
+        <div class="career-stats-body flex-1 overflow-y-auto px-5 py-5 sm:px-6">
+          <div v-if="careerStatsLoading" class="career-stats-loading flex flex-col items-center justify-center py-20">
+            <div class="career-stats-loading-dots" aria-hidden="true">
+              <span /><span /><span />
+            </div>
+            <p class="mt-4 text-sm text-[#8a6f7d] dark:text-pink-300/80">加载统计数据…</p>
+          </div>
+
+          <template v-else-if="careerStats">
+            <div class="career-stats-intro mb-5">
+              <div v-if="userInfo" class="career-stats-intro__avatar-wrap mx-auto mb-3">
+                <div class="career-stats-intro__avatar-inner">
+                  <UserFace :user="userInfo" size="mini" class="scale-[1.55]" />
+                </div>
+                <span
+                  v-if="userInfo.level"
+                  class="career-stats-intro__level"
+                >
+                  Lv.{{ userInfo.level }}
+                </span>
+              </div>
+              <p class="text-center text-sm text-[#8a6f7d] dark:text-pink-300/75">
+                <span class="font-semibold text-[#5e3a4b] dark:text-pink-200">{{ userInfo?.user_name || 'Lo娘' }}</span>
+                在 Lo研社的足迹
+              </p>
+              <div class="career-stats-intro__line mx-auto mt-2.5" aria-hidden="true" />
+            </div>
+
+            <div class="career-stats-hero relative mb-5 overflow-hidden rounded-2xl p-5 text-center">
+              <div class="career-stats-hero__glow career-stats-hero__glow--left" aria-hidden="true" />
+              <div class="career-stats-hero__glow career-stats-hero__glow--right" aria-hidden="true" />
+              <span class="career-stats-hero__spark career-stats-hero__spark--1" aria-hidden="true">✨</span>
+              <span class="career-stats-hero__spark career-stats-hero__spark--2" aria-hidden="true">🎀</span>
+              <div class="relative z-10">
+                <div class="mb-1 inline-flex items-center gap-1 rounded-full bg-white/50 px-2.5 py-0.5 text-[11px] font-medium text-[#9d6080] dark:bg-pink-950/40 dark:text-pink-300/90">
+                  <span aria-hidden="true">🌸</span>
+                  入住Lo星天数
+                </div>
+                <div class="career-stats-hero__value tabular-nums">
+                  {{ formatCareerNumber(careerStats.days_in_lolita) }}
+                  <span class="text-lg font-semibold text-[#927084] dark:text-pink-400/80">天</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="space-y-3.5">
+              <div
+                v-for="(group, groupIndex) in careerStatGroups"
+                :key="group.title"
+                class="career-stats-group"
+                :style="{ animationDelay: `${groupIndex * 0.07}s` }"
+              >
+                <div class="career-stats-group__head">
+                  <span class="career-stats-group__icon" aria-hidden="true">{{ group.icon }}</span>
+                  <span>{{ group.title }}</span>
+                </div>
+                <div class="grid grid-cols-2 gap-2">
+                  <div
+                    v-for="item in group.items"
+                    :key="item.key"
+                    class="career-stats-metric"
+                  >
+                    <div class="career-stats-metric__value tabular-nums">
+                      {{ item.display }}
+                    </div>
+                    <div class="career-stats-metric__label">{{ item.label }}</div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="career-stats-achievement">
+                <div class="mb-3 flex items-center justify-between gap-2">
+                  <span class="flex items-center gap-1.5 text-sm font-semibold text-[#4a2f3d] dark:text-pink-50">
+                    <span class="text-base" aria-hidden="true">🏆</span>
+                    成就进度
+                  </span>
+                  <span class="shrink-0 rounded-full bg-white/60 px-2 py-0.5 text-[11px] text-[#8a6f7d] dark:bg-pink-950/35 dark:text-pink-300/85">
+                    {{ careerStats.achievement_count }}/{{ careerStats.achievement_total }} · {{ careerStats.achievement_points }} 点
+                  </span>
+                </div>
+                <div class="career-stats-progress-track">
+                  <div
+                    class="career-stats-progress-fill"
+                    :style="{ width: `${Math.min(100, careerStats.achievement_progress ?? 0)}%` }"
+                  />
+                </div>
+                <div class="mt-2 text-center text-xs font-medium text-[#9d6080] dark:text-pink-300/80">
+                  {{ careerStats.achievement_progress ?? 0 }}% 完成
+                </div>
+              </div>
+            </div>
+          </template>
+
+          <div v-else class="career-stats-empty flex flex-col items-center justify-center py-16 text-center">
+            <div class="career-stats-empty__icon mb-3 text-4xl" aria-hidden="true">📭</div>
+            <p class="text-sm font-medium text-[#8a6f7d] dark:text-pink-300/80">暂无统计数据</p>
+            <p class="mt-1 text-xs text-[#b09aa8] dark:text-pink-400/50">稍后再来看看吧</p>
+          </div>
+        </div>
+
+        <div
+          v-if="careerStats && !careerStatsLoading"
+          class="career-stats-footer flex-shrink-0"
+        >
+          <CareerStatisticsShareImage :payload="careerSharePayload" fixed-footer />
+        </div>
+      </div>
+    </QhxModal>
+
     <!-- 更多选项（与衣柜详情页 QhxModal 样式一致） -->
     <QhxModal v-model="showUserSpaceMoreMenu" :trigger-position="userSpaceMoreMenuPosition">
       <div class="p-4 w-[200px] bg-white dark:bg-gray-800 rounded-[10px] shadow-lg">
@@ -522,8 +662,16 @@
 
 <script setup lang="ts">
 import { ref, reactive, onMounted, onUnmounted, computed, watch, inject, nextTick, type Ref } from 'vue'
-import { getUserSpace, getUserDecoBadges, adminUpgradeUserFormalResident } from '@/api/user'
-import type { UserDecoBadgeItem } from '@/api/user'
+import {
+  getUserSpace,
+  getUserDecoBadges,
+  getUserCareerStats,
+  adminUpgradeUserFormalResident,
+  type UserDecoBadgeItem,
+  type UserCareerStats,
+} from '@/api/user'
+import CareerStatisticsShareImage from '@/components/user/CareerStatisticsShareImage.vue'
+import type { CareerSharePayload } from '@/components/user/CareerStatisticsShareImage.vue'
 import { getCommunityList } from '@/api/community'
 import { getAlbumList, getAlbumAchievementStats, type AlbumAchievementStats } from '@/api/album'
 import { getWardrobeList, checkWadrobePassword } from '@/api/wardrobe'
@@ -1128,6 +1276,105 @@ const formatStat = (n: number): string => {
   return n.toLocaleString('zh-CN')
 }
 
+const formatCareerNumber = (num: number | null | undefined): string => {
+  if (num == null || Number.isNaN(num)) return '0'
+  return num.toLocaleString('zh-CN')
+}
+
+const formatCareerMoney = (num: number | null | undefined): string => {
+  if (num == null || Number.isNaN(num)) return '0'
+  return num.toLocaleString('zh-CN', { maximumFractionDigits: 0 })
+}
+
+const showCareerStatsModal = ref(false)
+const careerStats = ref<UserCareerStats | null>(null)
+const careerStatsLoading = ref(false)
+
+const openCareerStatsModal = async () => {
+  const uid = spaceUserId.value
+  if (!uid) return
+  showCareerStatsModal.value = true
+  careerStatsLoading.value = true
+  careerStats.value = null
+  try {
+    careerStats.value = await getUserCareerStats({ user_id: uid })
+  } catch (error) {
+    console.error('获取生涯统计失败:', error)
+    toast.add({
+      title: '获取生涯统计失败',
+      description: getErrorMessage(error),
+      icon: 'i-heroicons-x-circle',
+      color: 'red',
+    })
+    showCareerStatsModal.value = false
+  } finally {
+    careerStatsLoading.value = false
+  }
+}
+
+type CareerStatItem = { key: string; label: string; display: string }
+
+const careerStatGroups = computed(() => {
+  const s = careerStats.value
+  if (!s) return []
+  return [
+    {
+      title: '收藏与生活',
+      icon: '👗',
+      items: [
+        { key: 'wardrobe', label: '衣柜', display: formatCareerNumber(s.wardrobe_count) },
+        { key: 'clothes', label: '服饰', display: formatCareerNumber(s.clothes_count) },
+        { key: 'wear', label: '穿着次数', display: formatCareerNumber(s.total_wear_times) },
+        { key: 'spending', label: '总花费', display: `¥${formatCareerMoney(s.total_spending)}` },
+      ] as CareerStatItem[],
+    },
+    {
+      title: '创作与分享',
+      icon: '✨',
+      items: [
+        { key: 'community', label: '发帖', display: formatCareerNumber(s.community_count) },
+        { key: 'journal', label: '手账', display: formatCareerNumber(s.journal_count) },
+        { key: 'matching', label: '搭配', display: formatCareerNumber(s.matching_count) },
+        { key: 'achievement', label: '已达成成就', display: formatCareerNumber(s.achievement_count) },
+      ] as CareerStatItem[],
+    },
+  ]
+})
+
+const careerSharePayload = computed((): CareerSharePayload | null => {
+  const s = careerStats.value
+  const info = userInfo.value
+  const name = info?.user_name?.trim() || 'Lo娘'
+  if (!s) return null
+
+  const showArea = info?.show_area === true || info?.show_area === 1
+  const location =
+    showArea && (info?.province || info?.city)
+      ? [info.province, info.city].filter(Boolean).join(' ')
+      : undefined
+
+  return {
+    userName: name,
+    userFace: info?.user_face || 'static/plan_cover/default.jpg',
+    avatarFrame: info?.avatar?.avatar_frame,
+    userId: spaceUserId.value ?? undefined,
+    tags: (info?.main_style || []).map(getStyleLabel).filter(Boolean),
+    location,
+    daysInLolita: s.days_in_lolita ?? 0,
+    totalSpending: formatCareerMoney(s.total_spending),
+    achievementProgress: Math.min(100, s.achievement_progress ?? 0),
+    achievementSummary: `${s.achievement_count}/${s.achievement_total} · ${formatCareerNumber(s.achievement_points)} 点`,
+    metrics: [
+      { label: '衣柜', value: formatCareerNumber(s.wardrobe_count), emoji: '👗' },
+      { label: '服饰', value: formatCareerNumber(s.clothes_count), emoji: '🎀' },
+      { label: '穿着', value: formatCareerNumber(s.total_wear_times), emoji: '💫' },
+      { label: '发帖', value: formatCareerNumber(s.community_count), emoji: '📝' },
+      { label: '手账', value: formatCareerNumber(s.journal_count), emoji: '📔' },
+      { label: '搭配', value: formatCareerNumber(s.matching_count), emoji: '✨' },
+    ],
+  }
+})
+
 const prefersReducedMotion = () =>
   typeof window !== 'undefined' &&
   window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
@@ -1203,6 +1450,7 @@ const playHeroIntro = () => {
       .from('.hero-headline > *', { y: 16, autoAlpha: 0, stagger: 0.08, duration: 0.5 }, '-=0.3')
       .from('.hero-tag', { y: 10, autoAlpha: 0, stagger: 0.05, duration: 0.4 }, '-=0.25')
       .from('.stat-item', { y: 14, autoAlpha: 0, stagger: 0.07, duration: 0.45 }, '-=0.2')
+      .from('.hero-action-bar__item', { y: 12, autoAlpha: 0, stagger: 0.06, duration: 0.4 }, '-=0.15')
       .from('.space-tabs', { y: 16, autoAlpha: 0, duration: 0.5 }, '-=0.15')
   }, scope)
 
@@ -1356,10 +1604,397 @@ useHead({
   min-height: 1.5rem;
 }
 
+/* Hero 功能栏：横向滚动，隐藏滚动条 */
+.hero-action-bar__scroll {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+.hero-action-bar__scroll::-webkit-scrollbar {
+  display: none;
+}
+
+.hero-action-bar__action {
+  box-shadow: 0 2px 8px rgba(236, 72, 153, 0.12);
+}
+
+.dark .hero-action-bar__action {
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.25);
+}
+
+/* Tab 面板最低高度，避免切换时内容区高度骤变 */
+.space-tabs :deep(.panels-container) {
+  min-height: min(56vh, 520px);
+}
+
+.space-tabs :deep(.panels-container > *) {
+  min-height: inherit;
+}
+
+.space-tab-panel {
+  min-height: min(56vh, 520px);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .animate-blob,
-  .hero-spark {
+  .hero-spark,
+  .career-stats-group,
+  .career-stats-hero__spark,
+  .career-stats-loading-dots span {
     animation: none !important;
+  }
+}
+
+/* 生涯统计弹窗内容区 */
+.career-stats-body {
+  background: linear-gradient(180deg, rgba(255, 250, 252, 0.6) 0%, rgba(255, 255, 255, 0) 28%);
+}
+
+.dark .career-stats-body {
+  background: linear-gradient(180deg, rgba(45, 35, 42, 0.45) 0%, rgba(31, 41, 55, 0) 28%);
+}
+
+.career-stats-intro__avatar-wrap {
+  position: relative;
+  width: 4.25rem;
+  height: 4.25rem;
+}
+
+.career-stats-intro__avatar-inner {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #fff;
+  box-shadow:
+    0 0 0 3px rgba(255, 255, 255, 0.95),
+    0 0 0 5px rgba(236, 72, 153, 0.28),
+    0 8px 20px rgba(236, 72, 153, 0.18);
+}
+
+.dark .career-stats-intro__avatar-inner {
+  background: rgb(31 41 55);
+  box-shadow:
+    0 0 0 3px rgba(31, 41, 55, 0.95),
+    0 0 0 5px rgba(244, 114, 182, 0.22),
+    0 8px 22px rgba(0, 0, 0, 0.32);
+}
+
+.career-stats-intro__level {
+  position: absolute;
+  right: -0.35rem;
+  bottom: -0.2rem;
+  z-index: 10;
+  padding: 0.125rem 0.45rem;
+  border-radius: 999px;
+  font-size: 0.625rem;
+  font-weight: 700;
+  color: #fff;
+  background: linear-gradient(135deg, #ec4899 0%, #a855f7 100%);
+  box-shadow: 0 2px 8px rgba(236, 72, 153, 0.35);
+}
+
+.career-stats-intro__line {
+  width: 3rem;
+  height: 2px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, transparent, rgba(236, 72, 153, 0.55), transparent);
+}
+
+.career-stats-hero {
+  border: 1px solid rgba(236, 72, 153, 0.22);
+  background: linear-gradient(135deg, rgba(252, 231, 243, 0.95) 0%, rgba(237, 233, 254, 0.9) 55%, rgba(255, 241, 242, 0.92) 100%);
+  box-shadow:
+    0 8px 24px rgba(236, 72, 153, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.75);
+}
+
+.dark .career-stats-hero {
+  border-color: rgba(244, 114, 182, 0.2);
+  background: linear-gradient(135deg, rgba(80, 30, 55, 0.55) 0%, rgba(55, 35, 70, 0.5) 55%, rgba(70, 35, 50, 0.45) 100%);
+  box-shadow:
+    0 8px 28px rgba(0, 0, 0, 0.28),
+    inset 0 1px 0 rgba(255, 200, 220, 0.06);
+}
+
+.career-stats-hero__glow {
+  position: absolute;
+  border-radius: 999px;
+  filter: blur(28px);
+  pointer-events: none;
+}
+
+.career-stats-hero__glow--left {
+  top: -1.5rem;
+  left: -1rem;
+  width: 6rem;
+  height: 6rem;
+  background: rgba(244, 114, 182, 0.35);
+}
+
+.career-stats-hero__glow--right {
+  right: -0.75rem;
+  bottom: -1.25rem;
+  width: 5rem;
+  height: 5rem;
+  background: rgba(167, 139, 250, 0.32);
+}
+
+.career-stats-hero__spark {
+  position: absolute;
+  font-size: 0.95rem;
+  opacity: 0.75;
+  pointer-events: none;
+  animation: floatSpark 4.5s ease-in-out infinite;
+}
+
+.career-stats-hero__spark--1 {
+  top: 0.65rem;
+  right: 1.1rem;
+}
+
+.career-stats-hero__spark--2 {
+  bottom: 0.75rem;
+  left: 1rem;
+  animation-delay: 1.2s;
+}
+
+.career-stats-hero__value {
+  font-size: 2.25rem;
+  font-weight: 800;
+  line-height: 1.15;
+  background: linear-gradient(135deg, #db2777 0%, #9333ea 55%, #ec4899 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.dark .career-stats-hero__value {
+  background: linear-gradient(135deg, #f9a8d4 0%, #d8b4fe 55%, #fbcfe8 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+}
+
+.career-stats-group {
+  --neu-raised: #f5eef2;
+  --neu-shadow-d: rgba(150, 110, 130, 0.18);
+  --neu-shadow-l: rgba(255, 252, 254, 0.92);
+  padding: 0.875rem;
+  border-radius: 1rem;
+  border: 1px solid rgba(236, 72, 153, 0.12);
+  background: var(--neu-raised);
+  box-shadow:
+    6px 6px 16px var(--neu-shadow-d),
+    -5px -5px 14px var(--neu-shadow-l),
+    inset 1px 1px 0 rgba(255, 255, 255, 0.55);
+  animation: career-stat-in 0.42s ease-out backwards;
+}
+
+.dark .career-stats-group {
+  --neu-raised: #2a2229;
+  --neu-shadow-d: rgba(0, 0, 0, 0.42);
+  --neu-shadow-l: rgba(100, 70, 90, 0.08);
+  border-color: rgba(244, 114, 182, 0.14);
+  box-shadow:
+    5px 5px 14px var(--neu-shadow-d),
+    -4px -4px 12px var(--neu-shadow-l),
+    inset 1px 1px 0 rgba(255, 210, 230, 0.04);
+}
+
+.career-stats-group__head {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-bottom: 0.625rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #9d6080;
+}
+
+.dark .career-stats-group__head {
+  color: rgba(251, 207, 232, 0.92);
+}
+
+.career-stats-group__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.35rem;
+  height: 1.35rem;
+  border-radius: 0.45rem;
+  font-size: 0.8rem;
+  background: rgba(255, 255, 255, 0.65);
+  box-shadow: 0 2px 6px rgba(236, 72, 153, 0.12);
+}
+
+.dark .career-stats-group__icon {
+  background: rgba(60, 40, 52, 0.65);
+}
+
+.career-stats-metric {
+  padding: 0.625rem 0.75rem;
+  border-radius: 0.75rem;
+  text-align: center;
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.85);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.dark .career-stats-metric {
+  background: rgba(35, 28, 34, 0.72);
+  border-color: rgba(244, 114, 182, 0.08);
+}
+
+.career-stats-metric:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(236, 72, 153, 0.1);
+}
+
+.career-stats-metric__value {
+  font-size: 1rem;
+  font-weight: 700;
+  color: #4a2f3d;
+}
+
+.dark .career-stats-metric__value {
+  color: rgba(253, 242, 248, 0.95);
+}
+
+.career-stats-metric__label {
+  margin-top: 0.125rem;
+  font-size: 0.6875rem;
+  color: #8a6f7d;
+}
+
+.dark .career-stats-metric__label {
+  color: rgba(251, 207, 232, 0.65);
+}
+
+.career-stats-achievement {
+  --neu-raised: #f5eef2;
+  --neu-shadow-d: rgba(150, 110, 130, 0.18);
+  --neu-shadow-l: rgba(255, 252, 254, 0.92);
+  padding: 1rem;
+  border-radius: 1rem;
+  border: 1px solid rgba(236, 72, 153, 0.12);
+  background: var(--neu-raised);
+  box-shadow:
+    6px 6px 16px var(--neu-shadow-d),
+    -5px -5px 14px var(--neu-shadow-l),
+    inset 1px 1px 0 rgba(255, 255, 255, 0.55);
+  animation: career-stat-in 0.42s ease-out 0.14s backwards;
+}
+
+.dark .career-stats-achievement {
+  --neu-raised: #2a2229;
+  --neu-shadow-d: rgba(0, 0, 0, 0.42);
+  --neu-shadow-l: rgba(100, 70, 90, 0.08);
+  border-color: rgba(244, 114, 182, 0.14);
+  box-shadow:
+    5px 5px 14px var(--neu-shadow-d),
+    -4px -4px 12px var(--neu-shadow-l),
+    inset 1px 1px 0 rgba(255, 210, 230, 0.04);
+}
+
+.career-stats-progress-track {
+  height: 0.625rem;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(214, 170, 190, 0.35);
+  box-shadow: inset 0 2px 4px rgba(130, 95, 115, 0.12);
+}
+
+.dark .career-stats-progress-track {
+  background: rgba(60, 40, 52, 0.75);
+  box-shadow: inset 0 2px 5px rgba(0, 0, 0, 0.28);
+}
+
+.career-stats-progress-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #ec4899 0%, #a855f7 50%, #f472b6 100%);
+  background-size: 200% 100%;
+  transition: width 0.55s cubic-bezier(0.4, 0, 0.2, 1);
+  animation: career-progress-shimmer 2.8s ease-in-out infinite;
+}
+
+.career-stats-footer {
+  border-top: 1px dashed rgba(236, 72, 153, 0.22);
+  background: linear-gradient(180deg, rgba(255, 250, 252, 0.98) 0%, rgba(255, 255, 255, 1) 100%);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+.dark .career-stats-footer {
+  border-top-color: rgba(244, 114, 182, 0.18);
+  background: linear-gradient(180deg, rgba(45, 35, 42, 0.98) 0%, rgb(31 41 55) 100%);
+}
+
+.career-stats-loading-dots {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.career-stats-loading-dots span {
+  width: 0.45rem;
+  height: 0.45rem;
+  border-radius: 999px;
+  background: #ec4899;
+  opacity: 0.85;
+  animation: career-dot-bounce 0.75s ease-in-out infinite alternate;
+}
+
+.career-stats-loading-dots span:nth-child(2) {
+  animation-delay: 0.12s;
+}
+
+.career-stats-loading-dots span:nth-child(3) {
+  animation-delay: 0.24s;
+}
+
+.career-stats-empty__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 4.5rem;
+  height: 4.5rem;
+  border-radius: 1.25rem;
+  background: rgba(252, 231, 243, 0.55);
+  box-shadow: inset 0 2px 8px rgba(236, 72, 153, 0.08);
+}
+
+.dark .career-stats-empty__icon {
+  background: rgba(60, 40, 52, 0.55);
+}
+
+@keyframes career-stat-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes career-dot-bounce {
+  to {
+    transform: translateY(-5px);
+    opacity: 0.45;
+  }
+}
+
+@keyframes career-progress-shimmer {
+  0%, 100% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
   }
 }
 </style>

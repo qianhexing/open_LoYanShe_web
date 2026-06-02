@@ -170,7 +170,8 @@ const handleEdit = async (item: MatchingListItem) => {
       is_private: (detail as Record<string, unknown>).is_private as number | undefined,
       open_community: (detail as Record<string, unknown>).open_community as number | undefined,
       open_tags: (detail as Record<string, unknown>).open_tags as number | undefined,
-      main_style: detail.main_style
+      main_style: detail.main_style,
+      season: detail.season
     })
   } catch {
     toast.add({ title: '获取搭配详情失败', icon: 'i-heroicons-exclamation-circle', color: 'red' })

@@ -274,3 +274,27 @@ export async function updateUserDisplayBadges(params: { badge_ids: number[] }): 
   );
   return response.data;
 }
+
+/** 用户生涯统计（未传 user_id 时查当前登录用户） */
+export interface UserCareerStats {
+  wardrobe_count: number
+  clothes_count: number
+  total_spending: number
+  total_wear_times: number
+  achievement_count: number
+  achievement_points: number
+  achievement_total: number
+  achievement_progress: number
+  community_count: number
+  journal_count: number
+  matching_count: number
+  days_in_lolita: number
+}
+
+export async function getUserCareerStats(params?: { user_id?: number }): Promise<UserCareerStats> {
+  const response = await use$Post<BaseResponse<UserCareerStats>>(
+    '/user/career/stats',
+    params ?? {},
+  )
+  return response.data
+}
