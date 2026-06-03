@@ -36,6 +36,7 @@
     "ammo.js": "^0.0.10",
     "dayjs": "^1.11.18",
     "echarts": "^6.0.0",
+    "echarts-wordcloud": "^2.1.0",
     "gsap": "^3.13.0",
     "html2canvas": "^1.4.1",
     "jsqr": "^1.4.0",

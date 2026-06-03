@@ -2,6 +2,7 @@
 import { computed, reactive, inject, nextTick, onMounted, onUnmounted, watch } from 'vue'
 import type { Comment } from '@/types/api'
 import { deleteComment, getCommentList } from '@/api/comment'
+import { buildGardenFlowerMeta } from '@/utils/gardenPlants'
 import {
   communityCommentSectionRefreshKey,
   type CommentOpenReplyPayload,
@@ -9,6 +10,11 @@ import {
 import { storeToRefs } from 'pinia'
 import { useCommentUiStore } from '@/stores/commentUi'
 import QhxModal from '@/components/Qhx/Modal.vue'
+
+interface DailyFilterList {
+  unlimited?: boolean
+  just_my?: boolean
+}
 
 interface Props {
   type: string
@@ -23,6 +29,10 @@ interface Props {
    * 详情页 URL `?comment_id=` 传入时：列表请求带 comment_id，目标评论置顶、展开回复、滚动到可视区。
    */
   focusCommentId?: number
+  /** 签到页：按日期筛选评论 */
+  daily?: string
+  /** 签到页：不限日期 / 只看自己 */
+  filterList?: DailyFilterList
 }
 const props = withDefaults(defineProps<Props>(), {
   reserveBottomForFixedBar: false,
@@ -134,6 +144,28 @@ async function scrollToPinnedCommentIfFocused() {
   })
 }
 
+function buildListParams(pageNum: number, size: number) {
+  return {
+    page: pageNum,
+    pageSize: size,
+    type: props.type,
+    id: props.id,
+    pinned: props.focusCommentId,
+    ...(props.daily ? { daily: props.daily } : {}),
+    ...(props.filterList ? { filter_list: props.filterList } : {}),
+  }
+}
+
+function applyListResponse(response: Awaited<ReturnType<typeof getCommentList>>) {
+  list.value = mapRows(response.rows)
+  total.value = response.count ?? 0
+  pinnedComment.value = response.pinned ?? null
+  emit('total', total.value)
+  if (response.count_signin !== undefined) {
+    emit('countSignin', response.count_signin)
+  }
+}
+
 /** 仅客户端请求首屏，不参与 SSR */
 const fetchInitial = async () => {
   if (!import.meta.client) return
@@ -141,16 +173,8 @@ const fetchInitial = async () => {
   page.value = 1
   let fetchOk = false
   try {
-    const response = await getCommentList({
-      page: 1,
-      pageSize,
-      type: props.type,
-      id: props.id,
-      pinned: props.focusCommentId,
-    })
-    list.value = mapRows(response.rows)
-    total.value = response.count ?? 0
-    pinnedComment.value = response.pinned ?? null
+    const response = await getCommentList(buildListParams(1, pageSize))
+    applyListResponse(response)
     fetchOk = true
   } catch (error) {
     if (import.meta.client) {
@@ -170,15 +194,8 @@ const fetchInitial = async () => {
 const refreshList = async () => {
   isLoading.value = true
   try {
-    const response = await getCommentList({
-      page: 1,
-      pageSize: pageSize * page.value,
-      type: props.type,
-      id: props.id,
-      pinned: props.focusCommentId,
-    })
-    list.value = mapRows(response.rows)
-    total.value = response.count ?? 0
+    const response = await getCommentList(buildListParams(1, pageSize * page.value))
+    applyListResponse(response)
     if (response.pinned) {
       pinnedComment.value = response.pinned
     }
@@ -197,13 +214,7 @@ const loadMore = async () => {
   isLoading.value = true
   try {
     const nextPage = page.value + 1
-    const response = await getCommentList({
-      page: nextPage,
-      pageSize,
-      type: props.type,
-      id: props.id,
-      pinned: props.focusCommentId,
-    })
+    const response = await getCommentList(buildListParams(nextPage, pageSize))
     page.value = nextPage
     list.value = [
       ...list.value,
@@ -233,6 +244,8 @@ const { isFinished, setFinished } = useScrollBottom(
 const emit = defineEmits<{
   load: []
   openReply: [payload: CommentOpenReplyPayload]
+  total: [count: number]
+  countSignin: [count: number]
 }>()
 
 const load = () => {
@@ -240,10 +253,18 @@ const load = () => {
 }
 
 watch(
-  () => [props.type, props.id, props.focusCommentId] as const,
+  () => [props.type, props.id, props.focusCommentId, props.daily] as const,
   () => {
     void fetchInitial()
   }
+)
+
+watch(
+  () => props.filterList,
+  () => {
+    void fetchInitial()
+  },
+  { deep: true }
 )
 
 const showReply = () => {}
@@ -350,7 +371,21 @@ const refreshRepliesFor = (parentCommentId: number) => {
   replyRefreshNonce.value = { ...replyRefreshNonce.value, [pid]: next }
 }
 
-defineExpose({ refreshRepliesFor, setMainCommentExpanded })
+function getLoadedGardenMeta() {
+  return buildGardenFlowerMeta(list.value, total.value, pinnedComment.value)
+}
+
+function getLoadedCommentCount() {
+  return list.value.length
+}
+
+defineExpose({
+  refreshRepliesFor,
+  setMainCommentExpanded,
+  refreshList,
+  getLoadedGardenMeta,
+  getLoadedCommentCount,
+})
 
 const communityRefreshHolder = inject(communityCommentSectionRefreshKey, null)
 

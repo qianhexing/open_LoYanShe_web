@@ -240,12 +240,17 @@ const drawerFlexLayout = computed(() => {
 // 计算样式
 const drawerStyle = computed(() => {
   if (isVertical.value) {
-    return {
-      height: `${drawerSize.value}px`
+    const style: Record<string, string> = {
+      height: `${drawerSize.value}px`,
+      maxHeight: `calc(100dvh - ${props.safeArea}px - env(safe-area-inset-bottom, 0px))`,
     }
+    if (props.direction === 'bottom') {
+      style.paddingBottom = 'env(safe-area-inset-bottom, 0px)'
+    }
+    return style
   }
   return {
-    width: `${drawerSize.value}px`
+    width: `${drawerSize.value}px`,
   }
 })
 
@@ -274,14 +279,22 @@ const contentClasses = computed(() => {
 
 onMounted(() => {
   applyViewportBoundsSync()
-  // 设置默认尺寸（不超过最大尺寸）
-  drawerSize.value = Math.min(props.defaultSize, maxDrawerSize.value * 0.6)
+  // 设置默认尺寸（不超过最大尺寸）；底部抽屉默认约半屏
+  const defaultRatio = props.direction === 'bottom' ? 0.55 : 0.6
+  drawerSize.value = Math.min(props.defaultSize, maxDrawerSize.value * defaultRatio)
 
   // 监听窗口大小变化（使用防抖）
   window.addEventListener('resize', updateMaxSize, { passive: true })
   window.addEventListener('mousemove', handleMouseMove, { capture: true })
   window.addEventListener('mouseup', handleMouseUp, { capture: true })
 })
+
+watch(
+  () => props.defaultSize,
+  (size) => {
+    drawerSize.value = Math.min(size, maxDrawerSize.value)
+  }
+)
 
 onUnmounted(() => {
   // 清理窗口大小监听
@@ -385,15 +398,17 @@ onUnmounted(() => {
 .drawer-content::-webkit-scrollbar-thumb:hover {
   background: rgba(0, 0, 0, 0.3);
 }
+</style>
 
-/* ========== 显示/隐藏动画 - 需父级用 <Transition :name="`drawer-${direction}`"> 包裹 ========== */
+<!-- Transition 类由父级 <Transition> 注入，需非 scoped 才能生效 -->
+<style>
 /* bottom: 从下方弹出，向下方收缩 */
 .drawer-bottom-enter-from {
   transform: translateY(100%);
   opacity: 0;
 }
 .drawer-bottom-enter-active {
-  transition: transform 0.3s cubic-bezier(0.32, 0.72, 0, 1), opacity 0.25s ease-out;
+  transition: transform 0.32s cubic-bezier(0.32, 0.72, 0, 1), opacity 0.28s ease-out;
 }
 .drawer-bottom-enter-to {
   transform: translateY(0);
@@ -404,7 +419,7 @@ onUnmounted(() => {
   opacity: 1;
 }
 .drawer-bottom-leave-active {
-  transition: transform 0.25s cubic-bezier(0.32, 0.72, 0, 1), opacity 0.2s ease-in;
+  transition: transform 0.26s cubic-bezier(0.32, 0.72, 0, 1), opacity 0.22s ease-in;
 }
 .drawer-bottom-leave-to {
   transform: translateY(100%);

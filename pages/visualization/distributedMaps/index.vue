@@ -10,6 +10,7 @@ import { useHead } from '@unhead/vue';
 import { BASE_IMG, BASE_IMG_MODEL } from '@/utils/ipConfig';
 import dayjs from 'dayjs';
 import TimeRuler from '@/components/TimeRuler.vue';
+import { getLolitaHeatColorByRank } from '@/utils/lolitaHeatGradient';
 
 // --- 类型定义 ---
 interface ProvinceFeature {
@@ -341,15 +342,6 @@ const LOLITA_COLORS = {
   highlightBar: '#cdb1ef' // 圆柱高亮淡紫
 };
 
-const GRADIENT_COLORS = [
-  "#7130ae", "#7740bb", "#7e51c6", "#865ccc", "#8e66d2", "#9670d7",
-  "#9f7bdc", "#a784e0", "#b08fe4", "#ba99e8", "#c4a3eb", "#cdb1ef",
-  "#d5b9f1", "#debff4", "#e6c5f6", "#edcdf9", "#f4d4fb", "#fadcfb",
-  "#fce3fb", "#fdebfc", "#fef5fd", "#fefafd", "#fefcfe", "#fefeff",
-  "#ffffff", "#ffffff", "#ffffff", "#ffffff", "#ffffff", "#ffffff",
-  "#ffffff", "#ffffff", "#ffffff", "#ffffff"
-];
-
 const CHINA_PROVINCES = [
     '北京市', '天津市', '河北省', '山西省', '内蒙古自治区', '辽宁省', '吉林省', '黑龙江省', '上海市', '江苏省', 
     '浙江省', '安徽省', '福建省', '江西省', '山东省', '河南省', '湖北省', '湖南省', '广东省', '广西壮族自治区', 
@@ -673,33 +665,6 @@ const addBackgroundStars = () => {
 
 // --- 核心逻辑 ---
 
-// 颜色插值函数：根据 Rank 计算渐变色
-const getInterpolatedColor = (rank: number, maxRank: number) => {
-    // 排名越前(rank小) 颜色越深(index小)
-    // 排名越后(rank大) 颜色越浅(index大)
-    
-    // 如果只有1个数据，直接用最深色
-    if (maxRank <= 1) return new THREE.Color(GRADIENT_COLORS[0]);
-    
-    // 计算在整个渐变数组中的位置 (0 ~ 1)
-    // rank: 1 ~ maxRank
-    // ratio: 0 ~ 1
-    const ratio = Math.max(0, Math.min(1, (rank - 1) / (maxRank - 1)));
-    
-    // 映射到 GRADIENT_COLORS 的索引区间
-    const maxIndex = GRADIENT_COLORS.length - 1;
-    const position = ratio * maxIndex;
-    
-    const lowerIndex = Math.floor(position);
-    const upperIndex = Math.ceil(position);
-    const t = position - lowerIndex;
-    
-    const color1 = new THREE.Color(GRADIENT_COLORS[lowerIndex]);
-    const color2 = new THREE.Color(GRADIENT_COLORS[upperIndex]);
-    
-    return color1.clone().lerp(color2, t);
-};
-
 // --- 茶会相关逻辑 ---
 
 // 将 Teaparty 转换为 TeaParty 格式
@@ -996,7 +961,7 @@ const drawMap = (geojson: GeoJSON, scene: THREE.Scene, dataMap: Map<string, Data
     // 颜色逻辑：如果有数据，则根据全球排名计算插值渐变色；无数据则为浅灰
     let baseColor: THREE.Color;
     if (count > 0) {
-        baseColor = getInterpolatedColor(rank, totalRanks);
+        baseColor = getLolitaHeatColorByRank(rank, totalRanks);
     } else {
         baseColor = new THREE.Color(0xeeeeee);
     }

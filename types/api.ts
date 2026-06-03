@@ -492,6 +492,12 @@ export type CommunityDetailForeignItem = Partial<Library> & {
   title?: string | null
   square_cover?: string | null
 }
+
+/** 评论 json_data 扩展字段 */
+export interface CommentJsonData {
+  flower_types?: string
+}
+
 export interface Comment {
   bad_num:number
   comment_content: string
@@ -505,6 +511,7 @@ export interface Comment {
   library_list?: Library[]
   mount_img?: string
   mount_library?: Library[]
+  json_data?: CommentJsonData | Record<string, unknown>
   notice?: number
   r_count?: number
   reply_to?: number
