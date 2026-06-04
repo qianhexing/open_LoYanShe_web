@@ -1,6 +1,7 @@
 <script setup lang="ts">
-// biome-ignore lint/style/useImportType: Vue SFC 供 template 与 InstanceType 使用
+// biome-ignore lint/style/useImportType: 组件供 template 挂载，InstanceType 供 ref
 import SPZModelViewerContent from '@/components/ModelViewer/SPZModelViewerContent.vue'
+import type { SceneLoadState } from '@/components/ModelViewer/SPZModelViewerContent.vue'
 import type { Library, LibrarySimilarItem, LibraryVideo, Shop } from '@/types/api'
 import type { LaxianItem } from '@/types/api'
 import type { SceneJSON } from '@/utils/threeCore'
@@ -44,8 +45,13 @@ const shopId = computed(() => {
     return Number.isNaN(n) ? 0 : n
 })
 
+/** 链接参数为 0：不限定店铺，展示全站藏品，选中后再拉取店主信息 */
+const isGlobalExhibition = computed(() => shopId.value === 0)
+
 const shop = ref<Shop | null>(null)
 const shopLoading = ref(false)
+/** 全站模式下当前展示的店铺 id（避免重复请求） */
+const displayedShopId = ref<number | null>(null)
 
 /** 该店铺下所有 3D 视频（pk_type=2，前端按 shop_id 过滤），用于聚合出图鉴列表 */
 const allVideos = ref<LibraryVideo[]>([])
@@ -74,6 +80,40 @@ const similarLoading = ref(false)
 
 const autoRotate = ref(false)
 
+const spzViewerRef = ref<InstanceType<typeof SPZModelViewerContent> | null>(null)
+const sceneLoadState = ref<SceneLoadState>({
+    loading: false,
+    progress: { current: 0, total: 0 },
+    error: null
+})
+
+const onSceneLoadStateChange = (state: SceneLoadState) => {
+    sceneLoadState.value = state
+}
+
+/** 接口拉取或 WebGL 场景加载中，禁止切换藏品/版型 */
+const exhibitSwitchBlocked = computed(
+    () =>
+        sceneLoadState.value.loading
+        || modelLoading.value
+        || currentLibraryLoading.value
+        || currentVideoListLoading.value
+)
+
+const hasSceneViewer = computed(
+    () =>
+        (sceneJson.value?.objects != null && sceneJson.value.objects.length > 0)
+        || modelList.value.length > 0
+)
+
+const clearSceneViewer = () => {
+    sceneJson.value = null
+    modelList.value = []
+    laxianList.value = []
+    modelError.value = null
+    spzViewerRef.value?.clearSceneContent()
+}
+
 const formatImg = (url?: string | null, opt = '') => {
     if (!url) return ''
     return `${BASE_IMG}${url}${opt}`
@@ -84,22 +124,42 @@ const formatSimilarityScore = (score: number) => {
     return Number.isInteger(score) ? String(score) : score.toFixed(2)
 }
 
-const loadShop = async () => {
-    if (!shopId.value) return
+const loadShop = async (targetShopId?: number) => {
+    const sid = targetShopId ?? shopId.value
+    if (!sid) return
     shopLoading.value = true
     try {
-        shop.value = await getShopDetail({ shop_id: shopId.value })
+        shop.value = await getShopDetail({ shop_id: sid })
+        displayedShopId.value = sid
     } catch (err) {
         console.error('店铺信息加载失败:', err)
         shop.value = null
+        displayedShopId.value = null
     } finally {
         shopLoading.value = false
     }
 }
 
-/** 拉取该店铺所有 3D 视频（按 shop_id 前端过滤；分页累加直至取完） */
+const resolveShopIdFromLibrary = (lib?: Library | null) =>
+    lib?.shop_id ?? lib?.shop?.shop_id ?? null
+
+/** 全站模式：选中藏品后按图鉴所属店铺拉取店主信息 */
+const loadShopForSelection = async (lib?: Library | null) => {
+    if (!isGlobalExhibition.value) return
+    const sid = resolveShopIdFromLibrary(lib)
+    if (!sid) {
+        shop.value = null
+        displayedShopId.value = null
+        return
+    }
+    if (displayedShopId.value === sid && shop.value) return
+    await loadShop(sid)
+}
+
+/** 拉取 3D 视频列表（单店按 shop_id 过滤；shop_id=0 为全站不限店） */
 const loadAllVideos = async () => {
-    if (!shopId.value) return
+    if (!shopId.value && !isGlobalExhibition.value) return
+    const restrictByShop = !isGlobalExhibition.value
     allVideosLoading.value = true
     allVideosError.value = null
     try {
@@ -110,8 +170,12 @@ const loadAllVideos = async () => {
             const res = await getLibraryVideoList({ page, pageSize, pk_type: 2 })
             const rows = res.rows ?? []
             for (const v of rows) {
-                const sid = v.library?.shop_id ?? v.library?.shop?.shop_id
-                if (sid === shopId.value && v.addr && v.pk_type === 2) collected.push(v)
+                if (!v.addr || v.pk_type !== 2) continue
+                if (restrictByShop) {
+                    const sid = v.library?.shop_id ?? v.library?.shop?.shop_id
+                    if (sid !== shopId.value) continue
+                }
+                collected.push(v)
             }
             if (rows.length < pageSize) break
             page += 1
@@ -165,18 +229,15 @@ const loadCurrentVideoList = async (lid: number) => {
     }
 }
 
-/** 选中某条 video（版型）：拉取完整 video 含 json_data，构造 SceneJSON 或 modelList */
-const selectVideo = async (video: LibraryVideo) => {
-    if (!video.video_id) return
-    if (currentVideoId.value === video.video_id) return
-    currentVideoId.value = video.video_id
+/** 拉取版型 video 详情并构造 SceneJSON 或 modelList（复用 WebGL，不销毁渲染上下文） */
+const loadSceneForVideo = async (videoId: number) => {
     modelLoading.value = true
     modelError.value = null
     sceneJson.value = null
     modelList.value = []
     laxianList.value = []
     try {
-        const detail = await getLibraryVideoById({ video_id: video.video_id })
+        const detail = await getLibraryVideoById({ video_id: videoId })
         if (detail.pk_type !== 2 || !detail.addr) {
             modelError.value = '该视频不是点云类型或缺少模型地址'
             return
@@ -184,16 +245,17 @@ const selectVideo = async (video: LibraryVideo) => {
         const jd = detail.json_data as
             | (Partial<SceneJSON> & { laxian_list?: LaxianItem[] })
             | undefined
-        const hasFullScene = !!jd && Array.isArray(jd.objects) && jd.objects.length > 0
-        if (hasFullScene) {
+        const objects = jd?.objects
+        const hasFullScene = Array.isArray(objects) && objects.length > 0
+        if (hasFullScene && jd) {
             sceneJson.value = {
-                objects: jd!.objects as SceneJSON['objects'],
-                cameraList: jd!.cameraList,
-                background: jd!.background,
-                lighting: jd!.lighting,
-                controls: jd!.controls
+                objects: objects as SceneJSON['objects'],
+                cameraList: jd.cameraList,
+                background: jd.background,
+                lighting: jd.lighting,
+                controls: jd.controls
             }
-            laxianList.value = Array.isArray(jd?.laxian_list) ? jd!.laxian_list! : []
+            laxianList.value = Array.isArray(jd.laxian_list) ? jd.laxian_list : []
         } else {
             modelList.value = detail.addr
                 .split(',')
@@ -205,7 +267,7 @@ const selectVideo = async (video: LibraryVideo) => {
                     position: [index * 3, 0, 0] as [number, number, number],
                     options: {}
                 }))
-            laxianList.value = Array.isArray(jd?.laxian_list) ? jd!.laxian_list! : []
+            laxianList.value = Array.isArray(jd?.laxian_list) ? jd.laxian_list : []
         }
     } catch (err) {
         console.error('版型加载失败:', err)
@@ -215,8 +277,18 @@ const selectVideo = async (video: LibraryVideo) => {
     }
 }
 
+const selectVideo = async (video: LibraryVideo) => {
+    if (exhibitSwitchBlocked.value) return
+    if (!video.video_id) return
+    if (currentVideoId.value === video.video_id) return
+    currentVideoId.value = video.video_id
+    clearSceneViewer()
+    await loadSceneForVideo(video.video_id)
+}
+
 /** 选中某个图鉴：加载图鉴详情、相似推荐、版型列表，并自动选中第一条版型 */
 const selectLibrary = async (lid: number, preferVideoId?: number) => {
+    if (exhibitSwitchBlocked.value) return
     if (currentLibraryId.value === lid && !preferVideoId) {
         const first = currentVideoList.value[0]
         if (first) await selectVideo(first)
@@ -224,17 +296,19 @@ const selectLibrary = async (lid: number, preferVideoId?: number) => {
     }
     currentLibraryId.value = lid
     currentVideoId.value = null
-    sceneJson.value = null
-    modelList.value = []
-    laxianList.value = []
     currentVideoList.value = []
     similarRows.value = []
     currentLibrary.value = null
+    clearSceneViewer()
+    const group = groupedList.value.find((g) => g.library_id === lid)
     await Promise.all([
         loadLibraryDetail(lid),
         loadSimilar(lid),
         loadCurrentVideoList(lid)
     ])
+    await loadShopForSelection(
+        currentLibrary.value ?? group?.library ?? null
+    )
     const target = preferVideoId
         ? currentVideoList.value.find((v) => v.video_id === preferVideoId)
         : currentVideoList.value[0]
@@ -281,16 +355,20 @@ const jumpToShop = (id?: number | null) => {
 }
 
 const init = async () => {
-    if (!shopId.value) return
+    if (!shopId.value && !isGlobalExhibition.value) return
     currentLibraryId.value = null
     currentVideoId.value = null
     currentLibrary.value = null
-    sceneJson.value = null
-    modelList.value = []
-    laxianList.value = []
     similarRows.value = []
     currentVideoList.value = []
-    await Promise.all([loadShop(), loadAllVideos()])
+    shop.value = null
+    displayedShopId.value = null
+    clearSceneViewer()
+    if (isGlobalExhibition.value) {
+        await loadAllVideos()
+    } else {
+        await Promise.all([loadShop(), loadAllVideos()])
+    }
     const first = groupedList.value[0]
     if (first) await selectLibrary(first.library_id)
 }
@@ -318,48 +396,55 @@ onMounted(() => {
     <div class="exhibition-root hidden md:flex w-full h-screen gap-4 p-4">
         <!-- 左：店铺 + 3D 图鉴列表 -->
         <aside class="w-[300px] xl:w-[340px] flex flex-col gap-4 min-h-0">
-            <!-- 店铺信息 -->
-            <section class="museum-panel overflow-hidden">
-                <div class="museum-panel-header">
+            <!-- 店铺信息（固定高度，内容区滚动，避免切换时挤压下方列表） -->
+            <section class="museum-panel exhibition-shop-panel overflow-hidden shrink-0 flex flex-col">
+                <div class="museum-panel-header shrink-0">
                     <span class="ornament" />
                     <h3 class="title">展馆店主</h3>
                     <span class="ornament" />
                 </div>
-                <div v-if="shopLoading" class="p-5 flex items-center justify-center min-h-[120px]">
-                    <div class="spinner-gold" />
-                </div>
-                <div v-else-if="shop" class="p-4">
-                    <div class="flex items-center gap-3 cursor-pointer group" @click="jumpToShop(shop.shop_id)">
-                        <div class="relative">
-                            <img
-                                v-if="shop.shop_logo"
-                                :src="formatImg(shop.shop_logo, '?x-oss-process=image/quality,q_80/resize,w_160,h_160')"
-                                :alt="shop.shop_name"
-                                class="w-14 h-14 rounded-full object-cover border-2 border-amber-400/60 shadow-[0_0_18px_rgba(212,175,55,0.25)]"
-                            />
-                            <div class="absolute inset-0 rounded-full ring-1 ring-amber-300/40 pointer-events-none" />
+                <div class="exhibition-shop-panel__body museum-scroll overscroll-contain">
+                    <div v-if="shopLoading" class="p-5 h-full min-h-[10rem] flex items-center justify-center">
+                        <div class="spinner-gold" />
+                    </div>
+                    <div v-else-if="shop" class="p-4">
+                        <div class="flex items-center gap-3 cursor-pointer group" @click="jumpToShop(shop.shop_id)">
+                            <div class="relative flex-shrink-0">
+                                <img
+                                    v-if="shop.shop_logo"
+                                    :src="formatImg(shop.shop_logo, '?x-oss-process=image/quality,q_80/resize,w_160,h_160')"
+                                    :alt="shop.shop_name"
+                                    class="w-14 h-14 rounded-full object-cover border-2 border-amber-400/60 shadow-[0_0_18px_rgba(212,175,55,0.25)]"
+                                />
+                                <div class="absolute inset-0 rounded-full ring-1 ring-amber-300/40 pointer-events-none" />
+                            </div>
+                            <div class="flex-1 min-w-0">
+                                <h2 class="font-serif text-base font-semibold text-amber-100 truncate group-hover:text-amber-300 transition-colors">{{ shop.shop_name }}</h2>
+                                <p class="text-[11px] tracking-widest uppercase text-amber-200/60 mt-0.5">
+                                    {{ shop.shop_country === 0 ? 'DOMESTIC' : 'JAPANESE' }} · {{ shop.count_library ?? 0 }} ITEMS
+                                </p>
+                            </div>
                         </div>
-                        <div class="flex-1 min-w-0">
-                            <h2 class="font-serif text-base font-semibold text-amber-100 truncate group-hover:text-amber-300 transition-colors">{{ shop.shop_name }}</h2>
-                            <p class="text-[11px] tracking-widest uppercase text-amber-200/60 mt-0.5">
-                                {{ shop.shop_country === 0 ? 'DOMESTIC' : 'JAPANESE' }} · {{ shop.count_library ?? 0 }} ITEMS
-                            </p>
+                        <p
+                            v-if="shop.shop_describe"
+                            class="mt-3 text-xs text-stone-300/80 leading-relaxed font-serif break-words"
+                            v-html="shop.shop_describe"
+                        />
+                        <div v-if="shop.style_list && shop.style_list.length" class="mt-3 flex flex-wrap gap-1">
+                            <span
+                                v-for="(tag, i) in shop.style_list"
+                                :key="i"
+                                class="px-2 py-0.5 text-[10px] rounded-full border border-amber-400/30 text-amber-200/90 bg-amber-500/5 tracking-wider"
+                            >{{ tag.wiki_name }}</span>
                         </div>
                     </div>
-                    <p
-                        v-if="shop.shop_describe"
-                        class="mt-3 text-xs text-stone-300/80 line-clamp-3 leading-relaxed font-serif"
-                        v-html="shop.shop_describe"
-                    />
-                    <div v-if="shop.style_list && shop.style_list.length" class="mt-3 flex flex-wrap gap-1">
-                        <span
-                            v-for="(tag, i) in shop.style_list.slice(0, 6)"
-                            :key="i"
-                            class="px-2 py-0.5 text-[10px] rounded-full border border-amber-400/30 text-amber-200/90 bg-amber-500/5 tracking-wider"
-                        >{{ tag.wiki_name }}</span>
+                    <div v-else-if="isGlobalExhibition" class="p-4 h-full min-h-[10rem] flex items-center justify-center text-center text-sm text-stone-400 font-serif leading-relaxed">
+                        全站展馆 · 选择藏品后显示对应店主
+                    </div>
+                    <div v-else class="p-4 h-full min-h-[10rem] flex items-center justify-center text-center text-sm text-stone-400 font-serif">
+                        店铺信息不存在
                     </div>
                 </div>
-                <div v-else class="p-4 text-center text-sm text-stone-400 font-serif">店铺信息不存在</div>
             </section>
 
             <!-- 图鉴列表 -->
@@ -386,10 +471,11 @@ onMounted(() => {
                         v-for="(group, idx) in groupedList"
                         :key="group.library_id"
                         type="button"
-                        class="w-full flex items-center gap-2 p-2 text-left rounded-md transition-all duration-300 border border-transparent group"
+                        class="w-full flex items-center gap-2 p-2 text-left rounded-md transition-all duration-300 border border-transparent group disabled:opacity-50 disabled:cursor-not-allowed"
                         :class="currentLibraryId === group.library_id
                             ? 'bg-gradient-to-r from-amber-500/15 via-amber-400/10 to-transparent border-amber-400/50 shadow-[0_0_18px_rgba(212,175,55,0.18)]'
                             : 'hover:bg-amber-400/5 hover:border-amber-400/20'"
+                        :disabled="exhibitSwitchBlocked"
                         @click="selectLibrary(group.library_id)"
                     >
                         <span class="w-5 text-center font-serif text-[10px] text-amber-300/70 tracking-widest">
@@ -434,6 +520,7 @@ onMounted(() => {
                         </h2>
                     </div>
                     <button
+                        v-if="hasSceneViewer"
                         type="button"
                         class="pointer-events-auto flex flex-col items-center gap-0.5 py-2 px-3 rounded-lg border border-amber-400/40 backdrop-blur-md transition-all hover:border-amber-300 hover:bg-amber-400/10 active:scale-95"
                         :class="autoRotate ? 'text-amber-300 bg-amber-500/15' : 'text-amber-100/70 bg-stone-900/40'"
@@ -458,10 +545,11 @@ onMounted(() => {
                                 v-for="(v, i) in currentVideoList"
                                 :key="v.video_id"
                                 type="button"
-                                class="px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap transition-all duration-300 border"
+                                class="px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap transition-all duration-300 border disabled:opacity-50 disabled:cursor-not-allowed"
                                 :class="currentVideoId === v.video_id
                                     ? 'bg-amber-400 text-stone-900 border-amber-300 shadow-[0_0_12px_rgba(212,175,55,0.6)]'
                                     : 'text-amber-100/80 border-transparent hover:bg-amber-400/10 hover:text-amber-200'"
+                                :disabled="exhibitSwitchBlocked"
                                 @click="selectVideo(v)"
                             >
                                 {{ v.title || `版型 ${String(i + 1).padStart(2, '0')}` }}
@@ -470,24 +558,42 @@ onMounted(() => {
                     </div>
                 </div>
 
-                <!-- 3D 区域 -->
+                <div
+                    v-if="hasSceneViewer && (sceneLoadState.loading || modelLoading)"
+                    class="absolute inset-0 z-20 flex flex-col items-center justify-center bg-stone-950/55 backdrop-blur-sm pointer-events-none"
+                >
+                    <div class="spinner-gold" />
+                    <p
+                        v-if="sceneLoadState.progress.total > 0"
+                        class="mt-3 text-[10px] tracking-[0.3em] text-amber-200/70 font-serif"
+                    >
+                        {{ sceneLoadState.progress.current }} / {{ sceneLoadState.progress.total }}
+                    </p>
+                </div>
+
+                <!-- 3D 区域：常驻组件 + v-show，切换时仅 clearSceneContent 复用 WebGL -->
                 <client-only>
                     <SPZModelViewerContent
-                        v-show="(sceneJson && sceneJson.objects && sceneJson.objects.length > 0) || modelList.length > 0"
+                        ref="spzViewerRef"
+                        v-show="hasSceneViewer"
+                        class="w-full h-full"
                         :model-list="modelList"
                         :laxian-list="laxianList"
                         :scene-json="sceneJson"
                         :auto-rotate="autoRotate"
                         :background-color="0x140e08"
                         :show-loading-mask="false"
+                        @load-state-change="onSceneLoadStateChange"
                     />
-                    <!-- <div
-                        v-else
+                    <div
+                        v-if="!hasSceneViewer"
                         class="w-full h-full flex flex-col items-center justify-center text-amber-200/50 font-serif"
                     >
                         <UIcon name="i-heroicons-cube-transparent" class="text-7xl mb-3 text-amber-400/40" />
-                        <p class="text-sm tracking-[0.3em]">{{ allVideosLoading || modelLoading ? 'LOADING…' : 'NO EXHIBIT SELECTED' }}</p>
-                    </div> -->
+                        <p class="text-sm tracking-[0.3em]">
+                            {{ allVideosLoading || modelLoading || currentLibraryLoading ? 'LOADING…' : 'NO EXHIBIT SELECTED' }}
+                        </p>
+                    </div>
                 </client-only>
 
                 <!-- 加载错误 -->
@@ -688,6 +794,17 @@ onMounted(() => {
 .museum-panel-header .ornament:first-child::after {
     left: -3px;
     right: auto;
+}
+
+/* 左侧店铺信息：固定占位，切换店主时下方藏品列表不跳动 */
+.exhibition-shop-panel {
+    height: 13.75rem;
+    flex-shrink: 0;
+}
+.exhibition-shop-panel__body {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
 }
 
 /* 中部展示舞台 */

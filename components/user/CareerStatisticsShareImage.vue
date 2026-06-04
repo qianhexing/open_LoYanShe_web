@@ -396,15 +396,6 @@ function drawShareCanvas(payload: CareerSharePayload): HTMLCanvasElement {
 async function generateAndUpload() {
   if (!import.meta.client || generating.value) return
   errorMsg.value = ''
-  ctx.textAlign = 'center'
-  ctx.fillText('Lo研社 · 生涯统计', CW / 2, CH - P)
-
-  return canvas
-}
-
-async function generateAndUpload() {
-  if (!import.meta.client || generating.value) return
-  errorMsg.value = ''
   serverRelativeUrl.value = ''
   showSharePreviewModal.value = false
   const payload = props.payload

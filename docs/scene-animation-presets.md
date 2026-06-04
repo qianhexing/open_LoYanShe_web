@@ -243,6 +243,7 @@ buildEffect(params, obj) {
 | `rotate360` | 旋转 | Y 轴 360°，`repeat: -1`，单圈 4s，线性 |
 | `floatUp` | 上浮 | Y 上移 0.4，往返无限 |
 | `floatDown` | 下沉 | Y 下移 0.4，往返无限 |
+| `swayRotateZ` | 左右摇摆 | Z 轴 ±12°，往返无限 |
 | `swayX` | 左右 | X 偏移 0.5，往返无限 |
 | `swayZ` | 前后 | Z 偏移 0.5，往返无限 |
 | `riseOnce` | 升起 | Y 上移 1，播放一次 |

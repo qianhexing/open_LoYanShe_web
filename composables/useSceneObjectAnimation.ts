@@ -36,14 +36,10 @@ export function ensureObjectEffectList(obj: THREE.Object3D): SceneEffectJSON[] {
 function replayAllAnimations(
 	core: ThreeCore,
 	obj: THREE.Object3D,
-	list: SceneEffectJSON[]
+	_list: SceneEffectJSON[]
 ) {
-	core.killObjectGsapAnimations(obj)
-	for (const e of list) {
-		if (isGsapAnimationEffect(e)) {
-			core.applyAnimation(obj, e)
-		}
-	}
+	core.ensureAnimationBaseTransform(obj)
+	core.reapplyGsapAnimations(obj)
 }
 
 function normalizeAnimationEffects(obj: THREE.Object3D) {

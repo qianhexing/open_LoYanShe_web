@@ -258,6 +258,37 @@ export const SCENE_ANIMATION_PRESETS: SceneAnimationPreset[] = [
 		}
 	},
 	{
+		id: 'swayRotateZ',
+		label: '左右摇摆',
+		icon: 'material-symbols:screen-rotation-alt',
+		category: 'rotate',
+		paramDefs: mergeParamDefs(
+			{
+				key: 'angle',
+				label: '角度(°)',
+				type: 'number',
+				default: 12,
+				min: 1,
+				max: 90,
+				step: 1
+			},
+			{ key: 'duration', label: '时长(秒)', type: 'number', default: 1.5, min: 0.2, max: 30, step: 0.1 },
+			{ key: 'repeat', label: '重复', type: 'number', default: -1, min: -1, max: 100, step: 1 },
+			{ key: 'yoyo', label: '往返', type: 'boolean', default: true }
+		),
+		buildEffect(params, obj) {
+			const deg = num(params, 'angle', 12)
+			const rad = (deg * Math.PI) / 180
+			return {
+				type: 'animation',
+				preset: 'swayRotateZ',
+				options: { ...params },
+				properties: { 'rotation.z': obj.rotation.z + rad },
+				...timingFromParams(params, { duration: num(params, 'duration', 1.5), repeat: -1, yoyo: true })
+			}
+		}
+	},
+	{
 		id: 'swayX',
 		label: '左右',
 		icon: 'material-symbols:swap-horiz',

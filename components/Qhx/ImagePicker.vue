@@ -42,7 +42,7 @@
               class="flex flex-col items-center transition-transform duration-300 ease-out hover:scale-105 py-[10px] px-[15px] max-md:px-[5px]"
             >
               <div
-                class="w-full aspect-[1/1] relative shadow-xl rounded-xl border border-gray-200 bg-gray-50/90 overflow-hidden"
+                class="picker-square w-full relative shadow-xl rounded-xl border border-gray-200 bg-gray-50/90 overflow-hidden"
               >
                 <input
                   ref="fileInput"
@@ -80,9 +80,9 @@
             class="[@media(min-width:1920px)]:w-[calc(100%/4)] xl:w-1/4 md:w-1/4 max-md:w-1/3" name="list">
             <div
               class="group drag-handle flex flex-col items-center transition-transform duration-300 ease-out hover:scale-105 py-[10px] px-[15px] max-md:px-[5px]">
-              <div class="w-full aspect-[1/1] relative shadow-xl">
+              <div class="picker-square w-full relative shadow-xl">
                 <img :src="element.url" draggable="false"
-                  class="object-cover w-full aspect-[1/1] max-md:aspect-[1/1] rounded-xl border border-gray-200 cursor-grab active:cursor-grabbing"
+                  class="absolute inset-0 h-full w-full object-cover rounded-xl border border-gray-200 cursor-grab active:cursor-grabbing"
                   style="-webkit-touch-callout: none; -webkit-user-select: none; user-select: none;"
                   loading="lazy">
                 </img>
@@ -452,6 +452,12 @@ defineExpose({
 </script>
 
 <style scoped>
+/* 1:1 占位：旧版 WebView（如 HarmonyOS 3）不支持 aspect-ratio 时会高度塌缩 */
+.picker-square {
+  height: 0;
+  padding-bottom: 100%;
+}
+
 /* 禁止手机浏览器的长按事件 */
 .no-long-press {
   /* -webkit-touch-callout: none;

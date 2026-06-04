@@ -3102,7 +3102,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
             @mousedown="opearClothesId = element.clothes_id"
             @touchstart.passive="opearClothesId = element.clothes_id"
             @click="selectMode ? toggleClothesSelection(element) : jumpToClothes(element)">
-            <div class="wardrobe-neu-item w-full aspect-[1/1] relative">
+            <div class="wardrobe-neu-item wardrobe-aspect-square w-full relative">
               <div
                 class="absolute left-0 top-0 z-10 rounded-tl-[6px] rounded-br-[6px] px-1 py-[1px] text-[10px] leading-none text-white flex items-center"
                 :class="getWardrobeStatusBgClass(element.wardrobe_status)"
@@ -3170,7 +3170,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
                 <img
                   :src="`${BASE_IMG}${element.clothes_img}?x-oss-process=image/quality,q_100/resize,w_300`"
                   draggable="false"
-                  class="wardrobe-detail-img block w-full cursor-grab object-cover aspect-[1/1.5] max-md:aspect-[1/1] active:cursor-grabbing"
+                  class="wardrobe-detail-img block w-full cursor-grab object-cover active:cursor-grabbing"
                   :loading="wardrobeImgLoadingMode(element.clothes_img)"
                   decoding="async"
                   @load="markWardrobeImgLoaded(element.clothes_img)"
@@ -4147,6 +4147,33 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
   contain-intrinsic-size: none;
 }
 
+/* aspect-ratio 兜底：HarmonyOS 3 等旧 WebView 不支持时避免封面高度塌缩、虚拟列表滚动闪烁 */
+.wardrobe-aspect-square {
+  width: 100%;
+  height: 0;
+  padding-bottom: 100%;
+  overflow: hidden;
+}
+@supports (aspect-ratio: 1) {
+  .wardrobe-aspect-square {
+    height: auto;
+    padding-bottom: 0;
+    aspect-ratio: 1 / 1;
+  }
+}
+.wardrobe-aspect-square > .wardrobe-neu-photo {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+.wardrobe-neu-photo .wardrobe-detail-img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
 /* —— 服饰封面：整体浮起 + 相框内凹 —— */
 .wardrobe-page-neu .wardrobe-neu-item {
   filter:
@@ -4445,8 +4472,17 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
 
 .timeline-tarot-image-wrap {
   position: relative;
-  aspect-ratio: 3 / 4;
+  width: 100%;
+  height: 0;
+  padding-bottom: 133.333%;
   overflow: hidden;
+}
+@supports (aspect-ratio: 1) {
+  .timeline-tarot-image-wrap {
+    height: auto;
+    padding-bottom: 0;
+    aspect-ratio: 3 / 4;
+  }
 }
 
 /* 透明遮罩盖在图片上拦截触摸，避免长按命中 <img> 触发系统菜单；配合 CSS 与 @contextmenu.prevent */
@@ -4491,7 +4527,9 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
   user-select: none;
 }
 
-.timeline-tarot-img {
+.timeline-tarot-image-wrap .timeline-tarot-img {
+  position: absolute;
+  inset: 0;
   height: 100%;
   width: 100%;
   object-fit: cover;

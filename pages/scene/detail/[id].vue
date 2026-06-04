@@ -2867,6 +2867,7 @@ const handleUndo = () => {
     if (!threeCore.value || !canUndo.value) return
     const undoneObj = performUndo(threeCore.value.scene)
     if (undoneObj) {
+        threeCore.value.syncAnimationBaseTransform(undoneObj)
         threeCore.value.reapplyGsapAnimations(undoneObj)
         bumpTextureReplaceableScan()
         toast.add({ title: '已撤销', icon: 'i-heroicons-arrow-uturn-left' })
@@ -2955,6 +2956,7 @@ const initThreejs = async () => {
                     pendingTransformState.value = null
                 }
                 if (obj?.userData?.effect?.length) {
+                    threeCore.value?.syncAnimationBaseTransform(obj)
                     threeCore.value?.reapplyGsapAnimations(obj)
                 }
             }
