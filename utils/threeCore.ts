@@ -25,8 +25,10 @@ import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js'
 import { GammaCorrectionShader } from 'three/examples/jsm/shaders/GammaCorrectionShader.js'
 import gsap from 'gsap'
 import {
+	hasGsapAnimationEffects,
 	normalizeRotationForStorage,
-	resolveAnimationEffect
+	resolveAnimationEffect,
+	toStoredAnimationEffect
 } from '@/utils/sceneAnimationPresets'
 import { normalizeSceneObjectLinks } from '@/utils/sceneObjectLink'
 import {
@@ -200,6 +202,8 @@ export interface AnimationBaseTransform {
 	position: [number, number, number]
 	rotation: [number, number, number]
 	scale: [number, number, number]
+	/** TransformControls 以 quaternion 驱动旋转，保存完整四元数避免 euler 偏差 */
+	quaternion?: [number, number, number, number]
 }
 
 interface TextureTransform {
@@ -603,16 +607,6 @@ class ThreeCore {
 	private readonly clipBoundsSize = new THREE.Vector3()
 	private readonly clipTargetFallback = new THREE.Vector3()
 
-	/** 方向光阴影相机动态适配 */
-	private readonly shadowBoundsBox = new THREE.Box3()
-	private readonly shadowBoundsSize = new THREE.Vector3()
-	private readonly shadowFocusTarget = new THREE.Vector3()
-	private readonly shadowLightOffset = new THREE.Vector3()
-	private mainLightAzimuth = 45
-	private mainLightElevation = 45
-	private mainLightRadius = 100
-	private lastShadowCameraKey = ''
-
 	// bloom
 	bloomLayer = new THREE.Layers()
 	bloomPass!: UnrealBloomPass
@@ -889,131 +883,26 @@ class ThreeCore {
 	 * @param radius 距离 (默认100)
 	 */
 	setMainLightPosition(azimuth: number, elevation: number, radius = 100) {
-		if (!this.lights?.directional) return
+		if (this.lights?.directional) {
+			const theta = (azimuth * Math.PI) / 180
+			const phi = (elevation * Math.PI) / 180
 
-		this.mainLightAzimuth = azimuth
-		this.mainLightElevation = elevation
-		this.mainLightRadius = radius
+			// 转换为笛卡尔坐标
+			const x = radius * Math.cos(phi) * Math.sin(theta)
+			const y = radius * Math.sin(phi)
+			const z = radius * Math.cos(phi) * Math.cos(theta)
 
-		this.lastShadowCameraKey = ''
-		this.updateDirectionalShadowCamera(true)
+			this.lights.directional.position.set(x, y, z)
 
-		// 如果有阴影，可能需要更新 shadow map
-		if (this.lights.directional.shadow.map) {
-			this.lights.directional.shadow.map.dispose()
-			this.lights.directional.shadow.map = null!
-		}
-	}
+			// 确保光源看向原点
+			this.lights.directional.lookAt(0, 0, 0)
 
-	/** 阴影聚焦点：优先 orbit 目标，否则原点 */
-	private getShadowFocusTarget(out = this.shadowFocusTarget): THREE.Vector3 {
-		if (
-			this.controls &&
-			'target' in this.controls &&
-			this.controls.target instanceof THREE.Vector3
-		) {
-			out.copy(this.controls.target)
-		} else {
-			out.set(0, 0, 0)
-		}
-		return out
-	}
-
-	/** 将主方向光置于聚焦点上方（球坐标偏移） */
-	private applyMainLightPositionToFocus(focus: THREE.Vector3) {
-		if (!this.lights?.directional) return
-		const dirLight = this.lights.directional
-		const theta = (this.mainLightAzimuth * Math.PI) / 180
-		const phi = (this.mainLightElevation * Math.PI) / 180
-		const x = this.mainLightRadius * Math.cos(phi) * Math.sin(theta)
-		const y = this.mainLightRadius * Math.sin(phi)
-		const z = this.mainLightRadius * Math.cos(phi) * Math.cos(theta)
-		this.shadowLightOffset.set(x, y, z)
-		dirLight.position.copy(focus).add(this.shadowLightOffset)
-		dirLight.target.position.copy(focus)
-		if (!dirLight.target.parent && this.scene) {
-			this.scene.add(dirLight.target)
-		}
-	}
-
-	/**
-	 * 动态适配方向光阴影相机：跟随相机焦点与可见范围，缓解近距离阴影消失与固定 frustum 精度问题。
-	 */
-	updateDirectionalShadowCamera(force = false) {
-		const dirLight = this.lights?.directional
-		if (
-			!dirLight?.castShadow ||
-			!this.isShadowMapEnabled() ||
-			!this.camera ||
-			!this.scene
-		) {
-			return
-		}
-
-		const focus = this.getShadowFocusTarget()
-		this.applyMainLightPositionToFocus(focus)
-
-		const shadowCam = dirLight.shadow.camera as THREE.OrthographicCamera
-		const cam = this.camera
-		const distance = Math.max(cam.position.distanceTo(focus), 0.01)
-
-		let viewWidth: number
-		let viewHeight: number
-		if (cam instanceof THREE.PerspectiveCamera) {
-			const fovRad = THREE.MathUtils.degToRad(cam.fov)
-			viewHeight = 2 * Math.tan(fovRad / 2) * distance
-			viewWidth = viewHeight * cam.aspect
-		} else if (cam instanceof THREE.OrthographicCamera) {
-			viewWidth = (cam.right - cam.left) / cam.zoom
-			viewHeight = (cam.top - cam.bottom) / cam.zoom
-		} else {
-			viewWidth = viewHeight = 20
-		}
-
-		let sceneHalfExtent = 0
-		this.shadowBoundsBox.makeEmpty()
-		if (this.allObjects?.length) {
-			for (const obj of this.allObjects) {
-				if (obj.visible) this.shadowBoundsBox.expandByObject(obj)
+			// 如果有阴影，可能需要更新 shadow map
+			if (this.lights.directional.shadow.map) {
+				this.lights.directional.shadow.map.dispose()
+				this.lights.directional.shadow.map = null!
 			}
-		} else {
-			this.shadowBoundsBox.setFromObject(this.scene)
 		}
-		if (!this.shadowBoundsBox.isEmpty()) {
-			this.shadowBoundsBox.getSize(this.shadowBoundsSize)
-			sceneHalfExtent = Math.max(
-				this.shadowBoundsSize.x,
-				this.shadowBoundsSize.y,
-				this.shadowBoundsSize.z
-			)
-		}
-
-		const margin = 1.35
-		const halfW = (viewWidth * margin) / 2
-		const halfH = (viewHeight * margin) / 2
-		// 近距离时保证最小覆盖范围，避免阴影投射体被裁切
-		const minExtent = Math.max(distance * 0.25, 0.75)
-		const halfExtent = Math.max(
-			halfW,
-			halfH,
-			sceneHalfExtent * 0.35,
-			minExtent
-		)
-
-		const near = 0.01
-		const far = Math.max(distance + sceneHalfExtent + 30, near * 20)
-
-		const key = `${focus.x.toFixed(1)},${focus.y.toFixed(1)},${focus.z.toFixed(1)},${halfExtent.toFixed(2)},${near},${far.toFixed(1)}`
-		if (!force && key === this.lastShadowCameraKey) return
-		this.lastShadowCameraKey = key
-
-		shadowCam.left = -halfExtent
-		shadowCam.right = halfExtent
-		shadowCam.top = halfExtent
-		shadowCam.bottom = -halfExtent
-		shadowCam.near = near
-		shadowCam.far = far
-		shadowCam.updateProjectionMatrix()
 	}
 
 	/**
@@ -1025,33 +914,33 @@ class ThreeCore {
 		const qualitySettings = {
 			low: {
 				mapSize: 512,
-				bias: -0.001,
-				normalBias: 0.015,
+				bias: -0.004,
+				normalBias: 0.05,
 				radius: 2,
 				blurSamples: 4,
 				castShadow: { directional: true, lens: false, spot: false }
 			},
 			medium: {
 				mapSize: 1024,
-				bias: -0.0005,
-				normalBias: 0.008,
-				radius: 2.5,
+				bias: -0.002,
+				normalBias: 0.03,
+				radius: 3,
 				blurSamples: 8,
 				castShadow: { directional: true, lens: false, spot: true }
 			},
 			high: {
 				mapSize: 2048,
-				bias: -0.00015,
-				normalBias: 0.004,
-				radius: 2,
-				blurSamples: 16,
+				bias: -0.0005,
+				normalBias: 0.02,
+				radius: 4,
+				blurSamples: 26,
 				castShadow: { directional: true, lens: true, spot: true }
 			},
 			ultra: {
 				mapSize: 4096,
-				bias: -0.00008,
-				normalBias: 0.002,
-				radius: 2.5,
+				bias: -0.0001,
+				normalBias: 0.01,
+				radius: 5,
 				blurSamples: 20,
 				castShadow: { directional: true, lens: true, spot: true }
 			}
@@ -1076,8 +965,6 @@ class ThreeCore {
 					light.shadow.map = null!
 				}
 			}
-			this.lastShadowCameraKey = ''
-			this.updateDirectionalShadowCamera(true)
 		}
 
 		// 2. 更新镜头光 (LensLight)
@@ -2948,10 +2835,6 @@ class ThreeCore {
 	setShadowMapEnabled(enabled: boolean): void {
 		if (this.supportsShadowMap()) {
 			;(this.renderer as THREE.WebGLRenderer).shadowMap.enabled = enabled
-			if (enabled) {
-				this.lastShadowCameraKey = ''
-				this.updateDirectionalShadowCamera(true)
-			}
 		}
 	}
 
@@ -3295,6 +3178,13 @@ class ThreeCore {
 			if (this.controls && 'enabled' in this.controls) {
 				this.controls.enabled = !event.value
 			}
+			const obj = this.transformControls.object as THREE.Object3D | undefined
+			if (!obj) return
+			if (event.value) {
+				this.onObjectTransformDragStart(obj)
+			} else {
+				this.onObjectTransformManuallyChanged(obj)
+			}
 		})
 		// restyleGizmo(this.transformControls, {
 		// 	x: 0xff3b30,   // X轴颜色
@@ -3409,20 +3299,19 @@ class ThreeCore {
 		// 高质量阴影配置 - 解决阴影条纹问题
 		dirLight.shadow.mapSize.width = 2048
 		dirLight.shadow.mapSize.height = 2048
-		dirLight.shadow.camera.near = 0.01
+		dirLight.shadow.camera.near = 0.1
 		dirLight.shadow.camera.far = 200
 		dirLight.shadow.camera.left = -20
 		dirLight.shadow.camera.right = 20
 		dirLight.shadow.camera.top = 20
 		dirLight.shadow.camera.bottom = -20
 
-		// 较低 bias/normalBias，避免近距离接触阴影被推开消失
-		dirLight.shadow.bias = -0.00015
-		dirLight.shadow.normalBias = 0.004
-		dirLight.shadow.radius = 2
-		dirLight.shadow.blurSamples = 16
+		// 关键：减少阴影条纹的bias设置
+		dirLight.shadow.bias = -0.001
+		dirLight.shadow.normalBias = 0.02
+		dirLight.shadow.radius = 4
+		dirLight.shadow.blurSamples = 20
 		this.scene.add(dirLight)
-		this.scene.add(dirLight.target)
 
 		// 半球光 - 模拟天空散射和地面反射
 		const hemiLight = new THREE.HemisphereLight(
@@ -4538,7 +4427,6 @@ class ThreeCore {
 			}
 
 			this.updateCameraClipPlanes()
-			this.updateDirectionalShadowCamera()
 
 			// 更新高斯泼溅查看器
 			if (this.splatViewer) {
@@ -5271,22 +5159,26 @@ class ThreeCore {
 			})()
 
 			if (!typeGuess) return
+			this.prepareObjectTransformForSave(obj)
+			const effects = obj.userData.effect as SceneEffectJSON[] | undefined
+			const useBaseTransform = hasGsapAnimationEffects(effects)
 			const base = obj.userData._animationBaseTransform as
 				| AnimationBaseTransform
 				| undefined
-			const position: [number, number, number] = base
-				? [...base.position]
-				: [obj.position.x, obj.position.y, obj.position.z]
-			const effects = obj.userData.effect as SceneEffectJSON[] | undefined
+			const position: [number, number, number] =
+				useBaseTransform && base
+					? [...base.position]
+					: [obj.position.x, obj.position.y, obj.position.z]
 			const rotation: [number, number, number] = normalizeRotationForStorage(
-				base
+				useBaseTransform && base
 					? [...base.rotation]
 					: [obj.rotation.x, obj.rotation.y, obj.rotation.z],
 				effects
 			)
-			const scale: [number, number, number] = base
-				? [...base.scale]
-				: [obj.scale.x, obj.scale.y, obj.scale.z]
+			const scale: [number, number, number] =
+				useBaseTransform && base
+					? [...base.scale]
+					: [obj.scale.x, obj.scale.y, obj.scale.z]
 			const renderOrder = obj.renderOrder
 
 			const jsonObj: SceneObjectJSON = {
@@ -5355,7 +5247,12 @@ class ThreeCore {
 				}
 			}
 			if (obj.userData.effect && obj.userData.effect.length > 0) {
-				jsonObj.effect = obj.userData.effect
+				jsonObj.effect = (obj.userData.effect as SceneEffectJSON[]).map(
+					e =>
+						e.type === 'animation' || e.preset
+							? toStoredAnimationEffect(e)
+							: { ...e }
+				)
 			}
 			if (typeGuess === 'image') {
 				jsonObj.url = obj.userData.url.replace(BASE_IMG, '')
@@ -6002,7 +5899,13 @@ class ThreeCore {
 		obj.userData._animationBaseTransform = {
 			position: [obj.position.x, obj.position.y, obj.position.z],
 			rotation: [obj.rotation.x, obj.rotation.y, obj.rotation.z],
-			scale: [obj.scale.x, obj.scale.y, obj.scale.z]
+			scale: [obj.scale.x, obj.scale.y, obj.scale.z],
+			quaternion: [
+				obj.quaternion.x,
+				obj.quaternion.y,
+				obj.quaternion.z,
+				obj.quaternion.w
+			]
 		} satisfies AnimationBaseTransform
 	}
 
@@ -6012,8 +5915,39 @@ class ThreeCore {
 			| undefined
 		if (!base) return
 		obj.position.set(...base.position)
-		obj.rotation.set(...base.rotation)
+		if (base.quaternion) {
+			obj.quaternion.set(...base.quaternion)
+		} else {
+			obj.rotation.set(...base.rotation)
+		}
 		obj.scale.set(...base.scale)
+	}
+
+	/** 拖拽开始：暂停 GSAP 并回到基准姿态，避免动效与 TransformControls 争抢变换 */
+	onObjectTransformDragStart(obj: THREE.Object3D) {
+		const effects = obj.userData.effect as SceneEffectJSON[] | undefined
+		if (!hasGsapAnimationEffects(effects)) return
+		this.ensureAnimationBaseTransform(obj)
+		this.killObjectGsapAnimations(obj)
+		this.restoreAnimationBaseTransform(obj)
+	}
+
+	/** 拖拽结束 / 手动变换完成：以当前姿态更新基准，并重播 GSAP 动效 */
+	onObjectTransformManuallyChanged(obj: THREE.Object3D) {
+		this.syncAnimationBaseTransform(obj)
+		if (hasGsapAnimationEffects(obj.userData.effect as SceneEffectJSON[] | undefined)) {
+			this.reapplyGsapAnimations(obj)
+		}
+	}
+
+	/** 保存前整理变换：无 GSAP 动效时清除过期基准，有动效时确保基准存在 */
+	prepareObjectTransformForSave(obj: THREE.Object3D) {
+		const effects = obj.userData.effect as SceneEffectJSON[] | undefined
+		if (!hasGsapAnimationEffects(effects)) {
+			delete obj.userData._animationBaseTransform
+			return
+		}
+		this.ensureAnimationBaseTransform(obj)
 	}
 
 	/** 在物体变换已就绪后重播 GSAP 动效（加载场景、手动改旋转后调用） */
@@ -6021,8 +5955,11 @@ class ThreeCore {
 		this.killObjectGsapAnimations(obj)
 		this.restoreAnimationBaseTransform(obj)
 		const effects = obj.userData.effect as SceneEffectJSON[] | undefined
-		if (!Array.isArray(effects) || effects.length === 0) return
-		for (const effect of effects) {
+		if (!hasGsapAnimationEffects(effects)) {
+			delete obj.userData._animationBaseTransform
+			return
+		}
+		for (const effect of effects ?? []) {
 			if (effect.type === 'animation' || effect.preset) {
 				this.applyAnimation(obj, effect)
 			}

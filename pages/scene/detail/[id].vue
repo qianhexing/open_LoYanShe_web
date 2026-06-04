@@ -2867,8 +2867,7 @@ const handleUndo = () => {
     if (!threeCore.value || !canUndo.value) return
     const undoneObj = performUndo(threeCore.value.scene)
     if (undoneObj) {
-        threeCore.value.syncAnimationBaseTransform(undoneObj)
-        threeCore.value.reapplyGsapAnimations(undoneObj)
+        threeCore.value.onObjectTransformManuallyChanged(undoneObj)
         bumpTextureReplaceableScan()
         toast.add({ title: '已撤销', icon: 'i-heroicons-arrow-uturn-left' })
     }
@@ -2933,8 +2932,8 @@ const initThreejs = async () => {
             applyLightPreset('default', true)
         }
 
-        // 编辑模式下：监听变换控件的拖拽，记录撤销状态（预留扩展其他操作）
-        if (threeCore.value && edit_mode.value) {
+		// 编辑/新增模式下：监听变换控件拖拽，记录撤销状态
+        if (threeCore.value && (edit_mode.value || add_mode.value)) {
             const tc = threeCore.value.transformControls
             const onMouseDown = () => {
                 const obj = (tc as { object?: THREE.Object3D }).object
@@ -2946,7 +2945,6 @@ const initThreejs = async () => {
                 }
             }
             const onMouseUp = () => {
-                const obj = (tc as { object?: THREE.Object3D }).object
                 if (pendingTransformState.value) {
                     pushTransformUndo(
                         pendingTransformState.value.objectUuid,
@@ -2954,10 +2952,6 @@ const initThreejs = async () => {
                         '移动/缩放/旋转'
                     )
                     pendingTransformState.value = null
-                }
-                if (obj?.userData?.effect?.length) {
-                    threeCore.value?.syncAnimationBaseTransform(obj)
-                    threeCore.value?.reapplyGsapAnimations(obj)
                 }
             }
             tc.addEventListener('mouseDown', onMouseDown)

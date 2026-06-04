@@ -395,6 +395,15 @@ export function presetLabel(presetId: string): string {
 	return getSceneAnimationPreset(presetId)?.label ?? presetId
 }
 
+export function hasGsapAnimationEffects(
+	effects: SceneEffectJSON[] | undefined
+): boolean {
+	return (
+		Array.isArray(effects)
+		&& effects.some(e => e.type === 'animation' || Boolean(e.preset))
+	)
+}
+
 export function toStoredAnimationEffect(effect: SceneEffectJSON): SceneEffectJSON {
 	const { properties: _p, ...stored } = effect
 	return stored
