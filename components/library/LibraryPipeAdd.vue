@@ -13,8 +13,6 @@ const ColorPickerRef = ref<InstanceType<typeof QhxColorPicker> | null>(null)
 import type { default as QhxSelect, optionsInterface } from '@/components/Qhx/Select.vue'
 import type customInput from '../Clothes/customInput.vue'
 const detailImageRef = ref<InstanceType<typeof QhxImagePicker> | null>(null)
-import VueDatePicker from '@vuepic/vue-datepicker'
-import '@vuepic/vue-datepicker/dist/main.css'
 import { uploadImage } from '@/api';
 import { insertLibraryPipe, type PipeInsertParams } from '@/api/library'
 import dayjs from 'dayjs'
@@ -53,8 +51,14 @@ const loading = ref(false)
 const type = ref(0) // 0 添加 1 编辑
 const toast = useToast()
 
-const form = ref({
-  start_time: undefined,
+const form = ref<{
+  startDate: string | null
+  endDate: string | null
+  state: string | undefined
+  note: string
+}>({
+  startDate: null,
+  endDate: null,
   state: undefined,
   note: '',
 })
@@ -123,7 +127,8 @@ const closeModel = () => {
 }
 const initData = () => {
   form.value = {
-    start_time: undefined,
+    startDate: null,
+    endDate: null,
     state: undefined,
     note: '',
   }
@@ -158,7 +163,7 @@ const insert = async () => {
     })
     return
   }
-  if (!form.value.start_time) {
+  if (!form.value.startDate || !form.value.endDate) {
     toast.add({
       title: '错误',
       description: '请选择起止时间',
@@ -166,7 +171,8 @@ const insert = async () => {
     })
     return
   }
-  const [start_time, end_time] = form.value.start_time as [string, string]
+  const start_time = form.value.startDate
+  const end_time = form.value.endDate
   if (start_time > end_time) {
     toast.add({
       title: '错误',
@@ -237,8 +243,19 @@ defineExpose({
           </UButton>
         </UFormGroup>
         <UFormGroup label="起止时间">
-          <div class="col-span-9 space-y-2">
-            <VueDatePicker v-model="form.start_time" :enable-time-picker="true" :range="true" format="MM/dd/yyyy" />
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <QhxDateTimePicker
+              v-model="form.startDate"
+              placeholder="开始日期"
+              :enable-time-picker="false"
+              format="YYYY-MM-DD"
+            />
+            <QhxDateTimePicker
+              v-model="form.endDate"
+              placeholder="结束日期"
+              :enable-time-picker="false"
+              format="YYYY-MM-DD"
+            />
           </div>
         </UFormGroup>
         <UFormGroup label="工作流状态" name="state" required>

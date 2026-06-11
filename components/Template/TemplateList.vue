@@ -17,7 +17,8 @@ const getList = async () => {
   try {
     const response = await getTemplateList({
       page: page.value,
-      pageSize: pageSize
+      pageSize: pageSize,
+      ...(props.pkType != null ? { pk_type: props.pkType } : {})
     })
     if (page.value === 1) {
       list.value = response.rows ?? []
@@ -79,9 +80,12 @@ const showToast = () => {
 }
 interface Props {
   compact?: boolean // 紧凑模式
+  /** 模版类型筛选，如社区主题 pk_type=1 */
+  pkType?: number
 }
 const props = withDefaults(defineProps<Props>(), {
-  compact: false
+  compact: false,
+  pkType: undefined
 })
 
 const emit = defineEmits(['choose'])

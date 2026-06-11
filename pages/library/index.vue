@@ -1520,7 +1520,7 @@ onMounted(async () => {
         rows: response.rows,
         count: response.count
       }
-    }" :columns="4" :itemKey="0" :columns_768="2" :enableWaterfall="true" :enableLoadMore="true">
+    }" :columns="5" :itemKey="0" :columns_768="2" :enableWaterfall="true" :enableLoadMore="true">
       <template #default="{ item, debouncedApplyLayout }">
         <!-- 自定义内容 -->
         <div class="custom-item" :key="item.library_id">

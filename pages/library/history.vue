@@ -6,6 +6,19 @@ import { useToast } from '#imports'
 import dayjs from 'dayjs'
 import QhxTag from '~/components/Qhx/Tag.vue'
 import QhxPreviewImage from '~/components/Qhx/PreviewImage.vue'
+import { BASE_IMG } from '@/utils/ipConfig'
+
+interface LibrarySkuRecord {
+  library_pattern: string
+  library_price?: number | null
+  cover?: string | null
+}
+
+interface PatternListItem {
+  library_pattern: string
+  library_price?: number
+  cover?: string
+}
 
 const route = useRoute()
 const router = useRouter()
@@ -135,6 +148,105 @@ const hasValue = (value: unknown): boolean => {
 const splitComma = (str: string | null | undefined): string[] => {
   if (!str) return []
   return String(str).split(',').filter(item => item.trim())
+}
+
+const parseLibraryJsonData = (jsonData: unknown): Record<string, unknown> => {
+  if (jsonData == null) return {}
+  if (typeof jsonData === 'string') {
+    try {
+      const parsed = JSON.parse(jsonData)
+      return typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)
+        ? (parsed as Record<string, unknown>)
+        : {}
+    } catch {
+      return {}
+    }
+  }
+  if (typeof jsonData === 'object' && !Array.isArray(jsonData)) {
+    return jsonData as Record<string, unknown>
+  }
+  return {}
+}
+
+const extractSkuListFromJsonData = (jsonData: unknown): LibrarySkuRecord[] => {
+  const data = parseLibraryJsonData(jsonData)
+  const raw = data.sku
+  let list: unknown[] = []
+  if (Array.isArray(raw)) {
+    list = raw
+  } else if (typeof raw === 'string') {
+    try {
+      const parsed = JSON.parse(raw)
+      if (Array.isArray(parsed)) list = parsed
+    } catch {
+      return []
+    }
+  }
+  return list
+    .map((item): LibrarySkuRecord | null => {
+      if (!item || typeof item !== 'object' || !('library_pattern' in item)) return null
+      const record = item as LibrarySkuRecord
+      const pattern = String(record.library_pattern ?? '').trim()
+      if (!pattern) return null
+      const cover = record.cover != null ? String(record.cover).trim() : null
+      return {
+        library_pattern: pattern,
+        library_price: record.library_price != null ? Number(record.library_price) : null,
+        cover: cover || null
+      }
+    })
+    .filter((item): item is LibrarySkuRecord => item != null)
+}
+
+const serializeSkuForCompare = (jsonData: unknown) => {
+  return JSON.stringify(
+    extractSkuListFromJsonData(jsonData)
+      .map((item) => ({
+        library_pattern: item.library_pattern,
+        library_price: item.library_price ?? null,
+        cover: item.cover ?? null
+      }))
+      .sort((a, b) => a.library_pattern.localeCompare(b.library_pattern))
+  )
+}
+
+const parsePatternListFromParams = (params: Library): PatternListItem[] => {
+  const skuItems = extractSkuListFromJsonData(params.json_data)
+  const priceMap = new Map<string, number | undefined>()
+  const coverMap = new Map<string, string | undefined>()
+  for (const record of skuItems) {
+    priceMap.set(
+      record.library_pattern,
+      record.library_price != null ? Number(record.library_price) : undefined
+    )
+    if (record.cover) {
+      coverMap.set(record.library_pattern, record.cover)
+    }
+  }
+  const patternNames = params.library_pattern
+    ? splitComma(params.library_pattern)
+    : skuItems.map((item) => item.library_pattern)
+  return patternNames.map((name) => ({
+    library_pattern: name,
+    library_price: priceMap.get(name),
+    cover: coverMap.get(name)
+  }))
+}
+
+const hasPatternSku = (params: Library) => extractSkuListFromJsonData(params.json_data).length > 0
+
+const libraryImageFullUrl = (path: string | null | undefined) => {
+  if (path == null || String(path).trim() === '') return ''
+  const t = String(path).trim()
+  if (t.startsWith('http://') || t.startsWith('https://') || t.startsWith('//')) return t
+  return `${BASE_IMG}${t.replace(/^\//, '')}`
+}
+
+const patternCoverThumbSrc = (cover: string) => {
+  const full = libraryImageFullUrl(cover)
+  if (!full) return ''
+  const pathOnly = full.split('?')[0]
+  return `${pathOnly}?x-oss-process=image/quality,q_80/resize,w_200,h_200`
 }
 
 // 扩展Library类型以包含历史记录中的额外字段
@@ -275,6 +387,33 @@ const isFieldChanged = (currentIndex: number, fieldName: keyof Library | keyof E
   }
   
   return false
+}
+
+const isJsonDataChanged = (currentIndex: number, currentParams: Library): boolean => {
+  if (!hasValidCompareRecord(currentIndex)) return false
+  const originalJsonData = getOriginalValue(currentIndex, 'json_data')
+  return serializeSkuForCompare(originalJsonData) !== serializeSkuForCompare(currentParams.json_data)
+}
+
+const getOriginalPatternList = (currentIndex: number): PatternListItem[] => {
+  const pattern = getOriginalValue(currentIndex, 'library_pattern') as string | null | undefined
+  const jsonData = getOriginalValue(currentIndex, 'json_data')
+  return parsePatternListFromParams({
+    library_pattern: pattern ?? undefined,
+    json_data: jsonData as Record<string, unknown> | undefined
+  } as Library)
+}
+
+const isPatternSectionVisible = (index: number, params: Library) => {
+  if (!hasValue(params.library_pattern) && !hasPatternSku(params)) return false
+  if (!hasValidCompareRecord(index)) return true
+  return isFieldChanged(index, 'library_pattern', params.library_pattern)
+    || isJsonDataChanged(index, params)
+}
+
+const isPatternSectionChanged = (index: number, params: Library) => {
+  return isFieldChanged(index, 'library_pattern', params.library_pattern)
+    || isJsonDataChanged(index, params)
 }
 
 // 格式化字段值用于显示
@@ -583,7 +722,7 @@ useHead({
             </div>
 
             <!-- 分类标签 -->
-            <div v-if="(hasValue(history.params.theme) && (!hasValidCompareRecord(index) || isFieldChanged(index, 'theme', history.params.theme))) || (hasValue(history.params.season) && (!hasValidCompareRecord(index) || isFieldChanged(index, 'season', history.params.season))) || (hasValue(history.params.color) && (!hasValidCompareRecord(index) || isFieldChanged(index, 'color', history.params.color))) || (hasValue(history.params.pattern_elements) && (!hasValidCompareRecord(index) || isFieldChanged(index, 'pattern_elements', history.params.pattern_elements))) || (hasValue(history.params.design_elements) && (!hasValidCompareRecord(index) || isFieldChanged(index, 'design_elements', history.params.design_elements))) || (hasValue(history.params.cloth_elements) && (!hasValidCompareRecord(index) || isFieldChanged(index, 'cloth_elements', history.params.cloth_elements))) || (hasValue(history.params.secondary_cloth) && (!hasValidCompareRecord(index) || isFieldChanged(index, 'secondary_cloth', history.params.secondary_cloth))) || (hasValue(history.params.fabric_composition) && (!hasValidCompareRecord(index) || isFieldChanged(index, 'fabric_composition', history.params.fabric_composition))) || (hasValue(history.params.library_pattern) && (!hasValidCompareRecord(index) || isFieldChanged(index, 'library_pattern', history.params.library_pattern))) || (hasValue(getExtendedValue(history.params, 'main_style')) && (!hasValidCompareRecord(index) || isFieldChanged(index, 'main_style', getExtendedValue(history.params, 'main_style'))))" class="border-t pt-4">
+            <div v-if="(hasValue(history.params.theme) && (!hasValidCompareRecord(index) || isFieldChanged(index, 'theme', history.params.theme))) || (hasValue(history.params.season) && (!hasValidCompareRecord(index) || isFieldChanged(index, 'season', history.params.season))) || (hasValue(history.params.color) && (!hasValidCompareRecord(index) || isFieldChanged(index, 'color', history.params.color))) || (hasValue(history.params.pattern_elements) && (!hasValidCompareRecord(index) || isFieldChanged(index, 'pattern_elements', history.params.pattern_elements))) || (hasValue(history.params.design_elements) && (!hasValidCompareRecord(index) || isFieldChanged(index, 'design_elements', history.params.design_elements))) || (hasValue(history.params.cloth_elements) && (!hasValidCompareRecord(index) || isFieldChanged(index, 'cloth_elements', history.params.cloth_elements))) || (hasValue(history.params.secondary_cloth) && (!hasValidCompareRecord(index) || isFieldChanged(index, 'secondary_cloth', history.params.secondary_cloth))) || (hasValue(history.params.fabric_composition) && (!hasValidCompareRecord(index) || isFieldChanged(index, 'fabric_composition', history.params.fabric_composition))) || (isPatternSectionVisible(index, history.params)) || (hasValue(getExtendedValue(history.params, 'main_style')) && (!hasValidCompareRecord(index) || isFieldChanged(index, 'main_style', getExtendedValue(history.params, 'main_style'))))" class="border-t pt-4">
               <h3 class="text-sm font-medium mb-2">分类标签</h3>
               <div class="space-y-3">
                 <!-- 主题 -->
@@ -632,17 +771,103 @@ useHead({
                 </div>
 
                 <!-- 版型/部位 -->
-                <div v-if="hasValue(history.params.library_pattern) && (!hasValidCompareRecord(index) || isFieldChanged(index, 'library_pattern', history.params.library_pattern))" :class="['flex flex-col gap-1', isFieldChanged(index, 'library_pattern', history.params.library_pattern) ? 'bg-yellow-100 dark:bg-yellow-900/30 p-3 rounded-lg border-2 border-yellow-400 dark:border-yellow-600' : '']">
+                <div
+                  v-if="isPatternSectionVisible(index, history.params)"
+                  :class="['flex flex-col gap-1', isPatternSectionChanged(index, history.params) ? 'bg-yellow-100 dark:bg-yellow-900/30 p-3 rounded-lg border-2 border-yellow-400 dark:border-yellow-600' : '']"
+                >
                   <div class="flex items-start gap-2">
                     <span class="text-sm text-gray-500 dark:text-gray-400 min-w-[100px]">版型/部位：</span>
-                    <div class="flex flex-wrap gap-2">
-                      <QhxTag v-for="(tag, tagIndex) in splitComma(history.params.library_pattern)" :key="tagIndex">
-                        {{ tag }}
-                      </QhxTag>
+                    <div class="flex flex-col gap-2 flex-1 min-w-0">
+                      <div v-if="hasValue(history.params.library_pattern)" class="flex flex-wrap gap-2">
+                        <QhxTag v-for="(tag, tagIndex) in splitComma(history.params.library_pattern)" :key="tagIndex">
+                          {{ tag }}
+                        </QhxTag>
+                      </div>
+                      <div
+                        v-if="parsePatternListFromParams(history.params).length > 0"
+                        class="flex gap-2 overflow-x-auto pb-1"
+                      >
+                        <div
+                          v-for="item in parsePatternListFromParams(history.params)"
+                          :key="item.library_pattern"
+                          class="flex-shrink-0 w-[88px] rounded-lg border border-gray-100 dark:border-gray-700 overflow-hidden bg-white dark:bg-gray-900/40 shadow-sm"
+                        >
+                          <div class="w-full h-[88px] overflow-hidden bg-gray-100 dark:bg-gray-800">
+                            <img
+                              v-if="item.cover"
+                              :src="patternCoverThumbSrc(item.cover)"
+                              :alt="item.library_pattern"
+                              class="block w-full h-full object-cover"
+                              loading="lazy"
+                            />
+                            <div
+                              v-else
+                              class="flex h-full w-full items-center justify-center text-[10px] leading-tight text-center text-gray-400 dark:text-gray-500 px-1"
+                            >
+                              暂无封面
+                            </div>
+                          </div>
+                          <div class="p-1.5 flex flex-col gap-0.5">
+                            <p class="text-[11px] font-medium leading-snug line-clamp-2" :title="item.library_pattern">
+                              {{ item.library_pattern }}
+                            </p>
+                            <p
+                              v-if="item.library_price != null"
+                              class="text-[10px] text-qhx-primary font-semibold leading-tight"
+                            >
+                              ¥{{ item.library_price }}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
                     </div>
                   </div>
-                  <div v-if="isFieldChanged(index, 'library_pattern', history.params.library_pattern)" class="text-xs text-gray-500 dark:text-gray-400 ml-[100px]">
+                  <div
+                    v-if="isFieldChanged(index, 'library_pattern', history.params.library_pattern)"
+                    class="text-xs text-gray-500 dark:text-gray-400 ml-[100px]"
+                  >
                     <span class="text-yellow-600 dark:text-yellow-400">原值：</span>{{ formatFieldValue(getOriginalValue(index, 'library_pattern'), 'library_pattern') }}
+                  </div>
+                  <div v-if="isJsonDataChanged(index, history.params)" class="ml-[100px] mt-1">
+                    <p class="text-xs text-yellow-600 dark:text-yellow-400 mb-1">原值（版型封面/参考价）：</p>
+                    <div
+                      v-if="getOriginalPatternList(index).length > 0"
+                      class="flex gap-2 overflow-x-auto pb-1"
+                    >
+                      <div
+                        v-for="item in getOriginalPatternList(index)"
+                        :key="`original-${item.library_pattern}`"
+                        class="flex-shrink-0 w-[88px] rounded-lg border border-gray-200 dark:border-gray-600 overflow-hidden bg-gray-50 dark:bg-gray-800/60"
+                      >
+                        <div class="w-full h-[88px] overflow-hidden bg-gray-100 dark:bg-gray-800">
+                          <img
+                            v-if="item.cover"
+                            :src="patternCoverThumbSrc(item.cover)"
+                            :alt="item.library_pattern"
+                            class="block w-full h-full object-cover"
+                            loading="lazy"
+                          />
+                          <div
+                            v-else
+                            class="flex h-full w-full items-center justify-center text-[10px] leading-tight text-center text-gray-400 dark:text-gray-500 px-1"
+                          >
+                            暂无封面
+                          </div>
+                        </div>
+                        <div class="p-1.5 flex flex-col gap-0.5">
+                          <p class="text-[11px] leading-snug line-clamp-2" :title="item.library_pattern">
+                            {{ item.library_pattern }}
+                          </p>
+                          <p
+                            v-if="item.library_price != null"
+                            class="text-[10px] text-gray-600 dark:text-gray-400 leading-tight"
+                          >
+                            ¥{{ item.library_price }}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                    <p v-else class="text-xs text-gray-500 dark:text-gray-400">无</p>
                   </div>
                 </div>
 

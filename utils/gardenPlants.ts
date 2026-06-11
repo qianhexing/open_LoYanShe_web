@@ -17,8 +17,14 @@ export const GARDEN_PLANT_MODELS: ReadonlyArray<GardenPlantModel> = [
 
 export const DEFAULT_GARDEN_PLANT_ID = GARDEN_PLANT_MODELS[0]?.id ?? 'flower-12'
 
-/** 花园植物数量上限（1 评论 = 1 株） */
-export const MAX_GARDEN_FLOWER_COUNT = 150
+/** 花园植物数量上限（1 评论 = 1 株，InstancedMesh 渲染） */
+export const MAX_GARDEN_FLOWER_COUNT = 2000
+/** 手机端花园植物数量上限（性能考虑） */
+export const MAX_GARDEN_FLOWER_COUNT_MOBILE = 500
+
+export function getMaxGardenFlowerCount(mobile = false): number {
+  return mobile ? MAX_GARDEN_FLOWER_COUNT_MOBILE : MAX_GARDEN_FLOWER_COUNT
+}
 
 /** comment.json_data 中与花园相关的字段 */
 export interface CommentGardenJsonData {
@@ -70,7 +76,8 @@ export function buildGardenFlowerMeta<
 >(
   rows: T[],
   total: number,
-  pinned?: T | null
+  pinned?: T | null,
+  maxCount = MAX_GARDEN_FLOWER_COUNT
 ): GardenFlowerMeta {
   const merged = [...rows]
   if (
@@ -81,7 +88,7 @@ export function buildGardenFlowerMeta<
   }
   const sorted = sortGardenComments(merged).slice(
     0,
-    Math.min(Math.max(0, total), MAX_GARDEN_FLOWER_COUNT)
+    Math.min(Math.max(0, total), maxCount)
   )
   return {
     types: sorted.map((item) => parseCommentFlowerType(item.json_data) ?? ''),

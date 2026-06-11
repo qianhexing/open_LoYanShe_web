@@ -1,10 +1,11 @@
 <!-- 可拖拽半模态框组件，支持四个方向 -->
 <template>
   <div
-    class="fixed z-50 overflow-hidden bg-qhx-bg-card drawer-neu"
+    class="fixed z-50 overflow-hidden"
     :class="[
       drawerClasses,
       drawerFlexLayout,
+      props.glass ? 'drawer-glass' : 'bg-qhx-bg-card drawer-neu',
       { 'drawer-dragging': isDragging, 'drawer-transition': !isDragging }
     ]"
     :style="drawerStyle"
@@ -45,6 +46,8 @@ interface Props {
   safeArea?: number
   /** 是否为内容区保留默认左右/底部内边距（px-4 pb-4）；false 时贴边，由插槽自控间距 */
   contentPadding?: boolean
+  /** 半透明毛玻璃外壳（用于全屏 iframe 背景上的内容抽屉） */
+  glass?: boolean
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -52,7 +55,8 @@ const props = withDefaults(defineProps<Props>(), {
   defaultSize: 400,
   minSize: 100,
   safeArea: 50,
-  contentPadding: true
+  contentPadding: true,
+  glass: false,
 })
 
 // 判断是否为垂直方向
@@ -322,6 +326,26 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+/* 毛玻璃外壳：全屏 iframe 等场景下透出背景 */
+.drawer-glass {
+  background-color: rgba(255, 255, 255, 0.28);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.42);
+  box-shadow:
+    0 -4px 24px rgb(15 23 42 / 0.08),
+    inset 0 1px 0 rgb(255 255 255 / 0.45);
+}
+
+:root.dark .drawer-glass,
+.dark .drawer-glass {
+  background-color: rgba(38, 38, 38, 0.42);
+  border-color: rgba(255, 255, 255, 0.1);
+  box-shadow:
+    0 -4px 28px rgb(0 0 0 / 0.35),
+    inset 0 1px 0 rgb(255 255 255 / 0.06);
+}
+
 /* 拟态外壳：柔和凸面 + 与主题的轻微镶边 */
 .drawer-neu {
   border: 1px solid rgb(255 255 255 / 0.45);

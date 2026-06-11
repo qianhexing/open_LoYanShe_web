@@ -117,7 +117,7 @@ const toast = useToast()
 const props = defineProps<{
   wardrobeId: number
   info: Wardrobe
-  filterList: { tags: string[]; wardrobe_status: string[]; clothes_note: string }
+  filterList: { tags: string[]; wardrobe_status: string[]; clothes_note: string; size: string[] }
   password: string
   timelineMode: boolean
 }>()

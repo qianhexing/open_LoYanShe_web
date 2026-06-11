@@ -152,13 +152,25 @@ export async function getPlanListByMonth(params: {
   return response.data;
 }
 
+/** 计划周期金额汇总（月/日） */
+export interface PlanPeriodMoneyTotal {
+  month?: number;
+  day?: number;
+  total_money: number;
+  /** 已补款金额 */
+  have_money?: number;
+  /** 未补款金额 */
+  unpaid_money?: number;
+}
+
 /** 按年汇总计划总价（按月聚合，不统计有子计划的父计划） */
 export async function getPlanTotalByYear(params: {
   year: number;
-}): Promise<{ month: number; total_money: number }[]> {
-  const response = await use$Get<
-    BaseResponse<{ month: number; total_money: number }[]>
-  >('/plan/list/totalByYear', params);
+}): Promise<PlanPeriodMoneyTotal[]> {
+  const response = await use$Get<BaseResponse<PlanPeriodMoneyTotal[]>>(
+    '/plan/list/totalByYear',
+    params
+  );
   return response.data;
 }
 
@@ -166,10 +178,11 @@ export async function getPlanTotalByYear(params: {
 export async function getPlanTotalByDay(params: {
   year: number;
   month: number;
-}): Promise<{ day: number; total_money: number }[]> {
-  const response = await use$Get<
-    BaseResponse<{ day: number; total_money: number }[]>
-  >('/plan/list/totalByDay', params);
+}): Promise<PlanPeriodMoneyTotal[]> {
+  const response = await use$Get<BaseResponse<PlanPeriodMoneyTotal[]>>(
+    '/plan/list/totalByDay',
+    params
+  );
   return response.data;
 }
 

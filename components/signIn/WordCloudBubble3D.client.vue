@@ -4,8 +4,9 @@ import {
   buildFlowerMetaKey,
   type WordCloudDatum,
   type GardenSceneData,
+  type WordCloudBubble3DOptions,
 } from '@/utils/wordCloudBubble3d'
-import { MAX_GARDEN_FLOWER_COUNT } from '@/utils/gardenPlants'
+import { getMaxGardenFlowerCount } from '@/utils/gardenPlants'
 
 export type { WordCloudDatum }
 
@@ -24,6 +25,10 @@ const props = withDefaults(
     fullscreen?: boolean
     /** 页面不可见时暂停 3D 动画以省 GPU */
     paused?: boolean
+    /** 优先 WebGPU 渲染，不支持时回退 WebGL */
+    preferWebGPU?: boolean
+    /** 移动端降低像素比等以提升帧率 */
+    mobileOptimized?: boolean
   }>(),
   {
     chartData: () => [],
@@ -33,6 +38,8 @@ const props = withDefaults(
     height: '360px',
     fullscreen: false,
     paused: false,
+    preferWebGPU: true,
+    mobileOptimized: false,
   }
 )
 
@@ -49,10 +56,15 @@ let mounting = false
 let mountTask: Promise<void> | null = null
 let applyTimer: ReturnType<typeof setTimeout> | null = null
 
+function resolveFlowerCount(): number {
+  const max = getMaxGardenFlowerCount(props.mobileOptimized)
+  return Math.min(max, Math.max(0, Math.floor(props.flowerCount)))
+}
+
 function buildSceneData(): GardenSceneData {
   return {
     words: props.chartData,
-    flowerCount: props.flowerCount,
+    flowerCount: resolveFlowerCount(),
     flowerTypes: props.flowerTypes,
     flowerCommentIds: props.flowerCommentIds,
     plantTypeIndex: props.plantTypeIndex,
@@ -60,10 +72,7 @@ function buildSceneData(): GardenSceneData {
 }
 
 const sceneSignature = computed(() => {
-  const count = Math.min(
-    MAX_GARDEN_FLOWER_COUNT,
-    Math.max(0, Math.floor(props.flowerCount))
-  )
+  const count = resolveFlowerCount()
   const wordsKey = props.chartData.map((item) => `${item.name}\0${item.value}`).join('\n')
   const metaKey = buildFlowerMetaKey(
     props.flowerTypes,
@@ -78,19 +87,26 @@ async function mountScene() {
   mounting = true
 
   bubbleScene?.dispose()
-  bubbleScene = new WordCloudBubble3D(containerRef.value, {
-    onWordClick: (word) => emit('wordClick', word),
-    onWordHover: (word) => {
-      hoveredWord.value = word
-      if (word) {
-        const item = props.chartData.find((d) => d.name === word)
-        hoveredCount.value = item?.value ?? null
-      } else {
-        hoveredCount.value = null
-      }
+  bubbleScene = new WordCloudBubble3D(
+    containerRef.value,
+    {
+      onWordClick: (word) => emit('wordClick', word),
+      onWordHover: (word) => {
+        hoveredWord.value = word
+        if (word) {
+          const item = props.chartData.find((d) => d.name === word)
+          hoveredCount.value = item?.value ?? null
+        } else {
+          hoveredCount.value = null
+        }
+      },
+      onFlowerClick: (commentId) => emit('flowerClick', commentId),
     },
-    onFlowerClick: (commentId) => emit('flowerClick', commentId),
-  })
+    {
+      preferWebGPU: props.preferWebGPU,
+      mobileOptimized: props.mobileOptimized,
+    }
+  )
   bubbleScene.setPaused(props.paused)
 
   const scene = bubbleScene
@@ -148,7 +164,14 @@ function onVisibilityChange() {
 }
 
 onMounted(() => {
-  void mountScene()
+  const startMount = () => {
+    void mountScene()
+  }
+  if (typeof requestAnimationFrame !== 'undefined') {
+    requestAnimationFrame(() => requestAnimationFrame(startMount))
+  } else {
+    startMount()
+  }
   if (import.meta.client) {
     document.addEventListener('visibilitychange', onVisibilityChange)
   }

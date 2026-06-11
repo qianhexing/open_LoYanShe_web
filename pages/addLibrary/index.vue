@@ -325,22 +325,105 @@
           </div>
         </UFormGroup>
         <WikiOptionsChoose ref="wikiOptionsChooseRef" @choose="chooseWiki" />
-        <!-- 图鉴图案 -->
+        <!-- 版型/部位 -->
         <UFormGroup :label="t('addLibrary.library_pattern')" v-if="shouldShowField('library_pattern')"
           :class="getHighlightClass('library_pattern')">
-          <div class="flex items-center m-1" v-if="library.library_pattern && library.library_pattern.length > 0">
-            <QhxTag v-for="(item, index) in library.library_pattern" :key="item.wiki_id">
-              {{ item.wiki_name }}
-              <UIcon v-if="!isReviewMode" name="ant-design:close-outlined" class="ml-1 text-sm cursor-pointer"
-                @click="library.library_pattern.splice(index, 1)" />
-            </QhxTag>
+          <div class="flex flex-col gap-2 m-1" v-if="library.library_pattern_list.length > 0">
+            <div v-for="(item, index) in library.library_pattern_list" :key="item.library_pattern.wiki_id"
+              class="flex items-center gap-2 flex-wrap">
+              <div
+                class="relative w-16 h-16 shrink-0 rounded-lg overflow-hidden border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-800"
+                :title="isReviewMode ? '' : '点击上传版型封面（可选）'"
+              >
+                <img
+                  v-if="getPatternCoverPreview(item)"
+                  :src="getPatternCoverPreview(item)"
+                  :alt="item.library_pattern.wiki_name"
+                  class="absolute inset-0 w-full h-full object-cover"
+                />
+                <div
+                  v-else
+                  class="absolute inset-0 flex items-center justify-center text-[10px] leading-tight text-center text-gray-400 dark:text-gray-500 px-0.5"
+                >
+                  暂无封面
+                </div>
+                <input
+                  v-if="!isReviewMode"
+                  type="file"
+                  accept="image/*"
+                  class="absolute inset-0 z-[1] opacity-0 cursor-pointer"
+                  @change="onPatternCoverFileChange(item, $event)"
+                />
+                <UButton
+                  v-if="!isReviewMode && getPatternCoverPreview(item)"
+                  icon="i-heroicons-x-mark"
+                  color="red"
+                  size="2xs"
+                  variant="soft"
+                  class="absolute top-0.5 right-0.5 z-[2]"
+                  @click.stop="clearPatternCover(item)"
+                />
+              </div>
+              <QhxTag>{{ item.library_pattern.wiki_name }}</QhxTag>
+              <UInput v-model="item.library_price" :disabled="isReviewMode" type="number"
+                :placeholder="t('addLibrary.price_placeholder')" class="w-36" :ui="{
+                  base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
+                  rounded: 'rounded-full',
+                  padding: { xs: 'px-4 py-2' },
+                  color: {
+                    white: {
+                      outline: 'bg-gray-50 dark:bg-gray-800 ring-1 ring-gray-300 dark:ring-gray-600 focus:ring-2 focus:ring-qhx-primary'
+                    }
+                  }
+                }" />
+              <UIcon v-if="!isReviewMode" name="ant-design:close-outlined"
+                class="text-sm cursor-pointer text-gray-500 hover:text-gray-700"
+                @click="removePatternFromList(index)" />
+            </div>
           </div>
           <UButton v-if="!isReviewMode" color="primary" size="sm" @click="showChooseWiki('library_pattern')">{{
             t('addLibrary.select_pattern') }}</UButton>
-          <div v-if="isReviewMode && isFieldChanged('library_pattern')"
+          <div v-if="isReviewMode && changedFields.has('library_pattern')"
             class="mt-2 text-sm text-gray-600 dark:text-gray-400">
             <span class="font-semibold">{{ t('addLibrary.original_value') }}</span>{{
               getOriginalValueText('library_pattern') || t('addLibrary.empty') }}
+          </div>
+          <div v-if="isReviewMode && changedFields.has('json_data')" class="mt-2">
+            <p class="text-sm font-semibold text-gray-600 dark:text-gray-400 mb-2">
+              {{ t('addLibrary.original_value') }}（版型封面/参考价）
+            </p>
+            <div v-if="originalPatternListForReview.length > 0" class="flex flex-col gap-2">
+              <div
+                v-for="item in originalPatternListForReview"
+                :key="item.library_pattern.wiki_id"
+                class="flex items-center gap-2 flex-wrap"
+              >
+                <div
+                  class="relative w-16 h-16 shrink-0 rounded-lg overflow-hidden border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-800"
+                >
+                  <img
+                    v-if="getPatternCoverPreview(item)"
+                    :src="getPatternCoverPreview(item)"
+                    :alt="item.library_pattern.wiki_name"
+                    class="absolute inset-0 w-full h-full object-cover"
+                  />
+                  <div
+                    v-else
+                    class="absolute inset-0 flex items-center justify-center text-[10px] leading-tight text-center text-gray-400 dark:text-gray-500 px-0.5"
+                  >
+                    暂无封面
+                  </div>
+                </div>
+                <QhxTag>{{ item.library_pattern.wiki_name }}</QhxTag>
+                <span
+                  v-if="item.library_price != null"
+                  class="text-sm text-gray-600 dark:text-gray-400"
+                >
+                  ¥{{ item.library_price }}
+                </span>
+              </div>
+            </div>
+            <p v-else class="text-sm text-gray-500 dark:text-gray-400">{{ t('addLibrary.empty') }}</p>
           </div>
         </UFormGroup>
 
@@ -833,6 +916,196 @@ interface LibraryItem {
   name: string
 }
 
+interface LibraryPatternPriceRecord {
+  library_pattern: string
+  library_price?: number | null
+  cover?: string | null
+}
+
+interface LibraryPatternPriceItem {
+  library_pattern: Wiki
+  library_price?: number
+  cover?: string
+  coverDraft?: PatternCoverDraft
+}
+
+interface PatternCoverDraft {
+  file?: File
+  url: string
+}
+
+const parseLibraryJsonData = (jsonData: unknown): Record<string, unknown> => {
+  if (jsonData == null) return {}
+  if (typeof jsonData === 'string') {
+    try {
+      const parsed = JSON.parse(jsonData)
+      return typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)
+        ? (parsed as Record<string, unknown>)
+        : {}
+    } catch {
+      return {}
+    }
+  }
+  if (typeof jsonData === 'object' && !Array.isArray(jsonData)) {
+    return jsonData as Record<string, unknown>
+  }
+  return {}
+}
+
+const extractSkuListFromJsonData = (jsonData: unknown): LibraryPatternPriceRecord[] => {
+  const data = parseLibraryJsonData(jsonData)
+  const raw = data.sku
+  let list: unknown[] = []
+  if (Array.isArray(raw)) {
+    list = raw
+  } else if (typeof raw === 'string') {
+    try {
+      const parsed = JSON.parse(raw)
+      if (Array.isArray(parsed)) list = parsed
+    } catch {
+      return []
+    }
+  }
+  return list
+    .map((item): LibraryPatternPriceRecord | null => {
+      if (!item || typeof item !== 'object' || !('library_pattern' in item)) return null
+      const record = item as LibraryPatternPriceRecord
+      const pattern = String(record.library_pattern ?? '').trim()
+      if (!pattern) return null
+      const cover = record.cover != null ? String(record.cover).trim() : null
+      return {
+        library_pattern: pattern,
+        library_price: record.library_price != null ? Number(record.library_price) : null,
+        cover: cover || null
+      }
+    })
+    .filter((item): item is LibraryPatternPriceRecord => item != null)
+}
+
+const serializeSkuForCompare = (jsonData: unknown) => {
+  return JSON.stringify(
+    extractSkuListFromJsonData(jsonData)
+      .map((item) => ({
+        library_pattern: item.library_pattern,
+        library_price: item.library_price ?? null,
+        cover: item.cover ?? null
+      }))
+      .sort((a, b) => a.library_pattern.localeCompare(b.library_pattern))
+  )
+}
+
+const parseLibraryPatternList = (
+  libraryPattern?: string | null,
+  jsonData?: unknown
+): LibraryPatternPriceItem[] => {
+  const priceMap = new Map<string, number | undefined>()
+  const coverMap = new Map<string, string | undefined>()
+  for (const record of extractSkuListFromJsonData(jsonData)) {
+    priceMap.set(
+      record.library_pattern,
+      record.library_price != null ? Number(record.library_price) : undefined
+    )
+    if (record.cover) {
+      coverMap.set(record.library_pattern, record.cover)
+    }
+  }
+  if (!libraryPattern) return []
+  return libraryPattern.split(',').filter(Boolean).map((name: string) => {
+    const trimmed = name.trim()
+    return {
+      library_pattern: { wiki_name: trimmed, wiki_id: trimmed },
+      library_price: priceMap.get(trimmed),
+      cover: coverMap.get(trimmed)
+    }
+  })
+}
+
+const buildLibraryPatternJsonData = (list: LibraryPatternPriceItem[]): LibraryPatternPriceRecord[] => {
+  return list.map((item) => {
+    const record: LibraryPatternPriceRecord = {
+      library_pattern: item.library_pattern.wiki_name,
+      library_price: item.library_price ?? null
+    }
+    if (item.cover?.trim()) {
+      record.cover = item.cover.trim()
+    }
+    return record
+  })
+}
+
+const PATTERN_IMAGE_EXT_RE = /\.(jpe?g|png|gif|webp|heic|heif|bmp|avif)$/i
+
+const isPatternImageFile = (file: File) => {
+  if (file.type.startsWith('image/')) return true
+  return PATTERN_IMAGE_EXT_RE.test(file.name)
+}
+
+const normalizeLibraryImagePath = (url?: string | null) => {
+  if (!url?.trim()) return undefined
+  return url
+    .trim()
+    .replace(BASE_IMG, '')
+    .replace(/^https?:\/\/[^/]+\//i, '')
+    .replace(/^\//, '')
+}
+
+/** 审核/图鉴接口可能返回相对路径或已带域名的完整 URL，统一成可直接用于 <img src> 的地址 */
+const libraryImageFullUrl = (path: string | null | undefined) => {
+  if (path == null || String(path).trim() === '') return ''
+  const t = String(path).trim()
+  if (t.startsWith('http://') || t.startsWith('https://') || t.startsWith('//')) return t
+  return `${BASE_IMG}${t.replace(/^\//, '')}`
+}
+
+const getPatternCoverPreview = (item: LibraryPatternPriceItem) => {
+  if (item.coverDraft?.url) return item.coverDraft.url
+  if (item.cover?.trim()) return libraryImageFullUrl(item.cover)
+  return ''
+}
+
+const onPatternCoverFileChange = (item: LibraryPatternPriceItem, event: Event) => {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ''
+  if (!file || !isPatternImageFile(file)) return
+  if (item.coverDraft?.file && item.coverDraft.url.startsWith('blob:')) {
+    URL.revokeObjectURL(item.coverDraft.url)
+  }
+  item.coverDraft = { file, url: URL.createObjectURL(file) }
+}
+
+const clearPatternCover = (item: LibraryPatternPriceItem) => {
+  if (item.coverDraft?.file && item.coverDraft.url.startsWith('blob:')) {
+    URL.revokeObjectURL(item.coverDraft.url)
+  }
+  item.coverDraft = undefined
+  item.cover = undefined
+}
+
+const removePatternFromList = (index: number) => {
+  const item = library.value.library_pattern_list[index]
+  if (item) clearPatternCover(item)
+  library.value.library_pattern_list.splice(index, 1)
+}
+
+const uploadPatternCoverList = async (list: LibraryPatternPriceItem[]): Promise<LibraryPatternPriceItem[]> => {
+  return Promise.all(list.map(async (item) => {
+    if (item.coverDraft) {
+      const uploaded = await uploadImageOSS(item.coverDraft)
+      return {
+        ...item,
+        cover: normalizeLibraryImagePath(uploaded),
+        coverDraft: undefined
+      }
+    }
+    return {
+      ...item,
+      cover: normalizeLibraryImagePath(item.cover),
+      coverDraft: undefined
+    }
+  }))
+}
+
 // 响应式数据
 const fabric_composition = ref<FabricComposition>({
   name: {
@@ -844,6 +1117,7 @@ const fabric_composition = ref<FabricComposition>({
 interface OptionItem { value: number; label: string }
 const showComposition = ref(false) // 显示选择布料
 const library_id = ref<number | null>(null) // 初始化的图鉴ID用于修改
+const existingJsonData = ref<Record<string, unknown>>({})
 const loading = ref(false)
 const showReviewModal = ref(false) // 显示审核弹窗
 const reviewLoading = ref(false) // 审核提交中
@@ -885,12 +1159,24 @@ const reviewData = ref<Library | null>(null) // 修改后的数据
 const originalLibrary = ref<Library | null>(null) // 原始图鉴数据
 const changedFields = ref<Set<string>>(new Set()) // 被修改的字段集合
 
+const originalPatternListForReview = computed(() => {
+  if (!originalLibrary.value) return []
+  return parseLibraryPatternList(
+    originalLibrary.value.library_pattern,
+    originalLibrary.value.json_data
+  )
+})
+
 // 检查字段是否应该显示（审核模式下只显示被修改的字段）
 const shouldShowField = (fieldName: string) => {
   if (!isReviewMode.value) return true
   // 方图与封面同一区块展示，仅改 square_cover 时也要显示封面区域
   if (fieldName === 'cover') {
     return changedFields.value.has('cover') || changedFields.value.has('square_cover')
+  }
+  // 版型名称与 json_data.sku（封面/分版型参考价）共用同一区块
+  if (fieldName === 'library_pattern') {
+    return changedFields.value.has('library_pattern') || changedFields.value.has('json_data')
   }
   return changedFields.value.has(fieldName)
 }
@@ -900,6 +1186,9 @@ const isFieldChanged = (fieldName: string) => {
   if (!isReviewMode.value) return false
   if (fieldName === 'cover') {
     return changedFields.value.has('cover') || changedFields.value.has('square_cover')
+  }
+  if (fieldName === 'library_pattern') {
+    return changedFields.value.has('library_pattern') || changedFields.value.has('json_data')
   }
   return changedFields.value.has(fieldName)
 }
@@ -1018,7 +1307,7 @@ const library = ref({
   link: undefined as string | undefined,
   parent_id: undefined as Library | undefined,
   theme: [] as Wiki[],
-  library_pattern: [] as Wiki[],
+  library_pattern_list: [] as LibraryPatternPriceItem[],
   fabric_composition: [] as FabricComposition[], // 成分
   complete: true as boolean // 是否完成，1完成0未完成；新增默认已完成
 })
@@ -1255,11 +1544,14 @@ const chooseWiki = (wiki_list: Wiki[]) => {
         library.value.theme.push(item)
       }
     } else if (wiki_type.value === 'library_pattern') {
-      const index = library.value.library_pattern.findIndex((child: Wiki) => {
-        return child.wiki_name === item.wiki_name
+      const index = library.value.library_pattern_list.findIndex((child) => {
+        return child.library_pattern.wiki_name === item.wiki_name
       })
       if (index === -1) {
-        library.value.library_pattern.push(item)
+        library.value.library_pattern_list.push({
+          library_pattern: item,
+          library_price: library.value.library_price
+        })
       }
     } else if (wiki_type.value === 'color') {
       const index = library.value.color.findIndex((child: Wiki) => {
@@ -1368,14 +1660,6 @@ const jumpToLibrary = (libraryId: number) => {
   }
 }
 
-/** 审核/图鉴接口可能返回相对路径或已带域名的完整 URL，统一成可直接用于 <img src> 的地址 */
-const libraryImageFullUrl = (path: string | null | undefined) => {
-  if (path == null || String(path).trim() === '') return ''
-  const t = String(path).trim()
-  if (t.startsWith('http://') || t.startsWith('https://') || t.startsWith('//')) return t
-  return `${BASE_IMG}${t.replace(/^\//, '')}`
-}
-
 /** 列表缩略图（相对路径，不含域名），与 QhxPreviewImage.list 的 src 一致 */
 const libraryImageThumbSrc = (relativePath: string) => {
   const p = relativePath.trim().split('?')[0]
@@ -1446,7 +1730,7 @@ const fetchLibraryById = async () => {
     if (isReviewMode.value) {
       originalLibrary.value = { ...res }
     }
-    const { theme, style_list, name, library_type, state, shop, parent, library_price, library_pattern, detail_image, color, size, pattern_elements, design_elements, cloth_elements, secondary_cloth, notes, sale_time, season, link, cover, end_time, start_time, size_image, fabric_composition, quality_test, complete } = res
+    const { theme, style_list, name, library_type, state, shop, parent, library_price, library_pattern, detail_image, color, size, pattern_elements, design_elements, cloth_elements, secondary_cloth, notes, sale_time, season, link, cover, end_time, start_time, size_image, fabric_composition, quality_test, complete, json_data } = res
     library.value.name = name
 
     library.value.library_type = library_type
@@ -1467,14 +1751,8 @@ const fetchLibraryById = async () => {
     }
     library.value.parent_id = parent
     library.value.library_price = library_price
-    if (library_pattern) {
-      library.value.library_pattern = library_pattern.split(',').map((item: string) => {
-        return {
-          wiki_name: item,
-          wiki_id: item
-        }
-      })
-    }
+    existingJsonData.value = json_data ? { ...json_data } : {}
+    library.value.library_pattern_list = parseLibraryPatternList(library_pattern, json_data)
     if (color) {
       library.value.color = color.split(',').map((item: string) => {
         return {
@@ -1657,6 +1935,9 @@ const compareData = async () => {
   if (compareStringArray(original.cloth_elements, review.cloth_elements)) changedFields.value.add('cloth_elements')
   if (compareStringArray(original.secondary_cloth, review.secondary_cloth)) changedFields.value.add('secondary_cloth')
   if (compareStringArray(original.library_pattern, review.library_pattern)) changedFields.value.add('library_pattern')
+  if (serializeSkuForCompare(original.json_data) !== serializeSkuForCompare(review.json_data)) {
+    changedFields.value.add('json_data')
+  }
   if (compareStringArray(original.fabric_composition, review.fabric_composition)) changedFields.value.add('fabric_composition')
 
   // 对比main_style（需要从style_list中提取）
@@ -1759,11 +2040,14 @@ const applyReviewData = async () => {
       wiki_id: item
     }))
   }
-  if (changedFields.value.has('library_pattern') && review.library_pattern) {
-    library.value.library_pattern = review.library_pattern.split(',').map((item: string) => ({
-      wiki_name: item,
-      wiki_id: item
-    }))
+  if (changedFields.value.has('library_pattern') || changedFields.value.has('json_data')) {
+    if (review.json_data) {
+      existingJsonData.value = { ...parseLibraryJsonData(review.json_data) }
+    }
+    const patternSource = review.library_pattern
+      ?? originalLibrary.value?.library_pattern
+      ?? library.value.library_pattern_list.map((item) => item.library_pattern.wiki_name).join(',')
+    library.value.library_pattern_list = parseLibraryPatternList(patternSource, review.json_data)
   }
   if (changedFields.value.has('fabric_composition') && review.fabric_composition) {
     library.value.fabric_composition = review.fabric_composition.split(',').map((item: string): FabricComposition => {
@@ -1865,10 +2149,10 @@ const applyFieldsFromParentLibrary = (item: Library, opts?: { preserveShop?: boo
     }))
   }
   if (item.library_pattern) {
-    library.value.library_pattern = item.library_pattern.split(',').map((s: string) => ({
-      wiki_name: s,
-      wiki_id: s
-    }))
+    library.value.library_pattern_list = parseLibraryPatternList(
+      item.library_pattern,
+      item.json_data
+    )
   }
   if (item.color) {
     library.value.color = item.color.split(',').map((s: string) => ({
@@ -1963,10 +2247,11 @@ const init = () => {
     link: undefined,
     parent_id: undefined,
     theme: [],
-    library_pattern: [],
+    library_pattern_list: [],
     fabric_composition: [],
     complete: true
   }
+  existingJsonData.value = {}
 }
 const getShopOptions = async (query: string) => {
   if (query !== '') {
@@ -2353,7 +2638,7 @@ const add = async () => {
       notes,
       season,
       library_price,
-      library_pattern,
+      library_pattern_list,
       link,
       theme,
       parent_id,
@@ -2370,6 +2655,12 @@ const add = async () => {
       detail_image,
       quality_test
     } = await uploadAllImages()
+
+    let patternListForSubmit = library.value.library_pattern_list
+    if (patternListForSubmit?.length) {
+      patternListForSubmit = await uploadPatternCoverList(patternListForSubmit)
+      library.value.library_pattern_list = patternListForSubmit
+    }
 
     const params: InsertParams = {
       name,
@@ -2486,10 +2777,18 @@ const add = async () => {
         params.arrears_end = null
       }
     }
-    if (library_pattern && library_pattern.length > 0) {
-      params.library_pattern = library_pattern.map((item) => item.wiki_name).join(',')
+    if (patternListForSubmit && patternListForSubmit.length > 0) {
+      params.library_pattern = patternListForSubmit.map((item) => item.library_pattern.wiki_name).join(',')
+      params.json_data = {
+        ...existingJsonData.value,
+        sku: buildLibraryPatternJsonData(patternListForSubmit)
+      }
     } else {
       params.library_pattern = null
+      params.json_data = {
+        ...existingJsonData.value,
+        sku: []
+      }
     }
     params.complete = library.value.complete ? 1 : 0
 

@@ -1254,7 +1254,7 @@ const insert = async () => {
   if (selectedIncludeIds.value.size > 0) {
     params.include_clothes = Array.from(selectedIncludeIds.value).join(',')
   } else {
-    params.include_clothes = null
+    // params.include_clothes = null
   }
 
   if (color && color.length > 0) {
@@ -1339,7 +1339,7 @@ const insert = async () => {
   if (selectedIncludeIds.value.size > 0) {
     params.include_clothes = Array.from(selectedIncludeIds.value).join(',')
   } else {
-    params.include_clothes = null
+    // params.include_clothes = null
   }
   if (type.value === 0) {
       insertClothes(params)

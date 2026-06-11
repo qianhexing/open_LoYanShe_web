@@ -22,12 +22,12 @@ const neuSurface =
 
 <template>
   <div class="pointer-events-none absolute inset-0 z-10 overflow-hidden rounded-[inherit]">
-    <!-- 右上角：星级与评语同一拟态块内紧贴排列 -->
-    <div class="absolute top-2 right-2 max-w-[min(100%-0.75rem,13rem)]">
+    <!-- 顶部居中：星级与评语同一拟态块内紧贴排列 -->
+    <div class="absolute top-2 left-1/2 -translate-x-1/2 max-w-[min(100%-0.75rem,13rem)]">
       <div
         :class="[
           neuSurface,
-          'flex flex-col items-end gap-0 rounded-2xl px-2.5 py-1.5'
+          'flex flex-col items-center gap-0 rounded-2xl px-2.5 py-1.5'
         ]"
       >
         <div class="flex shrink-0 items-center gap-0.5" aria-hidden="true">
@@ -41,7 +41,7 @@ const neuSurface =
         </div>
 
         <span
-          class="select-none text-right text-[clamp(0.62rem,2.2vw,0.85rem)] font-semibold leading-tight tracking-wide text-gray-700 dark:text-gray-100"
+          class="select-none text-center text-[clamp(0.62rem,2.2vw,0.85rem)] font-semibold leading-tight tracking-wide text-gray-700 dark:text-gray-100"
         >
           {{ caption }}
         </span>

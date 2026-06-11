@@ -64,7 +64,8 @@ function badgeToUserDeco(item: UserDecoBadgeItem): UserDeco {
 }
 
 const detail = ref<Community | null>(null)
-const { customStyle, customBtnStyle, pageStyle } = useCommunityDetailTheme(detail)
+const { customStyle, customBtnStyle, pageBackgroundStyle, pageContentStyle } =
+  useCommunityDetailTheme(detail)
 const authorBadgeRows = ref<UserDecoBadgeItem[]>([])
 
 const fetchAuthorBadges = async () => {
@@ -380,15 +381,23 @@ useHead({
   <div
     class="community-detail-page bg-qhx-bg-card relative mx-auto px-4 pb-4 max-md:px-0 max-md:pb-2 text-qhx-text"
     :class="detail ? 'pb-[calc(5.5rem+env(safe-area-inset-bottom,0px))]' : ''"
-    :style="pageStyle"
+    :style="pageContentStyle"
   >
+    <!-- 主题背景：固定铺满视口，不随内容滚动（关联场景全屏 iframe 时不展示） -->
+    <div
+      v-if="customStyle && !(detail && detail.sence_id)"
+      class="pointer-events-none fixed inset-0 z-0"
+      :style="pageBackgroundStyle"
+      aria-hidden="true"
+    />
+
     <!-- 状态栏高度占位（WebView 通过 query statusbar 注入，见 layouts/default） -->
     <!-- <div
       v-if="config.statusBarHeight > 0"
       :style="{ height: `${config.statusBarHeight}px` }"
     /> -->
 
-    <div class="relative">
+    <div class="relative z-[1]">
       <!-- 关联场景：与服饰详情一致，全屏场景 iframe + 可拖拽抽屉承载正文与评论 -->
       <template v-if="detail && detail.sence_id">
         <div class="fixed inset-0 w-screen h-screen z-0">
@@ -400,11 +409,11 @@ useHead({
           />
         </div>
         <Transition :name="`drawer-${isMobile ? 'bottom' : 'right'}`">
-          <QhxBottomDrawer v-if="detail" :direction="isMobile ? 'bottom' : 'right'">
+          <QhxBottomDrawer v-if="detail" glass :direction="isMobile ? 'bottom' : 'right'">
             <div>
               <div
                 v-if="detail.user"
-                class="mx-3 max-md:mx-0 mb-1 rounded-lg bg-[color-mix(in_srgb,var(--card-color)_95%,transparent)] backdrop-blur-sm shadow-sm"
+                class="community-scene-glass-panel mx-3 max-md:mx-0 mb-1 rounded-lg shadow-sm"
               >
                 <div class="flex items-center justify-between gap-3 p-2">
                   <UserInfo
@@ -431,7 +440,7 @@ useHead({
                 <div v-if="isCommunityAuthor" class="flex shrink-0 items-center gap-1.5">
                   <button
                     type="button"
-                    class="inline-flex items-center gap-0.5 px-2.5 py-1 text-xs font-medium rounded-full border border-qhx-primary/40 text-qhx-primary bg-qhx-bg-card hover:bg-qhx-primary/10 transition-colors"
+                    class="community-scene-glass-chip inline-flex items-center gap-0.5 px-2.5 py-1 text-xs font-medium rounded-full border border-qhx-primary/40 text-qhx-primary hover:bg-qhx-primary/10 transition-colors"
                     @click="openCommunityDecoConfig"
                   >
                     配置徽章
@@ -458,7 +467,7 @@ useHead({
                   :items="detail.foreign_list"
                 />
               </div>
-              <div class="rounded-lg shadow-inner mt-1 border border-gray-100/80 overflow-hidden bg-white">
+              <div class="community-scene-glass-panel rounded-lg shadow-inner mt-1 border border-white/50 dark:border-white/10 overflow-hidden">
                 <CommentSection
                   :key="commentSectionKey"
                   :type="'community'"
@@ -474,7 +483,7 @@ useHead({
       </template>
 
       <template v-else>
-        <div v-if="detail" class="rounded-lg shadow-lg flex max-md:block" :key="detail.community_id" :style="pageStyle">
+        <div v-if="detail" class="rounded-lg shadow-lg flex max-md:block" :key="detail.community_id">
           <div
             class="relative w-[700px] max-md:w-full p-3 aspect-[3/4] min-h-0"
             v-if="communityCarouselItems.length"
@@ -689,6 +698,29 @@ useHead({
 .community-detail-page {
   padding-top: calc(1rem + env(safe-area-inset-top, 0px));
 }
+/* 关联场景 iframe：抽屉内子块统一毛玻璃材质 */
+.community-scene-glass-panel {
+  background-color: rgba(255, 255, 255, 0.22);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+}
+
+.community-scene-glass-chip {
+  background-color: rgba(255, 255, 255, 0.35);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+}
+
+:root.dark .community-scene-glass-panel,
+.dark .community-scene-glass-panel {
+  background-color: rgba(38, 38, 38, 0.38);
+}
+
+:root.dark .community-scene-glass-chip,
+.dark .community-scene-glass-chip {
+  background-color: rgba(38, 38, 38, 0.45);
+}
+
 @media (max-width: 767px) {
   .community-detail-page {
     padding-top: calc(0.5rem + env(safe-area-inset-top, 0px));

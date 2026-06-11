@@ -12,7 +12,7 @@
         :class="
           embedded
             ? ''
-            : 'bg-white dark:bg-gray-800 rounded-2xl p-8 shadow-lg border border-gray-200 dark:border-gray-700'
+            : 'bg-white dark:bg-gray-800 rounded-2xl p-2 shadow-lg border border-gray-200 dark:border-gray-700'
         "
       >
         <form @submit.prevent="handleSubmit" class="space-y-6">

@@ -3,11 +3,15 @@
     <!-- Tabs Header -->
     <div
       ref="tabsWrapper"
-      class="tabs-header border-b border-gray-200 p-2 overflow-x-auto overflow-y-hidden bg-white transition-all"
-      :class="{ 'tabs-header-scrolling': isScrolling }"
+      class="tabs-header border-b border-gray-200 p-2 overflow-x-auto overflow-y-hidden transition-all"
+      :class="{
+        'tabs-header-scrolling': isScrolling,
+        'tabs-header-fixed': isFixed,
+        'bg-white dark:bg-gray-900': !isFixed
+      }"
       :style="{
         position: isFixed ? 'fixed' : 'relative',
-        top: isFixed ? sticky_offset + 'px' : 'auto',
+        top: isFixed ? resolvedStickyOffset + 'px' : 'auto',
         left: isFixed ? fixedLeft + 'px' : 'auto',
         width: isFixed ? fixedWidth + 'px' : '100%',
         zIndex: isFixed ? 999 : 'auto'
@@ -21,13 +25,22 @@
             :key="i"
             @click="goTo(i)"
             ref="tabItems"
-            class="py-2 px-4 text-center transition-all duration-200 tab-list whitespace-nowrap relative z-10 shrink-0"
+            class="py-2 px-4 text-center transition-all duration-200 tab-list whitespace-nowrap relative z-10 shrink-0 inline-flex items-center justify-center gap-1.5"
             :class="{
               'text-qhx-primary font-semibold': currentIndex === i,
               'text-gray-500': currentIndex !== i
             }"
           >
-            {{ tab }}
+            <span>{{ tab }}</span>
+            <span
+              v-if="getTabCount(i) != null && getTabCount(i)! > 0"
+              class="tab-count-badge min-w-[18px] h-[18px] px-1 inline-flex items-center justify-center rounded-full text-[10px] font-semibold leading-none"
+              :class="currentIndex === i
+                ? 'bg-qhx-primary text-qhx-inverted'
+                : 'bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-300'"
+            >
+              {{ formatTabCount(getTabCount(i)!) }}
+            </span>
           </button>
         </slot>
         <!-- 滑动指示器 -->
@@ -47,9 +60,9 @@
 
     <!-- Panels Container -->
     <div
-      class="flex panels-container"
+      class="flex panels-container items-stretch"
       :class="{ 'panels-dragging': isDragging }"
-      :style="panelsTransformStyle"
+      :style="[panelsTransformStyle, panelsContainerStyle]"
       @touchstart="handleTouchStart"
       @touchmove="handleTouchMove"
       @touchend="handleTouchEnd"
@@ -62,6 +75,8 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, provide } from 'vue'
+
+const configStore = useConfigStore()
 
 const rootRef = ref<HTMLElement | null>(null)
 const tabsWrapper = ref<HTMLElement | null>(null)
@@ -77,15 +92,65 @@ const props = withDefaults(
     tab_scroll?: boolean
     need_swipe?: boolean
     sticky?: boolean
+    /** 吸顶时距视口顶部的额外偏移（px） */
     sticky_offset?: number
+    /**
+     * 吸顶时叠加状态栏高度（configStore.statusBarHeight，来自 App WebView query.statusbar）
+     * sticky 时默认开启，传 false 可关闭
+     */
+    adapt_status_bar?: boolean
+    /** 面板区域最低高度，避免切换 Tab 时高度跳动；sticky 时默认 min(45vh, 440px) */
+    panel_min_height?: string | number
+    /** 与 tabs 下标对齐的数量角标；undefined 表示不显示 */
+    tab_counts?: Array<number | null | undefined>
   }>(),
   {
     tab_scroll: false,
     need_swipe: true,
     sticky: false,
-    sticky_offset: 0
+    sticky_offset: 0,
+    adapt_status_bar: true,
+    panel_min_height: undefined,
+    tab_counts: undefined
   }
 )
+
+function getTabCount(index: number): number | null | undefined {
+  return props.tab_counts?.[index]
+}
+
+function formatTabCount(count: number) {
+  if (count > 99) return '99+'
+  return String(count)
+}
+
+/** 吸顶时实际 top / 滚动阈值偏移：sticky_offset + 状态栏高度 */
+const resolvedStickyOffset = computed(() => {
+  const base = props.sticky_offset ?? 0
+  if (!props.sticky || props.adapt_status_bar === false) return base
+  return base + (configStore.statusBarHeight || 0)
+})
+
+function formatPanelMinHeight(value: string | number | undefined) {
+  if (value == null || value === '') return undefined
+  return typeof value === 'number' ? `${value}px` : value
+}
+
+const resolvedPanelMinHeight = computed(() => {
+  const explicit = formatPanelMinHeight(props.panel_min_height)
+  if (explicit) return explicit
+  if (props.sticky) return 'min(45vh, 440px)'
+  return undefined
+})
+
+const panelsContainerStyle = computed(() => {
+  const minH = resolvedPanelMinHeight.value
+  if (!minH) return {}
+  return {
+    minHeight: minH,
+    '--qhx-tab-panel-min-h': minH
+  } as Record<string, string>
+})
 
 const emit = defineEmits(['change'])
 const currentIndex = ref(0)
@@ -232,7 +297,7 @@ const handleScroll = () => {
     wrapperTop = tabsWrapper.value.offsetTop
   }
 
-  if (scrollTop + props.sticky_offset >= wrapperTop) {
+  if (scrollTop + resolvedStickyOffset.value >= wrapperTop) {
     if (!isFixed.value) {
       const rect = tabsWrapper.value.getBoundingClientRect()
       fixedLeft.value = rect.left
@@ -292,6 +357,9 @@ onUnmounted(() => {
 }
 .tabs-header.tabs-header-scrolling {
   scrollbar-color: rgb(203 213 225) transparent;
+}
+.tabs-header-fixed {
+  @apply bg-transparent shadow-none;
 }
 .tabs-header::-webkit-scrollbar {
   height: 4px;

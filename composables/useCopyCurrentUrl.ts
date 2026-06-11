@@ -4,9 +4,11 @@ export const useCopyCurrentUrl = () => {
       try {
         let currentUrl = window.location.href;
   
-        // 手动去掉 token 参数，兼容性比 new URL 更高
         const urlObj = new URL(currentUrl);
+        // 去掉 App/WebView 注入的临时参数，分享链接更干净
         urlObj.searchParams.delete('token');
+        urlObj.searchParams.delete('theme');
+        urlObj.searchParams.delete('statusbar');
         currentUrl = urlObj.toString();
   
         // 兼容性写法：优先使用 Clipboard API

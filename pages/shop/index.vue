@@ -104,6 +104,10 @@ const handleSearch = () => {
 const jumpToAddShop = () => {
   router.push('/addShop')
 }
+
+const jumpToAddPhysicalShop = () => {
+  router.push('/addPhysicalShop')
+}
 </script>
 <template>
   <div class="container mx-auto p-4 pb-20">
@@ -140,6 +144,16 @@ const jumpToAddShop = () => {
           class="whitespace-nowrap"
         >
           补充店铺
+        </UButton>
+        <UButton
+          v-if="user"
+          icon="i-heroicons-map-pin"
+          color="primary"
+          variant="outline"
+          @click="jumpToAddPhysicalShop"
+          class="whitespace-nowrap"
+        >
+          收录实体店
         </UButton>
       </div>
     </div>

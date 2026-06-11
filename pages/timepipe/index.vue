@@ -340,17 +340,17 @@
     </div>
     <WardrobeChoose ref="wardrobeChooseRef" :user_id="user?.user_id" v-if="user?.user_id" @choose="chooseWardrobe"/>
     <!-- 确认框 -->
-    <UModal v-model="showConfirm" :ui="{ width: 'max-w-4xl' }">
-      <UCard>
-        <template #header>
+    <QhxModal v-model="showConfirm">
+      <div class="w-[95vw] max-w-4xl bg-white dark:bg-gray-800 rounded-2xl shadow-2xl overflow-hidden flex flex-col border border-gray-200/50 dark:border-gray-700/50">
+        <div class="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
           <h3 class="text-lg font-semibold">确认添加该衣柜?</h3>
-        </template>
-        <div class="flex justify-end gap-2">
+        </div>
+        <div class="flex justify-end gap-2 px-6 py-4">
           <UButton color="gray" @click="showConfirm = false">取消</UButton>
           <UButton color="primary" @click="addWardrobeToDisplay">确认</UButton>
         </div>
-      </UCard>
-    </UModal>
+      </div>
+    </QhxModal>
     <LibraryPipeAdd ref="libraryPipeAddRef" />
     <!-- <QhxLoading :loading="isLoading" :page="page" :total="total" :page-size="pageSize" @load-more="loadMore">
     </QhxLoading> -->
@@ -358,12 +358,12 @@
     <WardrobeAddLibrary ref="wardrobeAddLibraryRef" @change="handleWardrobeChange" />
     
     <!-- 筛选弹窗 -->
-    <UModal v-model="showFilterModal" :prevent-close="true" :ui="{ width: 'max-w-2xl' }">
-      <UCard>
-        <template #header>
+    <QhxModal v-model="showFilterModal" :close-on-backdrop="false">
+      <div class="w-[95vw] max-w-2xl max-h-[90vh] bg-white dark:bg-gray-800 rounded-2xl shadow-2xl overflow-hidden flex flex-col border border-gray-200/50 dark:border-gray-700/50">
+        <div class="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
           <h3 class="text-lg font-semibold">筛选条件</h3>
-        </template>
-        <div class="space-y-4">
+        </div>
+        <div class="space-y-4 p-6 overflow-y-auto flex-1">
           <!-- 主要风格 -->
           <div class="flex items-start gap-2">
             <span class="text-sm font-medium min-w-[80px] pt-2">主要风格：</span>
@@ -502,15 +502,13 @@
             <span class="text-qhx-primary">点击标签文字切换</span>
           </div>
         </div>
-        <template #footer>
-          <div class="flex justify-end gap-2">
-            <UButton color="gray" @click="showFilterModal = false">取消</UButton>
-            <UButton color="red" variant="outline" @click="clearFilter">清空</UButton>
-            <UButton color="primary" @click="applyFilter">确定</UButton>
-          </div>
-        </template>
-      </UCard>
-    </UModal>
+        <div class="flex justify-end gap-2 px-6 py-4 border-t border-gray-200 dark:border-gray-700 flex-shrink-0">
+          <UButton color="gray" @click="showFilterModal = false">取消</UButton>
+          <UButton color="red" variant="outline" @click="clearFilter">清空</UButton>
+          <UButton color="primary" @click="applyFilter">确定</UButton>
+        </div>
+      </div>
+    </QhxModal>
 
     <!-- 选择器组件 -->
     <QhxSelect

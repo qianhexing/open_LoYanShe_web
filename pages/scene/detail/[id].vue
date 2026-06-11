@@ -4604,11 +4604,14 @@ useHead({
             </div>
         </QhxModal>
 
-        <UModal v-model="showSceneSettings" :ui="{ width: 'max-w-md' }">
-            <UCard>
-                <template #header>
-                    <h3 class="text-lg font-semibold text-gray-800 dark:text-gray-200">场景设置</h3>
-                </template>
+        <QhxModal v-model="showSceneSettings" :trigger-position="moreMenuPosition">
+            <div class="p-6 w-[min(92vw,420px)] bg-white dark:bg-gray-800 rounded-2xl shadow-xl border border-gray-200/80 dark:border-gray-700/80">
+                <div class="flex items-center gap-3 mb-5">
+                    <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gray-500/[0.11] ring-1 ring-inset ring-gray-500/15 dark:bg-gray-400/10 dark:ring-gray-400/20">
+                        <UIcon name="i-heroicons-cog-6-tooth" class="h-5 w-5 text-gray-600 dark:text-gray-400" />
+                    </div>
+                    <h3 class="text-base font-semibold text-gray-900 dark:text-gray-100">场景设置</h3>
+                </div>
                 <div v-if="hasSceneOrigin" class="py-1">
                     <div class="text-sm font-medium text-gray-800 dark:text-gray-200">允许克隆场景</div>
                     <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
@@ -4634,13 +4637,11 @@ useHead({
                         </span>
                     </div>
                 </div>
-                <template #footer>
-                    <div class="flex justify-end">
-                        <UButton color="gray" @click="showSceneSettings = false">关闭</UButton>
-                    </div>
-                </template>
-            </UCard>
-        </UModal>
+                <div class="flex justify-end mt-6">
+                    <UButton color="gray" @click="showSceneSettings = false">关闭</UButton>
+                </div>
+            </div>
+        </QhxModal>
 
         <!-- 颜色选择器 -->
         <QhxColorPicker ref="colorPickerRef" @choose="setSolidColorBackground" />

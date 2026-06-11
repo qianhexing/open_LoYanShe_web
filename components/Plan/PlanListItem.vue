@@ -42,6 +42,13 @@
               <button v-if="item.is_complete !== 1 && !isChildPlan && (!item.plan_list || item.plan_list.length === 0)" class="flex items-center gap-0.5 px-1.5 py-0.5 text-[10px] bg-qhx-primary text-white rounded" @click.stop="openAddModal($event)">
                 <UIcon name="i-heroicons-plus" class="w-2.5 h-2.5" />添加
               </button>
+              <button
+                v-if="item.is_complete !== 1 && !isChildPlan && !hasLinkedClothes"
+                class="flex items-center gap-0.5 px-1.5 py-0.5 text-[10px] border border-qhx-primary text-qhx-primary rounded hover:bg-qhx-primary/5"
+                @click.stop="$emit('link-clothes')"
+              >
+                <UIcon name="i-heroicons-link" class="w-2.5 h-2.5" />关联
+              </button>
             </div>
             <button v-if="!isChildPlan" class="p-0.5 text-red-500 ml-auto" title="删除" @click.stop="$emit('delete', item.list_id)"><UIcon name="i-heroicons-trash" class="w-3 h-3" /></button>
           </div>
@@ -66,9 +73,9 @@
     </div>
     <!-- 关联服饰 -->
     <div
-      v-if="wardrobeClothes"
+      v-if="hasLinkedClothes"
       class="flex items-center gap-1.5 pl-8 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800 -mx-1 px-1 py-0.5 rounded"
-      @click="$emit('jump-clothes', wardrobeClothes)"
+      @click="$emit('jump-clothes', wardrobeClothes!)"
     >
       <div class="w-4 h-4 rounded overflow-hidden flex-shrink-0 border border-gray-200 dark:border-gray-600">
         <img :src="getClothesImgSrc()" class="w-full h-full object-cover" loading="lazy" alt="" />
@@ -131,6 +138,13 @@
             <UIcon name="i-heroicons-plus" class="w-3 h-3" />添加
           </button>
           <button v-if="item.is_complete !== 1" @click="$emit('complete', item.list_id)" class="px-2 py-0.5 text-xs bg-qhx-primary hover:bg-qhx-primary/80 text-white rounded">完成</button>
+          <button
+            v-if="item.is_complete !== 1 && !hasLinkedClothes"
+            @click.stop="$emit('link-clothes')"
+            class="flex items-center gap-0.5 px-2 py-0.5 text-xs border border-qhx-primary text-qhx-primary hover:bg-qhx-primary/5 rounded"
+          >
+            <UIcon name="i-heroicons-link" class="w-3 h-3" />关联服饰
+          </button>
         </div>
 
         <div v-if="item.plan_note" class="text-xs text-gray-500 truncate mt-0.5">{{ item.plan_note }}</div>
@@ -141,21 +155,18 @@
       </div>
     </div>
 
-    <div v-if="wardrobeClothes || item.is_complete !== 1" class="mt-1 py-1 px-2 bg-gray-50 dark:bg-gray-900 rounded">
-      <div v-if="wardrobeClothes" class="flex items-center gap-2">
-        <div @click="$emit('jump-clothes', wardrobeClothes)" class="flex-1 flex items-center gap-2 min-w-0 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800 -my-1 -mx-2 py-1 px-2 rounded">
+    <div v-if="hasLinkedClothes" class="mt-1 py-1 px-2 bg-gray-50 dark:bg-gray-900 rounded">
+      <div class="flex items-center gap-2">
+        <div @click="$emit('jump-clothes', wardrobeClothes!)" class="flex-1 flex items-center gap-2 min-w-0 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800 -my-1 -mx-2 py-1 px-2 rounded">
           <div class="w-6 h-6 rounded-full overflow-hidden flex-shrink-0">
             <img :src="getClothesImgSrc()" class="w-full h-full object-cover" loading="lazy" />
           </div>
-          <span class="text-xs text-gray-600 dark:text-gray-400 truncate">{{ wardrobeClothes?.clothes_note }}</span>
+          <span class="text-xs text-gray-600 dark:text-gray-400 truncate">{{ wardrobeClothes?.clothes_note || '关联服饰' }}</span>
         </div>
         <button v-if="item.is_complete !== 1" @click.stop="$emit('unlink-clothes')" class="w-6 h-6 flex items-center justify-center rounded-full text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 flex-shrink-0" title="取消关联">
           <UIcon name="i-heroicons-trash" class="w-3.5 h-3.5" />
         </button>
       </div>
-      <button v-else-if="item.is_complete !== 1" @click="$emit('link-clothes')" class="flex items-center gap-1.5 px-2 py-1 text-xs text-qhx-primary hover:bg-gray-100 dark:hover:bg-gray-800 rounded w-full text-left">
-        <UIcon name="i-heroicons-link" class="w-3.5 h-3.5" />关联服饰
-      </button>
     </div>
     <div v-if="hasChildren && isExpanded" class="ml-4 pb-2 pr-2 border-l-2 border-blue-200 dark:border-blue-800 pl-3 space-y-1">
       <div v-for="child in item.plan_list" :key="child.list_id" class="flex items-center justify-between py-1.5 px-2 bg-gray-50 dark:bg-gray-900 rounded text-xs">
@@ -248,6 +259,8 @@ const isChildPlan = computed(() => {
   const item = props.item
   return !!(item.parent_plan || (item.parent_id && item.parent_id > 0))
 })
+
+const hasLinkedClothes = computed(() => !!props.wardrobeClothes?.clothes_id)
 
 const formatMoney = (money: number | undefined): string => {
   if (money === undefined || money === null) return '0'

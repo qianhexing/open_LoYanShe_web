@@ -148,6 +148,7 @@ export interface InsertParams {
   quality_test?: string | null
   size_image?: string | null
   complete?: 0 | 1
+  json_data?: Record<string, unknown>
 }
 export async function insertLibrary(params: InsertParams): Promise<Library> {
   const response = await use$Post<BaseResponse<Library>>('/library/insert', params)
@@ -240,6 +241,7 @@ export interface ReviewData {
   secondary_cloth: string | null
   pattern_elements: string | null
   fabric_composition: string | null
+  json_data?: Record<string, unknown>
 }
 export interface LibraryHistoryNew {
   history_id?: number
@@ -306,6 +308,46 @@ export interface PipeInsertParams {
 }
 export async function insertLibraryPipe(params: PipeInsertParams): Promise<LibraryPipe> {
   const response = await use$Post<BaseResponse<LibraryPipe>>('/library/pipe/insert', params)
+  return response.data
+}
+
+export interface PipeUpdateParams extends PipeInsertParams {
+  pipe_id: number
+}
+
+export async function updateLibraryPipe(params: PipeUpdateParams): Promise<LibraryPipe> {
+  const response = await use$Post<BaseResponse<LibraryPipe>>('/library/pipe/update', params)
+  return response.data
+}
+
+export async function deleteLibraryPipe(params: { pipe_id: number }): Promise<void> {
+  const response = await use$Post<BaseResponse<void>>('/library/pipe/delete', params)
+  return response.data
+}
+
+export interface UpdateStateMultipleParams {
+  ids: string
+  state: string
+  start_time?: string
+  end_time?: string
+  arrears_start?: string
+  arrears_end?: string
+}
+
+export async function updateStateMultiple(params: UpdateStateMultipleParams): Promise<void> {
+  const response = await use$Post<BaseResponse<void>>('/library/update/state', params)
+  return response.data
+}
+
+export interface UpdatePatternElementsMultipleParams {
+  ids: string
+  pattern_elements: string
+}
+
+export async function updatePatternElementsMultiple(
+  params: UpdatePatternElementsMultipleParams
+): Promise<void> {
+  const response = await use$Post<BaseResponse<void>>('/library/update/patternElements', params)
   return response.data
 }
 

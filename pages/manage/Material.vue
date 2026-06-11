@@ -167,14 +167,15 @@
           <!-- 素材文件 -->
           <div>
             <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              素材文件 (GLTF/GLB)
+              素材文件 (GLTF/GLB / RAD)
             </label>
             <!-- 文件选择器 -->
             <div class="space-y-2">
               <input
                 ref="materialFileInput"
                 type="file"
-                accept=".gltf,.glb"
+                accept=".gltf,.glb,.rad,.radc"
+                multiple
                 class="hidden"
                 @change="handleMaterialFileSelect"
               />
@@ -188,10 +189,10 @@
                 <div class="flex flex-col items-center gap-2">
                   <UIcon name="i-heroicons-cube" class="text-4xl text-gray-400" />
                   <p class="text-sm text-gray-600 dark:text-gray-400">
-                    点击选择或拖拽 GLTF/GLB 文件
+                    点击选择或拖拽素材文件
                   </p>
                   <p class="text-xs text-gray-500 dark:text-gray-500">
-                    支持 .gltf 和 .glb 格式
+                    支持 .gltf / .glb；或 .rad 与 .radc 多选（按 .rad 的 MD5 上传至同名文件夹）
                   </p>
                 </div>
               </div>
@@ -211,6 +212,12 @@
                       </p>
                       <p class="text-xs text-gray-500 dark:text-gray-400">
                         {{ formatFileSize(selectedMaterialFileSize) }}
+                      </p>
+                      <p
+                        v-if="selectedRadcCount > 0"
+                        class="text-xs text-gray-500 dark:text-gray-400"
+                      >
+                        含 {{ selectedRadcCount }} 个 .radc 分片
                       </p>
                     </div>
                   </div>
@@ -331,7 +338,8 @@
 import { ref, reactive } from 'vue'
 import type { Material } from '@/types/api'
 import { getMaterialctList, insertMaterial, updateMaterial, deleteMaterial, type InsertMaterialParams } from '@/api/material'
-import { uploadFileToOSS } from '@/utils/ossUpload'
+import { insertFile } from '@/api'
+import { uploadFileToOSS, calculateFileMD5 } from '@/utils/ossUpload'
 import { BASE_IMG } from '@/utils/ipConfig'
 import type QhxImagePicker from '@/components/Qhx/ImagePicker.vue'
 import type QhxWaterList from '@/components/Qhx/WaterList.vue'
@@ -379,6 +387,13 @@ const gltfCoverRef = ref<{
 const uploadingMaterial = ref(false)
 const selectedMaterialFileName = ref('')
 const selectedMaterialFileSize = ref(0)
+const selectedRadcCount = ref(0)
+
+const isGltfGlbFile = (file: File) => /\.(gltf|glb)$/i.test(file.name)
+const isRadFile = (file: File) => /\.rad$/i.test(file.name)
+const isRadcFile = (file: File) => /\.radc$/i.test(file.name)
+
+const fileBaseName = (file: File) => file.name.replace(/\.[^.]+$/, '')
 
 // 格式化图片 URL
 const formatImg = (url: string) => {
@@ -450,26 +465,109 @@ const formatFileSize = (bytes: number): string => {
 const handleMaterialFileSelect = async (event: Event) => {
   const input = event.target as HTMLInputElement
   if (input.files && input.files.length > 0) {
-    await uploadMaterialFile(input.files[0])
+    await uploadMaterialFiles(Array.from(input.files))
   }
 }
 
 // 处理拖拽上传
 const handleMaterialFileDrop = async (event: DragEvent) => {
   if (event.dataTransfer?.files && event.dataTransfer.files.length > 0) {
-    const file = event.dataTransfer.files[0]
-    // 检查文件类型
-    const fileName = file.name.toLowerCase()
-    if (fileName.endsWith('.gltf') || fileName.endsWith('.glb')) {
-      await uploadMaterialFile(file)
-    } else {
+    await uploadMaterialFiles(Array.from(event.dataTransfer.files))
+  }
+}
+
+const uploadMaterialFiles = async (files: File[]) => {
+  if (files.length === 0) return
+
+  const gltfFiles = files.filter(isGltfGlbFile)
+  const radFiles = files.filter(isRadFile)
+  const radcFiles = files.filter(isRadcFile)
+  const unsupported = files.filter(f => !isGltfGlbFile(f) && !isRadFile(f) && !isRadcFile(f))
+
+  if (unsupported.length > 0) {
+    toast.add({
+      title: '文件格式错误',
+      description: '仅支持 .gltf / .glb，或 .rad 与 .radc',
+      icon: 'i-heroicons-exclamation-circle',
+      color: 'orange'
+    })
+    return
+  }
+
+  if (radFiles.length > 0) {
+    if (gltfFiles.length > 0 || radFiles.length > 1) {
       toast.add({
-        title: '文件格式错误',
-        description: '请选择 .gltf 或 .glb 格式的文件',
+        title: '文件选择错误',
+        description: 'RAD 上传需且仅需一个 .rad 文件，可同时选择多个 .radc 分片',
         icon: 'i-heroicons-exclamation-circle',
         color: 'orange'
       })
+      return
     }
+    await uploadRadBundle(radFiles[0], radcFiles)
+    return
+  }
+
+  if (gltfFiles.length === 1 && files.length === 1) {
+    await uploadMaterialFile(gltfFiles[0])
+    return
+  }
+
+  toast.add({
+    title: '文件选择错误',
+    description: '请选择一个 GLTF/GLB 文件，或一个 .rad 及若干 .radc 分片',
+    icon: 'i-heroicons-exclamation-circle',
+    color: 'orange'
+  })
+}
+
+/** 计算 .rad 的 MD5，将 .rad 与 .radc 上传至 material/{md5}/ 目录 */
+const uploadRadBundle = async (radFile: File, radcFiles: File[]) => {
+  uploadingMaterial.value = true
+  selectedMaterialFileName.value = radFile.name
+  selectedMaterialFileSize.value = radFile.size + radcFiles.reduce((sum, f) => sum + f.size, 0)
+  selectedRadcCount.value = radcFiles.length
+
+  try {
+    const radMd5 = await calculateFileMD5(radFile)
+    const radObjectKey = `${radMd5}/${fileBaseName(radFile)}`
+
+    const radResult = await uploadFileToOSS(radFile, 'material', radObjectKey)
+    const fileRecord = await insertFile({
+      file_url: radResult.file_url,
+      file_md5: radMd5,
+      file_type: 0,
+      file_size: radFile.size
+    })
+
+    for (const radcFile of radcFiles) {
+      const radcObjectKey = `${radMd5}/${fileBaseName(radcFile)}`
+      await uploadFileToOSS(radcFile, 'material', radcObjectKey)
+    }
+
+    formData.materia_url = radResult.file_url
+    formData.pk_id = fileRecord.file_id
+    formData.options = { assetKind: 'splat', paged: true }
+
+    toast.add({
+      title: 'RAD 素材上传成功',
+      description: radcFiles.length > 0 ? `已上传 1 个 .rad 与 ${radcFiles.length} 个 .radc` : undefined,
+      icon: 'i-heroicons-check-circle',
+      color: 'green'
+    })
+  } catch (error) {
+    console.error('RAD 素材上传失败:', error)
+    toast.add({
+      title: '文件上传失败',
+      description: error instanceof Error ? error.message : '请稍后重试',
+      icon: 'i-heroicons-x-circle',
+      color: 'red'
+    })
+    selectedMaterialFileName.value = ''
+    selectedMaterialFileSize.value = 0
+    selectedRadcCount.value = 0
+  } finally {
+    uploadingMaterial.value = false
   }
 }
 
@@ -490,6 +588,7 @@ const uploadMaterialFile = async (file: File) => {
   uploadingMaterial.value = true
   selectedMaterialFileName.value = file.name
   selectedMaterialFileSize.value = file.size
+  selectedRadcCount.value = 0
 
   try {
     // 使用 OSS 上传
@@ -533,6 +632,7 @@ const clearMaterialFile = () => {
   formData.materia_url = ''
   selectedMaterialFileName.value = ''
   selectedMaterialFileSize.value = 0
+  selectedRadcCount.value = 0
   if (materialFileInput.value) {
     materialFileInput.value.value = ''
   }
@@ -680,6 +780,7 @@ const handleCloseModal = () => {
   isPrivateChecked.value = false
   selectedMaterialFileName.value = ''
   selectedMaterialFileSize.value = 0
+  selectedRadcCount.value = 0
   if (materialFileInput.value) {
     materialFileInput.value.value = ''
   }

@@ -1,5 +1,5 @@
 
-import type { BaseResponse, PaginationParams, PaginationResponse, Scene  } from '@/types/api';
+import type { BaseResponse, PaginationParams, PaginationResponse, Scene, SenceForeign } from '@/types/api';
 import type { SceneJSON } from '@/utils/threeCore'
 export async function getSceneId(
   params: {
@@ -62,6 +62,25 @@ export async function deleteScene(
 ): Promise<boolean> {
   const response = await use$Post<BaseResponse<boolean>>(
     '/sence/delete',
+    params
+  );
+  return response.data;
+}
+
+export interface GetSenceForeignListParams extends PaginationParams {
+  where?: {
+    pk_type?: number
+    pk_id?: number
+    sence_id?: number
+    user_id?: number
+  }
+}
+
+export async function getSenceForeignList(
+  params: GetSenceForeignListParams
+): Promise<PaginationResponse<SenceForeign>> {
+  const response = await use$Post<BaseResponse<PaginationResponse<SenceForeign>>>(
+    '/sence/foreign/list',
     params
   );
   return response.data;

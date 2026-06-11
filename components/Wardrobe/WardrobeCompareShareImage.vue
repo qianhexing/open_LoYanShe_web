@@ -131,11 +131,19 @@ export interface CompareShareSection {
   hasData: boolean
   /** 两侧列表行数，默认 4（标签类）；条数/金额对比为 2 */
   shareRowCount?: number
+  kind?: 'tags' | 'metrics' | 'overlap'
+  overlapCount?: number
+  mineUniqueCount?: number
+  ownerUniqueCount?: number
 }
 
 export interface CompareSharePayload {
   mineName: string
   ownerName: string
+  /** 本人头像路径（相对或绝对 URL） */
+  mineFace?: string
+  /** 对方头像路径（相对或绝对 URL） */
+  ownerFace?: string
   hint?: string
   sections: CompareShareSection[]
 }
@@ -180,6 +188,83 @@ async function savePreviewToAlbum() {
 const CW = 750
 const P = 36
 const COL_GAP = 16
+const AVATAR_R = 36
+const DEFAULT_FACE = 'static/plan_cover/default.jpg'
+
+function resolveImgUrl(path: string | null | undefined): string {
+  const p = (path?.trim() || DEFAULT_FACE).trim()
+  if (/^https?:\/\//i.test(p)) return p
+  return `${BASE_IMG}${p.replace(/^\//, '')}`
+}
+
+function loadImageCors(src: string): Promise<HTMLImageElement | null> {
+  if (!src) return Promise.resolve(null)
+  return new Promise((resolve) => {
+    const img = new Image()
+    img.crossOrigin = 'anonymous'
+    img.onload = () => resolve(img)
+    img.onerror = () => resolve(null)
+    img.src = src
+  })
+}
+
+function drawImageCover(
+  ctx: CanvasRenderingContext2D,
+  img: HTMLImageElement,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+) {
+  const iw = img.naturalWidth
+  const ih = img.naturalHeight
+  if (!iw || !ih) return
+  const scale = Math.max(w / iw, h / ih)
+  const sw = w / scale
+  const sh = h / scale
+  const sx = (iw - sw) / 2
+  const sy = (ih - sh) / 2
+  ctx.drawImage(img, sx, sy, sw, sh, x, y, w, h)
+}
+
+function drawCircleAvatar(
+  ctx: CanvasRenderingContext2D,
+  img: HTMLImageElement | null,
+  cx: number,
+  cy: number,
+  radius: number,
+) {
+  const size = radius * 2
+  const x = cx - radius
+  const y = cy - radius
+
+  ctx.save()
+  ctx.beginPath()
+  ctx.arc(cx, cy, radius + 3, 0, Math.PI * 2)
+  ctx.fillStyle = '#ffffff'
+  ctx.fill()
+  ctx.restore()
+
+  ctx.save()
+  ctx.beginPath()
+  ctx.arc(cx, cy, radius, 0, Math.PI * 2)
+  ctx.clip()
+  if (img?.naturalWidth && img.naturalHeight) {
+    drawImageCover(ctx, img, x, y, size, size)
+  } else {
+    ctx.fillStyle = '#dcc8d2'
+    ctx.fillRect(x, y, size, size)
+  }
+  ctx.restore()
+
+  ctx.save()
+  ctx.beginPath()
+  ctx.arc(cx, cy, radius, 0, Math.PI * 2)
+  ctx.strokeStyle = 'rgba(157, 96, 128, 0.4)'
+  ctx.lineWidth = 2
+  ctx.stroke()
+  ctx.restore()
+}
 
 function wrapLines(ctx: CanvasRenderingContext2D, text: string, maxWidth: number): string[] {
   if (!text) return []
@@ -231,7 +316,7 @@ function measurePayloadHeight(payload: CompareSharePayload): number {
   const mc = document.createElement('canvas')
   const ctx = mc.getContext('2d')
   if (!ctx) return 1200
-  let y = P + 56 + 52
+  let y = P + 56 + AVATAR_R * 2 + 16 + 36
   if (payload.hint) {
     ctx.font = '15px system-ui, "Microsoft YaHei", "PingFang SC", sans-serif'
     y += wrapLines(ctx, payload.hint, CW - P * 2).length * 22 + 16
@@ -242,15 +327,25 @@ function measurePayloadHeight(payload: CompareSharePayload): number {
       ctx.font = '15px system-ui, "Microsoft YaHei", "PingFang SC", sans-serif'
       y += wrapLines(ctx, sec.evalText, CW - P * 2).length * 20 + 8
     }
-    const rowCount = sec.shareRowCount ?? 4
-    if (!sec.hasData) y += 56
-    else y += 30 + rowCount * 44 + 8
+    if (sec.kind === 'overlap' && sec.hasData) {
+      y += 96
+    } else if (!sec.hasData) {
+      y += 56
+    } else {
+      const rowCount = sec.shareRowCount ?? 4
+      y += 30 + rowCount * 44 + 8
+    }
     y += 20
   }
   return Math.max(480, y + P + 36)
 }
 
-function drawShareCanvas(payload: CompareSharePayload): HTMLCanvasElement {
+async function drawShareCanvas(payload: CompareSharePayload): Promise<HTMLCanvasElement> {
+  const [mineAvatar, ownerAvatar] = await Promise.all([
+    loadImageCors(resolveImgUrl(payload.mineFace)),
+    loadImageCors(resolveImgUrl(payload.ownerFace)),
+  ])
+
   const canvas = document.createElement('canvas')
   const H = measurePayloadHeight(payload)
   canvas.width = CW
@@ -268,19 +363,27 @@ function drawShareCanvas(payload: CompareSharePayload): HTMLCanvasElement {
   ctx.fillText('衣柜对比', CW / 2, y + 28)
   y += 56
 
-  ctx.font = '22px system-ui, "Microsoft YaHei", "PingFang SC", sans-serif'
   const mid = CW / 2
   const leftCx = P + (mid - P - COL_GAP / 2) / 2
   const rightCx = mid + COL_GAP / 2 + (CW - P - mid - COL_GAP / 2) / 2
-  ctx.textAlign = 'center'
-  ctx.fillText(truncateName(payload.mineName, 10), leftCx, y + 24)
+  const avatarCy = y + AVATAR_R
+
+  drawCircleAvatar(ctx, mineAvatar, leftCx, avatarCy, AVATAR_R)
+  drawCircleAvatar(ctx, ownerAvatar, rightCx, avatarCy, AVATAR_R)
+
   ctx.fillStyle = '#9d4080'
   ctx.font = 'bold 18px system-ui, sans-serif'
-  ctx.fillText('VS', mid, y + 24)
+  ctx.textAlign = 'center'
+  ctx.fillText('VS', mid, avatarCy + 6)
+
+  y += AVATAR_R * 2 + 16
+
   ctx.fillStyle = '#4a2f3d'
   ctx.font = '22px system-ui, "Microsoft YaHei", "PingFang SC", sans-serif'
+  ctx.textAlign = 'center'
+  ctx.fillText(truncateName(payload.mineName, 10), leftCx, y + 24)
   ctx.fillText(truncateName(payload.ownerName, 10), rightCx, y + 24)
-  y += 52
+  y += 36
 
   if (payload.hint) {
     ctx.fillStyle = '#6b4f5f'
@@ -318,7 +421,26 @@ function drawShareCanvas(payload: CompareSharePayload): HTMLCanvasElement {
       y += 8
     }
 
-    if (!sec.hasData) {
+    if (sec.kind === 'overlap' && sec.hasData) {
+      const cardH = 88
+      drawCard(ctx, P, y, CW - P * 2, cardH, '#e4d9e0', 14)
+      ctx.textAlign = 'center'
+      ctx.fillStyle = '#9d4080'
+      ctx.font = 'bold 42px system-ui, "Microsoft YaHei", "PingFang SC", sans-serif'
+      ctx.fillText(String(sec.overlapCount ?? 0), CW / 2, y + 42)
+      ctx.fillStyle = '#6b4f5f'
+      ctx.font = '14px system-ui, "Microsoft YaHei", sans-serif'
+      ctx.fillText('重合图鉴（library_id 去重）', CW / 2, y + 62)
+      ctx.fillStyle = '#8a6f7d'
+      ctx.font = '13px system-ui, "Microsoft YaHei", sans-serif'
+      ctx.fillText(
+        `你 ${sec.mineUniqueCount ?? 0} 款 · 对方 ${sec.ownerUniqueCount ?? 0} 款`,
+        CW / 2,
+        y + 82,
+      )
+      ctx.textAlign = 'left'
+      y += cardH + 8
+    } else if (!sec.hasData) {
       ctx.fillStyle = '#8a6f7d'
       ctx.font = '16px system-ui, "Microsoft YaHei", sans-serif'
       ctx.textAlign = 'center'
@@ -388,7 +510,7 @@ async function generateAndUpload() {
 
   generating.value = true
   try {
-    const canvas = drawShareCanvas(payload)
+    const canvas = await drawShareCanvas(payload)
     const blob = await new Promise<Blob | null>((resolve) =>
       canvas.toBlob((b) => resolve(b), 'image/png', 0.92)
     )

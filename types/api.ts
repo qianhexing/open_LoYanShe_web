@@ -145,11 +145,14 @@ export interface Shop {
   shop_describe?: string
   black_count?: number
   collect_count?: number
+  physical_shop?: PhysicalShop[]
+  related_shop_list?: Shop[]
 
 }
 export interface PhysicalShop {
 	physical_id?: number
   physical_name?: string
+  physical_desc?: string
   latitude?: string | number
   longitude?: string | number
   physical_logo?: string
@@ -245,6 +248,7 @@ export interface Library {
   score_number?: number;
   /** 当前用户是否已评分（与 POST /score/one 未评分时 false 一致，常见 0/1） */
   is_score?: number | boolean;
+  json_data?: Record<string, unknown>;
 }
 
 /** 相似推荐列表项（与列表/详情 library 结构相近，可带 shop，额外相似度分越大越相似） */
@@ -678,6 +682,27 @@ export interface Scene {
   allow_copy?: number
 }
 
+/** 场景关联（sence_foreign）嵌套的场景摘要 */
+export interface SenceForeignScene {
+  sence_id: number
+  sence_cover?: string
+  sence_desc?: string
+}
+
+/**
+ * 场景关联外键（sence_foreign）
+ * pk_type：0 店铺 · 2 图鉴（与 good/collect、event_redblack 一致）
+ */
+export interface SenceForeign {
+  foreign_id: number
+  sence_id: number
+  pk_type: number
+  pk_id: number
+  create_time?: string | Date
+  user_id?: number
+  is_enable?: number
+  sence?: SenceForeignScene
+}
 
 export interface TemplateInterface {
   template_id: number
@@ -940,4 +965,19 @@ export interface AblumForeign {
   library?: Library
   matching_list?: MatchingListItem
   plan?: PlanList
+}
+
+/**
+ * 红黑大事记（店铺 pk_type=0，图鉴 pk_type=2）
+ * attitude: 0 好评，1 差评，其余为中性
+ */
+export interface EventRedblack {
+  event_id: number
+  event_desc?: string
+  attitude?: number
+  create_time?: string | Date
+  pk_type?: number
+  pk_id?: number
+  user_id?: number
+  user?: User
 }

@@ -51,6 +51,32 @@
         v-show="expanded"
         class="mt-3 space-y-5 rounded-2xl border border-gray-200/90 bg-gray-50/50 p-4 dark:border-gray-600/80 dark:bg-gray-800/40 md:p-5"
       >
+        <!-- 主题模版 -->
+        <div>
+          <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+            主题模版
+            <span class="text-gray-500 dark:text-gray-400 font-normal text-xs ml-1.5">可选 · 一键带入配色</span>
+          </label>
+          <div class="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              class="inline-flex items-center gap-1.5 rounded-full border border-gray-200 dark:border-gray-600 bg-white px-4 py-2 text-sm font-medium text-gray-700 transition-all duration-200 hover:border-pink-300 hover:text-pink-600 dark:bg-gray-700/50 dark:text-gray-200 dark:hover:border-pink-500/35 dark:hover:text-pink-300"
+              @click="showTemplateModal = true"
+            >
+              <UIcon name="i-heroicons-squares-2x2" class="h-4 w-4" />
+              {{ selectedTemplateTitle ?? '选择模版' }}
+            </button>
+            <button
+              v-if="selectedTemplateTitle"
+              type="button"
+              class="inline-flex items-center gap-1 rounded-full px-3 py-2 text-xs font-medium text-gray-500 transition-colors hover:bg-red-50 hover:text-red-500 dark:text-gray-400 dark:hover:bg-red-950/40 dark:hover:text-red-400"
+              @click="clearTemplateSelection"
+            >
+              清除模版
+            </button>
+          </div>
+        </div>
+
         <!-- 背景图 -->
         <div>
           <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
@@ -160,23 +186,36 @@
       <QhxColorPicker ref="fontColorPickerRef" @choose="(c: string) => (model.fontColor = c)" />
       <QhxColorPicker ref="backColorPickerRef" @choose="(c: string) => (model.backColor = c)" />
     </ClientOnly>
+
+    <UModal v-model="showTemplateModal" :ui="{ width: 'max-w-lg' }">
+      <div class="p-4 pb-2">
+        <h3 class="text-base font-semibold text-gray-900 dark:text-gray-100">选择主题模版</h3>
+        <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">选择后将自动带入背景与配色</p>
+      </div>
+      <TemplateList compact :pk-type="1" @choose="onChooseTemplate" />
+    </UModal>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, watch, nextTick, computed } from 'vue'
+import type { TemplateInterface } from '@/types/api'
 import type QhxImagePicker from '@/components/Qhx/ImagePicker.vue'
 import type QhxColorPicker from '@/components/Qhx/ColorPicker.vue'
 import { BASE_IMG } from '@/utils/ipConfig'
 import {
   createDefaultCommunityCustomStyle,
   hasCommunityCustomStyle,
+  parseCommunityCustomStyleFromTemplateJsonData,
   type CommunityCustomStyle
 } from '@/utils/communityCustomStyle'
 
 const model = defineModel<CommunityCustomStyle>({ required: true })
 
+const toast = useToast()
 const expanded = ref(false)
+const showTemplateModal = ref(false)
+const selectedTemplateTitle = ref<string | null>(null)
 const backgroundPickerRef = ref<InstanceType<typeof QhxImagePicker> | null>(null)
 const btnColorPickerRef = ref<InstanceType<typeof QhxColorPicker> | null>(null)
 const btnFontColorPickerRef = ref<InstanceType<typeof QhxColorPicker> | null>(null)
@@ -186,9 +225,10 @@ const backColorPickerRef = ref<InstanceType<typeof QhxColorPicker> | null>(null)
 type ColorKey = 'btnColor' | 'btnFontColor' | 'fontColor' | 'backColor'
 
 const backModeOptions = [
-  { label: '平铺背景', value: false },
-  { label: '拉伸填充', value: true }
-] as const
+  { label: '平铺背景', value: 'tile' as const },
+  { label: '拉伸填充', value: 'cover' as const },
+  { label: '完整显示', value: 'contain' as const }
+]
 
 const colorFields: { key: ColorKey; label: string; hint: string }[] = [
   { key: 'btnColor', label: '按钮颜色', hint: '互动按钮底色' },
@@ -204,6 +244,9 @@ const summaryTitle = computed(() =>
 )
 
 const summaryText = computed(() => {
+  if (selectedTemplateTitle.value) {
+    return `模版：${selectedTemplateTitle.value}`
+  }
   if (!hasConfig.value) return '点击展开，设置背景图与配色'
   const parts: string[] = []
   if (model.value.background) parts.push('背景图')
@@ -252,6 +295,34 @@ function onBackgroundFiles(_files: File[]) {
   // QhxImagePicker 内部维护 previewImages
 }
 
+function onChooseTemplate(item: TemplateInterface) {
+  try {
+    model.value = parseCommunityCustomStyleFromTemplateJsonData(item.json_data)
+    selectedTemplateTitle.value = item.title
+    expanded.value = true
+    showTemplateModal.value = false
+    toast.add({
+      title: '模版已应用',
+      description: item.title,
+      icon: 'i-heroicons-check-circle',
+      color: 'green'
+    })
+  } catch (error: unknown) {
+    const msg = error instanceof Error ? error.message : '模版数据无效'
+    toast.add({
+      title: '模版加载失败',
+      description: msg,
+      icon: 'i-heroicons-x-circle',
+      color: 'red'
+    })
+  }
+}
+
+function clearTemplateSelection() {
+  selectedTemplateTitle.value = null
+  reset()
+}
+
 watch(
   () => model.value.background,
   (path) => {
@@ -268,6 +339,7 @@ watch(
 
 function reset() {
   model.value = createDefaultCommunityCustomStyle()
+  selectedTemplateTitle.value = null
   expanded.value = false
   nextTick(() => {
     backgroundPickerRef.value?.clear()

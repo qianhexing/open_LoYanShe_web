@@ -15,6 +15,8 @@ import {
 } from '@/api/library'
 import { BASE_IMG } from '@/utils/ipConfig'
 import { useLayoutStyle } from '@/composables/useLayoutStyle'
+import { useForcedLandscape } from '@/composables/useForcedLandscape'
+import { useCssRotatedPointerFix } from '@/composables/useCssRotatedPointerFix'
 
 interface ModelItem {
     url: string
@@ -37,6 +39,12 @@ useHead({
 const route = useRoute()
 const layoutReady = inject('layoutReady') as Ref<boolean>
 const { setLayoutStyle } = useLayoutStyle()
+const { isPortraitMobile } = useForcedLandscape()
+
+const mobileLeftOpen = ref(false)
+const mobileRightOpen = ref(false)
+const mobilePickerOpen = ref(false)
+
 setLayoutStyle(1)
 onBeforeUnmount(() => setLayoutStyle(0))
 
@@ -105,6 +113,25 @@ const hasSceneViewer = computed(
         (sceneJson.value?.objects != null && sceneJson.value.objects.length > 0)
         || modelList.value.length > 0
 )
+
+const getViewerCanvas = () =>
+    spzViewerRef.value?.getThreeCore?.()?.renderer?.domElement ?? null
+
+/** canvas 异步创建，需在场景就绪后重新挂载指针修正 */
+const viewerCanvasReady = computed(() => {
+    void hasSceneViewer.value
+    void sceneLoadState.value.loading
+    return getViewerCanvas() != null
+})
+
+useCssRotatedPointerFix(getViewerCanvas, isPortraitMobile, viewerCanvasReady)
+
+const triggerViewerResize = () => {
+    nextTick(() => {
+        spzViewerRef.value?.getThreeCore?.()?.onContainerResize?.()
+        window.dispatchEvent(new Event('resize'))
+    })
+}
 
 const clearSceneViewer = () => {
     sceneJson.value = null
@@ -382,20 +409,31 @@ watch(shopId, () => {
 onMounted(() => {
     if (layoutReady.value) init()
 })
+
+watch(isPortraitMobile, triggerViewerResize)
+watch(hasSceneViewer, (v) => {
+    if (v) triggerViewerResize()
+})
+watch(
+    () => sceneLoadState.value.loading,
+    (loading, wasLoading) => {
+        if (wasLoading && !loading && hasSceneViewer.value) triggerViewerResize()
+    }
+)
 </script>
 
 <template>
-    <!-- 移动端不适配：提示用户切换至 PC 端 -->
-    <div class="md:hidden p-8 text-center text-sm text-stone-300 bg-stone-900 min-h-screen flex flex-col items-center justify-center">
-        <UIcon name="material-symbols:desktop-windows-outline" class="text-6xl mb-3 text-amber-400" />
-        <p class="font-serif font-semibold text-lg mb-1 tracking-wider text-amber-200">数字展馆</p>
-        <p class="text-amber-100/70">PLEASE VISIT ON DESKTOP</p>
-        <p class="mt-3 text-xs text-stone-400">本展馆暂只适配 PC 端，请使用电脑浏览器访问</p>
-    </div>
-
-    <div class="exhibition-root hidden md:flex w-full h-screen gap-4 p-4">
+    <div
+        class="exhibition-mobile-shell"
+        :class="{ 'exhibition-mobile-shell--portrait': isPortraitMobile }"
+    >
+        <div class="exhibition-landscape-viewport">
+            <div class="exhibition-root flex w-full h-full min-h-0 gap-2 md:gap-4 p-2 md:p-4">
         <!-- 左：店铺 + 3D 图鉴列表 -->
-        <aside class="w-[300px] xl:w-[340px] flex flex-col gap-4 min-h-0">
+        <aside
+            class="exhibition-side-left flex flex-col gap-2 md:gap-4 min-h-0 w-[168px] sm:w-[200px] md:w-[300px] xl:w-[340px] shrink-0 max-md:absolute max-md:inset-y-0 max-md:left-0 max-md:z-40 max-md:shadow-[4px_0_24px_rgba(0,0,0,0.55)] max-md:transition-transform max-md:duration-300"
+            :class="mobileLeftOpen ? 'max-md:translate-x-0' : 'max-md:-translate-x-full'"
+        >
             <!-- 店铺信息（固定高度，内容区滚动，避免切换时挤压下方列表） -->
             <section class="museum-panel exhibition-shop-panel overflow-hidden shrink-0 flex flex-col">
                 <div class="museum-panel-header shrink-0">
@@ -509,13 +547,35 @@ onMounted(() => {
         </aside>
 
         <!-- 中：3D 展示 -->
-        <main class="flex-1 min-w-0 flex flex-col gap-4 min-h-0">
+        <main class="flex-1 min-w-0 flex flex-col gap-2 md:gap-4 min-h-0 relative">
             <section class="museum-stage relative flex-1 min-h-0 overflow-hidden">
+                <!-- 移动端侧栏开关 -->
+                <div class="md:hidden absolute left-2 top-1/2 -translate-y-1/2 z-40 flex flex-col gap-1.5 pointer-events-auto">
+                    <button
+                        type="button"
+                        class="exhibition-mobile-tab"
+                        :class="mobileLeftOpen ? 'exhibition-mobile-tab--active' : ''"
+                        aria-label="藏品列表"
+                        @click="mobileLeftOpen = !mobileLeftOpen; mobileRightOpen = false"
+                    >
+                        <UIcon name="material-symbols:museum-outline" class="text-base" />
+                    </button>
+                    <button
+                        type="button"
+                        class="exhibition-mobile-tab"
+                        :class="mobileRightOpen ? 'exhibition-mobile-tab--active' : ''"
+                        aria-label="藏品铭牌"
+                        @click="mobileRightOpen = !mobileRightOpen; mobileLeftOpen = false"
+                    >
+                        <UIcon name="material-symbols:info-outline" class="text-base" />
+                    </button>
+                </div>
+
                 <!-- 顶部：藏品标题与版型切换 -->
-                <div class="absolute top-4 left-4 right-4 z-30 flex items-start justify-between gap-3 pointer-events-none">
+                <div class="absolute top-2 md:top-4 left-10 md:left-4 right-2 md:right-4 z-30 flex items-start justify-between gap-2 md:gap-3 pointer-events-none">
                     <div class="pointer-events-auto flex-1 min-w-0">
-                        <div class="text-[10px] tracking-[0.4em] text-amber-300/70 font-serif">EXHIBIT · 藏品</div>
-                        <h2 class="mt-0.5 font-serif text-xl text-amber-50 truncate drop-shadow-[0_0_8px_rgba(212,175,55,0.35)]">
+                        <div class="text-[9px] md:text-[10px] tracking-[0.25em] md:tracking-[0.4em] text-amber-300/70 font-serif">EXHIBIT · 藏品</div>
+                        <h2 class="mt-0.5 font-serif text-sm md:text-xl text-amber-50 truncate drop-shadow-[0_0_8px_rgba(212,175,55,0.35)]">
                             {{ currentLibrary?.name || '—' }}
                         </h2>
                     </div>
@@ -533,9 +593,18 @@ onMounted(() => {
                 </div>
 
                 <!-- 底部：版型切换轨道（参考 humanPlatform 多版型） -->
+                <button
+                    type="button"
+                    class="md:hidden absolute bottom-2 right-2 z-30 flex items-center gap-1 px-2.5 py-1.5 rounded-full border border-amber-400/40 bg-stone-950/70 text-amber-100 text-[10px] tracking-widest font-serif backdrop-blur-md pointer-events-auto"
+                    @click="mobilePickerOpen = true"
+                >
+                    <UIcon name="material-symbols:swap-horiz" class="text-sm" />
+                    切换
+                </button>
+
                 <div
                     v-if="currentVideoList.length > 0"
-                    class="absolute bottom-4 left-1/2 -translate-x-1/2 z-30 max-w-[80%] pointer-events-auto"
+                    class="absolute bottom-2 md:bottom-4 left-1/2 -translate-x-1/2 z-30 max-w-[72%] md:max-w-[80%] pointer-events-auto max-md:pr-14"
                 >
                     <div class="flex items-center gap-1.5 px-3 py-2 rounded-full border border-amber-400/40 bg-stone-950/60 backdrop-blur-md shadow-[0_0_24px_rgba(0,0,0,0.4)]">
                         <span class="text-[10px] tracking-[0.3em] text-amber-300/80 pr-1 font-serif">VERSION</span>
@@ -576,7 +645,7 @@ onMounted(() => {
                     <SPZModelViewerContent
                         ref="spzViewerRef"
                         v-show="hasSceneViewer"
-                        class="w-full h-full"
+                        class="w-full h-full museum-stage__viewer"
                         :model-list="modelList"
                         :laxian-list="laxianList"
                         :scene-json="sceneJson"
@@ -610,7 +679,10 @@ onMounted(() => {
         </main>
 
         <!-- 右：图鉴信息 + 相似推荐 -->
-        <aside class="w-[320px] xl:w-[360px] flex flex-col gap-4 min-h-0">
+        <aside
+            class="exhibition-side-right flex flex-col gap-2 md:gap-4 min-h-0 w-[168px] sm:w-[200px] md:w-[320px] xl:w-[360px] shrink-0 max-md:absolute max-md:inset-y-0 max-md:right-0 max-md:z-40 max-md:shadow-[-4px_0_24px_rgba(0,0,0,0.55)] max-md:transition-transform max-md:duration-300"
+            :class="mobileRightOpen ? 'max-md:translate-x-0' : 'max-md:translate-x-full'"
+        >
             <section class="museum-panel overflow-hidden">
                 <div class="museum-panel-header">
                     <span class="ornament" />
@@ -689,7 +761,7 @@ onMounted(() => {
                 <div v-else-if="similarRows.length === 0" class="flex-1 flex items-center justify-center text-xs text-stone-400 font-serif">
                     暂无相似藏品
                 </div>
-                <div v-else class="flex-1 overflow-y-auto overscroll-contain p-2 grid grid-cols-2 gap-2 content-start museum-scroll">
+                <div v-else class="flex-1 overflow-y-auto overscroll-contain p-2 grid grid-cols-1 sm:grid-cols-2 gap-2 content-start museum-scroll">
                     <button
                         v-for="item in similarRows"
                         :key="item.library_id"
@@ -723,10 +795,157 @@ onMounted(() => {
                 </div>
             </section>
         </aside>
+
+            <!-- 移动端遮罩：关闭侧栏 -->
+            <div
+                v-if="mobileLeftOpen || mobileRightOpen"
+                class="md:hidden absolute inset-0 z-30 bg-black/40"
+                @click="mobileLeftOpen = false; mobileRightOpen = false"
+            />
+            </div>
+
+            <!-- 移动端：藏品 / 版型选择（置于横屏视口内，随强制旋转） -->
+            <div
+                v-if="mobilePickerOpen"
+                class="md:hidden absolute inset-0 z-50 flex items-end justify-center bg-black/50 p-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]"
+                @click.self="mobilePickerOpen = false"
+            >
+            <div class="exhibition-picker-modal w-full max-h-[min(72vh,420px)] flex flex-col overflow-hidden" @click.stop>
+                <div class="exhibition-picker-modal__header flex items-center justify-between px-3 py-2.5 shrink-0">
+                    <h3 class="font-serif text-sm tracking-[0.2em] text-amber-100">切换藏品 / 版型</h3>
+                    <button
+                        type="button"
+                        class="p-1.5 rounded-md text-amber-200/80 hover:bg-amber-400/10"
+                        aria-label="关闭"
+                        @click="mobilePickerOpen = false"
+                    >
+                        <UIcon name="material-symbols:close" class="text-lg" />
+                    </button>
+                </div>
+                <div class="flex-1 min-h-0 overflow-y-auto overscroll-contain px-2 pb-2 space-y-3 museum-scroll">
+                    <div>
+                        <p class="text-[10px] tracking-widest text-amber-200/50 px-1 mb-1 font-serif">COLLECTIONS</p>
+                        <div class="space-y-1">
+                            <button
+                                v-for="(group, idx) in groupedList"
+                                :key="group.library_id"
+                                type="button"
+                                class="w-full flex items-center gap-2 p-2 text-left rounded-md border border-transparent transition-all disabled:opacity-50"
+                                :class="currentLibraryId === group.library_id
+                                    ? 'bg-amber-500/15 border-amber-400/50'
+                                    : 'hover:bg-amber-400/5'"
+                                :disabled="exhibitSwitchBlocked"
+                                @click="selectLibrary(group.library_id); mobilePickerOpen = false"
+                            >
+                                <span class="w-5 text-center text-[10px] text-amber-300/70">{{ String(idx + 1).padStart(2, '0') }}</span>
+                                <img
+                                    v-if="group.cover"
+                                    :src="formatImg(group.cover, '?x-oss-process=image/quality,q_80/resize,w_80,h_80')"
+                                    :alt="group.name"
+                                    class="w-9 h-9 rounded object-cover border border-amber-400/30"
+                                />
+                                <span class="flex-1 text-xs text-amber-50 line-clamp-1 font-serif">{{ group.name || '未命名藏品' }}</span>
+                            </button>
+                        </div>
+                    </div>
+                    <div v-if="currentVideoList.length > 0">
+                        <p class="text-[10px] tracking-widest text-amber-200/50 px-1 mb-1 font-serif">VERSION</p>
+                        <div class="flex flex-wrap gap-1">
+                            <button
+                                v-for="(v, i) in currentVideoList"
+                                :key="v.video_id"
+                                type="button"
+                                class="px-2.5 py-1 rounded-full text-xs border disabled:opacity-50"
+                                :class="currentVideoId === v.video_id
+                                    ? 'bg-amber-400 text-stone-900 border-amber-300'
+                                    : 'text-amber-100/80 border-amber-400/20'"
+                                :disabled="exhibitSwitchBlocked"
+                                @click="selectVideo(v); mobilePickerOpen = false"
+                            >
+                                {{ v.title || `版型 ${String(i + 1).padStart(2, '0')}` }}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            </div>
+        </div>
     </div>
 </template>
 
 <style scoped>
+/* 移动端全屏 + 竖屏时 CSS 强制横屏视口 */
+.exhibition-mobile-shell {
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    height: 100vh;
+    height: 100dvh;
+    overflow: hidden;
+    background: #110c08;
+    z-index: 1;
+}
+
+@media (min-width: 768px) {
+    .exhibition-mobile-shell {
+        position: relative;
+    }
+}
+
+.exhibition-landscape-viewport {
+    width: 100%;
+    height: 100%;
+    position: relative;
+}
+
+@media (max-width: 767px) {
+    .exhibition-mobile-shell--portrait .exhibition-landscape-viewport {
+        position: absolute;
+        width: 100vh;
+        width: 100dvh;
+        height: 100vw;
+        height: 100dvw;
+        top: 0;
+        left: 100vw;
+        left: 100dvw;
+        transform: rotate(90deg);
+        transform-origin: top left;
+        overflow: hidden;
+    }
+}
+
+.exhibition-mobile-tab {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 2rem;
+    height: 2rem;
+    border-radius: 0.375rem;
+    border: 1px solid rgba(212, 175, 55, 0.35);
+    background: rgba(12, 8, 5, 0.75);
+    color: rgba(244, 228, 176, 0.85);
+    backdrop-filter: blur(6px);
+    transition: background 0.2s, border-color 0.2s;
+}
+.exhibition-mobile-tab--active {
+    border-color: rgba(212, 175, 55, 0.65);
+    background: rgba(212, 175, 55, 0.15);
+    color: #f4d06f;
+}
+
+.exhibition-picker-modal {
+    background: linear-gradient(180deg, rgba(40, 28, 18, 0.98), rgba(22, 16, 10, 0.99));
+    border: 1px solid rgba(212, 175, 55, 0.35);
+    border-radius: 10px;
+    box-shadow:
+        0 0 0 1px rgba(212, 175, 55, 0.1) inset,
+        0 16px 48px rgba(0, 0, 0, 0.55);
+    color: #f5e9c8;
+}
+.exhibition-picker-modal__header {
+    border-bottom: 1px solid rgba(212, 175, 55, 0.22);
+}
+
 /* ====== 古典博物馆主题 ====== */
 .exhibition-root {
     background:
@@ -800,6 +1019,20 @@ onMounted(() => {
 .exhibition-shop-panel {
     height: 13.75rem;
     flex-shrink: 0;
+}
+@media (max-width: 767px) {
+    .exhibition-shop-panel {
+        height: 8.25rem;
+    }
+    .exhibition-side-left .museum-panel-header,
+    .exhibition-side-right .museum-panel-header {
+        padding: 8px 10px 4px;
+    }
+    .exhibition-side-left .museum-panel-header .title,
+    .exhibition-side-right .museum-panel-header .title {
+        font-size: 12px;
+        letter-spacing: 0.2em;
+    }
 }
 .exhibition-shop-panel__body {
     flex: 1;

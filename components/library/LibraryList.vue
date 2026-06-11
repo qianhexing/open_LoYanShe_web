@@ -10,6 +10,8 @@ interface Props {
   filter_list?: FilterList[]
   need_water?: boolean // 是否需要瀑布流
 }
+const emit = defineEmits<{ 'count-change': [count: number] }>()
+
 const props = withDefaults(defineProps<Props>(), {
   needShop: true,
   size: 'mid',
@@ -105,6 +107,13 @@ watch(data, () => {
 // )
 // const list = computed(() => data.value?.rows ?? [])
 const total = computed(() => data.value?.count ?? 0)
+watch(
+  total,
+  (c) => {
+    emit('count-change', c)
+  },
+  { immediate: true }
+)
 const refreshLibrary = async () => {
   isLoading.value = true
   try {

@@ -175,12 +175,8 @@ const { isFinished, setFinished } = useScrollBottom(
   }
 )
 
-// 发帖相关
-const showPostModal = ref(false)
-const handlePostSuccess = () => {
-  // 发帖成功后刷新列表
-  page.value = 1
-  refreshCommunity()
+const goToPostPage = () => {
+  router.push('/community/post')
 }
 </script>
 <template>
@@ -225,23 +221,13 @@ const handlePostSuccess = () => {
     <!-- 左下角发帖按钮 -->
     <div class="fixed bottom-8 left-8 z-50 pointer-events-none">
       <button
-        @click="showPostModal = true"
+        @click="goToPostPage"
         class="pointer-events-auto bg-gray-900 dark:bg-white text-white dark:text-gray-900 px-6 py-3 rounded-full shadow-2xl flex items-center gap-2 transform transition-all duration-300 hover:scale-105 active:scale-95 group"
       >
         <span class="text-xl group-hover:rotate-12 transition-transform">📝</span>
         <span class="font-bold tracking-wide">发帖</span>
       </button>
     </div>
-
-    <!-- 发帖弹窗 -->
-    <ClientOnly>
-      <YearlySummaryPostModal
-        v-model="showPostModal"
-        :user-id="user?.user_id"
-        :skip-summary-link="true"
-        @success="handlePostSuccess"
-      />
-    </ClientOnly>
   </div>
 </template>
 

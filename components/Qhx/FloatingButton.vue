@@ -14,7 +14,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
 
 type Edge = 'left' | 'right' | 'top' | 'bottom'
 
@@ -29,6 +29,8 @@ interface Props {
   initialPosition?: InitialPosition
   /** 距边缘的安全距离 */
   margin?: number
+  /** 额外距底部的偏移（如 Tab 栏高度），叠加 margin 与安全区 */
+  bottomOffset?: number
   /** 吸附动画时长 ms */
   snapDuration?: number
 }
@@ -38,6 +40,7 @@ const props = withDefaults(defineProps<Props>(), {
   initialY: undefined,
   initialPosition: 'right',
   margin: 12,
+  bottomOffset: 0,
   snapDuration: 300
 })
 
@@ -54,6 +57,19 @@ const hasDragged = ref(false)
 const DRAG_THRESHOLD = 5
 const size = ref({ w: 0, h: 0 })
 const rafId = ref<number | null>(null)
+const safeAreaBottom = ref(0)
+
+const readSafeAreaBottom = (): number => {
+  if (typeof document === 'undefined') return 0
+  const probe = document.createElement('div')
+  probe.style.cssText = 'position:fixed;bottom:0;visibility:hidden;padding-bottom:env(safe-area-inset-bottom,0px)'
+  document.documentElement.appendChild(probe)
+  const pb = Number.parseFloat(getComputedStyle(probe).paddingBottom) || 0
+  document.documentElement.removeChild(probe)
+  return pb
+}
+
+const effectiveBottomInset = computed(() => props.margin + props.bottomOffset + safeAreaBottom.value)
 
 const updatePosition = (x: number, y: number) => {
   if (rafId.value !== null) cancelAnimationFrame(rafId.value)
@@ -89,7 +105,7 @@ const snapToEdge = (): { x: number; y: number; edge: Edge } => {
   if (minDist === distTop) {
     return { x: pos.value.x, y: m, edge: 'top' }
   }
-  return { x: pos.value.x, y: vh - h - m, edge: 'bottom' }
+  return { x: pos.value.x, y: vh - h - effectiveBottomInset.value, edge: 'bottom' }
 }
 
 const clamp = (v: number, min: number, max: number) => Math.max(min, Math.min(max, v))
@@ -120,7 +136,7 @@ const onMove = (e: MouseEvent | TouchEvent) => {
   const { w, h } = size.value
 
   const nx = clamp(startPos.value.x + dx, m, vw - w - m)
-  const ny = clamp(startPos.value.y + dy, m, vh - h - m)
+  const ny = clamp(startPos.value.y + dy, m, vh - h - effectiveBottomInset.value)
 
   updatePosition(nx, ny)
 }
@@ -147,15 +163,16 @@ const initPosition = () => {
   const { w, h } = size.value
   const m = props.margin
 
+  const bottomInset = effectiveBottomInset.value
   if (props.initialX !== undefined && props.initialY !== undefined) {
     pos.value = {
       x: clamp(props.initialX, m, vw - w - m),
-      y: clamp(props.initialY, m, vh - h - m)
+      y: clamp(props.initialY, m, vh - h - bottomInset)
     }
   } else if (props.initialPosition === 'bottom-left') {
-    pos.value = { x: m, y: vh - h - m }
+    pos.value = { x: m, y: vh - h - bottomInset }
   } else if (props.initialPosition === 'bottom-right') {
-    pos.value = { x: vw - w - m, y: vh - h - m }
+    pos.value = { x: vw - w - m, y: vh - h - bottomInset }
   } else if (props.initialPosition === 'top-left') {
     pos.value = { x: m, y: m }
   } else if (props.initialPosition === 'top-right') {
@@ -186,6 +203,7 @@ const buttonStyle = computed(() => ({
 let resizeCleanup: (() => void) | undefined
 
 onMounted(async () => {
+  safeAreaBottom.value = readSafeAreaBottom()
   await nextTick()
   if (rootRef.value) {
     const rect = rootRef.value.getBoundingClientRect()
@@ -197,6 +215,11 @@ onMounted(async () => {
   window.addEventListener('mouseup', onDragEnd)
   window.addEventListener('touchmove', onMove, { passive: true })
   window.addEventListener('touchend', onDragEnd)
+})
+
+watch(() => props.bottomOffset, () => {
+  if (!rootRef.value) return
+  initPosition()
 })
 
 onUnmounted(() => {

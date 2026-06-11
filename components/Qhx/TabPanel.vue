@@ -1,10 +1,8 @@
 <template>
-  <div class="w-full">
-    <Transition name="tab-fade">
-      <div v-show="isActive">
-        <slot :currentIndex="currentIndex" :isActive="isActive" :firstLoading="firstLoading"/>
-      </div>
-    </Transition>
+  <div class="w-full flex-shrink-0 self-stretch qhx-tab-panel">
+    <div v-show="isActive" class="qhx-tab-panel__content min-h-[var(--qhx-tab-panel-min-h,0)]">
+      <slot :currentIndex="currentIndex" :isActive="isActive" :firstLoading="firstLoading"/>
+    </div>
   </div>
 </template>
 
@@ -26,12 +24,7 @@ const isActive = computed(() => {
 </script>
 
 <style scoped>
-.tab-fade-enter-active,
-.tab-fade-leave-active {
-  transition: opacity 0.2s ease-out;
-}
-.tab-fade-enter-from,
-.tab-fade-leave-to {
-  opacity: 0;
+.qhx-tab-panel {
+  min-height: var(--qhx-tab-panel-min-h, auto);
 }
 </style>

@@ -38,6 +38,7 @@ interface ClothesResponse<T = any> {
   rows: T[];
   count: number
   tags_list: Array<string>
+  size_list?: Array<string>
   info: Wardrobe
 }
 export async function getClothesList(

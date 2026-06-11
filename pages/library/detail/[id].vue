@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import type { Library, LibrarySimilarItem, PaginationResponse, Shop, LibraryVideo, LibraryPipe, Community, User } from '@/types/api';
-import { getLibraryDetail, getLibraryList, getLibraryVideo, getLibraryPipeListAll, getLibrarySimilar } from '@/api/library'
+import type { Library, LibrarySimilarItem, PaginationResponse, Shop, LibraryVideo, LibraryPipe, Community, User, Compilations, SenceForeign } from '@/types/api';
+import { getLibraryDetail, getLibraryList, getLibraryVideo, getLibraryPipeListAll, getLibrarySimilar, updateStateMultiple, updatePatternElementsMultiple } from '@/api/library'
 import html2canvas from 'html2canvas';
 import QhxTag from '~/components/Qhx/Tag.vue';
 import type { image } from 'html2canvas/dist/types/css/types/image';
@@ -12,8 +12,13 @@ import type { Wiki } from '@/types/api'
 import dayjs from 'dayjs'
 import PhysicsDrop from '@/components/PhysicsDrop.client.vue'
 import { getWikiDetail, type WikiDetailParams } from '@/api/wiki'
+import { insertCompDetail } from '@/api/compilations'
+import type LibraryChoose from '@/components/library/LibraryChoose.vue'
+import type CompilationsChoose from '@/components/compilations/CompilationsChoose.vue'
+import type QhxSelect from '@/components/Qhx/Select.vue'
 import SPZModelViewer from '@/components/ModelViewer/SPZModelViewer.vue'
-import { insertCommunityForeign } from '@/api/community'
+import { insertCommunityForeign, getCommunityForeignList } from '@/api/community'
+import { getEventRedblackList } from '@/api/event_redblack'
 import { getScoreOne, insertScore, type ScoreRecord } from '@/api/score'
 import {
   clampUserLibraryScore,
@@ -23,6 +28,9 @@ import {
   starFillRatio
 } from '@/utils/libraryScore'
 import type { CommunityPostForeignContext } from '@/utils/communityPost'
+import { openLibraryWebPath } from '@/composables/useLibraryDetailNavigation'
+import { BASE_IMG } from '@/utils/ipConfig'
+import { getSenceForeignList } from '@/api/scene'
 const user = useUserStore()
 const config = useConfigStore()
 const route = useRoute()
@@ -30,6 +38,9 @@ const toast = useToast()
 
 /** 图鉴返图 community foreign（pk_type 见 types/api CommunityForeign） */
 const LIBRARY_RETURN_GRAPH_PK_TYPE = 7 as const
+/** 图鉴关联场景 sence_foreign pk_type（与 good/collect、event_redblack 一致） */
+const LIBRARY_SENCE_FOREIGN_PK_TYPE = 2 as const
+const SENCE_FOREIGN_PAGE_SIZE = 10
 
 const libraryForeignRefreshKey = ref(0)
 const libraryForeignLinkLoading = ref(false)
@@ -60,11 +71,148 @@ parent.value = data.value?.parent ?? null
 shop.value = data.value?.shop ?? null
 uploadUser.value = data.value?.upload_user ?? null
 
+interface LibrarySkuItem {
+  library_pattern: string
+  library_price?: number
+  cover?: string
+}
+
+interface LibrarySkuRaw {
+  library_pattern: string
+  library_price?: unknown
+  cover?: unknown
+}
+
+const parseLibraryJsonData = (jsonData: unknown): Record<string, unknown> => {
+  if (jsonData == null) return {}
+  if (typeof jsonData === 'string') {
+    try {
+      const parsed = JSON.parse(jsonData)
+      return typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)
+        ? (parsed as Record<string, unknown>)
+        : {}
+    } catch {
+      return {}
+    }
+  }
+  if (typeof jsonData === 'object' && !Array.isArray(jsonData)) {
+    return jsonData as Record<string, unknown>
+  }
+  return {}
+}
+
+const resolveSkuRawList = (jsonData: Record<string, unknown>): LibrarySkuRaw[] => {
+  const raw = jsonData.sku
+  let list: unknown[] = []
+  if (Array.isArray(raw)) {
+    list = raw
+  } else if (typeof raw === 'string') {
+    try {
+      const parsed = JSON.parse(raw)
+      if (Array.isArray(parsed)) list = parsed
+    } catch {
+      return []
+    }
+  }
+  return list
+    .filter((item): item is LibrarySkuRaw =>
+      !!item
+      && typeof item === 'object'
+      && 'library_pattern' in item
+      && String((item as LibrarySkuRaw).library_pattern).trim() !== ''
+    )
+    .map((item) => ({
+      library_pattern: String(item.library_pattern).trim(),
+      library_price: item.library_price,
+      cover: item.cover
+    }))
+}
+
+const librarySkuCoverSrc = (cover: string | undefined) => {
+  if (!cover?.trim()) return ''
+  const trimmed = cover.trim()
+  const pathOnly = trimmed.split('?')[0]
+  if (/^https?:\/\//i.test(pathOnly) || pathOnly.startsWith('//')) {
+    return `${pathOnly}?x-oss-process=image/quality,q_80/resize,w_300,h_300`
+  }
+  const relative = pathOnly.replace(BASE_IMG, '').replace(/^\//, '')
+  return `${BASE_IMG}${relative}?x-oss-process=image/quality,q_80/resize,w_300,h_300`
+}
+
+const librarySkuList = computed((): LibrarySkuItem[] => {
+  const lib = library.value
+  if (!lib) return []
+
+  const skuItems = resolveSkuRawList(parseLibraryJsonData(lib.json_data))
+  const metaByPattern = new Map<string, { library_price?: number; cover?: string }>()
+  for (const item of skuItems) {
+    const cover = item.cover != null && String(item.cover).trim() !== ''
+      ? String(item.cover).trim()
+      : undefined
+    metaByPattern.set(item.library_pattern, {
+      library_price: item.library_price != null ? Number(item.library_price) : undefined,
+      cover
+    })
+  }
+
+  const patternNames = (lib.library_pattern
+    ? lib.library_pattern.split(',').map((s) => s.trim()).filter(Boolean)
+    : skuItems.map((item) => item.library_pattern)
+  ).filter((name, index, arr) => arr.indexOf(name) === index)
+
+  if (!patternNames.length) return []
+
+  return patternNames.map((name) => {
+    const meta = metaByPattern.get(name)
+    return {
+      library_pattern: name,
+      library_price: meta?.library_price,
+      cover: meta?.cover
+    }
+  })
+})
+
+const hasSku = computed(() => librarySkuList.value.length > 0)
+
 const libraryReturnForeignPk = computed((): CommunityPostForeignContext | null => {
   const lid = library.value?.library_id
   if (lid == null) return null
   return { pk_id: lid, pk_type: LIBRARY_RETURN_GRAPH_PK_TYPE }
 })
+
+const libraryReturnTabCount = ref<number | undefined>(undefined)
+const libraryEventTabCount = ref<number | undefined>(undefined)
+
+const libraryDetailTabCounts = computed(() => [
+  libraryReturnTabCount.value,
+  library_pipe.value.length > 0 ? library_pipe.value.length : undefined,
+  libraryEventTabCount.value
+])
+
+async function prefetchLibraryTabCounts() {
+  const lid = library.value?.library_id
+  if (lid == null) return
+  try {
+    const [foreignRes, eventRes] = await Promise.all([
+      getCommunityForeignList({
+        page: 1,
+        pageSize: 1,
+        pk_id: lid,
+        pk_type: LIBRARY_RETURN_GRAPH_PK_TYPE
+      }),
+      getEventRedblackList({
+        page: 1,
+        pageSize: 1,
+        pk_id: lid,
+        pk_type: 2
+      })
+    ])
+    libraryReturnTabCount.value = foreignRes.count ?? 0
+    libraryEventTabCount.value = eventRes.count ?? 0
+  } catch {
+    // 角标预取失败时保持不显示
+  }
+}
 
 function openLibraryReturnChooseCommunity(e?: MouseEvent) {
   if (!user.token) {
@@ -220,6 +368,54 @@ const fetchLibraryPipe = () => {
 }
 const similarRows = ref<LibrarySimilarItem[]>([])
 const similarLoading = ref(false)
+
+const senceForeignRows = ref<SenceForeign[]>([])
+const senceForeignLoading = ref(false)
+const senceForeignPage = ref(1)
+const senceForeignTotal = ref(0)
+const senceForeignHasMore = computed(() => senceForeignRows.value.length < senceForeignTotal.value)
+
+const resolveSenceForeignSceneId = (item: SenceForeign) => item.sence?.sence_id ?? item.sence_id
+
+async function fetchSenceForeignList(reset = false) {
+  const lid = library.value?.library_id
+  if (lid == null) return
+  if (senceForeignLoading.value) return
+  if (reset) {
+    senceForeignPage.value = 1
+  }
+  senceForeignLoading.value = true
+  try {
+    const res = await getSenceForeignList({
+      page: senceForeignPage.value,
+      pageSize: SENCE_FOREIGN_PAGE_SIZE,
+      where: {
+        pk_id: lid,
+        pk_type: LIBRARY_SENCE_FOREIGN_PK_TYPE
+      }
+    })
+    const rows = (res.rows ?? []).filter((item) => resolveSenceForeignSceneId(item) != null)
+    senceForeignTotal.value = res.count ?? 0
+    if (reset || senceForeignPage.value === 1) {
+      senceForeignRows.value = rows
+    } else {
+      senceForeignRows.value.push(...rows)
+    }
+  } catch {
+    if (reset || senceForeignPage.value === 1) {
+      senceForeignRows.value = []
+      senceForeignTotal.value = 0
+    }
+  } finally {
+    senceForeignLoading.value = false
+  }
+}
+
+function loadMoreSenceForeign() {
+  if (!senceForeignHasMore.value || senceForeignLoading.value) return
+  senceForeignPage.value += 1
+  void fetchSenceForeignList()
+}
 const routeLibraryId = computed(() => {
   const n = Number.parseInt(String(route.params.id), 10)
   return Number.isNaN(n) ? null : n
@@ -258,9 +454,11 @@ onMounted(async () => {
   }
   fetchLibraryVideo()
   fetchLibraryPipe()
+  void prefetchLibraryTabCounts()
   const lid = routeLibraryId.value
   if (lid != null) {
     void fetchSimilarLibraries(lid)
+    void fetchSenceForeignList(true)
   }
 })
 
@@ -270,9 +468,13 @@ watch(routeLibraryId, (lid) => {
   }
   if (lid == null) {
     similarRows.value = []
+    senceForeignRows.value = []
+    senceForeignTotal.value = 0
+    senceForeignPage.value = 1
     return
   }
   void fetchSimilarLibraries(lid)
+  void fetchSenceForeignList(true)
 })
 interface WikiParams {
   wiki_name: string
@@ -487,14 +689,223 @@ onMounted(() => {
   }
 })
 const jumpToLibraryHistory = () => {
-  window.open(`/library/history?library_id=${library.value?.library_id}`, '_blank')
+  if (!library.value?.library_id) return
+  openLibraryWebPath(`/library/history?library_id=${library.value.library_id}`)
 }
 const handleEditLibrary = () => {
-  window.open(`/addLibrary?library_id=${library.value?.library_id}`, '_blank')
+  if (!library.value?.library_id) return
+  openLibraryWebPath(`/addLibrary?library_id=${library.value.library_id}`)
 }
 const jumpToLibraryVideoManage = () => {
   if (!library.value?.library_id) return
-  window.open(`/library/manageVideo/${library.value.library_id}`, '_blank')
+  openLibraryWebPath(`/library/manageVideo/${library.value.library_id}`)
+}
+const jumpToManagePipeline = () => {
+  if (!library.value?.library_id) return
+  openLibraryWebPath(`/library/managePipeline/${library.value.library_id}`)
+}
+const jumpToAddChildLibrary = () => {
+  if (!library.value?.library_id) return
+  const params = new URLSearchParams({
+    parent_id: String(library.value.library_id),
+    parent_name: library.value.name || ''
+  })
+  if (library.value.shop_id != null) {
+    params.set('shop_id', String(library.value.shop_id))
+  }
+  if (shop.value?.shop_name) {
+    params.set('shop_name', shop.value.shop_name)
+  }
+  openLibraryWebPath(`/addLibrary?${params.toString()}`)
+}
+
+const canUpdateLibrary = computed(() => user.hasPermi('library:detail:update'))
+const canInsertComp = computed(() => user.hasPermi('comp:detail:insert'))
+const isSeriesWithChildren = computed(
+  () => library.value?.library_type === '系列' && child_list.value.length > 0
+)
+const canManagePipeline = computed(
+  () => canUpdateLibrary.value && library.value?.parent_id === 0
+)
+
+const compilationsChooseRef = ref<InstanceType<typeof CompilationsChoose> | null>(null)
+const libraryChooseForStateRef = ref<InstanceType<typeof LibraryChoose> | null>(null)
+const libraryChooseForPatternRef = ref<InstanceType<typeof LibraryChoose> | null>(null)
+const compInsertLoading = ref(false)
+
+const showCompChoose = (e?: MouseEvent) => {
+  compilationsChooseRef.value?.showModel(e)
+}
+
+const onCompChoose = async (items: Compilations[]) => {
+  if (!library.value?.library_id || !items.length || compInsertLoading.value) return
+  compInsertLoading.value = true
+  try {
+    for (const item of items) {
+      await insertCompDetail({
+        comp_id: item.comp_id,
+        library_id: library.value.library_id
+      })
+    }
+    toast.add({ title: '已添加进合集', color: 'green' })
+  } catch (error) {
+    console.error(error)
+    toast.add({ title: '添加失败', color: 'red' })
+  } finally {
+    compInsertLoading.value = false
+  }
+}
+
+const batchStateIds = ref('')
+const showBatchStateModal = ref(false)
+const batchStateValue = ref<string | undefined>(undefined)
+const batchStateStartDate = ref<string | null>(null)
+const batchStateEndDate = ref<string | null>(null)
+const batchStateSaving = ref(false)
+const batchStateSelectRef = ref<InstanceType<typeof QhxSelect> | null>(null)
+
+const libraryStateQhxOptions = computed(() =>
+  (config.config?.library_state || []).map((item) => ({
+    label: item.label,
+    value: item.value
+  }))
+)
+
+const openBatchStateSelect = (e: MouseEvent) => {
+  batchStateSelectRef.value?.showPicker(e)
+}
+
+const onBatchStateSelect = (option: { label: string; value: string | number }) => {
+  batchStateValue.value = option.label
+}
+
+const showLibraryStateChoose = (e?: MouseEvent) => {
+  libraryChooseForStateRef.value?.showModel(e)
+}
+
+const onLibraryStateChoose = (items: Library[]) => {
+  const ids = [
+    ...items.map((item) => item.library_id),
+    library.value?.library_id
+  ].filter((id): id is number => id != null)
+  if (!ids.length) return
+  batchStateIds.value = ids.join(',')
+  batchStateValue.value = undefined
+  batchStateStartDate.value = null
+  batchStateEndDate.value = null
+  showBatchStateModal.value = true
+}
+
+const confirmBatchStateUpdate = async () => {
+  if (!batchStateIds.value || !batchStateValue.value || batchStateSaving.value) return
+  const params: Parameters<typeof updateStateMultiple>[0] = {
+    ids: batchStateIds.value,
+    state: batchStateValue.value
+  }
+  if (batchStateValue.value === '预约中' || batchStateValue.value === '尾款中') {
+    if (!batchStateStartDate.value || !batchStateEndDate.value) {
+      toast.add({ title: '请选择时间范围', color: 'orange' })
+      return
+    }
+    if (batchStateValue.value === '预约中') {
+      params.start_time = `${dayjs(batchStateStartDate.value).format('YYYY-MM-DD')} 00:00:00`
+      params.end_time = `${dayjs(batchStateEndDate.value).format('YYYY-MM-DD')} 23:59:59`
+    } else {
+      params.arrears_start = `${dayjs(batchStateStartDate.value).format('YYYY-MM-DD')} 00:00:00`
+      params.arrears_end = `${dayjs(batchStateEndDate.value).format('YYYY-MM-DD')} 23:59:59`
+    }
+  }
+  batchStateSaving.value = true
+  try {
+    await updateStateMultiple(params)
+    toast.add({ title: '修改成功', color: 'green' })
+    showBatchStateModal.value = false
+    await refreshLibraryData()
+  } catch (error) {
+    console.error(error)
+    toast.add({ title: '修改失败', color: 'red' })
+  } finally {
+    batchStateSaving.value = false
+  }
+}
+
+const batchPatternIds = ref('')
+const showBatchPatternModal = ref(false)
+const selectedPatternElements = ref<string[]>([])
+const patternElementInput = ref('')
+const batchPatternSaving = ref(false)
+
+const showPatternElementsChoose = (e?: MouseEvent) => {
+  libraryChooseForPatternRef.value?.showModel(e)
+}
+
+const onLibraryPatternChoose = (items: Library[]) => {
+  const ids = [
+    ...items.map((item) => item.library_id),
+    library.value?.library_id
+  ].filter((id): id is number => id != null)
+  if (!ids.length) return
+  batchPatternIds.value = ids.join(',')
+  const current = library.value?.pattern_elements
+  selectedPatternElements.value = current
+    ? String(current).split(',').map((s) => s.trim()).filter(Boolean)
+    : []
+  patternElementInput.value = ''
+  showBatchPatternModal.value = true
+}
+
+const addPatternElement = async () => {
+  const val = patternElementInput.value.trim()
+  if (!val || selectedPatternElements.value.includes(val)) return
+  selectedPatternElements.value.push(val)
+  patternElementInput.value = ''
+}
+
+const removePatternElement = (index: number) => {
+  selectedPatternElements.value.splice(index, 1)
+}
+
+const confirmBatchPatternUpdate = async () => {
+  if (!batchPatternIds.value || batchPatternSaving.value) return
+  if (selectedPatternElements.value.length === 0) {
+    toast.add({ title: '请选择柄图元素', color: 'orange' })
+    return
+  }
+  batchPatternSaving.value = true
+  try {
+    await updatePatternElementsMultiple({
+      ids: batchPatternIds.value,
+      pattern_elements: selectedPatternElements.value.join(',')
+    })
+    toast.add({ title: '修改成功', color: 'green' })
+    showBatchPatternModal.value = false
+    await refreshLibraryData()
+  } catch (error) {
+    console.error(error)
+    toast.add({ title: '修改失败', color: 'red' })
+  } finally {
+    batchPatternSaving.value = false
+  }
+}
+
+async function refreshLibraryData() {
+  const lid = library.value?.library_id
+  if (lid == null) return
+  const detail = await getLibraryDetail({ library_id: lid })
+  library.value = detail.library ?? library.value
+  style_list.value = detail.style_list ?? style_list.value
+  parent.value = detail.parent ?? parent.value
+  shop.value = detail.shop ?? shop.value
+  uploadUser.value = detail.upload_user ?? uploadUser.value
+  if (library.value?.library_type === '系列') {
+    const childRes = await getLibraryList({
+      filter_list: [{ field: 'parent_id', op: 'and', value: String(lid) }],
+      page: 1,
+      pageSize: 999
+    })
+    child_list.value = childRes.rows ?? []
+  }
+  fetchLibraryPipe()
 }
 
 // PhysicsDrop 组件相关 - 从接口返回的 model_list 动态生成
@@ -757,7 +1168,7 @@ const handleShareLink = async () => {
 const libraryThumbGridClass =
   'library-thumb-grid flex flex-wrap my-2 max-md:grid max-md:grid-cols-3 max-md:gap-2'
 const libraryThumbImgClass =
-  'cursor-pointer ml-3 w-[100px] aspect-square object-cover object-center rounded-[10px] shadow-lg border border-gray-200 max-md:ml-0 max-md:w-full'
+  'cursor-pointer ml-3 w-[100px] h-[100px] aspect-square object-cover object-center rounded-[10px] shadow-lg border border-gray-200 max-md:ml-0 max-md:w-full'
 const libraryVideoGridClass =
   'library-thumb-grid flex flex-wrap pb-3 max-md:grid max-md:grid-cols-3 max-md:gap-2'
 const libraryVideoItemClass = 'w-[100px] mr-3 mb-2 max-md:w-full max-md:mr-0'
@@ -814,22 +1225,134 @@ const libraryVideoItemClass = 'w-[100px] mr-3 mb-2 max-md:w-full max-md:mr-0'
           <div class="library-info">
             <h1 class="mb-3 text-lg font-semibold">{{ library.name }}</h1>
           </div>
-          <div>
-            <QhxTag class="cursor-pointer" v-if="library.examin !== 1" @click="handleEditLibrary" :active="true" color="blue">
+          <div class="flex flex-wrap gap-1">
+            <QhxTag
+              v-if="library.examin !== 1 && canUpdateLibrary"
+              class="cursor-pointer"
+              @click="handleEditLibrary"
+              :active="true"
+              color="blue"
+            >
+              修改图鉴
+            </QhxTag>
+            <QhxTag
+              v-else-if="library.examin !== 1"
+              class="cursor-pointer"
+              @click="handleEditLibrary"
+              :active="true"
+              color="blue"
+            >
               申请纠错
             </QhxTag>
-            <QhxTag class="cursor-pointer" v-else :active="true" color="blue">
+            <QhxTag v-else :active="true" color="blue">
               已被锁定
             </QhxTag>
             <QhxTag class="cursor-pointer" @click="jumpToLibraryHistory" :active="true" color="blue">
               修改历史
             </QhxTag>
-            <!-- v-if="user.hasPermi('library:detail:update')" -->
-            <QhxTag class="cursor-pointer" @click="jumpToLibraryVideoManage"  :active="true" color="blue">
+            <QhxTag
+              v-if="library.library_type === '系列'"
+              class="cursor-pointer"
+              @click="jumpToAddChildLibrary"
+              :active="true"
+              color="blue"
+            >
+              添加下级图鉴
+            </QhxTag>
+            <QhxTag
+              v-if="canInsertComp"
+              class="cursor-pointer"
+              @click="showCompChoose($event)"
+              :active="true"
+              color="blue"
+            >
+              添加进合集
+            </QhxTag>
+            <QhxTag
+              v-if="isSeriesWithChildren && canUpdateLibrary"
+              class="cursor-pointer"
+              @click="showLibraryStateChoose($event)"
+              :active="true"
+              color="blue"
+            >
+              批量修改状态
+            </QhxTag>
+            <QhxTag
+              v-if="isSeriesWithChildren && canUpdateLibrary"
+              class="cursor-pointer"
+              @click="showPatternElementsChoose($event)"
+              :active="true"
+              color="blue"
+            >
+              批量修改柄图
+            </QhxTag>
+            <QhxTag
+              v-if="canUpdateLibrary"
+              class="cursor-pointer"
+              @click="jumpToLibraryVideoManage"
+              :active="true"
+              color="blue"
+            >
               管理人台图
             </QhxTag>
+            <QhxTag
+              v-if="canManagePipeline"
+              class="cursor-pointer"
+              @click="jumpToManagePipeline"
+              :active="true"
+              color="blue"
+            >
+              状态流水线
+            </QhxTag>
           </div>
-          <div class="text-qhx-primary m-2 font-semibold" v-if="library.library_price">
+          <div v-if="hasSku" class="mb-1">
+            <h3 class="text-sm m-1">版型/参考价</h3>
+            <div class="flex gap-2 overflow-x-auto pb-1 m-2 -mx-1 px-1">
+              <div
+                v-for="(item, index) in librarySkuList"
+                :key="index"
+                class="flex-shrink-0 w-[108px] max-md:w-[96px] rounded-[10px] border border-gray-100 dark:border-gray-700 overflow-hidden bg-white dark:bg-gray-900/40 shadow-sm"
+              >
+                <div class="w-full h-[108px] max-md:h-[96px] overflow-hidden bg-gray-100 dark:bg-gray-800">
+                  <img
+                    v-if="item.cover"
+                    :src="librarySkuCoverSrc(item.cover)"
+                    :alt="item.library_pattern"
+                    class="block w-full h-full object-cover"
+                    loading="lazy"
+                  />
+                  <div
+                    v-else
+                    class="flex h-full w-full items-center justify-center text-[10px] leading-tight text-center text-gray-400 dark:text-gray-500 px-1"
+                  >
+                    暂无封面
+                  </div>
+                </div>
+                <div class="p-1.5 flex flex-col gap-1 min-h-[52px]">
+                  <p
+                    class="text-xs font-medium text-gray-900 dark:text-gray-100 leading-snug line-clamp-2"
+                    :title="item.library_pattern"
+                  >
+                    <!-- @click="jumpToWiki({ wiki_name: item.library_pattern, type_id: 1 })" -->
+                    {{ item.library_pattern }}
+                  </p>
+                  <div v-if="item.library_price" class="mt-auto text-qhx-primary font-semibold text-[11px] leading-tight">
+                    <p>
+                      {{ item.library_price }} {{ formatLabel(library.shop_country || 0, config.config?.money_type) }}
+                    </p>
+                    <p
+                      v-if="library.shop_country !== undefined && exchangeRate(library.shop_country, item.library_price)"
+                      class="text-[10px] font-normal mt-0.5"
+                      style="color: #ffaa7f;"
+                    >
+                      ≈{{ exchangeRate(library.shop_country, item.library_price) }}元
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div v-else-if="library.library_price" class="text-qhx-primary m-2 font-semibold">
             <div>
               参考价 {{ library.library_price }} {{ formatLabel(library.shop_country || 0, config.config?.money_type) }}
             </div>
@@ -945,7 +1468,7 @@ const libraryVideoItemClass = 'w-[100px] mr-3 mb-2 max-md:w-full max-md:mr-0'
           </div>
 
           <!-- 版型/部位 -->
-          <div v-if="library.library_pattern" class="mb-1">
+          <div v-if="!hasSku && library.library_pattern" class="mb-1">
             <h3 class="text-sm m-1">版型/部位</h3>
             <div class="flex flex-wrap gap-2">
               <QhxTag
@@ -1097,12 +1620,6 @@ const libraryVideoItemClass = 'w-[100px] mr-3 mb-2 max-md:w-full max-md:mr-0'
           </div>
 
 
-          <!-- 尺码 -->
-          <div v-show="library.size" class="mb-4">
-            <h3 class="text-sm m-1">尺码</h3>
-            <p class="text-xs p-2">{{ library.size }}</p>
-          </div>
-
           <div class="flex justify-center">
             <div class=" flex-1 text-center">
               <UserGoodBtn :pk_type="2" :pk_id="library.library_id" :good_count="library.good_count" :need_judge="true">
@@ -1150,6 +1667,52 @@ const libraryVideoItemClass = 'w-[100px] mr-3 mb-2 max-md:w-full max-md:mr-0'
       </div>
       <div v-if="shop" class="p-3 px-6">
         <ShopItem v-if="shop" :item="shop" size="small" />
+      </div>
+      <div
+        v-if="library && (senceForeignLoading && senceForeignRows.length === 0 || senceForeignRows.length > 0)"
+        class="p-3 px-8"
+      >
+        <p class="text-xs text-gray-500 dark:text-gray-400 mb-2">关联场景</p>
+        <div v-if="senceForeignLoading && senceForeignRows.length === 0" class="text-sm text-gray-500 py-2">
+          加载中…
+        </div>
+        <div v-else class="flex gap-3 overflow-x-auto pb-1">
+          <nuxt-link
+            v-for="item in senceForeignRows"
+            :key="item.foreign_id"
+            :to="`/scene/detail/${resolveSenceForeignSceneId(item)}`"
+            class="flex-shrink-0 w-[120px] max-md:w-[100px] block rounded-[10px] border border-gray-100 dark:border-gray-700 overflow-hidden shadow-sm hover:shadow-md transition-shadow bg-white dark:bg-gray-900/40"
+          >
+            <div class="relative aspect-[4/3] w-full bg-gray-100 dark:bg-gray-800">
+              <img
+                :src="`${BASE_IMG}${item.sence?.sence_cover || 'static/plan_cover/default.jpg'}?x-oss-process=image/quality,q_80/resize,w_300,h_225`"
+                :alt="item.sence?.sence_desc || '场景封面'"
+                class="w-full h-full object-cover"
+                loading="lazy"
+              />
+            </div>
+            <p
+              class="p-2 pt-1.5 text-xs font-medium text-gray-900 dark:text-gray-100 leading-snug line-clamp-2"
+              :title="item.sence?.sence_desc || '未命名场景'"
+            >
+              {{ item.sence?.sence_desc || '未命名场景' }}
+            </p>
+          </nuxt-link>
+          <button
+            v-if="senceForeignHasMore"
+            type="button"
+            class="flex-shrink-0 w-[88px] max-md:w-[72px] self-stretch min-h-[120px] rounded-[10px] border border-dashed border-gray-200 dark:border-gray-600 flex flex-col items-center justify-center gap-1 text-xs text-gray-500 dark:text-gray-400 hover:border-qhx-primary hover:text-qhx-primary transition-colors disabled:opacity-60"
+            :disabled="senceForeignLoading"
+            @click="loadMoreSenceForeign"
+          >
+            <UIcon
+              :name="senceForeignLoading ? 'i-heroicons-arrow-path' : 'i-heroicons-plus'"
+              class="text-lg"
+              :class="{ 'animate-spin': senceForeignLoading }"
+            />
+            <span>{{ senceForeignLoading ? '加载中' : '加载更多' }}</span>
+          </button>
+        </div>
       </div>
       <div
           v-if="uploadUser"
@@ -1236,7 +1799,12 @@ const libraryVideoItemClass = 'w-[100px] mr-3 mb-2 max-md:w-full max-md:mr-0'
     <!-- SPZ模型查看器弹窗 -->
     <SPZModelViewer ref="spzModelViewerRef" />
     <div v-if="library" class="bg-qhx-bg-card rounded-lg shadow-lg mt-3">
-      <QhxTabs :tabs="['返图', '贩售历史']">
+      <QhxTabs
+        sticky
+        panel-min-height="min(50vh, 480px)"
+        :tabs="['返图', '贩售历史', '大事记']"
+        :tab-counts="libraryDetailTabCounts"
+      >
         <QhxTabPanel :index="0">
           <template #default="{ isActive }">
             <div class="bg-white dark:bg-gray-900">
@@ -1244,35 +1812,43 @@ const libraryVideoItemClass = 'w-[100px] mr-3 mb-2 max-md:w-full max-md:mr-0'
                 分享你与这条图鉴相关的返图，或关联已有帖子
               </p>
               <div class="flex flex-wrap gap-2 justify-center px-4 pb-4">
-                <UButton
-                  color="primary"
-                  variant="soft"
-                  size="sm"
-                  icon="i-heroicons-link"
-                  :loading="libraryForeignLinkLoading"
-                  :disabled="libraryForeignLinkLoading || !library?.library_id"
-                  @click="openLibraryReturnChooseCommunity($event)"
-                >
-                  关联已有帖子
-                </UButton>
-                <UButton
-                  color="primary"
-                  size="sm"
-                  icon="i-heroicons-pencil-square"
-                  :disabled="!library?.library_id"
-                  @click="goLibraryReturnNewPost($event)"
-                >
-                  投稿返图
-                </UButton>
+                <QhxJellyButton>
+                  <button
+                    type="button"
+                    class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-full border border-qhx-primary/40 text-qhx-primary hover:bg-qhx-primary/5 disabled:opacity-50"
+                    :disabled="libraryForeignLinkLoading || !library?.library_id"
+                    @click="openLibraryReturnChooseCommunity($event)"
+                  >
+                    <UIcon name="i-heroicons-link" class="w-4 h-4" />
+                    {{ libraryForeignLinkLoading ? '处理中…' : '关联已有帖子' }}
+                  </button>
+                </QhxJellyButton>
+                <QhxJellyButton>
+                  <button
+                    type="button"
+                    class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-full bg-qhx-primary text-qhx-inverted hover:bg-qhx-primaryHover disabled:opacity-50"
+                    :disabled="!library?.library_id"
+                    @click="goLibraryReturnNewPost($event)"
+                  >
+                    <UIcon name="i-heroicons-pencil-square" class="w-4 h-4" />
+                    投稿返图
+                  </button>
+                </QhxJellyButton>
               </div>
-              <CommunityForeignList
-                v-if="isActive && library"
-                :key="libraryForeignRefreshKey"
-                :pk_type="LIBRARY_RETURN_GRAPH_PK_TYPE"
-                :pk_id="library.library_id"
-                allow-delete-foreign
-                :can_load="isActive"
-              />
+              <ClientOnly>
+                <CommunityForeignList
+                  v-if="isActive && library"
+                  :key="libraryForeignRefreshKey"
+                  :pk_type="LIBRARY_RETURN_GRAPH_PK_TYPE"
+                  :pk_id="library.library_id"
+                  allow-delete-foreign
+                  :can_load="isActive"
+                  @count-change="libraryReturnTabCount = $event"
+                />
+                <template #fallback>
+                  <div class="text-center text-gray-500 py-8">加载中…</div>
+                </template>
+              </ClientOnly>
             </div>
           </template>
         </QhxTabPanel>
@@ -1353,6 +1929,17 @@ const libraryVideoItemClass = 'w-[100px] mr-3 mb-2 max-md:w-full max-md:mr-0'
             </div>
           </template>
         </QhxTabPanel>
+        <QhxTabPanel :index="2">
+          <template #default="{ isActive }">
+            <EventRedblack
+              v-if="isActive && library"
+              :pk_id="library.library_id"
+              :pk_type="2"
+              :can_load="isActive"
+              @load="libraryEventTabCount = $event"
+            />
+          </template>
+        </QhxTabPanel>
       </QhxTabs>
     </div>
     
@@ -1375,6 +1962,135 @@ const libraryVideoItemClass = 'w-[100px] mr-3 mb-2 max-md:w-full max-md:mr-0'
     />
     <LibraryTypeColorChoose ref="libraryTypeColorChooseRef" @choose="handleLibraryTypeColorChoose" />
     <WardrobeAddLibrary ref="wardrobeAddLibraryRef" @change="handleWardrobeChange" />
+    <CompilationsChoose ref="compilationsChooseRef" @choose="onCompChoose" />
+    <LibraryChoose
+      ref="libraryChooseForStateRef"
+      :multiple="true"
+      :need-parent="false"
+      :filter_list="library?.library_id ? [{ field: 'parent_id', op: 'and', value: library.library_id }] : []"
+      @choose="onLibraryStateChoose"
+    />
+    <LibraryChoose
+      ref="libraryChooseForPatternRef"
+      :multiple="true"
+      :need-parent="false"
+      :filter_list="library?.library_id ? [{ field: 'parent_id', op: 'and', value: library.library_id }] : []"
+      @choose="onLibraryPatternChoose"
+    />
+
+    <QhxModal v-model="showBatchStateModal" :close-on-backdrop="false">
+      <div class="w-[95vw] max-w-md bg-white dark:bg-gray-800 rounded-2xl shadow-xl overflow-hidden border border-gray-200/50 dark:border-gray-700/50">
+        <div class="px-4 py-3 border-b border-gray-200 dark:border-gray-700">
+          <div class="text-base font-semibold text-gray-800 dark:text-gray-100">批量修改状态</div>
+        </div>
+        <div class="p-4 space-y-4">
+          <div>
+            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">状态 <span class="text-red-500">*</span></label>
+            <div class="flex flex-wrap items-center gap-2">
+              <QhxTag v-if="batchStateValue" :active="true">{{ batchStateValue }}</QhxTag>
+              <button
+                type="button"
+                class="px-3 py-1.5 text-sm rounded-full bg-qhx-primary text-qhx-inverted hover:bg-qhx-primaryHover"
+                @click="openBatchStateSelect($event)"
+              >
+                {{ batchStateValue ? '重新选择' : '选择状态' }}
+              </button>
+            </div>
+            <QhxSelect ref="batchStateSelectRef" :options="libraryStateQhxOptions" @select="onBatchStateSelect" />
+          </div>
+          <div v-if="batchStateValue === '预约中' || batchStateValue === '尾款中'">
+            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              {{ batchStateValue === '预约中' ? '预约时间' : '尾款时间' }} <span class="text-red-500">*</span>
+            </label>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <QhxDateTimePicker
+                v-model="batchStateStartDate"
+                placeholder="开始日期"
+                :enable-time-picker="false"
+                format="YYYY-MM-DD"
+              />
+              <QhxDateTimePicker
+                v-model="batchStateEndDate"
+                placeholder="结束日期"
+                :enable-time-picker="false"
+                format="YYYY-MM-DD"
+              />
+            </div>
+          </div>
+        </div>
+        <div class="flex justify-end gap-2 px-4 py-3 border-t border-gray-200 dark:border-gray-700">
+          <button
+            type="button"
+            class="px-4 py-2 text-sm rounded-full border border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300"
+            @click="showBatchStateModal = false"
+          >
+            取消
+          </button>
+          <button
+            type="button"
+            class="px-4 py-2 text-sm rounded-full bg-qhx-primary text-qhx-inverted hover:bg-qhx-primaryHover disabled:opacity-50"
+            :disabled="batchStateSaving"
+            @click="confirmBatchStateUpdate"
+          >
+            {{ batchStateSaving ? '提交中…' : '确定' }}
+          </button>
+        </div>
+      </div>
+    </QhxModal>
+
+    <QhxModal v-model="showBatchPatternModal" :close-on-backdrop="false">
+      <div class="w-[95vw] max-w-md bg-white dark:bg-gray-800 rounded-2xl shadow-xl overflow-hidden border border-gray-200/50 dark:border-gray-700/50">
+        <div class="px-4 py-3 border-b border-gray-200 dark:border-gray-700">
+          <div class="text-base font-semibold text-gray-800 dark:text-gray-100">批量修改柄图元素</div>
+        </div>
+        <div class="p-4 space-y-4">
+          <div class="flex flex-wrap gap-2">
+            <QhxTag
+              v-for="(item, index) in selectedPatternElements"
+              :key="`${item}-${index}`"
+              :active="true"
+              class="cursor-pointer"
+              @click="removePatternElement(index)"
+            >
+              {{ item }} ×
+            </QhxTag>
+          </div>
+          <div class="flex gap-2">
+            <input
+              v-model="patternElementInput"
+              type="text"
+              placeholder="输入柄图元素"
+              class="flex-1 rounded-xl border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-900/40 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-qhx-primary/40"
+              @keyup.enter="addPatternElement"
+            />
+            <button
+              type="button"
+              class="shrink-0 px-3 py-2 text-sm rounded-full border border-qhx-primary/40 text-qhx-primary hover:bg-qhx-primary/5"
+              @click="addPatternElement"
+            >
+              添加
+            </button>
+          </div>
+        </div>
+        <div class="flex justify-end gap-2 px-4 py-3 border-t border-gray-200 dark:border-gray-700">
+          <button
+            type="button"
+            class="px-4 py-2 text-sm rounded-full border border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300"
+            @click="showBatchPatternModal = false"
+          >
+            取消
+          </button>
+          <button
+            type="button"
+            class="px-4 py-2 text-sm rounded-full bg-qhx-primary text-qhx-inverted hover:bg-qhx-primaryHover disabled:opacity-50"
+            :disabled="batchPatternSaving"
+            @click="confirmBatchPatternUpdate"
+          >
+            {{ batchPatternSaving ? '提交中…' : '确定' }}
+          </button>
+        </div>
+      </div>
+    </QhxModal>
     
     <!-- 物理掉落组件 -->
     <!-- <ClientOnly>

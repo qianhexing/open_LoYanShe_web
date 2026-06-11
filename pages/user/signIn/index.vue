@@ -17,13 +17,12 @@ import CommentItem from '@/components/comment/CommentItem.vue'
 import CommunityCommentModal from '@/components/community/CommentModal.vue'
 import SignInCalendar from '@/components/signIn/SignInCalendar.vue'
 import SignInCommentModal from '@/components/signIn/SignInCommentModal.vue'
-import WordCloudBubble3D from '@/components/signIn/WordCloudBubble3D.client.vue'
 import YearlySummaryLoginModal from '@/components/yearlySummary/LoginModal.vue'
 import type { Comment } from '@/types/api'
 import { setGardenFlowerDecoRegistry } from '@/utils/gardenFlowerDeco'
 import {
-  MAX_GARDEN_FLOWER_COUNT,
   buildGardenFlowerMeta,
+  getMaxGardenFlowerCount,
   parseCommentFlowerType,
 } from '@/utils/gardenPlants'
 import type { CommentOpenReplyPayload } from '@/composables/communityCommentSection'
@@ -50,6 +49,8 @@ const layoutReady = inject('layoutReady') as Ref<boolean>
 const isMobile = computed(
   () => configStore.isMobile || configStore.windowWidth < 768
 )
+
+const maxFlowerCount = computed(() => getMaxGardenFlowerCount(isMobile.value))
 
 const drawerDirection = computed<'bottom' | 'right'>(() =>
   isMobile.value ? 'bottom' : 'right'
@@ -95,6 +96,9 @@ const isSignedIn = ref(false)
 const wordCloudLoading = ref(false)
 const selectedWord = ref<string | null>(null)
 const commentsReady = ref(false)
+const scene3dReady = ref(false)
+let scene3dIdleId: ReturnType<typeof requestIdleCallback> | null = null
+let scene3dTimeoutId: ReturnType<typeof setTimeout> | null = null
 let syncFlowerMetaTimer: ReturnType<typeof setTimeout> | null = null
 let syncFlowerMetaRequest = 0
 
@@ -245,6 +249,30 @@ async function ensureLogin() {
   return true
 }
 
+function scheduleScene3d() {
+  if (scene3dReady.value || !import.meta.client) return
+
+  const activate = () => {
+    scene3dReady.value = true
+    scene3dIdleId = null
+    scene3dTimeoutId = null
+  }
+
+  void import('@/components/signIn/WordCloudBubble3D.client.vue')
+
+  if (typeof requestIdleCallback !== 'undefined') {
+    scene3dIdleId = requestIdleCallback(activate, {
+      timeout: isMobile.value ? 1400 : 900,
+    })
+  } else {
+    scene3dTimeoutId = setTimeout(activate, isMobile.value ? 500 : 300)
+  }
+}
+
+const WordCloudBubble3D = defineAsyncComponent(
+  () => import('@/components/signIn/WordCloudBubble3D.client.vue')
+)
+
 async function initPage() {
   const loggedIn = await ensureLogin()
   if (!loggedIn) return
@@ -253,21 +281,18 @@ async function initPage() {
   daily.value = now.format('YYYY-MM-DD')
   dailyIndex.value = Number.parseInt(now.format('DD'), 10)
 
-  await Promise.all([
-    fetchWordCloud(),
-    fetchSignInStatus(),
-    fetchGardenFlowerDecos(),
-  ])
-
   commentsReady.value = true
+  scheduleScene3d()
 
   const monthStart = `${now.format('YYYY')}-${now.format('MM')}-01`
   void fetchMonthStatistics(monthStart)
-
-  if (!isSignedIn.value) {
-    showSignInModal.value = true
-    nextTick(() => signInCommentModalRef.value?.open())
-  }
+  void fetchGardenFlowerDecos()
+  void Promise.all([fetchWordCloud(), fetchSignInStatus()]).then(() => {
+    if (!isSignedIn.value) {
+      showSignInModal.value = true
+      nextTick(() => signInCommentModalRef.value?.open())
+    }
+  })
 }
 
 function switchTab(key: TabKey) {
@@ -298,8 +323,9 @@ function appendFlowerMeta(typeId?: string, commentId?: number) {
 }
 
 function applyGardenFlowerMeta(meta: { types: string[]; commentIds: number[] }) {
-  flowerTypes.value = meta.types
-  flowerCommentIds.value = meta.commentIds
+  const limit = maxFlowerCount.value
+  flowerTypes.value = meta.types.slice(0, limit)
+  flowerCommentIds.value = meta.commentIds.slice(0, limit)
 }
 
 async function syncFlowerMetaFromComments(forceApi = false) {
@@ -309,7 +335,7 @@ async function syncFlowerMetaFromComments(forceApi = false) {
     return
   }
 
-  const needCount = Math.min(total.value, MAX_GARDEN_FLOWER_COUNT)
+  const needCount = Math.min(total.value, maxFlowerCount.value)
   const section = commentSectionRef.value
 
   if (!forceApi && section) {
@@ -338,7 +364,8 @@ async function syncFlowerMetaFromComments(forceApi = false) {
       buildGardenFlowerMeta(
         response.rows ?? [],
         total.value,
-        response.pinned ?? null
+        response.pinned ?? null,
+        maxFlowerCount.value
       )
     )
   } catch (error) {
@@ -494,6 +521,13 @@ watch(
   { immediate: true }
 )
 
+watch(maxFlowerCount, (limit) => {
+  if (flowerTypes.value.length > limit) {
+    flowerTypes.value = flowerTypes.value.slice(0, limit)
+    flowerCommentIds.value = flowerCommentIds.value.slice(0, limit)
+  }
+})
+
 onMounted(() => {
   if (import.meta.client) {
     configStore.updateWindowWidth(window.innerWidth)
@@ -504,6 +538,14 @@ onBeforeUnmount(() => {
   if (syncFlowerMetaTimer) {
     clearTimeout(syncFlowerMetaTimer)
     syncFlowerMetaTimer = null
+  }
+  if (scene3dIdleId != null && typeof cancelIdleCallback !== 'undefined') {
+    cancelIdleCallback(scene3dIdleId)
+    scene3dIdleId = null
+  }
+  if (scene3dTimeoutId != null) {
+    clearTimeout(scene3dTimeoutId)
+    scene3dTimeoutId = null
   }
 })
 
@@ -520,10 +562,24 @@ useHead({
 
 <template>
   <div class="relative min-h-[100dvh] w-full overflow-hidden bg-white dark:bg-black">
-    <!-- 全屏 3D 词云背景（始终显示，切换 Tab 不隐藏） -->
+    <!-- 3D 加载前的轻量占位背景，避免首屏白屏 -->
+    <div
+      v-if="layoutReady && !scene3dReady"
+      class="fixed left-0 right-0 bottom-0 z-0"
+      :style="{
+        top: `${configStore.statusBarHeight}px`,
+        height: `calc(100dvh - ${configStore.statusBarHeight}px)`,
+      }"
+    >
+      <div
+        class="h-full w-full bg-gradient-to-b from-[#a8d8ff] via-[#f5fbff] to-[#e8f4ef] dark:from-gray-950 dark:via-gray-900 dark:to-black"
+      />
+    </div>
+
+    <!-- 全屏 3D 词云背景（空闲时延迟挂载，切换 Tab 不隐藏） -->
     <ClientOnly>
       <div
-        v-if="layoutReady"
+        v-if="layoutReady && scene3dReady"
         class="fixed left-0 right-0 bottom-0 z-0"
         :style="{
           top: `${configStore.statusBarHeight}px`,
@@ -532,6 +588,9 @@ useHead({
       >
         <WordCloudBubble3D
           fullscreen
+          :prefer-web-gpu="!isMobile"
+          :mobile-optimized="isMobile"
+          :paused="activeTab !== 'wordcloud'"
           :chart-data="chartData"
           :flower-count="total"
           :flower-types="flowerTypes"

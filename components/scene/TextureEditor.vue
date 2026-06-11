@@ -231,7 +231,14 @@ function applyCanvasMapToMesh(mesh: THREE.Mesh, tex: THREE.CanvasTexture | null)
     if (!('map' in mat)) continue
     const m = mat as THREE.MeshStandardMaterial
     m.map = tex
-    m.transparent = true
+    if (mesh.userData?.type === 'image') {
+      m.transparent = false
+      m.alphaTest = 0.01
+      m.depthWrite = true
+      m.depthTest = true
+    } else {
+      m.transparent = true
+    }
     m.needsUpdate = true
   }
 }

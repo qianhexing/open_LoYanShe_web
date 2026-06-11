@@ -1,5 +1,12 @@
 import { useConfigStore } from '@/stores/config'
 
+const SITE_ORIGIN = 'https://lolitalibrary.com'
+
+function normalizeWebPath(path: string): string {
+  if (path.includes('://')) return path
+  return path.startsWith('/') ? path : `/${path}`
+}
+
 /** UniApp 内嵌 WebView（与项目内其它跳转一致） */
 export function isHtml5PlusWebview(): boolean {
   return (
@@ -63,6 +70,50 @@ export function openLibraryDetailTab(
     '_blank',
     'noopener,noreferrer'
   )
+}
+
+/**
+ * 打开站内 H5 路径：UniApp outerLink2 / 鸿蒙 Outlink / 浏览器新标签。
+ * 与 wardrobe/detail、CommunityDetailForeignSection 等移动端跳转一致。
+ */
+export function openLibraryWebPath(webPath: string): void {
+  if (!webPath || !import.meta.client || typeof window === 'undefined') return
+
+  const path = normalizeWebPath(webPath)
+  const configStore = useConfigStore()
+  const uniApi = configStore.uniWebviewJs
+  const mobileUrl = path.includes('://') ? path : `${SITE_ORIGIN}${path}`
+  const desktopUrl = path.includes('://')
+    ? path
+    : new URL(path, window.location.origin).href
+
+  if (isHtml5PlusWebview() && uniApi?.navigateTo) {
+    uniApi.navigateTo({
+      url: `/pages/common/outerLink2?url=${mobileUrl}`,
+      fail: () => {
+        console.warn('[libraryNav] uni outerLink2 失败', mobileUrl)
+      }
+    })
+    return
+  }
+
+  const port = configStore.getPort()
+  if (port) {
+    try {
+      port.postMessage(
+        JSON.stringify({
+          type: 'jump',
+          path: 'Outlink',
+          params: { url: mobileUrl }
+        })
+      )
+    } catch {
+      window.open(desktopUrl, '_blank', 'noopener,noreferrer')
+    }
+    return
+  }
+
+  window.open(desktopUrl, '_blank', 'noopener,noreferrer')
 }
 
 /** 用于 `<a href>` 的绝对地址（仅客户端能带 origin；SSR 回落为路径） */

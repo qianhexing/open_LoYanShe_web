@@ -1,14 +1,18 @@
 import * as THREE from 'three'
 import ThreeCore from '@/utils/threeCore'
 import { BASE_IMG_MODEL as BASE_IMG } from '@/utils/ipConfig'
-import { resolveGardenFlowerModel } from '@/utils/gardenFlowerDeco'
 import { buildWordCloudRankColorMap } from '@/utils/lolitaHeatGradient'
 import {
   GARDEN_PLANT_MODELS,
   MAX_GARDEN_FLOWER_COUNT,
+  getMaxGardenFlowerCount,
   resolvePlantIndex,
   type GardenPlantModel,
 } from '@/utils/gardenPlants'
+import {
+  GardenFlowerInstancer,
+  type FlowerFocusTarget,
+} from '@/utils/gardenFlowerInstancer'
 
 export {
   GARDEN_PLANT_MODELS,
@@ -73,7 +77,7 @@ const DECO_DEFAULT_HEIGHT: Record<GardenDecoKind, number> = {
 }
 
 const GROUND_Y = 0
-const CYLINDER_RADIUS = 10.5
+const CYLINDER_RADIUS = 8.5
 const FLOWER_TARGET_HEIGHT = 1.35
 /** 词云底部与种花区域的净空（需高于 FLOWER_TARGET_HEIGHT） */
 const WORD_GROUND_GAP = 3.5
@@ -95,7 +99,7 @@ const GROUND_RADIUS = 34
 const TERRAIN_AMPLITUDE = 0.34
 const TERRAIN_SEGMENTS = 64
 const FOG_COLOR = 0xf5fbff
-const FOG_DENSITY = 0.028
+const FOG_DENSITY = 0.015
 const CLOUD_COUNT = 7
 /** 圆柱范围线框（调试用，改为 true 可重新显示） */
 const SHOW_CYLINDER_DEBUG = false
@@ -121,6 +125,13 @@ export interface WordCloudBubble3DCallbacks {
   onFlowerHover?: (commentId: number | null) => void
 }
 
+export interface WordCloudBubble3DOptions {
+  /** 优先 WebGPU 主渲染，不可用时自动回退 WebGL */
+  preferWebGPU?: boolean
+  /** 移动端帧率与像素比优化 */
+  mobileOptimized?: boolean
+}
+
 type GardenPickTarget =
   | { kind: 'word'; word: string }
   | { kind: 'flower'; commentId: number }
@@ -135,16 +146,6 @@ export function buildFlowerMetaKey(
     const typeId = types?.[index] ?? ''
     return `${commentId}\0${typeId}`
   }).join('\n')
-}
-
-function findFlowerCommentId(object: THREE.Object3D): number | null {
-  let node: THREE.Object3D | null = object
-  while (node) {
-    const commentId = Number(node.userData?.comment_id)
-    if (Number.isFinite(commentId) && commentId > 0) return commentId
-    node = node.parent
-  }
-  return null
 }
 
 const PETAL_COLORS = [
@@ -363,9 +364,10 @@ function createTerrainGeometry(radius: number, segments: number) {
   return geometry
 }
 
-async function createGrassGround(): Promise<THREE.Group> {
-  const group = new THREE.Group()
-  group.userData.ignorePick = true
+let cachedGrassTexture: THREE.Texture | null = null
+
+async function loadGrassTexture(): Promise<THREE.Texture> {
+  if (cachedGrassTexture) return cachedGrassTexture
 
   const loader = new THREE.TextureLoader()
   const grassMap = await loader.loadAsync(GRASS_TEXTURE_URL)
@@ -374,6 +376,36 @@ async function createGrassGround(): Promise<THREE.Group> {
   grassMap.repeat.set(10, 10)
   grassMap.colorSpace = THREE.SRGBColorSpace
   grassMap.anisotropy = 8
+  cachedGrassTexture = grassMap
+  return grassMap
+}
+
+function createFallbackGround(): THREE.Group {
+  const group = new THREE.Group()
+  group.name = 'FallbackGround'
+  group.userData.ignorePick = true
+
+  const ground = new THREE.Mesh(
+    createTerrainGeometry(GROUND_RADIUS, TERRAIN_SEGMENTS),
+    new THREE.MeshStandardMaterial({
+      color: 0xe4efe4,
+      roughness: 0.94,
+      metalness: 0,
+      flatShading: false,
+    })
+  )
+  ground.rotation.x = -Math.PI / 2
+  ground.position.y = GROUND_Y - 0.03
+  ground.receiveShadow = true
+  group.add(ground)
+  return group
+}
+
+async function createGrassGround(): Promise<THREE.Group> {
+  const group = new THREE.Group()
+  group.userData.ignorePick = true
+
+  const grassMap = await loadGrassTexture()
 
   const ground = new THREE.Mesh(
     createTerrainGeometry(GROUND_RADIUS, TERRAIN_SEGMENTS),
@@ -402,22 +434,6 @@ async function createGrassGround(): Promise<THREE.Group> {
   halo.position.y = GROUND_Y - 0.02
 
   group.add(ground, halo)
-  return group
-}
-
-function createPlaceholderFlower(color: THREE.Color): THREE.Group {
-  const group = new THREE.Group()
-  const stem = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.04, 0.06, 0.55, 8),
-    new THREE.MeshStandardMaterial({ color: NEU.accent, roughness: 0.92, metalness: 0 })
-  )
-  stem.position.y = 0.28
-  const head = new THREE.Mesh(
-    new THREE.SphereGeometry(0.22, 16, 16),
-    new THREE.MeshStandardMaterial({ color, roughness: 0.9, metalness: 0 })
-  )
-  head.position.y = 0.62
-  group.add(stem, head)
   return group
 }
 
@@ -504,7 +520,9 @@ function computeDecoPositions(totalCount: number): THREE.Vector3[] {
 
 function relaxFlowerPositions2D(positions: THREE.Vector3[]) {
   const minDist = 0.95
-  for (let iter = 0; iter < 12; iter++) {
+  const iterations =
+    positions.length > 400 ? 3 : positions.length > 200 ? 6 : positions.length > 100 ? 8 : 12
+  for (let iter = 0; iter < iterations; iter++) {
     for (let i = 0; i < positions.length; i++) {
       for (let j = i + 1; j < positions.length; j++) {
         const dx = positions[i].x - positions[j].x
@@ -958,13 +976,16 @@ export class WordCloudBubble3D {
   private core: ThreeCore | null = null
   private container: HTMLElement
   private callbacks: WordCloudBubble3DCallbacks
+  private sceneOptions: WordCloudBubble3DOptions
   private cloudGroup = new THREE.Group()
   private gardenGroup = new THREE.Group()
-  private flowerGroup = new THREE.Group()
+  private flowerInstancer: GardenFlowerInstancer
   private decoGroup = new THREE.Group()
-  private flowerModelCache = new Map<string, THREE.Object3D>()
   private decoModelCache = new Map<string, THREE.Object3D>()
   private decoBuilt = false
+  private fallbackGround: THREE.Group | null = null
+  private hydratingGarden = false
+  private sceneApplyQueue: Promise<void> = Promise.resolve()
   private ambientField: THREE.InstancedMesh | null = null
   private skybox: THREE.Mesh | null = null
   private atmosphereGroup: THREE.Group | null = null
@@ -1059,9 +1080,15 @@ export class WordCloudBubble3D {
     }
   }
 
-  constructor(container: HTMLElement, callbacks: WordCloudBubble3DCallbacks = {}) {
+  constructor(
+    container: HTMLElement,
+    callbacks: WordCloudBubble3DCallbacks = {},
+    options: WordCloudBubble3DOptions = {}
+  ) {
     this.container = container
     this.callbacks = callbacks
+    this.sceneOptions = options
+    this.flowerInstancer = new GardenFlowerInstancer(MAX_GARDEN_FLOWER_COUNT)
   }
 
   async mount(scene: GardenSceneData) {
@@ -1075,6 +1102,9 @@ export class WordCloudBubble3D {
       enableOrbitControls: true,
       enableStats: false,
       colorStyle: 'anime',
+      preferWebGPU: this.sceneOptions.preferWebGPU ?? true,
+      mobileOptimized: this.sceneOptions.mobileOptimized ?? false,
+      mobilePerfCap: true,
     })
 
     await this.core.mount(this.container)
@@ -1090,18 +1120,18 @@ export class WordCloudBubble3D {
       this.core.controls.autoRotate = false
     }
 
-    this.gardenGroup.add(await createGrassGround())
+    this.fallbackGround = createFallbackGround()
+    this.gardenGroup.add(this.fallbackGround)
     if (SHOW_CYLINDER_DEBUG) {
       this.gardenGroup.add(createCylinderDebugHelper())
     }
     this.gardenGroup.add(this.decoGroup)
-    this.gardenGroup.add(this.flowerGroup)
+    this.gardenGroup.add(this.flowerInstancer.displayGroup)
+    this.gardenGroup.add(this.flowerInstancer.pickGroup)
     this.gardenGroup.add(this.cloudGroup)
     this.core.scene.add(this.gardenGroup)
     this.ambientField = createAmbientField()
     this.core.scene.add(this.ambientField)
-    await this.buildDecorations()
-    await this.setGardenScene(scene)
 
     this.animationBound = () => {
       if (this.paused) return
@@ -1159,10 +1189,32 @@ export class WordCloudBubble3D {
     this.resizeObserver.observe(this.container)
 
     this.mountComplete = true
-    if (this.pendingScene) {
-      const pending = this.pendingScene
-      this.pendingScene = null
-      await this.setGardenScene(pending)
+    const initialScene = this.pendingScene ?? scene
+    this.pendingScene = null
+    void this.hydrateGardenAssets(initialScene)
+  }
+
+  private async hydrateGardenAssets(scene: GardenSceneData) {
+    if (this.hydratingGarden || this.disposed) return
+    this.hydratingGarden = true
+
+    try {
+      const grassGroup = await createGrassGround()
+      if (this.disposed) return
+
+      if (this.fallbackGround) {
+        this.gardenGroup.remove(this.fallbackGround)
+        disposeObject3D(this.fallbackGround)
+        this.fallbackGround = null
+      }
+      this.gardenGroup.add(grassGroup)
+
+      if (!this.disposed) {
+        void this.buildDecorations()
+        await this.setGardenScene(scene)
+      }
+    } finally {
+      this.hydratingGarden = false
     }
   }
 
@@ -1174,8 +1226,19 @@ export class WordCloudBubble3D {
 
     if (!this.core) return
 
+    this.sceneApplyQueue = this.sceneApplyQueue
+      .then(() => this.applyGardenScene(scene))
+      .catch((error) => {
+        console.error('花园场景更新失败:', error)
+      })
+    await this.sceneApplyQueue
+  }
+
+  private async applyGardenScene(scene: GardenSceneData) {
+    if (!this.core || this.disposed) return
+
     const targetCount = Math.min(
-      MAX_GARDEN_FLOWER_COUNT,
+      getMaxGardenFlowerCount(this.sceneOptions.mobileOptimized ?? false),
       Math.max(0, Math.floor(scene.flowerCount))
     )
     const wordsSignature = scene.words.map((item) => `${item.name}\0${item.value}`).join('\n')
@@ -1291,34 +1354,8 @@ export class WordCloudBubble3D {
     }
   }
 
-  private async loadFlowerTemplate(url: string): Promise<THREE.Object3D> {
-    const cached = this.flowerModelCache.get(url)
-    if (cached) return cached
-
-    const core = this.core
-    if (!core) {
-      return createPlaceholderFlower(new THREE.Color(NEU.primary))
-    }
-
-    try {
-      const model = await core.loadModel(resolveModelUrl(url), {
-        useDracoLoader: true,
-        dracoDecoderPath: '/draco/gltf/',
-      })
-      model.userData.ignorePick = true
-      this.flowerModelCache.set(url, model)
-      return model
-    } catch (error) {
-      console.warn('花朵模型加载失败，使用占位:', url, error)
-      const fallback = createPlaceholderFlower(new THREE.Color(NEU.primary))
-      fallback.userData.ignorePick = true
-      this.flowerModelCache.set(url, fallback)
-      return fallback
-    }
-  }
-
   private resetFlowers() {
-    this.clearFlowers()
+    this.flowerInstancer.clear()
     this.flowerBedPositions = []
     this.syncedFlowerCount = 0
   }
@@ -1333,92 +1370,36 @@ export class WordCloudBubble3D {
   ) {
     if (!this.core || endIndex <= startIndex) return
 
-    let lastFlower: THREE.Object3D | null = null
-
     if (startIndex === 0) {
       const positions = computeFlowerPositionsUpTo(endIndex)
-      for (let index = 0; index < endIndex; index++) {
-        const bedPos = positions[index]
-        if (!bedPos) continue
-        this.flowerBedPositions.push(bedPos.clone())
-        lastFlower = await this.createFlowerAt(
-          index,
-          bedPos,
-          flowerTypes?.[index] || undefined,
-          flowerCommentIds?.[index],
-          plantTypeIndex
-        )
-      }
+      this.flowerBedPositions = positions.map((pos) => pos.clone())
     } else {
       for (let index = startIndex; index < endIndex; index++) {
         const bedPos = settleFlowerPosition(index, this.flowerBedPositions)
         this.flowerBedPositions.push(bedPos.clone())
-        lastFlower = await this.createFlowerAt(
-          index,
-          bedPos,
-          flowerTypes?.[index] || undefined,
-          flowerCommentIds?.[index],
-          plantTypeIndex
-        )
       }
     }
 
-    if (focusLast && lastFlower) {
-      this.focusOnFlower(lastFlower)
+    const lastFocus = await this.flowerInstancer.addRange(
+      this.core,
+      startIndex,
+      endIndex,
+      this.flowerBedPositions,
+      flowerTypes,
+      flowerCommentIds,
+      plantTypeIndex
+    )
+
+    if (focusLast && lastFocus) {
+      this.focusOnFlowerTarget(lastFocus)
     }
   }
 
-  private async createFlowerAt(
-    index: number,
-    bedPos: THREE.Vector3,
-    flowerTypeId?: string,
-    commentId?: number,
-    plantTypeIndex?: number
-  ): Promise<THREE.Object3D | null> {
-    if (!this.core) return null
-
-    const plant =
-      flowerTypeId != null
-        ? resolveGardenFlowerModel(flowerTypeId, index)
-        : plantTypeIndex != null
-          ? resolveGardenFlowerModel(GARDEN_PLANT_MODELS[plantTypeIndex]?.id, plantTypeIndex)
-          : resolveGardenFlowerModel(undefined, index)
-
-    if (!plant.url) return null
-
-    const template = await this.loadFlowerTemplate(plant.url)
-    const flower = template.clone(true)
-    flower.userData.plantId = plant.id
-    flower.userData.flowerTypeId = flowerTypeId ?? plant.id
-    flower.userData.flowerIndex = index
-
-    const resolvedCommentId = Number(commentId)
-    if (Number.isFinite(resolvedCommentId) && resolvedCommentId > 0) {
-      flower.userData.comment_id = resolvedCommentId
-      flower.traverse((child) => {
-        child.userData.ignorePick = false
-      })
-    } else {
-      flower.userData.ignorePick = true
-    }
-    const targetHeight = plant.targetHeight ?? FLOWER_TARGET_HEIGHT
-    flower.userData.targetHeight = targetHeight
-
-    normalizeFlowerHeight(flower, targetHeight)
-    applyNeuTintToFlower(flower)
-    const scaleJitter = 0.92 + hashUnit(`flower-${index}`) * 0.14
-    placeOnGround(flower, bedPos.clone(), (plant.scale ?? 1) * scaleJitter)
-
-    this.flowerGroup.add(flower)
-    return flower
-  }
-
-  private focusOnFlower(flower: THREE.Object3D) {
+  private focusOnFlowerTarget(target: FlowerFocusTarget) {
     if (!this.core?.controls || !this.core.camera) return
 
-    const focusPoint = new THREE.Vector3()
-    flower.getWorldPosition(focusPoint)
-    focusPoint.y += (flower.userData.targetHeight as number | undefined) ?? FLOWER_TARGET_HEIGHT * 0.42
+    const focusPoint = target.position.clone()
+    focusPoint.y += target.targetHeight * 0.42
 
     const currentOffset = this.core.camera.position.clone().sub(this.core.controls.target)
     const horizontalDist = Math.max(Math.hypot(currentOffset.x, currentOffset.z), 5.5)
@@ -1477,12 +1458,6 @@ export class WordCloudBubble3D {
     })
   }
 
-  private clearFlowers() {
-    while (this.flowerGroup.children.length > 0) {
-      this.flowerGroup.remove(this.flowerGroup.children[0])
-    }
-  }
-
   private clearWords() {
     for (const entry of this.entries) {
       this.cloudGroup.remove(entry.group)
@@ -1503,14 +1478,9 @@ export class WordCloudBubble3D {
     if (!this.core?.camera) return null
     this.raycaster.setFromCamera(this.pointer, this.core.camera)
 
-    const targets: THREE.Object3D[] = []
-    for (const flower of this.flowerGroup.children) {
-      flower.traverse((child) => {
-        if ((child as THREE.Mesh).isMesh && !child.userData.ignorePick) {
-          targets.push(child)
-        }
-      })
-    }
+    const targets: THREE.Object3D[] = [
+      ...this.flowerInstancer.getPickTargets(),
+    ]
     for (const entry of this.entries) {
       targets.push(entry.label)
     }
@@ -1523,8 +1493,10 @@ export class WordCloudBubble3D {
     const word = hitObject.userData?.word as string | undefined
     if (word) return { kind: 'word', word }
 
-    const commentId = findFlowerCommentId(hitObject)
-    if (commentId) return { kind: 'flower', commentId }
+    const commentId = Number(hitObject.userData?.comment_id)
+    if (Number.isFinite(commentId) && commentId > 0) {
+      return { kind: 'flower', commentId }
+    }
 
     return null
   }
@@ -1564,10 +1536,9 @@ export class WordCloudBubble3D {
     this.resetFlowers()
     this.core?.scene.remove(this.gardenGroup)
     this.cloudGroup.clear()
-    this.flowerGroup.clear()
     this.decoGroup.clear()
     this.gardenGroup.clear()
-    this.flowerModelCache.clear()
+    this.flowerInstancer.dispose()
     this.decoModelCache.clear()
     this.decoBuilt = false
 

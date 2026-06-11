@@ -93,3 +93,45 @@ export async function getAllPhysicalShops(): Promise<PhysicalShop[]> {
   );
   return response.data;
 }
+
+export interface InsertPhysicalShopParams {
+  shop_id: number
+  user_id: number
+  physical_name: string
+  physical_desc?: string | null
+  physical_logo?: string | null
+  province?: string | null
+  city?: string | null
+  area?: string | null
+  address?: string | null
+  latitude?: number | string | null
+  longitude?: number | string | null
+}
+
+export interface UpdatePhysicalShopParams extends InsertPhysicalShopParams {
+  physical_id: number
+}
+
+export async function getPhysicalShopById(params: { physical_id: number }): Promise<PhysicalShop> {
+  const response = await use$Post<BaseResponse<PhysicalShop>>(
+    '/physicalShop/id',
+    params
+  );
+  return response.data;
+}
+
+export async function insertPhysicalShop(params: InsertPhysicalShopParams): Promise<PhysicalShop> {
+  const response = await use$Post<BaseResponse<PhysicalShop>>(
+    '/physicalShop/insert',
+    params
+  );
+  return response.data;
+}
+
+export async function updatePhysicalShop(params: UpdatePhysicalShopParams): Promise<PhysicalShop> {
+  const response = await use$Post<BaseResponse<PhysicalShop>>(
+    '/physicalShop/update',
+    params
+  );
+  return response.data;
+}

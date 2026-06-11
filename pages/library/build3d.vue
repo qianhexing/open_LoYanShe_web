@@ -2,7 +2,8 @@
 import type { LibraryVideo, Library } from '@/types/api'
 import { getLibraryVideoList, insertLibraryVideo, updateLibraryVideo } from '@/api/library'
 import { BASE_IMG } from '@/utils/ipConfig'
-import { uploadFileToOSS } from '@/utils/ossUpload'
+import { insertFile } from '@/api'
+import { uploadFileToOSS, calculateFileMD5 } from '@/utils/ossUpload'
 import authGlobal from '@/middleware/auth.global'
 import SPZModelViewer from '@/components/ModelViewer/SPZModelViewer.vue'
 import type LibraryChoose from '@/components/library/LibraryChoose.vue'
@@ -47,13 +48,13 @@ const selectedSpzFiles = ref<Array<{ name: string; url: string }>>([])
 const submitting = ref(false)
 const coverPickerRef = ref<InstanceType<typeof QhxImagePicker> | null>(null)
 
-/** 3D 建设上传：Spark 点云（.spz）与 Spark 2 LoD / RAD（.rad） */
-const SPLAT_UPLOAD_EXTS = ['.spz', '.rad'] as const
+/** 3D 建设上传：Spark 点云（.spz）与 Spark 2 LoD / RAD（.rad + .radc） */
+const SPLAT_UPLOAD_EXTS = ['.spz', '.rad', '.radc'] as const
 
-const isAllowedSplatUpload = (fileName: string) => {
-  const n = fileName.toLowerCase()
-  return SPLAT_UPLOAD_EXTS.some(ext => n.endsWith(ext))
-}
+const isSpzFile = (file: File) => /\.spz$/i.test(file.name)
+const isRadFile = (file: File) => /\.rad$/i.test(file.name)
+const isRadcFile = (file: File) => /\.radc$/i.test(file.name)
+const fileBaseName = (file: File) => file.name.replace(/\.[^.]+$/, '')
 
 const formatImg = (url: string) => {
   if (!url) return ''
@@ -149,39 +150,111 @@ const onLibraryChoose = (list: Library[]) => {
   }
 }
 
-// 选择/上传 spz 文件
+// 选择/上传模型文件
 const handleSpzFileSelect = async (event: Event) => {
   const input = event.target as HTMLInputElement
   if (!input.files?.length) return
-  for (const file of Array.from(input.files)) {
-    if (!isAllowedSplatUpload(file.name)) {
-      toast.add({
-        title: `仅支持 ${SPLAT_UPLOAD_EXTS.join('、')} 格式`,
-        description: `"${file.name}" 格式不正确`,
-        icon: 'i-heroicons-exclamation-circle',
-        color: 'orange'
-      })
-      continue
-    }
-    await uploadSpzFile(file)
-  }
+  await uploadSplatFiles(Array.from(input.files))
   input.value = ''
 }
 
 // 拖拽上传
 const handleSpzFileDrop = async (event: DragEvent) => {
   if (!event.dataTransfer?.files?.length) return
-  for (const file of Array.from(event.dataTransfer.files)) {
-    if (!isAllowedSplatUpload(file.name)) {
+  await uploadSplatFiles(Array.from(event.dataTransfer.files))
+}
+
+const uploadSplatFiles = async (files: File[]) => {
+  if (files.length === 0) return
+
+  const spzFiles = files.filter(isSpzFile)
+  const radFiles = files.filter(isRadFile)
+  const radcFiles = files.filter(isRadcFile)
+  const unsupported = files.filter(f => !isSpzFile(f) && !isRadFile(f) && !isRadcFile(f))
+
+  if (unsupported.length > 0) {
+    toast.add({
+      title: '文件格式错误',
+      description: `仅支持 ${SPLAT_UPLOAD_EXTS.join('、')}`,
+      icon: 'i-heroicons-exclamation-circle',
+      color: 'orange'
+    })
+    return
+  }
+
+  if (radFiles.length > 0) {
+    if (radFiles.length > 1) {
       toast.add({
-        title: `仅支持 ${SPLAT_UPLOAD_EXTS.join('、')} 格式`,
-        description: `"${file.name}" 格式不正确`,
+        title: '文件选择错误',
+        description: '每次仅可上传一个 .rad，可同时选择多个 .radc 分片',
         icon: 'i-heroicons-exclamation-circle',
         color: 'orange'
       })
-      continue
+      return
     }
+    await uploadRadBundle(radFiles[0], radcFiles)
+    for (const file of spzFiles) {
+      await uploadSpzFile(file)
+    }
+    return
+  }
+
+  if (radcFiles.length > 0) {
+    toast.add({
+      title: '文件选择错误',
+      description: '上传 .radc 分片时需同时选择对应的 .rad 文件',
+      icon: 'i-heroicons-exclamation-circle',
+      color: 'orange'
+    })
+    return
+  }
+
+  for (const file of spzFiles) {
     await uploadSpzFile(file)
+  }
+}
+
+/** 计算 .rad 的 MD5，将 .rad 与 .radc 上传至 library/{md5}/ 目录 */
+const uploadRadBundle = async (radFile: File, radcFiles: File[]) => {
+  uploadingSpz.value = true
+  try {
+    const radMd5 = await calculateFileMD5(radFile)
+    const radObjectKey = `${radMd5}/${fileBaseName(radFile)}`
+
+    const radResult = await uploadFileToOSS(radFile, 'library', radObjectKey)
+    await insertFile({
+      file_url: radResult.file_url,
+      file_md5: radMd5,
+      file_type: 0,
+      file_size: radFile.size
+    })
+
+    for (const radcFile of radcFiles) {
+      const radcObjectKey = `${radMd5}/${fileBaseName(radcFile)}`
+      await uploadFileToOSS(radcFile, 'library', radcObjectKey)
+    }
+
+    selectedSpzFiles.value.push({
+      name: radcFiles.length > 0 ? `${radFile.name} + ${radcFiles.length} .radc` : radFile.name,
+      url: radResult.file_url
+    })
+    formData.addr = selectedSpzFiles.value.map(f => f.url).join(',')
+    toast.add({
+      title: 'RAD 上传成功',
+      description: radcFiles.length > 0 ? `已上传 1 个 .rad 与 ${radcFiles.length} 个 .radc` : undefined,
+      icon: 'i-heroicons-check-circle',
+      color: 'green'
+    })
+  } catch (error) {
+    console.error('RAD 上传失败', error)
+    toast.add({
+      title: '上传失败',
+      description: error instanceof Error ? error.message : '请稍后重试',
+      icon: 'i-heroicons-x-circle',
+      color: 'red'
+    })
+  } finally {
+    uploadingSpz.value = false
   }
 }
 
@@ -269,7 +342,7 @@ const handleSubmit = async () => {
   }
   if (!formData.addr?.trim()) {
     toast.add({
-      title: `请上传模型文件（${SPLAT_UPLOAD_EXTS.join('、')}）`,
+      title: '请上传模型文件（.spz 或 .rad/.radc）',
       icon: 'i-heroicons-exclamation-circle',
       color: 'orange'
     })
@@ -496,7 +569,7 @@ const handleSubmit = async () => {
             </div>
           </div>
 
-          <!-- 模型上传：.spz / .rad（Spark 2 LoD） -->
+          <!-- 模型上传：.spz / .rad / .radc -->
           <div>
             <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               模型文件（.spz / .rad）
@@ -504,7 +577,7 @@ const handleSubmit = async () => {
             <input
               ref="spzFileInput"
               type="file"
-              accept=".spz,.rad"
+              accept=".spz,.rad,.radc"
               multiple
               class="hidden"
               @change="handleSpzFileSelect"
@@ -518,10 +591,10 @@ const handleSubmit = async () => {
             >
               <UIcon name="i-heroicons-cube" class="text-4xl text-gray-400 mx-auto mb-2" />
               <p class="text-sm text-gray-600 dark:text-gray-400">
-                点击选择或拖拽 .spz / .rad 文件
+                点击选择或拖拽模型文件
               </p>
               <p class="text-xs text-gray-500 dark:text-gray-500">
-                支持 .spz 与 Spark 2 的 .rad（LoD）
+                支持 .spz；或 .rad 与 .radc 多选（按 .rad 的 MD5 上传至同名文件夹）
               </p>
             </div>
             <div v-else class="space-y-2">

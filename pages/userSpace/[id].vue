@@ -190,6 +190,15 @@
                     <UIcon name="i-heroicons-chart-bar-square" class="w-5 h-5 text-pink-500 dark:text-pink-300 flex-shrink-0" />
                     <span class="text-sm font-medium text-pink-600 dark:text-pink-300 whitespace-nowrap">生涯统计</span>
                   </button>
+                  <button
+                    v-if="!isCurrentUser && spaceUserId"
+                    type="button"
+                    class="hero-action-bar__item hero-action-bar__action flex-shrink-0 inline-flex items-center gap-2 rounded-2xl py-2 px-4 border border-pink-200/70 dark:border-pink-700/50 bg-gradient-to-br from-pink-50/90 to-purple-50/90 dark:from-pink-900/35 dark:to-purple-900/35 hover:from-pink-100 dark:hover:from-pink-900/50 hover:to-purple-100 dark:hover:to-purple-900/50 transition-colors active:scale-[0.98]"
+                    @click="openWardrobeCompareModal"
+                  >
+                    <UIcon name="i-heroicons-arrows-right-left-20-solid" class="w-5 h-5 text-pink-500 dark:text-pink-300 flex-shrink-0" />
+                    <span class="text-sm font-medium text-pink-600 dark:text-pink-300 whitespace-nowrap">衣柜对比</span>
+                  </button>
                 </div>
               </div>
             </div>
@@ -631,6 +640,12 @@
       </div>
     </QhxModal>
 
+    <WardrobeCompareModal
+      v-if="spaceUserId"
+      v-model="showWardrobeCompareModal"
+      :owner-user-id="spaceUserId"
+    />
+
     <!-- 更多选项（与衣柜详情页 QhxModal 样式一致） -->
     <QhxModal v-model="showUserSpaceMoreMenu" :trigger-position="userSpaceMoreMenuPosition">
       <div class="p-4 w-[200px] bg-white dark:bg-gray-800 rounded-[10px] shadow-lg">
@@ -671,6 +686,7 @@ import {
   type UserCareerStats,
 } from '@/api/user'
 import CareerStatisticsShareImage from '@/components/user/CareerStatisticsShareImage.vue'
+import WardrobeCompareModal from '@/components/Wardrobe/WardrobeCompareModal.vue'
 import type { CareerSharePayload } from '@/components/user/CareerStatisticsShareImage.vue'
 import { getCommunityList } from '@/api/community'
 import { getAlbumList, getAlbumAchievementStats, type AlbumAchievementStats } from '@/api/album'
@@ -1287,8 +1303,17 @@ const formatCareerMoney = (num: number | null | undefined): string => {
 }
 
 const showCareerStatsModal = ref(false)
+const showWardrobeCompareModal = ref(false)
 const careerStats = ref<UserCareerStats | null>(null)
 const careerStatsLoading = ref(false)
+
+const openWardrobeCompareModal = () => {
+  if (userStore.user?.user_id == null) {
+    toast.add({ title: '请先登录后再对比', color: 'amber' })
+    return
+  }
+  showWardrobeCompareModal.value = true
+}
 
 const openCareerStatsModal = async () => {
   const uid = spaceUserId.value

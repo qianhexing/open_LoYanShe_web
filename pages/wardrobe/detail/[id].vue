@@ -19,6 +19,12 @@ const matchingDraftStore = useMatchingDraftStore()
 const config = useConfigStore()
 const route = useRoute()
 const id = route.params.id as string
+const ownerUserId = computed(() => Number.parseInt(id))
+/** 当前登录用户是否为该衣柜页主人（路由 id 即主人 user_id） */
+const isPageOwner = computed(() => {
+  const uid = user.user?.user_id
+  return uid != null && Number(uid) === ownerUserId.value
+})
 const wardrobeList = ref<Wardrobe[]>([])
 const wardrobeCount = ref<number>(0)
 const currentWardrobe = ref<Wardrobe | null>(null)
@@ -32,6 +38,7 @@ const isLoading = ref(false)
 /** 服饰列表请求序号：丢弃过期响应，避免并发 reload / 切换衣柜导致 loading 卡死 */
 let clothesListFetchSeq = 0
 const tagList = ref<Array<string>>([])
+const sizeList = ref<Array<string>>([])
 const isSorting = ref(false) // loading 状态
 const show = ref(true)
 const sortMode = ref(false)
@@ -186,7 +193,8 @@ const confirmBatchStatus = async () => {
 const filter_list =  ref({
   tags: [] as string[],
   wardrobe_status: [] as string[],
-  clothes_note: '' as string
+  clothes_note: '' as string,
+  size: [] as string[],
 }) 
 const showFilterDrawer = ref(false)
 
@@ -403,7 +411,14 @@ const isMobile = computed(() => {
   return window.innerWidth < 768
 })
 
-/** 旧机 / 触屏：弱化拟态 filter、弹幕与物理徽章等高开销效果 */
+/** 搭配草稿悬浮按钮底部偏移：App Tab 栏约 5.5rem，移动端浏览器略抬高 */
+const matchingFabBottomOffset = computed(() => {
+  if (configStore.uniWebviewJs) return 88
+  if (isMobile.value) return 20
+  return 0
+})
+
+/** 旧机 / 触屏：弱化拟态 filter 等高开销效果（弹幕/徽章弱机判断已暂关） */
 const preferLiteEffects = computed(() => {
   if (import.meta.server || typeof window === 'undefined') return false
   if (window.innerWidth >= 768) return false
@@ -416,6 +431,8 @@ const preferLiteEffects = computed(() => {
     ((navigator as Navigator & { deviceMemory?: number }).deviceMemory ?? 8) <= 4
   return coarse || lowCores || lowMem
 })
+// /** 弹幕 / 物理徽章：弱机降级（暂关闭，有配置即展示） */
+// const allowHeavyWardrobeEffects = computed(() => !preferLiteEffects.value || isPageOwner.value)
 
 /* ============================================================
  * 主服饰网格：浏览态行级虚拟滚动
@@ -434,8 +451,54 @@ const scrollRootRef = ref<HTMLElement | null>(null)
 const virtualSpacerRef = ref<HTMLElement | null>(null)
 /** 可视卡片所在的内层 wrapper（用于测量单行高度） */
 const virtualWrapperRef = ref<HTMLElement | null>(null)
-/** 实测单行（单卡）高度，初始给经验值，挂载后实测校正 */
-const virtualRowHeight = ref(300)
+/** 卡片封面区高度（不含备注/价格），挂载后实测校正 */
+const virtualCardBaseHeight = ref(260)
+/** 备注/价格区 CSS 估算常量（与模板 text-sm / mt-2 / mt-1 对齐，用于虚拟滚动行高，避免空占位） */
+const META_TOP_GAP_PX = 8
+const META_NOTE_LINE_PX = 20
+const META_INNER_GAP_PX = 4
+const META_PRICE_LINE_PX = 20
+
+const hasClothesNote = (item: WardrobeClothes) => !!(item.clothes_note?.trim())
+const hasClothesPrice = (item: WardrobeClothes) => !!item.price
+const shouldShowClothesNote = (item: WardrobeClothes) => showClothesNote.value && hasClothesNote(item)
+const shouldShowClothesPrice = (item: WardrobeClothes) => showClothesPrice.value && hasClothesPrice(item)
+const shouldShowClothesCardMeta = (item: WardrobeClothes) =>
+  shouldShowClothesNote(item) || shouldShowClothesPrice(item)
+
+function estimateNoteLineCount(note: string | null | undefined, cols: number): number {
+  const t = (note ?? '').trim()
+  if (!t) return 0
+  const charsPerLine = cols <= 3 ? 7 : cols <= 4 ? 10 : cols <= 6 ? 14 : 20
+  return Math.min(2, Math.ceil(t.length / charsPerLine))
+}
+
+function estimateItemMetaHeight(item: WardrobeClothes, cols: number): number {
+  const noteLines = showClothesNote.value ? estimateNoteLineCount(item.clothes_note, cols) : 0
+  const hasPrice = showClothesPrice.value && hasClothesPrice(item)
+  if (noteLines === 0 && !hasPrice) return 0
+  let h = META_TOP_GAP_PX
+  if (noteLines > 0) h += META_NOTE_LINE_PX * noteLines
+  if (hasPrice) {
+    if (noteLines > 0) h += META_INNER_GAP_PX
+    h += META_PRICE_LINE_PX
+  }
+  return h
+}
+
+function findRowAtScrollOffset(scrollY: number, offsets: number[]): number {
+  const rowCount = offsets.length - 1
+  if (rowCount <= 0) return 0
+  let lo = 0
+  let hi = rowCount - 1
+  while (lo < hi) {
+    const mid = Math.floor((lo + hi + 1) / 2)
+    const offset = offsets[mid] ?? 0
+    if (offset <= scrollY) lo = mid
+    else hi = mid - 1
+  }
+  return lo
+}
 /** 滚动容器 scrollTop（rAF 节流写入） */
 const virtualScrollTop = ref(0)
 /** 滚动容器可视高度 */
@@ -471,22 +534,62 @@ function computeVirtualColumns(): number {
 /** 仅浏览态启用虚拟滚动 */
 const virtualEnabled = computed(() => !sortMode.value && !timelineMode.value)
 
-const virtualRowCount = computed(() => Math.ceil(list.value.length / virtualColumns.value))
-const virtualTotalHeight = computed(() => virtualRowCount.value * virtualRowHeight.value)
+/** 每行高度 = 封面基准高 + 该行内卡片备注/价格区的最大高度（按内容估算，无空占位） */
+const virtualPerRowHeights = computed(() => {
+  if (!virtualEnabled.value) return [] as number[]
+  const cols = virtualColumns.value
+  const items = list.value
+  const rows = Math.ceil(items.length / cols) || 0
+  const base = virtualCardBaseHeight.value
+  const heights: number[] = []
+  for (let r = 0; r < rows; r++) {
+    let maxMeta = 0
+    const start = r * cols
+    const end = Math.min(start + cols, items.length)
+    for (let i = start; i < end; i++) {
+      const item = items[i]
+      if (item) maxMeta = Math.max(maxMeta, estimateItemMetaHeight(item, cols))
+    }
+    heights.push(base + maxMeta)
+  }
+  return heights
+})
+
+const virtualRowOffsets = computed(() => {
+  const offsets = [0]
+  for (const h of virtualPerRowHeights.value) {
+    const prev = offsets[offsets.length - 1] ?? 0
+    offsets.push(prev + h)
+  }
+  return offsets
+})
+
+const virtualAvgRowHeight = computed(() => {
+  const heights = virtualPerRowHeights.value
+  if (!heights.length) return virtualCardBaseHeight.value
+  return heights.reduce((sum, h) => sum + h, 0) / heights.length
+})
+
+const virtualTotalHeight = computed(() => {
+  const offsets = virtualRowOffsets.value
+  return offsets.length > 0 ? (offsets[offsets.length - 1] ?? 0) : 0
+})
 
 /** 当前应渲染的卡片区间与纵向偏移 */
 const virtualRange = computed(() => {
   const cols = virtualColumns.value
-  const rowH = virtualRowHeight.value || 1
-  const totalRows = virtualRowCount.value
+  const offsets = virtualRowOffsets.value
+  const totalRows = virtualPerRowHeights.value.length
+  if (totalRows === 0) return { startIndex: 0, endIndex: 0, offsetY: 0 }
+
   const relTop = Math.max(0, virtualScrollTop.value - virtualListOffsetTop.value)
-  const startRow = Math.max(0, Math.floor(relTop / rowH) - VIRTUAL_OVERSCAN_ROWS)
-  const visibleRows = Math.ceil((virtualViewportH.value || 0) / rowH) + VIRTUAL_OVERSCAN_ROWS * 2
-  const endRow = Math.min(totalRows, startRow + visibleRows)
+  const startRow = Math.max(0, findRowAtScrollOffset(relTop, offsets) - VIRTUAL_OVERSCAN_ROWS)
+  const bottomY = relTop + (virtualViewportH.value || 0) + VIRTUAL_OVERSCAN_ROWS * virtualAvgRowHeight.value
+  const endRow = Math.min(totalRows, findRowAtScrollOffset(bottomY, offsets) + 1 + VIRTUAL_OVERSCAN_ROWS)
   return {
     startIndex: startRow * cols,
     endIndex: endRow * cols,
-    offsetY: startRow * rowH,
+    offsetY: offsets[startRow] ?? 0,
   }
 })
 
@@ -511,14 +614,17 @@ function measureVirtualOffset() {
   virtualListOffsetTop.value = spacerRect.top - rootRect.top + root.scrollTop
 }
 
-/** 测量单行（单卡）高度。卡片高度已通过 CSS 统一，取首个可视卡即可代表整行 */
-function measureVirtualRowHeight() {
+/** 测量封面基准高度：总高减去备注/价格区实测高度 */
+function measureVirtualCardBaseHeight() {
   const wrapper = virtualWrapperRef.value
   const first = wrapper?.firstElementChild as HTMLElement | null
   if (!first) return
-  const h = first.getBoundingClientRect().height
-  if (h > 0 && Math.abs(h - virtualRowHeight.value) > 0.5) {
-    virtualRowHeight.value = h
+  const meta = first.querySelector('.wardrobe-card-meta') as HTMLElement | null
+  const total = first.getBoundingClientRect().height
+  const metaH = meta?.getBoundingClientRect().height ?? 0
+  const base = total - metaH
+  if (base > 0 && Math.abs(base - virtualCardBaseHeight.value) > 0.5) {
+    virtualCardBaseHeight.value = base
   }
 }
 
@@ -547,7 +653,7 @@ function remeasureVirtual() {
   virtualColumns.value = computeVirtualColumns()
   measureVirtualViewport()
   nextTick(() => {
-    measureVirtualRowHeight()
+    measureVirtualCardBaseHeight()
     measureVirtualOffset()
   })
 }
@@ -610,8 +716,34 @@ const filterCount = computed(() => {
   if (filter_list.value.clothes_note && filter_list.value.clothes_note.trim() !== '') {
     count += 1
   }
+  if (filter_list.value.size.length > 0) {
+    count += filter_list.value.size.length
+  }
   return count
 })
+
+/** 尺码筛选项：接口 size_list + 已选尺码（避免选项被筛掉后无法取消） */
+const sizeFilterOptions = computed(() => {
+  const set = new Set<string>()
+  for (const s of sizeList.value) {
+    const t = s?.trim()
+    if (t) set.add(t)
+  }
+  for (const s of filter_list.value.size) {
+    const t = s?.trim()
+    if (t) set.add(t)
+  }
+  return [...set].sort((a, b) => a.localeCompare(b, 'zh-CN'))
+})
+
+const mergeSizeOptionsFromRows = (rows: WardrobeClothes[]) => {
+  const set = new Set(sizeList.value)
+  for (const item of rows) {
+    const s = item.size?.trim()
+    if (s) set.add(s)
+  }
+  sizeList.value = [...set].sort((a, b) => a.localeCompare(b, 'zh-CN'))
+}
 
 // 是否有激活的筛选
 const hasActiveFilter = computed(() => {
@@ -672,7 +804,8 @@ const initFilter = () => {
   filter_list.value = {
     tags: [],
     wardrobe_status: [],
-    clothes_note: ''
+    clothes_note: '',
+    size: [],
   }
 }
 /** 侧栏衣柜项：点的若是当前衣柜则打开攒钱计划抽屉，否则切换衣柜（与原「点我」同一大块热区） */
@@ -687,17 +820,20 @@ const onWardrobeListItemClick = (item: Wardrobe) => {
 const changeWardrobe = (item: Wardrobe) => {
   console.log(item, 'item')
   if (currentWardrobe.value?.wardrobe_id === item.wardrobe_id) return
-  if (Number.parseInt(id) !== user.user?.user_id && item.password) {
-    if (password.value || password.value === '') {
-      showPassword.value = true
-    }
+  if (!isPageOwner.value && item.password) {
     record.value = item
+    if (!password.value) {
+      showPassword.value = true
+    } else {
+      void checkPassword(item.wardrobe_id)
+    }
     return
   }
   currentWardrobe.value = item
   scrollWardrobeContentToTop()
   page.value = 1
   initFilter()
+  sizeList.value = []
   selectMode.value = false
   selectedClothesIds.value = new Set()
   void fetchClothesList()
@@ -789,6 +925,11 @@ const fetchClothesList = async (Ipage: number | null = null, IpageSize: number |
       } else {
         tagList.value = []
       }
+    }
+    if (response.size_list?.length) {
+      sizeList.value = response.size_list
+    } else {
+      mergeSizeOptionsFromRows(rawRows)
     }
     total.value = response.count
     if (response.info) {
@@ -1012,7 +1153,9 @@ const formatSortType = (index: number | undefined) => {
     2: '购入正序',
     3: '价格倒叙',
     4: '价格正序',
-    5: '穿着次数倒叙'
+    5: '穿着次数倒叙',
+    7: '评分倒叙',
+    8: '评分正序'
   }
   return sortTypeMap[index] || '自定义'
 }
@@ -1029,7 +1172,9 @@ const sortTypeOptions = [
   { label: '购入正序', value: 2 },
   { label: '价格倒叙', value: 3 },
   { label: '价格正序', value: 4 },
-  { label: '穿着次数倒叙', value: 5 }
+  { label: '穿着次数倒叙', value: 5 },
+  { label: '评分倒叙', value: 7 },
+  { label: '评分正序', value: 8 }
 ]
 // 选择价格显示模式
 const showPriceSelect = ref(false)
@@ -1227,7 +1372,7 @@ const onWardrobeDecoSaved = (payload?: { display_badge?: string }) => {
 
 // 是否开放弹幕（config.open_danmu === 1 时显示弹幕组件）
 const isDanmakuEnabled = computed(() => {
-  if (preferLiteEffects.value) return false
+  // if (!allowHeavyWardrobeEffects.value) return false
   const cfg = info.value?.config ?? currentWardrobe.value?.config
   return cfg?.open_danmu === 1
 })
@@ -1401,10 +1546,20 @@ const chooseStatus = (label: string) => {
     filter_list.value.wardrobe_status.splice(index, 1)
   }
 }
+// 选择尺码
+const chooseSize = (size: string) => {
+  const index = filter_list.value.size.findIndex((item) => item === size)
+  if (index === -1) {
+    filter_list.value.size.push(size)
+  } else {
+    filter_list.value.size.splice(index, 1)
+  }
+}
 // 重置筛选
 const resetFilter = () => {
   filter_list.value.wardrobe_status = []
   filter_list.value.clothes_note = ''
+  filter_list.value.size = []
   confirmFilter()
 }
 // 确认筛选
@@ -1592,6 +1747,14 @@ onMounted(async () => {
   });
   matchingDraftStore.loadFromStorage()
   setTimeout(async () => {
+    await user.initialize()
+    if (user.token && !user.user) {
+      try {
+        await user.fetchUserInfo()
+      } catch {
+        // 无法拉取用户信息时按访客流程处理
+      }
+    }
     await fetchWardrobeList()
     let wardrobe = null
     console.log(route.query.wardrobe_id, 'route.query')
@@ -1607,7 +1770,7 @@ onMounted(async () => {
         
       }
       console.log( password.value, 'password')
-      if (user.user?.user_id === Number.parseInt(id)) {
+      if (isPageOwner.value) {
         changeWardrobe(wardrobe || wardrobeList.value[0])
       } else {
         const index = wardrobeList.value.findIndex((item) => {
@@ -1624,7 +1787,7 @@ onMounted(async () => {
 
     }
 
-    if (user.user?.user_id === Number.parseInt(id)) {
+    if (isPageOwner.value) {
       wardrobeStore.getWardrobeConfig()
     }
   });
@@ -1640,12 +1803,12 @@ onUnmounted(() => {
 useEventListener(scrollRootRef, 'scroll', onVirtualScroll, { passive: true })
 useEventListener(() => (typeof window !== 'undefined' ? window : null), 'resize', remeasureVirtualDebounced, { passive: true })
 // 内层 wrapper 尺寸变化（行高随图片/字体渲染稳定后变化）时校正行高
-useResizeObserver(virtualWrapperRef, () => measureVirtualRowHeight())
+useResizeObserver(virtualWrapperRef, () => measureVirtualCardBaseHeight())
 onMounted(() => {
   virtualColumns.value = computeVirtualColumns()
   measureVirtualViewport()
   nextTick(() => {
-    measureVirtualRowHeight()
+    measureVirtualCardBaseHeight()
     measureVirtualOffset()
   })
 })
@@ -1667,19 +1830,157 @@ const enableDrag = () => {
   sortMode.value = true
 }
 
-// 收缩展开状态: 0=全部展开, 1=左侧收起, 2=左侧+上方收起
-const collapseState = ref(0)
-const toggleCollapse = () => {
-  collapseState.value = (collapseState.value + 1) % 3
+const SIDEBAR_COLLAPSED_KEY = 'wardrobe-detail-sidebar-collapsed'
+const HEADER_COLLAPSED_KEY = 'wardrobe-detail-header-collapsed'
+const SHOW_CLOTHES_NOTE_KEY = 'wardrobe-detail-show-clothes-note'
+const SHOW_CLOTHES_PRICE_KEY = 'wardrobe-detail-show-clothes-price'
+
+function readSidebarCollapsedPref(): boolean {
+  if (!import.meta.client || typeof localStorage === 'undefined') return false
+  try {
+    return localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === '1'
+  } catch {
+    return false
+  }
 }
+
+function readHeaderCollapsedPref(): boolean {
+  if (!import.meta.client || typeof localStorage === 'undefined') return true
+  try {
+    const h = localStorage.getItem(HEADER_COLLAPSED_KEY)
+    return h === null ? true : h === '1'
+  } catch {
+    return true
+  }
+}
+
+function readShowClothesNotePref(): boolean {
+  if (!import.meta.client || typeof localStorage === 'undefined') return true
+  try {
+    const v = localStorage.getItem(SHOW_CLOTHES_NOTE_KEY)
+    return v === null ? true : v === '1'
+  } catch {
+    return true
+  }
+}
+
+function readShowClothesPricePref(): boolean {
+  if (!import.meta.client || typeof localStorage === 'undefined') return true
+  try {
+    const v = localStorage.getItem(SHOW_CLOTHES_PRICE_KEY)
+    return v === null ? true : v === '1'
+  } catch {
+    return true
+  }
+}
+
+/** 左侧衣柜列表是否收起（localStorage 持久化） */
+const sidebarCollapsed = ref(readSidebarCollapsedPref())
+/** 中间衣柜详情头部是否收起（localStorage 持久化，默认收起） */
+const headerCollapsed = ref(readHeaderCollapsedPref())
+/** 网格卡片是否显示服饰备注（localStorage 持久化，默认显示） */
+const showClothesNote = ref(readShowClothesNotePref())
+/** 网格卡片是否显示服饰价格（localStorage 持久化，默认显示） */
+const showClothesPrice = ref(readShowClothesPricePref())
+/** 布局设置弹窗 */
+const showLayoutModal = ref(false)
+/** 首屏恢复收起态时不播放宽度过渡，避免重进页面侧栏「半收半展」 */
+const sidebarTransitionEnabled = ref(false)
+
+function restoreLayoutPrefs() {
+  if (!import.meta.client || typeof localStorage === 'undefined') return
+  try {
+    const s = localStorage.getItem(SIDEBAR_COLLAPSED_KEY)
+    if (s !== null) sidebarCollapsed.value = s === '1'
+    const h = localStorage.getItem(HEADER_COLLAPSED_KEY)
+    if (h !== null) {
+      headerCollapsed.value = h === '1'
+    } else {
+      headerCollapsed.value = true
+      persistHeaderCollapsed(true)
+    }
+    const note = localStorage.getItem(SHOW_CLOTHES_NOTE_KEY)
+    if (note !== null) showClothesNote.value = note === '1'
+    const price = localStorage.getItem(SHOW_CLOTHES_PRICE_KEY)
+    if (price !== null) showClothesPrice.value = price === '1'
+  } catch {
+    /* 忽略读取失败 */
+  }
+}
+
+function persistSidebarCollapsed(collapsed: boolean) {
+  if (!import.meta.client || typeof localStorage === 'undefined') return
+  try {
+    localStorage.setItem(SIDEBAR_COLLAPSED_KEY, collapsed ? '1' : '0')
+  } catch {
+    /* 忽略写入失败 */
+  }
+}
+
+function persistHeaderCollapsed(collapsed: boolean) {
+  if (!import.meta.client || typeof localStorage === 'undefined') return
+  try {
+    localStorage.setItem(HEADER_COLLAPSED_KEY, collapsed ? '1' : '0')
+  } catch {
+    /* 忽略写入失败 */
+  }
+}
+
+function persistShowClothesNote(show: boolean) {
+  if (!import.meta.client || typeof localStorage === 'undefined') return
+  try {
+    localStorage.setItem(SHOW_CLOTHES_NOTE_KEY, show ? '1' : '0')
+  } catch {
+    /* 忽略写入失败 */
+  }
+}
+
+function persistShowClothesPrice(show: boolean) {
+  if (!import.meta.client || typeof localStorage === 'undefined') return
+  try {
+    localStorage.setItem(SHOW_CLOTHES_PRICE_KEY, show ? '1' : '0')
+  } catch {
+    /* 忽略写入失败 */
+  }
+}
+
+const toggleSidebarCollapsed = () => {
+  sidebarCollapsed.value = !sidebarCollapsed.value
+}
+
+const toggleHeaderCollapsed = () => {
+  headerCollapsed.value = !headerCollapsed.value
+}
+
+const openLayoutModal = () => {
+  showLayoutModal.value = true
+}
+
+onMounted(() => {
+  restoreLayoutPrefs()
+  nextTick(() => {
+    requestAnimationFrame(() => {
+      sidebarTransitionEnabled.value = true
+    })
+  })
+})
+
+onActivated(() => {
+  restoreLayoutPrefs()
+})
+
+watch(sidebarCollapsed, persistSidebarCollapsed)
+watch(headerCollapsed, persistHeaderCollapsed)
+watch(showClothesNote, persistShowClothesNote)
+watch(showClothesPrice, persistShowClothesPrice)
 
 // 列表变化 / 头部折叠 / 切换浏览态 / 切换衣柜 时重新测量虚拟滚动的偏移与行高
 watch(
-  () => [list.value.length, collapseState.value, virtualEnabled.value, info.value?.wardrobe_id] as const,
+  () => [list.value.length, sidebarCollapsed.value, headerCollapsed.value, showClothesNote.value, showClothesPrice.value, virtualEnabled.value, info.value?.wardrobe_id] as const,
   () => {
     if (!virtualEnabled.value) return
     nextTick(() => {
-      measureVirtualRowHeight()
+      measureVirtualCardBaseHeight()
       measureVirtualOffset()
     })
   },
@@ -2606,6 +2907,45 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
         </button>
       </div>
     </QhxModal>
+    <QhxModal v-model="showLayoutModal">
+      <div class="p-5 w-[min(94vw,360px)] bg-white dark:bg-gray-800 rounded-[10px] shadow-lg">
+        <h3 class="text-base font-bold text-gray-800 dark:text-gray-200">布局设置</h3>
+        <p class="text-xs text-gray-500 dark:text-gray-400 mt-1 mb-4">
+          偏好将自动保存；侧栏、详情收起按钮仍可独立操作
+        </p>
+        <div class="space-y-4">
+          <div class="flex items-center justify-between gap-3">
+            <div class="min-w-0">
+              <div class="text-sm font-medium text-gray-800 dark:text-gray-200">收起衣柜详情</div>
+              <div class="text-xs text-gray-500 dark:text-gray-400">隐藏顶部衣柜详情信息区</div>
+            </div>
+            <UToggle v-model="headerCollapsed" />
+          </div>
+          <div class="flex items-center justify-between gap-3">
+            <div class="min-w-0">
+              <div class="text-sm font-medium text-gray-800 dark:text-gray-200">收起左侧列表</div>
+              <div class="text-xs text-gray-500 dark:text-gray-400">隐藏左侧衣柜切换栏</div>
+            </div>
+            <UToggle v-model="sidebarCollapsed" />
+          </div>
+          <div class="h-px bg-gray-200 dark:bg-gray-700" />
+          <div class="flex items-center justify-between gap-3">
+            <div class="min-w-0">
+              <div class="text-sm font-medium text-gray-800 dark:text-gray-200">显示服饰备注</div>
+              <div class="text-xs text-gray-500 dark:text-gray-400">网格卡片下方展示服饰备注</div>
+            </div>
+            <UToggle v-model="showClothesNote" />
+          </div>
+          <div class="flex items-center justify-between gap-3">
+            <div class="min-w-0">
+              <div class="text-sm font-medium text-gray-800 dark:text-gray-200">显示服饰价格</div>
+              <div class="text-xs text-gray-500 dark:text-gray-400">网格卡片下方展示单价</div>
+            </div>
+            <UToggle v-model="showClothesPrice" />
+          </div>
+        </div>
+      </div>
+    </QhxModal>
 
     <Transition
       enter-active-class="transition duration-300 ease-[cubic-bezier(0.4,0,0.2,1)]"
@@ -2639,11 +2979,19 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
         class="grid w-full transition-[grid-template-rows] duration-350 ease-[cubic-bezier(0.4,0,0.2,1)] overflow-hidden"
         :style="{ gridTemplateRows: timelineMode ? '0fr' : '1fr' }"
       >
-        <div class="min-h-0 overflow-hidden">
-    <div class="rounded-2xl flex">
+        <div class="min-h-0 overflow-visible">
+    <div class="rounded-2xl flex relative overflow-visible">
       <div
-        class="wardrobe-list wardrobe-neu-sidebar wardrobe-list-height rounded-[10px] flex-shrink-0 transition-all duration-350 ease-[cubic-bezier(0.4,0,0.2,1)]"
-        :class="collapseState >= 1 ? 'w-0 min-w-0 overflow-hidden' : 'w-[180px] max-md:w-[20vw] overflow-y-auto'">
+        class="wardrobe-sidebar-wrap flex-shrink-0 relative"
+        :class="[
+          sidebarCollapsed ? 'w-0 min-w-0 overflow-hidden' : 'w-[180px] max-md:w-[20vw]',
+          sidebarTransitionEnabled && 'transition-all duration-350 ease-[cubic-bezier(0.4,0,0.2,1)]',
+        ]"
+      >
+        <div
+          v-show="!sidebarCollapsed"
+          class="wardrobe-list wardrobe-neu-sidebar wardrobe-list-height rounded-[10px] w-full overflow-y-auto"
+        >
         <!-- 状态栏高度占位 -->
         <div v-if="configStore.statusBarHeight > 0" :style="{ height: `${configStore.statusBarHeight}px` }"></div>
         
@@ -2768,14 +3116,35 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
             </div>
           </template>
         </QhxSortableList>
+        </div>
       </div>
+      <button
+        v-if="!timelineMode"
+        type="button"
+        class="wardrobe-sidebar-toggle-hit fixed top-1/2 -translate-y-1/2 z-30"
+        :class="[
+          sidebarCollapsed ? 'is-collapsed' : 'is-expanded',
+          !sidebarTransitionEnabled && 'is-no-transition',
+        ]"
+        :title="sidebarCollapsed ? '展开衣柜列表' : '收起衣柜列表'"
+        :aria-label="sidebarCollapsed ? '展开衣柜列表' : '收起衣柜列表'"
+        @click="toggleSidebarCollapsed"
+      >
+        <span class="wardrobe-collapse-toggle wardrobe-collapse-toggle--float-left pointer-events-none">
+          <UIcon
+            :name="sidebarCollapsed ? 'material-symbols:chevron-right' : 'material-symbols:chevron-left'"
+            class="text-[14px]"
+          />
+        </span>
+      </button>
       <div ref="scrollRootRef" class="flex-1 content-area-height overflow-y-auto overflow-x-hidden">
         <!-- 状态栏高度占位 -->
         <div v-if="configStore.statusBarHeight > 0" :style="{ height: `${configStore.statusBarHeight}px` }"></div>
         <div
           v-if="info"
-          class="grid transition-[grid-template-rows] duration-350 ease-[cubic-bezier(0.4,0,0.2,1)] mb-3 overflow-hidden"
-          :style="{ gridTemplateRows: collapseState >= 2 ? '0fr' : '1fr' }"
+          class="grid transition-[grid-template-rows] duration-350 ease-[cubic-bezier(0.4,0,0.2,1)] overflow-hidden"
+          :class="headerCollapsed ? 'mb-0' : 'mb-1'"
+          :style="{ gridTemplateRows: headerCollapsed ? '0fr' : '1fr' }"
         >
         <div class="relative w-full rounded-2xl overflow-hidden min-h-0">
           <!-- 半透明遮罩层 -->
@@ -2971,6 +3340,29 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
           </div>
         </div>
         </div>
+        <div v-if="info && !timelineMode" class="flex justify-center items-center gap-2 mb-3 relative z-10">
+          <button
+            type="button"
+            class="wardrobe-collapse-toggle"
+            :title="headerCollapsed ? '展开衣柜详情' : '收起衣柜详情'"
+            :aria-label="headerCollapsed ? '展开衣柜详情' : '收起衣柜详情'"
+            @click="toggleHeaderCollapsed"
+          >
+            <UIcon
+              :name="headerCollapsed ? 'material-symbols:expand-more' : 'material-symbols:expand-less'"
+              class="text-[16px]"
+            />
+          </button>
+          <button
+            type="button"
+            class="wardrobe-collapse-toggle"
+            title="布局设置"
+            aria-label="布局设置"
+            @click="openLayoutModal"
+          >
+            <UIcon name="material-symbols:dashboard-customize-outline" class="text-[16px]" />
+          </button>
+        </div>
         <div
           class="flex justify-between items-center sticky z-10 gap-1.5"
           :style="{ top: `${(configStore.statusBarHeight || 0) + 10}px` }"
@@ -3054,14 +3446,14 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
           </div>
           <div class="flex flex-wrap gap-1">
             <QhxJellyButton>
-              <div class="h-[46px] flex flex-col items-center justify-center px-0.5 cursor-pointer" @click="toggleCollapse">
+              <div class="h-[46px] flex flex-col items-center justify-center px-0.5 cursor-pointer" @click="openLayoutModal">
                 <div
                   class="wardrobe-neu-tool-orb m-[3px] rounded-[50%] h-[24px] w-[24px] flex items-center justify-center"
                   :class="[!hasCustomBtnBg && 'bg-qhx-info', !hasCustomBtnFont && 'text-white']"
                 >
-                  <UIcon :name="collapseState === 2 ? 'material-symbols:open-in-full' : 'material-symbols:collapse-content'" class="text-[16px] transition-transform duration-300" />
+                  <UIcon name="material-symbols:dashboard-customize-outline" class="text-[16px]" />
                 </div>
-                <div class="text-xs text-qhx-text">{{ collapseState === 2 ? '展开' : '收起' }}</div>
+                <div class="text-xs text-qhx-text">布局</div>
               </div>
             </QhxJellyButton>
             <QhxJellyButton>
@@ -3194,14 +3586,24 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
                 />
               </div>
             </div>
-            <!-- 备注固定 2 行高度，保证虚拟滚动各卡片行高一致 -->
-            <div class="mt-2 mx-[2px] min-h-[2.5rem] line-clamp-2 overflow-hidden text-sm font-medium text-center">
-              {{ element.clothes_note }}
-            </div>
-            <!-- 价格固定占位，保证行高一致 -->
+            <!-- 备注/价格：有内容且布局开启时才渲染；行高由虚拟滚动按内容估算 -->
             <div
-              class="mt-2 text-sm text-qhx-primary font-medium text-center w-[120px] min-h-[1.25rem] line-clamp-2 overflow-hidden">
-              <template v-if="element.price">￥ {{ info?.show_price === 2 ? '***' : (element.price || 0) }}</template>
+              v-if="shouldShowClothesCardMeta(element)"
+              class="wardrobe-card-meta mt-2 mx-[2px] w-full text-center"
+            >
+              <div
+                v-if="shouldShowClothesNote(element)"
+                class="line-clamp-2 overflow-hidden text-sm font-medium leading-5"
+              >
+                {{ element.clothes_note }}
+              </div>
+              <div
+                v-if="shouldShowClothesPrice(element)"
+                class="text-sm text-qhx-primary font-medium leading-5 overflow-hidden"
+                :class="shouldShowClothesNote(element) ? 'mt-1' : ''"
+              >
+                ￥ {{ info?.show_price === 2 ? '***' : (element.price || 0) }}
+              </div>
             </div>
           </div>
         </DefineClothesCard>
@@ -3644,7 +4046,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
             />
           </div>
           
-          <div class="mb-2">
+          <div class="mb-4">
             <div class="text-sm font-semibold mb-3 text-gray-800 dark:text-gray-200">状态：</div>
             <div class="flex flex-wrap gap-2">
               <QhxTag
@@ -3655,6 +4057,21 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
                 @click="chooseStatus(status.label)"
               >
                 {{ status.label }}
+              </QhxTag>
+            </div>
+          </div>
+
+          <div v-if="sizeFilterOptions.length > 0" class="mb-2">
+            <div class="text-sm font-semibold mb-3 text-gray-800 dark:text-gray-200">尺码：</div>
+            <div class="flex flex-wrap gap-2">
+              <QhxTag
+                v-for="(size, index) in sizeFilterOptions"
+                :key="index"
+                :active="filter_list.size.includes(size)"
+                class="cursor-pointer"
+                @click="chooseSize(size)"
+              >
+                {{ size }}
               </QhxTag>
             </div>
           </div>
@@ -3856,6 +4273,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
     <QhxFloatingButton
       v-show="matchingMode && matchingDraftStore.count > 0 && !timelineMode"
       initial-position="bottom-left"
+      :bottom-offset="matchingFabBottomOffset"
     >
       <div
         ref="matchingBtnRef"
@@ -4040,7 +4458,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
 
     <!-- 全屏徽章装饰：与 community/detail 一致，pointer-events-none 不拦截主页面点击 -->
     <div
-      v-if="hasWardrobeDisplayBadges && !preferLiteEffects"
+      v-if="hasWardrobeDisplayBadges"
       class="pointer-events-none fixed inset-x-0 top-0 z-[110] overflow-hidden"
       :class="
         selectMode && !timelineMode
@@ -4131,6 +4549,88 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
     inset 0 1px 0 var(--ward-neu-inset),
     inset 1px 0 0 rgba(255, 255, 255, 0.04),
     inset -2px 0 4px rgba(0, 0, 0, 0.38);
+}
+
+/* —— 区域收缩/展开小按钮 —— */
+.wardrobe-page-neu .wardrobe-collapse-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  color: var(--color-qhx-text, #666);
+  background: rgba(255, 255, 255, 0.82);
+  box-shadow:
+    2px 2px 6px var(--ward-neu-deep),
+    -1px -1px 4px var(--ward-neu-soft),
+    inset 0 1px 0 rgba(255, 255, 255, 0.5);
+  transition: transform 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+  cursor: pointer;
+}
+
+.wardrobe-page-neu .wardrobe-collapse-toggle:hover {
+  transform: scale(1.08);
+}
+
+.wardrobe-page-neu .wardrobe-collapse-toggle:active {
+  transform: scale(0.95);
+}
+
+.wardrobe-page-neu .wardrobe-collapse-toggle--float-left {
+  width: 20px;
+  height: 20px;
+}
+
+.wardrobe-page-neu .wardrobe-collapse-toggle--float-left:hover,
+.wardrobe-page-neu .wardrobe-collapse-toggle--float-left:active {
+  transform: none;
+}
+
+/* 左侧悬浮：固定视口垂直居中，扩大点击热区，视觉尺寸不变 */
+.wardrobe-page-neu .wardrobe-sidebar-toggle-hit {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 14px;
+  margin: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  transition: left 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.wardrobe-page-neu .wardrobe-sidebar-toggle-hit.is-collapsed {
+  left: 0;
+}
+
+.wardrobe-page-neu .wardrobe-sidebar-toggle-hit.is-no-transition {
+  transition: none;
+}
+
+.wardrobe-page-neu .wardrobe-sidebar-toggle-hit.is-expanded {
+  left: calc(180px - 10px);
+}
+
+.wardrobe-page-neu .wardrobe-sidebar-toggle-hit:hover .wardrobe-collapse-toggle--float-left {
+  transform: scale(1.08);
+}
+
+.wardrobe-page-neu .wardrobe-sidebar-toggle-hit:active .wardrobe-collapse-toggle--float-left {
+  transform: scale(0.95);
+}
+
+@media (max-width: 768px) {
+  .wardrobe-page-neu .wardrobe-sidebar-toggle-hit.is-expanded {
+    left: calc(20vw - 10px);
+  }
+}
+
+.dark .wardrobe-page-neu .wardrobe-collapse-toggle {
+  background: rgba(40, 40, 44, 0.88);
+  color: rgba(255, 255, 255, 0.75);
 }
 
 /* 列表格：滚动时跳过屏外绘制（旧 iOS 滚动卡顿主要优化之一）。

@@ -124,14 +124,7 @@ watch(show, (newValue) => {
       form.value.plan_name = plan_name || ''
       form.value.plan_note = plan_note || ''
       form.value.have_money = have_money || 0
-      // 处理日期，可能是 Date 对象或字符串
-      if (end_time) {
-        form.value.end_time = typeof end_time === 'string' 
-          ? end_time 
-          : dayjs(end_time).format('YYYY-MM-DD HH:mm:ss')
-      } else {
-        form.value.end_time = null
-      }
+      form.value.end_time = normalizeEndTime(end_time)
       form.value.plan_cover = plan_cover || ''
       
       // 设置封面图片预览
@@ -150,11 +143,7 @@ watch(show, (newValue) => {
       if ((props.planList as any).plan_list && Array.isArray((props.planList as any).plan_list)) {
         list.value = (props.planList as any).plan_list.map((item: any) => ({
           need_money: item.need_money || 0,
-          end_time: item.end_time 
-            ? (typeof item.end_time === 'string' 
-                ? item.end_time 
-                : dayjs(item.end_time).format('YYYY-MM-DD HH:mm:ss'))
-            : null,
+          end_time: normalizeEndTime(item.end_time),
           plan_note: item.plan_note || ''
         }))
       } else {
@@ -183,10 +172,13 @@ const addPlan = () => {
   })
 }
 
-// 格式化日期
-const formatDate = (dateStr: string | null) => {
-  if (!dateStr) return ''
-  return dayjs(dateStr).format('YYYY-MM-DD HH:mm:ss')
+const TIME_FORMAT = 'YYYY-MM-DD HH:mm:ss'
+
+/** 统一尾款时间格式，保证编辑回显正确 */
+const normalizeEndTime = (time: string | Date | null | undefined): string | null => {
+  if (!time) return null
+  const d = dayjs(time)
+  return d.isValid() ? d.format(TIME_FORMAT) : null
 }
 
 // 显示弹窗
@@ -414,7 +406,7 @@ defineExpose({
 
 <template>
   <QhxModal v-model="show" :trigger-position="clickPosition" @close="handleClose">
-    <div class="w-[95vw] max-w-xl max-h-[90vh] bg-white dark:bg-gray-800 rounded-2xl shadow-xl overflow-hidden flex flex-col border border-gray-200/50 dark:border-gray-700/50">
+    <div class="w-[95vw] max-w-xl h-[min(560px,calc(100dvh-4rem))] bg-white dark:bg-gray-800 rounded-2xl shadow-xl overflow-hidden flex flex-col border border-gray-200/50 dark:border-gray-700/50">
       <!-- 头部 -->
       <div class="flex items-center justify-between px-4 py-3 border-b border-gray-200/60 dark:border-gray-700 flex-shrink-0">
         <h2 class="text-base font-semibold text-gray-800 dark:text-gray-100">
@@ -430,43 +422,33 @@ defineExpose({
       </div>
 
       <!-- 内容区域 -->
-      <div class="flex-1 overflow-y-auto p-4 space-y-4">
-        <!-- 首行：名称 + 资金 -->
-        <div class="grid grid-cols-1 sm:grid-cols-[1fr_100px] gap-3">
-          <UFormGroup label="计划名称" class="mb-0">
-            <UInput
-              v-model="form.plan_name"
-              placeholder="计划名称"
-              size="sm"
-              :ui="{ base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary' }"
-            />
-          </UFormGroup>
-          <UFormGroup label="需要资金" class="mb-0">
-            <UInput
-              :disabled="getListLength !== 0"
-              v-model.number="form.need_money"
-              type="number"
-              placeholder="0"
-              size="sm"
-              :ui="{ base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary' }"
-            />
-          </UFormGroup>
+      <div class="flex-1 min-h-0 overflow-y-auto overscroll-contain p-4 space-y-3">
+        <UFormGroup label="计划名称" class="mb-0">
+          <UInput
+            v-model="form.plan_name"
+            placeholder="计划名称"
+            size="sm"
+            :ui="{ base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary' }"
+          />
+        </UFormGroup>
+
+        <!-- 母计划：金额 + 尾款时间同行（与定尾阶段一致） -->
+        <div class="grid grid-cols-[100px_1fr] gap-2 items-end">
+          <UInput
+            :disabled="getListLength !== 0"
+            v-model.number="form.need_money"
+            type="number"
+            placeholder="需要资金"
+            size="sm"
+            :ui="{ base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary' }"
+          />
+          <QhxDateTimePicker
+            v-model="form.end_time"
+            placeholder="尾款时间"
+            :format="TIME_FORMAT"
+          />
         </div>
 
-        <!-- 封面 -->
-        <UFormGroup label="计划封面" class="mb-0">
-          <div class="rounded-lg overflow-hidden bg-gray-50 dark:bg-gray-700/30 border border-gray-200/60 dark:border-gray-600/60">
-            <QhxImagePicker :multiple="false" @update:files="onUpdateFiles" ref="imagePickerRef" />
-          </div>
-        </UFormGroup>
-
-        <!-- 尾款时间 + 备注 -->
-        <UFormGroup label="尾款时间" class="mb-0">
-          <div class="flex items-center gap-1.5">
-            <QhxDateTimePicker v-model="form.end_time" placeholder="选择结束时间" />
-            <UButton v-if="form.end_time" color="red" variant="ghost" size="xs" icon="i-heroicons-x-mark" @click="form.end_time = null" />
-          </div>
-        </UFormGroup>
         <UFormGroup label="备注" class="mb-0">
           <UTextarea
             v-model="form.plan_note"
@@ -476,6 +458,15 @@ defineExpose({
             :ui="{ base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary' }"
           />
         </UFormGroup>
+
+        <!-- 封面（暂时隐藏，保留逻辑） -->
+        <div v-show="false" aria-hidden="true">
+          <UFormGroup label="计划封面" class="mb-0">
+            <div class="rounded-lg overflow-hidden bg-gray-50 dark:bg-gray-700/30 border border-gray-200/60 dark:border-gray-600/60">
+              <QhxImagePicker :multiple="false" @update:files="onUpdateFiles" ref="imagePickerRef" />
+            </div>
+          </UFormGroup>
+        </div>
 
         <!-- 关联服饰 -->
         <UFormGroup v-if="enableLinkClothes" label="关联服饰" class="mb-0">
@@ -529,42 +520,36 @@ defineExpose({
         </UButton>
 
         <!-- 阶段列表 -->
-        <div v-if="list.length > 0" class="space-y-3 border-t border-gray-200/60 dark:border-gray-700 pt-3">
+        <div v-if="list.length > 0" class="space-y-2 border-t border-gray-200/60 dark:border-gray-700 pt-3">
           <div
             v-for="(stage, index) in list"
             :key="index"
-            class="p-3 rounded-xl bg-gray-50/80 dark:bg-gray-800/60 border border-gray-200/50 dark:border-gray-600/50 space-y-3"
+            class="p-2.5 rounded-lg bg-gray-50/80 dark:bg-gray-800/60 border border-gray-200/50 dark:border-gray-600/50 space-y-2"
           >
             <div class="flex items-center justify-between">
               <span class="text-xs font-medium text-gray-600 dark:text-gray-400">阶段 {{ index + 1 }}</span>
               <UButton color="red" variant="ghost" size="xs" icon="i-heroicons-trash" @click="deleteList(index)" />
             </div>
-            <div class="grid grid-cols-1 sm:grid-cols-[80px_1fr] gap-2">
-              <UFormGroup label="金额" class="mb-0">
-                <UInput
-                  v-model.number="stage.need_money"
-                  type="number"
-                  placeholder="0"
-                  size="sm"
-                  :ui="{ base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary' }"
-                />
-              </UFormGroup>
-              <UFormGroup label="尾款时间" class="mb-0">
-                <div class="flex items-center gap-1.5">
-                  <QhxDateTimePicker v-model="stage.end_time" placeholder="选时间" />
-                  <UButton v-if="stage.end_time" color="red" variant="ghost" size="xs" icon="i-heroicons-x-mark" @click="stage.end_time = null" />
-                </div>
-              </UFormGroup>
-            </div>
-            <UFormGroup label="备注" class="mb-0">
-              <UTextarea
-                v-model="stage.plan_note"
-                placeholder="可选"
-                :rows="1"
+            <div class="grid grid-cols-[80px_1fr] gap-2 items-end">
+              <UInput
+                v-model.number="stage.need_money"
+                type="number"
+                placeholder="金额"
                 size="sm"
                 :ui="{ base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary' }"
               />
-            </UFormGroup>
+              <QhxDateTimePicker
+                v-model="stage.end_time"
+                placeholder="尾款时间"
+                :format="TIME_FORMAT"
+              />
+            </div>
+            <UInput
+              v-model="stage.plan_note"
+              placeholder="备注（可选）"
+              size="sm"
+              :ui="{ base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary' }"
+            />
           </div>
         </div>
       </div>

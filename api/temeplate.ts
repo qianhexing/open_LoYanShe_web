@@ -1,9 +1,10 @@
 
 import type { BaseResponse, PaginationParams, PaginationResponse, TemplateInterface  } from '@/types/api';
 interface SearchParams extends PaginationParams {
+  pk_type?: number
 }
 export async function getTemplateList(
-  params: PaginationParams
+  params: SearchParams
 ): Promise<PaginationResponse<TemplateInterface>> {
   const response = await use$Post<BaseResponse<PaginationResponse<TemplateInterface>>>(
     '/template/list',

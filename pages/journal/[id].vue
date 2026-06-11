@@ -1356,7 +1356,7 @@ async function fetchYearMonthData() {
 }
 
 /** 列表模式：走 `/journal/list`，分页拉全量后在本地按日分组 */
-const LIST_PAGE_SIZE = 100
+const LIST_PAGE_SIZE = 40
 const LIST_MAX_PAGES = 500
 
 async function fetchListModeData() {

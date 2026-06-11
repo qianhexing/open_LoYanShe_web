@@ -2310,10 +2310,11 @@ class ThreeCore {
 		}
 		return new Promise((resolve, reject) => {
 			const skipDefaultAnimations = options.skipDefaultAnimations === true
+			const skipClone = options.skipClone === true
 			const existing = this.loadedModels.find(
 				obj => obj.model.userData.url === url
 			)
-			if (this.loadedModelURLs.has(url) && existing) {
+			if (this.loadedModelURLs.has(url) && existing && !skipClone) {
 				const model = existing.model.clone(true)
 				this.copyMaterial(model)
 				if (
@@ -2401,11 +2402,13 @@ class ThreeCore {
 							}
 						})
 						// this.disableLighting(gltf.scene)
-						this.loadedModelURLs.add(url)
-						this.loadedModels.push({
-							model: model.clone(true),
-							animations: gltf.animations
-						})
+						if (!skipClone) {
+							this.loadedModelURLs.add(url)
+							this.loadedModels.push({
+								model: model.clone(true),
+								animations: gltf.animations
+							})
+						}
 
 						// 动画处理（角色控制器等可 skip，自行管理 AnimationMixer）
 						if (
@@ -6146,6 +6149,16 @@ class ThreeCore {
 		return this.applyAnimation(obj, anim, { track: true })
 	}
 
+	/**
+	 * 从 SceneJSON 构建场景对象。
+	 *
+	 * 加载分两阶段（主场景，非 renturGroup）：
+	 * 1. 资源预加载：并行拉取可缓存资源（模型/图/泼溅/字体/插件），全部 settled 后再进入阶段 2
+	 * 2. 对象并行组装：Promise.all 处理每个 JSON 对象，命中缓存的走 clone/队列取件；角色单独规则见下
+	 *
+	 * 角色（character 或 model+characterType.stand）：不预加载、loadModel(skipClone) 每次独立实例
+	 * renturGroup=true 时用于模板子场景，只返回 Group，不走步骤/进度/角色 rehydration 队列
+	 */
 	public async loadSceneFromJSON(
 		json: SceneJSON,
 		renturGroup = false,
@@ -6156,6 +6169,7 @@ class ThreeCore {
 			group = new THREE.Group()
 			group.userData.ignorePick = true
 		} else {
+			// 主场景：重置角色队列，应用 JSON 中的相机/背景/灯光/控制器/step
 			this.pendingCharacterRehydrations = []
 			if (json.cameraList) {
 				this.cameraList = json.cameraList
@@ -6202,14 +6216,139 @@ class ThreeCore {
 		}
 
 		const total = json.objects.length
-		let current = 0
+		// 与 sceneLoadGeneration 比对，快速切换场景时可中止本次加载
 		const loadGen = renturGroup ? -1 : this.sceneLoadGeneration
 		const usedObjectIds = renturGroup
 			? new Set<string>()
 			: collectTopLevelSceneObjectIds(this.scene)
+
+		// —— 阶段 1：收集去重资源 URL，登记预加载 Promise ——
+		const seenResourceUrls = new Set<string>()
+		const resourcePreloads = new Map<string, Promise<unknown>>()
+		// 泼溅预加载结果按绝对 url 入队，阶段 2 用 shift 领取（同 url 多实例时队空则再 loadSplat）
+		const splatPreloadQueues = new Map<string, THREE.Group[]>()
 		for (const obj of json.objects) {
+			if (typeof obj.url === 'string' && obj.url.length > 0) {
+				const rel = obj.url
+				if (!seenResourceUrls.has(rel)) {
+					seenResourceUrls.add(rel)
+					const full = `${BASE_IMG}${rel}`
+					if (obj.type === 'image') {
+						resourcePreloads.set(
+							rel,
+							this.loadImageMesh(full, obj.baseWidth || 5).catch(e => {
+								console.warn(`预加载图片失败：${rel}`, e)
+							})
+						)
+					} else if (obj.type === 'splat') {
+						const url = resolveAssetUrlWithBase(rel, BASE_IMG)
+						resourcePreloads.set(
+							rel,
+							this.loadSplat(url, {
+								fileType: obj.options?.fileType,
+								maxSplats: obj.options?.maxSplats || 50000,
+								maxSh: obj.options?.maxSh || 2,
+								paged: obj.options?.paged,
+								mobileOptimized:
+									obj.options?.mobileOptimized ?? isMobileDevice()
+							})
+								.then(group => {
+									const queue = splatPreloadQueues.get(url) ?? []
+									queue.push(group)
+									splatPreloadQueues.set(url, queue)
+									return group
+								})
+								.catch(e => {
+									console.warn(`预加载泼溅失败：${rel}`, e)
+								})
+						)
+					} else if (obj.type === '3Dtext') {
+						resourcePreloads.set(
+							rel,
+							new Promise<void>((resolve) => {
+								new FontLoader().load(
+									full,
+									() => resolve(),
+									undefined,
+									() => resolve()
+								)
+							})
+						)
+					} else if (obj.type === 'model') {
+						// 带角色配置的 model 与普通 model 共用 url 时，仅预加载普通 model 侧缓存
+						const chCfg = obj.options?.characterType as
+							| { stand?: { primary?: string } }
+							| undefined
+						const isRoleObject = Boolean(chCfg?.stand?.primary)
+						if (!isRoleObject) {
+							resourcePreloads.set(
+								rel,
+								this.loadModel(full, {
+									useDracoLoader: obj.useDracoLoader ?? false,
+									dracoDecoderPath: '/draco/gltf/'
+								}).catch(e => {
+									console.warn(`预加载模型失败：${rel}`, e)
+								})
+							)
+						}
+					}
+				}
+			}
+			// 着色器插件（绝对路径 url），与 obj.url 共用 seenResourceUrls 去重
+			if (obj.plugin?.length) {
+				for (const plugin of obj.plugin) {
+					if (
+						typeof plugin.url === 'string'
+						&& plugin.url.length > 0
+						&& !seenResourceUrls.has(plugin.url)
+					) {
+						seenResourceUrls.add(plugin.url)
+						resourcePreloads.set(
+							plugin.url,
+							this.loadRemotePlugin(plugin.url).catch(e => {
+								console.warn(`预加载插件失败：${plugin.url}`, e)
+							})
+						)
+					}
+				}
+			}
+		}
+		if (resourcePreloads.size > 0) {
 			if (!renturGroup && loadGen !== this.sceneLoadGeneration) {
 				return null
+			}
+			await Promise.allSettled([...resourcePreloads.values()])
+			if (!renturGroup && loadGen !== this.sceneLoadGeneration) {
+				return null
+			}
+		}
+
+		// —— 阶段 2：并行实例化并挂到场景 / 模板 Group ——
+		let progressCount = 0
+		const bumpProgress = () => {
+			progressCount++
+			if (onProgress && !renturGroup) {
+				onProgress(progressCount, total)
+			}
+		}
+		// 并行生成 id 时串行化，避免 reservedIds 竞态导致重复 id
+		let idStampChain = Promise.resolve()
+		const stampSceneObjectIdSafe = (
+			mesh: THREE.Object3D,
+			opts: Parameters<typeof stampSceneObjectId>[1]
+		) => {
+			const run = idStampChain.then(() => stampSceneObjectId(mesh, opts))
+			idStampChain = run.then(
+				() => undefined,
+				() => undefined
+			)
+			return run
+		}
+
+		await Promise.all(
+			json.objects.map(async (obj) => {
+			if (!renturGroup && loadGen !== this.sceneLoadGeneration) {
+				return
 			}
 			const position = obj.position || [0, 0, 0]
 			const rotation = obj.rotation || [0, 0, 0]
@@ -6244,12 +6383,14 @@ class ThreeCore {
 				&& (obj.type === 'character' || (obj.type === 'model' && chCfg?.stand?.primary))
 			)
 			if (isRoleObject) {
+				// 角色：不读 loadedModels 缓存、不 clone；动画由 CharacterTypeController 接管
 				try {
 					const modelUrl = `${BASE_IMG}${obj.url as string}`
 					const model = await this.loadModel(modelUrl, {
 						useDracoLoader: obj.useDracoLoader ?? false,
 						dracoDecoderPath: '/draco/gltf/',
-						skipDefaultAnimations: true
+						skipDefaultAnimations: true,
+						skipClone: true
 					})
 					mesh = model
 					model.userData.type = 'character'
@@ -6261,15 +6402,14 @@ class ThreeCore {
 						this.setMaterialModel(mesh, obj.material)
 					}
 					if (obj.plugin && obj.plugin.length > 0) {
-						// biome-ignore lint/complexity/noForEach: <explanation>
-						obj.plugin.forEach(async plugin => {
-							const pluginObj = await this.applyRemoteShaderPlugin(
-								model,
-								plugin.url
+						const pluginObjs = await Promise.all(
+							obj.plugin.map(plugin =>
+								this.applyRemoteShaderPlugin(model, plugin.url)
 							)
-							this.activePlugins.push(pluginObj)
-						})
+						)
+						this.activePlugins.push(...pluginObjs)
 					}
+					// 页面层 takePendingCharacterRehydrations 后挂载控制器
 					if (chCfg?.stand?.primary && !renturGroup) {
 						const ch = obj.options?.characterType as
 							| Record<string, unknown>
@@ -6286,6 +6426,7 @@ class ThreeCore {
 					console.warn(`角色/模型加载失败：${obj.url}`, e)
 				}
 			} else if (obj.type === 'model' && obj.url) {
+				// 普通模型：阶段 1 已预热缓存，此处 loadModel 通常直接 clone
 				try {
 					const model = await this.loadModel(BASE_IMG + obj.url, {
 						useDracoLoader: obj.useDracoLoader ?? false,
@@ -6301,14 +6442,12 @@ class ThreeCore {
 						this.setMaterialModel(mesh, obj.material)
 					}
 					if (obj.plugin && obj.plugin.length > 0) {
-						// biome-ignore lint/complexity/noForEach: <explanation>
-						obj.plugin.forEach(async plugin => {
-							const pluginObj = await this.applyRemoteShaderPlugin(
-								model,
-								plugin.url
+						const pluginObjs = await Promise.all(
+							obj.plugin.map(plugin =>
+								this.applyRemoteShaderPlugin(model, plugin.url)
 							)
-							this.activePlugins.push(pluginObj)
-						})
+						)
+						this.activePlugins.push(...pluginObjs)
 					}
 				} catch (e) {
 					console.warn(`模型加载失败：${obj.url}`, e)
@@ -6371,8 +6510,13 @@ class ThreeCore {
 							obj.options?.mobileOptimized ?? isMobileDevice()
 					}
 
-					// 使用封装的 loadSplat 方法加载点云模型
-					mesh = await this.loadSplat(url, splatOptions)
+					// 优先消费阶段 1 队列；未命中或同 url 多份时 fallback 再加载
+					const preloadedSplat = splatPreloadQueues.get(url)?.shift()
+					if (preloadedSplat) {
+						mesh = preloadedSplat
+					} else {
+						mesh = await this.loadSplat(url, splatOptions)
+					}
 					console.log(mesh, '泼溅模型')
 				} catch (e) {
 					console.warn(`泼溅模型加载失败：${obj.url}`, e)
@@ -6426,8 +6570,12 @@ class ThreeCore {
 					}
 				}
 			}
+			// 统一：写 id、变换、特效/材质、按类型缩放，再加入 scene 或模板 group
 			if (mesh) {
-				stampSceneObjectId(mesh, { savedId: obj.id, reservedIds: usedObjectIds })
+				await stampSceneObjectIdSafe(mesh, {
+					savedId: obj.id,
+					reservedIds: usedObjectIds
+				})
 				mesh.position.set(...(position || [0, 0, 0]))
 				mesh.rotation.set(...(rotation || [0, 0, 0]))
 				mesh.scale.set(...(scale || [1, 1, 1]))
@@ -6498,16 +6646,17 @@ class ThreeCore {
 				// console.log(box, '包围盒')
 			}
 
-			// 更新进度
-			current++
-			if (onProgress && !renturGroup) {
-				onProgress(current, total)
-			}
+			bumpProgress()
+			})
+		)
+		if (!renturGroup && loadGen !== this.sceneLoadGeneration) {
+			return null
 		}
 		if (renturGroup) {
 			return group
 		}
 
+		// 主场景加载收尾：应用第一组 step 可见性/机位，同步色彩空间
 		if (this.sceneSteps.length > 0) {
 			this.applySceneStep(0)
 		}

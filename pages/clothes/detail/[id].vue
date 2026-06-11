@@ -268,7 +268,7 @@ const swipePointerCancel = (e: PointerEvent) => {
 const showSwipeGuide = ref(false)
 const swipeGuideTimers: ReturnType<typeof setTimeout>[] = []
 
-const SWIPE_GUIDE_SESSION_KEY = 'clothes-detail-swipe-guide'
+const SWIPE_GUIDE_STORAGE_KEY = 'clothes-detail-swipe-guide-v1'
 
 const clearSwipeGuideTimers = () => {
   for (const t of swipeGuideTimers) clearTimeout(t)
@@ -280,7 +280,7 @@ const scheduleMobileSwipeGuide = () => {
   showSwipeGuide.value = false
   if (!import.meta.client) return
   try {
-    if (sessionStorage.getItem(SWIPE_GUIDE_SESSION_KEY) === '1') return
+    if (localStorage.getItem(SWIPE_GUIDE_STORAGE_KEY) === '1') return
   } catch {
     /* 无痕模式等 */
   }
@@ -288,9 +288,9 @@ const scheduleMobileSwipeGuide = () => {
 
   const tShow = setTimeout(() => {
     if (!isMobile.value || !showSiblingNav.value || !detail.value) return
-    // 弹出即写入会话缓存，避免切换 sibling 时 cancel 掉 hide 定时器导致从未写入，从而反复弹出
+    // 弹出即写入 localStorage，避免切换 sibling 时 cancel 掉 hide 定时器导致从未写入，从而反复弹出
     try {
-      sessionStorage.setItem(SWIPE_GUIDE_SESSION_KEY, '1')
+      localStorage.setItem(SWIPE_GUIDE_STORAGE_KEY, '1')
     } catch {
       /* */
     }
@@ -713,14 +713,17 @@ const handleLinkClothesChoose = async (clothesList: WardrobeClothes[]) => {
       include_clothes: selfIncludeClothes
     })
     for (const clothes of actualLink) {
-      const otherIncludeClothes = clothes.include_clothes
-        ? `${clothes.include_clothes},${selfId}`
-        : String(selfId)
+      const otherIncludeClothes = [
+        ...new Set([
+          ...(clothes.include_clothes?.split(',').filter(Boolean) ?? []),
+          String(selfId)
+        ])
+      ].join(',')
       await updateClothes({
         clothes_id: clothes.clothes_id,
         include_clothes: otherIncludeClothes
       })
-      await addClothesCitation({ clothes_id: clothes.clothes_id }).catch(() => {})
+      // await addClothesCitation({ clothes_id: clothes.clothes_id }).catch(() => {})
     }
     await fetchClothesDetail()
     toast.add({
@@ -1695,8 +1698,8 @@ const showEditPlan = (e?: MouseEvent) => {
 
       <!-- 可拖拽的半模态框 -->
       <Transition :name="`drawer-${isMobile ? 'bottom' : 'right'}`">
-        <QhxBottomDrawer v-if="detail" :direction="isMobile ? 'bottom' : 'right'">
-        <div v-if="detail" class="bg-qhx-bg-card">
+        <QhxBottomDrawer v-if="detail" glass :direction="isMobile ? 'bottom' : 'right'">
+        <div v-if="detail">
           <div class="py-2">
                   <!-- 标题和操作按钮 -->
                   <div class="items-center justify-between mb-4">
@@ -2141,7 +2144,7 @@ const showEditPlan = (e?: MouseEvent) => {
                     <!-- 来源店铺 -->
                     <div v-if="detail.origin_shop" class="border-t pt-3 mt-3">
                       <h3 class="text-lg font-semibold mb-3">来源店铺</h3>
-                      <div class="flex items-center gap-3 cursor-pointer p-3 bg-gray-50 rounded-lg hover:bg-gray-100"
+                      <div class="clothes-scene-glass-panel flex items-center gap-3 cursor-pointer p-3 rounded-lg transition-colors hover:bg-white/30 dark:hover:bg-white/10"
                         @click="jumpToShop(detail.origin_shop!.shop_id)">
                         <img :src="BASE_IMG + detail.origin_shop.shop_logo" class="w-12 h-12 rounded-full object-cover"
                           :alt="detail.origin_shop.shop_name" />
@@ -2995,6 +2998,18 @@ const showEditPlan = (e?: MouseEvent) => {
 </template>
 
 <style scoped>
+/* 关联场景 iframe：抽屉内子块毛玻璃材质（与社区详情 scene 模式一致） */
+.clothes-scene-glass-panel {
+  background-color: rgba(255, 255, 255, 0.22);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+}
+
+:root.dark .clothes-scene-glass-panel,
+.dark .clothes-scene-glass-panel {
+  background-color: rgba(38, 38, 38, 0.38);
+}
+
 .clothes-slide-forward-enter-active,
 .clothes-slide-forward-leave-active,
 .clothes-slide-back-enter-active,

@@ -1,8 +1,10 @@
 import type { Community } from '@/types/api'
 import { BASE_IMG } from '@/utils/ipConfig'
 import {
+  communityBackgroundImageCss,
   hasCommunityCustomStyle,
   parseCommunityCustomStyle,
+  type CommunityBackgroundMode,
 } from '@/utils/communityCustomStyle'
 
 /** 详情页展示用主题（与衣柜 detail 的 customStyle 结构对齐） */
@@ -10,7 +12,7 @@ export type CommunityDetailThemeStyle = {
   background: string
   btnColor?: string
   backColor?: string
-  back_mode?: boolean
+  back_mode?: CommunityBackgroundMode
   fontColor?: string
   back_opacity?: number
   btnFontColor?: string
@@ -33,9 +35,7 @@ export function useCommunityDetailTheme(detail: Ref<Community | null>) {
     const opacity = parsed.back_opacity ?? 1
     const colorLayer = hexToRgba(back, opacity)
     const background = parsed.background
-      ? `linear-gradient(${colorLayer}, ${colorLayer}), url(${BASE_IMG + parsed.background}) ${
-          parsed.back_mode ? 'center/cover no-repeat' : 'repeat'
-        }`
+      ? `linear-gradient(${colorLayer}, ${colorLayer}), url(${BASE_IMG + parsed.background}) ${communityBackgroundImageCss(parsed.back_mode)}`
       : colorLayer
 
     return {
@@ -63,9 +63,12 @@ export function useCommunityDetailTheme(detail: Ref<Community | null>) {
     () => hasCustomBtnBg.value || hasCustomBtnFont.value
   )
 
-  const pageStyle = computed(() => ({
+  const pageBackgroundStyle = computed(() => ({
     background: customStyle.value?.background,
     backgroundPosition: 'center',
+  }))
+
+  const pageContentStyle = computed(() => ({
     color: customStyle.value?.fontColor || 'inherit',
   }))
 
@@ -75,6 +78,7 @@ export function useCommunityDetailTheme(detail: Ref<Community | null>) {
     hasCustomBtnBg,
     hasCustomBtnFont,
     hasAnyCustomBtnTheme,
-    pageStyle,
+    pageBackgroundStyle,
+    pageContentStyle,
   }
 }

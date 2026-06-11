@@ -28,7 +28,7 @@ export async function deleteComp(
 
 // 新增单条合集数据
 export async function insertCompDetail(
-  data: Partial<Compilations>
+  data: { comp_id: number; library_id: number }
 ): Promise<BaseResponse<Compilations>> {
   return await use$Post<BaseResponse<Compilations>>('/comp/detail/insert', data)
 }
