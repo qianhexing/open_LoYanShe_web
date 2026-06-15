@@ -18,6 +18,7 @@ import { createFont } from '~/api';
 import { uploadFileToOSS } from '@/utils/ossUpload';
 import { useSceneCore } from '@/composables/useSceneCore';
 import { useSceneUndo, type TransformState } from '@/composables/useSceneUndo';
+import { useVoxelBlockBuild } from '@/composables/useVoxelBlockBuild';
 import CommunityPostModal from '@/components/community/CommunityPostModal.vue';
 import SceneViewCube from '@/components/scene/SceneViewCube.vue';
 import SceneStepEditor from '@/components/scene/SceneStepEditor.vue';
@@ -84,6 +85,7 @@ const roleControllers = ref<CharacterTypeController[]>([])
 /** 左侧独立「动画」面板展开（与右侧列表块一致，与功能栏分离） */
 const roleAnimationListExpanded = ref(false)
 const showRoleAnimation = () => {
+    exitVoxelBlockBuild()
     closeSceneStepGroupingIfOpen()
     const wasExpanded = roleAnimationListExpanded.value
     materialListExpanded.value = false
@@ -1141,6 +1143,7 @@ const resetCamera = (index: number) => {
 
 // 每个按钮独立控制其列表：点击展开时收起其它，点击已展开的则收起
 const showMaterial = () => {
+    exitVoxelBlockBuild()
     closeSceneStepGroupingIfOpen()
     const wasExpanded = materialListExpanded.value
     materialListExpanded.value = false
@@ -1154,6 +1157,7 @@ const showMaterial = () => {
     if (!wasExpanded) materialListExpanded.value = true
 }
 const showClothing = () => {
+    exitVoxelBlockBuild()
     closeSceneStepGroupingIfOpen()
     const wasExpanded = clothingListExpanded.value
     materialListExpanded.value = false
@@ -1167,6 +1171,7 @@ const showClothing = () => {
     if (!wasExpanded) clothingListExpanded.value = true
 }
 const showScene = () => {
+    exitVoxelBlockBuild()
     closeSceneStepGroupingIfOpen()
     const wasExpanded = sceneListExpanded.value
     materialListExpanded.value = false
@@ -1180,6 +1185,7 @@ const showScene = () => {
     if (!wasExpanded) sceneListExpanded.value = true
 }
 const showEffect = () => {
+    exitVoxelBlockBuild()
     closeSceneStepGroupingIfOpen()
     const wasExpanded = effectListExpanded.value
     materialListExpanded.value = false
@@ -1193,6 +1199,7 @@ const showEffect = () => {
     if (!wasExpanded) effectListExpanded.value = true
 }
 const showTemplate = () => {
+    exitVoxelBlockBuild()
     closeSceneStepGroupingIfOpen()
     const wasExpanded = templateListExpanded.value
     materialListExpanded.value = false
@@ -1206,6 +1213,7 @@ const showTemplate = () => {
     if (!wasExpanded) templateListExpanded.value = true
 }
 const showCustom = () => {
+    exitVoxelBlockBuild()
     closeSceneStepGroupingIfOpen()
     const wasExpanded = customListExpanded.value
     materialListExpanded.value = false
@@ -1219,6 +1227,7 @@ const showCustom = () => {
     if (!wasExpanded) customListExpanded.value = true
 }
 const showTextureList = () => {
+    exitVoxelBlockBuild()
     closeSceneStepGroupingIfOpen()
     const wasExpanded = textureListExpanded.value
     materialListExpanded.value = false
@@ -1232,7 +1241,21 @@ const showTextureList = () => {
     if (!wasExpanded) textureListExpanded.value = true
 }
 
+const showVoxelBlock = () => {
+    closeSceneStepGroupingIfOpen()
+    materialListExpanded.value = false
+    clothingListExpanded.value = false
+    sceneListExpanded.value = false
+    effectListExpanded.value = false
+    templateListExpanded.value = false
+    customListExpanded.value = false
+    textureListExpanded.value = false
+    roleAnimationListExpanded.value = false
+    showVoxelBlockPanel()
+}
+
 const showSceneStepList = () => {
+    exitVoxelBlockBuild()
     const wasExpanded = sceneStepListExpanded.value
     materialListExpanded.value = false
     clothingListExpanded.value = false
@@ -1473,6 +1496,8 @@ const imageMenuPosition = ref({ x: 0, y: 0 })
 
 const showColorPicker = ref(false)
 const colorPickerRef = ref<InstanceType<typeof QhxColorPicker> | null>(null)
+type ColorPickerTarget = 'background' | 'voxelSolid'
+const colorPickerTarget = ref<ColorPickerTarget>('background')
 
 const showLightMenu = ref(false)
 const lightMenuPosition = ref({ x: 0, y: 0 })
@@ -1859,12 +1884,21 @@ const selectBackground = () => {
 // 选择纯色背景
 const selectSolidColorBackground = () => {
     showImageMenu.value = false
+    colorPickerTarget.value = 'background'
     if (colorPickerRef.value) {
         const bg = threeCore.value?.background
         const initial =
             typeof bg === 'string' && bg.startsWith('color:') ? bg.slice('color:'.length) : undefined
         colorPickerRef.value.showModel(undefined, initial)
     }
+}
+
+const onColorPickerChoose = (color: string) => {
+    if (colorPickerTarget.value === 'voxelSolid') {
+        selectVoxelSolidColor(color)
+        return
+    }
+    setSolidColorBackground(color)
 }
 
 // 设置纯色背景（仅 DOM + background 字段，不写入 scene.background，与图片背景一致）
@@ -2165,6 +2199,55 @@ const sceneObjectRevision = ref(0)
 
 function bumpSceneObjectRevision() {
     sceneObjectRevision.value += 1
+}
+
+const {
+    active: voxelBuildActive,
+    listExpanded: voxelBlockListExpanded,
+    selectedSpec: voxelBlockSpec,
+    buildAction: voxelBuildAction,
+    buildTool: voxelBuildTool,
+    planePhase: voxelPlanePhase,
+    toolHint: voxelBuildToolHint,
+    canPlace: voxelCanPlace,
+    selectionLabel: voxelSelectionLabel,
+    textureBlocks: voxelTextureBlocks,
+    colorPresets: voxelColorPresets,
+    buildTools: voxelBuildTools,
+    selectSolidColor: selectVoxelSolidColor,
+    selectTextureBlock: selectVoxelTextureBlock,
+    showBlockPanel: showVoxelBlockPanel,
+    exit: exitVoxelBlockBuild,
+    bindContainer: bindVoxelBlockContainer
+} = useVoxelBlockBuild({
+    threeCore,
+    editMode: edit_mode,
+    addMode: add_mode,
+    onPlaced: () => bumpSceneObjectRevision(),
+    onRemoved: () => bumpSceneObjectRevision(),
+    onPlaceRejected: (message) => {
+        toast.add({ title: message, color: 'amber' })
+    }
+})
+
+watch(voxelBuildActive, (on) => {
+    if (!on || !threeCore.value) return
+    threeCore.value.transformControls.detach()
+    clickObject.value = null
+    closeSceneStepGroupingIfOpen()
+})
+
+const isVoxelCustomSolidSelected = computed(() => {
+    const spec = voxelBlockSpec.value
+    if (spec?.variant !== 'solid' || !spec.color) return false
+    return !voxelColorPresets.includes(spec.color as typeof voxelColorPresets[number])
+})
+
+function openVoxelSolidColorPicker(e: MouseEvent) {
+    colorPickerTarget.value = 'voxelSolid'
+    const initial =
+        voxelBlockSpec.value?.variant === 'solid' ? voxelBlockSpec.value.color : undefined
+    colorPickerRef.value?.showModel(e, initial)
 }
 
 function shouldShowSceneStepHighlights(): boolean {
@@ -2907,7 +2990,8 @@ const initThreejs = async () => {
                 openSceneLinkDetailModal(obj, ev)
                 return true
             },
-            onSceneStepGroupingPick: (obj) => handleGroupingScenePick(obj)
+            onSceneStepGroupingPick: (obj) => handleGroupingScenePick(obj),
+            shouldIgnoreScenePick: () => voxelBuildActive.value
         })
         // 兼容旧数据：纯色曾写在 scene.background，迁到 DOM（background: color:#…）
         if (threeCore.value?.scene.background instanceof THREE.Color) {
@@ -2988,6 +3072,7 @@ const initThreejs = async () => {
         threeCore.value.addAnimationCallback(linkBadgeAnimCb)
         updateLinkBadgeMarkers()
     }
+    bindVoxelBlockContainer(sceneElement)
 }
 
 onMounted(async () => {
@@ -3019,6 +3104,12 @@ onMounted(async () => {
             if (isInput) return
             e.preventDefault()
             if (edit_mode.value && canUndo.value) handleUndo()
+            return
+        }
+        if (e.key === 'Escape' && voxelBuildActive.value) {
+            if (isInput) return
+            e.preventDefault()
+            exitVoxelBlockBuild()
             return
         }
         // R 旋转、G 移动、S 缩放（编辑/新建模式、已选物体、非输入态）
@@ -3265,6 +3356,17 @@ useHead({
                             <UIcon name="material-symbols:title-rounded" class="text-sm text-white" />
                         </div>
                         <span class="scene-neu-tool-label">文本</span>
+                    </button>
+
+                    <!-- 方块搭建 -->
+                    <button v-if="edit_mode || add_mode" type="button" @click="showVoxelBlock"
+                        class="scene-neu-tool-btn group"
+                        :class="voxelBuildActive ? 'ring-2 ring-emerald-400/80 rounded-xl' : ''"
+                        title="方块搭建（我的世界/乐高）">
+                        <div class="scene-neu-icon-orb scene-neu-icon-orb--emerald">
+                            <UIcon name="material-symbols:grid-on-rounded" class="text-sm text-white" />
+                        </div>
+                        <span class="scene-neu-tool-label">方块</span>
                     </button>
 
                     <!-- 素材 -->
@@ -3767,8 +3869,148 @@ useHead({
                 />
             </div>
         </div>
+        <!-- 方块搭建 -->
+        <div
+            v-if="edit_mode || add_mode"
+            class="fixed right-0 z-[20] flex flex-col rounded-l-xl scene-neu-panel backdrop-blur-md overflow-hidden transition-all duration-300 ease-out"
+            :class="voxelBlockListExpanded
+                ? 'top-1/2 -translate-y-1/2 h-[62vh] w-[100px] min-[756px]:w-[170px] min-[756px]:sm:w-[190px] md:w-[210px] z-[30]'
+                : 'top-[calc(50%+184px)] -translate-y-1/2 h-[40px] w-[36px] sm:w-[38px] scene-neu-panel--collapsed'"
+        >
+            <button
+                type="button"
+                class="scene-neu-panel-toggle scene-neu-panel-toggle--emerald items-center justify-center gap-1.5 py-2 px-2 shrink-0 text-emerald-600 dark:text-emerald-400"
+                :class="voxelBlockListExpanded ? 'scene-neu-panel-toggle--expanded flex gap-1.5 py-2 px-2' : 'scene-neu-panel-toggle--collapsed'"
+                :title="voxelBlockListExpanded ? '收起列表' : '展开方块类型'"
+                @click="showVoxelBlock()"
+            >
+                <UIcon
+                    :name="voxelBlockListExpanded ? 'material-symbols:chevron-right' : 'material-symbols:grid-on-rounded'"
+                    :class="voxelBlockListExpanded ? 'text-xl sm:text-2xl' : 'text-base'"
+                    class="transition-transform"
+                />
+                <span class="scene-neu-collapsed-label font-medium">方块</span>
+            </button>
+            <div
+                v-show="voxelBlockListExpanded"
+                class="flex-1 overflow-y-auto overscroll-contain p-2 space-y-3 min-h-0 h-0"
+            >
+                <div class="flex gap-1 rounded-lg bg-gray-100/80 dark:bg-gray-800/60 p-1">
+                    <button
+                        type="button"
+                        class="flex-1 rounded-md py-1.5 text-[11px] font-medium transition-colors"
+                        :class="voxelBuildAction === 'place'
+                            ? 'bg-emerald-500 text-white shadow-sm'
+                            : 'text-gray-600 dark:text-gray-300'"
+                        @click="voxelBuildAction = 'place'"
+                    >
+                        放置
+                    </button>
+                    <button
+                        type="button"
+                        class="flex-1 rounded-md py-1.5 text-[11px] font-medium transition-colors"
+                        :class="voxelBuildAction === 'remove'
+                            ? 'bg-rose-500 text-white shadow-sm'
+                            : 'text-gray-600 dark:text-gray-300'"
+                        @click="voxelBuildAction = 'remove'"
+                    >
+                        拆除
+                    </button>
+                </div>
+                <div v-if="voxelBuildAction === 'place'" class="grid grid-cols-3 gap-1 rounded-lg bg-gray-100/80 dark:bg-gray-800/60 p-1">
+                    <button
+                        v-for="tool in voxelBuildTools"
+                        :key="tool.id"
+                        type="button"
+                        class="rounded-md py-1.5 text-[10px] font-medium transition-colors"
+                        :class="voxelBuildTool === tool.id
+                            ? 'bg-sky-500 text-white shadow-sm'
+                            : 'text-gray-600 dark:text-gray-300'"
+                        @click="voxelBuildTool = tool.id"
+                    >
+                        {{ tool.label }}
+                    </button>
+                </div>
+                <p class="text-[10px] leading-snug text-gray-500 dark:text-gray-400 px-0.5">
+                    {{ voxelBuildToolHint }} · Esc 退出
+                </p>
+                <div>
+                    <p class="text-[10px] font-medium text-gray-600 dark:text-gray-300 mb-1.5">纯色方块</p>
+                    <div class="grid grid-cols-5 gap-1.5">
+                        <button
+                            v-for="color in voxelColorPresets"
+                            :key="color"
+                            type="button"
+                            class="aspect-square rounded-md border-2 transition-all active:scale-95"
+                            :class="voxelBlockSpec?.variant === 'solid' && voxelBlockSpec?.color === color
+                                ? 'border-emerald-500 ring-1 ring-emerald-400/60'
+                                : 'border-black/10 dark:border-white/10'"
+                            :style="{ backgroundColor: color }"
+                            :title="color"
+                            @click="selectVoxelSolidColor(color)"
+                        />
+                    </div>
+                    <button
+                        type="button"
+                        class="mt-2 flex w-full items-center gap-2 rounded-xl border px-2.5 py-2 transition-all active:scale-[0.98]"
+                        :class="isVoxelCustomSolidSelected
+                            ? 'border-emerald-500 bg-emerald-50/80 dark:bg-emerald-900/25 ring-1 ring-emerald-400/60'
+                            : 'border-gray-200/80 dark:border-gray-700/80 bg-white/50 dark:bg-gray-800/40 hover:bg-white/80 dark:hover:bg-gray-800/70'"
+                        @click="openVoxelSolidColorPicker($event)"
+                    >
+                        <span
+                            class="size-7 shrink-0 rounded-md border border-black/10 shadow-inner"
+                            :style="{
+                                backgroundColor: voxelBlockSpec?.variant === 'solid' && isVoxelCustomSolidSelected
+                                    ? voxelBlockSpec.color
+                                    : '#e5e7eb'
+                            }"
+                        />
+                        <span class="flex-1 text-left text-[10px] font-medium text-gray-700 dark:text-gray-200 leading-tight">
+                            自定义颜色
+                            <span
+                                v-if="isVoxelCustomSolidSelected && voxelBlockSpec?.color"
+                                class="block text-[9px] font-normal text-gray-500 dark:text-gray-400 uppercase"
+                            >
+                                {{ voxelBlockSpec.color }}
+                            </span>
+                        </span>
+                        <UIcon name="material-symbols:palette-outline" class="text-base text-gray-500 dark:text-gray-400 shrink-0" />
+                    </button>
+                </div>
+                <div>
+                    <p class="text-[10px] font-medium text-gray-600 dark:text-gray-300 mb-1.5">贴图方块</p>
+                    <div class="grid grid-cols-2 gap-2">
+                        <button
+                            v-for="block in voxelTextureBlocks"
+                            :key="block.id"
+                            type="button"
+                            class="flex flex-col items-center gap-1.5 rounded-xl border p-2 transition-all active:scale-95"
+                            :class="voxelBlockSpec?.variant === block.id
+                                ? 'border-emerald-500 bg-emerald-50/80 dark:bg-emerald-900/25 ring-1 ring-emerald-400/60'
+                                : 'border-transparent bg-white/50 dark:bg-gray-800/40 hover:bg-white/80 dark:hover:bg-gray-800/70'"
+                            @click="selectVoxelTextureBlock(block.id)"
+                        >
+                            <span
+                                class="h-8 w-8 rounded-md border border-black/10 shadow-inner bg-cover bg-center"
+                                :style="{ backgroundColor: block.previewColor }"
+                            />
+                            <span class="text-[10px] font-medium text-gray-700 dark:text-gray-200 text-center leading-tight">
+                                {{ block.label }}
+                            </span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
 
         <div style="height: 100vh; width: 100vw; overflow: hidden; " id="scene"></div>
+        <div
+            v-if="voxelBuildActive"
+            class="pointer-events-none fixed bottom-6 left-1/2 z-[25] -translate-x-1/2 rounded-full bg-black/55 px-4 py-2 text-xs text-white backdrop-blur-sm"
+        >
+            方块模式 · {{ voxelBuildAction === 'place' ? '放置' : '拆除' }}<template v-if="voxelBuildAction === 'place'"> · {{ voxelBuildTool === 'line' ? '直线' : voxelBuildTool === 'plane' ? (voxelPlanePhase === 'expand' ? '平面②' : '平面①') : '单块' }}</template> · {{ voxelSelectionLabel }}
+        </div>
         <div
             v-if="linkBadgeMarkers.length"
             class="scene-link-badge-layer pointer-events-none fixed inset-0 z-[15]"
@@ -3824,7 +4066,7 @@ useHead({
         </div>
         <SceneViewCube :core="threeCore" :enabled="edit_mode" />
         <div class="opera fixed z-20 md:flex items-center whitespace-nowrap"
-            v-show="clickObject && edit_mode && !sceneStepGroupingMode && !target && !animationTarget" :class="[
+            v-show="clickObject && edit_mode && !sceneStepGroupingMode && !target && !animationTarget && !voxelBuildActive" :class="[
                 'md:absolute md:top-auto md:bottom-auto md:left-auto md:right-auto',
                 'fixed bottom-4 left-1/2 -translate-x-1/2 w-[calc(100%-32px)] md:w-auto md:translate-x-0 md:static'
             ]"
@@ -4644,7 +4886,7 @@ useHead({
         </QhxModal>
 
         <!-- 颜色选择器 -->
-        <QhxColorPicker ref="colorPickerRef" @choose="setSolidColorBackground" />
+        <QhxColorPicker ref="colorPickerRef" @choose="onColorPickerChoose" />
 
         <!-- 发帖弹窗 -->
         <ClientOnly>
@@ -5072,6 +5314,11 @@ html.dark .scene-page-neu .scene-neu-tool-label {
 
 .scene-page-neu .scene-neu-icon-orb--yellow {
     background: linear-gradient(145deg, rgba(234, 179, 8, 0.92), rgba(202, 138, 4, 0.78));
+    box-shadow: 3px 3px 8px rgba(0, 0, 0, 0.16), -2px -2px 6px rgba(255, 255, 255, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.35);
+}
+
+.scene-page-neu .scene-neu-icon-orb--emerald {
+    background: linear-gradient(145deg, rgba(52, 211, 153, 0.92), rgba(5, 150, 105, 0.78));
     box-shadow: 3px 3px 8px rgba(0, 0, 0, 0.16), -2px -2px 6px rgba(255, 255, 255, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.35);
 }
 

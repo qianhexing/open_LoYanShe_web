@@ -7,6 +7,17 @@ function normalizeWebPath(path: string): string {
   return path.startsWith('/') ? path : `/${path}`
 }
 
+function buildQueryString(
+  params: Record<string, string | number | null | undefined>
+): string {
+  const qs = new URLSearchParams()
+  for (const [key, value] of Object.entries(params)) {
+    if (value != null && value !== '') qs.set(key, String(value))
+  }
+  const serialized = qs.toString()
+  return serialized ? `?${serialized}` : ''
+}
+
 /** UniApp 内嵌 WebView（与项目内其它跳转一致） */
 export function isHtml5PlusWebview(): boolean {
   return (
@@ -114,6 +125,52 @@ export function openLibraryWebPath(webPath: string): void {
   }
 
   window.open(desktopUrl, '_blank', 'noopener,noreferrer')
+}
+
+/**
+ * 打开衣柜详情：UniApp 原生页 / 鸿蒙 Outlink / 浏览器新标签。
+ * 与 `components/Wardrobe/WardrobeItem.vue` 跳转行为对齐。
+ */
+export function openWardrobeDetail(options: {
+  userId: number | string
+  wardrobeId: number | string
+  password?: string
+}): void {
+  const { userId, wardrobeId, password } = options
+  if (userId == null || userId === '' || wardrobeId == null || wardrobeId === '') return
+  if (!import.meta.client || typeof window === 'undefined') return
+
+  const configStore = useConfigStore()
+  const uniApi = configStore.uniWebviewJs
+
+  if (isHtml5PlusWebview() && uniApi?.navigateTo) {
+    uniApi.navigateTo({
+      url: `/pages/wardrobe/wardrobe?user_id=${userId}&wardrobe_id=${wardrobeId}`,
+      fail: () => {
+        console.warn('[libraryNav] uni wardrobe 跳转失败', userId, wardrobeId)
+      }
+    })
+    return
+  }
+
+  const webPath = `/wardrobe/detail/${userId}${buildQueryString({
+    wardrobe_id: wardrobeId,
+    password
+  })}`
+  openLibraryWebPath(webPath)
+}
+
+/**
+ * 打开成就相册详情：UniApp outerLink2 / 鸿蒙 Outlink / 浏览器新标签。
+ */
+export function openAlbumDetail(options: {
+  albumId: number | string
+  userId?: number | string | null
+}): void {
+  const { albumId, userId } = options
+  if (albumId == null || albumId === '') return
+  const webPath = `/album/detail/${albumId}${buildQueryString({ user_id: userId ?? undefined })}`
+  openLibraryWebPath(webPath)
 }
 
 /** 用于 `<a href>` 的绝对地址（仅客户端能带 origin；SSR 回落为路径） */

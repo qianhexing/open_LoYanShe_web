@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { useSceneCore } from '@/composables/useSceneCore'
-import type { SceneObjectJSON, SceneJSON } from '@/utils/threeCore'
+import type { SceneObjectJSON, SceneJSON, CameraState } from '@/utils/threeCore'
 import type { LaxianInterface } from '@/types/sence'
 import * as THREE from 'three'
 import { BASE_IMG } from '@/utils/ipConfig'
@@ -38,6 +38,12 @@ interface Props {
     backgroundColor?: number | string
     /** 是否显示加载中遮罩；为 false 时仅隐藏加载态，加载失败提示仍会显示 */
     showLoadingMask?: boolean
+    /** 初始镜头列表，仅使用第一项作为进入页面时的机位 */
+    initialCameraList?: Array<{
+        position: [number, number, number]
+        target: [number, number, number]
+        fov?: number
+    }>
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -46,6 +52,7 @@ const props = withDefaults(defineProps<Props>(), {
     sceneJson: null,
     backgroundColor: 0xffffff,
     showLoadingMask: true,
+    initialCameraList: () => [],
     laxianList: () => [
         {
             position: [0, 1, 0] as [number, number, number],
@@ -122,13 +129,9 @@ const waitAnimationFrames = (count = 2) =>
         step(count)
     })
 
-// 同步 autoRotate 到 OrbitControls
+// 同步 autoRotate 到 OrbitControls（不调整镜头，直接开启/关闭旋转）
 watch([() => props.autoRotate, () => threeCore.value], ([autoRotate, core]) => {
     if (!core?.controls || !('autoRotate' in core.controls)) return
-    if (autoRotate) {
-        // 开启自动旋转前：先计算物体包围盒、聚焦中心，确保物体全部显示
-        adjustCamera()
-    }
     (core.controls as { autoRotate: boolean }).autoRotate = !!autoRotate
 }, { immediate: true })
 
@@ -149,7 +152,9 @@ const initThreejs = async () => {
         await initScene(sceneElement, '0', {
             editMode: props.editMode,
             baseUrl: BASE_IMG,
-            sceneData: null
+            sceneData: null,
+            // 目标默认 (0,0,0)，相机与目标同高 = 平视
+            cameraPosition: { x: 0, y: 0, z: 5 }
         })
 
         // 设置场景默认背景色（可由 props.backgroundColor 自定义；若 sceneJson.background 存在则在后续 loadSceneFromJSON 中再次覆盖）
@@ -226,7 +231,7 @@ const loadModels = async () => {
 
             sceneJSON = {
                 objects: [...modelObjects, ...laxianObjects],
-                cameraList: [],
+                cameraList: props.initialCameraList?.length ? props.initialCameraList : [],
                 background: undefined,
                 lighting: []
             }
@@ -244,9 +249,24 @@ const loadModels = async () => {
 
         if (loadGen !== viewerLoadGeneration) return
 
-        // 调整相机视角，让所有模型都在视野内（带过渡动画）
         if (threeCore.value && (hasScene || props.modelList.length > 0 || (props.laxianList?.length ?? 0) > 0)) {
-            adjustCamera(true)
+            if (!applyInitialCameraIfAny(false)) {
+                const box = new THREE.Box3()
+                const objects = threeCore.value.allObjects?.length
+                    ? threeCore.value.allObjects
+                    : []
+                if (objects.length > 0) {
+                    for (const obj of objects) {
+                        if (obj.userData?.type === 'splat' || obj.userData?.type === 'model') {
+                            box.expandByObject(obj)
+                        }
+                    }
+                }
+                if (!box.isEmpty() && threeCore.value.controls?.target) {
+                    threeCore.value.controls.target.copy(box.getCenter(new THREE.Vector3()))
+                }
+                adjustCamera(false)
+            }
         }
     } catch (error) {
         if (loadGen !== viewerLoadGeneration) return
@@ -258,50 +278,89 @@ const loadModels = async () => {
 /** 聚焦时长（毫秒） */
 const FOCUS_DURATION = 800
 
-// 调整相机视角（带过渡动画）
-const adjustCamera = (animate = true) => {
-    if (!threeCore.value) return
+const parseCameraState = (raw: unknown): CameraState | null => {
+    if (!raw || typeof raw !== 'object') return null
+    const item = raw as Record<string, unknown>
+    const toVec3 = (value: unknown) => {
+        if (value instanceof THREE.Vector3) return value.clone()
+        if (Array.isArray(value) && value.length >= 3) {
+            return new THREE.Vector3(Number(value[0]), Number(value[1]), Number(value[2]))
+        }
+        if (value && typeof value === 'object' && 'x' in value && 'y' in value && 'z' in value) {
+            const v = value as { x: number; y: number; z: number }
+            return new THREE.Vector3(v.x, v.y, v.z)
+        }
+        return null
+    }
+    const position = toVec3(item.position)
+    const target = toVec3(item.target)
+    if (!position || !target) return null
+    return {
+        position,
+        target,
+        ...(typeof item.fov === 'number' ? { fov: item.fov } : {})
+    }
+}
 
-    // 计算所有模型的包围盒（不包含拉线点）
+const applyInitialCameraIfAny = (animate = false) => {
+    if (!threeCore.value) return false
+    const raw =
+        props.initialCameraList?.[0]
+        ?? threeCore.value.cameraList?.[0]
+    const state = parseCameraState(raw)
+    if (!state) return false
+    threeCore.value.lookAtCameraState(state, animate ? FOCUS_DURATION : 0)
+    return true
+}
+
+// 调整相机视角：目标不变，相机移至与目标同高的平视位置
+const adjustCamera = (animate = true) => {
+    if (!threeCore.value?.controls?.target) return
+
+    const target = threeCore.value.controls.target.clone()
+
+    // 计算模型包围盒（优先 allObjects，兼容 SplatMesh）
     const box = new THREE.Box3()
-    threeCore.value.scene.traverse((child) => {
-        if (child.userData.type === 'splat' || child.userData.type === 'model') {
-            if (child instanceof THREE.Mesh || child instanceof THREE.Group) {
-                const childBox = new THREE.Box3().setFromObject(child)
-                box.union(childBox)
+    const objects = threeCore.value.allObjects?.length
+        ? threeCore.value.allObjects
+        : []
+    if (objects.length > 0) {
+        for (const obj of objects) {
+            if (obj.userData?.type === 'splat' || obj.userData?.type === 'model') {
+                box.expandByObject(obj)
             }
         }
-    })
+    } else {
+        threeCore.value.scene.traverse((child) => {
+            if (child.userData?.type === 'splat' || child.userData?.type === 'model') {
+                box.expandByObject(child)
+            }
+        })
+    }
 
-    if (box.isEmpty()) return
+    const size = box.isEmpty() ? new THREE.Vector3(1, 1, 1) : box.getSize(new THREE.Vector3())
+    const maxDim = Math.max(size.x, size.y, size.z, 1)
+    const distance = maxDim * 3.2
 
-    const center = box.getCenter(new THREE.Vector3())
-    const size = box.getSize(new THREE.Vector3())
-    const maxDim = Math.max(size.x, size.y, size.z)
-    const distance = maxDim * 3.2 // 拉远镜头，确保模型整体可见
-
-    // 平视：相机与模型中心同高，从正前方观察
+    // 平视：相机 Y 与目标同高，从 +Z 方向观察
     const targetPosition = new THREE.Vector3(
-        center.x,
-        center.y,
-        center.z + distance
+        target.x,
+        target.y,
+        target.z + distance
     )
 
     if (animate) {
         threeCore.value.lookAtCameraState(
-            { position: targetPosition, target: center.clone() },
+            { position: targetPosition, target },
             FOCUS_DURATION
         )
     } else {
         if (threeCore.value.camera instanceof THREE.PerspectiveCamera) {
             threeCore.value.camera.position.copy(targetPosition)
-            threeCore.value.camera.lookAt(center)
+            threeCore.value.camera.lookAt(target)
             threeCore.value.camera.updateProjectionMatrix()
         }
-        if (threeCore.value.controls) {
-            threeCore.value.controls.target.copy(center)
-            threeCore.value.controls.update()
-        }
+        threeCore.value.controls.update()
     }
 }
 
@@ -430,7 +489,8 @@ defineExpose({
     focusLaxianCamera,
     getThreeCore,
     clearSceneContent,
-    reloadSceneKeepWebGL
+    reloadSceneKeepWebGL,
+    applyInitialCameraIfAny
 })
 </script>
 

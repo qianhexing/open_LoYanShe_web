@@ -48,6 +48,7 @@ export const useSceneCore = () => {
     let onSceneStepGroupingPick:
         | ((obj: THREE.Object3D, ev: MouseEvent | TouchEvent) => boolean)
         | null = null
+    let shouldIgnoreScenePick: (() => boolean) | null = null
 
     const updateDiaryAndLibraryLists = () => {
         if (!threeCore.value) return
@@ -140,6 +141,7 @@ export const useSceneCore = () => {
 
     const gpuPick = (ev: MouseEvent | TouchEvent) => {
         if (!threeCore.value) return
+        if (shouldIgnoreScenePick?.()) return
         const obj = threeCore.value.gpuPick(ev)
         console.log('点击对象', obj)
         // console.log('点击', obj)
@@ -227,6 +229,8 @@ export const useSceneCore = () => {
         sceneData?: Scene | null,
         enableAR?: boolean,
         enableRaycaster?: boolean
+        /** 初始相机位置（OrbitControls target 默认 0,0,0） */
+        cameraPosition?: { x: number; y: number; z: number }
         graphicsSettings?: {
             antialias: boolean
             pixelRatio: number
@@ -246,6 +250,8 @@ export const useSceneCore = () => {
             obj: THREE.Object3D,
             ev: MouseEvent | TouchEvent
         ) => boolean
+        /** 为 true 时跳过 GPU 拾取（如方块搭建模式） */
+        shouldIgnoreScenePick?: () => boolean
     }) => {
         console.log('initScene', options.editMode)
         sceneLoading.value = true
@@ -254,6 +260,7 @@ export const useSceneCore = () => {
         config.baseUrl = options.baseUrl
         onLinkedObjectPick = options.onLinkedObjectPick ?? null
         onSceneStepGroupingPick = options.onSceneStepGroupingPick ?? null
+        shouldIgnoreScenePick = options.shouldIgnoreScenePick ?? null
         try {
             const gfx = options.graphicsSettings
             const core = new qhxCore({
@@ -266,7 +273,8 @@ export const useSceneCore = () => {
                 colorStyle: options.colorStyle ?? 'pbr',
                 antialias: gfx?.antialias ?? true,
                 pixelRatio: gfx?.pixelRatio,
-                mobilePerfCap: gfx?.mobilePerfCap ?? true
+                mobilePerfCap: gfx?.mobilePerfCap ?? true,
+                ...(options.cameraPosition ? { cameraPosition: options.cameraPosition } : {})
             })
             threeCore.value = core
 

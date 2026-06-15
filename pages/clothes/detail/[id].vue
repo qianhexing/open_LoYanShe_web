@@ -1703,7 +1703,7 @@ const showEditPlan = (e?: MouseEvent) => {
           <div class="py-2">
                   <!-- 标题和操作按钮 -->
                   <div class="items-center justify-between mb-4">
-                    <h2 class="text-xl font-bold flex-1">
+                    <h2 class="text-xl font-bold flex-1 max-md:pt-2">
                       {{ detail.clothes_note || '暂无名称' }}
                     </h2>
                     <div v-if="isOwner" class="flex justify-end gap-2 ml-2">
@@ -2067,14 +2067,14 @@ const showEditPlan = (e?: MouseEvent) => {
                             <span v-else-if="child.is_complete === 1" class="text-gray-400 text-[10px] flex-shrink-0">已完成</span>
                           </div>
                         </div>
-                        <NuxtLink
+                        <!-- <NuxtLink
                           v-if="detail.plan?.list_id"
                           :to="`/user/plan`"
                           class="inline-flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400 hover:underline"
                         >
                           查看计划详情
                           <UIcon name="i-heroicons-arrow-right" class="text-xs" />
-                        </NuxtLink>
+                        </NuxtLink> -->
                       </div>
                     </div>
                     <!-- 无计划时显示添加按钮 -->
@@ -2204,7 +2204,7 @@ const showEditPlan = (e?: MouseEvent) => {
     <div
       v-else-if="detail && !detail.sence_id"
       :key="`plain-${clothesRouteId}`"
-      class="container mx-auto px-4 pb-4 max-md:px-2 max-md:pb-2 pt-[calc(1rem+env(safe-area-inset-top,0px))] max-md:pt-[calc(0.5rem+env(safe-area-inset-top,0px))] min-h-[100dvh]"
+      class="container mx-auto px-4 pb-4 max-md:px-0 max-md:pb-2 pt-[calc(1rem+env(safe-area-inset-top,0px))] max-md:pt-[calc(0.5rem+env(safe-area-inset-top,0px))] min-h-[100dvh]"
       :class="{ 'touch-pan-y': isMobile }"
       @pointerdown="swipePointerDown"
       @pointerup="swipePointerUp"
@@ -2302,7 +2302,7 @@ const showEditPlan = (e?: MouseEvent) => {
                   <div class="flex-1 space-y-3">
                     <!-- 标题和操作按钮 -->
                     <div class="items-start justify-between">
-                      <h2 class="text-xl font-bold flex-1">
+                      <h2 class="text-xl font-bold flex-1 max-md:pt-2">
                         {{ detail.clothes_note || '暂无名称' }}
                       </h2>
                       <div v-if="isOwner" class="flex justify-end gap-2 ml-2">
@@ -2664,14 +2664,14 @@ const showEditPlan = (e?: MouseEvent) => {
                             <span v-else-if="child.is_complete === 1" class="text-gray-400 text-[10px] flex-shrink-0">已完成</span>
                           </div>
                         </div>
-                        <NuxtLink
+                        <!-- <NuxtLink
                           v-if="detail.plan?.list_id"
                           :to="`/user/plan`"
                           class="inline-flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400 hover:underline"
                         >
                           查看计划详情
                           <UIcon name="i-heroicons-arrow-right" class="text-xs" />
-                        </NuxtLink>
+                        </NuxtLink> -->
                       </div>
                     </div>
                     <!-- 无计划时显示添加按钮 -->

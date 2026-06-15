@@ -8,6 +8,7 @@ import type { ClothesParams } from '@/api/wardrobe'
 import { useCopyCurrentUrl } from '~/composables/useCopyCurrentUrl';
 import type QhxSelect from '@/components/Qhx/Select.vue'
 import type { optionsInterface } from '@/components/Qhx/Select.vue'
+import type QhxWaterList from '@/components/Qhx/WaterList.vue'
 import { useMatchingDraftStore } from '@/stores/matchingDraft'
 import { useFlyToButton } from '~/composables/useFlyToButton'
 import { BASE_IMG } from '@/utils/ipConfig'
@@ -449,15 +450,95 @@ const [DefineClothesCard, ReuseClothesCard] = createReusableTemplate<{ element: 
 const scrollRootRef = ref<HTMLElement | null>(null)
 /** 虚拟网格占位容器（撑满总高，保证滚动条正确） */
 const virtualSpacerRef = ref<HTMLElement | null>(null)
-/** 可视卡片所在的内层 wrapper（用于测量单行高度） */
+/** 可视卡片所在的内层 wrapper */
 const virtualWrapperRef = ref<HTMLElement | null>(null)
-/** 卡片封面区高度（不含备注/价格），挂载后实测校正 */
-const virtualCardBaseHeight = ref(260)
-/** 备注/价格区 CSS 估算常量（与模板 text-sm / mt-2 / mt-1 对齐，用于虚拟滚动行高，避免空占位） */
-const META_TOP_GAP_PX = 8
-const META_NOTE_LINE_PX = 20
-const META_INNER_GAP_PX = 4
+
+/**
+ * 虚拟列表行高逻辑（按行取最高 item）：
+ * 1. 列数 cols 与模板断点一致（手机 3 / md 4 / xl 6 / 1920+ 10）
+ * 2. 每行 row 含 list[row*cols .. row*cols+cols-1] 共最多 cols 个 item
+ * 3. 行高 rowHeight[row] = max( itemCellHeight[item] )，即该行最高卡片
+ * 4. itemCellHeight 未实测前由封面宽 + 备注行数 + 价格区估算；滚动经过后 DOM 实测写入缓存覆盖
+ * 5. 累计偏移 offsets[row+1] = offsets[row] + rowHeight[row]，总高 = offsets[rows]
+ */
+const CARD_VERTICAL_PADDING_PX = 20 // py-[10px] × 2
+const CARD_META_MX_PX = 4 // wardrobe-card-meta mx-[2px] × 2
+const META_TOP_GAP_PX = 8 // mt-2
+const META_NOTE_LINE_PX = 20 // text-sm leading-5
+const META_INNER_GAP_PX = 4 // mt-1
 const META_PRICE_LINE_PX = 20
+
+/** 单列宽度（px），由 spacer 宽度 / cols 得出 */
+const virtualGridCellWidth = ref(120)
+/** 行索引 → 实测行高（DOM）；仅覆盖对应行，不再与估算取 max */
+const measuredRowHeights = ref<Record<number, number>>({})
+
+function clearVirtualRowHeightCache() {
+  measuredRowHeights.value = {}
+}
+
+function getCardHorizontalPaddingPx(): number {
+  if (typeof window === 'undefined') return 10
+  return window.innerWidth < 768 ? 10 : 30
+}
+
+function updateVirtualGridCellWidth() {
+  const cols = virtualColumns.value
+  if (cols <= 0) return
+  const spacer = virtualSpacerRef.value
+  if (spacer && spacer.clientWidth > 0) {
+    virtualGridCellWidth.value = spacer.clientWidth / cols
+  } else if (typeof window !== 'undefined') {
+    virtualGridCellWidth.value = window.innerWidth / cols
+  }
+}
+
+function estimateNoteLineCount(note: string | null | undefined, textWidth: number): number {
+  const t = (note ?? '').trim()
+  if (!t || textWidth <= 0) return 0
+  // text-sm ≈ 14px，中文约 1em 字宽
+  const charsPerLine = Math.max(4, Math.floor(textWidth / 14))
+  return Math.min(2, Math.ceil(t.length / charsPerLine))
+}
+
+/** 单个服饰卡片整格高度（封面正方形 + 下方 meta） */
+function estimateItemCellHeight(item: WardrobeClothes, cellWidth: number): number {
+  const hPad = getCardHorizontalPaddingPx()
+  const contentWidth = Math.max(0, cellWidth - hPad)
+  let h = contentWidth + CARD_VERTICAL_PADDING_PX
+
+  const hasNote = showClothesNote.value && hasClothesNote(item)
+  const hasPrice = showClothesPrice.value && hasClothesPrice(item)
+  if (!hasNote && !hasPrice) return h
+
+  const metaWidth = Math.max(0, contentWidth - CARD_META_MX_PX)
+  h += META_TOP_GAP_PX
+  if (hasNote) {
+    h += estimateNoteLineCount(item.clothes_note, metaWidth) * META_NOTE_LINE_PX
+  }
+  if (hasPrice) {
+    if (hasNote) h += META_INNER_GAP_PX
+    h += META_PRICE_LINE_PX
+  }
+  return h
+}
+
+/** 第 row 行高度 = 该行 cols 个 item 中的最大整格高度 */
+function computeRowHeightFromItems(
+  row: number,
+  cols: number,
+  items: WardrobeClothes[],
+  cellWidth: number,
+): number {
+  let maxH = 0
+  const start = row * cols
+  const end = Math.min(start + cols, items.length)
+  for (let i = start; i < end; i++) {
+    const item = items[i]
+    if (item) maxH = Math.max(maxH, estimateItemCellHeight(item, cellWidth))
+  }
+  return maxH
+}
 
 const hasClothesNote = (item: WardrobeClothes) => !!(item.clothes_note?.trim())
 const hasClothesPrice = (item: WardrobeClothes) => !!item.price
@@ -465,26 +546,6 @@ const shouldShowClothesNote = (item: WardrobeClothes) => showClothesNote.value &
 const shouldShowClothesPrice = (item: WardrobeClothes) => showClothesPrice.value && hasClothesPrice(item)
 const shouldShowClothesCardMeta = (item: WardrobeClothes) =>
   shouldShowClothesNote(item) || shouldShowClothesPrice(item)
-
-function estimateNoteLineCount(note: string | null | undefined, cols: number): number {
-  const t = (note ?? '').trim()
-  if (!t) return 0
-  const charsPerLine = cols <= 3 ? 7 : cols <= 4 ? 10 : cols <= 6 ? 14 : 20
-  return Math.min(2, Math.ceil(t.length / charsPerLine))
-}
-
-function estimateItemMetaHeight(item: WardrobeClothes, cols: number): number {
-  const noteLines = showClothesNote.value ? estimateNoteLineCount(item.clothes_note, cols) : 0
-  const hasPrice = showClothesPrice.value && hasClothesPrice(item)
-  if (noteLines === 0 && !hasPrice) return 0
-  let h = META_TOP_GAP_PX
-  if (noteLines > 0) h += META_NOTE_LINE_PX * noteLines
-  if (hasPrice) {
-    if (noteLines > 0) h += META_INNER_GAP_PX
-    h += META_PRICE_LINE_PX
-  }
-  return h
-}
 
 function findRowAtScrollOffset(scrollY: number, offsets: number[]): number {
   const rowCount = offsets.length - 1
@@ -518,6 +579,19 @@ const wardrobeLoadedImgKeys = new Set<string>()
 const markWardrobeImgLoaded = (key?: string | null) => {
   if (key) wardrobeLoadedImgKeys.add(key)
 }
+function onClothesCardImgLoad(imgKey?: string | null) {
+  markWardrobeImgLoaded(imgKey)
+  if (isWaterfallLayout.value) {
+    waterListRef.value?.debouncedApplyLayout()
+  }
+}
+
+function scheduleWaterfallLayout() {
+  if (!isWaterfallLayout.value) return
+  nextTick(() => {
+    waterListRef.value?.scheduleApplyLayout?.()
+  })
+}
 const wardrobeImgLoadingMode = (key?: string | null): 'eager' | 'lazy' =>
   key && wardrobeLoadedImgKeys.has(key) ? 'eager' : 'lazy'
 
@@ -531,26 +605,47 @@ function computeVirtualColumns(): number {
   return 3
 }
 
-/** 仅浏览态启用虚拟滚动 */
-const virtualEnabled = computed(() => !sortMode.value && !timelineMode.value)
+/** 仅浏览态 + 网格布局启用虚拟滚动 */
+const CLOTHES_LIST_LAYOUT_KEY = 'wardrobe-detail-clothes-list-layout'
+type ClothesListLayout = 'grid' | 'waterfall'
 
-/** 每行高度 = 封面基准高 + 该行内卡片备注/价格区的最大高度（按内容估算，无空占位） */
+function readClothesListLayoutPref(): ClothesListLayout {
+  if (!import.meta.client || typeof localStorage === 'undefined') return 'grid'
+  try {
+    const v = localStorage.getItem(CLOTHES_LIST_LAYOUT_KEY)
+    return v === 'waterfall' ? 'waterfall' : 'grid'
+  } catch {
+    return 'grid'
+  }
+}
+
+/** 服饰列表布局：网格 / 瀑布流（localStorage 持久化，默认网格） */
+const clothesListLayout = ref<ClothesListLayout>(readClothesListLayoutPref())
+/** 瀑布流列表 ref（QhxWaterList 仅负责布局，数据来自 list） */
+const waterListRef = ref<InstanceType<typeof QhxWaterList> | null>(null)
+const isWaterfallLayout = computed(
+  () => clothesListLayout.value === 'waterfall' && !sortMode.value && !timelineMode.value,
+)
+const virtualEnabled = computed(
+  () => !sortMode.value && !timelineMode.value && clothesListLayout.value === 'grid',
+)
+
+/** 每行高度：DOM 实测优先，否则 max(该行各 item 估算高度) */
 const virtualPerRowHeights = computed(() => {
   if (!virtualEnabled.value) return [] as number[]
   const cols = virtualColumns.value
   const items = list.value
   const rows = Math.ceil(items.length / cols) || 0
-  const base = virtualCardBaseHeight.value
+  const cellW = virtualGridCellWidth.value
+  const measured = measuredRowHeights.value
   const heights: number[] = []
   for (let r = 0; r < rows; r++) {
-    let maxMeta = 0
-    const start = r * cols
-    const end = Math.min(start + cols, items.length)
-    for (let i = start; i < end; i++) {
-      const item = items[i]
-      if (item) maxMeta = Math.max(maxMeta, estimateItemMetaHeight(item, cols))
-    }
-    heights.push(base + maxMeta)
+    const domH = measured[r]
+    heights.push(
+      domH !== undefined && domH > 0
+        ? domH
+        : computeRowHeightFromItems(r, cols, items, cellW),
+    )
   }
   return heights
 })
@@ -566,7 +661,12 @@ const virtualRowOffsets = computed(() => {
 
 const virtualAvgRowHeight = computed(() => {
   const heights = virtualPerRowHeights.value
-  if (!heights.length) return virtualCardBaseHeight.value
+  if (!heights.length) {
+    const first = list.value[0]
+    return first
+      ? estimateItemCellHeight(first, virtualGridCellWidth.value)
+      : virtualGridCellWidth.value + CARD_VERTICAL_PADDING_PX
+  }
   return heights.reduce((sum, h) => sum + h, 0) / heights.length
 })
 
@@ -575,27 +675,43 @@ const virtualTotalHeight = computed(() => {
   return offsets.length > 0 ? (offsets[offsets.length - 1] ?? 0) : 0
 })
 
-/** 当前应渲染的卡片区间与纵向偏移 */
+/** 当前应渲染的行区间与纵向偏移 */
 const virtualRange = computed(() => {
   const cols = virtualColumns.value
   const offsets = virtualRowOffsets.value
   const totalRows = virtualPerRowHeights.value.length
-  if (totalRows === 0) return { startIndex: 0, endIndex: 0, offsetY: 0 }
+  if (totalRows === 0) {
+    return { startRow: 0, endRow: 0, startIndex: 0, endIndex: 0, offsetY: 0 }
+  }
 
   const relTop = Math.max(0, virtualScrollTop.value - virtualListOffsetTop.value)
   const startRow = Math.max(0, findRowAtScrollOffset(relTop, offsets) - VIRTUAL_OVERSCAN_ROWS)
   const bottomY = relTop + (virtualViewportH.value || 0) + VIRTUAL_OVERSCAN_ROWS * virtualAvgRowHeight.value
   const endRow = Math.min(totalRows, findRowAtScrollOffset(bottomY, offsets) + 1 + VIRTUAL_OVERSCAN_ROWS)
   return {
+    startRow,
+    endRow,
     startIndex: startRow * cols,
     endIndex: endRow * cols,
     offsetY: offsets[startRow] ?? 0,
   }
 })
 
-const virtualVisibleItems = computed(() =>
-  virtualEnabled.value ? list.value.slice(virtualRange.value.startIndex, virtualRange.value.endIndex) : [],
-)
+/** 可视行 → 每行最多 cols 个 item（与模板断点列数一致） */
+const virtualVisibleRows = computed(() => {
+  if (!virtualEnabled.value) return [] as WardrobeClothes[][]
+  const { startRow, endRow } = virtualRange.value
+  const cols = virtualColumns.value
+  const items = list.value
+  const rows: WardrobeClothes[][] = []
+  for (let r = startRow; r < endRow; r++) {
+    const start = r * cols
+    if (start >= items.length) break
+    rows.push(items.slice(start, Math.min(start + cols, items.length)))
+  }
+  return rows
+})
+
 const virtualOffsetY = computed(() => virtualRange.value.offsetY)
 
 /** 测量滚动容器可视高度 */
@@ -614,18 +730,60 @@ function measureVirtualOffset() {
   virtualListOffsetTop.value = spacerRect.top - rootRect.top + root.scrollTop
 }
 
-/** 测量封面基准高度：总高减去备注/价格区实测高度 */
-function measureVirtualCardBaseHeight() {
+/** 可视区 DOM 实测：第 row 行高度 = 该行各格 offsetHeight 的最大值 */
+function measureVirtualRowHeightsFromDom() {
   const wrapper = virtualWrapperRef.value
-  const first = wrapper?.firstElementChild as HTMLElement | null
-  if (!first) return
-  const meta = first.querySelector('.wardrobe-card-meta') as HTMLElement | null
-  const total = first.getBoundingClientRect().height
-  const metaH = meta?.getBoundingClientRect().height ?? 0
-  const base = total - metaH
-  if (base > 0 && Math.abs(base - virtualCardBaseHeight.value) > 0.5) {
-    virtualCardBaseHeight.value = base
+  if (!wrapper || !virtualEnabled.value) return
+
+  const rowEls = wrapper.querySelectorAll('.wardrobe-virtual-row')
+  if (!rowEls.length) return
+
+  const prev = measuredRowHeights.value
+  const next: Record<number, number> = { ...prev }
+  let changed = false
+
+  for (const node of rowEls) {
+    const rowEl = node as HTMLElement
+    const row = Number(rowEl.dataset.row)
+    if (!Number.isFinite(row)) continue
+
+    let maxH = 0
+    for (const cell of rowEl.querySelectorAll('.wardrobe-clothes-cell--virtual')) {
+      maxH = Math.max(maxH, (cell as HTMLElement).offsetHeight)
+    }
+    if (maxH <= 0) continue
+
+    const existing = next[row]
+    if (existing === undefined || Math.abs(existing - maxH) > 1) {
+      next[row] = maxH
+      changed = true
+    }
   }
+
+  if (changed) measuredRowHeights.value = next
+}
+
+function clampVirtualScrollAfterHeightChange() {
+  const root = scrollRootRef.value
+  if (!root) return
+  const maxScroll = Math.max(0, root.scrollHeight - root.clientHeight)
+  if (root.scrollTop > maxScroll) {
+    root.scrollTop = maxScroll
+    virtualScrollTop.value = maxScroll
+  }
+}
+
+let virtualMeasureRafId: number | null = null
+function scheduleVirtualRowMeasure() {
+  if (!virtualEnabled.value) return
+  if (virtualMeasureRafId != null) return
+  virtualMeasureRafId = requestAnimationFrame(() => {
+    virtualMeasureRafId = null
+    updateVirtualGridCellWidth()
+    measureVirtualRowHeightsFromDom()
+    measureVirtualOffset()
+    clampVirtualScrollAfterHeightChange()
+  })
 }
 
 /** 滚动监听（rAF 节流），更新 scrollTop 与偏移 */
@@ -648,13 +806,19 @@ function scrollWardrobeContentToTop() {
   nextTick(measureVirtualOffset)
 }
 
-/** 重新测量（列数 / 视口 / 行高 / 偏移）；窗口尺寸变化时调用 */
+/** 重新测量（列数 / 列宽 / 行高 / 偏移） */
 function remeasureVirtual() {
   virtualColumns.value = computeVirtualColumns()
+  clearVirtualRowHeightCache()
   measureVirtualViewport()
+  virtualSpacerObservedWidth = 0
   nextTick(() => {
-    measureVirtualCardBaseHeight()
-    measureVirtualOffset()
+    updateVirtualGridCellWidth()
+    const spacer = virtualSpacerRef.value
+    if (spacer && spacer.clientWidth > 0) {
+      virtualSpacerObservedWidth = spacer.clientWidth
+    }
+    scheduleVirtualRowMeasure()
   })
 }
 const remeasureVirtualDebounced = useDebounceFn(remeasureVirtual, 150)
@@ -677,16 +841,15 @@ const planTimelineDrawerDefaultSize = computed(() => {
   return isMobile.value ? Math.min(360, window.innerWidth - 24) : 400
 })
 
-// 衣柜状态标签背景颜色映射，便于扩展新状态
-const WARDROBE_STATUS_BG_MAP: Record<string, string> = {
-  待补款: 'bg-amber-500',
-  已拥有: 'bg-emerald-500',
-  // 可在此扩展: 已出: 'bg-gray-500', 等等
+/** 服饰状态角标配色（参考展馆 scene-link-detail-tag） */
+const WARDROBE_STATUS_BADGE_MAP: Record<string, string> = {
+  待补款: 'wardrobe-clothes-status-badge--amber',
+  已拥有: 'wardrobe-clothes-status-badge--emerald',
 }
 
-function getWardrobeStatusBgClass(status: string | null | undefined): string {
-  if (!status) return 'bg-qhx-primary'
-  return WARDROBE_STATUS_BG_MAP[status] ?? 'bg-qhx-primary'
+function getWardrobeStatusBadgeClass(status: string | null | undefined): string {
+  if (!status) return 'wardrobe-clothes-status-badge--violet'
+  return WARDROBE_STATUS_BADGE_MAP[status] ?? 'wardrobe-clothes-status-badge--violet'
 }
 
 // 衣柜状态选项
@@ -940,10 +1103,10 @@ const fetchClothesList = async (Ipage: number | null = null, IpageSize: number |
     console.log(error, 'error走了获取错误')
     isLoading.value = false
   } finally {
-    // if (seq === clothesListFetchSeq) {
-    //   isLoading.value = false
-    // }
     isLoading.value = false
+    if (seq === clothesListFetchSeq) {
+      scheduleWaterfallLayout()
+    }
   }
 }
 const copyUrl = async () => {
@@ -1581,6 +1744,9 @@ const getClothesFavoriteLevel = (item: WardrobeClothes): number => {
   return Math.min(5, Math.max(0, Math.round(n)))
 }
 
+const getClothesFavoriteLevelTitle = (item: WardrobeClothes) =>
+  `喜爱评级 ${getClothesFavoriteLevel(item)} 星`
+
 const jumpToClothes = (item: WardrobeClothes) => {
   if (sortMode.value) return
   if (matchingMode.value) return
@@ -1802,14 +1968,21 @@ onUnmounted(() => {
 /* —— 虚拟滚动监听与重测（useEventListener 会在卸载时自动清理） —— */
 useEventListener(scrollRootRef, 'scroll', onVirtualScroll, { passive: true })
 useEventListener(() => (typeof window !== 'undefined' ? window : null), 'resize', remeasureVirtualDebounced, { passive: true })
-// 内层 wrapper 尺寸变化（行高随图片/字体渲染稳定后变化）时校正行高
-useResizeObserver(virtualWrapperRef, () => measureVirtualCardBaseHeight())
+let virtualSpacerObservedWidth = 0
+useResizeObserver(virtualSpacerRef, (entries: readonly ResizeObserverEntry[]) => {
+  const width = entries[0]?.contentRect.width ?? virtualSpacerRef.value?.clientWidth ?? 0
+  if (width <= 0 || Math.abs(width - virtualSpacerObservedWidth) < 1) return
+  virtualSpacerObservedWidth = width
+  updateVirtualGridCellWidth()
+  clearVirtualRowHeightCache()
+  scheduleVirtualRowMeasure()
+})
 onMounted(() => {
   virtualColumns.value = computeVirtualColumns()
   measureVirtualViewport()
   nextTick(() => {
-    measureVirtualCardBaseHeight()
-    measureVirtualOffset()
+    updateVirtualGridCellWidth()
+    scheduleVirtualRowMeasure()
   })
 })
 useHead({
@@ -1834,9 +2007,13 @@ const SIDEBAR_COLLAPSED_KEY = 'wardrobe-detail-sidebar-collapsed'
 const HEADER_COLLAPSED_KEY = 'wardrobe-detail-header-collapsed'
 const SHOW_CLOTHES_NOTE_KEY = 'wardrobe-detail-show-clothes-note'
 const SHOW_CLOTHES_PRICE_KEY = 'wardrobe-detail-show-clothes-price'
+const SHOW_CLOTHES_STATUS_KEY = 'wardrobe-detail-show-clothes-status'
+const SHOW_CLOTHES_FAVORITE_KEY = 'wardrobe-detail-show-clothes-favorite'
 
 function readSidebarCollapsedPref(): boolean {
-  if (!import.meta.client || typeof localStorage === 'undefined') return false
+  if (!import.meta.client || typeof localStorage === 'undefined') {
+    return false
+  }
   try {
     return localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === '1'
   } catch {
@@ -1874,6 +2051,26 @@ function readShowClothesPricePref(): boolean {
   }
 }
 
+function readShowClothesStatusPref(): boolean {
+  if (!import.meta.client || typeof localStorage === 'undefined') return true
+  try {
+    const v = localStorage.getItem(SHOW_CLOTHES_STATUS_KEY)
+    return v === null ? true : v === '1'
+  } catch {
+    return true
+  }
+}
+
+function readShowClothesFavoritePref(): boolean {
+  if (!import.meta.client || typeof localStorage === 'undefined') return true
+  try {
+    const v = localStorage.getItem(SHOW_CLOTHES_FAVORITE_KEY)
+    return v === null ? true : v === '1'
+  } catch {
+    return true
+  }
+}
+
 /** 左侧衣柜列表是否收起（localStorage 持久化） */
 const sidebarCollapsed = ref(readSidebarCollapsedPref())
 /** 中间衣柜详情头部是否收起（localStorage 持久化，默认收起） */
@@ -1882,6 +2079,19 @@ const headerCollapsed = ref(readHeaderCollapsedPref())
 const showClothesNote = ref(readShowClothesNotePref())
 /** 网格卡片是否显示服饰价格（localStorage 持久化，默认显示） */
 const showClothesPrice = ref(readShowClothesPricePref())
+/** 网格卡片是否显示服饰状态角标（localStorage 持久化，默认显示） */
+const showClothesStatus = ref(readShowClothesStatusPref())
+/** 网格卡片是否显示喜爱评级角标（localStorage 持久化，默认显示） */
+const showClothesFavorite = ref(readShowClothesFavoritePref())
+
+const shouldShowClothesStatusBadge = (item: WardrobeClothes) =>
+  showClothesStatus.value && !!item.wardrobe_status?.trim()
+const shouldShowClothesFavoriteBadge = (item: WardrobeClothes) =>
+  showClothesFavorite.value
+  && getClothesFavoriteLevel(item) > 0
+  && !selectMode.value
+  && !matchingMode.value
+
 /** 布局设置弹窗 */
 const showLayoutModal = ref(false)
 /** 首屏恢复收起态时不播放宽度过渡，避免重进页面侧栏「半收半展」 */
@@ -1903,6 +2113,12 @@ function restoreLayoutPrefs() {
     if (note !== null) showClothesNote.value = note === '1'
     const price = localStorage.getItem(SHOW_CLOTHES_PRICE_KEY)
     if (price !== null) showClothesPrice.value = price === '1'
+    const status = localStorage.getItem(SHOW_CLOTHES_STATUS_KEY)
+    if (status !== null) showClothesStatus.value = status === '1'
+    const favorite = localStorage.getItem(SHOW_CLOTHES_FAVORITE_KEY)
+    if (favorite !== null) showClothesFavorite.value = favorite === '1'
+    const layout = localStorage.getItem(CLOTHES_LIST_LAYOUT_KEY)
+    if (layout === 'grid' || layout === 'waterfall') clothesListLayout.value = layout
   } catch {
     /* 忽略读取失败 */
   }
@@ -1944,6 +2160,33 @@ function persistShowClothesPrice(show: boolean) {
   }
 }
 
+function persistShowClothesStatus(show: boolean) {
+  if (!import.meta.client || typeof localStorage === 'undefined') return
+  try {
+    localStorage.setItem(SHOW_CLOTHES_STATUS_KEY, show ? '1' : '0')
+  } catch {
+    /* 忽略写入失败 */
+  }
+}
+
+function persistShowClothesFavorite(show: boolean) {
+  if (!import.meta.client || typeof localStorage === 'undefined') return
+  try {
+    localStorage.setItem(SHOW_CLOTHES_FAVORITE_KEY, show ? '1' : '0')
+  } catch {
+    /* 忽略写入失败 */
+  }
+}
+
+function persistClothesListLayout(layout: ClothesListLayout) {
+  if (!import.meta.client || typeof localStorage === 'undefined') return
+  try {
+    localStorage.setItem(CLOTHES_LIST_LAYOUT_KEY, layout)
+  } catch {
+    /* 忽略写入失败 */
+  }
+}
+
 const toggleSidebarCollapsed = () => {
   sidebarCollapsed.value = !sidebarCollapsed.value
 }
@@ -1967,21 +2210,74 @@ onMounted(() => {
 
 onActivated(() => {
   restoreLayoutPrefs()
+  scheduleWaterfallLayout()
 })
 
 watch(sidebarCollapsed, persistSidebarCollapsed)
 watch(headerCollapsed, persistHeaderCollapsed)
 watch(showClothesNote, persistShowClothesNote)
 watch(showClothesPrice, persistShowClothesPrice)
+watch(showClothesStatus, persistShowClothesStatus)
+watch(showClothesFavorite, persistShowClothesFavorite)
+watch(clothesListLayout, persistClothesListLayout)
 
-// 列表变化 / 头部折叠 / 切换浏览态 / 切换衣柜 时重新测量虚拟滚动的偏移与行高
 watch(
-  () => [list.value.length, sidebarCollapsed.value, headerCollapsed.value, showClothesNote.value, showClothesPrice.value, virtualEnabled.value, info.value?.wardrobe_id] as const,
+  () => [
+    clothesListLayout.value,
+    sidebarCollapsed.value,
+    headerCollapsed.value,
+    showClothesNote.value,
+    showClothesPrice.value,
+    showClothesStatus.value,
+    showClothesFavorite.value,
+    list.value.length,
+  ] as const,
+  () => {
+    scheduleWaterfallLayout()
+  },
+)
+
+watch(isWaterfallLayout, (enabled) => {
+  if (enabled) scheduleWaterfallLayout()
+})
+
+// 列表 / 布局 / 列宽变化：清空实测缓存，估算立即按各行 max(item) 重算
+watch(
+  () => [
+    list.value.length,
+    sidebarCollapsed.value,
+    headerCollapsed.value,
+    showClothesNote.value,
+    showClothesPrice.value,
+    showClothesStatus.value,
+    showClothesFavorite.value,
+    clothesListLayout.value,
+    virtualEnabled.value,
+    virtualColumns.value,
+    virtualGridCellWidth.value,
+    info.value?.wardrobe_id,
+  ] as const,
+  () => {
+    if (!virtualEnabled.value) return
+    clearVirtualRowHeightCache()
+    nextTick(() => {
+      updateVirtualGridCellWidth()
+      scheduleVirtualRowMeasure()
+    })
+  },
+)
+
+// 可视窗口切片变化后写入实测行高（rAF 合并，避免 ResizeObserver 反馈循环）
+watch(
+  () => [
+    virtualRange.value.startRow,
+    virtualRange.value.endRow,
+    virtualVisibleRows.value.length,
+  ] as const,
   () => {
     if (!virtualEnabled.value) return
     nextTick(() => {
-      measureVirtualCardBaseHeight()
-      measureVirtualOffset()
+      scheduleVirtualRowMeasure()
     })
   },
 )
@@ -2929,6 +3225,35 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
             <UToggle v-model="sidebarCollapsed" />
           </div>
           <div class="h-px bg-gray-200 dark:bg-gray-700" />
+          <div>
+            <div class="text-sm font-medium text-gray-800 dark:text-gray-200 mb-1">服饰列表布局</div>
+            <div class="text-xs text-gray-500 dark:text-gray-400 mb-2">网格等宽排列，瀑布流按图片高度错落展示</div>
+            <div class="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                class="flex flex-col items-center gap-1.5 rounded-lg border px-3 py-2.5 transition-colors"
+                :class="clothesListLayout === 'grid'
+                  ? 'border-qhx-primary bg-qhx-primary/10 text-qhx-primary'
+                  : 'border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:border-gray-300 dark:hover:border-gray-500'"
+                @click="clothesListLayout = 'grid'"
+              >
+                <UIcon name="i-heroicons-squares-2x2" class="text-xl" />
+                <span class="text-xs font-medium">网格</span>
+              </button>
+              <button
+                type="button"
+                class="flex flex-col items-center gap-1.5 rounded-lg border px-3 py-2.5 transition-colors"
+                :class="clothesListLayout === 'waterfall'
+                  ? 'border-qhx-primary bg-qhx-primary/10 text-qhx-primary'
+                  : 'border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:border-gray-300 dark:hover:border-gray-500'"
+                @click="clothesListLayout = 'waterfall'"
+              >
+                <UIcon name="i-heroicons-view-columns" class="text-xl" />
+                <span class="text-xs font-medium">瀑布流</span>
+              </button>
+            </div>
+          </div>
+          <div class="h-px bg-gray-200 dark:bg-gray-700" />
           <div class="flex items-center justify-between gap-3">
             <div class="min-w-0">
               <div class="text-sm font-medium text-gray-800 dark:text-gray-200">显示服饰备注</div>
@@ -2942,6 +3267,20 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
               <div class="text-xs text-gray-500 dark:text-gray-400">网格卡片下方展示单价</div>
             </div>
             <UToggle v-model="showClothesPrice" />
+          </div>
+          <div class="flex items-center justify-between gap-3">
+            <div class="min-w-0">
+              <div class="text-sm font-medium text-gray-800 dark:text-gray-200">显示服饰状态</div>
+              <div class="text-xs text-gray-500 dark:text-gray-400">网格卡片左上角展示拥有状态</div>
+            </div>
+            <UToggle v-model="showClothesStatus" />
+          </div>
+          <div class="flex items-center justify-between gap-3">
+            <div class="min-w-0">
+              <div class="text-sm font-medium text-gray-800 dark:text-gray-200">显示喜爱评级</div>
+              <div class="text-xs text-gray-500 dark:text-gray-400">网格卡片展示数字 + 星评级</div>
+            </div>
+            <UToggle v-model="showClothesFavorite" />
           </div>
         </div>
       </div>
@@ -3354,6 +3693,26 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
             />
           </button>
           <button
+            v-if="headerCollapsed"
+            type="button"
+            class="wardrobe-collapse-toggle"
+            title="根据衣柜推荐"
+            aria-label="根据衣柜推荐"
+            @click="wardrobeSimilarRecommendRef?.open()"
+          >
+            <UIcon name="i-heroicons-sparkles" class="text-[16px]" />
+          </button>
+          <button
+            v-if="headerCollapsed"
+            type="button"
+            class="wardrobe-collapse-toggle"
+            title="分享"
+            aria-label="分享"
+            @click="copyUrl()"
+          >
+            <UIcon name="ic:round-share" class="text-[16px]" />
+          </button>
+          <button
             type="button"
             class="wardrobe-collapse-toggle"
             title="布局设置"
@@ -3486,25 +3845,46 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
             </QhxTag>
           </QhxJellyButton>
         </div>
-        <!-- 服饰卡片模板：排序态(QhxSortableList) 与 浏览态(虚拟网格) 共用，保留本组件 scoped 样式 -->
+        <!-- 服饰卡片：网格/排序用原版；瀑布流用独立卡片样式 -->
         <DefineClothesCard v-slot="{ element }">
+          <!-- 网格 / 排序（原版） -->
           <div
+            v-if="!isWaterfallLayout"
             class="group drag-handle flex flex-col items-center py-[10px] px-[15px] max-md:px-[5px]"
             :class="preferLiteEffects ? '' : 'transition-transform duration-300 ease-out hover:scale-105'"
             @mousedown="opearClothesId = element.clothes_id"
             @touchstart.passive="opearClothesId = element.clothes_id"
-            @click="selectMode ? toggleClothesSelection(element) : jumpToClothes(element)">
+            @click="selectMode ? toggleClothesSelection(element) : jumpToClothes(element)"
+          >
             <div class="wardrobe-neu-item wardrobe-aspect-square w-full relative">
               <div
-                class="absolute left-0 top-0 z-10 rounded-tl-[6px] rounded-br-[6px] px-1 py-[1px] text-[10px] leading-none text-white flex items-center"
-                :class="getWardrobeStatusBgClass(element.wardrobe_status)"
-                v-if="element.wardrobe_status">
-                {{ element.wardrobe_status }}
+                v-if="shouldShowClothesStatusBadge(element) || shouldShowClothesFavoriteBadge(element)"
+                class="wardrobe-clothes-badge-stack pointer-events-none absolute z-10 max-md:left-1 max-md:top-1 max-md:flex max-md:max-w-[calc(100%-2.25rem)] max-md:flex-col max-md:items-start max-md:gap-0.5 md:contents"
+              >
+                <div
+                  v-if="shouldShowClothesStatusBadge(element)"
+                  class="wardrobe-clothes-status-badge pointer-events-auto max-md:max-w-full max-md:truncate md:absolute md:left-1 md:top-1 md:max-w-[calc(100%-0.5rem)]"
+                  :class="getWardrobeStatusBadgeClass(element.wardrobe_status)"
+                >
+                  {{ element.wardrobe_status }}
+                </div>
+                <div
+                  v-if="shouldShowClothesFavoriteBadge(element)"
+                  class="wardrobe-clothes-fav-badge pointer-events-auto flex max-w-full items-center gap-0.5 max-md:flex-wrap md:absolute md:right-1 md:top-1"
+                  :title="getClothesFavoriteLevelTitle(element)"
+                  @click.stop="jumpToClothes(element)"
+                >
+                  <span class="wardrobe-clothes-fav-badge__num">{{ getClothesFavoriteLevel(element) }}</span>
+                  <UIcon
+                    name="i-heroicons-star-solid"
+                    class="wardrobe-clothes-fav-badge__star"
+                    aria-hidden="true"
+                  />
+                </div>
               </div>
-              <!-- 多选模式：右上角选择框，点击选择/取消选择 -->
               <div
                 v-if="selectMode && element.clothes_id"
-                class="absolute top-0 right-0 z-10  h-[32px] w-[32px] flex items-center justify-center cursor-pointer transition-all duration-200"
+                class="absolute top-0 right-0 z-10 h-[32px] w-[32px] flex items-center justify-center cursor-pointer transition-all duration-200"
                 @click.stop="toggleClothesSelection(element)"
               >
                 <div
@@ -3515,7 +3895,6 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
                   <UIcon v-if="isClothesSelected(element.clothes_id)" name="i-heroicons-check" class="text-sm" :class="!hasCustomBtnFont && 'text-white'" />
                 </div>
               </div>
-              <!-- 搭配模式：加号添加/删除图标；非搭配模式：喜爱级别 1–5 显示角标（0 不显示） -->
               <div
                 v-else-if="matchingMode && element.clothes_id"
                 class="absolute top-0 right-0 z-10 h-[32px] w-[32px] flex items-center justify-center cursor-pointer"
@@ -3532,21 +3911,6 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
                   />
                 </div>
               </div>
-              <div
-                v-else-if="getClothesFavoriteLevel(element) > 0"
-                class="wardrobe-fav-badge absolute right-0 top-0 z-10 flex items-center gap-px rounded-tr-[6px] rounded-bl-[6px] bg-white/75 px-1 py-[1px] text-[10px] leading-none backdrop-blur-[2px] ring-1 ring-black/10 dark:bg-white/65 dark:ring-white/20"
-                @click.stop="jumpToClothes(element)"
-              >
-                <span class="tabular-nums text-amber-600 dark:text-amber-600">
-                  {{ getClothesFavoriteLevel(element) }}
-                </span>
-                <UIcon
-                  name="i-heroicons-star-solid"
-                  class="h-[1em] w-[1em] shrink-0 text-amber-600 dark:text-amber-600"
-                  aria-hidden="true"
-                />
-              </div>
-              <!-- 颜色列表圆点：封面左下角 -->
               <div
                 v-if="element.color"
                 class="absolute left-0 bottom-0 z-10 flex flex-wrap gap-0.5 p-1 rounded-bl-xl"
@@ -3568,7 +3932,6 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
                   @load="markWardrobeImgLoaded(element.clothes_img)"
                   @contextmenu.prevent
                 />
-                <!-- 多选模式：封面蒙版显示当前排序序号 -->
                 <div
                   v-if="selectMode && getClothesDisplaySortNo(element)"
                   class="wardrobe-select-sort-mask absolute inset-0 z-[5] flex items-center justify-center pointer-events-none rounded-xl"
@@ -3586,7 +3949,6 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
                 />
               </div>
             </div>
-            <!-- 备注/价格：有内容且布局开启时才渲染；行高由虚拟滚动按内容估算 -->
             <div
               v-if="shouldShowClothesCardMeta(element)"
               class="wardrobe-card-meta mt-2 mx-[2px] w-full text-center"
@@ -3606,6 +3968,131 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
               </div>
             </div>
           </div>
+          <!-- 瀑布流（独立卡片样式） -->
+          <div
+            v-else
+            class="group drag-handle pt-1 px-1 pb-0.5 max-md:pt-0.5 max-md:px-0.5 max-md:pb-0"
+            :class="preferLiteEffects ? '' : 'transition-transform duration-300 ease-out hover:scale-[1.02]'"
+            @mousedown="opearClothesId = element.clothes_id"
+            @touchstart.passive="opearClothesId = element.clothes_id"
+            @click="selectMode ? toggleClothesSelection(element) : jumpToClothes(element)"
+          >
+            <div
+              class="wardrobe-clothes-card wardrobe-neu-item w-full overflow-hidden rounded-2xl border border-gray-200/50 dark:border-gray-600/45"
+            >
+              <div class="wardrobe-clothes-card-cover wardrobe-waterfall-item relative w-full">
+                <div
+                  v-if="shouldShowClothesStatusBadge(element) || shouldShowClothesFavoriteBadge(element)"
+                  class="wardrobe-clothes-badge-stack pointer-events-none absolute z-10 max-md:left-1.5 max-md:top-1.5 max-md:flex max-md:max-w-[calc(100%-2.25rem)] max-md:flex-col max-md:items-start max-md:gap-0.5 md:contents"
+                >
+                  <div
+                    v-if="shouldShowClothesStatusBadge(element)"
+                    class="wardrobe-clothes-status-badge pointer-events-auto max-md:max-w-full max-md:truncate md:absolute md:left-1.5 md:top-1.5 md:max-w-[calc(100%-0.5rem)]"
+                    :class="getWardrobeStatusBadgeClass(element.wardrobe_status)"
+                  >
+                    {{ element.wardrobe_status }}
+                  </div>
+                  <div
+                    v-if="shouldShowClothesFavoriteBadge(element)"
+                    class="wardrobe-clothes-fav-badge pointer-events-auto flex max-w-full items-center gap-0.5 max-md:flex-wrap md:absolute md:right-1.5 md:top-1.5"
+                    :title="getClothesFavoriteLevelTitle(element)"
+                    @click.stop="jumpToClothes(element)"
+                  >
+                    <span class="wardrobe-clothes-fav-badge__num">{{ getClothesFavoriteLevel(element) }}</span>
+                    <UIcon
+                      name="i-heroicons-star-solid"
+                      class="wardrobe-clothes-fav-badge__star"
+                      aria-hidden="true"
+                    />
+                  </div>
+                </div>
+                <div
+                  v-if="selectMode && element.clothes_id"
+                  class="absolute top-1.5 right-1.5 z-10 h-[28px] w-[28px] flex items-center justify-center cursor-pointer transition-all duration-200"
+                  @click.stop="toggleClothesSelection(element)"
+                >
+                  <div
+                    class="wardrobe-neu-clothes-check w-5 h-5 rounded-md border-2 flex items-center justify-center transition-all duration-200"
+                    :class="isClothesSelected(element.clothes_id) ? (hasCustomBtnBg ? 'border-transparent' : 'bg-qhx-primary border-qhx-primary') : 'border-gray-400 bg-white/80 dark:bg-gray-700/80'"
+                    :style="isClothesSelected(element.clothes_id) && hasCustomBtnBg ? { ...customBtnStyle, borderColor: customStyle?.btnColor } : {}"
+                  >
+                    <UIcon v-if="isClothesSelected(element.clothes_id)" name="i-heroicons-check" class="text-xs" :class="!hasCustomBtnFont && 'text-white'" />
+                  </div>
+                </div>
+                <div
+                  v-else-if="matchingMode && element.clothes_id"
+                  class="absolute top-1.5 right-1.5 z-10 h-[28px] w-[28px] flex items-center justify-center cursor-pointer"
+                  @click.stop="handleMatchingDraftToggle(element, $event)"
+                >
+                  <div
+                    class="wardrobe-neu-tool-orb rounded-[50%] h-[22px] w-[22px] flex items-center justify-center"
+                    :class="isInMatchingDraft(element.clothes_id) ? [!hasCustomBtnBg && 'bg-red-500', !hasCustomBtnFont && 'text-white'] : [!hasCustomBtnBg && 'bg-qhx-primary', !hasCustomBtnFont && 'text-white']"
+                    :style="isInMatchingDraft(element.clothes_id) ? {} : customBtnStyle"
+                  >
+                    <UIcon
+                      :name="isInMatchingDraft(element.clothes_id) ? 'i-heroicons-trash' : 'material-symbols:add-2'"
+                      class="text-[14px]"
+                    />
+                  </div>
+                </div>
+                <div
+                  v-if="element.color"
+                  class="absolute left-1.5 bottom-1.5 z-10 flex flex-wrap gap-0.5"
+                >
+                  <div
+                    v-for="(c, ci) in element.color.split(',')"
+                    :key="ci"
+                    class="w-2.5 h-2.5 rounded-full shadow-sm border border-white/50 dark:border-gray-700/50 shrink-0"
+                    :style="{ backgroundColor: c.trim() }"
+                  />
+                </div>
+                <div class="wardrobe-neu-photo wardrobe-waterfall-photo relative w-full h-full overflow-hidden">
+                  <img
+                    :src="`${BASE_IMG}${element.clothes_img}?x-oss-process=image/quality,q_100/resize,w_300`"
+                    draggable="false"
+                    class="wardrobe-detail-img wardrobe-waterfall-img block w-full h-auto cursor-grab object-cover active:cursor-grabbing"
+                    :loading="wardrobeImgLoadingMode(element.clothes_img)"
+                    decoding="async"
+                    @load="onClothesCardImgLoad(element.clothes_img)"
+                    @contextmenu.prevent
+                  />
+                  <div
+                    v-if="selectMode && getClothesDisplaySortNo(element)"
+                    class="wardrobe-select-sort-mask absolute inset-0 z-[5] flex items-center justify-center pointer-events-none"
+                    :class="isClothesSelected(element.clothes_id) ? 'wardrobe-select-sort-mask--selected' : ''"
+                  >
+                    <span class="wardrobe-select-sort-no tabular-nums font-bold text-white drop-shadow-[0_1px_4px_rgba(0,0,0,0.6)]">
+                      {{ getClothesDisplaySortNo(element) }}
+                    </span>
+                  </div>
+                  <div
+                    class="wardrobe-img-touch-shield"
+                    :class="{ 'wardrobe-img-touch-shield--sorting': sortMode }"
+                    aria-hidden="true"
+                    @contextmenu.prevent
+                  />
+                </div>
+              </div>
+              <div
+                v-if="shouldShowClothesCardMeta(element)"
+                class="wardrobe-clothes-card-body border-t border-gray-200/40 px-1.5 pt-1 pb-0.5 dark:border-gray-500/35 max-md:px-1 max-md:pt-0.5 max-md:pb-0.5"
+              >
+                <div
+                  v-if="shouldShowClothesNote(element)"
+                  class="line-clamp-2 overflow-hidden text-sm font-medium leading-5 text-gray-800 dark:text-gray-100 max-md:text-xs max-md:leading-4"
+                >
+                  {{ element.clothes_note }}
+                </div>
+                <div
+                  v-if="shouldShowClothesPrice(element)"
+                  class="text-sm text-qhx-primary font-semibold leading-5 max-md:text-xs max-md:leading-4"
+                  :class="shouldShowClothesNote(element) ? 'mt-0.5' : ''"
+                >
+                  ￥{{ info?.show_price === 2 ? '***' : (element.price || 0) }}
+                </div>
+              </div>
+            </div>
+          </div>
         </DefineClothesCard>
 
         <div v-if="!timelineMode" class="w-full">
@@ -3618,18 +4105,42 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
           >
             <div
               ref="virtualWrapperRef"
-              class="absolute left-0 right-0 top-0 flex flex-wrap"
+              class="absolute left-0 right-0 top-0"
               :style="{ transform: `translateY(${virtualOffsetY}px)` }"
             >
               <div
-                v-for="(element, vIdx) in virtualVisibleItems"
-                :key="element.clothes_id ?? `v-${virtualRange.startIndex + vIdx}`"
-                class="wardrobe-clothes-cell wardrobe-clothes-cell--virtual [@media(min-width:1920px)]:w-[calc(100%/10)] xl:w-1/6 md:w-1/4 max-md:w-1/3"
+                v-for="(rowItems, rIdx) in virtualVisibleRows"
+                :key="`vrow-${virtualRange.startRow + rIdx}`"
+                class="wardrobe-virtual-row flex w-full"
+                :data-row="virtualRange.startRow + rIdx"
               >
-                <ReuseClothesCard :element="element" />
+                <div
+                  v-for="element in rowItems"
+                  :key="element.clothes_id ?? `v-${virtualRange.startRow + rIdx}-${element.clothes_id}`"
+                  class="wardrobe-clothes-cell wardrobe-clothes-cell--virtual [@media(min-width:1920px)]:w-[calc(100%/10)] xl:w-1/6 md:w-1/4 max-md:w-1/3"
+                >
+                  <ReuseClothesCard :element="element" />
+                </div>
               </div>
             </div>
           </div>
+          <!-- 浏览态：瀑布流（QhxWaterList 布局 + 外部 list 数据） -->
+          <QhxWaterList
+            v-else-if="isWaterfallLayout"
+            ref="waterListRef"
+            :items="list"
+            :columns="6"
+            :columns_768="3"
+            :item-key="2"
+            :enable-waterfall="true"
+            :enable-load-more="false"
+          >
+            <template #default="{ item }">
+              <div class="px-0.5 pb-0.5 max-md:px-0 max-md:pb-0">
+                <ReuseClothesCard :element="item" />
+              </div>
+            </template>
+          </QhxWaterList>
           <!-- 排序态：自研高性能拖拽排序（QhxSortableList，无 vuedraggable） -->
           <QhxSortableList
             v-else
@@ -4674,25 +5185,69 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
   height: 100%;
 }
 
-/* —— 服饰封面：整体浮起 + 相框内凹 —— */
-.wardrobe-page-neu .wardrobe-neu-item {
+/* 瀑布流：统一半透明卡片（仅瀑布流使用，网格布局不受影响） */
+.wardrobe-clothes-card.wardrobe-neu-item {
+  background: rgba(255, 255, 255, 0.52);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  filter:
+    drop-shadow(6px 8px 18px var(--ward-neu-deep)) drop-shadow(-4px -5px 14px var(--ward-neu-soft));
+}
+.dark .wardrobe-clothes-card.wardrobe-neu-item {
+  background: rgba(30, 35, 45, 0.55);
+}
+.wardrobe-page-neu .group:hover .wardrobe-clothes-card.wardrobe-neu-item {
+  filter:
+    drop-shadow(8px 10px 22px var(--ward-neu-deep)) drop-shadow(-5px -6px 16px var(--ward-neu-soft));
+}
+.wardrobe-clothes-card-cover .wardrobe-neu-photo {
+  border-radius: 0;
+  border: none;
+  box-shadow: none;
+  background: transparent;
+}
+.wardrobe-clothes-card-body {
+  background: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+/* 瀑布流：封面按图片自然高度展示，不再强制 1:1 */
+.wardrobe-clothes-card-cover.wardrobe-waterfall-item {
+  height: auto;
+}
+.wardrobe-waterfall-photo.wardrobe-neu-photo {
+  position: relative;
+  height: auto;
+}
+.wardrobe-waterfall-photo .wardrobe-waterfall-img.wardrobe-detail-img {
+  position: static;
+  inset: auto;
+  width: 100%;
+  height: auto;
+}
+
+/* —— 服饰封面：整体浮起 + 相框内凹（网格）；瀑布流整卡阴影见 .wardrobe-clothes-card —— */
+.wardrobe-page-neu .wardrobe-neu-item:not(.wardrobe-clothes-card) {
   filter:
     drop-shadow(8px 11px 22px var(--ward-neu-deep)) drop-shadow(-6px -7px 18px var(--ward-neu-soft));
   transition: filter 0.28s cubic-bezier(0.22, 1, 0.36, 1), transform 0.3s ease;
 }
 
-.wardrobe-page-neu .group:hover .wardrobe-neu-item {
+.wardrobe-page-neu .group:hover .wardrobe-neu-item:not(.wardrobe-clothes-card) {
   filter:
     drop-shadow(11px 14px 28px var(--ward-neu-deep)) drop-shadow(-7px -8px 20px var(--ward-neu-soft));
 }
 
 /* 移动端弱机：drop-shadow 每层卡片双次合成，iOS 上极易掉帧 */
-.wardrobe-perf-lite .wardrobe-neu-item {
+.wardrobe-perf-lite .wardrobe-neu-item,
+.wardrobe-perf-lite .wardrobe-clothes-card.wardrobe-neu-item {
   filter: none;
   transition: none;
 }
 
-.wardrobe-perf-lite .group:hover .wardrobe-neu-item {
+.wardrobe-perf-lite .group:hover .wardrobe-neu-item,
+.wardrobe-perf-lite .group:hover .wardrobe-clothes-card.wardrobe-neu-item {
   filter: none;
 }
 
@@ -4720,16 +5275,27 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
   -webkit-backdrop-filter: none;
 }
 
-/* 弱机：每张卡片收藏角标的 backdrop-blur 需逐帧回读背景，滚动时极易掉帧。
-   降级为不透明底色，去掉毛玻璃。 */
-.wardrobe-perf-lite .wardrobe-fav-badge {
+/* 弱机：角标毛玻璃逐帧回读背景，滚动时易掉帧，降级为不透明底色 */
+.wardrobe-perf-lite .wardrobe-clothes-status-badge,
+.wardrobe-perf-lite .wardrobe-clothes-fav-badge {
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
-  background-color: rgba(255, 255, 255, 0.92);
 }
 
-.dark .wardrobe-perf-lite .wardrobe-fav-badge {
-  background-color: rgba(38, 38, 38, 0.92);
+.wardrobe-perf-lite .wardrobe-clothes-status-badge {
+  background: rgba(255, 255, 255, 0.94);
+}
+
+.dark .wardrobe-perf-lite .wardrobe-clothes-status-badge {
+  background: rgba(44, 46, 54, 0.94);
+}
+
+.wardrobe-perf-lite .wardrobe-clothes-fav-badge {
+  background: rgba(255, 251, 235, 0.96);
+}
+
+.dark .wardrobe-perf-lite .wardrobe-clothes-fav-badge {
+  background: rgba(69, 45, 12, 0.92);
 }
 
 /* 弱机：多选蒙版的 backdrop-blur 同样昂贵，去掉模糊仅保留半透明遮罩。 */
@@ -4769,6 +5335,132 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
     -4px -4px 14px rgba(255, 255, 255, 0.05),
     inset 2px 2px 11px rgba(0, 0, 0, 0.42),
     inset -1px -1px 5px rgba(255, 255, 255, 0.07);
+}
+
+/* —— 服饰状态 / 喜爱评级角标：参考展馆 scene-link-detail-tag —— */
+.wardrobe-page-neu .wardrobe-clothes-status-badge {
+  font-size: 0.625rem;
+  font-weight: 600;
+  line-height: 1.2;
+  padding: 0.18rem 0.45rem;
+  border-radius: 9999px;
+  backdrop-filter: blur(8px) saturate(1.08);
+  -webkit-backdrop-filter: blur(8px) saturate(1.08);
+  border: 1px solid transparent;
+  box-shadow:
+    2px 2px 6px rgba(0, 0, 0, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.45);
+}
+
+.wardrobe-page-neu .wardrobe-clothes-status-badge--violet {
+  color: rgb(91 33 182);
+  background: color-mix(in srgb, #8b5cf6 14%, rgba(255, 255, 255, 0.78));
+  border-color: color-mix(in srgb, #8b5cf6 24%, transparent);
+}
+
+.dark .wardrobe-page-neu .wardrobe-clothes-status-badge--violet {
+  color: rgb(216 180 254);
+  background: color-mix(in srgb, #6d28d9 30%, rgba(44, 46, 54, 0.82));
+  border-color: color-mix(in srgb, #8b5cf6 32%, transparent);
+}
+
+.wardrobe-page-neu .wardrobe-clothes-status-badge--amber {
+  color: rgb(146 64 14);
+  background: color-mix(in srgb, #f59e0b 16%, rgba(255, 255, 255, 0.78));
+  border-color: color-mix(in srgb, #f59e0b 30%, transparent);
+}
+
+.dark .wardrobe-page-neu .wardrobe-clothes-status-badge--amber {
+  color: rgb(253 230 138);
+  background: color-mix(in srgb, #d97706 28%, rgba(44, 46, 54, 0.82));
+  border-color: color-mix(in srgb, #f59e0b 35%, transparent);
+}
+
+.wardrobe-page-neu .wardrobe-clothes-status-badge--emerald {
+  color: rgb(6 95 70);
+  background: color-mix(in srgb, #10b981 14%, rgba(255, 255, 255, 0.78));
+  border-color: color-mix(in srgb, #10b981 26%, transparent);
+}
+
+.dark .wardrobe-page-neu .wardrobe-clothes-status-badge--emerald {
+  color: rgb(167 243 208);
+  background: color-mix(in srgb, #059669 28%, rgba(44, 46, 54, 0.82));
+  border-color: color-mix(in srgb, #10b981 32%, transparent);
+}
+
+.wardrobe-page-neu .wardrobe-clothes-fav-badge {
+  padding: 0.16rem 0.38rem;
+  border-radius: 9999px;
+  background: color-mix(in srgb, #f59e0b 14%, rgba(255, 255, 255, 0.78));
+  border: 1px solid color-mix(in srgb, #f59e0b 28%, transparent);
+  backdrop-filter: blur(8px) saturate(1.08);
+  -webkit-backdrop-filter: blur(8px) saturate(1.08);
+  box-shadow:
+    2px 2px 6px rgba(0, 0, 0, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.45);
+  cursor: pointer;
+  transition: transform 0.16s ease, box-shadow 0.18s ease;
+}
+
+.dark .wardrobe-page-neu .wardrobe-clothes-fav-badge {
+  background: color-mix(in srgb, #d97706 26%, rgba(44, 46, 54, 0.82));
+  border-color: color-mix(in srgb, #f59e0b 34%, transparent);
+}
+
+.wardrobe-page-neu .group:hover .wardrobe-clothes-fav-badge {
+  transform: scale(1.04);
+  box-shadow:
+    3px 3px 8px rgba(0, 0, 0, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.5);
+}
+
+.wardrobe-page-neu .wardrobe-clothes-fav-badge__num {
+  font-size: 0.625rem;
+  font-weight: 700;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  color: rgb(180 83 9);
+}
+
+.dark .wardrobe-page-neu .wardrobe-clothes-fav-badge__num {
+  color: rgb(252 211 77);
+}
+
+.wardrobe-page-neu .wardrobe-clothes-fav-badge__star {
+  width: 0.625rem;
+  height: 0.625rem;
+  flex-shrink: 0;
+  color: rgb(217 119 6);
+  filter: drop-shadow(0 1px 0 rgba(255, 255, 255, 0.55));
+}
+
+@media (max-width: 767px) {
+  .wardrobe-page-neu .wardrobe-clothes-fav-badge__num {
+    font-size: 0.5625rem;
+  }
+
+  .wardrobe-page-neu .wardrobe-clothes-fav-badge__star {
+    width: 0.5625rem;
+    height: 0.5625rem;
+  }
+
+  .wardrobe-page-neu .wardrobe-clothes-status-badge {
+    font-size: 0.5625rem;
+    padding: 0.14rem 0.38rem;
+  }
+
+  .wardrobe-page-neu .wardrobe-clothes-fav-badge {
+    padding: 0.12rem 0.32rem;
+  }
+}
+
+.dark .wardrobe-page-neu .wardrobe-clothes-fav-badge__star {
+  color: rgb(252 211 77);
+  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.35));
+}
+
+.wardrobe-perf-lite .group:hover .wardrobe-clothes-fav-badge {
+  transform: none;
 }
 
 /* 多选方块：凸起 / 选中略压实 */

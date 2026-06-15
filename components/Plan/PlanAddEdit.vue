@@ -67,6 +67,24 @@ const selectedLinkedClothes = ref<WardrobeClothes | null>(null)
 
 const getImageParams = () => configStore.config?.image_params || ''
 
+const coverPreviewUrl = computed(() => {
+  const preview = imagePickerRef.value?.previewImages?.[0]?.url?.trim()
+  if (preview) return preview
+  const cover = form.value.plan_cover
+  if (cover) return `${BASE_IMG}${cover}${getImageParams()}`
+  return ''
+})
+
+const openCoverPicker = () => {
+  imagePickerRef.value?.triggerInput()
+}
+
+const clearCover = (e: MouseEvent) => {
+  e.stopPropagation()
+  imagePickerRef.value?.clear()
+  form.value.plan_cover = ''
+}
+
 const syncLinkedClothesFromPlan = () => {
   const p = props.planList
   if (!p) {
@@ -424,12 +442,41 @@ defineExpose({
       <!-- 内容区域 -->
       <div class="flex-1 min-h-0 overflow-y-auto overscroll-contain p-4 space-y-3">
         <UFormGroup label="计划名称" class="mb-0">
-          <UInput
-            v-model="form.plan_name"
-            placeholder="计划名称"
-            size="sm"
-            :ui="{ base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary' }"
-          />
+          <div class="flex items-center gap-2">
+            <button
+              type="button"
+              class="group relative w-10 h-10 flex-shrink-0 rounded-lg border border-dashed border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-700/50 overflow-hidden transition-colors hover:border-qhx-primary/50 hover:bg-qhx-primary/5"
+              aria-label="选择计划封面"
+              title="添加封面"
+              @click="openCoverPicker"
+            >
+              <img
+                v-if="coverPreviewUrl"
+                :src="coverPreviewUrl"
+                alt="计划封面"
+                class="w-full h-full object-cover"
+              />
+              <div v-else class="w-full h-full flex items-center justify-center text-gray-400 dark:text-gray-500">
+                <UIcon name="i-heroicons-photo" class="w-5 h-5" />
+              </div>
+              <button
+                v-if="coverPreviewUrl"
+                type="button"
+                class="absolute top-0 right-0 z-10 w-4 h-4 flex items-center justify-center rounded-bl bg-black/55 text-white opacity-0 group-hover:opacity-100 transition-opacity"
+                aria-label="清除封面"
+                @click="clearCover"
+              >
+                <UIcon name="i-heroicons-x-mark" class="w-3 h-3" />
+              </button>
+            </button>
+            <UInput
+              v-model="form.plan_name"
+              placeholder="计划名称"
+              size="sm"
+              class="flex-1 min-w-0"
+              :ui="{ base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary' }"
+            />
+          </div>
         </UFormGroup>
 
         <!-- 母计划：金额 + 尾款时间同行（与定尾阶段一致） -->
@@ -458,15 +505,6 @@ defineExpose({
             :ui="{ base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary' }"
           />
         </UFormGroup>
-
-        <!-- 封面（暂时隐藏，保留逻辑） -->
-        <div v-show="false" aria-hidden="true">
-          <UFormGroup label="计划封面" class="mb-0">
-            <div class="rounded-lg overflow-hidden bg-gray-50 dark:bg-gray-700/30 border border-gray-200/60 dark:border-gray-600/60">
-              <QhxImagePicker :multiple="false" @update:files="onUpdateFiles" ref="imagePickerRef" />
-            </div>
-          </UFormGroup>
-        </div>
 
         <!-- 关联服饰 -->
         <UFormGroup v-if="enableLinkClothes" label="关联服饰" class="mb-0">
@@ -568,6 +606,12 @@ defineExpose({
       </div>
     </div>
   </QhxModal>
+  <QhxImagePicker
+    ref="imagePickerRef"
+    class="hidden"
+    :multiple="false"
+    @update:files="onUpdateFiles"
+  />
   <WardrobeClothesChoose ref="wardrobeClothesChooseRef" @choose="onClothesChosen" />
 </template>
 

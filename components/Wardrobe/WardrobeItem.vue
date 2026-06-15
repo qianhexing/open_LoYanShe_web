@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { Wardrobe } from '@/types/api';
-let uni: any;
+import { openWardrobeDetail } from '@/composables/useLibraryDetailNavigation'
+
 interface Props {
   item: Wardrobe,
   className?: string,
@@ -8,8 +9,6 @@ interface Props {
   needJump?: boolean // 是否需要跳转
 }
 const emit = defineEmits(['imageLoad'])
-const configStore = useConfigStore()
-const config = computed(() => configStore.config)
 const props = withDefaults(defineProps<Props>(), {
   size: 'big',
   needJump: true
@@ -21,32 +20,12 @@ const item = props.item
 const imageLoad = () => {
   emit('imageLoad')
 }
-onMounted(async () => {
-  uni = await import('@dcloudio/uni-webview-js').catch((err) => {
-    console.error('Failed to load uni-webview-js:', err);
-  });
-})
 const handleJump = (item: Wardrobe) => {
-  if (!needJump) {
-    return
-  }
-  const isInUniApp =
-		typeof window !== 'undefined' &&
-		navigator.userAgent.includes('Html5Plus');
-	if (!item.wardrobe_id) return
-	if (isInUniApp && typeof uni !== 'undefined' && uni.navigateTo) {
-		// UniApp WebView 环境
-		uni.navigateTo({
-			url: `/pages/wardrobe/wardrobe?user_id=${item.user_id}&wardrobe_id=${item.wardrobe_id}`,
-			fail: () => {
-				console.log('跳转错误')
-			}
-		});
-	} else {
-		// 普通网页环境
-    window.open(`/wardrobe/detail/${item.user_id}?wardrobe_id=${item.wardrobe_id}`, '_blank')
-	}
-  
+  if (!needJump || !item.wardrobe_id || !item.user_id) return
+  openWardrobeDetail({
+    userId: item.user_id,
+    wardrobeId: item.wardrobe_id,
+  })
 }
 </script>
 <template>

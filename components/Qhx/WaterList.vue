@@ -1,13 +1,15 @@
 <script setup lang="ts">
-import { ref, watch, watchEffect, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, watch, watchEffect, onMounted, onUnmounted, nextTick, computed } from 'vue'
 import { debounce } from '@/utils/public'
 
 interface Props<T> {
-  // 获取数据的方法
-  fetchData: (page: number, pageSize: number) => Promise<{
+  // 获取数据的方法（与 items 二选一；传入 items 时仅负责瀑布流布局）
+  fetchData?: (page: number, pageSize: number) => Promise<{
     rows: T[]
     count: number
   }>
+  /** 外部数据源：传入后不再内部请求，由父组件维护列表与分页 */
+  items?: T[]
   // 列数
   columns?: number
   columns_768?: number
@@ -31,8 +33,11 @@ const props = withDefaults(defineProps<Props<any>>(), {
   enableLoadMore: true,
   scrollDistance: 300,
   className: '',
-  itemKey: 0
+  itemKey: 0,
+  items: undefined,
 })
+
+const useExternalItems = computed(() => props.items !== undefined)
 
 const emit = defineEmits(['loading', 'loaded', 'error'])
 
@@ -48,6 +53,7 @@ const column = ref(props.columns)
 
 // 获取数据
 const loadData = async (initPage: number | undefined = undefined, initPageSize: number | undefined = undefined) => {
+  if (useExternalItems.value || !props.fetchData) return
   if (isLoading.value || isFinished.value) return
   
   isLoading.value = true
@@ -76,13 +82,18 @@ const loadData = async (initPage: number | undefined = undefined, initPageSize: 
 }
 
 // 瀑布流布局函数
+const containerRef = ref<HTMLElement | null>(null)
+
+const getWaterfallItemSelector = () =>
+  `.waterfall-item${props.itemKey === 0 ? '' : props.itemKey}`
+
 const applyWaterfallLayout = () => {
   if (!props.enableWaterfall) return
-  
-  const container = document.querySelector(`.waterfall-container${props.itemKey === 0 ? '' : props.itemKey}`)
+
+  const container = containerRef.value
   if (!container) return
-  
-  const items = container.querySelectorAll(`.waterfall-item${props.itemKey === 0 ? '' : props.itemKey}`)
+
+  const items = container.querySelectorAll(getWaterfallItemSelector())
   
   // 空数据时也要触发布局计算，重置容器高度
   if (items.length === 0) {
@@ -171,14 +182,76 @@ const updateColumns = () => {
 
 const debouncedApplyLayout = debounce(applyWaterfallLayout, 300)
 
+/** 等待 DOM 绘制后再布局；外部数据源首屏数据常晚于组件 mount */
+let layoutRetryTimer: ReturnType<typeof setTimeout> | null = null
+const scheduleApplyLayout = () => {
+  if (!process.client || !props.enableWaterfall) return
+  if (layoutRetryTimer) {
+    clearTimeout(layoutRetryTimer)
+    layoutRetryTimer = null
+  }
+  nextTick(() => {
+    requestAnimationFrame(() => {
+      applyWaterfallLayout()
+      requestAnimationFrame(() => {
+        applyWaterfallLayout()
+      })
+    })
+  })
+  // 图片 lazy-load / 异步渲染兜底：首进页面时 nextTick 仍可能拿不到真实高度
+  layoutRetryTimer = setTimeout(() => {
+    layoutRetryTimer = null
+    applyWaterfallLayout()
+  }, 120)
+  setTimeout(() => applyWaterfallLayout(), 400)
+}
+
+let itemResizeObserver: ResizeObserver | null = null
+
+function bindItemResizeObserver() {
+  if (!process.client || !useExternalItems.value || !props.enableWaterfall) return
+  itemResizeObserver?.disconnect()
+  const container = containerRef.value
+  if (!container || typeof ResizeObserver === 'undefined') return
+  itemResizeObserver = new ResizeObserver(() => {
+    debouncedApplyLayout()
+  })
+  for (const node of container.querySelectorAll(getWaterfallItemSelector())) {
+    itemResizeObserver.observe(node)
+  }
+}
+
+function syncExternalItems(items: typeof props.items) {
+  if (!useExternalItems.value) return
+  list.value = items ?? []
+  if (process.client && props.enableWaterfall) {
+    scheduleApplyLayout()
+    nextTick(() => bindItemResizeObserver())
+  }
+}
+
+watch(
+  () => props.items,
+  (newItems) => {
+    syncExternalItems(newItems)
+  },
+  { deep: true, immediate: true },
+)
+
 // 初始化
 onMounted(() => {
   updateColumns()
   if (process.client) {
     window.addEventListener('resize', updateColumns)
-    window.addEventListener('scroll', handleScroll)
+    if (!useExternalItems.value) {
+      window.addEventListener('scroll', handleScroll)
+    }
   }
-  loadData()
+  if (useExternalItems.value) {
+    syncExternalItems(props.items)
+  } else {
+    loadData()
+  }
 })
 
 // 清理
@@ -187,6 +260,12 @@ onUnmounted(() => {
     window.removeEventListener('resize', updateColumns)
     window.removeEventListener('scroll', handleScroll)
   }
+  if (layoutRetryTimer) {
+    clearTimeout(layoutRetryTimer)
+    layoutRetryTimer = null
+  }
+  itemResizeObserver?.disconnect()
+  itemResizeObserver = null
 })
 
 // 更新单个 item
@@ -213,6 +292,8 @@ defineExpose({
   refresh,
   loadMore,
   total,
+  applyWaterfallLayout,
+  scheduleApplyLayout,
   debouncedApplyLayout,
   updateItem,
   list
@@ -222,11 +303,15 @@ defineExpose({
 <template>
   <div :class="['waterfall-wrapper', className]">
     <!-- 瀑布流容器 -->
-    <div class="waterfall-default-container relative w-full" :class="`waterfall-container${props.itemKey === 0 ? '' : props.itemKey}`">
+    <div
+      ref="containerRef"
+      class="waterfall-default-container relative w-full"
+      :class="`waterfall-container${props.itemKey === 0 ? '' : props.itemKey}`"
+    >
       <!-- 每个项目 -->
       <div 
         v-for="(item, index) in list" 
-        :key="index" 
+        :key="(item as Record<string, unknown>)?.clothes_id ?? (item as Record<string, unknown>)?.library_id ?? index" 
         class="waterfall-default-item"
         :class="`waterfall-item${props.itemKey === 0 ? '' : props.itemKey}`"
         :style="`width: calc(100% / ${column})`"
@@ -236,18 +321,18 @@ defineExpose({
       </div>
     </div>
     
-    <!-- 加载状态 -->
-    <div v-if="isLoading" class="loading-indicator">
+    <!-- 加载状态（外部数据源由父组件自行展示） -->
+    <div v-if="!useExternalItems && isLoading" class="loading-indicator">
       <slot name="loading">加载中...</slot>
     </div>
     
     <!-- 无数据状态 -->
-    <div v-if="!isLoading && list.length === 0" class="empty-state">
+    <div v-if="!useExternalItems && !isLoading && list.length === 0" class="empty-state">
       <slot name="empty">暂无数据</slot>
     </div>
     
     <!-- 全部加载完成 -->
-    <div v-if="isFinished && list.length > 0" class="finished-indicator">
+    <div v-if="!useExternalItems && isFinished && list.length > 0" class="finished-indicator">
       <slot name="finished">没有更多了</slot>
     </div>
   </div>

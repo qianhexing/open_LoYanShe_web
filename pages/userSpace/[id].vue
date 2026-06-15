@@ -33,11 +33,11 @@
           <!-- ===== Hero 个人信息卡 ===== -->
           <section
             ref="heroRef"
-            class="hero-card relative rounded-3xl overflow-hidden shadow-xl border border-white/60 dark:border-gray-700/70 bg-white/55 dark:bg-gray-800/55 backdrop-blur-xl"
+            class="hero-card relative rounded-3xl overflow-visible shadow-xl border border-white/60 dark:border-gray-700/70 bg-white/55 dark:bg-gray-800/55 backdrop-blur-xl"
           >
             <!-- 顶部 Banner：有徽章时展示徽章物理动画，否则渐变装饰 -->
             <div
-              class="hero-banner relative w-full overflow-hidden"
+              class="hero-banner relative w-full overflow-hidden rounded-t-3xl"
               :class="hasDisplayBadges ? 'h-[120px] md:h-[150px]' : 'h-[96px] md:h-[120px]'"
             >
               <template v-if="hasDisplayBadges">
@@ -78,13 +78,13 @@
             <div class="relative px-4 md:px-7 pb-5">
               <!-- 头像（叠在 banner 上） -->
               <div class="flex items-end justify-between gap-3 -mt-10 md:-mt-12 mb-3">
-                <div class="hero-avatar relative flex-shrink-0">
-                  <div class="w-20 h-20 md:w-24 md:h-24 rounded-full ring-4 ring-white dark:ring-gray-800 shadow-lg bg-white dark:bg-gray-800 overflow-hidden flex items-center justify-center">
+                <div class="hero-avatar relative z-10 flex-shrink-0">
+                  <div class="hero-avatar__shell relative flex items-center justify-center">
                     <UserFace :user="userInfo" size="mini" class="scale-[2] md:scale-[2.4]" />
                   </div>
                   <span
                     v-if="userInfo.level"
-                    class="absolute -bottom-1 -right-1 z-10 px-2 py-0.5 rounded-full text-[10px] font-bold text-white bg-gradient-to-r from-pink-500 to-purple-500 shadow"
+                    class="absolute -bottom-1 -right-1 z-20 px-2 py-0.5 rounded-full text-[10px] font-bold text-white bg-gradient-to-r from-pink-500 to-purple-500 shadow"
                   >
                     Lv.{{ userInfo.level }}
                   </span>
@@ -198,6 +198,15 @@
                   >
                     <UIcon name="i-heroicons-arrows-right-left-20-solid" class="w-5 h-5 text-pink-500 dark:text-pink-300 flex-shrink-0" />
                     <span class="text-sm font-medium text-pink-600 dark:text-pink-300 whitespace-nowrap">衣柜对比</span>
+                  </button>
+                  <button
+                    v-if="spaceUserId && spaceSenceId"
+                    type="button"
+                    class="hero-action-bar__item hero-action-bar__action flex-shrink-0 inline-flex items-center gap-2 rounded-2xl py-2 px-4 border border-pink-200/70 dark:border-pink-700/50 bg-gradient-to-br from-pink-50/90 to-purple-50/90 dark:from-pink-900/35 dark:to-purple-900/35 hover:from-pink-100 dark:hover:from-pink-900/50 hover:to-purple-100 dark:hover:to-purple-900/50 transition-colors active:scale-[0.98]"
+                    @click="visitUserNest"
+                  >
+                    <UIcon name="i-heroicons-home-modern" class="w-5 h-5 text-pink-500 dark:text-pink-300 flex-shrink-0" />
+                    <span class="text-sm font-medium text-pink-600 dark:text-pink-300 whitespace-nowrap">参观小窝</span>
                   </button>
                 </div>
               </div>
@@ -672,6 +681,8 @@
         </button>
       </div>
     </QhxModal>
+
+    <SceneChoose ref="sceneChooseRef" @choose="onNestSceneChosen" />
   </div>
 </template>
 
@@ -682,6 +693,7 @@ import {
   getUserDecoBadges,
   getUserCareerStats,
   adminUpgradeUserFormalResident,
+  changeUserInfo,
   type UserDecoBadgeItem,
   type UserCareerStats,
 } from '@/api/user'
@@ -696,9 +708,15 @@ import SafeRichText from '@/components/SafeRichText.vue'
 import QhxModal from '@/components/Qhx/Modal.vue'
 import { BASE_IMG } from '@/utils/ipConfig'
 import { useUserStore } from '@/stores/user'
-import type { User, Community, UserDeco, Wardrobe, Album } from '@/types/api'
+import type { User, Community, UserDeco, Wardrobe, Album, Scene } from '@/types/api'
 import WardrobeItem from '@/components/Wardrobe/WardrobeItem.vue'
 import UserCollectBtn from '@/components/user/CollectBtn.vue'
+import SceneChoose from '@/components/scene/SceneChoose.vue'
+import {
+  openAlbumDetail,
+  openLibraryWebPath,
+  openWardrobeDetail,
+} from '@/composables/useLibraryDetailNavigation'
 
 /** 收藏/关注用户：与后端 collect 表 pk_type 约定为 0 */
 const PK_TYPE_USER_COLLECT = 0
@@ -769,7 +787,13 @@ const userInfo = ref<(User & {
   is_achieve?: number | boolean
   collect_count?: number
   is_collect?: number | boolean
+  sence_id?: number
 }) | null>(null)
+
+const spaceSenceId = computed(() => {
+  const sid = userInfo.value?.sence_id
+  return sid != null && sid > 0 ? sid : null
+})
 
 // 个人签名富文本节点
 const signatureNodes = computed(() => {
@@ -879,6 +903,14 @@ const userSpaceMoreMenuItems = computed((): UserSpaceMoreMenuItem[] => {
       icon: 'i-heroicons-pencil-square',
       iconBgClass: 'from-amber-500 to-orange-500',
       run: () => handleEdit(),
+    })
+    items.push({
+      key: 'setNest',
+      label: '设置小窝',
+      desc: spaceSenceId.value ? '更换个人空间展示场景' : '选择场景作为个人小窝',
+      icon: 'i-heroicons-home-modern',
+      iconBgClass: 'from-rose-500 to-pink-500',
+      run: (e) => openNestSceneChoose(e),
     })
   }
 
@@ -998,9 +1030,10 @@ const confirmWardrobePassword = async () => {
     if (ok) {
       showWardrobePasswordModal.value = false
       onWardrobePasswordModalClose()
-      router.push({
-        path: `/wardrobe/detail/${w.user_id}`,
-        query: { wardrobe_id: String(w.wardrobe_id), password: pwd },
+      openWardrobeDetail({
+        userId: w.user_id,
+        wardrobeId: w.wardrobe_id,
+        password: pwd,
       })
     } else {
       toast.add({
@@ -1191,13 +1224,11 @@ const loadMoreAchieveAlbums = async () => {
 }
 
 const goUserSpaceAlbumDetail = (album: Album) => {
-  const uid = spaceUserId.value
   if (!album.album_id) return
-  if (uid) {
-    router.push({ path: `/album/detail/${album.album_id}`, query: { user_id: String(uid) } })
-  } else {
-    router.push(`/album/detail/${album.album_id}`)
-  }
+  openAlbumDetail({
+    albumId: album.album_id,
+    userId: spaceUserId.value ?? undefined,
+  })
 }
 
 // 加载帖子列表
@@ -1315,6 +1346,66 @@ const openWardrobeCompareModal = () => {
   showWardrobeCompareModal.value = true
 }
 
+const sceneChooseRef = ref<InstanceType<typeof SceneChoose> | null>(null)
+const nestSceneChoosePosition = ref({ x: 0, y: 0 })
+const nestSceneUpdating = ref(false)
+
+const openNestSceneChoose = (e?: MouseEvent) => {
+  if (typeof window !== 'undefined' && e) {
+    nestSceneChoosePosition.value = { x: e.clientX, y: e.clientY }
+  } else if (typeof window !== 'undefined') {
+    nestSceneChoosePosition.value = {
+      x: window.innerWidth / 2,
+      y: window.innerHeight / 2,
+    }
+  }
+  nextTick(() => {
+    sceneChooseRef.value?.showModel(
+      e ??
+        ({
+          clientX: nestSceneChoosePosition.value.x,
+          clientY: nestSceneChoosePosition.value.y,
+        } as MouseEvent),
+    )
+  })
+}
+
+const onNestSceneChosen = async (list: Scene[]) => {
+  const selected = list[0]
+  if (!selected?.sence_id || nestSceneUpdating.value) return
+  nestSceneUpdating.value = true
+  try {
+    await changeUserInfo({ sence_id: selected.sence_id })
+    if (userInfo.value) {
+      userInfo.value = { ...userInfo.value, sence_id: selected.sence_id }
+    }
+    if (isCurrentUser.value) {
+      await userStore.fetchUserInfo()
+    }
+    toast.add({
+      title: '小窝设置成功',
+      icon: 'i-heroicons-check-circle',
+      color: 'green',
+    })
+  } catch (error) {
+    console.error('设置小窝失败:', error)
+    toast.add({
+      title: '设置小窝失败',
+      description: getErrorMessage(error),
+      icon: 'i-heroicons-x-circle',
+      color: 'red',
+    })
+  } finally {
+    nestSceneUpdating.value = false
+  }
+}
+
+const visitUserNest = () => {
+  const sid = spaceSenceId.value
+  if (!sid) return
+  openLibraryWebPath(`/scene/detail/${sid}`)
+}
+
 const openCareerStatsModal = async () => {
   const uid = spaceUserId.value
   if (!uid) return
@@ -1363,6 +1454,14 @@ const careerStatGroups = computed(() => {
         { key: 'achievement', label: '已达成成就', display: formatCareerNumber(s.achievement_count) },
       ] as CareerStatItem[],
     },
+    {
+      title: '图鉴贡献',
+      icon: '📚',
+      items: [
+        { key: 'library_contribute', label: '贡献图鉴', display: formatCareerNumber(s.library_contribute_count) },
+        { key: 'library_correction', label: '纠错图鉴', display: formatCareerNumber(s.library_correction_count) },
+      ] as CareerStatItem[],
+    },
   ]
 })
 
@@ -1383,19 +1482,40 @@ const careerSharePayload = computed((): CareerSharePayload | null => {
     userFace: info?.user_face || 'static/plan_cover/default.jpg',
     avatarFrame: info?.avatar?.avatar_frame,
     userId: spaceUserId.value ?? undefined,
+    level: info?.level,
     tags: (info?.main_style || []).map(getStyleLabel).filter(Boolean),
     location,
     daysInLolita: s.days_in_lolita ?? 0,
     totalSpending: formatCareerMoney(s.total_spending),
     achievementProgress: Math.min(100, s.achievement_progress ?? 0),
     achievementSummary: `${s.achievement_count}/${s.achievement_total} · ${formatCareerNumber(s.achievement_points)} 点`,
-    metrics: [
-      { label: '衣柜', value: formatCareerNumber(s.wardrobe_count), emoji: '👗' },
-      { label: '服饰', value: formatCareerNumber(s.clothes_count), emoji: '🎀' },
-      { label: '穿着', value: formatCareerNumber(s.total_wear_times), emoji: '💫' },
-      { label: '发帖', value: formatCareerNumber(s.community_count), emoji: '📝' },
-      { label: '手账', value: formatCareerNumber(s.journal_count), emoji: '📔' },
-      { label: '搭配', value: formatCareerNumber(s.matching_count), emoji: '✨' },
+    metricGroups: [
+      {
+        title: '收藏与生活',
+        icon: '👗',
+        items: [
+          { label: '衣柜', value: formatCareerNumber(s.wardrobe_count), emoji: '👗' },
+          { label: '服饰', value: formatCareerNumber(s.clothes_count), emoji: '🎀' },
+          { label: '穿着', value: formatCareerNumber(s.total_wear_times), emoji: '💫' },
+        ],
+      },
+      {
+        title: '创作与分享',
+        icon: '✨',
+        items: [
+          { label: '发帖', value: formatCareerNumber(s.community_count), emoji: '📝' },
+          { label: '手账', value: formatCareerNumber(s.journal_count), emoji: '📔' },
+          { label: '搭配', value: formatCareerNumber(s.matching_count), emoji: '✨' },
+        ],
+      },
+      {
+        title: '图鉴贡献',
+        icon: '📚',
+        items: [
+          { label: '贡献图鉴', value: formatCareerNumber(s.library_contribute_count), emoji: '📚' },
+          { label: '纠错图鉴', value: formatCareerNumber(s.library_correction_count), emoji: '🔧' },
+        ],
+      },
     ],
   }
 })
@@ -1605,6 +1725,39 @@ useHead({
   isolation: isolate;
 }
 
+.hero-avatar__shell {
+  width: 5rem;
+  height: 5rem;
+  overflow: visible;
+}
+
+@media (min-width: 768px) {
+  .hero-avatar__shell {
+    width: 6rem;
+    height: 6rem;
+  }
+}
+
+.hero-avatar__shell::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  box-shadow:
+    0 0 0 4px rgba(255, 255, 255, 1),
+    0 10px 15px -3px rgba(0, 0, 0, 0.1),
+    0 4px 6px -4px rgba(0, 0, 0, 0.1);
+  pointer-events: none;
+  z-index: 1;
+}
+
+.dark .hero-avatar__shell::after {
+  box-shadow:
+    0 0 0 4px rgb(31 41 55),
+    0 10px 15px -3px rgba(0, 0, 0, 0.35),
+    0 4px 6px -4px rgba(0, 0, 0, 0.25);
+}
+
 /* 徽章 banner 背景：与卡片主题统一 */
 .hero-banner-bg {
   background: linear-gradient(180deg, rgba(255, 248, 248, 0.95) 0%, rgba(254, 242, 242, 0.85) 50%, rgba(255, 250, 250, 0.95) 100%);
@@ -1682,27 +1835,37 @@ useHead({
 
 .career-stats-intro__avatar-wrap {
   position: relative;
-  width: 4.25rem;
-  height: 4.25rem;
+  width: 4.75rem;
+  height: 4.75rem;
+  overflow: visible;
 }
 
 .career-stats-intro__avatar-inner {
+  position: relative;
   width: 100%;
   height: 100%;
   display: flex;
   align-items: center;
   justify-content: center;
-  overflow: hidden;
+  overflow: visible;
   border-radius: 999px;
-  background: #fff;
+  background: transparent;
+}
+
+.career-stats-intro__avatar-inner::after {
+  content: '';
+  position: absolute;
+  inset: 0.35rem;
+  border-radius: 999px;
   box-shadow:
     0 0 0 3px rgba(255, 255, 255, 0.95),
     0 0 0 5px rgba(236, 72, 153, 0.28),
     0 8px 20px rgba(236, 72, 153, 0.18);
+  pointer-events: none;
+  z-index: 1;
 }
 
-.dark .career-stats-intro__avatar-inner {
-  background: rgb(31 41 55);
+.dark .career-stats-intro__avatar-inner::after {
   box-shadow:
     0 0 0 3px rgba(31, 41, 55, 0.95),
     0 0 0 5px rgba(244, 114, 182, 0.22),

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { Library, LibrarySimilarItem, PaginationResponse, Shop, LibraryVideo, LibraryPipe, Community, User, Compilations, SenceForeign } from '@/types/api';
+import type { Library, LibrarySimilarItem, PaginationResponse, Shop, LibraryVideo, LibraryPipe, Community, User, Compilations, SenceForeign, Comment } from '@/types/api';
 import { getLibraryDetail, getLibraryList, getLibraryVideo, getLibraryPipeListAll, getLibrarySimilar, updateStateMultiple, updatePatternElementsMultiple } from '@/api/library'
 import html2canvas from 'html2canvas';
 import QhxTag from '~/components/Qhx/Tag.vue';
@@ -28,11 +28,20 @@ import {
   starFillRatio
 } from '@/utils/libraryScore'
 import type { CommunityPostForeignContext } from '@/utils/communityPost'
-import { openLibraryWebPath } from '@/composables/useLibraryDetailNavigation'
+import { isHtml5PlusWebview, openLibraryWebPath, openLibraryDetailTab, libraryDetailPageHref } from '@/composables/useLibraryDetailNavigation'
 import { BASE_IMG } from '@/utils/ipConfig'
-import { getSenceForeignList } from '@/api/scene'
+import { deleteSenceForeign, getSenceForeignList, getSceneId, insertScene } from '@/api/scene'
+import type { SceneJSON } from '@/utils/threeCore'
+import { getCommentList } from '@/api/comment'
+import {
+  communityCommentSectionRefreshKey,
+  type CommentOpenReplyPayload,
+  type RefreshCommentRepliesFn,
+} from '@/composables/communityCommentSection'
+import { useCommentUiStore } from '@/stores/commentUi'
 const user = useUserStore()
 const config = useConfigStore()
+const isMobile = computed(() => config.isMobile)
 const route = useRoute()
 const toast = useToast()
 
@@ -182,12 +191,120 @@ const libraryReturnForeignPk = computed((): CommunityPostForeignContext | null =
 
 const libraryReturnTabCount = ref<number | undefined>(undefined)
 const libraryEventTabCount = ref<number | undefined>(undefined)
+const libraryCommentTabCount = ref<number | undefined>(undefined)
+
+/** 地址栏 `?comment_id=`：定位该条主楼评论 */
+const focusCommentId = computed(() => {
+  const raw = route.query.comment_id
+  if (raw == null) return undefined
+  const s = Array.isArray(raw) ? raw[0] : raw
+  const n = Number.parseInt(String(s), 10)
+  return Number.isFinite(n) && n > 0 ? n : undefined
+})
+
+const { data: commentCountData, refresh: refreshCommentCount } = await useAsyncData(
+  `library-detail-comment-count-${id}`,
+  () => getCommentList({ type: 'library', id: Number.parseInt(id, 10), page: 1, pageSize: 1 })
+)
+
+const commentTotal = computed(() => commentCountData.value?.count ?? 0)
 
 const libraryDetailTabCounts = computed(() => [
   libraryReturnTabCount.value,
   library_pipe.value.length > 0 ? library_pipe.value.length : undefined,
-  libraryEventTabCount.value
+  libraryEventTabCount.value,
+  libraryCommentTabCount.value ?? commentTotal.value,
 ])
+
+const showCommentModal = ref(false)
+const commentModalRef = ref<{
+  showModel: (e: {
+    id: number | string
+    type: string
+    reply_to?: number
+    reply_to_name?: string
+    reply_to_user?: User
+    threadRootCommentId?: number
+  }) => void
+} | null>(null)
+const commentSectionKey = ref(0)
+const commentSectionRefreshFn = shallowRef<RefreshCommentRepliesFn | null>(null)
+provide(communityCommentSectionRefreshKey, commentSectionRefreshFn)
+const commentUiStore = useCommentUiStore()
+
+const openCommentComposer = () => {
+  if (!user.token) {
+    toast.add({
+      title: '请先登录',
+      icon: 'i-heroicons-exclamation-circle',
+      color: 'red',
+    })
+    return
+  }
+  const lid = library.value?.library_id
+  if (lid == null) return
+  showCommentModal.value = true
+  nextTick(() => {
+    commentModalRef.value?.showModel({
+      id: lid,
+      type: 'library',
+    })
+  })
+}
+
+const openReplyComposer = (payload: CommentOpenReplyPayload) => {
+  if (!user.token) {
+    toast.add({
+      title: '请先登录',
+      icon: 'i-heroicons-exclamation-circle',
+      color: 'red',
+    })
+    return
+  }
+  const { comment, threadRootCommentId, subReply } = payload
+  showCommentModal.value = true
+  nextTick(() => {
+    commentModalRef.value?.showModel({
+      id: comment.comment_id,
+      type: 'reply',
+      reply_to: subReply?.reply_to,
+      reply_to_user: subReply?.replyToUser,
+      reply_to_name:
+        subReply?.replyToUser?.user_name ?? comment.user?.user_name ?? '',
+      threadRootCommentId,
+    })
+  })
+}
+
+const onCommentSuccess = async (
+  comment: Comment,
+  meta?: { parentCommentId: number }
+) => {
+  await refreshCommentCount()
+  commentUiStore.flashNewCommentHighlight(comment.comment_id)
+  if (meta?.parentCommentId != null) {
+    await nextTick()
+    commentSectionRefreshFn.value?.(meta.parentCommentId)
+  } else {
+    commentSectionKey.value += 1
+  }
+}
+
+const onCommentTotalChange = (count: number) => {
+  libraryCommentTabCount.value = count
+}
+
+const libraryCommentMyAvatar = computed(() => {
+  const face = user.user?.user_face
+  if (!face) {
+    return `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.user?.user_name || 'guest'}`
+  }
+  const trimmed = face.trim()
+  if (/^https?:\/\//i.test(trimmed) || trimmed.startsWith('//')) {
+    return trimmed
+  }
+  return `${BASE_IMG}${trimmed.replace(/^\//, '')}`
+})
 
 async function prefetchLibraryTabCounts() {
   const lid = library.value?.library_id
@@ -333,9 +450,48 @@ const fetchLibraryVideo = () => {
 }
 
 // 处理人台图点击事件
+function jumpToHumanPlatform(item: LibraryVideo) {
+  const vid = item.video_id
+  if (vid == null) return
+  const lid = library.value?.library_id
+  const path =
+    lid != null
+      ? `/humanPlatform/${vid}?library_id=${lid}`
+      : `/humanPlatform/${vid}`
+  const fullUrl = `https://lolitalibrary.com${path}`
+
+  if (isHtml5PlusWebview() && typeof uni !== 'undefined' && uni?.navigateTo) {
+    uni.navigateTo({
+      url: `/pages/common/outerLink2?fullScreen=true&url=${fullUrl}`,
+      fail: () => {
+        console.log('跳转人台图失败')
+      }
+    })
+    return
+  }
+
+  const p = config.getPort()
+  if (p) {
+    p.postMessage(
+      JSON.stringify({
+        type: 'jump',
+        path: 'Outlink',
+        params: { url: fullUrl }
+      })
+    )
+    return
+  }
+
+  navigateTo(path)
+}
+
 const handleVideoClick = (item: LibraryVideo) => {
-  // 如果是点云类型 (pk_type === 2)，打开点云弹窗
+  // 点云类型：手机端跳转人台图页，桌面端弹窗查看
   if (item.pk_type === 2 && item.addr) {
+    if (isMobile.value) {
+      jumpToHumanPlatform(item)
+      return
+    }
     const modelUrls = item.addr.split(',').filter(url => url.trim())
     const modelList = modelUrls.map((url, index) => ({
       url: url.trim(),
@@ -416,6 +572,161 @@ function loadMoreSenceForeign() {
   senceForeignPage.value += 1
   void fetchSenceForeignList()
 }
+
+const cloneSceneLoading = ref(false)
+const showCloneSceneConfirm = ref(false)
+const cloneTargetSceneId = ref<number | null>(null)
+const cloneTargetSceneName = ref('')
+
+const deleteSenceForeignLoading = ref(false)
+const showDeleteSenceForeignConfirm = ref(false)
+const deleteSenceForeignTarget = ref<SenceForeign | null>(null)
+
+function isSenceForeignSceneOwner(item: SenceForeign) {
+  const myId = user.user?.user_id
+  if (myId == null) return false
+  return item.user_id === myId
+}
+
+function jumpToSceneEdit(senceId: number) {
+  const sceneUrl = `/scene/detail/${senceId}?edit=1`
+  const fullUrl = `https://lolitalibrary.com${sceneUrl}`
+
+  if (isHtml5PlusWebview() && typeof uni !== 'undefined' && uni?.navigateTo) {
+    uni.navigateTo({
+      url: `/pages/common/outerLink2?fullScreen=true&url=${fullUrl}`,
+      fail: () => {
+        console.log('跳转错误')
+      }
+    })
+    return
+  }
+
+  if (port.value) {
+    port.value.postMessage(JSON.stringify({
+      type: 'jump',
+      path: 'Outlink',
+      params: { url: fullUrl }
+    }))
+    return
+  }
+
+  window.open(sceneUrl, '_blank', 'noopener,noreferrer')
+}
+
+function openCloneSenceForeignConfirm(item: SenceForeign) {
+  if (!user.user?.user_id) {
+    toast.add({
+      title: '请先登录',
+      description: '登录后可克隆场景到自己的账号',
+      icon: 'i-heroicons-exclamation-circle',
+      color: 'orange'
+    })
+    return
+  }
+  const sourceId = resolveSenceForeignSceneId(item)
+  if (sourceId == null) return
+  if (cloneSceneLoading.value) return
+
+  cloneTargetSceneId.value = sourceId
+  cloneTargetSceneName.value = item.sence?.sence_desc || '未命名场景'
+  showCloneSceneConfirm.value = true
+}
+
+async function confirmCloneSenceForeign() {
+  const sourceId = cloneTargetSceneId.value
+  if (sourceId == null || cloneSceneLoading.value) return
+
+  cloneSceneLoading.value = true
+  try {
+    const detail = await getSceneId({ sence_id: sourceId })
+    const json = detail.json_data
+    if (json == null || !Array.isArray(json.objects)) {
+      toast.add({
+        title: '无法克隆',
+        description: '场景数据无效',
+        icon: 'i-heroicons-exclamation-circle',
+        color: 'orange'
+      })
+      return
+    }
+
+    const json_data = JSON.parse(JSON.stringify(json)) as SceneJSON
+    json_data.origin = sourceId
+    const res = await insertScene({ json_data })
+    toast.add({
+      title: '克隆成功',
+      description: '正在打开新场景',
+      icon: 'i-heroicons-check-circle',
+      color: 'green'
+    })
+    showCloneSceneConfirm.value = false
+    jumpToSceneEdit(res.sence_id)
+  } catch (error) {
+    console.error('克隆场景失败:', error)
+    toast.add({
+      title: '克隆失败',
+      icon: 'i-heroicons-x-circle',
+      color: 'red'
+    })
+  } finally {
+    cloneSceneLoading.value = false
+  }
+}
+
+function openDeleteSenceForeignConfirm(item: SenceForeign) {
+  if (!isSenceForeignSceneOwner(item)) return
+  if (deleteSenceForeignLoading.value) return
+  deleteSenceForeignTarget.value = item
+  showDeleteSenceForeignConfirm.value = true
+}
+
+async function confirmDeleteSenceForeign() {
+  const item = deleteSenceForeignTarget.value
+  const lid = library.value?.library_id
+  const sourceId = item ? resolveSenceForeignSceneId(item) : null
+  if (item == null || lid == null || sourceId == null || deleteSenceForeignLoading.value) return
+  if (!isSenceForeignSceneOwner(item)) return
+
+  deleteSenceForeignLoading.value = true
+  try {
+    const detail = await getSceneId({ sence_id: sourceId })
+    if (detail.user_id !== user.user?.user_id) {
+      toast.add({
+        title: '无法删除',
+        description: '仅场景拥有者可移除投稿',
+        icon: 'i-heroicons-exclamation-circle',
+        color: 'orange'
+      })
+      return
+    }
+
+    await deleteSenceForeign({
+      sence_id: sourceId,
+      pk_type: LIBRARY_SENCE_FOREIGN_PK_TYPE,
+      pk_id: lid
+    })
+    toast.add({
+      title: '已移除投稿',
+      icon: 'i-heroicons-check-circle',
+      color: 'green'
+    })
+    showDeleteSenceForeignConfirm.value = false
+    deleteSenceForeignTarget.value = null
+    senceForeignPage.value = 1
+    await fetchSenceForeignList(true)
+  } catch (error) {
+    console.error('移除场景投稿失败:', error)
+    toast.add({
+      title: '移除失败',
+      icon: 'i-heroicons-x-circle',
+      color: 'red'
+    })
+  } finally {
+    deleteSenceForeignLoading.value = false
+  }
+}
+
 const routeLibraryId = computed(() => {
   const n = Number.parseInt(String(route.params.id), 10)
   return Number.isNaN(n) ? null : n
@@ -460,6 +771,10 @@ onMounted(async () => {
     void fetchSimilarLibraries(lid)
     void fetchSenceForeignList(true)
   }
+})
+
+onUnmounted(() => {
+  commentUiStore.clearNewCommentHighlight()
 })
 
 watch(routeLibraryId, (lid) => {
@@ -1677,27 +1992,60 @@ const libraryVideoItemClass = 'w-[100px] mr-3 mb-2 max-md:w-full max-md:mr-0'
           加载中…
         </div>
         <div v-else class="flex gap-3 overflow-x-auto pb-1">
-          <nuxt-link
+          <div
             v-for="item in senceForeignRows"
             :key="item.foreign_id"
-            :to="`/scene/detail/${resolveSenceForeignSceneId(item)}`"
-            class="flex-shrink-0 w-[120px] max-md:w-[100px] block rounded-[10px] border border-gray-100 dark:border-gray-700 overflow-hidden shadow-sm hover:shadow-md transition-shadow bg-white dark:bg-gray-900/40"
+            class="flex-shrink-0 w-[120px] max-md:w-[100px] rounded-[10px] border border-gray-100 dark:border-gray-700 overflow-hidden shadow-sm hover:shadow-md transition-shadow bg-white dark:bg-gray-900/40"
           >
-            <div class="relative aspect-[4/3] w-full bg-gray-100 dark:bg-gray-800">
-              <img
-                :src="`${BASE_IMG}${item.sence?.sence_cover || 'static/plan_cover/default.jpg'}?x-oss-process=image/quality,q_80/resize,w_300,h_225`"
-                :alt="item.sence?.sence_desc || '场景封面'"
-                class="w-full h-full object-cover"
-                loading="lazy"
-              />
-            </div>
-            <p
-              class="p-2 pt-1.5 text-xs font-medium text-gray-900 dark:text-gray-100 leading-snug line-clamp-2"
-              :title="item.sence?.sence_desc || '未命名场景'"
+            <nuxt-link
+              :to="`/scene/detail/${resolveSenceForeignSceneId(item)}`"
+              class="block"
             >
-              {{ item.sence?.sence_desc || '未命名场景' }}
-            </p>
-          </nuxt-link>
+              <div class="relative aspect-[4/3] w-full bg-gray-100 dark:bg-gray-800">
+                <img
+                  :src="`${BASE_IMG}${item.sence?.sence_cover || 'static/plan_cover/default.jpg'}?x-oss-process=image/quality,q_80/resize,w_300,h_225`"
+                  :alt="item.sence?.sence_desc || '场景封面'"
+                  class="w-full h-full object-cover"
+                  loading="lazy"
+                />
+              </div>
+              <p
+                class="px-2 pt-1.5 pb-1 text-xs font-medium text-gray-900 dark:text-gray-100 leading-snug line-clamp-2"
+                :title="item.sence?.sence_desc || '未命名场景'"
+              >
+                {{ item.sence?.sence_desc || '未命名场景' }}
+              </p>
+            </nuxt-link>
+            <div class="flex border-t border-gray-100 dark:border-gray-700">
+              <button
+                type="button"
+                class="flex-1 flex items-center justify-center gap-0.5 px-2 py-1.5 text-[11px] text-qhx-primary hover:bg-qhx-primary/5 transition-colors disabled:opacity-50"
+                :disabled="cloneSceneLoading && cloneTargetSceneId === resolveSenceForeignSceneId(item)"
+                @click.stop="openCloneSenceForeignConfirm(item)"
+              >
+                <UIcon
+                  :name="cloneSceneLoading && cloneTargetSceneId === resolveSenceForeignSceneId(item) ? 'i-heroicons-arrow-path' : 'i-heroicons-document-duplicate'"
+                  class="text-sm"
+                  :class="{ 'animate-spin': cloneSceneLoading && cloneTargetSceneId === resolveSenceForeignSceneId(item) }"
+                />
+                <span>克隆</span>
+              </button>
+              <button
+                v-if="isSenceForeignSceneOwner(item)"
+                type="button"
+                class="flex-1 flex items-center justify-center gap-0.5 px-2 py-1.5 text-[11px] text-red-500 border-l border-gray-100 dark:border-gray-700 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors disabled:opacity-50"
+                :disabled="deleteSenceForeignLoading && deleteSenceForeignTarget?.foreign_id === item.foreign_id"
+                @click.stop="openDeleteSenceForeignConfirm(item)"
+              >
+                <UIcon
+                  :name="deleteSenceForeignLoading && deleteSenceForeignTarget?.foreign_id === item.foreign_id ? 'i-heroicons-arrow-path' : 'i-heroicons-trash'"
+                  class="text-sm"
+                  :class="{ 'animate-spin': deleteSenceForeignLoading && deleteSenceForeignTarget?.foreign_id === item.foreign_id }"
+                />
+                <span>删除</span>
+              </button>
+            </div>
+          </div>
           <button
             v-if="senceForeignHasMore"
             type="button"
@@ -1726,11 +2074,15 @@ const libraryVideoItemClass = 'w-[100px] mr-3 mb-2 max-md:w-full max-md:mr-0'
       <h2 class="mb-3 text-lg font-semibold">相似推荐</h2>
       <div v-if="similarLoading" class="text-sm text-gray-500 py-4 text-center">加载中…</div>
       <div v-else class="flex gap-3 overflow-x-auto pb-1">
-        <nuxt-link
+        <a
           v-for="item in similarRows"
           :key="item.library_id"
-          :to="`/library/detail/${item.library_id}`"
-          class="flex-shrink-0 w-[120px] max-md:w-[100px] block rounded-[10px] border border-gray-100 overflow-hidden shadow-sm hover:shadow-md transition-shadow bg-white dark:bg-gray-900/40"
+          :href="libraryDetailPageHref(item.library_id)"
+          target="_blank"
+          rel="noopener noreferrer"
+          class="flex-shrink-0 w-[120px] max-md:w-[100px] block rounded-[10px] border border-gray-100 overflow-hidden shadow-sm hover:shadow-md transition-shadow bg-white dark:bg-gray-900/40 no-underline"
+          :title="item.name"
+          @click.prevent="openLibraryDetailTab(item.library_id)"
         >
           <div class="relative aspect-[3/4] w-full">
             <img
@@ -1750,7 +2102,7 @@ const libraryVideoItemClass = 'w-[100px] mr-3 mb-2 max-md:w-full max-md:mr-0'
             <p class="text-xs font-medium text-gray-900 dark:text-gray-100 leading-snug line-clamp-2" :title="item.name">{{ item.name }}</p>
             <p v-if="item.shop?.shop_name" class="text-[10px] text-gray-500 truncate mt-0.5" :title="item.shop.shop_name">{{ item.shop.shop_name }}</p>
           </div>
-        </nuxt-link>
+        </a>
       </div>
     </div>
     <div v-if="library && library_video.length > 0" class="bg-qhx-bg-card rounded-lg shadow-lg mt-3">
@@ -1802,7 +2154,7 @@ const libraryVideoItemClass = 'w-[100px] mr-3 mb-2 max-md:w-full max-md:mr-0'
       <QhxTabs
         sticky
         panel-min-height="min(50vh, 480px)"
-        :tabs="['返图', '贩售历史', '大事记']"
+        :tabs="['返图', '贩售历史', '大事记', '评论']"
         :tab-counts="libraryDetailTabCounts"
       >
         <QhxTabPanel :index="0">
@@ -1940,10 +2292,50 @@ const libraryVideoItemClass = 'w-[100px] mr-3 mb-2 max-md:w-full max-md:mr-0'
             />
           </template>
         </QhxTabPanel>
+        <QhxTabPanel :index="3">
+          <template #default="{ isActive }">
+            <div v-if="isActive && library" class="bg-white dark:bg-gray-900">
+              <div class="px-4 pt-4 pb-2">
+                <div class="flex items-center gap-3 mb-3">
+                  <UAvatar
+                    :src="libraryCommentMyAvatar"
+                    :alt="user.user?.user_name || '未登录'"
+                    size="sm"
+                    class="bg-gray-100 flex-shrink-0"
+                  />
+                  <button
+                    type="button"
+                    class="flex-1 bg-gray-100 dark:bg-gray-800 rounded-full h-10 flex items-center px-4 text-gray-400 text-sm text-left hover:bg-gray-200 dark:hover:bg-gray-700 transition"
+                    @click="openCommentComposer"
+                  >
+                    <span class="i-heroicons-pencil w-4 h-4 mr-2"></span>
+                    说点什么…
+                  </button>
+                </div>
+                <div class="mb-2 text-sm font-bold text-gray-700 dark:text-gray-300">
+                  共 {{ commentTotal }} 条评论
+                </div>
+              </div>
+              <CommentSection
+                :key="commentSectionKey"
+                :type="'library'"
+                :id="library.library_id"
+                :focus-comment-id="focusCommentId"
+                @open-reply="openReplyComposer"
+                @total="onCommentTotalChange"
+              />
+            </div>
+          </template>
+        </QhxTabPanel>
       </QhxTabs>
     </div>
     
     <!-- 加入衣柜相关组件 -->
+    <CommunityCommentModal
+      ref="commentModalRef"
+      v-model="showCommentModal"
+      @success="onCommentSuccess"
+    />
     <CommunityChoose
       ref="libraryCommunityChooseRef"
       :only-mine="true"
@@ -2088,6 +2480,73 @@ const libraryVideoItemClass = 'w-[100px] mr-3 mb-2 max-md:w-full max-md:mr-0'
           >
             {{ batchPatternSaving ? '提交中…' : '确定' }}
           </button>
+        </div>
+      </div>
+    </QhxModal>
+
+    <QhxModal
+      v-model="showDeleteSenceForeignConfirm"
+      :close-on-backdrop="!deleteSenceForeignLoading"
+    >
+      <div class="w-[min(calc(100vw-2rem),360px)] rounded-[12px] bg-white p-4 shadow-lg dark:bg-gray-800">
+        <h3 class="text-base font-semibold text-gray-900 dark:text-gray-100">
+          确认移除投稿
+        </h3>
+        <p class="mt-2 text-sm leading-relaxed text-gray-600 dark:text-gray-400">
+          将把「{{ deleteSenceForeignTarget?.sence?.sence_desc || '未命名场景' }}」从本图鉴关联场景中移除，场景本身不会被删除。是否继续？
+        </p>
+        <div class="mt-4 flex flex-col gap-2 sm:flex-row">
+          <UButton
+            variant="outline"
+            color="gray"
+            class="w-full min-w-0 justify-center sm:flex-1"
+            :disabled="deleteSenceForeignLoading"
+            @click="showDeleteSenceForeignConfirm = false"
+          >
+            取消
+          </UButton>
+          <UButton
+            color="red"
+            class="w-full min-w-0 justify-center sm:flex-1"
+            :loading="deleteSenceForeignLoading"
+            :disabled="deleteSenceForeignLoading"
+            @click="confirmDeleteSenceForeign"
+          >
+            确认删除
+          </UButton>
+        </div>
+      </div>
+    </QhxModal>
+
+    <QhxModal
+      v-model="showCloneSceneConfirm"
+      :close-on-backdrop="!cloneSceneLoading"
+    >
+      <div class="w-[min(calc(100vw-2rem),360px)] rounded-[12px] bg-white p-4 shadow-lg dark:bg-gray-800">
+        <h3 class="text-base font-semibold text-gray-900 dark:text-gray-100">
+          确认克隆场景
+        </h3>
+        <p class="mt-2 text-sm leading-relaxed text-gray-600 dark:text-gray-400">
+          将把「{{ cloneTargetSceneName }}」完整复制到你的账号下，并进入编辑模式。是否继续？
+        </p>
+        <div class="mt-4 flex flex-col gap-2 sm:flex-row">
+          <UButton
+            variant="outline"
+            color="gray"
+            class="w-full min-w-0 justify-center sm:flex-1"
+            :disabled="cloneSceneLoading"
+            @click="showCloneSceneConfirm = false"
+          >
+            取消
+          </UButton>
+          <UButton
+            class="w-full min-w-0 justify-center bg-qhx-primary text-qhx-inverted hover:bg-qhx-primaryHover sm:flex-1"
+            :loading="cloneSceneLoading"
+            :disabled="cloneSceneLoading"
+            @click="confirmCloneSenceForeign"
+          >
+            确认克隆
+          </UButton>
         </div>
       </div>
     </QhxModal>

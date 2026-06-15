@@ -599,6 +599,8 @@ export interface User {
   level?: number
   star_coin?: number
   access_level?: number
+  /** 个人空间展示的小窝场景 ID */
+  sence_id?: number
 }
 export interface Avatar {
   frame_id: number,
@@ -638,7 +640,7 @@ export interface LibraryVideo {
     objects?: unknown[]
     lighting?: unknown[]
     background?: string
-    cameraList?: unknown[]
+    cameraList?: LaxianInitialCamera[]
     controls?: Record<string, unknown>
   }
 }
@@ -647,6 +649,11 @@ export interface LibraryVideo {
 export interface LaxianCameraState {
   position: [number, number, number]
   target: [number, number, number]
+}
+
+/** 人台图初始镜头（存于 json_data.cameraList[0]） */
+export interface LaxianInitialCamera extends LaxianCameraState {
+  fov?: number
 }
 
 /** 拉线类型：0 设计元素，1 柄图元素 */
@@ -663,6 +670,8 @@ export interface LaxianItem {
   type?: LaxianType
   /** 镜头聚焦参数（可选），点击拉线时若有则聚焦至该机位 */
   camera?: LaxianCameraState
+  /** 拉线点详情（富文本 HTML） */
+  detail?: string
 }
 
 

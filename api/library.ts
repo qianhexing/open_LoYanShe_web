@@ -99,6 +99,15 @@ export async function updateLibraryVideo(params: LibraryVideo): Promise<LibraryV
   return response.data
 }
 
+export interface LibraryVideoJsonUpdateParams {
+  video_id: number
+  json_data?: LibraryVideo['json_data']
+}
+export async function updateLibraryVideoJson(params: LibraryVideoJsonUpdateParams): Promise<LibraryVideo> {
+  const response = await use$Post<BaseResponse<LibraryVideo>>('/libraryVideo/update/json', params)
+  return response.data
+}
+
 export interface LibraryVideoDeleteParams {
   video_id: number
 }
@@ -181,9 +190,8 @@ export async function getLibrarySimilar(
 }
 
 /** 多图鉴合并画像相似推荐（需登录；勿与单点 `/library/similar` 混用） */
-export interface LibrarySimilarBatchParams {
+export interface LibrarySimilarBatchParams extends Partial<PaginationParams> {
   ids: number[]
-  pageSize?: number
   need_Statistics?: boolean
 }
 
@@ -194,8 +202,9 @@ export async function getLibrarySimilarBatch(
     '/library/similar/batch',
     {
       ids: params.ids,
+      page: params.page ?? 1,
       pageSize: params.pageSize ?? 20,
-      need_Statistics: params.need_Statistics
+      need_Statistics: params.need_Statistics ?? false,
     }
   )
   return response.data

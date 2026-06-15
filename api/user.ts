@@ -109,6 +109,7 @@ interface UpdateUserInfoParams {
   is_annual_report?: number
   email?: string
   message_config?: Record<string, unknown>
+  sence_id?: number | null
 }
 
 export async function changeUserInfo(
@@ -289,6 +290,10 @@ export interface UserCareerStats {
   journal_count: number
   matching_count: number
   days_in_lolita: number
+  /** 贡献图鉴总数 */
+  library_contribute_count: number
+  /** 纠错图鉴总数 */
+  library_correction_count: number
 }
 
 export async function getUserCareerStats(params?: { user_id?: number }): Promise<UserCareerStats> {

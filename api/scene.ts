@@ -85,3 +85,16 @@ export async function getSenceForeignList(
   );
   return response.data;
 }
+
+export interface SenceForeignMutationParams {
+  sence_id: number
+  pk_type: number
+  pk_id: number
+}
+
+/** 解除场景与业务实体的 foreign 关联（参数与 insert 一致） */
+export async function deleteSenceForeign(
+  params: SenceForeignMutationParams
+): Promise<void> {
+  await use$Post<BaseResponse<unknown>>('/sence/foreign/delete', params);
+}

@@ -136,6 +136,57 @@ const formatCanvasPrice = (price: number | undefined, shopCountry?: number): str
   return unit ? `${base} ${unit}` : base
 }
 
+interface LibrarySkuRecord {
+  library_pattern: string
+  library_price?: number | null
+}
+
+const parseLibraryJsonData = (jsonData: unknown): Record<string, unknown> => {
+  if (jsonData == null) return {}
+  if (typeof jsonData === 'string') {
+    try {
+      const parsed = JSON.parse(jsonData)
+      return typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)
+        ? (parsed as Record<string, unknown>)
+        : {}
+    } catch {
+      return {}
+    }
+  }
+  if (typeof jsonData === 'object' && !Array.isArray(jsonData)) {
+    return jsonData as Record<string, unknown>
+  }
+  return {}
+}
+
+const extractSkuListFromJsonData = (jsonData: unknown): LibrarySkuRecord[] => {
+  const data = parseLibraryJsonData(jsonData)
+  const raw = data.sku
+  let list: unknown[] = []
+  if (Array.isArray(raw)) {
+    list = raw
+  } else if (typeof raw === 'string') {
+    try {
+      const parsed = JSON.parse(raw)
+      if (Array.isArray(parsed)) list = parsed
+    } catch {
+      return []
+    }
+  }
+  return list
+    .map((item): LibrarySkuRecord | null => {
+      if (!item || typeof item !== 'object' || !('library_pattern' in item)) return null
+      const record = item as { library_pattern?: unknown; library_price?: unknown }
+      const pattern = String(record.library_pattern ?? '').trim()
+      if (!pattern) return null
+      return {
+        library_pattern: pattern,
+        library_price: record.library_price != null ? Number(record.library_price) : null
+      }
+    })
+    .filter((item): item is LibrarySkuRecord => item != null)
+}
+
 // 状态
 const picked = ref<Date>(new Date())
 const list = ref<LibraryPipe[]>([])
@@ -317,12 +368,20 @@ const downloadChunk = async (index: number) => {
     const hasShopLogo = !!item.item?.shop?.shop_logo
     const libraryList = item.library_list || []
 
-    // 准备 library_list 文本内容（组合成一行，用分隔符连接）
+    // 准备价目表文本：library_list 或 json_data.sku（版型 + 参考价）
     const libraryItems: string[] = []
     if (libraryList.length > 0) {
       for (const lib of libraryList) {
         const type = lib.library_type || ''
         const price = lib.library_price ? formatCanvasPrice(lib.library_price, lib.shop_country) : ''
+        const text = [type, price].filter(Boolean).join(' ')
+        if (text) libraryItems.push(text)
+      }
+    } else {
+      const skuList = extractSkuListFromJsonData(item.item?.json_data)
+      for (const sku of skuList) {
+        const type = sku.library_pattern || ''
+        const price = sku.library_price ? formatCanvasPrice(sku.library_price, mainCountry) : ''
         const text = [type, price].filter(Boolean).join(' ')
         if (text) libraryItems.push(text)
       }

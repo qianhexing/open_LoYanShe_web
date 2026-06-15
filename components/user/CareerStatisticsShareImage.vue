@@ -118,13 +118,27 @@ export interface CareerShareMetric {
   emoji?: string
 }
 
+export interface CareerShareMetricGroup {
+  title: string
+  icon?: string
+  items: CareerShareMetric[]
+}
+
 export interface CareerSharePayload {
   userName: string
+  userFace?: string
+  avatarFrame?: string
+  userId?: number
+  level?: number
+  tags?: string[]
+  location?: string
   daysInLolita: number
   totalSpending: string
   achievementProgress: number
   achievementSummary: string
-  metrics: CareerShareMetric[]
+  /** @deprecated 优先使用 metricGroups */
+  metrics?: CareerShareMetric[]
+  metricGroups?: CareerShareMetricGroup[]
 }
 
 const props = defineProps<{
@@ -168,6 +182,43 @@ async function savePreviewToAlbum() {
 const CW = 750
 const CH = 1334
 const P = 40
+const DEFAULT_FACE = 'static/plan_cover/default.jpg'
+
+function resolveImgUrl(path: string | null | undefined): string {
+  const p = (path?.trim() || DEFAULT_FACE).trim()
+  if (/^https?:\/\//i.test(p)) return p
+  return `${BASE_IMG}${p.replace(/^\//, '')}`
+}
+
+function loadImageCors(src: string): Promise<HTMLImageElement | null> {
+  if (!src) return Promise.resolve(null)
+  return new Promise((resolve) => {
+    const img = new Image()
+    img.crossOrigin = 'anonymous'
+    img.onload = () => resolve(img)
+    img.onerror = () => resolve(null)
+    img.src = src
+  })
+}
+
+function drawImageCover(
+  ctx: CanvasRenderingContext2D,
+  img: HTMLImageElement,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+) {
+  const iw = img.naturalWidth
+  const ih = img.naturalHeight
+  if (!iw || !ih) return
+  const scale = Math.max(w / iw, h / ih)
+  const sw = w / scale
+  const sh = h / scale
+  const sx = (iw - sw) / 2
+  const sy = (ih - sh) / 2
+  ctx.drawImage(img, sx, sy, sw, sh, x, y, w, h)
+}
 
 function truncateName(s: string, max: number): string {
   if (!s) return ''
@@ -205,9 +256,29 @@ function drawCard(
   radius: number,
 ) {
   ctx.save()
+  ctx.shadowColor = 'rgba(150, 100, 130, 0.12)'
+  ctx.shadowBlur = 12
+  ctx.shadowOffsetY = 4
   ctx.fillStyle = fill
   drawRoundRect(ctx, x, y, w, h, radius)
   ctx.fill()
+  ctx.restore()
+}
+
+function drawGlassCard(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  radius: number,
+) {
+  drawCard(ctx, x, y, w, h, 'rgba(255,255,255,0.88)', radius)
+  ctx.save()
+  drawRoundRect(ctx, x, y, w, h, radius)
+  ctx.strokeStyle = 'rgba(255,255,255,0.65)'
+  ctx.lineWidth = 1.5
+  ctx.stroke()
   ctx.restore()
 }
 
@@ -246,6 +317,283 @@ function drawGradientBg(ctx: CanvasRenderingContext2D) {
   ctx.restore()
 }
 
+function drawCircleAvatar(
+  ctx: CanvasRenderingContext2D,
+  img: HTMLImageElement | null,
+  cx: number,
+  cy: number,
+  radius: number,
+) {
+  const size = radius * 2
+  const x = cx - radius
+  const y = cy - radius
+
+  ctx.save()
+  ctx.beginPath()
+  ctx.arc(cx, cy, radius + 5, 0, Math.PI * 2)
+  const ringGrad = ctx.createLinearGradient(cx - radius, cy - radius, cx + radius, cy + radius)
+  ringGrad.addColorStop(0, '#f472b6')
+  ringGrad.addColorStop(0.5, '#e879f9')
+  ringGrad.addColorStop(1, '#c084fc')
+  ctx.fillStyle = ringGrad
+  ctx.fill()
+  ctx.restore()
+
+  ctx.save()
+  ctx.beginPath()
+  ctx.arc(cx, cy, radius + 2, 0, Math.PI * 2)
+  ctx.fillStyle = '#ffffff'
+  ctx.fill()
+  ctx.restore()
+
+  ctx.save()
+  ctx.beginPath()
+  ctx.arc(cx, cy, radius, 0, Math.PI * 2)
+  ctx.clip()
+  if (img?.naturalWidth && img.naturalHeight) {
+    drawImageCover(ctx, img, x, y, size, size)
+  } else {
+    ctx.fillStyle = '#e8d0dc'
+    ctx.fillRect(x, y, size, size)
+  }
+  ctx.restore()
+}
+
+function drawAvatarFrame(
+  ctx: CanvasRenderingContext2D,
+  frameImg: HTMLImageElement | null,
+  cx: number,
+  cy: number,
+  radius: number,
+) {
+  if (!frameImg?.naturalWidth || !frameImg.naturalHeight) return
+  const frameSize = radius * 2 * 1.18
+  drawImageCover(ctx, frameImg, cx - frameSize / 2, cy - frameSize / 2, frameSize, frameSize)
+}
+
+function drawTagPill(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  x: number,
+  y: number,
+): number {
+  const padX = 12
+  const h = 26
+  ctx.font = '12px system-ui, "Microsoft YaHei", "PingFang SC", sans-serif'
+  const tw = ctx.measureText(text).width
+  const w = tw + padX * 2
+  drawRoundRect(ctx, x, y, w, h, h / 2)
+  ctx.fillStyle = 'rgba(236, 72, 153, 0.1)'
+  ctx.fill()
+  ctx.strokeStyle = 'rgba(236, 72, 153, 0.22)'
+  ctx.lineWidth = 1
+  ctx.stroke()
+  ctx.fillStyle = '#9d6080'
+  ctx.textAlign = 'left'
+  ctx.textBaseline = 'middle'
+  ctx.fillText(text, x + padX, y + h / 2)
+  return w
+}
+
+function wrapLines(ctx: CanvasRenderingContext2D, text: string, maxWidth: number): string[] {
+  if (!text) return []
+  const lines: string[] = []
+  let line = ''
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i]
+    const test = line + ch
+    if (ctx.measureText(test).width > maxWidth && line) {
+      lines.push(line)
+      line = ch
+    } else {
+      line = test
+    }
+  }
+  if (line) lines.push(line)
+  return lines
+}
+
+function measureProfileSection(
+  ctx: CanvasRenderingContext2D,
+  payload: CareerSharePayload,
+  startY: number,
+) {
+  const cardW = CW - P * 2
+  const avatarR = 40
+  const padTop = 22
+  const padBottom = 16
+
+  let y = startY + padTop + avatarR * 2 + 14
+  const nameY = y
+
+  const hasLevel = payload.level != null && payload.level > 0
+  let badgeY = 0
+  if (hasLevel) {
+    badgeY = y + 6
+    y = badgeY + 20 + 12
+  } else {
+    y += 10
+  }
+
+  const tags = (payload.tags ?? []).filter(Boolean).slice(0, 3)
+  let tagRowY = 0
+  if (tags.length) {
+    tagRowY = y + 2
+    y = tagRowY + 26 + 12
+  }
+
+  let locationLines: string[] = []
+  let locationStartY = 0
+  const locationText = payload.location?.trim()
+  if (locationText) {
+    ctx.font = '12px system-ui, "Microsoft YaHei", "PingFang SC", sans-serif'
+    locationLines = wrapLines(ctx, locationText, cardW - 48)
+    locationStartY = y + 4
+    y = locationStartY + locationLines.length * 18 + 2
+  }
+
+  const cardH = y - startY + padBottom
+
+  return {
+    cardW,
+    cardH,
+    avatarR,
+    avatarCy: startY + padTop + avatarR,
+    nameY,
+    badgeY,
+    hasLevel,
+    tags,
+    tagRowY,
+    locationLines,
+    locationStartY,
+  }
+}
+
+function drawProfileSection(
+  ctx: CanvasRenderingContext2D,
+  payload: CareerSharePayload,
+  avatarImg: HTMLImageElement | null,
+  frameImg: HTMLImageElement | null,
+  startY: number,
+): number {
+  const layout = measureProfileSection(ctx, payload, startY)
+  const cardX = P
+  const cardY = startY
+  const cx = CW / 2
+
+  drawGlassCard(ctx, cardX, cardY, layout.cardW, layout.cardH, 22)
+
+  drawCircleAvatar(ctx, avatarImg, cx, layout.avatarCy, layout.avatarR)
+  drawAvatarFrame(ctx, frameImg, cx, layout.avatarCy, layout.avatarR)
+
+  const name = truncateName(payload.userName, 12)
+  ctx.font = 'bold 22px system-ui, "Microsoft YaHei", "PingFang SC", sans-serif'
+  ctx.fillStyle = '#4a2f3d'
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'alphabetic'
+  ctx.fillText(name, cx, layout.nameY)
+
+  if (layout.hasLevel) {
+    const badgeText = `Lv.${payload.level}`
+    ctx.font = 'bold 11px system-ui, "Microsoft YaHei", sans-serif'
+    const badgeW = ctx.measureText(badgeText).width + 14
+    const badgeH = 20
+    const badgeX = cx - badgeW / 2
+    drawRoundRect(ctx, badgeX, layout.badgeY, badgeW, badgeH, badgeH / 2)
+    const lvGrad = ctx.createLinearGradient(badgeX, layout.badgeY, badgeX + badgeW, layout.badgeY + badgeH)
+    lvGrad.addColorStop(0, '#ec4899')
+    lvGrad.addColorStop(1, '#a855f7')
+    ctx.fillStyle = lvGrad
+    ctx.fill()
+    ctx.fillStyle = '#ffffff'
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    ctx.fillText(badgeText, cx, layout.badgeY + badgeH / 2 + 1)
+  }
+
+  if (layout.tags.length) {
+    ctx.font = '12px system-ui, "Microsoft YaHei", "PingFang SC", sans-serif'
+    const tagTexts = layout.tags.map((t) => `# ${truncateName(t, 6)}`)
+    const tagWidths = tagTexts.map((t) => ctx.measureText(t).width + 24)
+    const tagGap = 8
+    const totalTagW = tagWidths.reduce((a, b) => a + b, 0) + tagGap * (layout.tags.length - 1)
+    let tagX = cx - totalTagW / 2
+    for (let i = 0; i < tagTexts.length; i++) {
+      const w = drawTagPill(ctx, tagTexts[i], tagX, layout.tagRowY)
+      tagX += w + tagGap
+    }
+  }
+
+  if (layout.locationLines.length) {
+    ctx.font = '12px system-ui, "Microsoft YaHei", "PingFang SC", sans-serif'
+    ctx.fillStyle = '#927084'
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'alphabetic'
+    for (let i = 0; i < layout.locationLines.length; i++) {
+      const lineY = layout.locationStartY + i * 18
+      if (i === 0) {
+        ctx.fillText(`📍 ${layout.locationLines[i]}`, cx, lineY)
+      } else {
+        ctx.fillText(layout.locationLines[i], cx, lineY)
+      }
+    }
+  }
+
+  return cardY + layout.cardH + 14
+}
+
+function drawDaysHero(ctx: CanvasRenderingContext2D, y: number, daysInLolita: number): number {
+  const heroH = 128
+  const cardW = CW - P * 2
+  drawGlassCard(ctx, P, y, cardW, heroH, 20)
+
+  ctx.save()
+  drawRoundRect(ctx, P, y, cardW, heroH, 20)
+  const heroGrad = ctx.createLinearGradient(P, y, P + cardW, y + heroH)
+  heroGrad.addColorStop(0, 'rgba(255,240,246,0.92)')
+  heroGrad.addColorStop(1, 'rgba(243,232,255,0.92)')
+  ctx.fillStyle = heroGrad
+  ctx.fill()
+  ctx.restore()
+
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'alphabetic'
+  ctx.fillStyle = '#8a6f7d'
+  ctx.font = '14px system-ui, "Microsoft YaHei", sans-serif'
+  ctx.fillText('入坑天数', CW / 2, y + 34)
+
+  const daysText = String(daysInLolita)
+  const unitText = '天'
+  const numberFont = 'bold 46px system-ui, "Microsoft YaHei", sans-serif'
+  const unitFont = '600 20px system-ui, "Microsoft YaHei", sans-serif'
+  ctx.font = numberFont
+  const daysW = ctx.measureText(daysText).width
+  ctx.font = unitFont
+  const unitW = ctx.measureText(unitText).width
+  const gap = 10
+  const blockW = daysW + gap + unitW
+  const blockX = (CW - blockW) / 2
+  const valueY = y + 92
+
+  ctx.textAlign = 'left'
+  ctx.font = numberFont
+  ctx.fillStyle = '#c0567a'
+  ctx.fillText(daysText, blockX, valueY)
+  ctx.font = unitFont
+  ctx.fillStyle = '#b07a94'
+  ctx.fillText(unitText, blockX + daysW + gap, valueY + 2)
+
+  ctx.font = '20px serif'
+  ctx.textAlign = 'right'
+  ctx.globalAlpha = 0.35
+  ctx.fillText('✨', P + cardW - 18, y + 28)
+  ctx.textAlign = 'left'
+  ctx.fillText('🎀', P + 14, y + heroH - 16)
+  ctx.globalAlpha = 1
+
+  return y + heroH + 14
+}
+
 function drawMetricCard(
   ctx: CanvasRenderingContext2D,
   x: number,
@@ -254,34 +602,112 @@ function drawMetricCard(
   h: number,
   m: CareerShareMetric,
 ) {
-  drawCard(ctx, x, y, w, h, 'rgba(255,255,255,0.82)', 16)
+  drawGlassCard(ctx, x, y, w, h, 14)
+
   ctx.save()
-  ctx.shadowColor = 'rgba(180, 120, 145, 0.15)'
-  ctx.shadowBlur = 8
-  ctx.shadowOffsetY = 2
-  drawRoundRect(ctx, x, y, w, h, 16)
-  ctx.strokeStyle = 'rgba(210, 170, 190, 0.45)'
-  ctx.lineWidth = 1
-  ctx.stroke()
+  drawRoundRect(ctx, x + 1, y + 10, 4, h - 20, 2)
+  const accent = ctx.createLinearGradient(x, y, x, y + h)
+  accent.addColorStop(0, '#f472b6')
+  accent.addColorStop(1, '#c084fc')
+  ctx.fillStyle = accent
+  ctx.fill()
   ctx.restore()
 
   if (m.emoji) {
-    ctx.font = '22px serif'
+    ctx.font = '20px serif'
     ctx.textAlign = 'left'
-    ctx.fillText(m.emoji, x + 14, y + 30)
+    ctx.textBaseline = 'alphabetic'
+    ctx.fillStyle = '#9d6080'
+    ctx.fillText(m.emoji, x + 16, y + 30)
   }
   ctx.fillStyle = '#8a6f7d'
-  ctx.font = '13px system-ui, "Microsoft YaHei", "PingFang SC", sans-serif'
+  ctx.font = '12px system-ui, "Microsoft YaHei", "PingFang SC", sans-serif'
   ctx.textAlign = 'left'
-  ctx.fillText(truncateName(m.label, 6), x + (m.emoji ? 40 : 14), y + 30)
+  ctx.fillText(truncateName(m.label, 6), x + (m.emoji ? 42 : 16), y + 30)
 
   ctx.fillStyle = '#4a2f3d'
-  ctx.font = 'bold 22px system-ui, "Microsoft YaHei", "PingFang SC", sans-serif'
-  ctx.textAlign = 'left'
-  ctx.fillText(truncateName(m.value, 10), x + 14, y + 62)
+  ctx.font = 'bold 21px system-ui, "Microsoft YaHei", "PingFang SC", sans-serif'
+  ctx.fillText(truncateName(m.value, 10), x + 16, y + 62)
 }
 
-function drawShareCanvas(payload: CareerSharePayload): HTMLCanvasElement {
+function drawMetricGroupHeader(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  w: number,
+  group: CareerShareMetricGroup,
+) {
+  const iconOffset = group.icon ? 26 : 0
+  if (group.icon) {
+    ctx.font = '16px serif'
+    ctx.textAlign = 'left'
+    ctx.textBaseline = 'alphabetic'
+    ctx.fillStyle = '#9d6080'
+    ctx.fillText(group.icon, x, y + 16)
+  }
+  ctx.fillStyle = '#5e3a4b'
+  ctx.font = 'bold 15px system-ui, "Microsoft YaHei", "PingFang SC", sans-serif'
+  ctx.textAlign = 'left'
+  ctx.fillText(truncateName(group.title, 8), x + iconOffset, y + 16)
+
+  const titleW = ctx.measureText(truncateName(group.title, 8)).width + iconOffset
+  const lineX = x + titleW + 10
+  const lineW = w - titleW - 10
+  if (lineW > 24) {
+    const lineGrad = ctx.createLinearGradient(lineX, y + 14, lineX + lineW, y + 14)
+    lineGrad.addColorStop(0, 'rgba(236, 72, 153, 0.35)')
+    lineGrad.addColorStop(1, 'rgba(236, 72, 153, 0)')
+    ctx.strokeStyle = lineGrad
+    ctx.lineWidth = 1.5
+    ctx.beginPath()
+    ctx.moveTo(lineX, y + 14)
+    ctx.lineTo(lineX + lineW, y + 14)
+    ctx.stroke()
+  }
+}
+
+function drawMetricGrid(
+  ctx: CanvasRenderingContext2D,
+  startY: number,
+  groups: CareerShareMetricGroup[],
+): number {
+  const GAP = 10
+  const colW = (CW - P * 2 - GAP) / 2
+  const rowH = 76
+  const groupGap = 12
+  let y = startY
+
+  for (const group of groups) {
+    if (!group.items.length) continue
+    drawMetricGroupHeader(ctx, P, y, CW - P * 2, group)
+    y += 26
+    for (let i = 0; i < group.items.length; i += 2) {
+      const row = Math.floor(i / 2)
+      const baseY = y + row * (rowH + GAP)
+      const left = group.items[i]
+      const right = group.items[i + 1]
+      if (left) drawMetricCard(ctx, P, baseY, colW, rowH, left)
+      if (right) drawMetricCard(ctx, P + colW + GAP, baseY, colW, rowH, right)
+    }
+    y += Math.ceil(group.items.length / 2) * (rowH + GAP) + groupGap
+  }
+
+  return y
+}
+
+function resolveShareMetricGroups(payload: CareerSharePayload): CareerShareMetricGroup[] {
+  if (payload.metricGroups?.length) return payload.metricGroups
+  if (payload.metrics?.length) {
+    return [{ title: '数据统计', items: payload.metrics }]
+  }
+  return []
+}
+
+function drawShareCanvas(
+  payload: CareerSharePayload,
+  avatarImg: HTMLImageElement | null,
+  frameImg: HTMLImageElement | null,
+): HTMLCanvasElement {
   const canvas = document.createElement('canvas')
   canvas.width = CW
   canvas.height = CH
@@ -290,77 +716,44 @@ function drawShareCanvas(payload: CareerSharePayload): HTMLCanvasElement {
 
   drawGradientBg(ctx)
 
-  let y = P + 20
+  let y = P + 12
 
   ctx.fillStyle = '#4a2f3d'
-  ctx.font = 'bold 36px system-ui, "Microsoft YaHei", "PingFang SC", serif'
+  ctx.font = 'bold 34px system-ui, "Microsoft YaHei", "PingFang SC", serif'
   ctx.textAlign = 'center'
+  ctx.textBaseline = 'alphabetic'
   ctx.fillText('Lo娘生涯', CW / 2, y)
-  y += 16
-  ctx.font = '18px system-ui, "Microsoft YaHei", sans-serif'
+  y += 12
+  ctx.font = '16px system-ui, "Microsoft YaHei", sans-serif'
   ctx.fillStyle = '#927084'
-  ctx.fillText('Career Statistics', CW / 2, y + 24)
-  y += 52
+  ctx.fillText('Career Statistics', CW / 2, y + 20)
+  y += 40
 
-  ctx.font = '24px system-ui, "Microsoft YaHei", "PingFang SC", sans-serif'
-  ctx.fillStyle = '#5e3a4b'
-  ctx.fillText(truncateName(payload.userName, 14), CW / 2, y)
-  y += 36
+  y = drawProfileSection(ctx, payload, avatarImg, frameImg, y)
+  y = drawDaysHero(ctx, y, payload.daysInLolita)
 
-  const heroH = 148
-  drawCard(ctx, P, y, CW - P * 2, heroH, 'rgba(255,255,255,0.88)', 20)
-  ctx.save()
-  drawRoundRect(ctx, P, y, CW - P * 2, heroH, 20)
-  const heroGrad = ctx.createLinearGradient(P, y, P + CW - P * 2, y + heroH)
-  heroGrad.addColorStop(0, 'rgba(255,240,246,0.95)')
-  heroGrad.addColorStop(1, 'rgba(243,232,255,0.95)')
-  ctx.fillStyle = heroGrad
-  ctx.fill()
-  ctx.restore()
-
-  ctx.textAlign = 'center'
-  ctx.fillStyle = '#8a6f7d'
-  ctx.font = '15px system-ui, "Microsoft YaHei", sans-serif'
-  ctx.fillText('入坑天数', CW / 2, y + 38)
-  ctx.fillStyle = '#c0567a'
-  ctx.font = 'bold 52px system-ui, "Microsoft YaHei", sans-serif'
-  const daysText = String(payload.daysInLolita)
-  ctx.fillText(daysText, CW / 2, y + 98)
-  ctx.font = '18px system-ui, "Microsoft YaHei", sans-serif'
-  ctx.fillStyle = '#927084'
-  ctx.fillText('天', CW / 2 + ctx.measureText(daysText).width / 2 + 10, y + 98)
-  y += heroH + 24
-
-  const GAP = 14
-  const colW = (CW - P * 2 - GAP) / 2
-  const rowH = 88
-  const metrics = payload.metrics
-  for (let i = 0; i < metrics.length; i += 2) {
-    const row = Math.floor(i / 2)
-    const baseY = y + row * (rowH + GAP)
-    const left = metrics[i]
-    const right = metrics[i + 1]
-    if (left) drawMetricCard(ctx, P, baseY, colW, rowH, left)
-    if (right) drawMetricCard(ctx, P + colW + GAP, baseY, colW, rowH, right)
-  }
-  y += Math.ceil(metrics.length / 2) * (rowH + GAP) + 20
+  const metricGroups = resolveShareMetricGroups(payload)
+  y = drawMetricGrid(ctx, y, metricGroups) + 8
 
   const barW = CW - P * 2
-  const barH = 12
-  drawCard(ctx, P, y, barW, 72, 'rgba(255,255,255,0.75)', 14)
+  const barH = 10
+  drawGlassCard(ctx, P, y, barW, 68, 14)
   ctx.textAlign = 'left'
+  ctx.textBaseline = 'alphabetic'
   ctx.fillStyle = '#4a2f3d'
-  ctx.font = 'bold 16px system-ui, "Microsoft YaHei", sans-serif'
-  ctx.fillText('成就进度', P + 16, y + 28)
-  ctx.font = '14px system-ui, "Microsoft YaHei", sans-serif'
+  ctx.font = 'bold 15px system-ui, "Microsoft YaHei", sans-serif'
+  ctx.fillText('成就进度', P + 16, y + 26)
+  ctx.font = '13px system-ui, "Microsoft YaHei", sans-serif'
   ctx.fillStyle = '#8a6f7d'
   ctx.textAlign = 'right'
-  ctx.fillText(payload.achievementSummary, P + barW - 16, y + 28)
+  ctx.fillText(payload.achievementSummary, P + barW - 16, y + 26)
 
   const barX = P + 16
-  const barY = y + 42
+  const barY = y + 38
   const innerW = barW - 32
-  drawCard(ctx, barX, barY, innerW, barH, '#e8dce3', barH / 2)
+  drawRoundRect(ctx, barX, barY, innerW, barH, barH / 2)
+  ctx.fillStyle = '#e8dce3'
+  ctx.fill()
   const progW = Math.max(0, Math.min(100, payload.achievementProgress)) / 100 * innerW
   if (progW > 0) {
     ctx.save()
@@ -374,21 +767,19 @@ function drawShareCanvas(payload: CareerSharePayload): HTMLCanvasElement {
   }
   ctx.textAlign = 'center'
   ctx.fillStyle = '#927084'
-  ctx.font = '13px system-ui, "Microsoft YaHei", sans-serif'
-  ctx.fillText(`${payload.achievementProgress}% 完成`, CW / 2, y + 68)
-  y += 88
+  ctx.font = '12px system-ui, "Microsoft YaHei", sans-serif'
+  ctx.fillText(`${payload.achievementProgress}% 完成`, CW / 2, y + 62)
+  y += 76
 
-  drawCard(ctx, P, y, barW, 56, 'rgba(255,255,255,0.7)', 14)
+  drawGlassCard(ctx, P, y, barW, 52, 14)
   ctx.fillStyle = '#6b4f5f'
   ctx.font = '15px system-ui, "Microsoft YaHei", sans-serif'
   ctx.textAlign = 'center'
-  ctx.fillText(`总花费 ¥${payload.totalSpending}`, CW / 2, y + 34)
-  y += 72
+  ctx.fillText(`总花费 ¥${payload.totalSpending}`, CW / 2, y + 32)
 
   ctx.fillStyle = '#927084'
-  ctx.font = '13px system-ui, "Microsoft YaHei", sans-serif'
-  ctx.textAlign = 'center'
-  ctx.fillText('Lo研社 · 生涯统计', CW / 2, CH - P)
+  ctx.font = '12px system-ui, "Microsoft YaHei", sans-serif'
+  ctx.fillText('Lo研社 · 生涯统计', CW / 2, CH - P + 4)
 
   return canvas
 }
@@ -406,7 +797,11 @@ async function generateAndUpload() {
 
   generating.value = true
   try {
-    const canvas = drawShareCanvas(payload)
+    const [avatarImg, frameImg] = await Promise.all([
+      loadImageCors(resolveImgUrl(payload.userFace)),
+      payload.avatarFrame ? loadImageCors(resolveImgUrl(payload.avatarFrame)) : Promise.resolve(null),
+    ])
+    const canvas = drawShareCanvas(payload, avatarImg, frameImg)
     const blob = await new Promise<Blob | null>((resolve) =>
       canvas.toBlob((b) => resolve(b), 'image/png', 0.92),
     )
