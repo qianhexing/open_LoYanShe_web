@@ -10,6 +10,7 @@ import {
   runAiIntentHandlers
 } from '@/utils/aiIntentDispatch'
 import { BASE_IMG } from '@/utils/ipConfig'
+import { librarySeedForClothesAdd } from '@/utils/libraryClothesSeed'
 import type { Library, PlanList, Shop, WardrobeClothes } from '@/types/api'
 import YearlySummaryLoginModal from '@/components/yearlySummary/LoginModal.vue'
 import type PlanAddEdit from '@/components/Plan/PlanAddEdit.vue'
@@ -408,32 +409,6 @@ async function onPickSimilarBase(messageId: string, lib: Library) {
 
 function formatAnalysis(a: AiIntentAnalysisResult): string {
   return JSON.stringify({ type: a.type, params: a.params }, null, 2)
-}
-
-/**
- * 与 ClothesAdd 内「选择图鉴」代入逻辑对齐：名称、封面、价格、店铺
- */
-function librarySeedForClothesAdd(lib: Library): Partial<WardrobeClothes> & {
-  library: Library
-  origin_shop?: Shop
-} {
-  const seed: Partial<WardrobeClothes> & { library: Library; origin_shop?: Shop } = {
-    library: lib,
-    clothes_note: lib.name ?? '',
-    clothes_img: lib.cover || undefined,
-    price: lib.library_price ?? 0
-  }
-  if (lib.shop) {
-    seed.origin_shop = lib.shop
-  } else if (lib.shop_id) {
-    seed.origin_shop = {
-      shop_id: lib.shop_id,
-      shop_name: `店铺 #${lib.shop_id}`,
-      shop_logo: '',
-      shop_country: 0
-    }
-  }
-  return seed
 }
 
 /** 加衣柜：图鉴 / 共享卡片 → 打开「新增服饰」并代入（衣柜选择在 ClothesAdd 表单内操作） */

@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import type { Library } from '@/types/api';
 import type LibraryTypeColorChoose from '@/components/library/LibraryTypeColorChoose.vue'
-import type WardrobeAddLibrary from '@/components/Wardrobe/WardrobeAddLibrary.vue'
+import type ClothesAdd from '@/components/Clothes/ClothesAdd.vue'
+import { librarySeedFromTypeColorChoose, type LibraryTypeColorChooseResult } from '@/utils/libraryClothesSeed'
 import { useToast } from '#imports'
 
 let uni: any;
@@ -34,7 +35,7 @@ const item = toRef(props, 'item')
 
 // 加衣柜相关
 const libraryTypeColorChooseRef = ref<InstanceType<typeof LibraryTypeColorChoose> | null>(null)
-const wardrobeAddLibraryRef = ref<InstanceType<typeof WardrobeAddLibrary> | null>(null)
+const clothesAddRef = ref<InstanceType<typeof ClothesAdd> | null>(null)
 const wardrobeCount = ref(0)
 const isInWardrobe = ref(false)
 
@@ -93,8 +94,8 @@ const handleAddToWardrobe = () => {
 }
 
 // 图鉴颜色选择完成 - 第二步：打开衣柜选择组件
-const handleLibraryTypeColorChoose = (data: { library: Library; clothes_img: string }) => {
-  wardrobeAddLibraryRef.value?.showModel(data)
+const handleLibraryTypeColorChoose = async (data: LibraryTypeColorChooseResult) => {
+  await clothesAddRef.value?.showModel(librarySeedFromTypeColorChoose(data))
 }
 
 // 点赞点击处理
@@ -464,7 +465,7 @@ const handleJump = (id: number) => {
     
     <!-- 加入衣柜相关组件 -->
     <!-- <LibraryTypeColorChoose ref="libraryTypeColorChooseRef" @choose="handleLibraryTypeColorChoose" />
-    <WardrobeAddLibrary ref="wardrobeAddLibraryRef" @change="handleWardrobeChange" /> -->
+    <ClothesAdd ref="clothesAddRef" enable-wardrobe-picker @success="handleWardrobeChange" /> -->
   </div>
 </template>
 

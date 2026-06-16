@@ -1,0 +1,427 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>云看展 Demo - Lo研社</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { width: 100%; height: 100%; overflow: hidden; background: #1a1520; font-family: system-ui, sans-serif; }
+    #container { position: absolute; inset: 0; touch-action: none; }
+    .ui-header { position: fixed; top: 20px; left: 20px; z-index: 10; pointer-events: none; color: #fff; }
+    .ui-header h1 { font-size: 24px; background: linear-gradient(135deg, #d48898, #e8b4c8); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+    .ui-header p { font-size: 12px; color: rgba(255,255,255,0.45); margin-top: 4px; }
+    .ui-hints { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); z-index: 10; padding: 8px 16px; background: rgba(20,15,30,0.75); border: 1px solid rgba(255,255,255,0.1); border-radius: 999px; color: rgba(255,255,255,0.55); font-size: 12px; pointer-events: none; white-space: nowrap; }
+    .ui-minimap { position: fixed; top: 20px; right: 20px; z-index: 10; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 16px rgba(0,0,0,0.3); }
+    #minimap { display: block; width: 140px; height: 140px; }
+    .ui-joystick { position: fixed; bottom: 80px; left: 24px; z-index: 10; width: 120px; height: 120px; display: none; touch-action: none; }
+    .ui-joystick.visible { display: block; }
+    .joystick-base { position: absolute; inset: 0; border-radius: 50%; background: rgba(255,255,255,0.12); border: 2px solid rgba(255,255,255,0.25); }
+    .joystick-knob { position: absolute; left: 50%; top: 50%; width: 44px; height: 44px; border-radius: 50%; background: rgba(216,136,152,0.85); border: 2px solid rgba(255,255,255,0.5); transform: translate(-50%, -50%); pointer-events: none; }
+    .ui-loading { position: fixed; inset: 0; z-index: 100; display: flex; flex-direction: column; align-items: center; justify-content: center; background: rgba(26,21,32,0.92); color: #d48898; }
+    .ui-loading.hidden { display: none; }
+    .spinner { width: 48px; height: 48px; border: 3px solid rgba(216,136,152,0.2); border-top-color: #d48898; border-radius: 50%; animation: spin 0.8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .ui-hint-nearby { position: fixed; bottom: 120px; left: 50%; transform: translateX(-50%); z-index: 10; padding: 10px 20px; background: rgba(20,15,30,0.85); border: 1px solid rgba(216,136,152,0.4); border-radius: 999px; color: #fff; font-size: 14px; display: none; pointer-events: none; }
+    .ui-hint-nearby.visible { display: flex; align-items: center; gap: 8px; }
+    .ui-panel { position: fixed; z-index: 20; bottom: 0; left: 0; right: 0; max-width: 480px; margin: 0 auto; padding: 24px; background: rgba(255,255,255,0.95); border-radius: 24px 24px 0 0; box-shadow: 0 -8px 32px rgba(0,0,0,0.15); display: none; }
+    .ui-panel.visible { display: block; }
+    .ui-panel h2 { font-size: 20px; color: #d48898; margin-bottom: 12px; }
+    .ui-panel p { font-size: 14px; color: #555; line-height: 1.6; margin-bottom: 16px; }
+    .ui-panel-btns { display: flex; gap: 12px; }
+    .ui-panel-btns button { flex: 1; padding: 10px; border-radius: 999px; border: 1px solid #ddd; cursor: pointer; font-size: 14px; }
+    .ui-panel-btns .primary { background: #d48898; color: #fff; border-color: #d48898; }
+    @media (min-width: 768px) {
+      .ui-panel { bottom: auto; top: 50%; left: auto; right: 24px; transform: translateY(-50%); border-radius: 20px; max-width: 360px; }
+      .ui-joystick { display: none !important; }
+    }
+    @media (max-width: 767px) {
+      .ui-joystick.visible { display: block; }
+      .ui-hints { white-space: normal; text-align: center; max-width: 90vw; font-size: 11px; bottom: 16px; }
+    }
+  </style>
+</head>
+<body>
+  <div id="container"></div>
+
+  <div class="ui-header">
+    <h1>云看展</h1>
+    <p>Lo研社数字展馆 Demo</p>
+  </div>
+
+  <div class="ui-minimap"><canvas id="minimap" width="140" height="140"></canvas></div>
+
+  <div class="ui-hints" id="hints">WASD 移动 · 右键拖拽旋转 · 点击展品</div>
+
+  <div class="ui-joystick" id="joystick">
+    <div class="joystick-base"></div>
+    <div class="joystick-knob" id="joystickKnob"></div>
+  </div>
+
+  <div class="ui-hint-nearby" id="nearbyHint"><span>👆</span> 点击展品查看详情</div>
+
+  <div class="ui-panel" id="panel">
+    <h2 id="panelTitle"></h2>
+    <p id="panelDesc"></p>
+    <div class="ui-panel-btns">
+      <button class="primary" id="btnTeleport">传送到展品前</button>
+      <button id="btnClose">关闭</button>
+    </div>
+  </div>
+
+  <div class="ui-loading" id="loading">
+    <div class="spinner"></div>
+    <p style="margin-top:16px">加载展馆中…</p>
+  </div>
+
+  <!--
+    本 Demo 使用 Three.js CDN 直接实现。
+    在 Lo研社 Nuxt 项目中请使用 /exhibition/gallery 页面（集成 @/utils/threeCore）。
+    若 window.threeCore 已挂载，可将 initThreeCore() 替换为 threeCore 实例化逻辑。
+  -->
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/"
+    }
+  }
+  </script>
+  <script type="module">
+  import * as THREE from 'three';
+  import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+
+  // ==================== 展馆配置 ====================
+  const galleryConfig = {
+    mapSize: { width: 24, depth: 20 },
+    moveSpeed: 5,
+    playerStart: [0, 6],
+    interactDistance: 2,
+    playerRadius: 0.4,
+    walls: [
+      { position: [0, -9.5], size: [24, 0.5] },
+      { position: [0, 9.5], size: [24, 0.5] },
+      { position: [-11.5, 0], size: [0.5, 20] },
+      { position: [11.5, 0], size: [0.5, 20] },
+      { position: [-4, 0], size: [0.4, 8] },
+      { position: [4, -3], size: [0.4, 6] },
+      { position: [8, 4], size: [6, 0.4] }
+    ],
+    exhibits: [
+      { id: 'e1', position: [-7, -4], size: [1.6, 1.6], name: '星夜洛丽塔', description: '以梵高《星夜》为灵感的深蓝色洛丽塔裙装。', color: 0x4a6fa5 },
+      { id: 'e2', position: [7, -5], size: [1.8, 1.8], name: '玫瑰花园', description: '粉白渐变配色，经典 A 字版型。', color: 0xe8a0b4 },
+      { id: 'e3', position: [-7, 5], size: [1.5, 1.5], name: '哥特暗黑', description: '黑色天鹅绒与十字架元素。', color: 0x2a2a3a },
+      { id: 'e4', position: [7, 5], size: [2, 2], name: '甜系马卡龙', description: '薄荷绿 × 奶油粉的甜美配色。', color: 0xa8e6cf }
+    ]
+  };
+
+  // ==================== 碰撞检测 ====================
+  const createRotatedAABB = (cx, cz, w, d, rot = 0) => {
+    const hw = w / 2, hd = d / 2, cos = Math.cos(rot), sin = Math.sin(rot);
+    const corners = [[-hw,-hd],[hw,-hd],[hw,hd],[-hw,hd]].map(([x,z]) => ({
+      x: cx + x * cos - z * sin, z: cz + x * sin + z * cos
+    }));
+    let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+    corners.forEach(c => { minX = Math.min(minX,c.x); maxX = Math.max(maxX,c.x); minZ = Math.min(minZ,c.z); maxZ = Math.max(maxZ,c.z); });
+    return { minX, maxX, minZ, maxZ };
+  };
+
+  const circleIntersectsAABB = (px, pz, r, box) => {
+    const cx = Math.max(box.minX, Math.min(px, box.maxX));
+    const cz = Math.max(box.minZ, Math.min(pz, box.maxZ));
+    const dx = px - cx, dz = pz - cz;
+    return dx*dx + dz*dz < r*r - 1e-8;
+  };
+
+  const resolveCircleAABB = (px, pz, r, box) => {
+    const cx = Math.max(box.minX, Math.min(px, box.maxX));
+    const cz = Math.max(box.minZ, Math.min(pz, box.maxZ));
+    const dx = px - cx, dz = pz - cz, distSq = dx*dx + dz*dz;
+    if (distSq >= r*r) return [px, pz];
+    if (distSq < 1e-10) {
+      const d = [px-box.minX, box.maxX-px, pz-box.minZ, box.maxZ-pz];
+      const i = d.indexOf(Math.min(...d));
+      return i===0?[box.minX-r,pz]:i===1?[box.maxX+r,pz]:i===2?[px,box.minZ-r]:[px,box.maxZ+r];
+    }
+    const dist = Math.sqrt(distSq), overlap = r - dist;
+    return [px + dx/dist*overlap, pz + dz/dist*overlap];
+  };
+
+  const tryMoveCircle = (px, pz, dx, dz, r, colliders, boundary) => {
+    let nx = px + dx, nz = pz + dz;
+    colliders.forEach(box => { if (circleIntersectsAABB(nx, pz, r, box)) [nx] = resolveCircleAABB(nx, pz, r, box); });
+    colliders.forEach(box => { if (circleIntersectsAABB(nx, nz, r, box)) [, nz] = resolveCircleAABB(nx, nz, r, box); });
+    nx = Math.max(boundary.minX + r, Math.min(boundary.maxX - r, nx));
+    nz = Math.max(boundary.minZ + r, Math.min(boundary.maxZ - r, nz));
+    return [nx, nz];
+  };
+
+  // ==================== 状态 ====================
+  const CAMERA_PITCH = Math.PI / 4, CAMERA_DIST = 8, CAMERA_H = CAMERA_DIST * Math.tan(CAMERA_PITCH);
+  const isMobile = window.innerWidth < 768 || /Android|iPhone|iPad/i.test(navigator.userAgent);
+
+  let playerX = galleryConfig.playerStart[0], playerZ = galleryConfig.playerStart[1];
+  let cameraYaw = 0;
+  const keys = { w: false, a: false, s: false, d: false };
+  let joyX = 0, joyY = 0;
+  let isRotating = false, lastPointerX = 0;
+  let selectedExhibit = null;
+  let colliders = [], boundary;
+  let exhibitGroups = [], playerMesh;
+
+  const buildColliders = () => {
+    colliders = [];
+    galleryConfig.walls.forEach(w => colliders.push(createRotatedAABB(...w.position, ...w.size, w.rotation||0)));
+    galleryConfig.exhibits.forEach(e => colliders.push(createRotatedAABB(...e.position, ...e.size, e.rotation||0)));
+    const m = galleryConfig.playerRadius;
+    boundary = {
+      minX: -galleryConfig.mapSize.width/2 + m, maxX: galleryConfig.mapSize.width/2 - m,
+      minZ: -galleryConfig.mapSize.depth/2 + m, maxZ: galleryConfig.mapSize.depth/2 - m
+    };
+  };
+
+  // ==================== Three.js 场景 ====================
+  const container = document.getElementById('container');
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x1a1520);
+
+  const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 200);
+  const renderer = new THREE.WebGLRenderer({ antialias: !isMobile });
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, isMobile ? 1.5 : 2));
+  renderer.shadowMap.enabled = true;
+  container.appendChild(renderer.domElement);
+
+  // 灯光
+  scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+  const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+  dirLight.position.set(5, 10, 5);
+  dirLight.castShadow = true;
+  scene.add(dirLight);
+  scene.add(new THREE.HemisphereLight(0xfff0f5, 0x1a1520, 0.4));
+
+  // 地面
+  const { width: mapW, depth: mapD } = galleryConfig.mapSize;
+  const floor = new THREE.Mesh(
+    new THREE.PlaneGeometry(mapW, mapD),
+    new THREE.MeshStandardMaterial({ color: 0xf5eef2, roughness: 0.85 })
+  );
+  floor.rotation.x = -Math.PI / 2;
+  floor.receiveShadow = true;
+  scene.add(floor);
+  scene.add(new THREE.GridHelper(Math.max(mapW, mapD), Math.max(mapW, mapD), 0xd48898, 0xe8d0d8));
+
+  // 墙体
+  const wallMat = new THREE.MeshStandardMaterial({ color: 0xe8dce2, roughness: 0.7 });
+  galleryConfig.walls.forEach(w => {
+    const h = w.height || 3;
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(...w.size, h), wallMat);
+    mesh.position.set(w.position[0], h/2, w.position[1]);
+    mesh.rotation.y = w.rotation || 0;
+    mesh.castShadow = true;
+    scene.add(mesh);
+  });
+
+  // 玩家
+  const playerGroup = new THREE.Group();
+  const body = new THREE.Mesh(
+    new THREE.CapsuleGeometry(galleryConfig.playerRadius, 0.8, 8, 16),
+    new THREE.MeshStandardMaterial({ color: 0x7ec8e3 })
+  );
+  body.position.y = 0.8;
+  body.castShadow = true;
+  playerGroup.add(body);
+  playerGroup.position.set(playerX, 0, playerZ);
+  scene.add(playerGroup);
+  playerMesh = playerGroup;
+
+  // 展品
+  galleryConfig.exhibits.forEach(ex => {
+    const group = new THREE.Group();
+    const pedH = 0.8;
+    const ped = new THREE.Mesh(
+      new THREE.BoxGeometry(...ex.size, pedH),
+      new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.3 })
+    );
+    ped.position.y = pedH / 2;
+    ped.castShadow = true;
+    group.add(ped);
+
+    const placeholder = new THREE.Mesh(
+      new THREE.BoxGeometry(ex.size[0]*0.5, ex.size[0]*0.5, ex.size[0]*0.5),
+      new THREE.MeshStandardMaterial({ color: ex.color || 0xd48898 })
+    );
+    placeholder.position.y = pedH + ex.size[0]*0.25;
+    group.add(placeholder);
+
+    const light = new THREE.PointLight(0xfff0f5, 0.8, 6);
+    light.position.set(0, pedH + 1.2, 0.5);
+    group.add(light);
+
+    group.position.set(...ex.position, 0);
+    group.userData.exhibit = ex;
+    scene.add(group);
+    exhibitGroups.push(group);
+  });
+
+  buildColliders();
+
+  // ==================== 相机更新 ====================
+  const updateCamera = () => {
+    const ox = Math.sin(cameraYaw) * CAMERA_DIST;
+    const oz = Math.cos(cameraYaw) * CAMERA_DIST;
+    camera.position.set(playerX - ox, CAMERA_H, playerZ - oz);
+    camera.lookAt(playerX, 0.8, playerZ);
+    playerMesh.position.set(playerX, 0, playerZ);
+    playerMesh.rotation.y = cameraYaw;
+  };
+
+  // ==================== 小地图 ====================
+  const minimapCanvas = document.getElementById('minimap');
+  const minimapCtx = minimapCanvas.getContext('2d');
+  const drawMinimap = () => {
+    const size = 140, pad = 8, scale = (size - pad*2) / Math.max(mapW, mapD);
+    const ox = size/2, oz = size/2;
+    const tc = (x,z) => ({ cx: ox + x*scale, cz: oz + z*scale });
+    minimapCtx.fillStyle = 'rgba(20,15,30,0.85)';
+    minimapCtx.fillRect(0,0,size,size);
+    minimapCtx.strokeStyle = 'rgba(255,255,255,0.2)';
+    const tl = tc(-mapW/2, -mapD/2);
+    minimapCtx.strokeRect(tl.cx, tl.cz, mapW*scale, mapD*scale);
+    galleryConfig.exhibits.forEach(ex => {
+      const p = tc(...ex.position);
+      minimapCtx.beginPath(); minimapCtx.arc(p.cx, p.cz, 4, 0, Math.PI*2);
+      minimapCtx.fillStyle = '#d48898'; minimapCtx.fill();
+    });
+    const pp = tc(playerX, playerZ);
+    minimapCtx.save(); minimapCtx.translate(pp.cx, pp.cz);
+    minimapCtx.rotate(-cameraYaw + Math.PI);
+    minimapCtx.beginPath(); minimapCtx.moveTo(0,-7); minimapCtx.lineTo(-5,5); minimapCtx.lineTo(5,5); minimapCtx.closePath();
+    minimapCtx.fillStyle = '#7ec8e3'; minimapCtx.fill(); minimapCtx.restore();
+  };
+
+  // ==================== 交互 ====================
+  const nearbyHint = document.getElementById('nearbyHint');
+  const panel = document.getElementById('panel');
+  const panelTitle = document.getElementById('panelTitle');
+  const panelDesc = document.getElementById('panelDesc');
+
+  const updateNearby = () => {
+    let closest = null, minD = galleryConfig.interactDistance;
+    galleryConfig.exhibits.forEach(ex => {
+      const d = Math.hypot(playerX - ex.position[0], playerZ - ex.position[1]);
+      if (d < minD) { minD = d; closest = ex; }
+    });
+    nearbyHint.classList.toggle('visible', !!closest && !selectedExhibit);
+  };
+
+  const showPanel = (ex) => {
+    selectedExhibit = ex;
+    panelTitle.textContent = ex.name;
+    panelDesc.textContent = ex.description || '';
+    panel.classList.add('visible');
+    nearbyHint.classList.remove('visible');
+  };
+
+  document.getElementById('btnClose').onclick = () => { selectedExhibit = null; panel.classList.remove('visible'); };
+  document.getElementById('btnTeleport').onclick = () => {
+    if (!selectedExhibit) return;
+    const ox = Math.sin(cameraYaw)*2.5, oz = Math.cos(cameraYaw)*2.5;
+    [playerX, playerZ] = tryMoveCircle(selectedExhibit.position[0]+ox, selectedExhibit.position[1]+oz, 0, 0, galleryConfig.playerRadius, colliders, boundary);
+    selectedExhibit = null; panel.classList.remove('visible');
+  };
+
+  // 键盘
+  window.addEventListener('keydown', e => { const k = e.key.toLowerCase(); if (k in keys) keys[k] = true; if (k==='escape') { selectedExhibit=null; panel.classList.remove('visible'); } });
+  window.addEventListener('keyup', e => { const k = e.key.toLowerCase(); if (k in keys) keys[k] = false; });
+
+  // 鼠标旋转 + 点击
+  container.addEventListener('contextmenu', e => e.preventDefault());
+  container.addEventListener('pointerdown', e => {
+    if (e.button === 2 || (isMobile && e.clientX > window.innerWidth * 0.5)) { isRotating = true; lastPointerX = e.clientX; }
+  });
+  container.addEventListener('pointermove', e => {
+    if (!isRotating) return;
+    cameraYaw -= (e.clientX - lastPointerX) * 0.005;
+    lastPointerX = e.clientX;
+  });
+  container.addEventListener('pointerup', () => { isRotating = false; });
+  container.addEventListener('click', e => {
+    const rect = container.getBoundingClientRect();
+    const mouse = new THREE.Vector2(((e.clientX-rect.left)/rect.width)*2-1, -((e.clientY-rect.top)/rect.height)*2+1);
+    const ray = new THREE.Raycaster();
+    ray.setFromCamera(mouse, camera);
+    const hits = ray.intersectObjects(exhibitGroups, true);
+    if (hits.length) {
+      let obj = hits[0].object;
+      while (obj && !obj.userData.exhibit) obj = obj.parent;
+      if (obj?.userData.exhibit) showPanel(obj.userData.exhibit);
+    }
+  });
+
+  // 摇杆
+  const joystickEl = document.getElementById('joystick');
+  const knobEl = document.getElementById('joystickKnob');
+  if (isMobile) {
+    joystickEl.classList.add('visible');
+    document.getElementById('hints').textContent = '左侧摇杆移动 · 右侧滑动旋转 · 点击展品';
+    let joyActive = false, joyPointerId = null;
+    const JOY_R = 50;
+    joystickEl.addEventListener('pointerdown', e => {
+      joyActive = true; joyPointerId = e.pointerId;
+      joystickEl.setPointerCapture(e.pointerId);
+      updateJoy(e);
+    });
+    joystickEl.addEventListener('pointermove', e => { if (joyActive) updateJoy(e); });
+    const endJoy = () => { joyActive = false; joyX = joyY = 0; knobEl.style.transform = 'translate(-50%,-50%)'; };
+    joystickEl.addEventListener('pointerup', endJoy);
+    joystickEl.addEventListener('pointercancel', endJoy);
+    function updateJoy(e) {
+      const rect = joystickEl.getBoundingClientRect();
+      const cx = rect.left + rect.width/2, cy = rect.top + rect.height/2;
+      let dx = e.clientX - cx, dy = e.clientY - cy;
+      const dist = Math.hypot(dx, dy);
+      if (dist > JOY_R) { dx = dx/dist*JOY_R; dy = dy/dist*JOY_R; }
+      joyX = dx/JOY_R; joyY = dy/JOY_R;
+      knobEl.style.transform = `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`;
+    }
+  }
+
+  // ==================== 动画循环 ====================
+  const clock = new THREE.Clock();
+  document.getElementById('loading').classList.add('hidden');
+
+  const animate = () => {
+    requestAnimationFrame(animate);
+    const delta = clock.getDelta();
+    let ix = 0, iz = 0;
+    if (keys.w) iz -= 1; if (keys.s) iz += 1; if (keys.a) ix -= 1; if (keys.d) ix += 1;
+    if (joyX || joyY) { ix = joyX; iz = joyY; }
+    const len = Math.hypot(ix, iz);
+    if (len > 0.01) {
+      ix /= len; iz /= len;
+      const wx = ix * Math.cos(cameraYaw) + iz * Math.sin(cameraYaw);
+      const wz = -ix * Math.sin(cameraYaw) + iz * Math.cos(cameraYaw);
+      [playerX, playerZ] = tryMoveCircle(playerX, playerZ, wx*galleryConfig.moveSpeed*delta, wz*galleryConfig.moveSpeed*delta, galleryConfig.playerRadius, colliders, boundary);
+    }
+    updateCamera();
+    updateNearby();
+    drawMinimap();
+    renderer.render(scene, camera);
+  };
+  updateCamera();
+  animate();
+
+  window.addEventListener('resize', () => {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+  });
+
+  // 若 window.threeCore 已挂载，可在此替换为 threeCore 实例（项目内用法见 composables/useGalleryWalkthrough.ts）
+  if (window.threeCore) {
+    console.info('[Gallery Demo] 检测到 window.threeCore，建议使用 Nuxt 页面 /exhibition/gallery 获得完整集成。');
+  }
+  </script>
+</body>
+</html>

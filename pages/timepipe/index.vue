@@ -355,7 +355,7 @@
     <!-- <QhxLoading :loading="isLoading" :page="page" :total="total" :page-size="pageSize" @load-more="loadMore">
     </QhxLoading> -->
     <LibraryTypeColorChoose ref="libraryTypeColorChooseRef" @choose="handleLibraryTypeColorChoose" />
-    <WardrobeAddLibrary ref="wardrobeAddLibraryRef" @change="handleWardrobeChange" />
+    <ClothesAdd ref="clothesAddRef" enable-wardrobe-picker @success="handleClothesAddSuccess" />
     
     <!-- 筛选弹窗 -->
     <QhxModal v-model="showFilterModal" :close-on-backdrop="false">
@@ -532,7 +532,7 @@ import { computed, ref, watch, nextTick, onMounted, onBeforeUnmount, reactive } 
 import HorizontalDatePicker from '@/components/Qhx/HorizontalDatePicker.vue'
 import { getLibraryPipeList } from '@/api/library'
 import type QhxWaterList from '@/components/Qhx/WaterList.vue'
-import type { LibraryPipe, Shop, Wardrobe, WardrobeClothes, FilterList } from '@/types/api'
+import type { LibraryPipe, Shop, Wardrobe, WardrobeClothes, FilterList, Library } from '@/types/api'
 import { getUserMy } from '@/api/user'
 import type { User } from '@/types/api'
 import { getBrowTimeOne, insertBrowTime } from '@/api/brow_time'
@@ -542,15 +542,16 @@ const libraryPipeAddRef = ref<InstanceType<typeof LibraryPipeAdd> | null>(null)
 import { getLibraryPipeListAll } from '@/api/library'
 import { getDisplayCabinetList, insertDisplayCabinet } from '@/api/display_cabinet'
 import type WardrobeChoose from '@/components/Wardrobe/WardrobeChoose.vue'
-import type WardrobeAddLibrary from '@/components/Wardrobe/WardrobeAddLibrary.vue'
+import type ClothesAdd from '@/components/Clothes/ClothesAdd.vue'
 import type FavoriteOptionsModal from '@/components/Favorite/OptionsModal.vue'
 import type LibraryTypeColorChoose from '@/components/library/LibraryTypeColorChoose.vue'
+import { librarySeedFromTypeColorChoose, type LibraryTypeColorChooseResult } from '@/utils/libraryClothesSeed'
 import type DanmakuComment from '@/components/comment/DanmakuComment.vue'
 import WikiOptionsChoose from '@/components/wiki/wikiOptionsChoose.vue'
 import type WikiOptionsChooseType from '@/components/wiki/wikiOptionsChoose.vue'
 import { getWikiOptionsByKeywords } from '@/api/wiki'
 import EmailBindModal from '@/components/user/EmailBindModal.vue'
-const wardrobeAddLibraryRef = ref<InstanceType<typeof WardrobeAddLibrary> | null>(null)
+const clothesAddRef = ref<InstanceType<typeof ClothesAdd> | null>(null)
 const favoriteOptionsModalRef = ref<InstanceType<typeof FavoriteOptionsModal> | null>(null)
 const libraryTypeColorChooseRef = ref<InstanceType<typeof LibraryTypeColorChoose> | null>(null)
 const danmakuRef = ref<InstanceType<typeof DanmakuComment> | null>(null)
@@ -591,7 +592,6 @@ const fetchLibraryPipeAll = () => {
     })
 }
 import dayjs from 'dayjs'
-import type { Library } from '@/types/api'
 let uni: any;
 const showConfirm = ref(false)
 const toast = useToast()
@@ -668,11 +668,11 @@ const wardrobeChooseRef = ref<InstanceType<typeof WardrobeChoose> | null>(null)
 const showChooseWardrobe = () => {
   wardrobeChooseRef.value?.showModel()
 }
-// 图鉴颜色选择完成
-const handleLibraryTypeColorChoose = (data: { library: Library; clothes_img: string }) => {
-  wardrobeAddLibraryRef.value?.showModel(data)
+// 图鉴颜色选择完成 → 打开新增服饰
+const handleLibraryTypeColorChoose = async (data: LibraryTypeColorChooseResult) => {
+  await clothesAddRef.value?.showModel(librarySeedFromTypeColorChoose(data))
 }
-const handleWardrobeChange = (data?: WardrobeClothes) => {
+const handleClothesAddSuccess = (data?: WardrobeClothes) => {
   toast.add({
     title: '添加成功',
     icon: 'i-heroicons-check-circle',

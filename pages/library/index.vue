@@ -13,7 +13,8 @@ import type WikiOptionsChooseType from '@/components/wiki/wikiOptionsChoose.vue'
 import type { default as QhxSelect } from '@/components/Qhx/Select.vue'
 import type FavoriteOptionsModal from '@/components/Favorite/OptionsModal.vue'
 import type LibraryTypeColorChoose from '@/components/library/LibraryTypeColorChoose.vue'
-import type WardrobeAddLibrary from '@/components/Wardrobe/WardrobeAddLibrary.vue'
+import type ClothesAdd from '@/components/Clothes/ClothesAdd.vue'
+import { librarySeedFromTypeColorChoose, type LibraryTypeColorChooseResult } from '@/utils/libraryClothesSeed'
 import { useToast } from '#imports'
 const { t } = useI18n()
 const layoutReady = inject('layoutReady') as Ref<boolean>
@@ -27,7 +28,7 @@ const opearItem = ref<number | null>(null)
 
 // 加衣柜相关
 const libraryTypeColorChooseRef = ref<InstanceType<typeof LibraryTypeColorChoose> | null>(null)
-const wardrobeAddLibraryRef = ref<InstanceType<typeof WardrobeAddLibrary> | null>(null)
+const clothesAddRef = ref<InstanceType<typeof ClothesAdd> | null>(null)
 const favoriteOptionsModalRef = ref<InstanceType<typeof FavoriteOptionsModal> | null>(null)
 // 分页参数
 const pageSize = 20
@@ -1070,13 +1071,13 @@ const handleWardrobeClick = (data: { library: Library }) => {
   libraryTypeColorChooseRef.value?.showModel(data.library)
 }
 
-// 图鉴颜色选择完成
-const handleLibraryTypeColorChoose = (data: { library: Library; clothes_img: string }) => {
-  wardrobeAddLibraryRef.value?.showModel(data)
+// 图鉴颜色选择完成 → 打开新增服饰
+const handleLibraryTypeColorChoose = async (data: LibraryTypeColorChooseResult) => {
+  await clothesAddRef.value?.showModel(librarySeedFromTypeColorChoose(data))
 }
 
-// 衣柜添加成功
-const handleWardrobeChange = (data?: { library_id?: number }) => {
+// 新增服饰成功
+const handleClothesAddSuccess = (data?: { library_id?: number }) => {
   toast.add({
     title: t('library.add_success'),
     icon: 'i-heroicons-check-circle',
@@ -1573,7 +1574,7 @@ onMounted(async () => {
 
     <!-- 加入衣柜相关组件 -->
     <LibraryTypeColorChoose ref="libraryTypeColorChooseRef" @choose="handleLibraryTypeColorChoose" />
-    <WardrobeAddLibrary ref="wardrobeAddLibraryRef" @change="handleWardrobeChange" />
+    <ClothesAdd ref="clothesAddRef" enable-wardrobe-picker @success="handleClothesAddSuccess" />
 
     <!-- 收藏夹选择组件 -->
     <FavoriteOptionsModal ref="favoriteOptionsModalRef" @change="handleCollectChange" />

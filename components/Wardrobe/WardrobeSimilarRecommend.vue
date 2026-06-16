@@ -5,7 +5,8 @@ import { getLibrarySimilarBatch } from '@/api/library'
 import { insertGood } from '@/api/good'
 import type FavoriteOptionsModal from '@/components/Favorite/OptionsModal.vue'
 import type LibraryTypeColorChoose from '@/components/library/LibraryTypeColorChoose.vue'
-import type WardrobeAddLibrary from '@/components/Wardrobe/WardrobeAddLibrary.vue'
+import type ClothesAdd from '@/components/Clothes/ClothesAdd.vue'
+import { librarySeedFromTypeColorChoose, type LibraryTypeColorChooseResult } from '@/utils/libraryClothesSeed'
 
 const props = defineProps<{
   /** 当前衣柜 ID；未选衣柜时不要调 open */
@@ -28,7 +29,7 @@ const rows = ref<LibrarySimilarItem[]>([])
 
 const favoriteModalRef = ref<InstanceType<typeof FavoriteOptionsModal> | null>(null)
 const libraryTypeColorRef = ref<InstanceType<typeof LibraryTypeColorChoose> | null>(null)
-const wardrobeAddRef = ref<InstanceType<typeof WardrobeAddLibrary> | null>(null)
+const clothesAddRef = ref<InstanceType<typeof ClothesAdd> | null>(null)
 const collectLibraryId = ref<number | null>(null)
 
 const seedLibraryCount = computed(() => libraryIds.value.length)
@@ -204,11 +205,11 @@ const onWardrobeClick = (data: { library: Library }) => {
   libraryTypeColorRef.value?.showModel(data.library)
 }
 
-const onLibraryTypeColorChoose = (data: { library: Library; clothes_img: string }) => {
-  wardrobeAddRef.value?.showModel(data)
+const onLibraryTypeColorChoose = async (data: LibraryTypeColorChooseResult) => {
+  await clothesAddRef.value?.showModel(librarySeedFromTypeColorChoose(data))
 }
 
-const onWardrobeAdded = (data?: { library_id?: number }) => {
+const onClothesAddSuccess = (data?: { library_id?: number }) => {
   toast.add({ title: '加入衣柜成功', icon: 'i-heroicons-check-circle', color: 'green' })
   const lid = data?.library_id
   if (lid == null) return
@@ -335,7 +336,7 @@ defineExpose({ open })
     </div>
   </QhxModal>
   <LibraryTypeColorChoose ref="libraryTypeColorRef" @choose="onLibraryTypeColorChoose" />
-  <WardrobeAddLibrary ref="wardrobeAddRef" @change="onWardrobeAdded" />
+  <ClothesAdd ref="clothesAddRef" enable-wardrobe-picker @success="onClothesAddSuccess" />
   <FavoriteOptionsModal ref="favoriteModalRef" @change="onCollectChange" />
 </template>
 

@@ -3,8 +3,8 @@
 	* 点击收藏与关注 - 添加图鉴到衣柜
 	* @param library_id 图鉴ID
 	-->
-	<QhxDrawer v-model="show" direction="bottom" size="60vh">
-		<div class="bg-white dark:bg-gray-800 rounded-t-lg overflow-hidden flex flex-col h-full max-h-[60vh]">
+	<QhxDrawer v-model="show" :direction="drawerDirection" :size="drawerSize">
+		<div class="bg-white dark:bg-gray-800 rounded-t-lg md:rounded-l-lg overflow-hidden flex flex-col h-full max-h-[60vh] md:max-h-full">
 			<!-- 标题 -->
 			<div class="flex-shrink-0 px-4 py-3 md:py-4 border-b border-gray-200 dark:border-gray-700">
 				<h3 class="text-base md:text-lg font-bold text-center text-gray-900 dark:text-gray-100">
@@ -67,11 +67,36 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import type { Library, WardrobeClothes } from '@/types/api'
 import { getWardrobeListOptions, insertClothes, type WardrobeListOption } from '@/api/wardrobe'
 import { BASE_IMG } from '@/utils/ipConfig'
 import { useToast } from '#imports'
+
+const windowWidth = ref(typeof window !== 'undefined' ? window.innerWidth : 1024)
+const isDesktop = computed(() => windowWidth.value >= 768)
+
+const drawerDirection = computed(() => (isDesktop.value ? 'right' : 'bottom'))
+const drawerSize = computed(() => (isDesktop.value ? '400px' : '60vh'))
+
+const handleResize = () => {
+	if (typeof window !== 'undefined') {
+		windowWidth.value = window.innerWidth
+	}
+}
+
+onMounted(() => {
+	if (typeof window !== 'undefined') {
+		window.addEventListener('resize', handleResize)
+		windowWidth.value = window.innerWidth
+	}
+})
+
+onBeforeUnmount(() => {
+	if (typeof window !== 'undefined') {
+		window.removeEventListener('resize', handleResize)
+	}
+})
 
 const emit = defineEmits(['close', 'change'])
 

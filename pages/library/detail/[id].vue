@@ -5,7 +5,8 @@ import html2canvas from 'html2canvas';
 import QhxTag from '~/components/Qhx/Tag.vue';
 import type { image } from 'html2canvas/dist/types/css/types/image';
 import type LibraryTypeColorChoose from '@/components/library/LibraryTypeColorChoose.vue'
-import type WardrobeAddLibrary from '@/components/Wardrobe/WardrobeAddLibrary.vue'
+import type ClothesAdd from '@/components/Clothes/ClothesAdd.vue'
+import { librarySeedFromTypeColorChoose, type LibraryTypeColorChooseResult } from '@/utils/libraryClothesSeed'
 import { getWardrobeListOptions } from '@/api/wardrobe'
 import { useToast } from '#imports'
 import type { Wiki } from '@/types/api'
@@ -920,7 +921,7 @@ const exchangeRate = (shop_country: number, price: number) => {
 
 // 加入衣柜相关
 const libraryTypeColorChooseRef = ref<InstanceType<typeof LibraryTypeColorChoose> | null>(null)
-const wardrobeAddLibraryRef = ref<InstanceType<typeof WardrobeAddLibrary> | null>(null)
+const clothesAddRef = ref<InstanceType<typeof ClothesAdd> | null>(null)
 const wardrobeCount = ref(0)
 const isInWardrobe = ref(false)
 const wardrobeLoading = ref(false)
@@ -948,7 +949,7 @@ const checkWardrobeStatus = async () => {
 }
 
 // 监听衣柜添加成功事件
-const handleWardrobeChange = () => {
+const handleClothesAddSuccess = () => {
   // 重新检查状态
   checkWardrobeStatus()
   // 更新总数
@@ -981,9 +982,9 @@ const handleAddToWardrobe = () => {
   libraryTypeColorChooseRef.value?.showModel(library.value)
 }
 
-// 图鉴颜色选择完成 - 第二步：打开衣柜选择组件
-const handleLibraryTypeColorChoose = (data: { library: Library; clothes_img: string }) => {
-  wardrobeAddLibraryRef.value?.showModel(data)
+// 图鉴颜色选择完成 → 打开新增服饰
+const handleLibraryTypeColorChoose = async (data: LibraryTypeColorChooseResult) => {
+  await clothesAddRef.value?.showModel(librarySeedFromTypeColorChoose(data))
 }
 
 // 初始化时检查状态
@@ -2353,7 +2354,7 @@ const libraryVideoItemClass = 'w-[100px] mr-3 mb-2 max-md:w-full max-md:mr-0'
       @success="onLibraryReturnPostSuccess"
     />
     <LibraryTypeColorChoose ref="libraryTypeColorChooseRef" @choose="handleLibraryTypeColorChoose" />
-    <WardrobeAddLibrary ref="wardrobeAddLibraryRef" @change="handleWardrobeChange" />
+    <ClothesAdd ref="clothesAddRef" enable-wardrobe-picker @success="handleClothesAddSuccess" />
     <CompilationsChoose ref="compilationsChooseRef" @choose="onCompChoose" />
     <LibraryChoose
       ref="libraryChooseForStateRef"

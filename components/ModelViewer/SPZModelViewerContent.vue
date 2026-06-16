@@ -154,7 +154,7 @@ const initThreejs = async () => {
             baseUrl: BASE_IMG,
             sceneData: null,
             // 目标默认 (0,0,0)，相机与目标同高 = 平视
-            cameraPosition: { x: 0, y: 0, z: 5 }
+            cameraPosition: { x: 0, y: 0, z: 12 }
         })
 
         // 设置场景默认背景色（可由 props.backgroundColor 自定义；若 sceneJson.background 存在则在后续 loadSceneFromJSON 中再次覆盖）
@@ -340,7 +340,7 @@ const adjustCamera = (animate = true) => {
 
     const size = box.isEmpty() ? new THREE.Vector3(1, 1, 1) : box.getSize(new THREE.Vector3())
     const maxDim = Math.max(size.x, size.y, size.z, 1)
-    const distance = maxDim * 3.2
+    const distance = maxDim * 8.5
 
     // 平视：相机 Y 与目标同高，从 +Z 方向观察
     const targetPosition = new THREE.Vector3(
