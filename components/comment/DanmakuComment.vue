@@ -67,6 +67,36 @@ const config = {
   gap: 8           // 头像与文字间距
 };
 
+const EMIT_INTERVAL = 1200; // 统一发射间隔（毫秒）
+const DEFAULT_USER_FACE = 'static/plan_cover/default.jpg';
+
+const resolveUserFaceUrl = (face?: string | null): string => {
+  const p = (face?.trim() || DEFAULT_USER_FACE).trim();
+  if (/^https?:\/\//i.test(p)) return p;
+  const rel = p.replace(/^\//, '');
+  return `${BASE_IMG}${rel}?x-oss-process=image/quality,q_85/resize,w_56`;
+};
+
+const loadImageCors = (src: string): Promise<HTMLImageElement | null> => {
+  if (!src) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => resolve(img);
+    img.onerror = () => resolve(null);
+    img.src = src;
+  });
+};
+
+const shuffleArray = <T,>(arr: T[]): T[] => {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+};
+
 // 辅助函数：绘制圆角矩形
 const drawRoundedPath = (ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) => {
   ctx.beginPath();
@@ -103,7 +133,7 @@ class Danmaku {
   constructor(comment: Comment, trackIndex: number, speed: number, isHighlighted = false) {
     this.comment = comment;
     this.text = this.processText(comment.comment_content);
-    this.userFace = comment.user?.user_face ? `${BASE_IMG}${comment.user.user_face}` : '';
+    this.userFace = resolveUserFaceUrl(comment.user?.user_face);
     this.isHighlighted = isHighlighted;
     // 计算 Y 坐标：垂直居中于轨道
     this.height = 36; // 弹幕胶囊的高度
@@ -112,9 +142,8 @@ class Danmaku {
     this.y = trackTop + offset;
     this.x = 0; // 将在初始化后被设置为 screenWidth
     this.speed = speed;
-    
-    // 立即进行预渲染
-    this.preRender();
+
+    void this.preRender();
   }
 
   processText(content: string): string {
@@ -129,89 +158,111 @@ class Danmaku {
     }
   }
 
-  preRender() {
+  drawAvatarPlaceholder(oCtx: CanvasRenderingContext2D, avatarX: number, avatarY: number) {
+    const cx = avatarX + config.avatarSize / 2;
+    const cy = avatarY + config.avatarSize / 2;
+    const r = config.avatarSize / 2;
+    oCtx.save();
+    oCtx.beginPath();
+    oCtx.arc(cx, cy, r, 0, Math.PI * 2);
+    oCtx.fillStyle = 'rgba(255, 255, 255, 0.22)';
+    oCtx.fill();
+    const initial = (this.comment.user?.user_name || '?').charAt(0).toUpperCase();
+    oCtx.fillStyle = '#ffffff';
+    oCtx.font = `bold ${Math.round(config.avatarSize * 0.42)}px sans-serif`;
+    oCtx.textAlign = 'center';
+    oCtx.textBaseline = 'middle';
+    oCtx.fillText(initial, cx, cy + 0.5);
+    oCtx.restore();
+  }
+
+  drawAvatarImage(oCtx: CanvasRenderingContext2D, img: HTMLImageElement, avatarX: number, avatarY: number) {
+    oCtx.save();
+    oCtx.beginPath();
+    oCtx.arc(
+      avatarX + config.avatarSize / 2,
+      avatarY + config.avatarSize / 2,
+      config.avatarSize / 2,
+      0,
+      Math.PI * 2,
+    );
+    oCtx.clip();
+    oCtx.drawImage(img, avatarX, avatarY, config.avatarSize, config.avatarSize);
+    oCtx.restore();
+  }
+
+  async preRender() {
     if (typeof document === 'undefined') return;
+
+    const avatarImg = await loadImageCors(this.userFace);
 
     const offscreen = document.createElement('canvas');
     const oCtx = offscreen.getContext('2d');
     if (!oCtx) return;
 
-    // 设置字体以测量宽度
     oCtx.font = `${config.fontSize}px sans-serif`;
-    const textMetrics = oCtx.measureText(this.text);
-    const textWidth = textMetrics.width;
-    
-    // 计算总宽度
-    const hasAvatar = !!this.userFace;
-    const avatarAreaWidth = hasAvatar ? config.avatarSize + config.gap : 0;
+    const textWidth = oCtx.measureText(this.text).width;
+    const avatarAreaWidth = config.avatarSize + config.gap;
     this.width = config.padding * 2 + avatarAreaWidth + textWidth;
-    
-    // 增加一点宽度容错，防止文字被截断
-    offscreen.width = this.width + 4; 
+
+    offscreen.width = this.width + 4;
     offscreen.height = this.height + 4;
 
-    // 绘制背景 (胶囊形状) - 根据是否高亮选择不同颜色
     if (this.isHighlighted) {
-      // 高亮背景 - 使用更亮的颜色，比如蓝色或绿色
-      oCtx.fillStyle = 'rgba(59, 130, 246, 0.7)'; // 蓝色高亮
+      oCtx.fillStyle = 'rgba(59, 130, 246, 0.7)';
     } else {
-      // 普通背景 - 半透明黑色
       oCtx.fillStyle = 'rgba(0, 0, 0, 0.5)';
     }
     drawRoundedPath(oCtx, 1, 1, this.width, this.height, this.height / 2);
     oCtx.fill();
 
-    // 绘制边框 - 高亮时使用更亮的边框
-    if (this.isHighlighted) {
-      oCtx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
-    } else {
-      oCtx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
-    }
+    oCtx.strokeStyle = this.isHighlighted ? 'rgba(255, 255, 255, 0.4)' : 'rgba(255, 255, 255, 0.15)';
     oCtx.lineWidth = 1;
     oCtx.stroke();
 
-    // 绘制文本
+    const avatarX = config.padding;
+    const avatarY = (this.height - config.avatarSize) / 2;
+    if (avatarImg) {
+      this.drawAvatarImage(oCtx, avatarImg, avatarX, avatarY);
+    } else {
+      this.drawAvatarPlaceholder(oCtx, avatarX, avatarY);
+    }
+
     oCtx.fillStyle = '#ffffff';
     oCtx.font = `${config.fontSize}px sans-serif`;
     oCtx.textBaseline = 'middle';
     const textX = config.padding + avatarAreaWidth;
-    oCtx.fillText(this.text, textX + 1, this.height / 2 + 1); // +1 微调垂直居中
+    oCtx.fillText(this.text, textX + 1, this.height / 2 + 1);
 
     this.cacheCanvas = offscreen;
     this.isReady = true;
-
-    // 异步加载头像
-    if (this.userFace) {
-      const img = new Image();
-      img.crossOrigin = 'Anonymous';
-      img.src = this.userFace;
-      img.onload = () => {
-        if (!this.cacheCanvas) return;
-        const ctx = this.cacheCanvas.getContext('2d');
-        if (!ctx) return;
-        
-        ctx.save();
-        ctx.beginPath();
-        const avatarX = config.padding;
-        const avatarY = (this.height - config.avatarSize) / 2;
-        ctx.arc(avatarX + config.avatarSize / 2, avatarY + config.avatarSize / 2, config.avatarSize / 2, 0, Math.PI * 2);
-        ctx.clip();
-        ctx.drawImage(img, avatarX + 1, avatarY + 1, config.avatarSize, config.avatarSize);
-        ctx.restore();
-      };
-      img.onerror = () => {
-         // console.warn('头像加载失败', this.userFace);
-      };
-    }
   }
 }
 
 // 运行时状态管理
 const activeDanmakus: Danmaku[] = [];
 const lastDanmakuOnTracks: (Danmaku | null)[] = [];
-let currentIndex = 0;
+let playQueue: Comment[] = [];
 let lastEmitTime = 0;
 let isRunning = false;
+
+const refillPlayQueue = () => {
+  if (danmakuList.value.length === 0) {
+    playQueue = [];
+    return;
+  }
+  playQueue = shuffleArray(danmakuList.value);
+};
+
+const tryRefillPlayQueue = () => {
+  if (playQueue.length === 0 && activeDanmakus.length === 0 && danmakuList.value.length > 0) {
+    refillPlayQueue();
+  }
+};
+
+const removeFromPlayQueue = (commentId: number) => {
+  playQueue = playQueue.filter((c) => c.comment_id !== commentId);
+};
 
 // 更新 Canvas 尺寸
 const resizeCanvas = () => {
@@ -240,63 +291,54 @@ const resizeCanvas = () => {
   }
 };
 
-// 尝试发射弹幕
-const tryEmitDanmaku = () => {
-  if (danmakuList.value.length === 0 || !isVisible.value || isPaused.value) return;
-
-  const now = Date.now();
-  // 发射间隔控制
-  let minInterval = Math.max(100, 50000 / (lastDanmakuOnTracks.length || 1));
-  
-  // 如果弹幕数量很少，增加间隔以避免重复感
-  if (danmakuList.value.length <= 5) {
-    minInterval = 8000; // 3秒
-  } else if (danmakuList.value.length <= 10) {
-    minInterval = 5000;
-  }
-
-  if (now - lastEmitTime < minInterval) return;
-
-  // 寻找可用轨道
-  const availableTracks: number[] = [];
-  for (let i = 0; i < lastDanmakuOnTracks.length; i++) {
-    const last = lastDanmakuOnTracks[i];
-    // 规则：轨道为空，或者上一条弹幕已经完全进入屏幕一段距离
-    const minDistance = 50 + Math.random() * 80;
-    if (!last || (last.x + last.width + minDistance < screenWidth)) {
-      availableTracks.push(i);
-    }
-  }
-
-  if (availableTracks.length === 0) return;
-
-  // 随机选择一个可用轨道
-  const trackIndex = availableTracks[Math.floor(Math.random() * availableTracks.length)];
-  
-  // 获取数据
-  const comment = danmakuList.value[currentIndex];
-  currentIndex = (currentIndex + 1) % danmakuList.value.length;
-
-  // 计算速度：像素/帧
-  // 降低速度：props.speed 增大，速度减小
-  const baseSpeed = (screenWidth + 200) / (props.speed * 60); 
-  const speed = baseSpeed * (0.9 + Math.random() * 0.2); // 减小随机波动
-
-  // 判断是否高亮（刚刚发送的）
+const emitDanmaku = (comment: Comment, trackIndex: number) => {
+  const baseSpeed = (screenWidth + 200) / (props.speed * 60);
+  const speed = baseSpeed * (0.9 + Math.random() * 0.2);
   const isHighlighted = latestSentCommentId.value === comment.comment_id;
   const danmaku = new Danmaku(comment, trackIndex, speed, isHighlighted);
-  danmaku.x = screenWidth; // 设置起始位置
-  
+  danmaku.x = screenWidth;
+
   activeDanmakus.push(danmaku);
   lastDanmakuOnTracks[trackIndex] = danmaku;
-  lastEmitTime = now;
-  
-  // 如果这是高亮的弹幕，5秒后清除高亮标记
+  lastEmitTime = Date.now();
+
   if (isHighlighted) {
     setTimeout(() => {
       latestSentCommentId.value = null;
     }, 5000);
   }
+};
+
+const pickAvailableTrack = (): number | null => {
+  const availableTracks: number[] = [];
+  for (let i = 0; i < lastDanmakuOnTracks.length; i++) {
+    const last = lastDanmakuOnTracks[i];
+    const minDistance = 50 + Math.random() * 80;
+    if (!last || last.x + last.width + minDistance < screenWidth) {
+      availableTracks.push(i);
+    }
+  }
+  if (availableTracks.length === 0) return null;
+  return availableTracks[Math.floor(Math.random() * availableTracks.length)];
+};
+
+// 从播放队列取弹幕发射；一轮播完后重新装填
+const tryEmitDanmaku = () => {
+  if (danmakuList.value.length === 0 || !isVisible.value || isPaused.value) return;
+
+  tryRefillPlayQueue();
+  if (playQueue.length === 0) return;
+
+  const now = Date.now();
+  if (now - lastEmitTime < EMIT_INTERVAL) return;
+
+  const trackIndex = pickAvailableTrack();
+  if (trackIndex === null) return;
+
+  const comment = playQueue.shift();
+  if (!comment) return;
+
+  emitDanmaku(comment, trackIndex);
 };
 
 // 渲染循环
@@ -326,8 +368,10 @@ const render = () => {
           ctx.drawImage(d.cacheCanvas, d.x, d.y, d.width, d.height);
         }
 
-        // 移除
+        // 移除离屏弹幕并释放轨道引用
         if (d.x + d.width < -100) {
+          const trackIdx = lastDanmakuOnTracks.indexOf(d);
+          if (trackIdx >= 0) lastDanmakuOnTracks[trackIdx] = null;
           activeDanmakus.splice(i, 1);
         }
       }
@@ -450,6 +494,7 @@ const handleDeleteComment = async () => {
     const ok = await deleteComment({ comment_id: d.comment.comment_id });
     if (ok) {
       danmakuList.value = danmakuList.value.filter((c) => c.comment_id !== d.comment.comment_id);
+      removeFromPlayQueue(d.comment.comment_id);
       const idx = activeDanmakus.findIndex((item) => item.comment.comment_id === d.comment.comment_id);
       if (idx >= 0) activeDanmakus.splice(idx, 1);
       closePopup();
@@ -487,6 +532,7 @@ const stop = () => {
 const reloadDanmaku = async () => {
   stop();
   activeDanmakus.length = 0;
+  playQueue = [];
   lastDanmakuOnTracks.fill(null);
   ctx?.clearRect(0, 0, screenWidth, screenHeight);
   await fetchDanmakuData();
@@ -564,27 +610,13 @@ const sendDanmaku = async () => {
       danmakuList.value.unshift(newComment);
       // 记录最新发送的评论ID
       latestSentCommentId.value = newComment.comment_id;
-      
-      // 立即发射这条弹幕
+
+      // 立即发射这条弹幕（不占用播放队列中的轮次）
       if (isVisible.value && !isPaused.value) {
-        resizeCanvas(); // 确保画布尺寸正确（首次发弹幕时可能尚未初始化）
-        const trackCount = Math.floor((screenHeight - 20) / config.trackHeight);
-        if (trackCount > 0) {
-          // 随机选择一个轨道
-          const trackIndex = Math.floor(Math.random() * trackCount);
-          const baseSpeed = (screenWidth + 200) / (props.speed * 60);
-          const speed = baseSpeed * (0.9 + Math.random() * 0.2);
-          const danmaku = new Danmaku(newComment, trackIndex, speed, true);
-          danmaku.x = screenWidth;
-          activeDanmakus.push(danmaku);
-          lastDanmakuOnTracks[trackIndex] = danmaku;
-          
-          // 5秒后清除高亮
-          setTimeout(() => {
-            latestSentCommentId.value = null;
-          }, 5000);
-          
-          // 若渲染循环未启动（如初始无评论），启动以立即显示新弹幕
+        resizeCanvas();
+        const trackIndex = pickAvailableTrack() ?? Math.floor(Math.random() * Math.max(1, lastDanmakuOnTracks.length));
+        if (lastDanmakuOnTracks.length > 0) {
+          emitDanmaku(newComment, trackIndex);
           start();
         }
       }
@@ -610,7 +642,7 @@ const fetchDanmakuData = async () => {
     });
     if (response?.rows && response.rows.length > 0) {
       danmakuList.value = response.rows;
-      currentIndex = 0;
+      refillPlayQueue();
       nextTick(() => {
         resizeCanvas();
         start();

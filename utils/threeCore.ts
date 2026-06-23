@@ -403,6 +403,8 @@ export type LightingConfig = LightConfig[]
 
 export interface SceneJSON {
 	objects: SceneObjectJSON[]
+	/** 展馆同款 XZ 平面墙体（独立存储，非 objects 内 box） */
+	walls?: import('@/types/gallery').GalleryWall[]
 	/** 多组场景：存在时仅显示当前分组 id 列表中的 mesh */
 	step?: SceneStepJSON[]
 	cameraList?: CameraState[]

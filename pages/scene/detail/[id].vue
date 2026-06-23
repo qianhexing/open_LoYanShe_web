@@ -19,6 +19,9 @@ import { uploadFileToOSS } from '@/utils/ossUpload';
 import { useSceneCore } from '@/composables/useSceneCore';
 import { useSceneUndo, type TransformState } from '@/composables/useSceneUndo';
 import { useVoxelBlockBuild } from '@/composables/useVoxelBlockBuild';
+import { useSceneWallDraw } from '@/composables/useSceneWallDraw';
+import { useSceneWalkthrough } from '@/composables/useSceneWalkthrough';
+import GalleryJoystick from '@/components/gallery/GalleryJoystick.vue';
 import CommunityPostModal from '@/components/community/CommunityPostModal.vue';
 import SceneViewCube from '@/components/scene/SceneViewCube.vue';
 import SceneStepEditor from '@/components/scene/SceneStepEditor.vue';
@@ -53,6 +56,7 @@ import InfiniteGridHelper from '@plackyfantacky/three.infinitegridhelper';
 
 const sceneStore = useSceneStore()
 const configStore = useConfigStore()
+const isMobile = computed(() => configStore.isMobile)
 const config = computed(() => configStore.config)
 const port = computed(() => configStore.getPort())
 const showDiary = ref(false)
@@ -86,6 +90,7 @@ const roleControllers = ref<CharacterTypeController[]>([])
 const roleAnimationListExpanded = ref(false)
 const showRoleAnimation = () => {
     exitVoxelBlockBuild()
+    exitWallDraw()
     closeSceneStepGroupingIfOpen()
     const wasExpanded = roleAnimationListExpanded.value
     materialListExpanded.value = false
@@ -1144,6 +1149,7 @@ const resetCamera = (index: number) => {
 // 每个按钮独立控制其列表：点击展开时收起其它，点击已展开的则收起
 const showMaterial = () => {
     exitVoxelBlockBuild()
+    exitWallDraw()
     closeSceneStepGroupingIfOpen()
     const wasExpanded = materialListExpanded.value
     materialListExpanded.value = false
@@ -1158,6 +1164,7 @@ const showMaterial = () => {
 }
 const showClothing = () => {
     exitVoxelBlockBuild()
+    exitWallDraw()
     closeSceneStepGroupingIfOpen()
     const wasExpanded = clothingListExpanded.value
     materialListExpanded.value = false
@@ -1172,6 +1179,7 @@ const showClothing = () => {
 }
 const showScene = () => {
     exitVoxelBlockBuild()
+    exitWallDraw()
     closeSceneStepGroupingIfOpen()
     const wasExpanded = sceneListExpanded.value
     materialListExpanded.value = false
@@ -1186,6 +1194,7 @@ const showScene = () => {
 }
 const showEffect = () => {
     exitVoxelBlockBuild()
+    exitWallDraw()
     closeSceneStepGroupingIfOpen()
     const wasExpanded = effectListExpanded.value
     materialListExpanded.value = false
@@ -1200,6 +1209,7 @@ const showEffect = () => {
 }
 const showTemplate = () => {
     exitVoxelBlockBuild()
+    exitWallDraw()
     closeSceneStepGroupingIfOpen()
     const wasExpanded = templateListExpanded.value
     materialListExpanded.value = false
@@ -1214,6 +1224,7 @@ const showTemplate = () => {
 }
 const showCustom = () => {
     exitVoxelBlockBuild()
+    exitWallDraw()
     closeSceneStepGroupingIfOpen()
     const wasExpanded = customListExpanded.value
     materialListExpanded.value = false
@@ -1228,6 +1239,7 @@ const showCustom = () => {
 }
 const showTextureList = () => {
     exitVoxelBlockBuild()
+    exitWallDraw()
     closeSceneStepGroupingIfOpen()
     const wasExpanded = textureListExpanded.value
     materialListExpanded.value = false
@@ -1242,6 +1254,8 @@ const showTextureList = () => {
 }
 
 const showVoxelBlock = () => {
+    exitWalkthrough()
+    exitWallDraw()
     closeSceneStepGroupingIfOpen()
     materialListExpanded.value = false
     clothingListExpanded.value = false
@@ -1254,8 +1268,24 @@ const showVoxelBlock = () => {
     showVoxelBlockPanel()
 }
 
+const showWallDraw = () => {
+    exitWalkthrough()
+    exitVoxelBlockBuild()
+    closeSceneStepGroupingIfOpen()
+    materialListExpanded.value = false
+    clothingListExpanded.value = false
+    sceneListExpanded.value = false
+    effectListExpanded.value = false
+    templateListExpanded.value = false
+    customListExpanded.value = false
+    textureListExpanded.value = false
+    roleAnimationListExpanded.value = false
+    showWallDrawPanel()
+}
+
 const showSceneStepList = () => {
     exitVoxelBlockBuild()
+    exitWallDraw()
     const wasExpanded = sceneStepListExpanded.value
     materialListExpanded.value = false
     clothingListExpanded.value = false
@@ -2230,7 +2260,67 @@ const {
     }
 })
 
+const {
+    active: wallDrawActive,
+    listExpanded: wallDrawListExpanded,
+    buildAction: wallBuildAction,
+    wallHeight,
+    toolHint: wallDrawToolHint,
+    showPanel: showWallDrawPanel,
+    exit: exitWallDraw,
+    bindContainer: bindWallDrawContainer,
+    loadFromJSON: loadSceneWalls,
+    exportJSON: exportSceneWalls
+} = useSceneWallDraw({
+    threeCore,
+    editMode: edit_mode,
+    addMode: add_mode,
+    onChanged: () => bumpSceneObjectRevision()
+})
+
+const {
+    active: walkthroughActive,
+    exit: exitWalkthrough,
+    toggle: toggleWalkthrough,
+    setJoystickInput: setWalkJoystickInput,
+    clearJoystickInput: clearWalkJoystickInput
+} = useSceneWalkthrough({
+    threeCore,
+    getWalls: () => exportSceneWalls(),
+    getContainer: () => document.getElementById('scene'),
+    isMobile,
+    onEnter: () => {
+        clickObject.value = null
+        exitVoxelBlockBuild()
+        exitWallDraw()
+        closeSceneStepGroupingIfOpen()
+        threeCore.value?.transformControls.detach()
+    }
+})
+
+function toggleSceneWalkthrough() {
+    if (!walkthroughActive.value) {
+        exitVoxelBlockBuild()
+        exitWallDraw()
+        closeSceneStepGroupingIfOpen()
+    }
+    toggleWalkthrough()
+}
+
+watch(walkthroughActive, (on) => {
+    if (!on || !threeCore.value) return
+    threeCore.value.transformControls.detach()
+    clickObject.value = null
+})
+
 watch(voxelBuildActive, (on) => {
+    if (!on || !threeCore.value) return
+    threeCore.value.transformControls.detach()
+    clickObject.value = null
+    closeSceneStepGroupingIfOpen()
+})
+
+watch(wallDrawActive, (on) => {
     if (!on || !threeCore.value) return
     threeCore.value.transformControls.detach()
     clickObject.value = null
@@ -2304,6 +2394,7 @@ function enterSceneStepOverview() {
 }
 
 const switchSceneStep = (index: number) => {
+    if (walkthroughActive.value) exitWalkthrough()
     const core = threeCore.value
     if (!core?.hasSceneSteps()) return
     if (!sceneStepShowAll.value && index === currentSceneStepIndex.value) return
@@ -2731,6 +2822,7 @@ const captureSceneImage = async (sence_id: number): Promise<string | null> => {
 const saveScene = async () => {
     if (!threeCore.value) return
     const json_data = threeCore.value.saveSceneToJSON()
+    json_data.walls = exportSceneWalls()
     // 灯光配置已经在 saveSceneToJSON 中自动保存了
     const params: {
         json_data: typeof json_data
@@ -2991,8 +3083,10 @@ const initThreejs = async () => {
                 return true
             },
             onSceneStepGroupingPick: (obj) => handleGroupingScenePick(obj),
-            shouldIgnoreScenePick: () => voxelBuildActive.value
+            shouldIgnoreScenePick: () =>
+                voxelBuildActive.value || wallDrawActive.value || walkthroughActive.value
         })
+        loadSceneWalls(detail.value?.json_data?.walls)
         // 兼容旧数据：纯色曾写在 scene.background，迁到 DOM（background: color:#…）
         if (threeCore.value?.scene.background instanceof THREE.Color) {
             const hex = `#${threeCore.value.scene.background.getHexString()}`
@@ -3073,6 +3167,7 @@ const initThreejs = async () => {
         updateLinkBadgeMarkers()
     }
     bindVoxelBlockContainer(sceneElement)
+    bindWallDrawContainer(sceneElement)
 }
 
 onMounted(async () => {
@@ -3106,6 +3201,16 @@ onMounted(async () => {
             if (edit_mode.value && canUndo.value) handleUndo()
             return
         }
+        if (e.key === 'Escape' && walkthroughActive.value) {
+            if (isInput) return
+            e.preventDefault()
+            exitWalkthrough()
+            return
+        }
+        if (e.key === 'Escape' && wallDrawActive.value) {
+            exitWallDraw()
+            return
+        }
         if (e.key === 'Escape' && voxelBuildActive.value) {
             if (isInput) return
             e.preventDefault()
@@ -3129,7 +3234,6 @@ onMounted(async () => {
     }
 })
 
-const isMobile = computed(() => configStore.isMobile);
 const sceneOwnerActionTop = computed(() => {
     const bar = configStore.statusBarHeight || 0
     return `calc(0.75rem + max(env(safe-area-inset-top, 0px), ${bar}px))`
@@ -3369,6 +3473,17 @@ useHead({
                         <span class="scene-neu-tool-label">方块</span>
                     </button>
 
+                    <!-- 墙体绘制 -->
+                    <button v-if="edit_mode || add_mode" type="button" @click="showWallDraw"
+                        class="scene-neu-tool-btn group"
+                        :class="wallDrawActive ? 'ring-2 ring-sky-400/80 rounded-xl' : ''"
+                        title="墙体绘制（展馆同款）">
+                        <div class="scene-neu-icon-orb scene-neu-icon-orb--cyan">
+                            <UIcon name="material-symbols:fence-rounded" class="text-sm text-white" />
+                        </div>
+                        <span class="scene-neu-tool-label">墙体</span>
+                    </button>
+
                     <!-- 素材 -->
                     <!-- <button v-if="edit_mode || add_mode" @click="showMaterial()"
                         class="w-full flex flex-col items-center gap-1 p-1.5 rounded-xl hover:bg-purple-50 dark:hover:bg-purple-900/20 transition-colors group active:scale-95"
@@ -3439,6 +3554,20 @@ useHead({
                             <UIcon name="material-symbols:settings-rounded" class="text-sm text-white" />
                         </div>
                         <span class="scene-neu-tool-label">设置</span>
+                    </button>
+
+                    <!-- 漫游（展馆同款操作） -->
+                    <button
+                        type="button"
+                        class="scene-neu-tool-btn group"
+                        :class="walkthroughActive ? 'ring-2 ring-violet-400/80 rounded-xl' : ''"
+                        :title="walkthroughActive ? '退出漫游' : '漫游模式'"
+                        @click="toggleSceneWalkthrough"
+                    >
+                        <div class="scene-neu-icon-orb scene-neu-icon-orb--indigo">
+                            <UIcon name="material-symbols:directions-walk-rounded" class="text-sm text-white" />
+                        </div>
+                        <span class="scene-neu-tool-label">{{ walkthroughActive ? '退出漫游' : '漫游' }}</span>
                     </button>
 
                     <!-- 灯光 -->
@@ -4003,6 +4132,75 @@ useHead({
                 </div>
             </div>
         </div>
+        <!-- 墙体绘制 -->
+        <div
+            v-if="edit_mode || add_mode"
+            class="fixed right-0 z-[20] flex flex-col rounded-l-xl scene-neu-panel backdrop-blur-md overflow-hidden transition-all duration-300 ease-out"
+            :class="wallDrawListExpanded
+                ? 'top-1/2 -translate-y-1/2 h-[38vh] w-[100px] min-[756px]:w-[170px] min-[756px]:sm:w-[190px] md:w-[210px] z-[30]'
+                : 'top-[calc(50%+240px)] -translate-y-1/2 h-[40px] w-[36px] sm:w-[38px] scene-neu-panel--collapsed'"
+        >
+            <button
+                type="button"
+                class="scene-neu-panel-toggle scene-neu-panel-toggle--cyan items-center justify-center gap-1.5 py-2 px-2 shrink-0 text-cyan-600 dark:text-cyan-400"
+                :class="wallDrawListExpanded ? 'scene-neu-panel-toggle--expanded flex gap-1.5 py-2 px-2' : 'scene-neu-panel-toggle--collapsed'"
+                :title="wallDrawListExpanded ? '收起列表' : '展开墙体工具'"
+                @click="showWallDraw()"
+            >
+                <UIcon
+                    :name="wallDrawListExpanded ? 'material-symbols:chevron-right' : 'material-symbols:fence-rounded'"
+                    :class="wallDrawListExpanded ? 'text-xl sm:text-2xl' : 'text-base'"
+                    class="transition-transform"
+                />
+                <span class="scene-neu-collapsed-label font-medium">墙体</span>
+            </button>
+            <div
+                v-show="wallDrawListExpanded"
+                class="flex-1 overflow-y-auto overscroll-contain p-2 space-y-3 min-h-0 h-0"
+            >
+                <div class="flex gap-1 rounded-lg bg-gray-100/80 dark:bg-gray-800/60 p-1">
+                    <button
+                        type="button"
+                        class="flex-1 rounded-md py-1.5 text-[11px] font-medium transition-colors"
+                        :class="wallBuildAction === 'place'
+                            ? 'bg-cyan-500 text-white shadow-sm'
+                            : 'text-gray-600 dark:text-gray-300'"
+                        @click="wallBuildAction = 'place'"
+                    >
+                        绘制
+                    </button>
+                    <button
+                        type="button"
+                        class="flex-1 rounded-md py-1.5 text-[11px] font-medium transition-colors"
+                        :class="wallBuildAction === 'remove'
+                            ? 'bg-rose-500 text-white shadow-sm'
+                            : 'text-gray-600 dark:text-gray-300'"
+                        @click="wallBuildAction = 'remove'"
+                    >
+                        拆除
+                    </button>
+                </div>
+                <div v-if="wallBuildAction === 'place'" class="space-y-2">
+                    <p class="text-[10px] font-medium text-gray-600 dark:text-gray-300">墙体高度</p>
+                    <div class="flex items-center gap-2">
+                        <input
+                            v-model.number="wallHeight"
+                            type="range"
+                            min="1"
+                            max="8"
+                            step="0.5"
+                            class="flex-1 accent-cyan-500"
+                        />
+                        <span class="text-[10px] font-medium text-gray-600 dark:text-gray-300 w-8 text-right">
+                            {{ wallHeight }}m
+                        </span>
+                    </div>
+                </div>
+                <p class="text-[10px] leading-relaxed text-gray-500 dark:text-gray-400">
+                    {{ wallDrawToolHint }}
+                </p>
+            </div>
+        </div>
 
         <div style="height: 100vh; width: 100vw; overflow: hidden; " id="scene"></div>
         <div
@@ -4010,6 +4208,38 @@ useHead({
             class="pointer-events-none fixed bottom-6 left-1/2 z-[25] -translate-x-1/2 rounded-full bg-black/55 px-4 py-2 text-xs text-white backdrop-blur-sm"
         >
             方块模式 · {{ voxelBuildAction === 'place' ? '放置' : '拆除' }}<template v-if="voxelBuildAction === 'place'"> · {{ voxelBuildTool === 'line' ? '直线' : voxelBuildTool === 'plane' ? (voxelPlanePhase === 'expand' ? '平面②' : '平面①') : '单块' }}</template> · {{ voxelSelectionLabel }}
+        </div>
+        <div
+            v-if="wallDrawActive"
+            class="pointer-events-none fixed bottom-6 left-1/2 z-[25] -translate-x-1/2 rounded-full bg-black/55 px-4 py-2 text-xs text-white backdrop-blur-sm"
+        >
+            墙体模式 · 顶视拉线 · {{ wallBuildAction === 'place' ? '绘制' : '拆除' }} · 高度 {{ wallHeight }}m
+        </div>
+        <div
+            v-if="walkthroughActive"
+            class="scene-walk-hints pointer-events-none fixed bottom-6 left-1/2 z-[25] -translate-x-1/2 flex items-center gap-2 rounded-full bg-black/55 px-4 py-2 text-xs text-white/80 backdrop-blur-sm"
+        >
+            <template v-if="!isMobile">
+                <span>WASD 移动</span>
+                <span>·</span>
+                <span>左键拖拽旋转视角</span>
+                <span>·</span>
+                <span>滚轮缩放镜头</span>
+                <span>·</span>
+                <span>Esc 退出</span>
+            </template>
+            <template v-else>
+                <span>左侧摇杆移动 · 单指滑动旋转 · 双指缩放 · Esc 退出</span>
+            </template>
+        </div>
+        <div
+            v-if="walkthroughActive && isMobile"
+            class="scene-walk-joystick fixed bottom-24 left-6 z-[25]"
+        >
+            <GalleryJoystick
+                @move="setWalkJoystickInput"
+                @end="clearWalkJoystickInput"
+            />
         </div>
         <div
             v-if="linkBadgeMarkers.length"
@@ -4064,7 +4294,7 @@ useHead({
                 </button>
             </div>
         </div>
-        <SceneViewCube :core="threeCore" :enabled="edit_mode" />
+        <SceneViewCube :core="threeCore" :enabled="edit_mode && !walkthroughActive" />
         <div class="opera fixed z-20 md:flex items-center whitespace-nowrap"
             v-show="clickObject && edit_mode && !sceneStepGroupingMode && !target && !animationTarget && !voxelBuildActive" :class="[
                 'md:absolute md:top-auto md:bottom-auto md:left-auto md:right-auto',

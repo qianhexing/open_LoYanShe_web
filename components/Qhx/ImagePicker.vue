@@ -408,12 +408,6 @@ const addFiles = async (newFiles: File[]) => {
 const removeImage = (index: number) => {
   // 删除弹出提示
   console.log(index)
-  const toast = useToast()
-  toast.add({
-    title: '删除图片',
-    icon: 'i-heroicons-exclamation-circle',
-    color: 'orange'
-  })
   if (props.disabled) return
   if (previewImages.value[index].url) {
     URL.revokeObjectURL(previewImages.value[index].url)

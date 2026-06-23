@@ -31,6 +31,7 @@ export interface ClothesParams extends PaginationParams {
   wardrobe_id: number
   filter_list?: Record<string, any>
   password?: string
+  qrcode?: string
   /** 按加入衣柜时间排序；不传则沿用衣柜 `sort_type` */
   sort_list?: ClothesListSortList
 }
@@ -52,6 +53,7 @@ export async function getClothesList(
 export interface ClothesAllParams {
   wardrobe_id: number
   password?: string
+  qrcode?: string
   filter_list?: Record<string, unknown>
   attributes?: string[] | undefined
 }
@@ -104,6 +106,7 @@ export async function getClothesListAllFallback(params: ClothesAllParams ): Prom
         page,
         pageSize,
         password: params.password,
+        qrcode: params.qrcode,
         filter_list: params.filter_list as Record<string, unknown> | undefined,
         attributes: params.attributes as Record<string, unknown> | undefined
       })
@@ -157,9 +160,11 @@ export async function insertClothes(
   return response.data;
 }
 
-export type ClothesBatchInsertItem = {
+export type ClothesBatchInsertItem = Pick<
+  WardrobeClothes,
+  'clothes_img' | 'clothes_note' | 'library_id' | 'price' | 'origin' | 'color' | 'season' | 'size'
+> & {
   clothes_img: string
-  clothes_note?: string
 }
 
 /** 批量新增服饰 */
@@ -243,6 +248,8 @@ export async function deleteWardrobe(
 export async function getClothesDetail(
   params: {
     clothes_id: number
+    password?: string
+    qrcode?: string
   }
 ): Promise<WardrobeClothes> {
   const response = await use$Post<BaseResponse<WardrobeClothes>>('/clothes/id', params);

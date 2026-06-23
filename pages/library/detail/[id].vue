@@ -40,6 +40,9 @@ import {
   type RefreshCommentRepliesFn,
 } from '@/composables/communityCommentSection'
 import { useCommentUiStore } from '@/stores/commentUi'
+import LibraryShareImage from '@/components/library/LibraryShareImage.vue'
+import type { LibrarySharePayload } from '@/utils/libraryShareCanvas'
+import { plainTextFromHtml } from '@/utils/libraryShareCanvas'
 const user = useUserStore()
 const config = useConfigStore()
 const isMobile = computed(() => config.isMobile)
@@ -1040,6 +1043,22 @@ const canInsertComp = computed(() => user.hasPermi('comp:detail:insert'))
 const isSeriesWithChildren = computed(
   () => library.value?.library_type === '系列' && child_list.value.length > 0
 )
+const MAX_SIDE_CHILD_COUNT = 4
+const BELOW_CHILD_ROW_COUNT = 4
+const sideChildList = computed(() => child_list.value.slice(0, MAX_SIDE_CHILD_COUNT))
+const belowChildList = computed(() => child_list.value.slice(MAX_SIDE_CHILD_COUNT))
+const childListExpanded = ref(false)
+const belowFirstRowList = computed(() => belowChildList.value.slice(0, BELOW_CHILD_ROW_COUNT))
+const belowExtraList = computed(() => belowChildList.value.slice(BELOW_CHILD_ROW_COUNT))
+const canToggleBelowChildList = computed(() => belowExtraList.value.length > 0)
+
+const toggleChildListExpanded = () => {
+  childListExpanded.value = !childListExpanded.value
+}
+
+watch(routeLibraryId, () => {
+  childListExpanded.value = false
+})
 const canManagePipeline = computed(
   () => canUpdateLibrary.value && library.value?.parent_id === 0
 )
@@ -1480,6 +1499,150 @@ const handleShareLink = async () => {
   }
 }
 
+const splitLibraryCsv = (value?: string | null) =>
+  value ? value.split(',').map((item) => item.trim()).filter(Boolean) : []
+
+const librarySharePayload = computed((): LibrarySharePayload | null => {
+  const lib = library.value
+  if (!lib) return null
+
+  let priceText = ''
+  let priceRmbText = ''
+  if (lib.library_price) {
+    const currency = formatLabel(lib.shop_country || 0, config.config?.money_type)
+    priceText = `参考价 ${lib.library_price} ${currency}`
+    const rmb = exchangeRate(lib.shop_country ?? 0, lib.library_price)
+    if (rmb) priceRmbText = `≈ ${rmb} 元`
+  }
+
+  const stats = libraryScoreStats.value
+  let scoreText = ''
+  let scoreCaptionText = ''
+  if (stats.total != null && stats.count > 0) {
+    scoreText = `${formatLibraryScoreLabel(stats.total)} · ${stats.count} 人评分`
+    scoreCaptionText = getScoreCaption(stats.total)
+  }
+
+  const infoSections: LibrarySharePayload['infoSections'] = []
+
+  const themes = splitLibraryCsv(lib.theme)
+  if (themes.length) infoSections.push({ title: '主题', tags: themes })
+
+  if (!hasSku.value && lib.library_pattern) {
+    infoSections.push({ title: '版型/部位', tags: splitLibraryCsv(lib.library_pattern) })
+  }
+
+  if (lib.sale_time?.trim()) {
+    infoSections.push({ title: '发售时间', text: lib.sale_time.trim() })
+  }
+
+  const styles = style_list.value.map((item) => item.wiki_name).filter(Boolean)
+  if (styles.length) infoSections.push({ title: '主要风格', tags: styles })
+
+  const colors = splitLibraryCsv(lib.color)
+  if (colors.length) infoSections.push({ title: '颜色', tags: colors })
+
+  if (lib.state === '预约中' && lib.start_time && lib.end_time) {
+    infoSections.push({
+      title: '预约时间',
+      text: `${dayjs(lib.start_time).format('YYYY-MM-DD HH:mm')} - ${dayjs(lib.end_time).format('YYYY-MM-DD HH:mm')}`,
+    })
+  } else if (lib.state === '尾款中' && lib.arrears_start && lib.arrears_end) {
+    infoSections.push({
+      title: '尾款时间',
+      text: `${dayjs(lib.arrears_start).format('YYYY-MM-DD HH:mm')} - ${dayjs(lib.arrears_end).format('YYYY-MM-DD HH:mm')}`,
+    })
+  } else if (lib.state) {
+    infoSections.push({ title: '状态', text: lib.state })
+  }
+
+  if (lib.size?.trim()) {
+    const sizeLines = plainTextFromHtml(lib.size)
+    if (sizeLines.length) infoSections.push({ title: '尺码', lines: sizeLines })
+  }
+
+  const patternElements = splitLibraryCsv(lib.pattern_elements)
+  if (patternElements.length) infoSections.push({ title: '柄图元素', tags: patternElements })
+
+  const designElements = splitLibraryCsv(lib.design_elements)
+  if (designElements.length) infoSections.push({ title: '设计元素', tags: designElements })
+
+  const fabric = splitLibraryCsv(lib.fabric_composition)
+  if (fabric.length) infoSections.push({ title: '面料成分', tags: fabric })
+
+  const clothElements = splitLibraryCsv(lib.cloth_elements)
+  if (clothElements.length) infoSections.push({ title: '主料', tags: clothElements })
+
+  const secondaryCloth = splitLibraryCsv(lib.secondary_cloth)
+  if (secondaryCloth.length) infoSections.push({ title: '辅料/里衬', tags: secondaryCloth })
+
+  if (lib.notes?.trim()) {
+    const noteLines = plainTextFromHtml(lib.notes)
+    if (noteLines.length) infoSections.push({ title: '笔记', lines: noteLines })
+  }
+
+  const childItems = child_list.value.map((item) => ({
+    name: item.name,
+    cover: item.cover,
+    libraryType: item.library_type || '图鉴',
+  }))
+
+  const similarList = similarRows.value.slice(0, 4).map((item) => ({
+    name: item.name,
+    cover: item.cover,
+    libraryType: item.library_type || '图鉴',
+    similarityText:
+      item.similarity_score != null && !Number.isNaN(Number(item.similarity_score))
+        ? formatSimilarityScore(Number(item.similarity_score))
+        : undefined,
+    shopName: item.shop?.shop_name?.trim() || undefined,
+  }))
+
+  const skuList = hasSku.value
+    ? librarySkuList.value.map((item) => {
+        const currency = formatLabel(lib.shop_country || 0, config.config?.money_type)
+        let skuPriceText = ''
+        let skuPriceRmb = ''
+        if (item.library_price) {
+          skuPriceText = `${item.library_price} ${currency}`
+          const rmb = exchangeRate(lib.shop_country ?? 0, item.library_price)
+          if (rmb) skuPriceRmb = `≈${rmb}元`
+        }
+        return {
+          pattern: item.library_pattern,
+          priceText: skuPriceText || undefined,
+          priceRmbText: skuPriceRmb || undefined,
+          cover: item.cover || undefined,
+        }
+      })
+    : undefined
+
+  return {
+    name: lib.name,
+    cover: lib.cover,
+    libraryType: lib.library_type || '图鉴',
+    libraryId: lib.library_id,
+    shopName: shop.value?.shop_name?.trim() || lib.shop?.shop_name?.trim() || undefined,
+    shopLogo: shop.value?.shop_logo?.trim() || lib.shop?.shop_logo?.trim() || undefined,
+    parent: parent.value
+      ? {
+          name: parent.value.name,
+          cover: parent.value.cover,
+          libraryType: parent.value.library_type || '图鉴',
+        }
+      : undefined,
+    childList: childItems,
+    scoreText: scoreText || undefined,
+    scoreCaption: scoreCaptionText || undefined,
+    priceText: !hasSku.value ? priceText || undefined : undefined,
+    priceRmbText: !hasSku.value ? priceRmbText || undefined : undefined,
+    skuList,
+    infoSections,
+    similarList: similarList.length ? similarList : undefined,
+    uploadUserName: uploadUser.value?.user_name?.trim() || undefined,
+  }
+})
+
 /** 图鉴缩略图：手机端三列等宽网格，桌面端保持原 flex + 固定尺寸 */
 const libraryThumbGridClass =
   'library-thumb-grid flex flex-wrap my-2 max-md:grid max-md:grid-cols-3 max-md:gap-2'
@@ -1488,6 +1651,14 @@ const libraryThumbImgClass =
 const libraryVideoGridClass =
   'library-thumb-grid flex flex-wrap pb-3 max-md:grid max-md:grid-cols-3 max-md:gap-2'
 const libraryVideoItemClass = 'w-[100px] mr-3 mb-2 max-md:w-full max-md:mr-0'
+/** 子图鉴超出侧栏部分：与主图+侧栏同宽，桌面/手机均一排 4 个等比正方形 */
+const libraryChildBelowWrapClass =
+  'mt-2 ml-3 w-[412px] max-md:ml-0 max-md:w-full flex flex-col gap-[10px] max-md:gap-1.5'
+const libraryChildBelowGridClass =
+  'library-child-below-grid grid grid-cols-4 gap-[10px] max-md:gap-1.5 w-full'
+const libraryChildThumbLinkClass = 'relative block aspect-square cursor-pointer'
+const libraryChildThumbImgClass =
+  'w-full h-full object-cover object-center rounded-[10px] shadow-lg'
 </script>
 <template>
   <div>
@@ -1501,40 +1672,79 @@ const libraryVideoItemClass = 'w-[100px] mr-3 mb-2 max-md:w-full max-md:mr-0'
     <div class="container mx-auto p-4 max-md:p-2">
     <div v-if="library" ref="libraryRef" class="bg-qhx-bg-card rounded-lg shadow-lg" :key="library.library_id">
       <div class="p-3 flex max-md:block max-md:px-1">
-        <div class="flex my-2 w-[434px] max-md:w-full relative">
-          <div
-            class=" absolute left-0 top-0 p-1 bg-qhx-primary text-qhx-inverted text-xs rounded-tl-[10px] rounded-br-[10px]"
-            :class="child_list.length > 0 || parent ? 'ml-3' : ''">
-            {{ library.library_type }}</div>
-          <QhxPreviewImage :key="library.library_id" :list="[{ src: library.cover, alt: library.name }]" :className="child_list.length > 0 || parent ? 'cursor-pointer ml-3 w-[300px] max-md:w-0 max-md:flex-1 h-[430px]  object-cover rounded-[10px] shadow-lg border border-gray-200'
-            : 'cursor-pointer w-full ml-0 h-[430px]  object-cover rounded-[10px] shadow-lg border border-gray-200'">
-          </QhxPreviewImage>
-          <!-- <img :src="`${BASE_IMG}${library.cover}`" :alt="library.name"
-            class=" h-[430px]  object-cover rounded-[10px] shadow-lg border border-gray-200"
-            :class="child_list.length > 0 || parent ? 'ml-3 w-[300px] max-md:w-0 max-md:flex-1' : 'w-full ml-0'"
-            loading="lazy" /> -->
-          <div class="w-[110px] h-[430px] overflow-y-auto overflow-x-hidden library-list-wrap ml-3"
-            v-if="child_list.length > 0 || parent">
-            <div class="w-[100px]" v-if="child_list && child_list.length > 0">
-              <nuxt-link :to="`/library/detail/${item.library_id}`" v-for="(item) in child_list" :key="item.library_id"
-                class="mb-[10px] relative block last:mb-[0px] cursor-pointer">
+        <div class="flex my-2 w-[434px] max-md:w-full flex-col">
+          <div class="flex relative">
+            <div
+              class=" absolute left-0 top-0 p-1 bg-qhx-primary text-qhx-inverted text-xs rounded-tl-[10px] rounded-br-[10px]"
+              :class="child_list.length > 0 || parent ? 'ml-3' : ''">
+              {{ library.library_type }}</div>
+            <QhxPreviewImage :key="library.library_id" :list="[{ src: library.cover, alt: library.name }]" :className="child_list.length > 0 || parent ? 'cursor-pointer ml-3 w-[300px] max-md:w-0 max-md:flex-1 h-[430px]  object-cover rounded-[10px] shadow-lg border border-gray-200'
+              : 'cursor-pointer w-full ml-0 h-[430px]  object-cover rounded-[10px] shadow-lg border border-gray-200'">
+            </QhxPreviewImage>
+            <!-- <img :src="`${BASE_IMG}${library.cover}`" :alt="library.name"
+              class=" h-[430px]  object-cover rounded-[10px] shadow-lg border border-gray-200"
+              :class="child_list.length > 0 || parent ? 'ml-3 w-[300px] max-md:w-0 max-md:flex-1' : 'w-full ml-0'"
+              loading="lazy" /> -->
+            <div class="w-[100px] h-[430px] ml-3 shrink-0" v-if="child_list.length > 0 || parent">
+              <div class="w-[100px]" v-if="child_list && child_list.length > 0">
+                <nuxt-link :to="`/library/detail/${item.library_id}`" v-for="(item) in sideChildList"
+                  :key="item.library_id" class="mb-[10px] relative block last:mb-[0px] cursor-pointer">
+                  <div
+                    class=" absolute left-0 top-0 p-1 bg-qhx-primary text-qhx-inverted text-xs rounded-tl-[10px] rounded-br-[10px]">
+                    {{ item.library_type }}</div>
+                  <img :src="`${BASE_IMG}${item.cover}`" :alt="item.name"
+                    class="w-[100px] h-[100px] object-cover rounded-[10px] shadow-lg" loading="lazy" />
+                </nuxt-link>
+              </div>
+              <div class="w-[100px]" v-else-if="parent">
+                <nuxt-link :to="`/library/detail/${parent.library_id}`"
+                  class="mb-[10px] relative block last:mb-[0px] cursor-pointer">
+                  <div
+                    class=" absolute left-0 top-0 p-1 bg-qhx-primary text-qhx-inverted text-xs rounded-tl-[10px] rounded-br-[10px]">
+                    {{ parent.library_type }}</div>
+                  <img :src="`${BASE_IMG}${parent.cover}`" :alt="parent.name"
+                    class="w-[100px] h-[100px] object-cover rounded-[10px] shadow-lg" loading="lazy" />
+                </nuxt-link>
+              </div>
+            </div>
+          </div>
+          <div :class="libraryChildBelowWrapClass" v-if="belowChildList.length > 0">
+            <div :class="libraryChildBelowGridClass">
+              <nuxt-link :to="`/library/detail/${item.library_id}`" v-for="(item) in belowFirstRowList"
+                :key="item.library_id" :class="libraryChildThumbLinkClass">
                 <div
                   class=" absolute left-0 top-0 p-1 bg-qhx-primary text-qhx-inverted text-xs rounded-tl-[10px] rounded-br-[10px]">
                   {{ item.library_type }}</div>
-                <img :src="`${BASE_IMG}${item.cover}`" :alt="item.name"
-                  class="w-[100px] h-[100px] object-cover rounded-[10px] shadow-lg" loading="lazy" />
+                <img :src="`${BASE_IMG}${item.cover}`" :alt="item.name" :class="libraryChildThumbImgClass"
+                  loading="lazy" />
               </nuxt-link>
             </div>
-            <div class="w-[100px]" v-else-if="parent">
-              <nuxt-link :to="`/library/detail/${parent.library_id}`"
-                class="mb-[10px] relative block last:mb-[0px] cursor-pointer">
-                <div
-                  class=" absolute left-0 top-0 p-1 bg-qhx-primary text-qhx-inverted text-xs rounded-tl-[10px] rounded-br-[10px]">
-                  {{ parent.library_type }}</div>
-                <img :src="`${BASE_IMG}${parent.cover}`" :alt="parent.name"
-                  class="w-[100px] h-[100px] object-cover rounded-[10px] shadow-lg" loading="lazy" />
-              </nuxt-link>
-            </div>
+            <Transition name="library-child-expand">
+              <div v-if="childListExpanded && belowExtraList.length > 0" :class="libraryChildBelowGridClass">
+                <nuxt-link :to="`/library/detail/${item.library_id}`" v-for="(item) in belowExtraList"
+                  :key="item.library_id" :class="libraryChildThumbLinkClass">
+                  <div
+                    class=" absolute left-0 top-0 p-1 bg-qhx-primary text-qhx-inverted text-xs rounded-tl-[10px] rounded-br-[10px]">
+                    {{ item.library_type }}</div>
+                  <img :src="`${BASE_IMG}${item.cover}`" :alt="item.name" :class="libraryChildThumbImgClass"
+                    loading="lazy" />
+                </nuxt-link>
+              </div>
+            </Transition>
+            <button
+              v-if="canToggleBelowChildList"
+              type="button"
+              class="flex w-full items-center justify-center gap-1 rounded-[10px] py-1.5 text-xs text-gray-500 transition-colors duration-300 hover:text-qhx-primary"
+              :aria-expanded="childListExpanded"
+              @click="toggleChildListExpanded"
+            >
+              <UIcon
+                name="i-heroicons-chevron-down-20-solid"
+                class="text-base transition-transform duration-300 ease-in-out"
+                :class="childListExpanded ? 'rotate-180' : ''"
+              />
+              <span>{{ childListExpanded ? '收起' : `展开更多（${belowExtraList.length}）` }}</span>
+            </button>
           </div>
         </div>
         <div class="m-2 flex-1">
@@ -1967,6 +2177,9 @@ const libraryVideoItemClass = 'w-[100px] mr-3 mb-2 max-md:w-full max-md:mr-0'
               >
                 <UIcon name="ic:round-share" class="text-[26px] text-gray-500" />
               </button>
+            </div>
+            <div class="flex-1 text-center">
+              <LibraryShareImage :payload="librarySharePayload" variant="inline" />
             </div>
             <!-- <div class=" flex-1 text-center">
               <UIcon :name="'i-heroicons-heart-20-solid'" class=" text-[26px] text-[#409EFF] cursor-pointer" @click="captureScreen()"/>
@@ -2579,37 +2792,37 @@ const libraryVideoItemClass = 'w-[100px] mr-3 mb-2 max-md:w-full max-md:mr-0'
 </template>
 
 <style scoped>
-.library-list-wrap::-webkit-scrollbar {
-  width: 6px;
-  /* 垂直滚动条宽度 */
+.library-child-expand-enter-active,
+.library-child-expand-leave-active {
+  overflow: hidden;
+  transition:
+    max-height 0.3s ease-in-out,
+    opacity 0.3s ease-in-out;
 }
 
-/* 滚动条轨道 */
-.library-list-wrap::-webkit-scrollbar-track {
-  background: transparent;
-  border-radius: 10px;
+.library-child-expand-enter-from,
+.library-child-expand-leave-to {
+  max-height: 0;
+  opacity: 0;
 }
 
-/* 滚动条滑块 */
-.library-list-wrap::-webkit-scrollbar-thumb {
-  background: #bbbbbb;
-  border-radius: 10px;
-}
-
-/* 滚动条滑块悬停状态 */
-.library-list-wrap::-webkit-scrollbar-thumb:hover {
-  background: #ccc;
+.library-child-expand-enter-to,
+.library-child-expand-leave-from {
+  max-height: 1200px;
+  opacity: 1;
 }
 
 /* 缩略图 1:1，避免手机端网格内因原图尺寸导致高度不齐 */
-.library-thumb-grid :deep(img) {
+.library-thumb-grid :deep(img),
+.library-child-below-grid :deep(img) {
   aspect-ratio: 1 / 1;
   object-fit: cover;
   object-position: center;
 }
 
 @media (max-width: 767px) {
-  .library-thumb-grid :deep(img) {
+  .library-thumb-grid :deep(img),
+  .library-child-below-grid :deep(img) {
     display: block;
     width: 100%;
     height: auto;

@@ -104,6 +104,22 @@ export function parseCommunityCustomStyleFromTemplateJsonData(
   return parseCommunityCustomStyle(jsonData as Record<string, unknown>)
 }
 
+/** 从实体解析自定义主题（兼容衣柜顶层 background 字段） */
+export type CustomThemeEntity = {
+  custom_style?: Record<string, unknown> | string | null
+  background?: string | null
+}
+
+export function parseEntityCustomStyle(
+  entity: CustomThemeEntity | null | undefined
+): CommunityCustomStyle {
+  const parsed = parseCommunityCustomStyle(entity?.custom_style)
+  if (!parsed.background && typeof entity?.background === 'string' && entity.background) {
+    parsed.background = entity.background
+  }
+  return parsed
+}
+
 /** 是否配置了任意自定义主题项 */
 export function hasCommunityCustomStyle(style: CommunityCustomStyle): boolean {
   return !!(

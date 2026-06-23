@@ -6,13 +6,18 @@ import { getWardrobeList, getClothesList, sortClothee, changeWardrobeClothes, ch
 import { getPlanListWardrobe, planComplete } from '@/api/plan'
 import type { ClothesParams } from '@/api/wardrobe'
 import { useCopyCurrentUrl } from '~/composables/useCopyCurrentUrl';
+import { useCommunityDetailTheme } from '@/composables/useCommunityDetailTheme'
 import type QhxSelect from '@/components/Qhx/Select.vue'
 import type { optionsInterface } from '@/components/Qhx/Select.vue'
 import type QhxWaterList from '@/components/Qhx/WaterList.vue'
 import { useMatchingDraftStore } from '@/stores/matchingDraft'
 import { useFlyToButton } from '~/composables/useFlyToButton'
+import { useWardrobeToolbar } from '~/composables/useWardrobeToolbar'
+import { getWardrobeToolbarTool } from '~/utils/wardrobeToolbarConfig'
+import Draggable from 'vuedraggable'
 import { BASE_IMG } from '@/utils/ipConfig'
 import { createReusableTemplate, useEventListener, useResizeObserver, useDebounceFn } from '@vueuse/core'
+import type { WardrobeToolbarToolId } from '~/utils/wardrobeToolbarConfig'
 
 const wardrobeStore = useWardrobeStore()
 const user = useUserStore()
@@ -45,17 +50,29 @@ const show = ref(true)
 const sortMode = ref(false)
 // 搭配模式：与排序互斥，开启后服饰卡片右上角显示加号，可添加进搭配草稿
 const matchingMode = ref(false)
-// 多选模式：与排序、搭配互斥，开启后服饰卡片右上角显示选择框，可批量操作
+// 多选模式：与排序、搭配、编辑互斥，开启后服饰卡片右上角显示选择框，可批量操作
 const selectMode = ref(false)
+// 编辑模式：与排序、搭配、多选互斥，开启后服饰卡片右上角显示编辑按钮，可快速修改
+const editMode = ref(false)
 /** 时间轴全屏视图：列表按加入衣柜时间排序 */
 const timelineMode = ref(false)
 const selectedClothesIds = ref<Set<number>>(new Set())
 const showMatchingDrawer = ref(false)
 const info = ref<Wardrobe | null>(null)
+const {
+  customStyle,
+  customBtnStyle,
+  hasCustomBtnBg,
+  hasCustomBtnFont,
+  hasAnyCustomBtnTheme,
+  pageBackgroundStyle,
+  pageContentStyle,
+} = useCommunityDetailTheme(info)
 const router = useRouter()
 const showPassword = ref(false)
 const clickPosition = ref({ x: 0, y: 0 })
 const password = ref<string>('')
+const qrcode = ref<string>('')
 const showDeleteModal = ref(false)
 const showBatchDeleteModal = ref(false)
 const showMoreMenu = ref(false)
@@ -87,17 +104,11 @@ const handleUniRefreshMessage = (e: MessageEvent) => {
   }
 }
 
-// 传入颜色（十六进制）和透明度转换为十六进制颜色
-const hexColor = (color: string, opacity: number) => {
-  const r = Number.parseInt(color.slice(1, 3), 16)
-  const g = Number.parseInt(color.slice(3, 5), 16)
-  const b = Number.parseInt(color.slice(5, 7), 16)
-  return `rgba(${r}, ${g}, ${b}, ${opacity})`
-}
 const opearClothesId = ref<number | null>(null)
 let oldList: { clothes_id: number; sort: number }[] = [];
 const record = ref<Wardrobe | null>(null)
 import WardrobeClothesLongShare from '@/components/Wardrobe/WardrobeClothesLongShare.vue'
+import type QrcodeList from '@/components/qrcode/QrcodeList.vue'
 import type ClothesAdd from '@/components/Clothes/ClothesAdd.vue'
 import type ClothesBatchAddEntry from '@/components/Clothes/ClothesBatchAddEntry.vue'
 import type WardrobeAddEdit from '@/components/Wardrobe/WardrobeAddEdit.vue'
@@ -930,7 +941,9 @@ const showEditWardrobe = (item: Wardrobe, e?: MouseEvent) => {
 const fetchWardrobeList = async () => {
   const response = await getWardrobeList({
     user_id: Number.parseInt(id),
-    pageSize: 999
+    pageSize: 999,
+    qrcode: qrcode.value || undefined,
+    password: password.value || undefined,
   })
   wardrobeList.value = response.rows
   wardrobeCount.value = response.count
@@ -983,7 +996,7 @@ const onWardrobeListItemClick = (item: Wardrobe) => {
 const changeWardrobe = (item: Wardrobe) => {
   console.log(item, 'item')
   if (currentWardrobe.value?.wardrobe_id === item.wardrobe_id) return
-  if (!isPageOwner.value && item.password) {
+  if (!isPageOwner.value && item.password && !qrcode.value) {
     record.value = item
     if (!password.value) {
       showPassword.value = true
@@ -998,6 +1011,7 @@ const changeWardrobe = (item: Wardrobe) => {
   initFilter()
   sizeList.value = []
   selectMode.value = false
+  editMode.value = false
   selectedClothesIds.value = new Set()
   void fetchClothesList()
   router.replace({
@@ -1066,6 +1080,9 @@ const fetchClothesList = async (Ipage: number | null = null, IpageSize: number |
   if (password.value) {
     params.password = password.value
   }
+  if (qrcode.value) {
+    params.qrcode = qrcode.value
+  }
   try {
     const response = await getClothesList(params)
     if (seq !== clothesListFetchSeq) return
@@ -1128,6 +1145,23 @@ const copyUrl = async () => {
 }
 
 const wardrobeSimilarRecommendRef = ref<{ open: () => void } | null>(null)
+const qrcodeListRef = ref<InstanceType<typeof QrcodeList> | null>(null)
+
+const showQRCodeList = () => {
+  const wid = currentWardrobe.value?.wardrobe_id
+  if (wid == null) {
+    toast.add({ title: '请先选择衣柜', color: 'amber', icon: 'i-heroicons-information-circle' })
+    return
+  }
+  qrcodeListRef.value?.open({
+    pk_id: wid,
+    pk_type: 0,
+    wardrobe: info.value ?? currentWardrobe.value ?? null,
+    userName: user.user?.user_name,
+    userFace: user.user?.user_face,
+    previewClothes: list.value.slice(0, 3),
+  })
+}
 const showAddClothes = () => {
   if (addEditClothesRef.value) {
     addEditClothesRef.value.showModel(currentWardrobe.value)
@@ -1243,6 +1277,39 @@ const reload = async () => {
 const reloadWardrobe = () => {
   reload()
   wardrobeStore.getWardrobeConfig()
+}
+
+/** 编辑服饰成功后就地更新列表项，避免整表重载 */
+const patchClothesInList = (payload: WardrobeClothes): boolean => {
+  const clothesId = payload.clothes_id
+  if (clothesId == null) return false
+
+  const currentWardrobeId = currentWardrobe.value?.wardrobe_id
+  if (
+    payload.wardrobe_id != null
+    && currentWardrobeId != null
+    && payload.wardrobe_id !== currentWardrobeId
+  ) {
+    const movedIdx = list.value.findIndex((item) => item.clothes_id === clothesId)
+    if (movedIdx !== -1) list.value.splice(movedIdx, 1)
+    return true
+  }
+
+  const idx = list.value.findIndex((item) => item.clothes_id === clothesId)
+  if (idx === -1) return false
+
+  list.value[idx] = { ...list.value[idx], ...payload }
+  if (timelineMode.value) {
+    list.value = sortListByAddTimeAsc(list.value)
+  }
+  clearVirtualRowHeightCache()
+  scheduleWaterfallLayout()
+  return true
+}
+
+const onClothesAddSuccess = (payload?: WardrobeClothes) => {
+  if (payload && patchClothesInList(payload)) return
+  reloadWardrobe()
 }
 const onWardrobeEditSuccess = async () => {
   await fetchWardrobeList()
@@ -1476,6 +1543,11 @@ const fetchOwnerBadges = async () => {
     ownerBadges.value = []
     return
   }
+  // 未登录或非页面主人时不请求，避免触发强制登录跳转
+  if (!user.token || !isPageOwner.value) {
+    ownerBadges.value = []
+    return
+  }
   try {
     const res = await getUserDecoBadges({ user_id: uid })
     ownerBadges.value = res.rows ?? []
@@ -1540,79 +1612,6 @@ const isDanmakuEnabled = computed(() => {
   return cfg?.open_danmu === 1
 })
 
-// 自定义主题样式
-const customStyle = computed(() => {
-  if (!info.value?.custom_style) return null
-  const style = info.value.custom_style
-
-  return {
-    background: `${info.value?.background
-      ? `linear-gradient(
-          ${hexColor(style.backColor || '#ffffff', style.back_opacity ?? 1)},
-          ${hexColor(style.backColor || '#ffffff', style.back_opacity ?? 1)}
-        ),
-        url(${BASE_IMG + info.value.background}) ${style.back_mode ? 'center/cover no-repeat' : 'repeat'}
-      `
-      : hexColor(style.backColor || '#ffffff', style.back_opacity ?? 1)
-    }`,
-    btnColor: style.btnColor || undefined,
-    backColor: style.backColor || undefined,
-    back_mode: style.back_mode ?? undefined,
-    fontColor: style.fontColor || undefined,
-    back_opacity: style.back_opacity ?? undefined,
-    btnFontColor: style.btnFontColor || undefined
-  }
-})
-
-// 是否有自定义主题
-const hasCustomStyle = computed(() => {
-  return customStyle.value !== null
-})
-
-// 背景样式
-const backgroundStyle = computed(() => {
-  if (!hasCustomStyle.value || !customStyle.value) return {}
-  const style = customStyle.value
-  const opacity = style.back_opacity ?? 1
-  // 解析十六进制颜色值
-  const hexColor = style.backColor.replace('#', '')
-  const r = parseInt(hexColor.slice(0, 2), 16)
-  const g = parseInt(hexColor.slice(2, 4), 16)
-  const b = parseInt(hexColor.slice(4, 6), 16)
-  
-  if (style.back_mode) {
-    // 背景模式：直接使用背景颜色作为背景
-    return {
-      backgroundColor: `rgba(${r}, ${g}, ${b}, ${opacity})`
-    }
-  } else {
-    // 非背景模式：使用背景颜色作为遮罩层（覆盖在背景图片上）
-    return {
-      backgroundColor: `rgba(${r}, ${g}, ${b}, ${opacity})`
-    }
-  }
-})
-
-// 文本样式
-const textStyle = computed(() => {
-  if (!hasCustomStyle.value || !customStyle.value) return {}
-  return {
-    color: customStyle.value.fontColor
-  }
-})
-
-// 自定义主题按钮：有 btnColor / btnFontColor 时用内联样式覆盖默认主色
-const customBtnStyle = computed(() => {
-  if (!customStyle.value) return {}
-  const s: Record<string, string> = {}
-  if (customStyle.value.btnColor) s.backgroundColor = customStyle.value.btnColor
-  if (customStyle.value.btnFontColor) s.color = customStyle.value.btnFontColor
-  return s
-})
-const hasCustomBtnBg = computed(() => Boolean(customStyle.value?.btnColor))
-const hasCustomBtnFont = computed(() => Boolean(customStyle.value?.btnFontColor))
-/** 弹窗等 UButton 在存在自定义色时套用样式；切换类按钮仅激活态用 customBtnStyle */
-const hasAnyCustomBtnTheme = computed(() => hasCustomBtnBg.value || hasCustomBtnFont.value)
 // 删除衣柜
 const confirmDeleteWardrobe = async () => {
   if (!currentWardrobe.value?.wardrobe_id) return
@@ -1747,17 +1746,35 @@ const getClothesFavoriteLevel = (item: WardrobeClothes): number => {
 const getClothesFavoriteLevelTitle = (item: WardrobeClothes) =>
   `喜爱评级 ${getClothesFavoriteLevel(item)} 星`
 
+const buildClothesDetailQuery = (): Record<string, string> => {
+  const query: Record<string, string> = {}
+  if (qrcode.value) {
+    query.qrcode = qrcode.value
+  }
+  return query
+}
+
+const buildClothesDetailUrl = (clothesId: number | undefined) => {
+  const query = buildClothesDetailQuery()
+  const search = new URLSearchParams(query).toString()
+  const path = `/clothes/detail/${clothesId}`
+  return search ? `${path}?${search}` : path
+}
+
 const jumpToClothes = (item: WardrobeClothes) => {
   if (sortMode.value) return
   if (matchingMode.value) return
   if (selectMode.value) return
+  if (editMode.value) return
+  const clothesDetailUrl = buildClothesDetailUrl(item.clothes_id)
+  const clothesDetailAbsoluteUrl = `https://lolitalibrary.com${clothesDetailUrl}`
   const isInUniApp =
 		typeof window !== 'undefined' &&
 		navigator.userAgent.includes('Html5Plus');
 	if (isInUniApp && typeof uni !== 'undefined' && uni.navigateTo) {
 		// UniApp WebView 环境
 		uni.navigateTo({
-			url: `/pages/common/outerLink2?url=https://lolitalibrary.com/clothes/detail/${item.clothes_id}`,
+			url: `/pages/common/outerLink2?url=${clothesDetailAbsoluteUrl}`,
 			fail: () => {
 				console.log('跳转错误')
 			}
@@ -1769,13 +1786,15 @@ const jumpToClothes = (item: WardrobeClothes) => {
         type: 'jump',
         path: 'Outlink',
         params: {
-          url: `https://lolitalibrary.com/clothes/detail/${item.clothes_id}`
+          url: clothesDetailAbsoluteUrl
         }
       }));
     } else {
       // 普通网页环境 不用新窗口
-      navigateTo(`/clothes/detail/${item.clothes_id}`)
-      // window.location.href = `/clothes/detail/${item.clothes_id}`
+      navigateTo({
+        path: `/clothes/detail/${item.clothes_id}`,
+        query: buildClothesDetailQuery(),
+      })
     }
 	}
 }
@@ -1788,6 +1807,63 @@ const openMoreMenu = (e: MouseEvent) => {
   }
   showMoreMenu.value = true
 }
+
+const {
+  placements: toolbarPlacements,
+  toolbarOrderRows,
+  sidebarTools: sidebarToolbarTools,
+  moreTools: moreToolbarTools,
+  showMoreButton: showMoreToolbarButton,
+  setPlacement: setToolbarPlacement,
+  restorePrefs: restoreToolbarPrefs,
+} = useWardrobeToolbar()
+
+const runToolbarAction = (toolId: WardrobeToolbarToolId, e?: MouseEvent) => {
+  switch (toolId) {
+    case 'addWardrobe':
+      showAddWardrobe(e)
+      break
+    case 'search':
+      openWardrobeSearch()
+      break
+    case 'timeline':
+      toggleTimelineMode()
+      break
+    case 'statistics':
+      openWardrobeStatistics()
+      break
+    case 'galaxy':
+      jumpToVisualization()
+      break
+    case 'matchingList':
+      jumpToMatchingList()
+      break
+    case 'plan':
+      jumpToPlan()
+      break
+  }
+}
+
+const isToolbarToolActive = (toolId: WardrobeToolbarToolId) =>
+  toolId === 'timeline' && timelineMode.value
+
+const toolbarSidebarOrbClass = (toolId: WardrobeToolbarToolId) => {
+  if (isToolbarToolActive(toolId)) {
+    return [
+      !hasCustomBtnBg.value && 'bg-qhx-primary ring-2 ring-qhx-primary/40 ring-offset-1 ring-offset-transparent',
+      !hasCustomBtnFont.value && 'text-white',
+    ]
+  }
+  if (toolId === 'timeline') {
+    return [!hasCustomBtnBg.value && 'bg-qhx-info', !hasCustomBtnFont.value && 'text-white']
+  }
+  return [!hasCustomBtnBg.value && 'bg-qhx-primary', !hasCustomBtnFont.value && 'text-white']
+}
+
+const toolbarSidebarOrbStyle = (toolId: WardrobeToolbarToolId) =>
+  isToolbarToolActive(toolId) ? customBtnStyle.value : {}
+
+const getToolbarPlacement = (id: WardrobeToolbarToolId) => toolbarPlacements.value[id]
 
 // 跳转到星系可视化页面
 const jumpToVisualization = () => {
@@ -1904,7 +1980,6 @@ const jumpToPlan = () => {
   }
 }
 onMounted(async () => {
-  void fetchOwnerBadges()
   if (typeof window !== 'undefined') {
     window.addEventListener('message', handleUniRefreshMessage)
   }
@@ -1921,36 +1996,38 @@ onMounted(async () => {
         // 无法拉取用户信息时按访客流程处理
       }
     }
+    void fetchOwnerBadges()
+    if (route.query.password) {
+      password.value = route.query.password as string
+    }
+    if (route.query.qrcode) {
+      qrcode.value = route.query.qrcode as string
+    }
     await fetchWardrobeList()
-    let wardrobe = null
-    console.log(route.query.wardrobe_id, 'route.query')
-    if (wardrobeList.value && wardrobeList.value.length > 0) {
+    if (wardrobeList.value.length > 0) {
+      let targetWardrobe: Wardrobe | null = null
       if (route.query.wardrobe_id) {
-        const index = wardrobeList.value.findIndex((item) => { return item.wardrobe_id === Number.parseInt(route.query.wardrobe_id as string) })
-        if (index !== -1) {
-          wardrobe = wardrobeList.value[index]
-        }
+        const queryWardrobeId = Number.parseInt(route.query.wardrobe_id as string, 10)
+        targetWardrobe = wardrobeList.value.find((item) => item.wardrobe_id === queryWardrobeId) ?? null
       }
-      if (route.query.password) {
-        password.value = route.query.password as string
-        
-      }
-      console.log( password.value, 'password')
+
       if (isPageOwner.value) {
-        changeWardrobe(wardrobe || wardrobeList.value[0])
+        changeWardrobe(targetWardrobe || wardrobeList.value[0])
+      } else if (qrcode.value) {
+        // 二维码访问：列表接口已按 qrcode 过滤，直接选中指定或首个衣柜
+        changeWardrobe(targetWardrobe || wardrobeList.value[0])
       } else {
-        const index = wardrobeList.value.findIndex((item) => {
-          return item.is_private === 0 || item.password
-        })
-        if (index !== -1) {
-          if (wardrobe && wardrobe.is_private === 0) {
-            changeWardrobe(wardrobe)
+        const accessibleIndex = wardrobeList.value.findIndex(
+          (item) => item.is_private === 0 || item.password,
+        )
+        if (accessibleIndex !== -1) {
+          if (targetWardrobe && targetWardrobe.is_private === 0) {
+            changeWardrobe(targetWardrobe)
           } else {
-            changeWardrobe(wardrobeList.value[index])
+            changeWardrobe(wardrobeList.value[accessibleIndex])
           }
         }
       }
-
     }
 
     if (isPageOwner.value) {
@@ -2091,9 +2168,12 @@ const shouldShowClothesFavoriteBadge = (item: WardrobeClothes) =>
   && getClothesFavoriteLevel(item) > 0
   && !selectMode.value
   && !matchingMode.value
+  && !editMode.value
 
 /** 布局设置弹窗 */
 const showLayoutModal = ref(false)
+/** 左上角工具栏配置弹窗 */
+const showToolbarConfigModal = ref(false)
 /** 首屏恢复收起态时不播放宽度过渡，避免重进页面侧栏「半收半展」 */
 const sidebarTransitionEnabled = ref(false)
 
@@ -2119,6 +2199,7 @@ function restoreLayoutPrefs() {
     if (favorite !== null) showClothesFavorite.value = favorite === '1'
     const layout = localStorage.getItem(CLOTHES_LIST_LAYOUT_KEY)
     if (layout === 'grid' || layout === 'waterfall') clothesListLayout.value = layout
+    restoreToolbarPrefs()
   } catch {
     /* 忽略读取失败 */
   }
@@ -2288,6 +2369,7 @@ const toggleTimelineMode = async () => {
     sortMode.value = false
     matchingMode.value = false
     selectMode.value = false
+    editMode.value = false
     selectedClothesIds.value = new Set()
   }
   timelineMode.value = next
@@ -2605,12 +2687,13 @@ watch(timelineMode, (on) => {
   if (!on) timelineExpandedDeckKey.value = null
 })
 
-// 搭配模式、排序、多选互斥
+// 搭配模式、排序、多选、编辑互斥
 const toggleMatchingMode = () => {
   matchingMode.value = !matchingMode.value
   if (matchingMode.value) {
     sortMode.value = false
     selectMode.value = false
+    editMode.value = false
     selectedClothesIds.value = new Set()
   }
 }
@@ -2619,14 +2702,32 @@ const toggleSortMode = () => {
   if (sortMode.value) {
     matchingMode.value = false
     selectMode.value = false
+    editMode.value = false
     selectedClothesIds.value = new Set()
   }
+}
+const toggleEditMode = () => {
+  editMode.value = !editMode.value
+  if (editMode.value) {
+    sortMode.value = false
+    matchingMode.value = false
+    selectMode.value = false
+    selectedClothesIds.value = new Set()
+  }
+}
+const openEditClothes = (item: WardrobeClothes, event?: MouseEvent) => {
+  if (!addEditClothesRef.value || !item.clothes_id) return
+  addEditClothesRef.value.showModel({
+    ...item,
+    wardrobe_name: currentWardrobe.value?.wardrobe_name ?? info.value?.wardrobe_name,
+  }, false, event)
 }
 const toggleSelectMode = () => {
   selectMode.value = !selectMode.value
   if (selectMode.value) {
     sortMode.value = false
     matchingMode.value = false
+    editMode.value = false
     selectedClothesIds.value = new Set()
   } else {
     selectedClothesIds.value = new Set()
@@ -2853,13 +2954,16 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
 <template>
 
   <div
-    class="wardrobe-wrap wardrobe-page-neu text-qhx-text"
+    class="wardrobe-wrap wardrobe-page-neu text-qhx-text relative"
     :class="{ 'wardrobe-perf-lite': preferLiteEffects }"
-    :style="{ 
-    background: customStyle?.background,
-    backgroundPosition: 'center',
-    color: customStyle?.fontColor || 'inherit',
-    }">
+    :style="pageContentStyle"
+  >
+    <div
+      v-if="customStyle"
+      class="pointer-events-none fixed inset-0 z-0"
+      :style="pageBackgroundStyle"
+      aria-hidden="true"
+    />
     <div v-if="isSorting || isWardrobeSorting" class="absolute inset-0 bg-white/50 flex z-10 items-center justify-center">
       <span class="text-gray-600">正在保存排序……</span>
     </div>
@@ -2882,7 +2986,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
         class="pointer-events-none"
       />
     </div>
-    <clothes-add ref="addEditClothesRef" @success="reloadWardrobe"></clothes-add>
+    <clothes-add ref="addEditClothesRef" @success="onClothesAddSuccess"></clothes-add>
     <clothes-batch-add-entry ref="clothesBatchAddEntryRef" @success="reloadWardrobe"></clothes-batch-add-entry>
     <wardrobe-add-edit ref="addEditWardrobeRef" @success="onWardrobeEditSuccess"></wardrobe-add-edit>
     <AchievementDecoConfigModal
@@ -2952,6 +3056,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
       ref="wardrobeSimilarRecommendRef"
       :wardrobe-id="currentWardrobe?.wardrobe_id"
     />
+    <QrcodeList ref="qrcodeListRef" />
     <QhxModal v-model="showDeleteModal">
       <div class="p-6 w-[min(94vw,420px)] bg-white dark:bg-gray-800 rounded-[10px] shadow-lg">
         <h3 class="text-base font-bold mb-4 text-gray-800 dark:text-gray-200">操作确认</h3>
@@ -3154,51 +3259,26 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
       <div class="p-4 w-[200px] bg-white dark:bg-gray-800 rounded-[10px] shadow-lg">
         <h3 class="text-sm font-bold mb-3 text-gray-800 dark:text-gray-200">更多选项</h3>
 
-        <!-- 星系选项 -->
-        <button @click="jumpToVisualization"
-          class="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors text-left group">
+        <button
+          v-for="(tool, index) in moreToolbarTools"
+          :key="tool.id"
+          class="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors text-left group"
+          :class="index > 0 && 'mt-2'"
+          @click="runToolbarAction(tool.id)"
+        >
           <div
             class="w-8 h-8 rounded-lg flex items-center justify-center group-hover:scale-110 transition-transform"
-            :class="!hasCustomBtnBg && 'bg-gradient-to-br from-purple-500 to-pink-500'"
+            :class="[
+              !hasCustomBtnBg && tool.moreIconBgClass && `bg-gradient-to-br ${tool.moreIconBgClass}`,
+              !hasCustomBtnBg && !tool.moreIconBgClass && 'bg-qhx-primary',
+            ]"
             :style="customBtnStyle"
           >
-            <UIcon name="material-symbols:auto-awesome" class="text-base" :class="!hasCustomBtnFont && 'text-white'" />
+            <UIcon :name="tool.icon" class="text-base" :class="!hasCustomBtnFont && 'text-white'" />
           </div>
           <div class="flex-1">
-            <div class="text-sm font-medium text-gray-800 dark:text-gray-200">星系</div>
-            <div class="text-xs text-gray-500 dark:text-gray-400">查看衣柜可视化</div>
-          </div>
-        </button>
-
-        <!-- 搭配清单选项 -->
-        <button @click="jumpToMatchingList"
-          class="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors text-left group mt-2">
-          <div
-            class="w-8 h-8 rounded-lg flex items-center justify-center group-hover:scale-110 transition-transform"
-            :class="!hasCustomBtnBg && 'bg-gradient-to-br from-amber-500 to-orange-500'"
-            :style="customBtnStyle"
-          >
-            <UIcon name="material-symbols:style" class="text-base" :class="!hasCustomBtnFont && 'text-white'" />
-          </div>
-          <div class="flex-1">
-            <div class="text-sm font-medium text-gray-800 dark:text-gray-200">搭配清单</div>
-            <div class="text-xs text-gray-500 dark:text-gray-400">查看我的所有搭配</div>
-          </div>
-        </button>
-
-        <!-- 定制计划选项 -->
-        <button @click="jumpToPlan"
-          class="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors text-left group mt-2">
-          <div
-            class="w-8 h-8 rounded-lg flex items-center justify-center group-hover:scale-110 transition-transform"
-            :class="!hasCustomBtnBg && 'bg-gradient-to-br from-blue-500 to-cyan-500'"
-            :style="customBtnStyle"
-          >
-            <UIcon name="material-symbols:calendar-month" class="text-base" :class="!hasCustomBtnFont && 'text-white'" />
-          </div>
-          <div class="flex-1">
-            <div class="text-sm font-medium text-gray-800 dark:text-gray-200">定制计划</div>
-            <div class="text-xs text-gray-500 dark:text-gray-400">查看攒钱计划列表</div>
+            <div class="text-sm font-medium text-gray-800 dark:text-gray-200">{{ tool.label }}</div>
+            <div v-if="tool.moreDescription" class="text-xs text-gray-500 dark:text-gray-400">{{ tool.moreDescription }}</div>
           </div>
         </button>
       </div>
@@ -3223,6 +3303,20 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
               <div class="text-xs text-gray-500 dark:text-gray-400">隐藏左侧衣柜切换栏</div>
             </div>
             <UToggle v-model="sidebarCollapsed" />
+          </div>
+          <div class="h-px bg-gray-200 dark:bg-gray-700" />
+          <div class="flex items-center justify-between gap-3">
+            <div class="min-w-0">
+              <div class="text-sm font-medium text-gray-800 dark:text-gray-200">左上角工具栏</div>
+              <div class="text-xs text-gray-500 dark:text-gray-400">自定义侧栏与「更多」菜单显示项</div>
+            </div>
+            <button
+              type="button"
+              class="shrink-0 rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-700 transition-colors hover:border-qhx-primary hover:text-qhx-primary dark:border-gray-600 dark:text-gray-300 dark:hover:border-qhx-primary"
+              @click="showToolbarConfigModal = true"
+            >
+              配置
+            </button>
           </div>
           <div class="h-px bg-gray-200 dark:bg-gray-700" />
           <div>
@@ -3285,6 +3379,100 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
         </div>
       </div>
     </QhxModal>
+    <QhxModal v-model="showToolbarConfigModal">
+      <div class="p-5 w-[min(94vw,360px)] max-h-[min(80dvh,560px)] flex flex-col bg-white dark:bg-gray-800 rounded-[10px] shadow-lg">
+        <h3 class="text-base font-bold text-gray-800 dark:text-gray-200">工具栏配置</h3>
+        <p class="text-xs text-gray-500 dark:text-gray-400 mt-1 shrink-0">
+          长按拖动调整顺序；选择显示在侧栏或收入「更多」；偏好自动保存
+        </p>
+        <div class="mt-3 overflow-y-auto overscroll-contain min-h-0 flex-1 -mx-1 px-1">
+          <ClientOnly>
+            <Draggable
+              v-model="toolbarOrderRows"
+              item-key="id"
+              handle=".toolbar-config-drag-handle"
+              class="space-y-2"
+              :force-fallback="true"
+              :delay="150"
+              :animation="250"
+              ghost-class="toolbar-config-ghost"
+              chosen-class="toolbar-config-chosen"
+              drag-class="toolbar-config-dragging"
+            >
+              <template #item="{ element }">
+                <div
+                  v-if="getWardrobeToolbarTool(element.id)"
+                  class="flex items-center gap-2 rounded-lg border border-gray-200 dark:border-gray-600 px-2 py-2"
+                >
+                  <button
+                    type="button"
+                    class="toolbar-config-drag-handle flex h-8 w-6 shrink-0 cursor-grab items-center justify-center rounded text-gray-400 active:cursor-grabbing hover:text-gray-600 dark:hover:text-gray-300"
+                    aria-label="拖动排序"
+                  >
+                    <UIcon name="i-heroicons-bars-3-20-solid" class="text-base" />
+                  </button>
+                  <div class="flex min-w-0 flex-1 items-center gap-2">
+                    <div
+                      class="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg"
+                      :class="!hasCustomBtnBg && 'bg-qhx-primary/15 text-qhx-primary'"
+                      :style="hasCustomBtnBg ? customBtnStyle : undefined"
+                    >
+                      <UIcon :name="getWardrobeToolbarTool(element.id)!.icon" class="text-sm" />
+                    </div>
+                    <span class="truncate text-sm text-gray-800 dark:text-gray-200">
+                      {{ getWardrobeToolbarTool(element.id)!.label }}
+                    </span>
+                  </div>
+                  <div
+                    v-if="!getWardrobeToolbarTool(element.id)!.placementLocked"
+                    class="grid shrink-0 grid-cols-2 gap-1 rounded-lg bg-gray-100 p-0.5 dark:bg-gray-700/80"
+                  >
+                    <button
+                      type="button"
+                      class="rounded-md px-2 py-1 text-[11px] font-medium transition-colors"
+                      :class="getToolbarPlacement(element.id) === 'sidebar'
+                        ? 'bg-white text-qhx-primary shadow-sm dark:bg-gray-600 dark:text-qhx-primary'
+                        : 'text-gray-500 dark:text-gray-400'"
+                      @click="setToolbarPlacement(element.id, 'sidebar')"
+                    >
+                      侧栏
+                    </button>
+                    <button
+                      type="button"
+                      class="rounded-md px-2 py-1 text-[11px] font-medium transition-colors"
+                      :class="getToolbarPlacement(element.id) === 'more'
+                        ? 'bg-white text-qhx-primary shadow-sm dark:bg-gray-600 dark:text-qhx-primary'
+                        : 'text-gray-500 dark:text-gray-400'"
+                      @click="setToolbarPlacement(element.id, 'more')"
+                    >
+                      更多
+                    </button>
+                  </div>
+                  <span
+                    v-else
+                    class="shrink-0 rounded-md bg-gray-100 px-2 py-1 text-[11px] text-gray-500 dark:bg-gray-700 dark:text-gray-400"
+                  >
+                    固定侧栏
+                  </span>
+                </div>
+              </template>
+            </Draggable>
+            <template #fallback>
+              <div class="py-8 text-center text-xs text-gray-500 dark:text-gray-400">加载排序组件中…</div>
+            </template>
+          </ClientOnly>
+        </div>
+        <div class="mt-4 shrink-0 flex justify-end">
+          <button
+            type="button"
+            class="rounded-lg bg-qhx-primary px-4 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90"
+            @click="showToolbarConfigModal = false"
+          >
+            完成
+          </button>
+        </div>
+      </div>
+    </QhxModal>
 
     <Transition
       enter-active-class="transition duration-300 ease-[cubic-bezier(0.4,0,0.2,1)]"
@@ -3329,37 +3517,28 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
       >
         <div
           v-show="!sidebarCollapsed"
-          class="wardrobe-list wardrobe-neu-sidebar wardrobe-list-height rounded-[10px] w-full overflow-y-auto"
+          class="wardrobe-list wardrobe-neu-sidebar wardrobe-list-height w-full overflow-y-auto"
         >
         <!-- 状态栏高度占位 -->
         <div v-if="configStore.statusBarHeight > 0" :style="{ height: `${configStore.statusBarHeight}px` }"></div>
         
         <div v-if="user.user?.user_id === Number.parseInt(id)" class="flex flex-col items-center py-2 gap-1.5">
-          <QhxJellyButton>
-            <div class="h-[46px] text-center px-0.5  cursor-pointer" @click="showAddWardrobe($event)">
+          <QhxJellyButton v-for="tool in sidebarToolbarTools" :key="tool.id">
+            <div
+              class="h-[46px] text-center px-0.5 cursor-pointer"
+              @click="runToolbarAction(tool.id, $event)"
+            >
               <div
-                class="wardrobe-neu-tool-orb my-[3px] mx-auto rounded-[50%] h-[24px] w-[24px] flex items-center justify-center"
-                :class="[!hasCustomBtnBg && 'bg-qhx-primary', !hasCustomBtnFont && 'text-white']"
-                :style="customBtnStyle"
+                class="wardrobe-neu-tool-orb my-[3px] mx-auto rounded-[50%] h-[24px] w-[24px] flex items-center justify-center transition-colors duration-300"
+                :class="toolbarSidebarOrbClass(tool.id)"
+                :style="toolbarSidebarOrbStyle(tool.id)"
               >
-                <UIcon name="material-symbols:add-2" class="text-[16px]" />
+                <UIcon :name="tool.icon" class="text-[16px]" />
               </div>
-              <div class="text-xs text-qhx-text">新建衣柜</div>
+              <div class="text-xs text-qhx-text">{{ tool.label }}</div>
             </div>
           </QhxJellyButton>
-          <QhxJellyButton>
-            <div class="h-[46px] text-center px-0.5 cursor-pointer" @click="openWardrobeSearch()">
-              <div
-                class="wardrobe-neu-tool-orb my-[3px] mx-auto rounded-[50%] h-[24px] w-[24px] flex items-center justify-center"
-                :class="[!hasCustomBtnBg && 'bg-qhx-primary', !hasCustomBtnFont && 'text-white']"
-                :style="customBtnStyle"
-              >
-                <UIcon name="i-heroicons-magnifying-glass" class="text-[16px]" />
-              </div>
-              <div class="text-xs text-qhx-text">搜索</div>
-            </div>
-          </QhxJellyButton>
-          <QhxJellyButton>
+          <QhxJellyButton v-if="showMoreToolbarButton">
             <div class="h-[46px] text-center px-0.5 cursor-pointer" @click="openMoreMenu($event)">
               <div
                 class="wardrobe-neu-tool-orb my-[3px] mx-auto rounded-[50%] h-[24px] w-[24px] flex items-center justify-center"
@@ -3369,37 +3548,6 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
                 <UIcon name="material-symbols:more-horiz" class="text-[16px]" />
               </div>
               <div class="text-xs text-qhx-text">更多</div>
-            </div>
-          </QhxJellyButton>
-          <QhxJellyButton>
-            <div class="h-[46px] text-center px-0.5 cursor-pointer" @click="toggleTimelineMode">
-              <div
-                class="wardrobe-neu-tool-orb my-[3px] mx-auto rounded-[50%] h-[24px] w-[24px] flex items-center justify-center transition-colors duration-300"
-                :class="[
-                  timelineMode
-                    ? [
-                        !hasCustomBtnBg && 'bg-qhx-primary ring-2 ring-qhx-primary/40 ring-offset-1 ring-offset-transparent',
-                        !hasCustomBtnFont && 'text-white',
-                      ]
-                    : [!hasCustomBtnBg && 'bg-qhx-info', !hasCustomBtnFont && 'text-white'],
-                ]"
-                :style="timelineMode ? customBtnStyle : {}"
-              >
-                <UIcon name="material-symbols:view-timeline" class="text-[16px]" />
-              </div>
-              <div class="text-xs text-qhx-text">时间轴</div>
-            </div>
-          </QhxJellyButton>
-          <QhxJellyButton>
-            <div class="h-[46px] text-center px-0.5 cursor-pointer" @click="openWardrobeStatistics">
-              <div
-                class="wardrobe-neu-tool-orb my-[3px] mx-auto rounded-[50%] h-[24px] w-[24px] flex items-center justify-center"
-                :class="[!hasCustomBtnBg && 'bg-qhx-primary', !hasCustomBtnFont && 'text-white']"
-                :style="customBtnStyle"
-              >
-                <UIcon name="material-symbols:bar-chart-4-bars" class="text-[16px]" />
-              </div>
-              <div class="text-xs text-qhx-text">统计</div>
             </div>
           </QhxJellyButton>
         </div>
@@ -3544,7 +3692,19 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
                     <div class="text-xs">徽章</div>
                   </div>
                 </QhxJellyButton>
-                
+                <QhxJellyButton v-if="isWardrobeOwner">
+                  <div class="h-[46px] text-center px-0.5 cursor-pointer">
+                    <div
+                      @click="showQRCodeList()"
+                      class="wardrobe-neu-tool-orb m-[3px] rounded-[50%] h-[24px] w-[24px] flex items-center justify-center"
+                      :class="[!hasCustomBtnBg && 'bg-qhx-primary', !hasCustomBtnFont && 'text-white']"
+                      :style="customBtnStyle"
+                    >
+                      <UIcon name="material-symbols:qr-code-2" class="text-[16px]" />
+                    </div>
+                    <div class="text-xs">二维码</div>
+                  </div>
+                </QhxJellyButton>
                 <QhxJellyButton>
                   <div class="h-[46px] text-center px-0.5  cursor-pointer">
                     <div
@@ -3768,6 +3928,18 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
               </div>
             </QhxJellyButton>
             <QhxJellyButton>
+              <div class="h-[46px] flex flex-col items-center justify-center px-0.5 cursor-pointer" @click="toggleEditMode">
+                <div
+                  class="wardrobe-neu-tool-orb m-[3px] rounded-[50%] h-[24px] w-[24px] flex items-center justify-center"
+                  :class="editMode ? [!hasCustomBtnBg && 'bg-qhx-primary', !hasCustomBtnFont && 'text-white'] : [!hasCustomBtnBg && 'bg-qhx-info', !hasCustomBtnFont && 'text-white']"
+                  :style="editMode ? customBtnStyle : {}"
+                >
+                  <UIcon name="i-heroicons-pencil-square" class="text-[16px]" />
+                </div>
+                <div class="text-xs text-qhx-text">编辑模式</div>
+              </div>
+            </QhxJellyButton>
+            <QhxJellyButton>
               <div class="h-[46px] flex flex-col items-center justify-center px-0.5 cursor-pointer" @click="toggleMatchingMode">
                 <div
                   class="wardrobe-neu-tool-orb m-[3px] rounded-[50%] h-[24px] w-[24px] flex items-center justify-center"
@@ -3912,6 +4084,19 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
                 </div>
               </div>
               <div
+                v-else-if="editMode && element.clothes_id"
+                class="absolute top-0 right-0 z-10 h-[32px] w-[32px] flex items-center justify-center cursor-pointer"
+                @click.stop="openEditClothes(element, $event)"
+              >
+                <div
+                  class="wardrobe-neu-tool-orb m-[3px] rounded-[50%] h-[24px] w-[24px] flex items-center justify-center"
+                  :class="[!hasCustomBtnBg && 'bg-qhx-primary', !hasCustomBtnFont && 'text-white']"
+                  :style="customBtnStyle"
+                >
+                  <UIcon name="i-heroicons-pencil-square" class="text-[16px]" />
+                </div>
+              </div>
+              <div
                 v-if="element.color"
                 class="absolute left-0 bottom-0 z-10 flex flex-wrap gap-0.5 p-1 rounded-bl-xl"
               >
@@ -4033,6 +4218,19 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
                       :name="isInMatchingDraft(element.clothes_id) ? 'i-heroicons-trash' : 'material-symbols:add-2'"
                       class="text-[14px]"
                     />
+                  </div>
+                </div>
+                <div
+                  v-else-if="editMode && element.clothes_id"
+                  class="absolute top-1.5 right-1.5 z-10 h-[28px] w-[28px] flex items-center justify-center cursor-pointer"
+                  @click.stop="openEditClothes(element, $event)"
+                >
+                  <div
+                    class="wardrobe-neu-tool-orb rounded-[50%] h-[22px] w-[22px] flex items-center justify-center"
+                    :class="[!hasCustomBtnBg && 'bg-qhx-primary', !hasCustomBtnFont && 'text-white']"
+                    :style="customBtnStyle"
+                  >
+                    <UIcon name="i-heroicons-pencil-square" class="text-[14px]" />
                   </div>
                 </div>
                 <div
@@ -5046,20 +5244,20 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
 /* —— 左侧整栏：带右缘层次的软面板 —— */
 .wardrobe-page-neu .wardrobe-neu-sidebar {
   box-shadow:
-    8px 6px 20px var(--ward-neu-deep),
-    -5px -4px 14px var(--ward-neu-soft),
-    inset 0 1px 0 var(--ward-neu-inset),
-    inset 1px 0 0 rgba(255, 255, 255, 0.28),
-    inset -2px 0 4px rgba(0, 0, 0, 0.05);
+    4px 3px 10px rgba(0, 0, 0, 0.08),
+    -2px -2px 8px rgba(255, 255, 255, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.22),
+    inset 1px 0 0 rgba(255, 255, 255, 0.12),
+    inset -1px 0 2px rgba(0, 0, 0, 0.03);
 }
 
 .dark .wardrobe-page-neu .wardrobe-neu-sidebar {
   box-shadow:
-    8px 8px 24px var(--ward-neu-deep),
-    -4px -3px 12px var(--ward-neu-soft),
-    inset 0 1px 0 var(--ward-neu-inset),
-    inset 1px 0 0 rgba(255, 255, 255, 0.04),
-    inset -2px 0 4px rgba(0, 0, 0, 0.38);
+    4px 4px 12px rgba(0, 0, 0, 0.28),
+    -2px -2px 8px rgba(255, 255, 255, 0.04),
+    inset 0 1px 0 rgba(255, 255, 255, 0.04),
+    inset 1px 0 0 rgba(255, 255, 255, 0.03),
+    inset -1px 0 2px rgba(0, 0, 0, 0.18);
 }
 
 /* —— 区域收缩/展开小按钮 —— */
@@ -5190,15 +5388,9 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
   background: rgba(255, 255, 255, 0.52);
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
-  filter:
-    drop-shadow(6px 8px 18px var(--ward-neu-deep)) drop-shadow(-4px -5px 14px var(--ward-neu-soft));
 }
 .dark .wardrobe-clothes-card.wardrobe-neu-item {
   background: rgba(30, 35, 45, 0.55);
-}
-.wardrobe-page-neu .group:hover .wardrobe-clothes-card.wardrobe-neu-item {
-  filter:
-    drop-shadow(8px 10px 22px var(--ward-neu-deep)) drop-shadow(-5px -6px 16px var(--ward-neu-soft));
 }
 .wardrobe-clothes-card-cover .wardrobe-neu-photo {
   border-radius: 0;
@@ -5227,16 +5419,9 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
   height: auto;
 }
 
-/* —— 服饰封面：整体浮起 + 相框内凹（网格）；瀑布流整卡阴影见 .wardrobe-clothes-card —— */
+/* —— 服饰封面：相框内凹（网格）；瀑布流封面见 .wardrobe-clothes-card-cover —— */
 .wardrobe-page-neu .wardrobe-neu-item:not(.wardrobe-clothes-card) {
-  filter:
-    drop-shadow(8px 11px 22px var(--ward-neu-deep)) drop-shadow(-6px -7px 18px var(--ward-neu-soft));
-  transition: filter 0.28s cubic-bezier(0.22, 1, 0.36, 1), transform 0.3s ease;
-}
-
-.wardrobe-page-neu .group:hover .wardrobe-neu-item:not(.wardrobe-clothes-card) {
-  filter:
-    drop-shadow(11px 14px 28px var(--ward-neu-deep)) drop-shadow(-7px -8px 20px var(--ward-neu-soft));
+  transition: transform 0.3s ease;
 }
 
 /* 移动端弱机：drop-shadow 每层卡片双次合成，iOS 上极易掉帧 */
@@ -5252,17 +5437,21 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
 }
 
 /* 弱机：服饰封面多层 inset 阴影在 content-visibility 滚动入屏时反复重绘，iOS 掉帧主因之一。
-   降级为单层轻阴影，仅保留层次感，去掉昂贵的 inset 重绘。
+   降级为更轻的内凹阴影，去掉昂贵的 inset 重绘层数。
    注：用两个根类组合提升特异性，确保压过下方 .wardrobe-page-neu 的重阴影规则。 */
 .wardrobe-perf-lite.wardrobe-page-neu .wardrobe-neu-photo,
 .wardrobe-perf-lite.wardrobe-page-neu .group:hover .wardrobe-neu-photo {
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+  box-shadow:
+    inset 1px 1px 4px rgba(0, 0, 0, 0.08),
+    inset -1px -1px 3px rgba(255, 255, 255, 0.2);
   transition: none;
 }
 
 .dark .wardrobe-perf-lite.wardrobe-page-neu .wardrobe-neu-photo,
 .dark .wardrobe-perf-lite.wardrobe-page-neu .group:hover .wardrobe-neu-photo {
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.45);
+  box-shadow:
+    inset 1px 1px 4px rgba(0, 0, 0, 0.28),
+    inset -1px -1px 3px rgba(255, 255, 255, 0.05);
 }
 
 .wardrobe-perf-lite .wardrobe-neu-tool-orb {
@@ -5306,8 +5495,6 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
 
 .wardrobe-page-neu .wardrobe-neu-photo {
   box-shadow:
-    6px 7px 18px rgba(0, 0, 0, 0.13),
-    -4px -5px 14px rgba(255, 255, 255, 0.58),
     inset 2px 2px 9px rgba(0, 0, 0, 0.09),
     inset -2px -2px 8px rgba(255, 255, 255, 0.34);
   transition: box-shadow 0.28s ease;
@@ -5315,24 +5502,18 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
 
 .dark .wardrobe-page-neu .wardrobe-neu-photo {
   box-shadow:
-    6px 8px 22px rgba(0, 0, 0, 0.55),
-    -3px -4px 12px rgba(255, 255, 255, 0.04),
     inset 2px 2px 10px rgba(0, 0, 0, 0.4),
     inset -1px -1px 5px rgba(255, 255, 255, 0.06);
 }
 
 .wardrobe-page-neu .group:hover .wardrobe-neu-photo {
   box-shadow:
-    7px 9px 22px rgba(0, 0, 0, 0.15),
-    -5px -6px 16px rgba(255, 255, 255, 0.62),
     inset 2px 2px 9px rgba(0, 0, 0, 0.09),
     inset -2px -2px 8px rgba(255, 255, 255, 0.38);
 }
 
 .dark .wardrobe-page-neu .group:hover .wardrobe-neu-photo {
   box-shadow:
-    7px 10px 26px rgba(0, 0, 0, 0.58),
-    -4px -4px 14px rgba(255, 255, 255, 0.05),
     inset 2px 2px 11px rgba(0, 0, 0, 0.42),
     inset -1px -1px 5px rgba(255, 255, 255, 0.07);
 }
@@ -6236,6 +6417,18 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
   box-shadow:
     inset 2px 2px 6px rgba(0, 0, 0, 0.45),
     inset -1px -1px 3px rgba(255, 255, 255, 0.04);
+}
+
+:global(.toolbar-config-ghost) {
+  opacity: 0.45;
+}
+
+:global(.toolbar-config-chosen) {
+  border-radius: 0.5rem;
+}
+
+:global(.toolbar-config-dragging) {
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
 }
 
 </style>

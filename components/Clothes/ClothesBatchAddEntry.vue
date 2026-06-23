@@ -2,7 +2,7 @@
 import type { Wardrobe, Library } from '@/types/api'
 import type ClothesBatchAdd from '@/components/Clothes/ClothesBatchAdd.vue'
 import type LibraryChoose from '@/components/library/LibraryChoose.vue'
-import { insertClothesMultiple } from '@/api/wardrobe'
+import { insertClothesMultiple, type ClothesBatchInsertItem } from '@/api/wardrobe'
 import { BASE_IMG } from '@/utils/ipConfig'
 
 const emit = defineEmits<{
@@ -110,6 +110,33 @@ const libraryCoverPath = (cover?: string) => {
   return cover.replace(BASE_IMG, '')
 }
 
+/** 与单条添加图鉴到衣柜（WardrobeAddLibrary / ClothesAdd.chooseLibrary）字段对齐 */
+const libraryToBatchItem = (lib: Library): ClothesBatchInsertItem => {
+  const item: ClothesBatchInsertItem = {
+    clothes_img: libraryCoverPath(lib.cover),
+    clothes_note: lib.name?.trim() || undefined,
+    library_id: lib.library_id,
+  }
+  if (lib.library_price) {
+    item.price = lib.library_price
+  }
+  if (lib.shop?.shop_id) {
+    item.origin = lib.shop.shop_id
+  } else if (lib.shop_id) {
+    item.origin = lib.shop_id
+  }
+  if (lib.color) {
+    item.color = lib.color
+  }
+  if (lib.season) {
+    item.season = lib.season
+  }
+  if (lib.size) {
+    item.size = lib.size
+  }
+  return item
+}
+
 const submitImport = async () => {
   const withCover = importLibraries.value.filter((lib) => lib.cover)
   if (!withCover.length) {
@@ -125,10 +152,7 @@ const submitImport = async () => {
   try {
     await insertClothesMultiple({
       wardrobe_id: wardrobe.value.wardrobe_id,
-      clothes_list: withCover.map((lib) => ({
-        clothes_img: libraryCoverPath(lib.cover),
-        clothes_note: lib.name?.trim() || undefined,
-      })),
+      clothes_list: withCover.map(libraryToBatchItem),
     })
     toast.add({
       title: `已批量导入 ${withCover.length} 件服饰`,

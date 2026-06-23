@@ -83,6 +83,50 @@ export async function uploadImageOSS(file: { file?: File; url?: string; }): Prom
   return url
 }
 /**
+ * temp 目录 OSS 直传：不查重、不写文件记录（分享图等临时场景）
+ */
+export async function uploadTempFileToOSS(
+  file: File,
+  onProgress?: (progress: number) => void
+): Promise<{ file_url: string }> {
+  const checkResult = await checkFileAndGetUploadInfo({
+    file_md5: `temp_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`,
+    path: 'temp',
+  })
+
+  if (!checkResult.oss) {
+    throw new Error('获取 OSS 签名失败')
+  }
+
+  const ossInfo = checkResult.oss
+  const objectName = `${ossInfo.path}/${file.name}`
+
+  const client = new OSS({
+    region: ossInfo.region,
+    accessKeyId: ossInfo.AccessKeyId,
+    accessKeySecret: ossInfo.AccessKeySecret,
+    stsToken: ossInfo.SecurityToken,
+    bucket: ossInfo.bucket,
+  })
+
+  const uploadOptions: {
+    headers: Record<string, string>
+    progress?: (p: number) => void
+  } = {
+    headers: {
+      'Content-Type': file.type || 'application/octet-stream',
+    },
+  }
+
+  if (onProgress) {
+    uploadOptions.progress = (p: number) => onProgress(p)
+  }
+
+  const uploadResult = await client.put(objectName, file, uploadOptions)
+  return { file_url: uploadResult.name }
+}
+
+/**
  * 上传文件到 OSS（前端直传）
  * @param file 要上传的文件
  * @param path 可选的自定义路径，默认为 'editor'

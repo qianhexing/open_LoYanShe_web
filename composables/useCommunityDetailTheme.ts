@@ -1,10 +1,10 @@
-import type { Community } from '@/types/api'
 import { BASE_IMG } from '@/utils/ipConfig'
 import {
   communityBackgroundImageCss,
   hasCommunityCustomStyle,
-  parseCommunityCustomStyle,
+  parseEntityCustomStyle,
   type CommunityBackgroundMode,
+  type CustomThemeEntity,
 } from '@/utils/communityCustomStyle'
 
 /** 详情页展示用主题（与衣柜 detail 的 customStyle 结构对齐） */
@@ -25,10 +25,10 @@ function hexToRgba(color: string, opacity: number) {
   return `rgba(${r}, ${g}, ${b}, ${opacity})`
 }
 
-/** 社区帖子详情：从 detail.custom_style 解析页面背景、文字色与按钮色 */
-export function useCommunityDetailTheme(detail: Ref<Community | null>) {
+/** 详情页：从 custom_style（及衣柜顶层 background）解析页面背景、文字色与按钮色 */
+export function useCommunityDetailTheme(detail: Ref<CustomThemeEntity | null | undefined>) {
   const customStyle = computed((): CommunityDetailThemeStyle | null => {
-    const parsed = parseCommunityCustomStyle(detail.value?.custom_style)
+    const parsed = parseEntityCustomStyle(detail.value)
     if (!hasCommunityCustomStyle(parsed)) return null
 
     const back = parsed.backColor || '#ffffff'

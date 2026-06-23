@@ -106,11 +106,10 @@
 <script setup lang="ts">
 import type { Wardrobe, WardrobeClothes } from '@/types/api'
 import { getClothesList, type ClothesParams } from '@/api/wardrobe'
-import { uploadImageToTemp } from '@/api/index'
+import { uploadTempFileToOSS } from '@/utils/ossUpload'
 import QhxModal from '@/components/Qhx/Modal.vue'
 import { isHtml5PlusWebView, useSaveNetworkImageToAlbum } from '@/composables/useSaveNetworkImageToAlbum'
 import { BASE_IMG } from '@/utils/ipConfig'
-import dayjs from 'dayjs'
 
 const toast = useToast()
 
@@ -172,9 +171,153 @@ const COVER_HEADER = 200
 const COVER_HEAD_GAP = 16
 /** 单张画布最大高度，避免超出浏览器限制 */
 const MAX_CANVAS_H = 16000
-const STATUS_FILL: Record<string, string> = {
-  待补款: '#f59e0b',
-  已拥有: '#10b981',
+const PHOTO_RADIUS = 12
+const COVER_RADIUS = 14
+/** 卡片下方文案区 */
+const META_H_PAD = 12
+const META_TOP = 14
+/** 备注与封面之间的顶部间距（大于仅价格时的 META_TOP） */
+const NOTE_TOP = 22
+const LINE_H = 20
+const NOTE_PRICE_GAP = 8
+const ROW_GAP = 12
+const BADGE_INSET = 6
+
+const SHOW_CLOTHES_NOTE_KEY = 'wardrobe-detail-show-clothes-note'
+const SHOW_CLOTHES_PRICE_KEY = 'wardrobe-detail-show-clothes-price'
+const SHOW_CLOTHES_STATUS_KEY = 'wardrobe-detail-show-clothes-status'
+const SHOW_CLOTHES_FAVORITE_KEY = 'wardrobe-detail-show-clothes-favorite'
+
+interface ShareLayoutPrefs {
+  showNote: boolean
+  showPrice: boolean
+  showStatus: boolean
+  showFavorite: boolean
+}
+
+interface CellMetaMeasure {
+  noteLines: string[]
+  showPrice: boolean
+  metaH: number
+}
+
+interface ShareCanvasTheme {
+  bg: string
+  bgOverlay: string | null
+  text: string
+  textMuted: string
+  title: string
+  primary: string
+  photoBorder: string
+  divider: string
+  footer: string
+  photoBg: string
+}
+
+interface StatusBadgeStyle {
+  text: string
+  bg: string
+  border: string
+}
+
+const STATUS_BADGE_STYLES: Record<string, StatusBadgeStyle> = {
+  待补款: { text: '#92400e', bg: 'rgba(245, 158, 11, 0.16)', border: 'rgba(245, 158, 11, 0.3)' },
+  已拥有: { text: '#065f46', bg: 'rgba(16, 185, 129, 0.14)', border: 'rgba(16, 185, 129, 0.26)' },
+}
+
+const DEFAULT_STATUS_BADGE: StatusBadgeStyle = {
+  text: '#5b21b6',
+  bg: 'rgba(139, 92, 246, 0.14)',
+  border: 'rgba(139, 92, 246, 0.24)',
+}
+
+function getCssVar(name: string, fallback: string): string {
+  if (!import.meta.client) return fallback
+  const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim()
+  return v || fallback
+}
+
+function hexToRgba(hex: string, alpha: number): string {
+  const h = hex.replace('#', '')
+  if (h.length !== 6) return hex
+  const r = Number.parseInt(h.slice(0, 2), 16)
+  const g = Number.parseInt(h.slice(2, 4), 16)
+  const b = Number.parseInt(h.slice(4, 6), 16)
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`
+}
+
+function buildShareTheme(info: Wardrobe): ShareCanvasTheme {
+  const style = info.custom_style as Record<string, unknown> | undefined
+  const backColor = typeof style?.backColor === 'string' ? style.backColor : ''
+  const backOpacity = typeof style?.back_opacity === 'number' ? style.back_opacity : 1
+  const fontColor =
+    typeof style?.fontColor === 'string' ? style.fontColor : getCssVar('--text-color', '#4b5563')
+  const primary =
+    typeof style?.btnColor === 'string' ? style.btnColor : getCssVar('--primary-color', '#ec4899')
+  const defaultBg = getCssVar('--background-color', '#f3f4f6')
+
+  let bg = defaultBg
+  let bgOverlay: string | null = null
+  if (backColor) {
+    const rgba = hexToRgba(backColor, backOpacity)
+    if (info.background) {
+      bgOverlay = rgba
+    } else {
+      bg = rgba
+    }
+  }
+
+  return {
+    bg,
+    bgOverlay,
+    text: fontColor,
+    textMuted: hexToRgba(fontColor.startsWith('#') ? fontColor : '#4b5563', 0.72),
+    title: fontColor,
+    primary,
+    photoBorder: 'rgba(209, 213, 219, 0.95)',
+    divider: 'rgba(0, 0, 0, 0.08)',
+    footer: hexToRgba(fontColor.startsWith('#') ? fontColor : '#4b5563', 0.55),
+    photoBg: '#f9fafb',
+  }
+}
+
+function getStatusBadgeStyle(status: string): StatusBadgeStyle {
+  return STATUS_BADGE_STYLES[status] ?? DEFAULT_STATUS_BADGE
+}
+
+function readBoolPref(key: string, defaultValue = true): boolean {
+  if (!import.meta.client || typeof localStorage === 'undefined') return defaultValue
+  try {
+    const v = localStorage.getItem(key)
+    return v === null ? defaultValue : v === '1'
+  } catch {
+    return defaultValue
+  }
+}
+
+function readShareLayoutPrefs(): ShareLayoutPrefs {
+  return {
+    showNote: readBoolPref(SHOW_CLOTHES_NOTE_KEY),
+    showPrice: readBoolPref(SHOW_CLOTHES_PRICE_KEY),
+    showStatus: readBoolPref(SHOW_CLOTHES_STATUS_KEY),
+    showFavorite: readBoolPref(SHOW_CLOTHES_FAVORITE_KEY),
+  }
+}
+
+function getFavoriteLevel(item: WardrobeClothes): number {
+  const v = item.is_favorite
+  const n = typeof v === 'number' ? v : Number(v)
+  if (!Number.isFinite(n)) return 0
+  return Math.min(5, Math.max(0, Math.round(n)))
+}
+
+function hasClothesPrice(item: WardrobeClothes): boolean {
+  return item.price != null && Number(item.price) > 0
+}
+
+function formatClothesPrice(info: Wardrobe, price: number | string | null | undefined): string {
+  if (info.show_price === 2 || info.show_price !== 1) return '***'
+  return String(price ?? 0)
 }
 
 function wrapLines(ctx: CanvasRenderingContext2D, text: string, maxWidth: number): string[] {
@@ -289,14 +432,13 @@ function roundRectPath(ctx: CanvasRenderingContext2D, x: number, y: number, w: n
   ctx.closePath()
 }
 
-function drawImageCover(
+function drawImageCoverFull(
   ctx: CanvasRenderingContext2D,
   img: HTMLImageElement,
   x: number,
   y: number,
   w: number,
-  h: number,
-  radius: number
+  h: number
 ) {
   const ir = img.width / img.height
   const cr = w / h
@@ -311,17 +453,254 @@ function drawImageCover(
     sh = sw / cr
     sy = (img.height - sh) / 2
   }
+  ctx.drawImage(img, sx, sy, sw, sh, x, y, w, h)
+}
+
+function drawPageBackground(
+  ctx: CanvasRenderingContext2D,
+  w: number,
+  h: number,
+  theme: ShareCanvasTheme,
+  bgImg: HTMLImageElement | null
+) {
+  if (bgImg) {
+    drawImageCoverFull(ctx, bgImg, 0, 0, w, h)
+    if (theme.bgOverlay) {
+      ctx.fillStyle = theme.bgOverlay
+      ctx.fillRect(0, 0, w, h)
+    }
+  } else {
+    ctx.fillStyle = theme.bg
+    ctx.fillRect(0, 0, w, h)
+  }
+}
+
+/** 拟态相框：对齐 wardrobe-neu-photo */
+function drawNeuPhotoFrame(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  radius: number,
+  theme: ShareCanvasTheme
+) {
+  ctx.save()
+  ctx.shadowColor = 'rgba(0, 0, 0, 0.13)'
+  ctx.shadowBlur = 10
+  ctx.shadowOffsetX = 3
+  ctx.shadowOffsetY = 4
+  roundRectPath(ctx, x, y, w, h, radius)
+  ctx.fillStyle = '#ffffff'
+  ctx.fill()
+  ctx.restore()
+
   ctx.save()
   roundRectPath(ctx, x, y, w, h, radius)
   ctx.clip()
-  ctx.drawImage(img, sx, sy, sw, sh, x, y, w, h)
+  const grad = ctx.createLinearGradient(x, y, x + w, y + h)
+  grad.addColorStop(0, 'rgba(0, 0, 0, 0.07)')
+  grad.addColorStop(0.35, 'rgba(0, 0, 0, 0)')
+  grad.addColorStop(0.65, 'rgba(255, 255, 255, 0)')
+  grad.addColorStop(1, 'rgba(255, 255, 255, 0.28)')
+  ctx.fillStyle = grad
+  ctx.fillRect(x, y, w, h)
   ctx.restore()
-  ctx.strokeStyle = 'rgba(180, 140, 160, 0.45)'
+
+  ctx.strokeStyle = theme.photoBorder
   ctx.lineWidth = 1
   ctx.save()
   roundRectPath(ctx, x + 0.5, y + 0.5, w - 1, h - 1, radius)
   ctx.stroke()
   ctx.restore()
+}
+
+function drawImageCover(
+  ctx: CanvasRenderingContext2D,
+  img: HTMLImageElement,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  radius: number,
+  theme: ShareCanvasTheme
+) {
+  drawNeuPhotoFrame(ctx, x, y, w, h, radius, theme)
+  const inset = 1
+  ctx.save()
+  roundRectPath(ctx, x + inset, y + inset, w - inset * 2, h - inset * 2, Math.max(0, radius - 1))
+  ctx.clip()
+  drawImageCoverFull(ctx, img, x + inset, y + inset, w - inset * 2, h - inset * 2)
+  ctx.restore()
+}
+
+function drawStatusBadgePill(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  text: string,
+  maxW: number
+) {
+  const style = getStatusBadgeStyle(text)
+  ctx.font = '600 11px system-ui, "Microsoft YaHei", sans-serif'
+  const tw = ctx.measureText(text).width
+  const bw = Math.min(maxW, tw + 16)
+  const bh = 22
+  ctx.fillStyle = style.bg
+  roundRectPath(ctx, x + BADGE_INSET, y + BADGE_INSET, bw, bh, 999)
+  ctx.fill()
+  ctx.strokeStyle = style.border
+  ctx.lineWidth = 1
+  roundRectPath(ctx, x + BADGE_INSET + 0.5, y + BADGE_INSET + 0.5, bw - 1, bh - 1, 999)
+  ctx.stroke()
+  ctx.fillStyle = style.text
+  ctx.textAlign = 'left'
+  ctx.textBaseline = 'middle'
+  ctx.fillText(text, x + BADGE_INSET + 8, y + BADGE_INSET + bh / 2)
+}
+
+function drawFavoriteBadgePill(
+  ctx: CanvasRenderingContext2D,
+  cellX: number,
+  cellY: number,
+  cellW: number,
+  level: number
+) {
+  const bh = 22
+  const label = String(level)
+  ctx.font = '700 10px system-ui, "Microsoft YaHei", sans-serif'
+  const numW = ctx.measureText(label).width
+  ctx.font = '600 10px system-ui, sans-serif'
+  const starW = ctx.measureText('★').width
+  const bw = numW + starW + 14
+  const bx = cellX + cellW - bw - BADGE_INSET
+  const by = cellY + BADGE_INSET
+
+  ctx.fillStyle = 'rgba(245, 158, 11, 0.14)'
+  roundRectPath(ctx, bx, by, bw, bh, 999)
+  ctx.fill()
+  ctx.strokeStyle = 'rgba(245, 158, 11, 0.28)'
+  ctx.lineWidth = 1
+  roundRectPath(ctx, bx + 0.5, by + 0.5, bw - 1, bh - 1, 999)
+  ctx.stroke()
+
+  ctx.textBaseline = 'middle'
+  ctx.textAlign = 'left'
+  ctx.fillStyle = '#b45309'
+  ctx.font = '700 10px system-ui, "Microsoft YaHei", sans-serif'
+  ctx.fillText(label, bx + 7, by + bh / 2)
+  ctx.fillStyle = '#d97706'
+  ctx.font = '600 10px system-ui, sans-serif'
+  ctx.fillText('★', bx + 7 + numW + 2, by + bh / 2)
+}
+
+function drawCellBadges(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  cellW: number,
+  item: WardrobeClothes,
+  prefs: ShareLayoutPrefs
+) {
+  const status = item.wardrobe_status?.trim()
+  if (prefs.showStatus && status) {
+    drawStatusBadgePill(ctx, x, y, status, cellW - BADGE_INSET * 2 - 4)
+  }
+  const fav = getFavoriteLevel(item)
+  if (prefs.showFavorite && fav > 0) {
+    drawFavoriteBadgePill(ctx, x, y, cellW, fav)
+  }
+}
+
+function measureCellMeta(
+  ctx: CanvasRenderingContext2D,
+  item: WardrobeClothes,
+  info: Wardrobe,
+  cellW: number,
+  prefs: ShareLayoutPrefs
+): CellMetaMeasure {
+  const textW = Math.max(0, cellW - META_H_PAD * 2)
+  ctx.font = '500 13px system-ui, "Microsoft YaHei", sans-serif'
+
+  let noteLines: string[] = []
+  const note = item.clothes_note?.trim()
+  if (prefs.showNote && note) {
+    noteLines = wrapLines(ctx, note, textW).slice(0, 2)
+  }
+
+  const showPrice = prefs.showPrice && hasClothesPrice(item)
+
+  let metaH = 0
+  if (noteLines.length || showPrice) {
+    if (noteLines.length) {
+      metaH = NOTE_TOP + noteLines.length * LINE_H
+      if (showPrice) metaH += NOTE_PRICE_GAP + LINE_H
+    } else {
+      metaH = META_TOP + LINE_H
+    }
+  }
+
+  return { noteLines, showPrice, metaH }
+}
+
+function computeRowBlockHeights(
+  ctx: CanvasRenderingContext2D,
+  items: WardrobeClothes[],
+  cols: number,
+  imgH: number,
+  cellW: number,
+  info: Wardrobe,
+  prefs: ShareLayoutPrefs
+): number[] {
+  const rowCount = Math.ceil(items.length / cols) || 1
+  const blocks: number[] = []
+  for (let r = 0; r < rowCount; r++) {
+    let maxMeta = 0
+    for (let c = 0; c < cols; c++) {
+      const idx = r * cols + c
+      if (idx >= items.length) break
+      maxMeta = Math.max(maxMeta, measureCellMeta(ctx, items[idx], info, cellW, prefs).metaH)
+    }
+    blocks.push(imgH + maxMeta + ROW_GAP)
+  }
+  return blocks
+}
+
+function drawCellMeta(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  imgH: number,
+  cellW: number,
+  item: WardrobeClothes,
+  info: Wardrobe,
+  prefs: ShareLayoutPrefs,
+  theme: ShareCanvasTheme
+) {
+  const meta = measureCellMeta(ctx, item, info, cellW, prefs)
+  const textX = x + cellW / 2
+  let ty = y + imgH + (meta.noteLines.length ? NOTE_TOP : META_TOP)
+
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'alphabetic'
+
+  if (meta.noteLines.length) {
+    ctx.fillStyle = theme.text
+    ctx.font = '500 13px system-ui, "Microsoft YaHei", sans-serif'
+    for (const nl of meta.noteLines) {
+      ctx.fillText(truncate(nl, 40), textX, ty)
+      ty += LINE_H
+    }
+  }
+
+  if (meta.showPrice) {
+    if (meta.noteLines.length) ty += NOTE_PRICE_GAP
+    ctx.font = '500 13px system-ui, "Microsoft YaHei", sans-serif'
+    ctx.fillStyle = theme.primary
+    ctx.fillText(`￥ ${formatClothesPrice(info, item.price)}`, textX, ty)
+  }
+
+  ctx.textAlign = 'left'
 }
 
 function headerTextX(showCover: boolean): number {
@@ -333,18 +712,17 @@ function headerTextMaxW(showCover: boolean): number {
 }
 
 /** 仅在头部右上角绘制 Lo研社 标识 */
-function drawHeaderBrandMark(ctx: CanvasRenderingContext2D, top: number) {
+function drawHeaderBrandMark(ctx: CanvasRenderingContext2D, top: number, theme: ShareCanvasTheme) {
   const rx = CW - PAD
   const ty = top + 6
   ctx.save()
   ctx.textAlign = 'right'
   ctx.textBaseline = 'top'
-  ctx.fillStyle = 'rgba(122, 72, 95, 0.38)'
-  ctx.font = 'bold 17px system-ui, "Microsoft YaHei", "PingFang SC", sans-serif'
+  ctx.fillStyle = theme.footer
+  ctx.font = 'bold 16px system-ui, "Microsoft YaHei", "PingFang SC", sans-serif'
   ctx.fillText('Lo研社', rx, ty)
-  ctx.fillStyle = 'rgba(122, 72, 95, 0.28)'
   ctx.font = '600 11px system-ui, "Microsoft YaHei", sans-serif'
-  ctx.fillText('Lolita图书馆', rx, ty + 22)
+  ctx.fillText('Lolita图书馆', rx, ty + 20)
   ctx.restore()
 }
 
@@ -358,7 +736,8 @@ function layoutWardrobeHeader(
   startY: number,
   coverImg: HTMLImageElement | null,
   mode: 'draw' | 'measure',
-  showCover: boolean
+  showCover: boolean,
+  theme: ShareCanvasTheme
 ): number {
   const textX = headerTextX(showCover)
   const maxTextW = headerTextMaxW(showCover)
@@ -367,33 +746,28 @@ function layoutWardrobeHeader(
 
   if (mode === 'draw') {
     if (showCover && coverImg) {
-      drawImageCover(ctx, coverImg, PAD, top, COVER_HEADER, COVER_HEADER, 14)
+      drawImageCover(ctx, coverImg, PAD, top, COVER_HEADER, COVER_HEADER, COVER_RADIUS, theme)
     }
-    drawHeaderBrandMark(ctx, top)
+    drawHeaderBrandMark(ctx, top, theme)
   }
 
-  ctx.fillStyle = '#4a2f3d'
-  ctx.font = 'bold 28px system-ui, "Microsoft YaHei", "PingFang SC", sans-serif'
+  ctx.fillStyle = theme.title
+  ctx.font = 'bold 22px system-ui, "Microsoft YaHei", "PingFang SC", sans-serif'
   ctx.textAlign = 'left'
   const titleLines = wrapLines(ctx, info.wardrobe_name || '衣柜', maxTextW)
   for (const line of titleLines.slice(0, 3)) {
     if (mode === 'draw') ctx.fillText(line, textX, y)
-    y += 34
+    y += 30
   }
   if (titleLines.length > 3) {
     if (mode === 'draw') ctx.fillText('…', textX, y)
-    y += 34
+    y += 30
   }
-  y += 6
+  y += 4
   ctx.font = '14px system-ui, "Microsoft YaHei", sans-serif'
-  ctx.fillStyle = '#6b4f5f'
-  if (info.create_date) {
-    if (mode === 'draw') ctx.fillText(`创建于 ${dayjs(info.create_date).format('YYYY-MM-DD')}`, textX, y)
-    y += 24
-  }
-  const desc = (info.wardrobe_desc || '').trim()
-  if (desc) {
-    const dl = wrapLines(ctx, desc, maxTextW)
+  ctx.fillStyle = theme.text
+  if (info.wardrobe_desc?.trim()) {
+    const dl = wrapLines(ctx, info.wardrobe_desc.trim(), maxTextW)
     for (const line of dl.slice(0, 4)) {
       if (mode === 'draw') ctx.fillText(line, textX, y)
       y += 22
@@ -403,31 +777,29 @@ function layoutWardrobeHeader(
       y += 22
     }
   }
-  y += 4
-  ctx.fillStyle = '#5e3a4b'
-  ctx.font = '15px system-ui, "Microsoft YaHei", sans-serif'
+  y += 2
   if (mode === 'draw') ctx.fillText(`衣柜收纳: ${info.total_count ?? 0} 条`, textX, y)
-  y += 26
+  y += 24
   const priceShown = info.show_price !== 1 ? '***' : String(info.total_price ?? 0)
   if (mode === 'draw') ctx.fillText(`衣柜总价: ￥${priceShown}`, textX, y)
-  y += 26
+  y += 24
   if (mode === 'draw') ctx.fillText(`穿着次数: ${info.total_times ?? 0}`, textX, y)
-  y += 26
+  y += 24
   if (mode === 'draw')
     ctx.fillText(`共有 ${info.total_community ?? 0} 条与小裙子间美好的回忆 (*^▽^*)`, textX, y)
-  y += 32
+  y += 28
 
   if (showCover) {
     y = Math.max(y, top + COVER_HEADER + 8)
   }
 
-  ctx.strokeStyle = 'rgba(196, 168, 184, 0.7)'
+  ctx.strokeStyle = theme.divider
   ctx.lineWidth = 1
   ctx.beginPath()
   ctx.moveTo(PAD, y)
   ctx.lineTo(CW - PAD, y)
   if (mode === 'draw') ctx.stroke()
-  y += 28
+  y += 24
   return y
 }
 
@@ -435,38 +807,56 @@ function measureHeaderEndY(
   ctx: CanvasRenderingContext2D,
   info: Wardrobe,
   startY: number,
-  showCover: boolean
+  showCover: boolean,
+  theme: ShareCanvasTheme
 ): number {
-  return layoutWardrobeHeader(ctx, info, startY, null, 'measure', showCover)
+  return layoutWardrobeHeader(ctx, info, startY, null, 'measure', showCover, theme)
 }
 
-function cellMetrics(cols: number, gap: number, titleArea: number, priceH: number) {
+function gridCellWidth(cols: number, gap: number): number {
   const availW = CW - PAD * 2
-  const cellW = (availW - gap * (cols - 1)) / cols
-  const imgH = Math.round(cellW * 1.5)
-  const cellBlock = imgH + titleArea + priceH + gap
-  return { cellW, imgH, cellBlock }
+  return (availW - gap * (cols - 1)) / cols
 }
 
-function pickColsForHeight(itemCount: number, headH: number, gap: number, titleArea: number, priceH: number): number {
+function maxMetaHeightEstimate(): number {
+  return NOTE_TOP + LINE_H * 2 + NOTE_PRICE_GAP + LINE_H
+}
+
+function pickColsForHeight(
+  itemCount: number,
+  headH: number,
+  gap: number,
+  imgHForCols: (cols: number) => number
+): number {
   let cols = 3
   while (cols <= 6) {
-    const { cellBlock } = cellMetrics(cols, gap, titleArea, priceH)
+    const imgH = imgHForCols(cols)
+    const rowBlock = imgH + maxMetaHeightEstimate() + ROW_GAP
     const rows = Math.ceil(itemCount / cols) || 1
-    const needH = headH + rows * cellBlock + PAD + 56
+    const needH = headH + rows * rowBlock + PAD + 56
     if (needH <= MAX_CANVAS_H || cols >= 6) return cols
     cols += 1
   }
   return 6
 }
 
+function sumRowBlocks(blocks: number[]): number {
+  return blocks.reduce((a, b) => a + b, 0)
+}
+
 async function drawLongCanvas(
   info: Wardrobe,
   items: WardrobeClothes[]
 ): Promise<{ canvas: HTMLCanvasElement; drawnCount: number; sourceCount: number }> {
+  const theme = buildShareTheme(info)
+  const prefs = readShareLayoutPrefs()
   progressLabel.value = '加载封面…'
   const coverUrl = resolveImgUrl(info.wardrobe_cover)
-  const coverImg = coverUrl ? await loadImageCors(coverUrl) : null
+  const bgUrl = resolveImgUrl(info.background)
+  const [coverImg, bgImg] = await Promise.all([
+    coverUrl ? loadImageCors(coverUrl) : Promise.resolve(null),
+    bgUrl ? loadImageCors(bgUrl) : Promise.resolve(null),
+  ])
   const showCover = Boolean(coverImg)
 
   const measureCv = document.createElement('canvas')
@@ -474,23 +864,33 @@ async function drawLongCanvas(
   measureCv.height = 1200
   const mctx = measureCv.getContext('2d')
   if (!mctx) throw new Error('canvas')
-  const headH = measureHeaderEndY(mctx, info, PAD, showCover)
+  const headH = measureHeaderEndY(mctx, info, PAD, showCover, theme)
 
-  const gap = 12
-  const titleArea = 44
-  const priceH = 20
-  const cols = pickColsForHeight(items.length, headH, gap, titleArea, priceH)
-  const { cellW, imgH, cellBlock } = cellMetrics(cols, gap, titleArea, priceH)
-  const maxRowsLimit = Math.max(1, Math.floor((MAX_CANVAS_H - headH - PAD - 56) / cellBlock))
-  const maxItems = maxRowsLimit * cols
-  const drawItems = items.length > maxItems ? items.slice(0, maxItems) : items
+  const colGap = 10
+  const cols = pickColsForHeight(items.length, headH, colGap, (c) => gridCellWidth(c, colGap))
+  const cellW = gridCellWidth(cols, colGap)
+  const imgH = cellW
+
+  let drawItems = items
+  let rowBlocks = computeRowBlockHeights(mctx, drawItems, cols, imgH, cellW, info, prefs)
+  let gridH = sumRowBlocks(rowBlocks)
+
+  while (headH + gridH + PAD + 56 > MAX_CANVAS_H && drawItems.length > cols) {
+    const maxRows = Math.max(1, Math.floor((MAX_CANVAS_H - headH - PAD - 56) / (imgH + maxMetaHeightEstimate() + ROW_GAP)))
+    const maxItems = maxRows * cols
+    if (drawItems.length <= maxItems) break
+    drawItems = drawItems.slice(0, maxItems)
+    rowBlocks = computeRowBlockHeights(mctx, drawItems, cols, imgH, cellW, info, prefs)
+    gridH = sumRowBlocks(rowBlocks)
+  }
+
   if (drawItems.length < items.length) {
     console.warn(
       `[wardrobe-long-share] 画布高度上限，仅绘制前 ${drawItems.length}/${items.length} 件，可缩小筛选范围后重试`
     )
   }
-  const rows = Math.ceil(drawItems.length / cols) || 1
-  const H = Math.min(MAX_CANVAS_H, headH + rows * cellBlock + PAD + 56)
+
+  const H = Math.min(MAX_CANVAS_H, headH + gridH + PAD + 56)
 
   const canvas = document.createElement('canvas')
   canvas.width = CW
@@ -498,12 +898,11 @@ async function drawLongCanvas(
   const ctx = canvas.getContext('2d')
   if (!ctx) throw new Error('ctx')
 
-  ctx.fillStyle = '#ebe3e8'
-  ctx.fillRect(0, 0, CW, H)
+  drawPageBackground(ctx, CW, H, theme, bgImg)
 
   progressLabel.value = '加载服饰图片…'
 
-  const gridTop = layoutWardrobeHeader(ctx, info, PAD, coverImg, 'draw', showCover)
+  const gridTop = layoutWardrobeHeader(ctx, info, PAD, coverImg, 'draw', showCover, theme)
 
   const urls = [...new Set(drawItems.map((it) => resolveImgUrl(it.clothes_img)).filter(Boolean))]
   const imgCache = new Map<string, HTMLImageElement | null>()
@@ -518,62 +917,38 @@ async function drawLongCanvas(
     )
   }
 
-  for (let idx = 0; idx < drawItems.length; idx++) {
-    const col = idx % cols
-    const row = Math.floor(idx / cols)
-    const x = PAD + col * (cellW + gap)
-    const y = gridTop + row * cellBlock
-    const el = drawItems[idx]
-    const u = resolveImgUrl(el.clothes_img)
-    const im = u ? imgCache.get(u) ?? null : null
+  let gridY = gridTop
+  const rowCount = rowBlocks.length
+  for (let r = 0; r < rowCount; r++) {
+    for (let c = 0; c < cols; c++) {
+      const idx = r * cols + c
+      if (idx >= drawItems.length) break
+      const el = drawItems[idx]
+      const x = PAD + c * (cellW + colGap)
+      const y = gridY
+      const u = resolveImgUrl(el.clothes_img)
+      const im = u ? imgCache.get(u) ?? null : null
 
-    if (im) {
-      drawImageCover(ctx, im, x, y, cellW, imgH, 10)
-    } else {
-      ctx.fillStyle = '#ddd5dc'
-      roundRectPath(ctx, x, y, cellW, imgH, 10)
-      ctx.fill()
-      ctx.fillStyle = '#8a6f7d'
-      ctx.font = '14px sans-serif'
-      ctx.textAlign = 'center'
-      ctx.fillText('无图', x + cellW / 2, y + imgH / 2)
-      ctx.textAlign = 'left'
-    }
+      if (im) {
+        drawImageCover(ctx, im, x, y, cellW, imgH, PHOTO_RADIUS, theme)
+      } else {
+        drawNeuPhotoFrame(ctx, x, y, cellW, imgH, PHOTO_RADIUS, theme)
+        ctx.fillStyle = theme.textMuted
+        ctx.font = '13px system-ui, sans-serif'
+        ctx.textAlign = 'center'
+        ctx.textBaseline = 'middle'
+        ctx.fillText('无图', x + cellW / 2, y + imgH / 2)
+        ctx.textAlign = 'left'
+        ctx.textBaseline = 'alphabetic'
+      }
 
-    const st = el.wardrobe_status?.trim()
-    if (st) {
-      ctx.font = '11px system-ui, sans-serif'
-      const tw = ctx.measureText(st).width
-      const bw = Math.min(cellW - 4, tw + 14)
-      const fill = STATUS_FILL[st] ?? '#9d6080'
-      ctx.fillStyle = fill
-      roundRectPath(ctx, x, y, bw, 22, 6)
-      ctx.fill()
-      ctx.fillStyle = '#fff'
-      ctx.fillText(st, x + 6, y + 15)
+      drawCellBadges(ctx, x, y, cellW, el, prefs)
+      drawCellMeta(ctx, x, y, imgH, cellW, el, info, prefs, theme)
     }
-
-    ctx.fillStyle = '#4a2f3d'
-    ctx.font = '13px system-ui, "Microsoft YaHei", sans-serif'
-    ctx.textAlign = 'left'
-    const note = (el.clothes_note || '').trim() || '—'
-    const noteLines = wrapLines(ctx, note, cellW - 8).slice(0, 2)
-    let ty = y + imgH + 16
-    for (const nl of noteLines) {
-      ctx.fillText(truncate(nl, 40), x + 4, ty)
-      ty += 18
-    }
-
-    if (el.price != null && Number(el.price) > 0) {
-      ctx.font = '12px system-ui, sans-serif'
-      ctx.fillStyle = '#9d4080'
-      const pt =
-        info.show_price === 2 ? '***' : info.show_price !== 1 ? '***' : String(el.price)
-      ctx.fillText(`￥${pt}`, x + 4, y + imgH + titleArea + 6)
-    }
+    gridY += rowBlocks[r] ?? imgH + ROW_GAP
   }
 
-  ctx.fillStyle = '#927084'
+  ctx.fillStyle = theme.footer
   ctx.font = '13px system-ui, "Microsoft YaHei", sans-serif'
   ctx.textAlign = 'center'
   ctx.fillText('Lo研社 · 我的衣柜', CW / 2, H - 20)
@@ -613,7 +988,7 @@ async function generateAndUpload() {
     }
     progressLabel.value = '上传中…'
     const file = new File([blob], `wardrobe-long-${Date.now()}.png`, { type: 'image/png' })
-    const res = await uploadImageToTemp(file)
+    const res = await uploadTempFileToOSS(file)
     if (!res?.file_url) {
       errorMsg.value = '上传失败：未返回地址'
       return

@@ -81,7 +81,7 @@
         <div>
           <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
             背景图
-            <span class="text-gray-500 dark:text-gray-400 font-normal text-xs ml-1.5">帖子详情页背景</span>
+            <span class="text-gray-500 dark:text-gray-400 font-normal text-xs ml-1.5">{{ backgroundHint }}</span>
           </label>
           <QhxImagePicker
             ref="backgroundPickerRef"
@@ -187,19 +187,38 @@
       <QhxColorPicker ref="backColorPickerRef" @choose="(c: string) => (model.backColor = c)" />
     </ClientOnly>
 
-    <UModal v-model="showTemplateModal" :ui="{ width: 'max-w-lg' }">
-      <div class="p-4 pb-2">
-        <h3 class="text-base font-semibold text-gray-900 dark:text-gray-100">选择主题模版</h3>
-        <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">选择后将自动带入背景与配色</p>
+    <QhxModal v-model="showTemplateModal">
+      <div
+        class="w-[96vw] max-w-lg max-h-[85vh] bg-white dark:bg-gray-800 rounded-2xl shadow-2xl overflow-hidden flex flex-col border border-gray-200/60 dark:border-gray-700/60"
+      >
+        <div
+          class="flex items-center justify-between gap-3 px-4 py-3 border-b border-gray-200 dark:border-gray-700 flex-shrink-0"
+        >
+          <div class="min-w-0">
+            <h3 class="text-base font-semibold text-gray-900 dark:text-gray-100">选择主题模版</h3>
+            <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">选择后将自动带入背景与配色</p>
+          </div>
+          <button
+            type="button"
+            class="w-9 h-9 shrink-0 flex items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500"
+            aria-label="关闭"
+            @click="showTemplateModal = false"
+          >
+            <UIcon name="i-heroicons-x-mark" class="w-5 h-5" />
+          </button>
+        </div>
+        <div class="flex-1 overflow-y-auto min-h-0 p-4">
+          <TemplateList compact :pk-type="templatePkType" @choose="onChooseTemplate" />
+        </div>
       </div>
-      <TemplateList compact :pk-type="1" @choose="onChooseTemplate" />
-    </UModal>
+    </QhxModal>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, watch, nextTick, computed } from 'vue'
 import type { TemplateInterface } from '@/types/api'
+import QhxModal from '@/components/Qhx/Modal.vue'
 import type QhxImagePicker from '@/components/Qhx/ImagePicker.vue'
 import type QhxColorPicker from '@/components/Qhx/ColorPicker.vue'
 import { BASE_IMG } from '@/utils/ipConfig'
@@ -209,6 +228,19 @@ import {
   parseCommunityCustomStyleFromTemplateJsonData,
   type CommunityCustomStyle
 } from '@/utils/communityCustomStyle'
+
+const props = withDefaults(
+  defineProps<{
+    /** 背景图说明文案 */
+    backgroundHint?: string
+    /** 主题模版 pk_type */
+    templatePkType?: number
+  }>(),
+  {
+    backgroundHint: '详情页背景',
+    templatePkType: 1,
+  }
+)
 
 const model = defineModel<CommunityCustomStyle>({ required: true })
 

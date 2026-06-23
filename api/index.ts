@@ -25,13 +25,26 @@ export async function uploadImage(file: File): Promise<FileInterface> {
   return response.data;
 }
 
+export interface UploadImageToTempOptions {
+  /** 跳过后端默认 8MB 体积校验（分享图等场景） */
+  skipSizeLimit?: boolean
+}
+
 /** 上传到服务器 temp 目录（与 /qhxUpload 约定传 path=temp，若后端字段名不同请改此处） */
-export async function uploadImageToTemp(file: File): Promise<FileInterface> {
+export async function uploadImageToTemp(file: File, options?: UploadImageToTempOptions): Promise<FileInterface> {
   const formData = new FormData()
   formData.append('file', file)
   formData.append('path', 'temp')
+  if (options?.skipSizeLimit) {
+    formData.append('skip_size_limit', '1')
+  }
   const response = await use$Post<BaseResponse<FileInterface>>('/qhxUpload', formData)
   return response.data
+}
+
+/** 分享图专用上传：temp 目录且跳过后端 8MB 体积限制 */
+export async function uploadShareImageToTemp(file: File): Promise<FileInterface> {
+  return uploadImageToTemp(file, { skipSizeLimit: true })
 }
 interface fontParams{
   charset: string  // 可选字段

@@ -22,8 +22,11 @@ import type { optionsInterface } from '@/components/Qhx/Select.vue'
 import type SceneChoose from '@/components/scene/SceneChoose.vue'
 import WardrobeClothesChoose from '@/components/Wardrobe/WardrobeClothesChoose.vue'
 import ClothesFavoriteCoverOverlay from '@/components/Clothes/ClothesFavoriteCoverOverlay.vue'
+import ClothesDetailCoverFrame from '@/components/Clothes/ClothesDetailCoverFrame.vue'
 import CommunityPostModal from '@/components/community/CommunityPostModal.vue'
+import ClothesShareImage from '@/components/Clothes/ClothesShareImage.vue'
 import type { CommunityPostForeignContext } from '@/utils/communityPost'
+import type { ClothesShareSource } from '@/utils/clothesShareCanvas'
 import { BASE_IMG } from '@/utils/ipConfig'
 import PhysicsDrop from '@/components/PhysicsDrop.client.vue'
 import type { MaterialForeign, Material } from '@/types/api'
@@ -44,7 +47,61 @@ const user = useUserStore()
 const toast = useToast()
 const clothesRouteId = computed(() => String(route.params.id ?? ''))
 
+const buildAccessQueryParams = (): { qrcode?: string; password?: string } => {
+  const params: { qrcode?: string; password?: string } = {}
+  const qr = route.query.qrcode
+  if (typeof qr === 'string' && qr) params.qrcode = qr
+  const pwd = route.query.password
+  if (typeof pwd === 'string' && pwd) params.password = pwd
+  return params
+}
+
 const detail = ref<ExtendedWardrobeClothes | null>(null)
+
+const COVER_3D_STORAGE_KEY = 'clothes-detail-cover-3d-pref'
+
+function readCover3dPref(): boolean {
+  if (!import.meta.client || typeof localStorage === 'undefined') return false
+  try {
+    return localStorage.getItem(COVER_3D_STORAGE_KEY) === '1'
+  } catch {
+    return false
+  }
+}
+
+function persistCover3dPref(active: boolean) {
+  if (!import.meta.client || typeof localStorage === 'undefined') return
+  try {
+    localStorage.setItem(COVER_3D_STORAGE_KEY, active ? '1' : '0')
+  } catch {
+    /* 忽略写入失败 */
+  }
+}
+
+const cover3dActive = ref(false)
+
+const libraryHas3d = computed(() => {
+  const v = detail.value?.library?.has_3d
+  return v === true || v === 1
+})
+
+const humanPlatformIframeSrc = computed(() => {
+  const lid = detail.value?.library?.library_id
+  if (lid == null || !libraryHas3d.value) return ''
+  return `https://lolitalibrary.com/humanPlatform/0?library_id=${lid}&from_iframe=true&hide_ui=true`
+})
+
+function syncCover3dFromPref() {
+  cover3dActive.value = libraryHas3d.value && readCover3dPref()
+}
+
+watch(cover3dActive, (active) => {
+  if (libraryHas3d.value) persistCover3dPref(active)
+})
+
+watch([libraryHas3d, clothesRouteId], () => {
+  syncCover3dFromPref()
+})
 /** 当前衣柜内服饰 id 顺序（来自 `/clothes/all` 或 list 分页兜底） */
 const wardrobeSiblingIds = ref<number[]>([])
 const siblingsWardrobeId = ref<number | null>(null)
@@ -130,6 +187,56 @@ watch(fabActionsExpanded, (expanded) => {
   persistFabActionsExpanded(expanded)
 })
 
+const HEADER_COLLAPSED_KEY = 'clothes-detail-header-collapsed'
+
+function readHeaderCollapsedPref(): boolean {
+  if (!import.meta.client || typeof localStorage === 'undefined') return false
+  try {
+    const h = localStorage.getItem(HEADER_COLLAPSED_KEY)
+    return h === null ? false : h === '1'
+  } catch {
+    return false
+  }
+}
+
+/** 功能栏是否收起（localStorage 持久化，无缓存时默认展开） */
+const headerCollapsed = ref(readHeaderCollapsedPref())
+
+function restoreHeaderCollapsedPref() {
+  if (!import.meta.client || typeof localStorage === 'undefined') return
+  try {
+    const h = localStorage.getItem(HEADER_COLLAPSED_KEY)
+    if (h !== null) {
+      headerCollapsed.value = h === '1'
+    } else {
+      headerCollapsed.value = false
+    }
+  } catch {
+    /* 忽略读取失败 */
+  }
+}
+
+function persistHeaderCollapsed(collapsed: boolean) {
+  if (!import.meta.client || typeof localStorage === 'undefined') return
+  try {
+    localStorage.setItem(HEADER_COLLAPSED_KEY, collapsed ? '1' : '0')
+  } catch {
+    /* 忽略写入失败 */
+  }
+}
+
+const toggleHeaderCollapsed = () => {
+  headerCollapsed.value = !headerCollapsed.value
+}
+
+const clothesShareImageRef = ref<InstanceType<typeof ClothesShareImage> | null>(null)
+
+function openClothesShareFromCollapse() {
+  clothesShareImageRef.value?.openShare()
+}
+
+watch(headerCollapsed, persistHeaderCollapsed)
+
 // 组件引用
 const addEditClothesRef = ref<InstanceType<typeof ClothesAdd> | null>(null)
 const wardrobeStatusSelectRef = ref<InstanceType<typeof QhxSelect> | null>(null)
@@ -168,7 +275,10 @@ const fetchSiblingClothesIds = async (wardrobeId: number | string | undefined | 
   if (!pending) {
     pending = (async () => {
       try {
-        const rows = await getClothesListAllFallback({ wardrobe_id: wid })
+        const rows = await getClothesListAllFallback({
+          wardrobe_id: wid,
+          ...buildAccessQueryParams(),
+        })
         if (latestSiblingWardrobeTarget.value !== wid) return
         wardrobeSiblingIds.value = parseClothesIdsFromRows(rows)
         siblingsWardrobeId.value = wid
@@ -318,7 +428,10 @@ const fetchClothesDetail = async () => {
   const pid = Number.parseInt(clothesRouteId.value, 10)
   if (Number.isNaN(pid)) return
   try {
-    const response = await getClothesDetail({ clothes_id: pid })
+    const response = await getClothesDetail({
+      clothes_id: pid,
+      ...buildAccessQueryParams(),
+    })
     const data = response
     if (data) {
       if (data.detail_image) {
@@ -402,6 +515,46 @@ const includeOutfitPriceBreakdown = computed(() => {
   return { segmentPrices, total }
 })
 
+/** 定尾计划金额：多阶段展示分解式，单阶段展示总额 */
+const planPriceDisplay = computed(() => {
+  const plan = detail.value?.plan
+  if (!plan) return null
+
+  const pushIfNumeric = (raw: unknown, arr: number[]) => {
+    if (raw === undefined || raw === null || raw === '') return
+    const n = Number(raw)
+    if (!Number.isNaN(n)) arr.push(n)
+  }
+
+  const stages = plan.plan_list ?? []
+  if (stages.length > 1) {
+    const segmentPrices: number[] = []
+    for (const stage of stages) {
+      pushIfNumeric(stage.need_money, segmentPrices)
+    }
+    if (!segmentPrices.length) return null
+    const total = plan.need_money != null && !Number.isNaN(Number(plan.need_money))
+      ? Number(plan.need_money)
+      : segmentPrices.reduce((a, b) => a + b, 0)
+    return { kind: 'breakdown' as const, segmentPrices, total }
+  }
+
+  let amount: number | null = null
+  if (plan.need_money != null) {
+    const n = Number(plan.need_money)
+    if (!Number.isNaN(n)) amount = n
+  }
+  if (amount == null && stages.length === 1) {
+    const n = Number(stages[0].need_money)
+    if (!Number.isNaN(n)) amount = n
+  }
+  if (amount == null) return null
+  return { kind: 'single' as const, amount }
+})
+
+const includeCoverPrimary = computed(() => detail.value?.include?.slice(0, 3) ?? [])
+const includeCoverOverflow = computed(() => detail.value?.include?.slice(3) ?? [])
+
 // 编辑服饰
 const editClothes = () => {
   if (addEditClothesRef.value && detail.value) {
@@ -481,6 +634,15 @@ const favoriteNeuPanel =
 
 const favoriteNeuMiniBtn =
   'rounded-xl border border-white/50 bg-[#e8eaf0] px-2.5 py-1 text-xs font-medium text-gray-600 shadow-[3px_3px_8px_rgb(163_177_198/0.4),-2px_-2px_8px_rgb(255_255_255/0.85)] transition-all hover:text-gray-800 active:shadow-[inset_2px_2px_6px_rgb(163_177_198/0.45)] dark:border-white/[0.08] dark:bg-[#3d4354] dark:text-gray-300 dark:shadow-[4px_4px_10px_rgb(0_0_0/0.4),-3px_-3px_10px_rgb(255_255_255/0.04)] dark:hover:text-gray-100 dark:active:shadow-[inset_2px_2px_8px_rgb(0_0_0/0.35)]'
+
+/** 铭牌排版（参考数字展馆）：仅字体/字距/行高，不改布局与配色 */
+const clothesPlateTitle = 'font-serif tracking-wide leading-snug'
+const clothesPlateLabelMuted = 'text-sm shrink-0 font-serif tracking-wider text-gray-600 dark:text-gray-400'
+const clothesPlateLabel = 'text-sm shrink-0 font-serif tracking-wider'
+const clothesPlateRow = 'text-sm leading-relaxed'
+const clothesPlateSectionSm = 'text-sm font-semibold font-serif tracking-wide text-gray-700 dark:text-gray-300'
+const clothesPlateSectionLg = 'text-lg font-semibold font-serif tracking-wide mb-3'
+const clothesPlateName = 'font-semibold font-serif leading-snug'
 
 const setFavoriteLevel = async (level: number) => {
   if (!detail.value || !isOwner.value) return
@@ -622,13 +784,22 @@ const jumpToShop = (shop_id: number) => {
 
 // 跳转到关联服饰详情
 const jumpToClothes = (item: WardrobeClothes) => {
-  router.push(`/clothes/detail/${item.clothes_id}`)
+  router.push({
+    path: `/clothes/detail/${item.clothes_id}`,
+    query: buildAccessQueryParams(),
+  })
 }
 
 // 跳转到衣柜
 const jumpToWardrobe = () => {
   if (detail.value?.wardrobe_id && detail.value.wardrobe?.user_id) {
-    router.push(`/wardrobe/detail/${detail.value.wardrobe.user_id}?wardrobe_id=${detail.value.wardrobe_id}`)
+    router.push({
+      path: `/wardrobe/detail/${detail.value.wardrobe.user_id}`,
+      query: {
+        wardrobe_id: String(detail.value.wardrobe_id),
+        ...buildAccessQueryParams(),
+      },
+    })
   }
 }
 
@@ -662,6 +833,161 @@ const exchangeRate = (shop_country: number | undefined, price: number | undefine
   }
   return false
 }
+
+const clothesShareSource = computed((): ClothesShareSource | null => {
+  const d = detail.value
+  if (!d?.clothes_img) return null
+
+  const sections: ClothesShareSource['infoSections'] = []
+
+  if (d.note?.trim()) sections.push({ key: 'note', title: '笔记', lines: [d.note.trim()] })
+  if (d.num !== undefined && d.num !== null) {
+    sections.push({ key: 'num', title: '拥有数量', text: String(d.num) })
+  }
+  if (d.main_style_list?.length) {
+    sections.push({
+      key: 'main_style',
+      title: '风格',
+      tags: d.main_style_list.map((s) => s.label).filter(Boolean),
+    })
+  }
+  if (d.price) sections.push({ key: 'price', title: '价格', text: `￥${d.price}` })
+  if (d.size?.trim()) sections.push({ key: 'size', title: '尺码', text: d.size.trim() })
+  if (d.times !== undefined && d.times !== null) {
+    sections.push({ key: 'times', title: '穿着次数', text: String(d.times) })
+  }
+  if (d.times && d.times > 0 && d.price) {
+    sections.push({
+      key: 'cost_per_wear',
+      title: '次均价格',
+      text: `￥${(d.price / d.times).toFixed(2)}`,
+    })
+  }
+  if (d.color?.trim()) {
+    sections.push({
+      key: 'color',
+      title: '颜色',
+      tags: d.color.split(',').map((c) => c.trim()).filter(Boolean),
+    })
+  }
+  if (d.clothes_part?.trim()) {
+    sections.push({
+      key: 'clothes_part',
+      title: '部位',
+      tags: d.clothes_part.split(',').map((p) => p.trim()).filter(Boolean),
+    })
+  }
+  if (d.tags?.trim()) {
+    sections.push({
+      key: 'tags',
+      title: '标签',
+      tags: d.tags.split(',').map((t) => t.trim()).filter(Boolean),
+    })
+  }
+  if (d.position?.trim()) sections.push({ key: 'position', title: '收纳', text: d.position.trim() })
+  if (d.season?.trim()) {
+    sections.push({
+      key: 'season',
+      title: '季节',
+      tags: d.season.split(',').map((s) => s.trim()).filter(Boolean),
+    })
+  }
+  if (d.add_time) sections.push({ key: 'add_time', title: '购入时间', text: formatDate(d.add_time) })
+  if (!d.origin_shop && d.origin?.trim()) {
+    sections.push({ key: 'origin', title: '来源', text: d.origin.trim() })
+  }
+
+  let libraryBlock: ClothesShareSource['libraryBlock'] | undefined
+  if (d.library) {
+    const lib = d.library
+    const tagGroups: { label: string; tags: string[] }[] = []
+    if (lib.pattern_elements) {
+      tagGroups.push({
+        label: '柄图',
+        tags: lib.pattern_elements.split(',').map((s) => s.trim()).filter(Boolean),
+      })
+    }
+    if (lib.design_elements) {
+      tagGroups.push({
+        label: '设计',
+        tags: lib.design_elements.split(',').map((s) => s.trim()).filter(Boolean),
+      })
+    }
+    let priceText = ''
+    if (lib.library_price) {
+      const currency = formatLabel(lib.shop_country || 0, config.config?.money_type || [])
+      priceText = `￥${lib.library_price} ${currency}`
+      const rmb = exchangeRate(lib.shop_country ?? 0, lib.library_price)
+      if (rmb) priceText += ` ≈${rmb}元`
+    }
+    libraryBlock = {
+      name: lib.name,
+      cover: lib.cover,
+      libraryType: lib.library_type,
+      state: lib.state,
+      priceText: priceText || undefined,
+      tagGroups: tagGroups.length ? tagGroups : undefined,
+    }
+  }
+
+  let planLines: string[] | undefined
+  if (d.plan) {
+    const lines: string[] = []
+    if (d.plan.plan_note) lines.push(d.plan.plan_note)
+    if (d.plan.need_money != null) lines.push(`待补：￥${d.plan.need_money}`)
+    if (d.plan.plan_list?.length) {
+      for (const child of d.plan.plan_list) {
+        lines.push(
+          `${child.plan_note || '阶段'}：￥${child.need_money ?? 0}${child.is_complete === 1 ? '（已完成）' : ''}`,
+        )
+      }
+    }
+    if (lines.length) planLines = lines
+  }
+
+  let includeList: ClothesShareSource['includeList'] | undefined
+  if (d.include?.length) {
+    includeList = d.include
+      .map((item) => {
+        const ext = item as ExtendedWardrobeClothes
+        return {
+          name: item.clothes_note || ext.library?.name || '未命名',
+          cover: item.clothes_img || '',
+          priceText: item.price != null ? `￥${item.price}` : undefined,
+        }
+      })
+      .filter((item) => item.cover)
+  }
+
+  let outfitTotalText: string | undefined
+  const breakdown = includeOutfitPriceBreakdown.value
+  if (breakdown && includeList?.length) {
+    if (breakdown.segmentPrices.length) {
+      outfitTotalText = `总价：${breakdown.segmentPrices.map((p) => `￥${p}`).join(' + ')} = ￥${breakdown.total}`
+    } else {
+      outfitTotalText = '总价：￥0'
+    }
+  }
+
+  return {
+    name: d.clothes_note || '暂无名称',
+    cover: d.clothes_img,
+    clothesId: d.clothes_id,
+    wardrobeName: d.wardrobe?.wardrobe_name?.trim() || undefined,
+    favoriteStars: d.is_favorite !== undefined ? favoriteLevelDisplay.value : undefined,
+    wardrobeStatus: d.wardrobe_status?.trim() || undefined,
+    infoSections: sections,
+    includeList,
+    libraryBlock,
+    planLines,
+    outfitTotalText,
+    shopName: d.origin_shop?.shop_name?.trim() || undefined,
+    shopLogo: d.origin_shop?.shop_logo?.trim() || undefined,
+    detailImageList: d.detail_image_list?.filter(Boolean).length
+      ? d.detail_image_list.filter(Boolean)
+      : undefined,
+  }
+})
 
 // 预览图片（由 QhxPreviewImage 组件处理）
 
@@ -1070,6 +1396,7 @@ function onMatchingAddSuccess() {
 }
 
 onMounted(async () => {
+  restoreHeaderCollapsedPref()
   const isInUniApp =
     typeof window !== 'undefined' &&
     navigator.userAgent.includes('Html5Plus')
@@ -1391,58 +1718,58 @@ const showEditPlan = (e?: MouseEvent) => {
 </script>
 
 <template>
-  <div>
+  <div class="wardrobe-page-neu">
     <div
       v-if="detail"
-      class="clothes-fab-stack fixed top-20 right-3 max-md:top-16 max-md:right-2 z-[60] flex flex-col items-end gap-1.5"
+      class="clothes-fab-stack fixed top-20 right-3 max-md:top-16 max-md:right-2 z-[60] flex flex-col items-end gap-1"
     >
       <button
         type="button"
-        class="clothes-fab-btn clothes-fab-btn--toggle relative inline-flex items-center justify-center rounded-full bg-qhx-primary text-white shadow-md shadow-qhx-primary/20 px-2 py-1.5 text-xs font-medium ring-1 ring-white/20 transition hover:brightness-110 active:scale-[0.98]"
+        class="clothes-fab-btn clothes-fab-btn--toggle"
         :aria-expanded="fabActionsExpanded"
         :aria-label="fabActionsExpanded ? '收起记忆与搭配' : '展开记忆与搭配'"
         @click="toggleFabActions"
       >
         <UIcon
           name="i-heroicons-chevron-down-20-solid"
-          class="clothes-fab-toggle-icon h-3.5 w-3.5 shrink-0"
+          class="clothes-fab-toggle-icon h-3 w-3 shrink-0"
           :class="{ 'clothes-fab-toggle-icon--expanded': fabActionsExpanded }"
         />
         <span
           v-if="!fabActionsExpanded && fabTotalBadgeCount > 0"
-          class="clothes-fab-badge absolute -top-2.5 -right-3 z-10 flex min-h-4 min-w-4 translate-x-px -translate-y-px items-center justify-center rounded-full bg-red-500 px-0.5 text-[9px] font-bold leading-none text-white shadow-sm ring-1 ring-white dark:ring-gray-900"
+          class="clothes-fab-badge"
         >{{ fabTotalBadgeCount > 99 ? '99+' : fabTotalBadgeCount }}</span>
       </button>
       <Transition name="clothes-fab-panel">
         <div
           v-if="fabActionsExpanded"
-          class="clothes-fab-actions-panel flex flex-col items-end gap-1.5"
+          class="clothes-fab-actions-panel flex flex-col items-end gap-1"
         >
           <button
             type="button"
-            class="clothes-fab-btn clothes-fab-btn--action rounded-full bg-qhx-primary text-white shadow-md shadow-qhx-primary/20 pl-2 pr-2.5 py-1.5 text-xs font-medium ring-1 ring-white/20 transition hover:brightness-110 active:scale-[0.98]"
+            class="clothes-fab-btn clothes-fab-btn--action"
             @click="showMemoryListModal = true"
           >
-            <span class="relative inline-flex items-center gap-1">
-              <UIcon name="i-heroicons-sparkles" class="w-4 h-4 shrink-0" />
-              记忆
+            <span class="clothes-fab-btn__inner">
+              <UIcon name="i-heroicons-sparkles" class="clothes-fab-btn__icon" />
+              <span class="clothes-fab-btn__label">记忆</span>
               <span
                 v-if="memoryCount > 0"
-                class="clothes-fab-badge absolute -top-2.5 -right-3 z-10 flex min-h-4 min-w-4 translate-x-px -translate-y-px items-center justify-center rounded-full bg-red-500 px-0.5 text-[9px] font-bold leading-none text-white shadow-sm ring-1 ring-white dark:ring-gray-900"
+                class="clothes-fab-badge clothes-fab-badge--corner"
               >{{ memoryCount > 99 ? '99+' : memoryCount }}</span>
             </span>
           </button>
           <button
             type="button"
-            class="clothes-fab-btn clothes-fab-btn--action rounded-full bg-qhx-primary text-white shadow-md shadow-qhx-primary/20 pl-2 pr-2.5 py-1.5 text-xs font-medium ring-1 ring-white/20 transition hover:brightness-110 active:scale-[0.98]"
+            class="clothes-fab-btn clothes-fab-btn--action"
             @click="showMatchingListModal = true"
           >
-            <span class="relative inline-flex items-center gap-1">
-              <UIcon name="material-symbols:style" class="w-4 h-4 shrink-0" />
-              搭配
+            <span class="clothes-fab-btn__inner">
+              <UIcon name="material-symbols:style" class="clothes-fab-btn__icon" />
+              <span class="clothes-fab-btn__label">搭配</span>
               <span
                 v-if="matchingCount > 0"
-                class="clothes-fab-badge absolute -top-2.5 -right-3 z-10 flex min-h-4 min-w-4 translate-x-px -translate-y-px items-center justify-center rounded-full bg-red-500 px-0.5 text-[9px] font-bold leading-none text-white shadow-sm ring-1 ring-white dark:ring-gray-900"
+                class="clothes-fab-badge clothes-fab-badge--corner"
               >{{ matchingCount > 99 ? '99+' : matchingCount }}</span>
             </span>
           </button>
@@ -1700,87 +2027,112 @@ const showEditPlan = (e?: MouseEvent) => {
       <Transition :name="`drawer-${isMobile ? 'bottom' : 'right'}`">
         <QhxBottomDrawer v-if="detail" glass :direction="isMobile ? 'bottom' : 'right'">
         <div v-if="detail">
-          <div class="py-2">
-                  <!-- 标题和操作按钮 -->
-                  <div class="items-center justify-between mb-4">
-                    <h2 class="text-xl font-bold flex-1 max-md:pt-2">
-                      {{ detail.clothes_note || '暂无名称' }}
-                    </h2>
-                    <div v-if="isOwner" class="flex justify-end gap-2 ml-2">
+          <div class="pt-3 pb-2">
+                  <div
+                    class="grid transition-[grid-template-rows] duration-350 ease-[cubic-bezier(0.4,0,0.2,1)] overflow-hidden"
+                    :class="headerCollapsed ? 'mb-0' : 'mb-1'"
+                    :style="{ gridTemplateRows: headerCollapsed ? '0fr' : '1fr' }"
+                  >
+                    <div class="relative w-full min-h-0 overflow-hidden">
+                      <!-- 功能栏 -->
+                      <div class="flex items-center justify-end gap-1 flex-wrap">
+                        <ClothesShareImage ref="clothesShareImageRef" variant="toolbar" :source="clothesShareSource" />
+                        <div v-if="isOwner" class="flex justify-end gap-1 flex-wrap">
                       <QhxJellyButton>
-
-                      <div class="h-[60px] text-center px-[1px]  cursor-pointer">
-                        <div
-                          class="my-[5px] mx-auto text-white rounded-[50%] h-[30px] w-[30px] bg-qhx-primary flex items-center justify-center cursor-pointer"
-                          @click="showRemoveSceneModal = true">
-                          <UIcon name="i-heroicons-trash" class="text-[22px] text-[#ffffff]" />
+                        <div class="h-[46px] flex flex-col items-center justify-center px-0.5 cursor-pointer" @click="showRemoveSceneModal = true">
+                          <div class="wardrobe-neu-tool-orb m-[3px] rounded-[50%] h-[24px] w-[24px] flex items-center justify-center bg-red-500 text-white">
+                            <UIcon name="i-heroicons-trash" class="text-[16px]" />
+                          </div>
+                          <div class="text-xs text-qhx-text">移除场景</div>
                         </div>
-                        <div class=" text-[12px]">移除场景</div>
+                      </QhxJellyButton>
+                      <QhxJellyButton>
+                        <div class="h-[46px] flex flex-col items-center justify-center px-0.5 cursor-pointer" @click="jumpToScene(detail.sence_id)">
+                          <div class="wardrobe-neu-tool-orb m-[3px] rounded-[50%] h-[24px] w-[24px] flex items-center justify-center bg-qhx-primary text-white">
+                            <UIcon name="i-heroicons-pencil-square" class="text-[16px]" />
+                          </div>
+                          <div class="text-xs text-qhx-text">编辑场景</div>
+                        </div>
+                      </QhxJellyButton>
+                      <QhxJellyButton>
+                        <div class="h-[46px] flex flex-col items-center justify-center px-0.5 cursor-pointer" @click="copyClothes">
+                          <div class="wardrobe-neu-tool-orb m-[3px] rounded-[50%] h-[24px] w-[24px] flex items-center justify-center bg-qhx-primary text-white">
+                            <UIcon name="i-heroicons-document-duplicate" class="text-[16px]" />
+                          </div>
+                          <div class="text-xs text-qhx-text">复制</div>
+                        </div>
+                      </QhxJellyButton>
+                      <QhxJellyButton>
+                        <div class="h-[46px] flex flex-col items-center justify-center px-0.5 cursor-pointer" @click="editClothes">
+                          <div class="wardrobe-neu-tool-orb m-[3px] rounded-[50%] h-[24px] w-[24px] flex items-center justify-center bg-qhx-primary text-white">
+                            <UIcon name="i-heroicons-pencil-square" class="text-[16px]" />
+                          </div>
+                          <div class="text-xs text-qhx-text">修改</div>
+                        </div>
+                      </QhxJellyButton>
+                      <QhxJellyButton>
+                        <div class="h-[46px] flex flex-col items-center justify-center px-0.5 cursor-pointer" @click="openLinkClothesChoose">
+                          <div
+                            class="wardrobe-neu-tool-orb m-[3px] rounded-[50%] h-[24px] w-[24px] flex items-center justify-center bg-qhx-primary text-white"
+                            :class="linkClothesLoading ? 'opacity-70' : ''"
+                          >
+                            <UIcon name="i-heroicons-link" class="text-[16px]" />
+                          </div>
+                          <div class="text-xs text-qhx-text">关联服饰</div>
+                        </div>
+                      </QhxJellyButton>
+                      <QhxJellyButton>
+                        <div class="h-[46px] flex flex-col items-center justify-center px-0.5 cursor-pointer" @click="showDeleteModal = true">
+                          <div class="wardrobe-neu-tool-orb m-[3px] rounded-[50%] h-[24px] w-[24px] flex items-center justify-center bg-red-500 text-white">
+                            <UIcon name="i-heroicons-trash" class="text-[16px]" />
+                          </div>
+                          <div class="text-xs text-qhx-text">删除</div>
+                        </div>
+                      </QhxJellyButton>
+                        </div>
                       </div>
-                      </QhxJellyButton>
-                      <QhxJellyButton>
-                        <div class="h-[60px] text-center px-[1px]  cursor-pointer">
-                          <div
-                            class="my-[5px] mx-auto text-white rounded-[50%] h-[30px] w-[30px] bg-qhx-primary flex items-center justify-center cursor-pointer"
-                            @click="jumpToScene(detail.sence_id)">
-                            <UIcon name="i-heroicons-pencil-square" class="text-[22px] text-[#ffffff]" />
-                          </div>
-                          <div class=" text-[12px]">编辑场景</div>
-                        </div>
-                      </QhxJellyButton>
-                      <QhxJellyButton>
-                        <div class="h-[60px] text-center px-1 cursor-pointer">
-                          <div
-                            class="my-[5px] mx-auto text-white rounded-[50%] h-[30px] w-[30px] bg-qhx-primary flex items-center justify-center cursor-pointer"
-                            @click="copyClothes">
-                            <UIcon name="i-heroicons-document-duplicate" class="text-[22px] text-[#ffffff]" />
-                          </div>
-                          <div class=" text-[12px]">复制</div>
-                        </div>
-                      </QhxJellyButton>
-                      <QhxJellyButton>
-                        <div class="h-[60px] text-center px-1 cursor-pointer">
-                          <div
-                            class="my-[5px] mx-auto text-white rounded-[50%] h-[30px] w-[30px] bg-qhx-primary flex items-center justify-center cursor-pointer"
-                            @click="editClothes">
-                            <UIcon name="i-heroicons-pencil-square" class="text-[22px] text-[#ffffff]" />
-                          </div>
-                          <div class=" text-[12px]">修改</div>
-                        </div>
-                      </QhxJellyButton>
-                      <QhxJellyButton>
-                        <div class="h-[60px] text-center px-[1px] cursor-pointer">
-                          <div
-                            :class="['my-[5px] mx-auto text-white rounded-[50%] h-[30px] w-[30px] bg-qhx-primary flex items-center justify-center cursor-pointer', linkClothesLoading ? 'opacity-70' : '']"
-                            @click="openLinkClothesChoose">
-                            <UIcon name="i-heroicons-link" class="text-[22px] text-[#ffffff]" />
-                          </div>
-                          <div class=" text-[12px]">关联服饰</div>
-                        </div>
-                      </QhxJellyButton>
-                      <QhxJellyButton>
-                        <div class="h-[60px] text-center px-1 cursor-pointer">
-                          <div
-                            class="my-[5px] mx-auto text-white rounded-[50%] h-[30px] w-[30px] bg-qhx-primary flex items-center justify-center cursor-pointer"
-                            @click="showDeleteModal = true">
-                            <UIcon name="i-heroicons-trash" class="text-[22px] text-[#ffffff]" />
-                          </div>
-                          <div class=" text-[12px]">删除</div>
-                        </div>
-                      </QhxJellyButton>
                     </div>
                   </div>
+                  <!-- 展开/收起功能栏 -->
+                  <div class="flex justify-center items-center gap-2 mb-3 relative z-10">
+                    <button
+                      type="button"
+                      class="wardrobe-collapse-toggle"
+                      :title="headerCollapsed ? '展开功能栏' : '收起功能栏'"
+                      :aria-label="headerCollapsed ? '展开功能栏' : '收起功能栏'"
+                      @click="toggleHeaderCollapsed"
+                    >
+                      <UIcon
+                        :name="headerCollapsed ? 'material-symbols:expand-more' : 'material-symbols:expand-less'"
+                        class="text-[16px]"
+                      />
+                    </button>
+                    <button
+                      v-if="headerCollapsed"
+                      type="button"
+                      class="wardrobe-collapse-toggle"
+                      title="分享图"
+                      aria-label="分享图"
+                      @click="openClothesShareFromCollapse"
+                    >
+                      <UIcon name="i-heroicons-photo-20-solid" class="text-[16px]" />
+                    </button>
+                  </div>
+                  <div class="space-y-3">
+                    <h2 :class="['text-xl font-bold min-w-0 max-md:pt-0', clothesPlateTitle]">
+                      {{ detail.clothes_note || '暂无名称' }}
+                    </h2>
 
                   <!-- 信息内容 -->
-                  <div class="space-y-3">
+                  <div class="clothes-detail-plate space-y-3">
                     <!-- 笔记 -->
-                    <div v-if="detail.note" class="text-sm text-gray-600">
+                    <div v-if="detail.note" :class="[clothesPlateRow, 'text-gray-600 dark:text-gray-400']">
                       笔记：{{ detail.note }}
                     </div>
 
                     <!-- 喜爱级别（0–5 星） -->
                     <div v-if="detail.is_favorite !== undefined" class="flex flex-wrap items-center gap-2">
-                      <span class="text-sm shrink-0 text-gray-600 dark:text-gray-400">喜爱级别：</span>
+                      <span :class="clothesPlateLabelMuted">喜爱级别：</span>
                       <div v-if="isOwner" class="flex flex-wrap items-center gap-2">
                         <div :class="favoriteNeuPanel">
                           <button v-for="s in 5" :key="s" type="button"
@@ -1807,7 +2159,7 @@ const showEditPlan = (e?: MouseEvent) => {
 
                     <!-- 拥有状态 -->
                     <div v-if="isOwner || detail.wardrobe_status" class="flex flex-wrap items-center gap-2">
-                      <span class="text-sm shrink-0 text-gray-600 dark:text-gray-400">拥有状态：</span>
+                      <span :class="clothesPlateLabelMuted">拥有状态：</span>
                       <template v-if="isOwner">
                         <button
                           v-if="detail.wardrobe_status"
@@ -1834,7 +2186,7 @@ const showEditPlan = (e?: MouseEvent) => {
 
                     <!-- 拥有数量 -->
                     <div v-if="detail.num !== undefined && detail.num !== null" class="flex items-center gap-2">
-                      <span class="text-sm">拥有数量：</span>
+                      <span :class="clothesPlateLabel">拥有数量：</span>
                       <div v-if="isOwner" class="flex items-center gap-2">
                         <QhxNumberStepper v-model="detail.num" :min="1" @change="updateNum" />
                       </div>
@@ -1844,46 +2196,59 @@ const showEditPlan = (e?: MouseEvent) => {
                     <!-- 风格 -->
                     <div v-if="detail.main_style_list && detail.main_style_list.length > 0"
                       class="flex items-center gap-2 flex-wrap">
-                      <span class="text-sm">风格：</span>
+                      <span :class="clothesPlateLabel">风格：</span>
                       <QhxTag v-for="(style, index) in detail.main_style_list" :key="index" :active="true">
                         {{ style.label }}
                       </QhxTag>
                     </div>
 
                     <!-- 价格 -->
-                    <div v-if="detail.price" class="text-sm">
-                      价格：￥{{ detail.price }}
+                    <div v-if="detail.price || planPriceDisplay" :class="clothesPlateRow">
+                      <template v-if="detail.price">价格：￥{{ detail.price }}</template>
+                      <div
+                        v-if="planPriceDisplay"
+                        class="text-gray-500 dark:text-gray-400"
+                        :class="{ 'mt-0.5': detail.price }"
+                      >
+                        <template v-if="planPriceDisplay.kind === 'breakdown'">
+                          定尾：<template v-for="(p, i) in planPriceDisplay.segmentPrices" :key="i">
+                            <template v-if="i > 0"> + </template>￥{{ p }}
+                          </template>
+                          <span> = ￥{{ planPriceDisplay.total }}</span>
+                        </template>
+                        <template v-else>定尾：￥{{ planPriceDisplay.amount }}</template>
+                      </div>
+                    </div>
+
+                    <!-- 次均价格 -->
+                    <div v-if="detail.times && detail.times > 0 && detail.price" :class="clothesPlateRow">
+                      次均价格：￥{{ (detail.price / detail.times).toFixed(2) }}
                     </div>
 
                     <!-- 尺码 -->
-                    <div v-if="detail.size" class="text-sm">
+                    <div v-if="detail.size" :class="clothesPlateRow">
                       尺码：{{ detail.size }}
                     </div>
 
                     <!-- 穿着次数 -->
                     <div v-if="detail.times !== undefined && detail.times !== null" class="flex items-center gap-2">
-                      <span class="text-sm">穿着次数：</span>
+                      <span :class="clothesPlateLabel">穿着次数：</span>
                       <div v-if="isOwner" class="flex items-center gap-2">
                         <QhxNumberStepper v-model="detail.times" :min="0" @change="updateTimes" />
                       </div>
                       <span v-else class="text-sm">{{ detail.times }}</span>
                     </div>
 
-                    <!-- 次均价格 -->
-                    <div v-if="detail.times && detail.times > 0 && detail.price" class="text-sm">
-                      次均价格：￥{{ (detail.price / detail.times).toFixed(2) }}
-                    </div>
-
                     <!-- 颜色 -->
                     <div v-if="detail.color" class="flex items-center gap-2 flex-wrap">
-                      <span class="text-sm">颜色：</span>
+                      <span :class="clothesPlateLabel">颜色：</span>
                       <div v-for="(color, index) in detail.color.split(',')" :key="index"
                         class="w-8 h-8 rounded-full border-2 border-gray-300" :style="{ background: color }"></div>
                     </div>
 
                     <!-- 部位 -->
                     <div v-if="detail.clothes_part" class="flex items-center gap-2 flex-wrap">
-                      <span class="text-sm">部位：</span>
+                      <span :class="clothesPlateLabel">部位：</span>
                       <QhxTag v-for="(part, index) in detail.clothes_part.split(',')" :key="index" :active="true">
                         {{ part }}
                       </QhxTag>
@@ -1891,37 +2256,37 @@ const showEditPlan = (e?: MouseEvent) => {
 
                     <!-- 标签 -->
                     <div v-if="detail.tags" class="flex items-center gap-2 flex-wrap">
-                      <span class="text-sm">标签：</span>
+                      <span :class="clothesPlateLabel">标签：</span>
                       <QhxTag v-for="(tag, index) in detail.tags.split(',')" :key="index" :active="true">
                         {{ tag }}
                       </QhxTag>
                     </div>
 
                     <!-- 收纳 -->
-                    <div v-if="detail.position" class="text-sm">
+                    <div v-if="detail.position" :class="clothesPlateRow">
                       收纳：{{ detail.position }}
                     </div>
 
                     <!-- 季节 -->
                     <div v-if="detail.season" class="flex items-center gap-2 flex-wrap">
-                      <span class="text-sm">季节：</span>
+                      <span :class="clothesPlateLabel">季节：</span>
                       <QhxTag v-for="(season, index) in detail.season.split(',')" :key="index" :active="true">
                         {{ season }}
                       </QhxTag>
                     </div>
 
                     <!-- 购入时间 -->
-                    <div v-if="detail.add_time" class="text-sm">
+                    <div v-if="detail.add_time" :class="clothesPlateRow">
                       购入：{{ formatDate(detail.add_time) }}
                     </div>
                     <!-- 关联服饰 -->
                     <div v-if="detail.include && detail.include.length > 0" class="border-t pt-3 mt-3">
                       <div class="flex items-center justify-between mb-2">
-                        <h3 class="text-sm font-semibold text-gray-700 dark:text-gray-300">关联服饰</h3>
+                        <h3 :class="clothesPlateSectionSm">关联服饰</h3>
                         <button
                           v-if="isOwner"
                           type="button"
-                          class="text-xs px-2 py-1 rounded transition-colors"
+                          class="clothes-detail-sort-toggle text-xs px-2 py-1 rounded transition-colors"
                           :class="sortMode ? 'bg-red-500 text-white' : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600'"
                           @click="sortMode = !sortMode">
                           {{ sortMode ? '退出排序' : '排序模式' }}
@@ -1939,7 +2304,7 @@ const showEditPlan = (e?: MouseEvent) => {
                             class="w-10 h-10 rounded-lg object-cover flex-shrink-0"
                             :alt="item.clothes_note" />
                           <div class="min-w-0 flex-1 flex flex-col gap-0.5 justify-center">
-                            <span class="text-sm truncate">{{ item.clothes_note || item.library?.name || '未命名' }}</span>
+                            <span class="text-sm font-serif leading-snug truncate">{{ item.clothes_note || item.library?.name || '未命名' }}</span>
                             <span
                               v-if="item.price !== undefined && item.price !== null && item.price !== ''"
                               class="text-xs font-semibold tabular-nums text-qhx-primary"
@@ -1975,7 +2340,7 @@ const showEditPlan = (e?: MouseEvent) => {
                     </div>
                     <div
                       v-if="includeOutfitPriceBreakdown"
-                      class="rounded-lg bg-gradient-to-r from-qhx-primary/20 via-orange-50 to-amber-50 py-1 text-sm font-semibold leading-snug text-gray-900 dark:from-qhx-primary/35 dark:via-amber-950/50 dark:to-orange-950/40 dark:text-gray-50"
+                      class="rounded-lg bg-gradient-to-r from-qhx-primary/20 via-orange-50 to-amber-50 py-1 text-sm font-semibold font-serif leading-snug text-gray-900 dark:from-qhx-primary/35 dark:via-amber-950/50 dark:to-orange-950/40 dark:text-gray-50"
                     >
                       <template v-if="includeOutfitPriceBreakdown.segmentPrices.length">
                         总价：<template v-for="(p, i) in includeOutfitPriceBreakdown.segmentPrices" :key="i">
@@ -1987,7 +2352,7 @@ const showEditPlan = (e?: MouseEvent) => {
                       <template v-else><span class="text-qhx-primary dark:text-qhx-primary">总价：￥0</span></template>
                     </div>
                     <!-- 来源 -->
-                    <div v-if="!detail.library && !detail.origin_shop && detail.origin" class="text-sm">
+                    <div v-if="!detail.library && !detail.origin_shop && detail.origin" :class="clothesPlateRow">
                       来源：{{ detail.origin }}
                     </div>
 
@@ -1995,7 +2360,7 @@ const showEditPlan = (e?: MouseEvent) => {
                     <div v-if="detail.plan_id || detail.plan" class="border-t pt-3 mt-3">
                       <div class="flex items-center gap-2 mb-2">
                         <UIcon name="material-symbols:savings-rounded" class="text-amber-500 dark:text-amber-400 text-lg" />
-                        <span class="text-sm font-semibold text-amber-700 dark:text-amber-300">尾款计划</span>
+                        <span class="text-sm font-semibold font-serif tracking-wide text-amber-700 dark:text-amber-300">尾款计划</span>
                         <!-- 计划操作按钮（仅所有者） -->
                         <div v-if="isOwner" class="flex items-center gap-1 ml-auto">
                           <template v-if="detail.plan?.is_complete !== 1">
@@ -2081,7 +2446,7 @@ const showEditPlan = (e?: MouseEvent) => {
                     <div v-else-if="isOwner" class="border-t pt-3 mt-3">
                       <div class="flex items-center gap-2 mb-2">
                         <UIcon name="material-symbols:savings-rounded" class="text-amber-500 dark:text-amber-400 text-lg" />
-                        <span class="text-sm font-semibold text-amber-700 dark:text-amber-300">尾款计划</span>
+                        <span class="text-sm font-semibold font-serif tracking-wide text-amber-700 dark:text-amber-300">尾款计划</span>
                       </div>
                       <UButton
                         type="button"
@@ -2100,7 +2465,7 @@ const showEditPlan = (e?: MouseEvent) => {
                         <img :src="BASE_IMG + detail.library.cover" class="w-12 h-12 rounded-full object-cover"
                           :alt="detail.library.name" />
                         <div class="flex-1">
-                          <div class="font-semibold">{{ detail.library.name }}</div>
+                          <div :class="clothesPlateName">{{ detail.library.name }}</div>
                           <div v-if="detail.library.library_price" class="text-sm text-gray-600">
                             ￥{{ detail.library.library_price }}
                             <span v-if="detail.library.shop_country">
@@ -2115,21 +2480,21 @@ const showEditPlan = (e?: MouseEvent) => {
                           </div>
                         </div>
                       </div>
-                      <div v-if="detail.library.library_type" class="text-sm mb-2">
+                      <div v-if="detail.library.library_type" :class="[clothesPlateRow, 'mb-2']">
                         类型：<QhxTag :active="true">{{ detail.library.library_type }}</QhxTag>
                       </div>
-                      <div v-if="detail.library.state" class="text-sm mb-2">
+                      <div v-if="detail.library.state" :class="[clothesPlateRow, 'mb-2']">
                         状态：<QhxTag :active="true">{{ detail.library.state }}</QhxTag>
                       </div>
                       <div v-if="detail.library.pattern_elements"
-                        class="text-sm mb-2 flex items-center gap-2 flex-wrap">
+                        :class="[clothesPlateRow, 'mb-2 flex items-center gap-2 flex-wrap']">
                         柄图：
                         <QhxTag v-for="(item, index) in detail.library.pattern_elements.split(',')" :key="index"
                           :active="true">
                           {{ item }}
                         </QhxTag>
                       </div>
-                      <div v-if="detail.library.design_elements" class="text-sm mb-2 flex items-center gap-2 flex-wrap">
+                      <div v-if="detail.library.design_elements" :class="[clothesPlateRow, 'mb-2 flex items-center gap-2 flex-wrap']">
                         设计：
                         <QhxTag v-for="(item, index) in detail.library.design_elements.split(',')" :key="index"
                           :active="true">
@@ -2143,12 +2508,12 @@ const showEditPlan = (e?: MouseEvent) => {
 
                     <!-- 来源店铺 -->
                     <div v-if="detail.origin_shop" class="border-t pt-3 mt-3">
-                      <h3 class="text-lg font-semibold mb-3">来源店铺</h3>
+                      <h3 :class="clothesPlateSectionLg">来源店铺</h3>
                       <div class="clothes-scene-glass-panel flex items-center gap-3 cursor-pointer p-3 rounded-lg transition-colors hover:bg-white/30 dark:hover:bg-white/10"
                         @click="jumpToShop(detail.origin_shop!.shop_id)">
                         <img :src="BASE_IMG + detail.origin_shop.shop_logo" class="w-12 h-12 rounded-full object-cover"
                           :alt="detail.origin_shop.shop_name" />
-                        <div class="font-semibold">{{ detail.origin_shop.shop_name }}</div>
+                        <div :class="clothesPlateName">{{ detail.origin_shop.shop_name }}</div>
                       </div>
                     </div>
 
@@ -2167,7 +2532,7 @@ const showEditPlan = (e?: MouseEvent) => {
                     <!-- 是否共享 -->
                     <div class="border-t pt-3 mt-3">
                       <div class="flex items-center justify-between gap-3">
-                        <span class="text-sm text-gray-600 dark:text-gray-400">是否共享</span>
+                        <span :class="clothesPlateLabelMuted">是否共享</span>
                         <UToggle
                           v-if="isOwner"
                           :model-value="isShared"
@@ -2197,6 +2562,7 @@ const showEditPlan = (e?: MouseEvent) => {
                     </div>
                   </div>
                 </div>
+          </div>
         </div>
       </QhxBottomDrawer>
       </Transition>
@@ -2222,163 +2588,260 @@ const showEditPlan = (e?: MouseEvent) => {
                   <div class="flex-1 min-w-0">
                     <div v-if="detail.include && detail.include.length > 0"
                       class="mb-4 overflow-hidden w-full">
-                      <!-- 主图 float 左，占 2/3 宽，比例 2:3（高度为附图 3 倍） -->
-                      <div class="w-2/3 aspect-[2/3] float-left p-1">
-                        <div class="relative h-full rounded-xl overflow-hidden shadow-md ring-1 ring-black/5 transition-all duration-200 hover:shadow-lg hover:ring-qhx-primary/20">
-                          <QhxPreviewImage :list="[{ src: detail.clothes_img, alt: detail.clothes_note || '' }]"
-                            :preview="[detail.clothes_img]" className="w-full h-full object-cover" />
-                          <ClothesFavoriteCoverOverlay
-                            v-if="detail.is_favorite !== undefined"
-                            :level="favoriteLevelDisplay"
-                          />
+                      <div class="flex w-full">
+                        <div class="w-2/3 aspect-[2/3] p-1">
+                          <div class="relative h-full rounded-xl overflow-hidden shadow-md ring-1 ring-black/5 transition-all duration-200 hover:shadow-lg hover:ring-qhx-primary/20">
+                            <ClothesDetailCoverFrame
+                              v-model:show3d="cover3dActive"
+                              root-class="h-full"
+                              :show3d-toggle="libraryHas3d"
+                              :iframe-src="humanPlatformIframeSrc"
+                            >
+                              <QhxPreviewImage :list="[{ src: detail.clothes_img, alt: detail.clothes_note || '' }]"
+                                :preview="[detail.clothes_img]" className="w-full h-full object-cover" />
+                              <ClothesFavoriteCoverOverlay
+                                v-if="detail.is_favorite !== undefined"
+                                :level="favoriteLevelDisplay"
+                              />
+                            </ClothesDetailCoverFrame>
+                          </div>
                         </div>
-                      </div>
-                      <!-- 附图 float 右，占 1/3 宽，超过 3 张往下排列 -->
-                      <div v-for="(item, index) in detail.include" :key="item.clothes_id"
-                        class="w-1/3 aspect-[1/1] float-left p-1">
-                        <div class="relative w-full h-full rounded-xl overflow-hidden shadow-md ring-1 ring-black/5 transition-all duration-200 hover:shadow-lg hover:ring-2 hover:ring-qhx-primary/40 group">
-                          <QhxPreviewImage :list="[{ src: item.clothes_img, alt: item.clothes_note || '' }]"
-                            :preview="[item.clothes_img]" className="w-full h-full object-cover transition-transform duration-200 group-hover:scale-105" />
-                          <div v-if="isOwner && sortMode"
-                            class="absolute top-1.5 right-1.5 w-6 h-6 rounded-full bg-red-500/90 backdrop-blur-sm text-white flex items-center justify-center cursor-pointer z-10 shadow-lg transition-all hover:scale-110 hover:bg-red-500"
-                            @click.stop="selectedClothes = item; showDeleteLinkModal = true">
-                            <UIcon name="i-heroicons-x-mark" class="text-xs font-bold" />
-                          </div>
-                          <div v-if="isOwner && sortMode && index < detail.include.length - 1"
-                            class="absolute top-1/2 -right-0.5 -translate-y-1/2 w-6 h-6 rounded-full bg-white/95 dark:bg-gray-800/95 backdrop-blur-sm text-qhx-primary flex items-center justify-center cursor-pointer z-10 shadow-md ring-1 ring-black/5 transition-all hover:scale-110 hover:shadow-lg"
-                            @click.stop="downItem(index)">
-                            <UIcon name="i-heroicons-chevron-right" class="text-sm font-bold" />
-                          </div>
-                          <div v-if="isOwner && sortMode && index !== 0"
-                            class="absolute top-1/2 -left-0.5 -translate-y-1/2 w-6 h-6 rounded-full bg-white/95 dark:bg-gray-800/95 backdrop-blur-sm text-qhx-primary flex items-center justify-center cursor-pointer z-10 shadow-md ring-1 ring-black/5 transition-all hover:scale-110 hover:shadow-lg"
-                            @click.stop="upItem(index)">
-                            <UIcon name="i-heroicons-chevron-left" class="text-sm font-bold" />
-                          </div>
+                        <div class="w-1/3">
                           <div
-                            class="absolute bottom-0 left-0 right-0 py-2 px-2 text-xs text-white text-center truncate cursor-pointer bg-gradient-to-t from-black/80 via-black/50 to-transparent backdrop-blur-[1px] transition-opacity hover:from-black/90"
-                            @click="jumpToClothes(item)">
-                            {{ item.clothes_note || item.library?.name || '' }}
+                            v-for="(item, index) in includeCoverPrimary"
+                            :key="item.clothes_id"
+                            class="w-full aspect-[1/1] p-1">
+                            <div class="relative w-full h-full rounded-xl overflow-hidden shadow-md ring-1 ring-black/5 transition-all duration-200 hover:shadow-lg hover:ring-2 hover:ring-qhx-primary/40 group">
+                              <QhxPreviewImage :list="[{ src: item.clothes_img, alt: item.clothes_note || '' }]"
+                                :preview="[item.clothes_img]" className="w-full h-full object-cover transition-transform duration-200 group-hover:scale-105" />
+                              <div v-if="isOwner && sortMode"
+                                class="absolute top-1.5 right-1.5 w-6 h-6 rounded-full bg-red-500/90 backdrop-blur-sm text-white flex items-center justify-center cursor-pointer z-10 shadow-lg transition-all hover:scale-110 hover:bg-red-500"
+                                @click.stop="selectedClothes = item; showDeleteLinkModal = true">
+                                <UIcon name="i-heroicons-x-mark" class="text-xs font-bold" />
+                              </div>
+                              <div v-if="isOwner && sortMode && index < detail.include.length - 1"
+                                class="absolute top-1/2 -right-0.5 -translate-y-1/2 w-6 h-6 rounded-full bg-white/95 dark:bg-gray-800/95 backdrop-blur-sm text-qhx-primary flex items-center justify-center cursor-pointer z-10 shadow-md ring-1 ring-black/5 transition-all hover:scale-110 hover:shadow-lg"
+                                @click.stop="downItem(index)">
+                                <UIcon name="i-heroicons-chevron-right" class="text-sm font-bold" />
+                              </div>
+                              <div v-if="isOwner && sortMode && index !== 0"
+                                class="absolute top-1/2 -left-0.5 -translate-y-1/2 w-6 h-6 rounded-full bg-white/95 dark:bg-gray-800/95 backdrop-blur-sm text-qhx-primary flex items-center justify-center cursor-pointer z-10 shadow-md ring-1 ring-black/5 transition-all hover:scale-110 hover:shadow-lg"
+                                @click.stop="upItem(index)">
+                                <UIcon name="i-heroicons-chevron-left" class="text-sm font-bold" />
+                              </div>
+                              <div
+                                class="absolute bottom-0 left-0 right-0 py-2 px-2 text-xs text-white text-center truncate cursor-pointer bg-gradient-to-t from-black/80 via-black/50 to-transparent backdrop-blur-[1px] transition-opacity hover:from-black/90"
+                                @click="jumpToClothes(item)">
+                                {{ item.clothes_note || item.library?.name || '' }}
+                              </div>
+                            </div>
                           </div>
                         </div>
                       </div>
-                      <div class="clear-both"></div>
+                      <template v-if="includeCoverOverflow.length > 0">
+                        <div
+                          v-for="(item, index) in includeCoverOverflow"
+                          :key="item.clothes_id"
+                          class="w-1/3 aspect-[1/1] float-left p-1">
+                          <div class="relative w-full h-full rounded-xl overflow-hidden shadow-md ring-1 ring-black/5 transition-all duration-200 hover:shadow-lg hover:ring-2 hover:ring-qhx-primary/40 group">
+                            <QhxPreviewImage :list="[{ src: item.clothes_img, alt: item.clothes_note || '' }]"
+                              :preview="[item.clothes_img]" className="w-full h-full object-cover transition-transform duration-200 group-hover:scale-105" />
+                            <div v-if="isOwner && sortMode"
+                              class="absolute top-1.5 right-1.5 w-6 h-6 rounded-full bg-red-500/90 backdrop-blur-sm text-white flex items-center justify-center cursor-pointer z-10 shadow-lg transition-all hover:scale-110 hover:bg-red-500"
+                              @click.stop="selectedClothes = item; showDeleteLinkModal = true">
+                              <UIcon name="i-heroicons-x-mark" class="text-xs font-bold" />
+                            </div>
+                            <div v-if="isOwner && sortMode && index + 3 < detail.include.length - 1"
+                              class="absolute top-1/2 -right-0.5 -translate-y-1/2 w-6 h-6 rounded-full bg-white/95 dark:bg-gray-800/95 backdrop-blur-sm text-qhx-primary flex items-center justify-center cursor-pointer z-10 shadow-md ring-1 ring-black/5 transition-all hover:scale-110 hover:shadow-lg"
+                              @click.stop="downItem(index + 3)">
+                              <UIcon name="i-heroicons-chevron-right" class="text-sm font-bold" />
+                            </div>
+                            <div v-if="isOwner && sortMode"
+                              class="absolute top-1/2 -left-0.5 -translate-y-1/2 w-6 h-6 rounded-full bg-white/95 dark:bg-gray-800/95 backdrop-blur-sm text-qhx-primary flex items-center justify-center cursor-pointer z-10 shadow-md ring-1 ring-black/5 transition-all hover:scale-110 hover:shadow-lg"
+                              @click.stop="upItem(index + 3)">
+                              <UIcon name="i-heroicons-chevron-left" class="text-sm font-bold" />
+                            </div>
+                            <div
+                              class="absolute bottom-0 left-0 right-0 py-2 px-2 text-xs text-white text-center truncate cursor-pointer bg-gradient-to-t from-black/80 via-black/50 to-transparent backdrop-blur-[1px] transition-opacity hover:from-black/90"
+                              @click="jumpToClothes(item)">
+                              {{ item.clothes_note || item.library?.name || '' }}
+                            </div>
+                          </div>
+                        </div>
+                        <div class="clear-both"></div>
+                      </template>
                     </div>
                     <div
                       v-else-if="detail.clothes_part && detail.clothes_part.split(',').length > 1 && detail.detail_image_list && detail.detail_image_list.length > 0"
                       class="mb-4 overflow-hidden w-full">
-                      <!-- 主图 float 左，占 2/3 宽，比例 2:3（高度为附图 3 倍） -->
-                      <div class="w-2/3 aspect-[2/3] float-left p-1">
-                        <div class="relative rounded-xl overflow-hidden shadow-md ring-1 ring-black/5 transition-shadow hover:shadow-lg">
-                          <QhxPreviewImage :list="[{ src: detail.clothes_img, alt: detail.clothes_note || '' }]"
-                            :preview="[detail.clothes_img]" className="w-full h-full object-cover" />
-                          <ClothesFavoriteCoverOverlay
-                            v-if="detail.is_favorite !== undefined"
-                            :level="favoriteLevelDisplay"
-                          />
+                      <div class="flex w-full">
+                        <div class="w-2/3 aspect-[2/3] p-1">
+                          <div class="relative h-full rounded-xl overflow-hidden shadow-md ring-1 ring-black/5 transition-shadow hover:shadow-lg">
+                            <ClothesDetailCoverFrame
+                              v-model:show3d="cover3dActive"
+                              root-class="h-full"
+                              :show3d-toggle="libraryHas3d"
+                              :iframe-src="humanPlatformIframeSrc"
+                            >
+                              <QhxPreviewImage :list="[{ src: detail.clothes_img, alt: detail.clothes_note || '' }]"
+                                :preview="[detail.clothes_img]" className="w-full h-full object-cover" />
+                              <ClothesFavoriteCoverOverlay
+                                v-if="detail.is_favorite !== undefined"
+                                :level="favoriteLevelDisplay"
+                              />
+                            </ClothesDetailCoverFrame>
+                          </div>
+                        </div>
+                        <div class="w-1/3">
+                          <div
+                            v-for="(img, index) in detail.detail_image_list.slice(0, 3)"
+                            :key="index"
+                            class="w-full aspect-[1/1] p-1">
+                            <div class="relative w-full h-full rounded-xl overflow-hidden shadow-md ring-1 ring-black/5 transition-all duration-200 hover:shadow-lg hover:ring-2 hover:ring-qhx-primary/30">
+                              <QhxPreviewImage :list="[{ src: img, alt: detail.clothes_note || '' }]"
+                                :preview="detail.detail_image_list" className="w-full h-full object-cover transition-transform duration-200 hover:scale-105" />
+                            </div>
+                          </div>
                         </div>
                       </div>
-                      <!-- 附图 float 右，占 1/3 宽，超过 3 张往下排列 -->
-                      <div v-for="(img, index) in detail.detail_image_list" :key="index"
-                        class="w-1/3 aspect-[1/1] float-left p-1">
-                        <div class="relative w-full h-full rounded-xl overflow-hidden shadow-md ring-1 ring-black/5 transition-all duration-200 hover:shadow-lg hover:ring-2 hover:ring-qhx-primary/30">
-                          <QhxPreviewImage :list="[{ src: img, alt: detail.clothes_note || '' }]"
-                            :preview="detail.detail_image_list" className="w-full h-full object-cover transition-transform duration-200 hover:scale-105" />
+                      <template v-if="detail.detail_image_list.length > 3">
+                        <div
+                          v-for="(img, index) in detail.detail_image_list.slice(3)"
+                          :key="`detail-img-${index + 3}`"
+                          class="w-1/3 aspect-[1/1] float-left p-1">
+                          <div class="relative w-full h-full rounded-xl overflow-hidden shadow-md ring-1 ring-black/5 transition-all duration-200 hover:shadow-lg hover:ring-2 hover:ring-qhx-primary/30">
+                            <QhxPreviewImage :list="[{ src: img, alt: detail.clothes_note || '' }]"
+                              :preview="detail.detail_image_list" className="w-full h-full object-cover transition-transform duration-200 hover:scale-105" />
+                          </div>
                         </div>
-                      </div>
-                      <div class="clear-both"></div>
+                        <div class="clear-both"></div>
+                      </template>
                     </div>
-                    <div v-else class="relative rounded-xl overflow-hidden shadow-md ring-1 ring-black/5 transition-shadow hover:shadow-lg">
-                      <QhxPreviewImage :list="[{ src: detail.clothes_img, alt: detail.clothes_note || '' }]"
-                        :preview="[detail.clothes_img]" className="w-full aspect-[3/4] object-cover" />
-                      <ClothesFavoriteCoverOverlay
-                        v-if="detail.is_favorite !== undefined"
-                        :level="favoriteLevelDisplay"
-                        class="right-[calc(50%-50px)] pointer-events-none"
-                      />
+                    <div v-else class="relative w-full rounded-xl overflow-hidden shadow-md ring-1 ring-black/5 transition-shadow hover:shadow-lg">
+                      <ClothesDetailCoverFrame
+                        v-model:show3d="cover3dActive"
+                        root-class="w-full aspect-[3/4]"
+                        :show3d-toggle="libraryHas3d"
+                        :iframe-src="humanPlatformIframeSrc"
+                      >
+                        <QhxPreviewImage :list="[{ src: detail.clothes_img, alt: detail.clothes_note || '' }]"
+                          :preview="[detail.clothes_img]" className="w-full h-full object-cover" />
+                        <ClothesFavoriteCoverOverlay
+                          v-if="detail.is_favorite !== undefined"
+                          :level="favoriteLevelDisplay"
+                        />
+                      </ClothesDetailCoverFrame>
                     </div>
                   </div>
 
                   <!-- 信息区域 -->
-                  <div class="flex-1 space-y-3">
-                    <!-- 标题和操作按钮 -->
-                    <div class="items-start justify-between">
-                      <h2 class="text-xl font-bold flex-1 max-md:pt-2">
-                        {{ detail.clothes_note || '暂无名称' }}
-                      </h2>
-                      <div v-if="isOwner" class="flex justify-end gap-2 ml-2">
-                        <QhxJellyButton v-if="detail.include && detail.include.length > 0">
-                          <div class="h-[60px] text-center px-1 cursor-pointer">
-                            <div
-                              class="my-[5px] mx-auto text-white rounded-full h-[30px] w-[30px] flex items-center justify-center cursor-pointer transition-all duration-200 hover:scale-110"
-                              :class="sortMode ? 'bg-red-500 shadow-lg shadow-red-500/30' : 'bg-qhx-primary'"
-                              @click="sortMode = !sortMode">
-                              <UIcon name="fluent:arrow-sort-28-filled" class="text-[20px] text-[#ffffff]" />
-                            </div>
-                            <div class="text-[12px] font-medium" :class="sortMode ? 'text-red-500' : ''">排序模式</div>
+                  <div class="clothes-detail-plate flex-1 pt-2 max-md:pt-3">
+                    <div
+                      class="grid transition-[grid-template-rows] duration-350 ease-[cubic-bezier(0.4,0,0.2,1)] overflow-hidden"
+                      :class="headerCollapsed ? 'mb-0' : 'mb-1'"
+                      :style="{ gridTemplateRows: headerCollapsed ? '0fr' : '1fr' }"
+                    >
+                      <div class="relative w-full min-h-0 overflow-hidden">
+                        <!-- 功能栏 -->
+                        <div class="flex items-center justify-end gap-1 flex-wrap">
+                          <ClothesShareImage ref="clothesShareImageRef" variant="toolbar" :source="clothesShareSource" />
+                          <div v-if="isOwner" class="flex justify-end gap-1 flex-wrap">
+                            <QhxJellyButton v-if="detail.include && detail.include.length > 0">
+                              <div class="h-[46px] flex flex-col items-center justify-center px-0.5 cursor-pointer" @click="sortMode = !sortMode">
+                                <div
+                                  class="wardrobe-neu-tool-orb m-[3px] rounded-[50%] h-[24px] w-[24px] flex items-center justify-center text-white"
+                                  :class="sortMode ? 'bg-qhx-primary' : 'bg-qhx-info'"
+                                >
+                                  <UIcon name="icon-park-outline:sort-two" class="text-[16px]" />
+                                </div>
+                                <div class="text-xs text-qhx-text">{{ sortMode ? '退出排序' : '排序模式' }}</div>
+                              </div>
+                            </QhxJellyButton>
+                            <QhxJellyButton>
+                              <div class="h-[46px] flex flex-col items-center justify-center px-0.5 cursor-pointer" @click="(e: MouseEvent) => showChooseScene(e)">
+                                <div class="wardrobe-neu-tool-orb m-[3px] rounded-[50%] h-[24px] w-[24px] flex items-center justify-center bg-qhx-primary text-white">
+                                  <UIcon name="garden:box-3d-fill-12" class="text-[16px]" />
+                                </div>
+                                <div class="text-xs text-qhx-text">关联3D</div>
+                              </div>
+                            </QhxJellyButton>
+                            <QhxJellyButton>
+                              <div class="h-[46px] flex flex-col items-center justify-center px-0.5 cursor-pointer" @click="copyClothes">
+                                <div class="wardrobe-neu-tool-orb m-[3px] rounded-[50%] h-[24px] w-[24px] flex items-center justify-center bg-qhx-primary text-white">
+                                  <UIcon name="i-heroicons-document-duplicate" class="text-[16px]" />
+                                </div>
+                                <div class="text-xs text-qhx-text">复制</div>
+                              </div>
+                            </QhxJellyButton>
+                            <QhxJellyButton>
+                              <div class="h-[46px] flex flex-col items-center justify-center px-0.5 cursor-pointer" @click="editClothes">
+                                <div class="wardrobe-neu-tool-orb m-[3px] rounded-[50%] h-[24px] w-[24px] flex items-center justify-center bg-qhx-primary text-white">
+                                  <UIcon name="i-heroicons-pencil-square" class="text-[16px]" />
+                                </div>
+                                <div class="text-xs text-qhx-text">编辑</div>
+                              </div>
+                            </QhxJellyButton>
+                            <QhxJellyButton>
+                              <div class="h-[46px] flex flex-col items-center justify-center px-0.5 cursor-pointer" @click="openLinkClothesChoose">
+                                <div
+                                  class="wardrobe-neu-tool-orb m-[3px] rounded-[50%] h-[24px] w-[24px] flex items-center justify-center bg-qhx-primary text-white"
+                                  :class="linkClothesLoading ? 'opacity-70' : ''"
+                                >
+                                  <UIcon name="i-heroicons-link" class="text-[16px]" />
+                                </div>
+                                <div class="text-xs text-qhx-text">关联服饰</div>
+                              </div>
+                            </QhxJellyButton>
+                            <QhxJellyButton>
+                              <div class="h-[46px] flex flex-col items-center justify-center px-0.5 cursor-pointer" @click="showDeleteModal = true">
+                                <div class="wardrobe-neu-tool-orb m-[3px] rounded-[50%] h-[24px] w-[24px] flex items-center justify-center bg-red-500 text-white">
+                                  <UIcon name="i-heroicons-trash" class="text-[16px]" />
+                                </div>
+                                <div class="text-xs text-qhx-text">删除</div>
+                              </div>
+                            </QhxJellyButton>
                           </div>
-                        </QhxJellyButton>
-                        <QhxJellyButton>
-                          <div class="h-[60px] text-center px-1 cursor-pointer">
-                            <div
-                              class="my-[5px] mx-auto text-white rounded-full h-[30px] w-[30px] flex items-center justify-center cursor-pointer transition-all duration-200 hover:scale-110 bg-qhx-primary"
-                              @click="(e: MouseEvent) => showChooseScene(e)">
-                              <UIcon name="garden:box-3d-fill-12" class="text-[22px] text-[#ffffff]" />
-                            </div>
-                            <div class=" text-[12px]">关联3D</div>
-                          </div>
-                        </QhxJellyButton>
-                        <QhxJellyButton>
-                          <div class="h-[60px] text-center px-1 cursor-pointer">
-                            <div
-                              class="my-[5px] mx-auto text-white rounded-full h-[30px] w-[30px] flex items-center justify-center cursor-pointer transition-all duration-200 hover:scale-110 bg-qhx-primary"
-                              @click="copyClothes">
-                              <UIcon name="i-heroicons-document-duplicate" class="text-[22px] text-[#ffffff]" />
-                            </div>
-                            <div class=" text-[12px]">复制</div>
-                          </div>
-                        </QhxJellyButton>
-                        <QhxJellyButton>
-                          <div class="h-[60px] text-center px-1 cursor-pointer">
-                            <div
-                              class="my-[5px] mx-auto text-white rounded-full h-[30px] w-[30px] flex items-center justify-center cursor-pointer transition-all duration-200 hover:scale-110 bg-qhx-primary"
-                              @click="editClothes">
-                              <UIcon name="i-heroicons-pencil-square" class="text-[22px] text-[#ffffff]" />
-                            </div>
-                            <div class=" text-[12px]">编辑</div>
-                          </div>
-                        </QhxJellyButton>
-                        <QhxJellyButton>
-                          <div class="h-[60px] text-center px-1 cursor-pointer">
-                            <div
-                              :class="['my-[5px] mx-auto text-white rounded-full h-[30px] w-[30px] flex items-center justify-center cursor-pointer transition-all duration-200 hover:scale-110 disabled:hover:scale-100 bg-qhx-primary', linkClothesLoading ? 'opacity-70' : '']"
-                              @click="openLinkClothesChoose">
-                              <UIcon name="i-heroicons-link" class="text-[22px] text-[#ffffff]" />
-                            </div>
-                            <div class=" text-[12px]">关联服饰</div>
-                          </div>
-                        </QhxJellyButton>
-                        <QhxJellyButton>
-                          <div class="h-[60px] text-center px-1 cursor-pointer">
-                            <div
-                              class="my-[5px] mx-auto text-white rounded-full h-[30px] w-[30px] bg-qhx-primary flex items-center justify-center cursor-pointer transition-all duration-200 hover:scale-110"
-                              @click="showDeleteModal = true">
-                              <UIcon name="i-heroicons-trash" class="text-[22px] text-[#ffffff]" />
-                            </div>
-                            <div class=" text-[12px]">删除</div>
-                          </div>
-                          
-                        </QhxJellyButton>
+                        </div>
                       </div>
                     </div>
+                    <!-- 展开/收起功能栏 -->
+                    <div class="flex justify-center items-center gap-2 mb-3 relative z-10">
+                      <button
+                        type="button"
+                        class="wardrobe-collapse-toggle"
+                        :title="headerCollapsed ? '展开功能栏' : '收起功能栏'"
+                        :aria-label="headerCollapsed ? '展开功能栏' : '收起功能栏'"
+                        @click="toggleHeaderCollapsed"
+                      >
+                        <UIcon
+                          :name="headerCollapsed ? 'material-symbols:expand-more' : 'material-symbols:expand-less'"
+                          class="text-[16px]"
+                        />
+                      </button>
+                      <button
+                        v-if="headerCollapsed"
+                        type="button"
+                        class="wardrobe-collapse-toggle"
+                        title="分享图"
+                        aria-label="分享图"
+                        @click="openClothesShareFromCollapse"
+                      >
+                        <UIcon name="i-heroicons-photo-20-solid" class="text-[16px]" />
+                      </button>
+                    </div>
+                    <div class="space-y-3">
+                      <h2 :class="['text-xl font-bold min-w-0', clothesPlateTitle]">
+                        {{ detail.clothes_note || '暂无名称' }}
+                      </h2>
 
                     <!-- 笔记 -->
-                    <div v-if="detail.note" class="text-sm text-gray-600">
+                    <div v-if="detail.note" :class="[clothesPlateRow, 'text-gray-600 dark:text-gray-400']">
                       笔记：{{ detail.note }}
                     </div>
 
                     <!-- 喜爱级别（0–5 星） -->
                     <div v-if="detail.is_favorite !== undefined" class="flex flex-wrap items-center gap-2">
-                      <span class="text-sm shrink-0 text-gray-600 dark:text-gray-400">喜爱级别：</span>
+                      <span :class="clothesPlateLabelMuted">喜爱级别：</span>
                       <div v-if="isOwner" class="flex flex-wrap items-center gap-2">
                         <div :class="favoriteNeuPanel">
                           <button v-for="s in 5" :key="s" type="button"
@@ -2405,7 +2868,7 @@ const showEditPlan = (e?: MouseEvent) => {
 
                     <!-- 拥有状态 -->
                     <div v-if="isOwner || detail.wardrobe_status" class="flex flex-wrap items-center gap-2">
-                      <span class="text-sm shrink-0 text-gray-600 dark:text-gray-400">拥有状态：</span>
+                      <span :class="clothesPlateLabelMuted">拥有状态：</span>
                       <template v-if="isOwner">
                         <button
                           v-if="detail.wardrobe_status"
@@ -2432,7 +2895,7 @@ const showEditPlan = (e?: MouseEvent) => {
 
                     <!-- 拥有数量 -->
                     <div v-if="detail.num !== undefined && detail.num !== null" class="flex items-center gap-2">
-                      <span class="text-sm">拥有数量：</span>
+                      <span :class="clothesPlateLabel">拥有数量：</span>
                       <div v-if="isOwner" class="flex items-center gap-2">
                         <QhxNumberStepper v-model="detail.num" :min="1" @change="updateNum" />
                       </div>
@@ -2442,46 +2905,59 @@ const showEditPlan = (e?: MouseEvent) => {
                     <!-- 风格 -->
                     <div v-if="detail.main_style_list && detail.main_style_list.length > 0"
                       class="flex items-center gap-2 flex-wrap">
-                      <span class="text-sm">风格：</span>
+                      <span :class="clothesPlateLabel">风格：</span>
                       <QhxTag v-for="(style, index) in detail.main_style_list" :key="index" :active="true">
                         {{ style.label }}
                       </QhxTag>
                     </div>
 
                     <!-- 价格 -->
-                    <div v-if="detail.price" class="text-sm">
-                      价格：￥{{ detail.price }}
+                    <div v-if="detail.price || planPriceDisplay" :class="clothesPlateRow">
+                      <template v-if="detail.price">价格：￥{{ detail.price }}</template>
+                      <div
+                        v-if="planPriceDisplay"
+                        class="text-gray-500 dark:text-gray-400"
+                        :class="{ 'mt-0.5': detail.price }"
+                      >
+                        <template v-if="planPriceDisplay.kind === 'breakdown'">
+                          定尾：<template v-for="(p, i) in planPriceDisplay.segmentPrices" :key="i">
+                            <template v-if="i > 0"> + </template>￥{{ p }}
+                          </template>
+                          <span> = ￥{{ planPriceDisplay.total }}</span>
+                        </template>
+                        <template v-else>定尾：￥{{ planPriceDisplay.amount }}</template>
+                      </div>
+                    </div>
+
+                    <!-- 次均价格 -->
+                    <div v-if="detail.times && detail.times > 0 && detail.price" :class="clothesPlateRow">
+                      次均价格：￥{{ (detail.price / detail.times).toFixed(2) }}
                     </div>
 
                     <!-- 尺码 -->
-                    <div v-if="detail.size" class="text-sm">
+                    <div v-if="detail.size" :class="clothesPlateRow">
                       尺码：{{ detail.size }}
                     </div>
 
                     <!-- 穿着次数 -->
                     <div v-if="detail.times !== undefined && detail.times !== null" class="flex items-center gap-2">
-                      <span class="text-sm">穿着次数：</span>
+                      <span :class="clothesPlateLabel">穿着次数：</span>
                       <div v-if="isOwner" class="flex items-center gap-2">
                         <QhxNumberStepper v-model="detail.times" :min="0" @change="updateTimes" />
                       </div>
                       <span v-else class="text-sm">{{ detail.times }}</span>
                     </div>
 
-                    <!-- 次均价格 -->
-                    <div v-if="detail.times && detail.times > 0 && detail.price" class="text-sm">
-                      次均价格：￥{{ (detail.price / detail.times).toFixed(2) }}
-                    </div>
-
                     <!-- 颜色 -->
                     <div v-if="detail.color" class="flex items-center gap-2 flex-wrap">
-                      <span class="text-sm">颜色：</span>
+                      <span :class="clothesPlateLabel">颜色：</span>
                       <div v-for="(color, index) in detail.color.split(',')" :key="index"
                         class="w-8 h-8 rounded-full border-2 border-gray-300" :style="{ background: color }"></div>
                     </div>
 
                     <!-- 部位 -->
                     <div v-if="detail.clothes_part" class="flex items-center gap-2 flex-wrap">
-                      <span class="text-sm">部位：</span>
+                      <span :class="clothesPlateLabel">部位：</span>
                       <QhxTag v-for="(part, index) in detail.clothes_part.split(',')" :key="index" :active="true">
                         {{ part }}
                       </QhxTag>
@@ -2489,41 +2965,41 @@ const showEditPlan = (e?: MouseEvent) => {
 
                     <!-- 标签 -->
                     <div v-if="detail.tags" class="flex items-center gap-2 flex-wrap">
-                      <span class="text-sm">标签：</span>
+                      <span :class="clothesPlateLabel">标签：</span>
                       <QhxTag v-for="(tag, index) in detail.tags.split(',')" :key="index" :active="true">
                         {{ tag }}
                       </QhxTag>
                     </div>
 
                     <!-- 收纳 -->
-                    <div v-if="detail.position" class="text-sm">
+                    <div v-if="detail.position" :class="clothesPlateRow">
                       收纳：{{ detail.position }}
                     </div>
 
                     <!-- 季节 -->
                     <div v-if="detail.season" class="flex items-center gap-2 flex-wrap">
-                      <span class="text-sm">季节：</span>
+                      <span :class="clothesPlateLabel">季节：</span>
                       <QhxTag v-for="(season, index) in detail.season.split(',')" :key="index" :active="true">
                         {{ season }}
                       </QhxTag>
                     </div>
 
                     <!-- 购入时间 -->
-                    <div v-if="detail.add_time" class="text-sm">
+                    <div v-if="detail.add_time" :class="clothesPlateRow">
                       购入：{{ formatDate(detail.add_time) }}
                     </div>
                     <!-- 来源 -->
-                    <div v-if="!detail.origin_shop && detail.origin" class="text-sm">
+                    <div v-if="!detail.origin_shop && detail.origin" :class="clothesPlateRow">
                       来源：{{ detail.origin }}
                     </div>
                     <!-- 关联服饰 -->
                     <div v-if="detail.include && detail.include.length > 0" class="border-t pt-3 mt-3">
                       <div class="flex items-center justify-between mb-2">
-                        <h3 class="text-sm font-semibold text-gray-700 dark:text-gray-300">关联服饰</h3>
+                        <h3 :class="clothesPlateSectionSm">关联服饰</h3>
                         <button
                           v-if="isOwner"
                           type="button"
-                          class="text-xs px-2 py-1 rounded transition-colors"
+                          class="clothes-detail-sort-toggle text-xs px-2 py-1 rounded transition-colors"
                           :class="sortMode ? 'bg-red-500 text-white' : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600'"
                           @click="sortMode = !sortMode">
                           {{ sortMode ? '退出排序' : '排序模式' }}
@@ -2541,7 +3017,7 @@ const showEditPlan = (e?: MouseEvent) => {
                             class="w-10 h-10 rounded-lg object-cover flex-shrink-0"
                             :alt="item.clothes_note" />
                           <div class="min-w-0 flex-1 flex flex-col gap-0.5 justify-center">
-                            <span class="text-sm truncate">{{ item.clothes_note || item.library?.name || '未命名' }}</span>
+                            <span class="text-sm font-serif leading-snug truncate">{{ item.clothes_note || item.library?.name || '未命名' }}</span>
                             <span
                               v-if="item.price !== undefined && item.price !== null && item.price !== ''"
                               class="text-xs font-semibold tabular-nums text-qhx-primary"
@@ -2577,7 +3053,7 @@ const showEditPlan = (e?: MouseEvent) => {
                     </div>
                     <div
                       v-if="includeOutfitPriceBreakdown"
-                      class="rounded-lg bg-gradient-to-r from-qhx-primary/20 via-orange-50 to-amber-50 py-1 text-sm font-semibold leading-snug text-gray-900 dark:from-qhx-primary/35 dark:via-amber-950/50 dark:to-orange-950/40 dark:text-gray-50"
+                      class="rounded-lg bg-gradient-to-r from-qhx-primary/20 via-orange-50 to-amber-50 py-1 text-sm font-semibold font-serif leading-snug text-gray-900 dark:from-qhx-primary/35 dark:via-amber-950/50 dark:to-orange-950/40 dark:text-gray-50"
                     >
                       <template v-if="includeOutfitPriceBreakdown.segmentPrices.length">
                         总价：<template v-for="(p, i) in includeOutfitPriceBreakdown.segmentPrices" :key="i">
@@ -2592,7 +3068,7 @@ const showEditPlan = (e?: MouseEvent) => {
                     <div v-if="detail.plan_id || detail.plan" class="border-t pt-3 mt-3">
                       <div class="flex items-center gap-2 mb-2">
                         <UIcon name="material-symbols:savings-rounded" class="text-amber-500 dark:text-amber-400 text-lg" />
-                        <span class="text-sm font-semibold text-amber-700 dark:text-amber-300">尾款计划</span>
+                        <span class="text-sm font-semibold font-serif tracking-wide text-amber-700 dark:text-amber-300">尾款计划</span>
                         <!-- 计划操作按钮（仅所有者） -->
                         <div v-if="isOwner" class="flex items-center gap-1 ml-auto">
                           <template v-if="detail.plan?.is_complete !== 1">
@@ -2678,7 +3154,7 @@ const showEditPlan = (e?: MouseEvent) => {
                     <div v-else-if="isOwner" class="border-t pt-3 mt-3">
                       <div class="flex items-center gap-2 mb-2">
                         <UIcon name="material-symbols:savings-rounded" class="text-amber-500 dark:text-amber-400 text-lg" />
-                        <span class="text-sm font-semibold text-amber-700 dark:text-amber-300">尾款计划</span>
+                        <span class="text-sm font-semibold font-serif tracking-wide text-amber-700 dark:text-amber-300">尾款计划</span>
                       </div>
                       <UButton
                         type="button"
@@ -2697,7 +3173,7 @@ const showEditPlan = (e?: MouseEvent) => {
                         <img :src="BASE_IMG + detail.library.cover" class="w-12 h-12 rounded-full object-cover"
                           :alt="detail.library.name" />
                         <div class="flex-1">
-                          <div class="font-semibold">{{ detail.library.name }}</div>
+                          <div :class="clothesPlateName">{{ detail.library.name }}</div>
                           <div v-if="detail.library.library_price" class="text-sm text-gray-600">
                             ￥{{ detail.library.library_price }}
                             <span v-if="detail.library.shop_country">
@@ -2712,21 +3188,21 @@ const showEditPlan = (e?: MouseEvent) => {
                           </div>
                         </div>
                       </div>
-                      <div v-if="detail.library.library_type" class="text-sm mb-2">
+                      <div v-if="detail.library.library_type" :class="[clothesPlateRow, 'mb-2']">
                         类型：<QhxTag :active="true">{{ detail.library.library_type }}</QhxTag>
                       </div>
-                      <div v-if="detail.library.state" class="text-sm mb-2">
+                      <div v-if="detail.library.state" :class="[clothesPlateRow, 'mb-2']">
                         状态：<QhxTag :active="true">{{ detail.library.state }}</QhxTag>
                       </div>
                       <div v-if="detail.library.pattern_elements"
-                        class="text-sm mb-2 flex items-center gap-2 flex-wrap">
+                        :class="[clothesPlateRow, 'mb-2 flex items-center gap-2 flex-wrap']">
                         柄图：
                         <QhxTag v-for="(item, index) in detail.library.pattern_elements.split(',')" :key="index"
                           :active="true">
                           {{ item }}
                         </QhxTag>
                       </div>
-                      <div v-if="detail.library.design_elements" class="text-sm mb-2 flex items-center gap-2 flex-wrap">
+                      <div v-if="detail.library.design_elements" :class="[clothesPlateRow, 'mb-2 flex items-center gap-2 flex-wrap']">
                         设计：
                         <QhxTag v-for="(item, index) in detail.library.design_elements.split(',')" :key="index"
                           :active="true">
@@ -2753,17 +3229,18 @@ const showEditPlan = (e?: MouseEvent) => {
                     <div v-if="route.query.needBack === '1'" class="text-center mt-4">
                       <UButton color="primary" @click="jumpToWardrobe">查看该衣柜</UButton>
                     </div>
+                    </div>
                   </div>
                 </div>
 
                 <!-- 来源店铺 -->
                 <div v-if="detail.origin_shop" class="border-t pt-4 mt-4">
-                  <h3 class="text-lg font-semibold mb-3">来源店铺</h3>
+                  <h3 :class="clothesPlateSectionLg">来源店铺</h3>
                   <div class="flex items-center gap-3 cursor-pointer p-3 bg-gray-50 rounded-lg hover:bg-gray-100"
                     @click="jumpToShop(detail.origin_shop!.shop_id)">
                     <img :src="BASE_IMG + detail.origin_shop.shop_logo" class="w-12 h-12 rounded-full object-cover"
                       :alt="detail.origin_shop.shop_name" />
-                    <div class="font-semibold">{{ detail.origin_shop.shop_name }}</div>
+                    <div :class="clothesPlateName">{{ detail.origin_shop.shop_name }}</div>
                   </div>
                 </div>
 
@@ -2777,7 +3254,7 @@ const showEditPlan = (e?: MouseEvent) => {
                 <!-- 是否共享 -->
                 <div class="border-t pt-3 mt-3">
                   <div class="flex items-center justify-between gap-3">
-                    <span class="text-sm text-gray-600 dark:text-gray-400">是否共享</span>
+                    <span :class="clothesPlateLabelMuted">是否共享</span>
                     <UToggle
                       v-if="isOwner"
                       :model-value="isShared"
@@ -2998,6 +3475,15 @@ const showEditPlan = (e?: MouseEvent) => {
 </template>
 
 <style scoped>
+/* 字体排版参考数字展馆铭牌，不改变布局与配色 */
+.clothes-detail-action-label,
+.clothes-detail-sort-toggle {
+  font-family: ui-serif, Georgia, 'Times New Roman', 'Songti SC', 'STSong', serif;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  line-height: 1.25;
+}
+
 /* 关联场景 iframe：抽屉内子块毛玻璃材质（与社区详情 scene 模式一致） */
 .clothes-scene-glass-panel {
   background-color: rgba(255, 255, 255, 0.22);
@@ -3154,9 +3640,109 @@ const showEditPlan = (e?: MouseEvent) => {
   }
 }
 
-/* 记忆/搭配悬浮按钮：展开收起 */
+/* 记忆/搭配悬浮按钮：淡底 + 主色边框（参考展馆胶囊） */
 .clothes-fab-stack {
   transform-origin: top right;
+}
+
+.clothes-fab-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  border: 2px solid color-mix(in srgb, var(--primary-color, #ec4899) 55%, transparent);
+  background: color-mix(in srgb, var(--primary-color, #ec4899) 5%, #fff);
+  color: var(--primary-color, #ec4899);
+  font-family: ui-serif, Georgia, 'Times New Roman', 'Songti SC', 'STSong', serif;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.07em;
+  white-space: nowrap;
+  cursor: pointer;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.65),
+    0 2px 8px rgba(0, 0, 0, 0.06);
+  transition:
+    background 0.2s ease,
+    border-color 0.2s ease,
+    transform 0.16s ease;
+}
+
+.clothes-fab-btn:hover {
+  background: color-mix(in srgb, var(--primary-color, #ec4899) 9%, #fff);
+  border-color: color-mix(in srgb, var(--primary-color, #ec4899) 68%, transparent);
+}
+
+.clothes-fab-btn:active {
+  transform: scale(0.97);
+}
+
+.dark .clothes-fab-btn {
+  background: color-mix(in srgb, var(--primary-color, #ec4899) 10%, rgba(17, 24, 39, 0.72));
+  border-color: color-mix(in srgb, var(--primary-color, #ec4899) 58%, rgba(255, 255, 255, 0.12));
+  color: color-mix(in srgb, var(--primary-color, #ec4899) 78%, #fce7f3);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 2px 10px rgba(0, 0, 0, 0.28);
+}
+
+.dark .clothes-fab-btn:hover {
+  background: color-mix(in srgb, var(--primary-color, #ec4899) 16%, rgba(17, 24, 39, 0.78));
+}
+
+.clothes-fab-btn--toggle {
+  padding: 0.22rem 0.38rem;
+}
+
+.clothes-fab-btn--action {
+  padding: 0.24rem 0.48rem 0.24rem 0.42rem;
+}
+
+.clothes-fab-btn__inner {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+}
+
+.clothes-fab-btn__icon {
+  width: 0.875rem;
+  height: 0.875rem;
+  flex-shrink: 0;
+}
+
+.clothes-fab-btn__label {
+  line-height: 1.2;
+}
+
+.clothes-fab-badge {
+  position: absolute;
+  top: -0.45rem;
+  right: -0.55rem;
+  z-index: 10;
+  display: flex;
+  min-height: 1rem;
+  min-width: 1rem;
+  align-items: center;
+  justify-content: center;
+  padding: 0 0.2rem;
+  border-radius: 9999px;
+  border: 1px solid rgba(255, 255, 255, 0.65);
+  background: #ef4444;
+  color: #fff;
+  font-family: ui-serif, Georgia, 'Times New Roman', 'Songti SC', 'STSong', serif;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+}
+
+.clothes-fab-badge--corner {
+  top: -0.45rem;
+  right: -0.55rem;
 }
 
 .clothes-fab-panel-enter-active,
@@ -3295,5 +3881,85 @@ const showEditPlan = (e?: MouseEvent) => {
 .dark .matching-season-badge--default {
   background: rgb(31 41 55 / 0.92);
   color: #e5e7eb;
+}
+</style>
+
+<style>
+/* 与衣柜详情页一致的拟态工具钮 / 折叠钮（非 scoped，供子组件 ClothesShareImage 复用） */
+.wardrobe-page-neu {
+  --ward-neu-soft: rgba(255, 255, 255, 0.62);
+  --ward-neu-deep: rgba(0, 0, 0, 0.14);
+  --ward-neu-inset: rgba(255, 255, 255, 0.4);
+}
+
+.dark .wardrobe-page-neu {
+  --ward-neu-soft: rgba(255, 255, 255, 0.07);
+  --ward-neu-deep: rgba(0, 0, 0, 0.5);
+  --ward-neu-inset: rgba(255, 255, 255, 0.06);
+}
+
+.wardrobe-page-neu .wardrobe-collapse-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  color: var(--color-qhx-text, #666);
+  background: rgba(255, 255, 255, 0.82);
+  box-shadow:
+    2px 2px 6px var(--ward-neu-deep),
+    -1px -1px 4px var(--ward-neu-soft),
+    inset 0 1px 0 rgba(255, 255, 255, 0.5);
+  transition: transform 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.wardrobe-page-neu .wardrobe-collapse-toggle:hover {
+  transform: scale(1.08);
+}
+
+.wardrobe-page-neu .wardrobe-collapse-toggle:active {
+  transform: scale(0.95);
+}
+
+.dark .wardrobe-page-neu .wardrobe-collapse-toggle {
+  background: rgba(40, 40, 44, 0.88);
+  color: rgba(255, 255, 255, 0.75);
+}
+
+.wardrobe-page-neu .wardrobe-neu-tool-orb {
+  box-shadow:
+    4px 5px 11px rgba(0, 0, 0, 0.2),
+    -2px -3px 9px rgba(255, 255, 255, 0.42),
+    inset 0 1.5px 0 rgba(255, 255, 255, 0.38),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.08);
+  transition: box-shadow 0.2s ease, transform 0.18s ease;
+}
+
+.dark .wardrobe-page-neu .wardrobe-neu-tool-orb {
+  box-shadow:
+    4px 5px 14px rgba(0, 0, 0, 0.52),
+    -2px -2px 7px rgba(255, 255, 255, 0.06),
+    inset 0 1.5px 0 rgba(255, 255, 255, 0.12),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.28);
+}
+
+.wardrobe-page-neu .wardrobe-neu-tool-orb:active {
+  box-shadow:
+    inset 3px 3px 9px rgba(0, 0, 0, 0.24),
+    inset -2px -2px 7px rgba(255, 255, 255, 0.12);
+  transform: scale(0.94);
+}
+
+.dark .wardrobe-page-neu .wardrobe-neu-tool-orb:active {
+  box-shadow:
+    inset 3px 3px 11px rgba(0, 0, 0, 0.48),
+    inset -1px -1px 4px rgba(255, 255, 255, 0.06);
 }
 </style>

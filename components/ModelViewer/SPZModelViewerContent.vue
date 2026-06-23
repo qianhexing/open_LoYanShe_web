@@ -38,6 +38,8 @@ interface Props {
     backgroundColor?: number | string
     /** 是否显示加载中遮罩；为 false 时仅隐藏加载态，加载失败提示仍会显示 */
     showLoadingMask?: boolean
+    /** 嵌入模式：隐藏加载/错误遮罩，仅保留 3D 画布 */
+    hideSceneChrome?: boolean
     /** 初始镜头列表，仅使用第一项作为进入页面时的机位 */
     initialCameraList?: Array<{
         position: [number, number, number]
@@ -52,6 +54,7 @@ const props = withDefaults(defineProps<Props>(), {
     sceneJson: null,
     backgroundColor: 0xffffff,
     showLoadingMask: true,
+    hideSceneChrome: false,
     initialCameraList: () => [],
     laxianList: () => [
         {
@@ -498,7 +501,7 @@ defineExpose({
     <div class="w-full h-full relative overflow-hidden">
         <!-- 加载状态 -->
         <div
-            v-if="(showLoadingMask && sceneLoading) || sceneLoadError"
+            v-if="!hideSceneChrome && ((showLoadingMask && sceneLoading) || sceneLoadError)"
             class="absolute inset-0 flex flex-col items-center justify-center bg-white/90 dark:bg-gray-900/90 backdrop-blur-sm z-50"
         >
             <!-- 加载中 -->

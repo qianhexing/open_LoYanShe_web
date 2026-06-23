@@ -50,11 +50,21 @@ const coverPickerRef = ref<InstanceType<typeof QhxImagePicker> | null>(null)
 
 /** 3D 建设上传：Spark 点云（.spz）与 Spark 2 LoD / RAD（.rad + .radc） */
 const SPLAT_UPLOAD_EXTS = ['.spz', '.rad', '.radc'] as const
+const POINT_CLOUD_UPLOAD_PATH = 'sence/point_cloud'
+const RAD_ORIGINAL_UPLOAD_PATH = 'sence/point_cloud/rad/original'
+const RAD_COMPRESS_UPLOAD_PATH = 'sence/point_cloud/rad/compress'
 
 const isSpzFile = (file: File) => /\.spz$/i.test(file.name)
 const isRadFile = (file: File) => /\.rad$/i.test(file.name)
 const isRadcFile = (file: File) => /\.radc$/i.test(file.name)
 const fileBaseName = (file: File) => file.name.replace(/\.[^.]+$/, '')
+
+/** 匹配与 .rad 对应的 0 层级分片，如 anxiang.compressed-lod.rad → anxiang.compressed-lod-0.radc */
+const findLod0RadcFile = (radFile: File, radcFiles: File[]): File | undefined => {
+  const expectedName = `${fileBaseName(radFile)}-0.radc`
+  return radcFiles.find(f => f.name.toLowerCase() === expectedName.toLowerCase())
+    ?? radcFiles.find(f => /\.compressed-lod-0\.radc$/i.test(f.name))
+}
 
 const formatImg = (url: string) => {
   if (!url) return ''
@@ -214,34 +224,48 @@ const uploadSplatFiles = async (files: File[]) => {
   }
 }
 
-/** 计算 .rad 的 MD5，将 .rad 与 .radc 上传至 library/{md5}/ 目录 */
+/** 将 .rad 与全部 .radc 上传至 original；匹配 0 层级分片后与 .rad 一并上传至 compress/{md5}/ */
 const uploadRadBundle = async (radFile: File, radcFiles: File[]) => {
   uploadingSpz.value = true
   try {
     const radMd5 = await calculateFileMD5(radFile)
-    const radObjectKey = `${radMd5}/${fileBaseName(radFile)}`
+    const radBaseName = fileBaseName(radFile)
+    const radObjectKey = `${radMd5}/${radBaseName}`
 
-    const radResult = await uploadFileToOSS(radFile, 'library', radObjectKey)
+    const radOriginalResult = await uploadFileToOSS(radFile, RAD_ORIGINAL_UPLOAD_PATH, radObjectKey)
+    for (const radcFile of radcFiles) {
+      const radcObjectKey = `${radMd5}/${fileBaseName(radcFile)}`
+      await uploadFileToOSS(radcFile, RAD_ORIGINAL_UPLOAD_PATH, radcObjectKey)
+    }
+
+    const lod0Radc = findLod0RadcFile(radFile, radcFiles)
+    let displayUrl = radOriginalResult.file_url
+    if (lod0Radc) {
+      const radCompressResult = await uploadFileToOSS(radFile, RAD_COMPRESS_UPLOAD_PATH, radObjectKey)
+      const lod0ObjectKey = `${radMd5}/${fileBaseName(lod0Radc)}`
+      await uploadFileToOSS(lod0Radc, RAD_COMPRESS_UPLOAD_PATH, lod0ObjectKey)
+      displayUrl = radCompressResult.file_url
+    }
+
     await insertFile({
-      file_url: radResult.file_url,
+      file_url: displayUrl,
       file_md5: radMd5,
       file_type: 0,
       file_size: radFile.size
     })
 
-    for (const radcFile of radcFiles) {
-      const radcObjectKey = `${radMd5}/${fileBaseName(radcFile)}`
-      await uploadFileToOSS(radcFile, 'library', radcObjectKey)
-    }
-
     selectedSpzFiles.value.push({
       name: radcFiles.length > 0 ? `${radFile.name} + ${radcFiles.length} .radc` : radFile.name,
-      url: radResult.file_url
+      url: displayUrl
     })
     formData.addr = selectedSpzFiles.value.map(f => f.url).join(',')
     toast.add({
       title: 'RAD 上传成功',
-      description: radcFiles.length > 0 ? `已上传 1 个 .rad 与 ${radcFiles.length} 个 .radc` : undefined,
+      description: radcFiles.length > 0
+        ? lod0Radc
+          ? `original 已上传 ${radcFiles.length + 1} 个文件，compress 已上传 .rad 与 ${lod0Radc.name}`
+          : `已上传 1 个 .rad 与 ${radcFiles.length} 个 .radc（未找到 0 层级分片，未写入 compress）`
+        : undefined,
       icon: 'i-heroicons-check-circle',
       color: 'green'
     })
@@ -261,7 +285,7 @@ const uploadRadBundle = async (radFile: File, radcFiles: File[]) => {
 const uploadSpzFile = async (file: File) => {
   uploadingSpz.value = true
   try {
-    const result = await uploadFileToOSS(file, 'library')
+    const result = await uploadFileToOSS(file, POINT_CLOUD_UPLOAD_PATH)
     selectedSpzFiles.value.push({
       name: file.name,
       url: result.file_url
@@ -295,7 +319,7 @@ const removeSpzFile = (index: number) => {
 const handleCoverChange = async (files: File[]) => {
   if (files.length === 0) return
   try {
-    const result = await uploadFileToOSS(files[0], 'library')
+    const result = await uploadFileToOSS(files[0], 'editor')
     formData.cover = result.file_url
     coverPickerRef.value?.clear()
     toast.add({
@@ -594,7 +618,7 @@ const handleSubmit = async () => {
                 点击选择或拖拽模型文件
               </p>
               <p class="text-xs text-gray-500 dark:text-gray-500">
-                支持 .spz；或 .rad 与 .radc 多选（按 .rad 的 MD5 上传至同名文件夹）
+                支持 .spz；或 .rad 与 .radc 多选（original 全量上传，compress 上传 .rad 与 0 层级 .radc）
               </p>
             </div>
             <div v-else class="space-y-2">

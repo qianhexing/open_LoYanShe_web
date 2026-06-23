@@ -23,11 +23,11 @@ const neuSurface =
 <template>
   <div class="pointer-events-none absolute inset-0 z-10 overflow-hidden rounded-[inherit]">
     <!-- 顶部居中：星级与评语同一拟态块内紧贴排列 -->
-    <div class="absolute top-2 left-1/2 -translate-x-1/2 max-w-[min(100%-0.75rem,13rem)]">
+    <div class="absolute inset-x-0 top-2 flex justify-center px-1.5">
       <div
         :class="[
           neuSurface,
-          'flex flex-col items-center gap-0 rounded-2xl px-2.5 py-1.5'
+          'flex max-w-[min(100%,13rem)] flex-col items-center gap-0 rounded-2xl px-2.5 py-1.5'
         ]"
       >
         <div class="flex shrink-0 items-center gap-0.5" aria-hidden="true">

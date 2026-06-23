@@ -249,6 +249,8 @@ export interface Library {
   /** 当前用户是否已评分（与 POST /score/one 未评分时 false 一致，常见 0/1） */
   is_score?: number | boolean;
   json_data?: Record<string, unknown>;
+  /** 是否有关联 3D 人台（点云） */
+  has_3d?: number | boolean;
 }
 
 /** 相似推荐列表项（与列表/详情 library 结构相近，可带 shop，额外相似度分越大越相似） */

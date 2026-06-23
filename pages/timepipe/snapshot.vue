@@ -65,9 +65,9 @@
               
               <!-- 底部信息浮层 -->
               <div class="absolute bottom-4 left-0 w-full flex flex-col items-center justify-end pointer-events-none px-2">
-                <div class="bg-white/88 backdrop-blur-sm px-3 py-1.5 rounded-md flex flex-col items-center justify-center max-w-full shadow-sm text-center">
+                <div class="bg-white/88 backdrop-blur-sm px-3 py-1.5 rounded-md flex flex-col items-center justify-center w-full max-w-[calc(100%-4px)] min-w-0 shadow-sm text-center overflow-hidden">
                    <!-- 图鉴名称 -->
-                   <div class="text-xs font-bold text-black leading-tight text-center line-clamp-1 break-all mb-1">
+                   <div class="text-xs font-bold text-black leading-tight text-center line-clamp-2 break-all mb-1 w-full">
                     {{ item.item?.name }}
                   </div>
                    <!-- 起止时间 -->
@@ -290,6 +290,47 @@ const downloadChunk = async (index: number) => {
     })
   }
 
+  // 按最大宽度将文本拆成多行（逐字测量，适配中文）
+  const wrapTextByWidth = (text: string, maxWidth: number, font: string): string[] => {
+    if (!text) return []
+    ctx.font = font
+    if (ctx.measureText(text).width <= maxWidth) return [text]
+
+    const lines: string[] = []
+    let currentLine = ''
+    for (const char of text) {
+      const testLine = currentLine + char
+      if (ctx.measureText(testLine).width <= maxWidth) {
+        currentLine = testLine
+      } else {
+        if (currentLine) lines.push(currentLine)
+        currentLine = char
+      }
+    }
+    if (currentLine) lines.push(currentLine)
+    return lines
+  }
+
+  const measureLinesWidth = (lines: string[], font: string): number => {
+    if (lines.length === 0) return 0
+    ctx.font = font
+    return Math.max(...lines.map(line => ctx.measureText(line).width))
+  }
+
+  const truncateTextByWidth = (text: string, maxWidth: number, font: string): string => {
+    if (!text) return ''
+    ctx.font = font
+    if (ctx.measureText(text).width <= maxWidth) return text
+    const ellipsis = '…'
+    let result = ''
+    for (const char of text) {
+      const test = result + char + ellipsis
+      if (ctx.measureText(test).width > maxWidth) break
+      result += char
+    }
+    return result ? result + ellipsis : ellipsis
+  }
+
   // 绘制圆角矩形路径辅助函数
   const roundedRect = (ctx: CanvasRenderingContext2D, x: number, y: number, width: number, height: number, radius: number) => {
     ctx.beginPath()
@@ -389,21 +430,29 @@ const downloadChunk = async (index: number) => {
     const librarySeparator = ' / '
     const libraryFullText = libraryItems.join(librarySeparator)
 
-    // 设置字体计算宽度
-    ctx.font = `bold ${fontSizeTitle}px sans-serif`
-    const titleWidth = ctx.measureText(title).width
-    
-    ctx.font = `${fontSizeTime}px sans-serif`
-    const timeWidth = ctx.measureText(timeText).width
-    
-    ctx.font = `${fontSizeShop}px sans-serif`
-    const shopTextWidth = ctx.measureText(shopName).width
-    const shopLogoWidth = hasShopLogo ? logoSize + 6 : 0 // logo + margin
+    const maxBoxWidth = cellWidth - 20
+    const contentMaxWidth = maxBoxWidth - paddingX * 2
+    const titleFont = `bold ${fontSizeTitle}px sans-serif`
+    const timeFont = `${fontSizeTime}px sans-serif`
+    const shopFont = `${fontSizeShop}px sans-serif`
+    const libraryFont = `${fontSizeLibrary}px sans-serif`
+
+    const titleLines = wrapTextByWidth(title, contentMaxWidth, titleFont)
+    const titleWidth = measureLinesWidth(titleLines, titleFont)
+
+    ctx.font = timeFont
+    const timeWidth = timeText ? ctx.measureText(timeText).width : 0
+
+    const shopLogoWidth = hasShopLogo ? logoSize + 6 : 0
+    const shopNameMaxWidth = Math.max(contentMaxWidth - shopLogoWidth, 0)
+    const shopNameDisplay = truncateTextByWidth(shopName, shopNameMaxWidth, shopFont)
+    ctx.font = shopFont
+    const shopTextWidth = ctx.measureText(shopNameDisplay).width
     const shopContentWidth = shopLogoWidth + shopTextWidth
 
     // 计算 library_list 文本宽度（考虑换行）
-    ctx.font = `${fontSizeLibrary}px sans-serif`
-    const availableWidth = cellWidth - (paddingX * 2) - 20 // 可用宽度，留一些边距
+    ctx.font = libraryFont
+    const availableWidth = contentMaxWidth
     let libraryLines: string[] = []
     let maxLibraryWidth = 0
     
@@ -443,12 +492,17 @@ const downloadChunk = async (index: number) => {
 
     // 计算浮层总宽高
     const maxContentWidth = Math.max(titleWidth, timeWidth, shopContentWidth, maxLibraryWidth)
-    const boxWidth = maxContentWidth + (paddingX * 2)
-    // 基础行数: 标题 + 时间 + 店铺，如果有 library_list 则加上
-    const libraryListHeight = libraryLines.length > 0 
-      ? libraryLines.length * (fontSizeLibrary + gap) - gap // 最后一行不需要 gap
+    const boxWidth = Math.min(maxContentWidth + paddingX * 2, maxBoxWidth)
+    const titleBlockHeight = titleLines.length > 0
+      ? titleLines.length * fontSizeTitle + (titleLines.length - 1) * gap
       : 0
-    const boxHeight = paddingY * 2 + fontSizeTitle + gap + fontSizeTime + gap + Math.max(logoSize, fontSizeShop) + (libraryListHeight > 0 ? gap + libraryListHeight : 0)
+    const libraryListHeight = libraryLines.length > 0 
+      ? libraryLines.length * (fontSizeLibrary + gap) - gap
+      : 0
+    const timeBlockHeight = timeText ? fontSizeTime + gap : 0
+    const shopBlockHeight = (shopNameDisplay || hasShopLogo) ? Math.max(logoSize, fontSizeShop) + gap : 0
+    const boxHeight = paddingY * 2 + titleBlockHeight + timeBlockHeight + shopBlockHeight
+      + (libraryListHeight > 0 ? libraryListHeight : 0)
     
     // 浮层位置 (bottom center, margin-bottom 20px)
     const boxX = x + (cellWidth - boxWidth) / 2
@@ -463,58 +517,64 @@ const downloadChunk = async (index: number) => {
     // ctx.shadowColor = 'transparent' // 重置阴影
 
     // 绘制文字内容 (居中)
-    let currentY = boxY + paddingY + fontSizeTitle - 2
-    
-    // 标题
-    ctx.fillStyle = '#000000'
-    ctx.font = `bold ${fontSizeTitle}px sans-serif`
+    let currentY = boxY + paddingY
     ctx.textAlign = 'center'
-    ctx.textBaseline = 'bottom'
-    ctx.fillText(title, x + cellWidth/2, currentY)
-    
+    ctx.textBaseline = 'top'
+
+    // 标题（自动换行）
+    ctx.fillStyle = '#000000'
+    ctx.font = titleFont
+    for (const line of titleLines) {
+      ctx.fillText(line, x + cellWidth / 2, currentY)
+      currentY += fontSizeTitle + gap
+    }
+
     // 时间
-    currentY += gap + fontSizeTime
-    ctx.fillStyle = '#dc2626' // red-600
-    ctx.font = `${fontSizeTime}px sans-serif`
-    ctx.fillText(timeText, x + cellWidth/2, currentY)
+    if (timeText) {
+      ctx.fillStyle = '#dc2626'
+      ctx.font = timeFont
+      ctx.fillText(timeText, x + cellWidth / 2, currentY)
+      currentY += fontSizeTime + gap
+    }
 
     // 店铺 (Logo + Name)
-    currentY += gap + fontSizeShop
-    const shopStartX = x + cellWidth/2 - shopContentWidth/2
+    const shopStartX = x + cellWidth / 2 - shopContentWidth / 2
     
     if (hasShopLogo) {
-       // 绘制圆形 Logo
        try {
          const logoUrl = getImageUrl(item.item?.shop?.shop_logo)
          const logoImg = await loadImage(logoUrl)
-         const logoY = currentY - fontSizeShop // 大致对齐
+         const logoY = currentY + (Math.max(logoSize, fontSizeShop) - logoSize) / 2
          
          ctx.save()
          ctx.beginPath()
-         ctx.arc(shopStartX + logoSize/2, logoY + logoSize/2 - 5, logoSize/2, 0, Math.PI * 2)
+         ctx.arc(shopStartX + logoSize / 2, logoY + logoSize / 2, logoSize / 2, 0, Math.PI * 2)
          ctx.closePath()
          ctx.clip()
-         ctx.drawImage(logoImg, shopStartX, logoY - 5, logoSize, logoSize)
+         ctx.drawImage(logoImg, shopStartX, logoY, logoSize, logoSize)
          ctx.restore()
-       } catch (e) {
+       } catch {
          // Logo 加载失败忽略
        }
     }
     
-    ctx.fillStyle = '#1f2937' // gray-800
-    ctx.font = `${fontSizeShop}px sans-serif`
-    ctx.textAlign = 'left' // 改为左对齐方便排版
-    ctx.fillText(shopName, shopStartX + shopLogoWidth, currentY)
+    ctx.fillStyle = '#1f2937'
+    ctx.font = shopFont
+    ctx.textAlign = 'left'
+    ctx.textBaseline = 'top'
+    if (shopNameDisplay) {
+      ctx.fillText(shopNameDisplay, shopStartX + shopLogoWidth, currentY + (Math.max(logoSize, fontSizeShop) - fontSizeShop) / 2)
+    }
+    currentY += Math.max(logoSize, fontSizeShop) + gap
 
     // library_list 信息（红色字体，自动换行）
     if (libraryLines.length > 0) {
-      currentY += gap + fontSizeLibrary
-      ctx.fillStyle = '#dc2626' // red-600
-      ctx.font = `${fontSizeLibrary}px sans-serif`
+      ctx.fillStyle = '#dc2626'
+      ctx.font = libraryFont
       ctx.textAlign = 'center'
-      ctx.textBaseline = 'bottom'
+      ctx.textBaseline = 'top'
       for (const line of libraryLines) {
-        ctx.fillText(line, x + cellWidth/2, currentY)
+        ctx.fillText(line, x + cellWidth / 2, currentY)
         currentY += fontSizeLibrary + gap
       }
     }

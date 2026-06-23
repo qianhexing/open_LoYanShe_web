@@ -23,6 +23,7 @@ import { getLibraryVideoById, getLibraryVideo, updateLibraryVideoJson, getLibrar
 import type { LibraryVideo, LaxianItem, LaxianInitialCamera, LibrarySimilarItem } from '@/types/api'
 import { useConfigStore } from '@/stores/config'
 import { BASE_IMG } from '@/utils/ipConfig'
+import { useLayoutStyle } from '@/composables/useLayoutStyle'
 import * as THREE from 'three'
 
 // 设置页面标题
@@ -40,9 +41,38 @@ const layoutReady = inject('layoutReady') as Ref<boolean>
 const route = useRoute()
 const router = useRouter()
 const id = computed(() => (route.params.id as string) ?? '')
+const { setLayoutStyle } = useLayoutStyle()
+
+/** iframe 嵌入（如服饰详情封面） */
+const isFromIframeEmbed = computed(() => {
+  const v = route.query.from_iframe
+  return (Array.isArray(v) ? v[0] : v) === 'true'
+})
+
+/** hide_ui=true：仅保留 3D 画布，隐藏全部操作 UI */
+const isHideUi = computed(() => {
+  const v = route.query.hide_ui
+  return (Array.isArray(v) ? v[0] : v) === 'true'
+})
+
+const isEmbedMinimal = computed(() => isHideUi.value || isFromIframeEmbed.value)
+
+/** 站内跳转时保留 embed 相关 query（如 hide_ui、from_iframe） */
+const buildHumanPlatformPath = (videoId: number | string, libraryId?: number | null) => {
+    const q = new URLSearchParams()
+    const lid = libraryId ?? queryLibraryId.value
+    if (lid != null) q.set('library_id', String(lid))
+    for (const key of ['from_iframe', 'hide_ui', 'edit'] as const) {
+        const raw = route.query[key]
+        const val = Array.isArray(raw) ? raw[0] : raw
+        if (val != null && val !== '') q.set(key, String(val))
+    }
+    const qs = q.toString()
+    return qs ? `/humanPlatform/${videoId}?${qs}` : `/humanPlatform/${videoId}`
+}
 
 // 编辑模式：通过地址栏 edit=1 开启
-const isEditMode = computed(() => Boolean(route.query.edit))
+const isEditMode = computed(() => Boolean(route.query.edit) && !isHideUi.value)
 
 // library_id：优先地址栏 query，否则从当前 video 的 pk_id 获取
 const queryLibraryId = computed(() => {
@@ -57,7 +87,14 @@ const queryLibraryId = computed(() => {
 // 视频数据（需在 effectiveLibraryId 之前声明）
 const libraryVideo = ref<LibraryVideo | null>(null)
 const loading = ref(false)
+/** 首次成功加载前为 true；之后切换人台图不再卸载 3D 查看器 */
+const hasLoadedOnce = ref(false)
+const videoLoading = ref(false)
 const error = ref<string | null>(null)
+
+const isMobileDevice = typeof navigator !== 'undefined'
+    && /iPhone|iPad|iPod|Android/i.test(navigator.userAgent)
+let canvasNeedsRedraw = false
 
 const effectiveLibraryId = computed(() => {
     if (queryLibraryId.value != null) return queryLibraryId.value
@@ -145,9 +182,7 @@ const loadLibraryVideoList = async () => {
 const handleVideoSelect = (item: LibraryVideo) => {
     const vid = item.video_id
     if (vid == null) return
-    const lid = effectiveLibraryId.value
-    const url = lid ? `/humanPlatform/${vid}?library_id=${lid}` : `/humanPlatform/${vid}`
-    router.push(url)
+    router.push(buildHumanPlatformPath(vid))
 }
 
 const initVideoAndList = async () => {
@@ -159,7 +194,7 @@ const initVideoAndList = async () => {
         const first = libraryVideoList.value[0]
         if (first?.video_id != null) {
             await loadVideoData(first.video_id)
-            router.replace(`/humanPlatform/${first.video_id}?library_id=${lid}`)
+            router.replace(buildHumanPlatformPath(first.video_id, lid))
         } else {
             loading.value = false
             error.value = '该图鉴暂无点云人台图'
@@ -167,10 +202,15 @@ const initVideoAndList = async () => {
     } else {
         loadVideoData()
     }
-    if (lid) loadLibraryVideoList()
+}
+let initVideoStarted = false
+const ensureInitVideoAndList = () => {
+    if (!layoutReady.value || initVideoStarted) return
+    initVideoStarted = true
+    void initVideoAndList()
 }
 watch(layoutReady, (newVal) => {
-    if (newVal) initVideoAndList()
+    if (newVal) ensureInitVideoAndList()
 })
 watch(isEditMode, (val) => {
     if (val && laxianListFromVideo.value.length > 0) {
@@ -191,6 +231,7 @@ watch(
             void initVideoAndList()
             return
         }
+        expandedLaxianId.value = null
         void loadVideoData()
     }
 )
@@ -260,8 +301,13 @@ const loadVideoData = async (videoIdOverride?: number) => {
         return
     }
 
+    const isFirstLoad = !hasLoadedOnce.value
     try {
-        loading.value = true
+        if (isFirstLoad) {
+            loading.value = true
+        } else {
+            videoLoading.value = true
+        }
         error.value = null
         libraryVideo.value = await getLibraryVideoById({ video_id: vid })
         
@@ -282,12 +328,16 @@ const loadVideoData = async (videoIdOverride?: number) => {
             // 勿传 GLTF 的 useDracoLoader / dracoDecoderPath，否则会误导维护且对点云无效。
             // 文档：https://sparkjs.dev/docs/0.1-2.0-migration-guide/
             const modelUrls = libraryVideo.value.addr.split(',').filter(url => url.trim())
+            const splatOptions = isMobileDevice
+                ? { mobileOptimized: true, maxSplats: 40000 }
+                : {}
             modelList.value = modelUrls.map((url, index) => ({
                 url: url.trim(),
                 type: 'splat' as const,
                 position: [index * 3, 0, 0] as [number, number, number],
-                options: {}
+                options: splatOptions
             }))
+            hasLoadedOnce.value = true
         } else {
             laxianListFromVideo.value = []
             error.value = '该视频不是点云类型或缺少模型地址'
@@ -297,6 +347,7 @@ const loadVideoData = async (videoIdOverride?: number) => {
         error.value = err instanceof Error ? err.message : '加载视频数据失败'
     } finally {
         loading.value = false
+        videoLoading.value = false
     }
 }
 
@@ -315,13 +366,14 @@ const laxianListForViewer = computed(() =>
     isEditMode.value ? editableLaxianList.value : laxianListFromVideo.value
 )
 
-// 拉线点列表（从 SPZModelViewerContent 暴露）
+/** hide_ui：场景内不加载拉线点，仅保留点云画布 */
+const viewerLaxianList = computed(() =>
+    isHideUi.value ? [] : laxianListForViewer.value
+)
+
+// 拉线点列表（节流同步，避免 Three 每帧更新触发 Vue 全树重渲染）
 const viewerRef = ref<InstanceType<typeof SPZModelViewerContent> | null>(null)
-const laxianList = computed<LaxianInterface[]>(() => {
-    const raw = viewerRef.value?.laxianList
-    if (!raw) return []
-    return (raw as { value?: LaxianInterface[] }).value ?? (Array.isArray(raw) ? raw : [])
-})
+const laxianList = shallowRef<LaxianInterface[]>([])
 
 // ===== 编辑模式：拉线数据制作 =====
 const addLaxianPoint = () => {
@@ -552,13 +604,6 @@ const saveLaxianDetailEdit = () => {
     useToast().add({ title: '详情已更新，记得点击保存', color: 'green' })
 }
 
-watch(
-    () => id.value,
-    () => {
-        expandedLaxianId.value = null
-    }
-)
-
 // 拉线类型显示开关：0 设计元素，1 柄图元素
 const showType0 = ref(true)
 const showType1 = ref(true)
@@ -572,6 +617,15 @@ const openLaxianModal = (e: MouseEvent) => {
 // 是否开启自动旋转
 const autoRotateEnabled = ref(false)
 
+watch(
+  isEmbedMinimal,
+  (minimal) => {
+    setLayoutStyle(minimal ? 1 : 0)
+  },
+  { immediate: true },
+)
+onBeforeUnmount(() => setLayoutStyle(0))
+
 // 屏幕中线，用于判断拉线方向
 const screenCenterX = ref(typeof window !== 'undefined' ? window.innerWidth / 2 : 0)
 const screenWidth = ref(typeof window !== 'undefined' ? window.innerWidth : 1920)
@@ -580,14 +634,13 @@ const updateScreenCenter = () => {
     screenCenterX.value = window.innerWidth / 2
     screenWidth.value = window.innerWidth
     screenHeight.value = window.innerHeight
+    canvasNeedsRedraw = true
 }
-onMounted(() => {
-    updateScreenCenter()
-    window.addEventListener('resize', updateScreenCenter)
-})
-onUnmounted(() => {
-    window.removeEventListener('resize', updateScreenCenter)
-})
+let resizeTimer: ReturnType<typeof setTimeout> | null = null
+const debouncedUpdateScreenCenter = () => {
+    if (resizeTimer) clearTimeout(resizeTimer)
+    resizeTimer = setTimeout(updateScreenCenter, 150)
+}
 
 // 标签安全区域：上（避开拉线按钮）、下边距
 const LABEL_SAFE_TOP = 56
@@ -666,16 +719,18 @@ const getLaxianLabelStyle = (item: LaxianWithLayout) => {
     }
 }
 
-// 页面加载时获取数据
-onMounted(() => {
-    if (layoutReady.value) initVideoAndList()
-})
-
-// Canvas 拉线绘制（含 300ms 缓动，与标题层一致）
+// Canvas 拉线绘制（按需刷新，含 300ms 缓动）
 const canvasRef = ref<HTMLCanvasElement | null>(null)
-let rafId = 0
+const LAXIAN_SYNC_MS = isMobileDevice ? 120 : 48
+let laxianOverlayLoopId = 0
+let laxianOverlayActive = false
+let lastLaxianSyncAt = 0
 const LAXIAN_DURATION = 300
 const easeOutCubic = (t: number) => 1 - (1 - t) ** 3
+const getCanvasDpr = () => {
+    const raw = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1
+    return isMobileDevice ? Math.min(raw, 1.5) : Math.min(raw, 2)
+}
 
 // 每个拉线的插值状态 key=laxian_id|index
 const currentLineEnd = new Map<
@@ -733,14 +788,28 @@ const lerpLineEnd = (
     return { x: cur.x, y: cur.y }
 }
 
-const drawLaxianCanvas = () => {
-    const canvas = canvasRef.value
-    if (!canvas) {
-        rafId = requestAnimationFrame(drawLaxianCanvas)
-        return
+const hasActiveLineLerp = (now: number) => {
+    for (const cur of currentLineEnd.values()) {
+        if (now - cur.startTime < LAXIAN_DURATION) return true
     }
+    return false
+}
 
-    const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1
+const readLaxianFromViewer = (): LaxianInterface[] => {
+    const raw = viewerRef.value?.laxianList
+    if (!raw) return []
+    return (raw as { value?: LaxianInterface[] }).value ?? (Array.isArray(raw) ? raw : [])
+}
+
+const syncLaxianListFromViewer = () => {
+    laxianList.value = readLaxianFromViewer()
+}
+
+const drawLaxianCanvasFrame = (now: number) => {
+    const canvas = canvasRef.value
+    if (!canvas) return
+
+    const dpr = getCanvasDpr()
     const w = window.innerWidth
     const h = window.innerHeight
 
@@ -752,10 +821,7 @@ const drawLaxianCanvas = () => {
     }
 
     const ctx = canvas.getContext('2d')
-    if (!ctx) {
-        rafId = requestAnimationFrame(drawLaxianCanvas)
-        return
-    }
+    if (!ctx) return
 
     ctx.save()
     ctx.scale(dpr, dpr)
@@ -764,12 +830,10 @@ const drawLaxianCanvas = () => {
     if (laxianWithLayout.value.length === 0) {
         currentLineEnd.clear()
         ctx.restore()
-        rafId = requestAnimationFrame(drawLaxianCanvas)
         return
     }
 
     const list = laxianWithLayout.value
-    const now = typeof performance !== 'undefined' ? performance.now() : Date.now()
 
     // 清除已不存在的 key
     const keys = new Set(list.map((item, i) => item.laxian_id ?? `idx-${i}`))
@@ -810,32 +874,95 @@ const drawLaxianCanvas = () => {
     }
 
     ctx.restore()
-    rafId = requestAnimationFrame(drawLaxianCanvas)
 }
 
-onMounted(() => {
-    rafId = requestAnimationFrame(drawLaxianCanvas)
+const stopLaxianOverlayLoop = () => {
+    laxianOverlayActive = false
+    if (laxianOverlayLoopId) {
+        cancelAnimationFrame(laxianOverlayLoopId)
+        laxianOverlayLoopId = 0
+    }
+}
+
+const startLaxianOverlayLoop = () => {
+    if (laxianOverlayActive || isHideUi.value) return
+    laxianOverlayActive = true
+    const tick = (now: number) => {
+        if (!laxianOverlayActive || document.hidden || isHideUi.value) {
+            stopLaxianOverlayLoop()
+            return
+        }
+        if (now - lastLaxianSyncAt >= LAXIAN_SYNC_MS) {
+            lastLaxianSyncAt = now
+            syncLaxianListFromViewer()
+            canvasNeedsRedraw = true
+        }
+        if (canvasNeedsRedraw || hasActiveLineLerp(now)) {
+            drawLaxianCanvasFrame(now)
+            canvasNeedsRedraw = hasActiveLineLerp(now)
+        }
+        laxianOverlayLoopId = requestAnimationFrame(tick)
+    }
+    laxianOverlayLoopId = requestAnimationFrame(tick)
+}
+
+watch(
+    () => [viewerRef.value, viewerLaxianList.value.length, isHideUi.value] as const,
+    ([viewer, count, hideUi]) => {
+        if (viewer && count > 0 && !hideUi) {
+            canvasNeedsRedraw = true
+            startLaxianOverlayLoop()
+        } else {
+            stopLaxianOverlayLoop()
+            laxianList.value = []
+            currentLineEnd.clear()
+        }
+    },
+    { immediate: true },
+)
+
+watch([expandedLaxianId, showType0, showType1], () => {
+    canvasNeedsRedraw = true
+    if (viewerRef.value && viewerLaxianList.value.length > 0 && !isHideUi.value) {
+        startLaxianOverlayLoop()
+    }
 })
 
+const onVisibilityChange = () => {
+    if (document.hidden) {
+        stopLaxianOverlayLoop()
+    } else if (viewerRef.value && viewerLaxianList.value.length > 0 && !isHideUi.value) {
+        startLaxianOverlayLoop()
+    }
+}
+onMounted(() => {
+    ensureInitVideoAndList()
+    updateScreenCenter()
+    window.addEventListener('resize', debouncedUpdateScreenCenter, { passive: true })
+    document.addEventListener('visibilitychange', onVisibilityChange)
+})
 onUnmounted(() => {
-    if (rafId) cancelAnimationFrame(rafId)
+    window.removeEventListener('resize', debouncedUpdateScreenCenter)
+    document.removeEventListener('visibilitychange', onVisibilityChange)
+    if (resizeTimer) clearTimeout(resizeTimer)
+    stopLaxianOverlayLoop()
 })
 </script>
 
 <template>
     <div class="fixed inset-0 w-full h-full bg-white z-50">
-        <!-- 数据加载中 -->
+        <!-- 首次加载（hide_ui 嵌入模式跳过，直接展示 3D 画布） -->
         <div
-            v-if="loading"
+            v-if="!isHideUi && loading && !hasLoadedOnce"
             class="w-full h-full flex flex-col items-center justify-center"
         >
             <div class="w-16 h-16 border-4 border-purple-400 rounded-full border-t-transparent animate-spin"></div>
             <p class="mt-4 text-purple-600 tracking-widest font-bold">正在加载数据...</p>
         </div>
 
-        <!-- 数据加载错误 -->
+        <!-- 首次加载失败（hide_ui 嵌入模式不展示错误页） -->
         <div
-            v-else-if="error"
+            v-else-if="!isHideUi && error && !hasLoadedOnce"
             class="w-full h-full flex flex-col items-center justify-center"
         >
             <div class="flex flex-col items-center gap-4">
@@ -847,24 +974,39 @@ onUnmounted(() => {
                 <UButton color="purple" @click="loadVideoData" class="mt-2">
                     重试
                 </UButton>
-                <UButton color="gray" @click="handleClose" class="mt-2">
+                <UButton v-if="!isHideUi" color="gray" @click="handleClose" class="mt-2">
                     返回
                 </UButton>
             </div>
         </div>
 
-        <!-- threejs 内容区域 -->
+        <!-- threejs 内容区域（首次成功后保持挂载，切换人台图不再销毁 WebGL） -->
         <client-only v-else>
+            <div
+                v-if="videoLoading && !isHideUi"
+                class="absolute inset-0 z-40 flex flex-col items-center justify-center bg-white/70 dark:bg-gray-900/70 backdrop-blur-[2px] pointer-events-none"
+            >
+                <div class="w-10 h-10 border-2 border-purple-400 rounded-full border-t-transparent animate-spin" />
+            </div>
+            <div
+                v-if="error && hasLoadedOnce && !isHideUi"
+                class="absolute top-3 left-1/2 -translate-x-1/2 z-40 max-w-md px-4 py-2 rounded-lg bg-red-50 dark:bg-red-900/40 text-red-600 dark:text-red-300 text-sm shadow-md"
+            >
+                {{ error }}
+            </div>
             <SPZModelViewerContent
                 ref="viewerRef"
                 :model-list="modelList"
-                :laxian-list="laxianListForViewer"
+                :laxian-list="viewerLaxianList"
                 :initial-camera-list="initialCameraForViewer"
                 :auto-rotate="autoRotateEnabled"
                 :edit-mode="isEditMode"
+                :show-loading-mask="!hasLoadedOnce && !isHideUi"
+                :hide-scene-chrome="isHideUi"
             />
             <!-- 功能栏 -->
             <div
+                v-if="!isHideUi"
                 class="fixed left-3 z-30 flex items-center gap-2 rounded-lg bg-white/90 dark:bg-gray-800/90 shadow-md backdrop-blur-sm border border-gray-200/50 dark:border-gray-600/50 p-1"
                 :style="{ top: `${12 + configStore.statusBarHeight}px` }"
             >
@@ -900,7 +1042,7 @@ onUnmounted(() => {
             </div>
             <!-- 悬浮人台图列表：有 library_id 时显示，可收缩展开 -->
             <div
-                v-if="effectiveLibraryId && !loading && !error"
+                v-if="effectiveLibraryId && hasLoadedOnce && !isHideUi"
                 class="fixed right-0 z-30 flex flex-col rounded-l-xl bg-white/95 dark:bg-gray-800/95 shadow-lg backdrop-blur-sm border border-gray-200/50 dark:border-gray-600/50 overflow-hidden transition-all duration-300 ease-out"
                 :class="libraryListExpanded
                     ? 'top-1/2 -translate-y-1/2 max-h-[70vh] w-[180px] sm:w-[200px] md:w-[220px]'
@@ -942,6 +1084,8 @@ onUnmounted(() => {
                                     :src="`${BASE_IMG}${item.cover}?x-oss-process=image/quality,q_80/resize,w_200,h_200`"
                                     :alt="item.title || ''"
                                     class="w-full h-full object-cover"
+                                    loading="lazy"
+                                    decoding="async"
                                 />
                                 <div v-else class="w-full h-full flex items-center justify-center">
                                     <UIcon name="i-heroicons-cube" class="w-5 h-5 text-gray-400" />
@@ -959,7 +1103,7 @@ onUnmounted(() => {
             </div>
             <!-- 右下角：相似推荐角标（默认收起，点击展开横向滚动列表） -->
             <div
-                v-if="effectiveLibraryId && !loading && !error"
+                v-if="effectiveLibraryId && hasLoadedOnce && !isHideUi"
                 class="fixed right-3 z-40 flex flex-col items-end pointer-events-none"
                 :style="{ bottom: `${similarPanelBottom}px` }"
             >
@@ -1045,14 +1189,14 @@ onUnmounted(() => {
                 </button>
             </div>
             <!-- 拉线点 overlay：Canvas 层（仅展示，忽略点击触摸） -->
-            <div class="fixed inset-0 pointer-events-none z-10" v-show="laxianWithLayout.length > 0">
+            <div class="fixed inset-0 pointer-events-none z-10" v-show="laxianWithLayout.length > 0 && !isHideUi">
                 <canvas
                     ref="canvasRef"
                     class="absolute inset-0 w-full h-full block"
                 />
             </div>
             <!-- 拉线点 overlay：标题层（显示在 Canvas 上层，点击展开详情） -->
-            <div class="fixed inset-0 pointer-events-none z-20" v-show="laxianWithLayout.length > 0">
+            <div class="fixed inset-0 pointer-events-none z-20" v-show="laxianWithLayout.length > 0 && !isHideUi">
                 <div
                     v-for="(item, i) in laxianWithLayout"
                     :key="'label-' + (item.laxian_id ?? i)"
@@ -1122,7 +1266,7 @@ onUnmounted(() => {
             <!-- 拉线设置弹窗 -->
             <!-- 编辑模式：拉线数据制作面板 -->
             <div
-                v-if="isEditMode && !loading && !error"
+                v-if="isEditMode && hasLoadedOnce"
                 class="fixed bottom-4 left-1/2 -translate-x-1/2 z-40 max-w-lg w-[calc(100vw-2rem)] rounded-2xl bg-white/95 dark:bg-gray-800/95 shadow-xl border border-gray-200/50 dark:border-gray-600/50 p-4 backdrop-blur-sm"
             >
                 <div class="flex items-center justify-between mb-3">
@@ -1219,7 +1363,7 @@ onUnmounted(() => {
                     </div>
                 </div>
             </div>
-            <QhxModal v-model="showLaxianModal" :trigger-position="laxianModalPosition" @close="showLaxianModal = false">
+            <QhxModal v-if="!isHideUi" v-model="showLaxianModal" :trigger-position="laxianModalPosition" @close="showLaxianModal = false">
                 <div class="p-6 w-[240px] bg-white dark:bg-gray-800 rounded-2xl shadow-xl border border-gray-200/50 dark:border-gray-700/50">
                     <h3 class="text-sm font-semibold text-gray-800 dark:text-gray-100 mb-4">拉线显示</h3>
                     <div class="space-y-3">
@@ -1236,6 +1380,7 @@ onUnmounted(() => {
             </QhxModal>
             <!-- 拉线点详情编辑（仅编辑模式） -->
             <QhxModal
+                v-if="!isHideUi"
                 v-model="showLaxianDetailEdit"
                 :trigger-position="detailModalPosition"
                 @close="showLaxianDetailEdit = false"
