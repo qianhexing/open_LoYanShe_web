@@ -584,8 +584,8 @@ const downloadChunk = async (index: number) => {
 
   // 生成图片并下载
   const link = document.createElement('a')
-  link.download = `上新_${formattedDate.value}_${index + 1}.png`
-  link.href = canvas.toDataURL('image/png')
+  link.download = `上新_${formattedDate.value}_${index + 1}.jpg`
+  link.href = canvas.toDataURL('image/jpeg', 0.92)
   link.click()
 }
 

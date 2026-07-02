@@ -142,6 +142,9 @@ export interface Shop {
   style_list?: Wiki[]
   type_list?: Wiki[]
   shop_url?: string
+  wb_name?: string
+  wb_url?: string
+  shop_state?: number
   shop_describe?: string
   black_count?: number
   collect_count?: number
@@ -441,6 +444,8 @@ export interface CollectVisitorRow {
   id: number
   collect_type: number
   create_time?: string
+  /** 收藏附加数据（备注、标签等） */
+  json_data?: Record<string, unknown> | null
   info?: CollectLibraryInfo | CollectCommunityInfo | null
 }
 
@@ -661,6 +666,20 @@ export interface LaxianInitialCamera extends LaxianCameraState {
 /** 拉线类型：0 设计元素，1 柄图元素 */
 export type LaxianType = 0 | 1
 
+/** 拉线标注线框形状：立方体 / 椭圆（椭球） */
+export type LaxianFrameShape = 'box' | 'ellipse'
+
+/** 拉线点下级标注线框 */
+export interface LaxianHighlightFrame {
+  frame_id?: string
+  position?: [number, number, number]
+  rotation?: [number, number, number]
+  /** scale[0]=长 scale[1]=高 scale[2]=宽（世界单位，立方体线框） */
+  scale?: [number, number, number]
+  /** 标注形状，默认 box */
+  shape?: LaxianFrameShape
+}
+
 // 拉线点项接口
 export interface LaxianItem {
   position?: [number, number, number]
@@ -672,6 +691,8 @@ export interface LaxianItem {
   type?: LaxianType
   /** 镜头聚焦参数（可选），点击拉线时若有则聚焦至该机位 */
   camera?: LaxianCameraState
+  /** 下级标注线框（不限个数） */
+  frames?: LaxianHighlightFrame[]
   /** 拉线点详情（富文本 HTML） */
   detail?: string
 }
@@ -794,6 +815,44 @@ export interface BrowTime {
   data: string
   count_times: number
 }
+export type AlbumSourceType = 'system' | 'owned' | 'subscribed' | 'public'
+
+/** 子打卡目标输入 */
+export interface AlbumChildInput {
+  album_id?: number
+  album_title: string
+  album_cover?: string
+  album_desc?: string
+  pk_type: number
+  target_num?: number
+  points_num?: number
+  conditions?: { logic: string; rules: unknown[] }
+  conclusion?: string
+  sort?: number
+}
+
+/** 新建打卡相册 */
+export interface InsertAlbumParams {
+  album_title: string
+  album_cover?: string
+  album_desc?: string
+  is_private?: number
+  sort?: number
+  children: AlbumChildInput[]
+}
+
+/** 编辑打卡相册 */
+export interface UpdateAlbumParams {
+  album_id: number
+  album_title?: string
+  album_cover?: string
+  album_desc?: string
+  is_private?: number
+  sort?: number
+  children?: AlbumChildInput[]
+  delete_child_ids?: number[]
+}
+
 /** 相册 */
 export interface Album {
   album_id: number
@@ -802,6 +861,22 @@ export interface Album {
   parent_id?: number
   create_time?: Date
   sort?: number
+  album_desc?: string
+  /** 0 公开 / 1 私有 */
+  is_private?: number
+  /** 列表来源：system | owned | subscribed | public */
+  source_type?: AlbumSourceType
+  is_subscribed?: boolean
+  user_id?: number
+  /** 子目标总数 */
+  count?: number
+  /** 已打卡数 */
+  count_achieve?: number
+  conclusion?: string
+  pk_type?: number
+  target_num?: number
+  points_num?: number
+  conditions?: { logic: string; rules: unknown[] }
   album_foreign?: AblumForeign
 }
 
@@ -918,6 +993,7 @@ export interface Journal {
   create_time?: string
   is_enable?: number
   note?: string
+  tags?: string // 逗号分隔标签
   json_data?: Record<string, unknown>
   /** 根据 pk_type 返回关联数据 */
   community?: Community

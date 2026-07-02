@@ -139,14 +139,50 @@ export const useSceneCore = () => {
         laxianList.value = laxian_list
     }
 
+    const selectSceneObject = (obj: THREE.Object3D) => {
+        clickObject.value = [obj]
+        operaPosition.value = threeCore.value!.screenPositionFromObject(obj)
+        if (config.editMode) {
+            const target = obj
+            requestAnimationFrame(() => {
+                const core = threeCore.value
+                if (!core || clickObject.value?.[0]?.uuid !== target.uuid) return
+                core.transformControls.attach(target)
+            })
+        }
+        doubleClickTimer.value = setTimeout(() => {
+            doubleClickTimer.value = null
+        }, 300)
+    }
+
     const gpuPick = (ev: MouseEvent | TouchEvent) => {
         if (!threeCore.value) return
         if (shouldIgnoreScenePick?.()) return
+        const videoPickRoot = threeCore.value.toggleReplaceVideoAtEvent(ev)
+        if (videoPickRoot) {
+            if (onSceneStepGroupingPick?.(videoPickRoot, ev)) {
+                if (doubleClickTimer.value) {
+                    clearTimeout(doubleClickTimer.value)
+                    doubleClickTimer.value = null
+                }
+                return
+            }
+            if (onLinkedObjectPick?.(videoPickRoot, ev)) {
+                return
+            }
+            if (config.editMode) {
+                if (clickObject.value?.[0]?.uuid !== videoPickRoot.uuid) {
+                    selectSceneObject(videoPickRoot)
+                }
+            }
+            return
+        }
         const obj = threeCore.value.gpuPick(ev)
-        console.log('点击对象', obj)
+        const resolved = obj ? (threeCore.value.resolveScenePickTarget(obj) ?? obj) : null
+        console.log('点击对象', resolved)
         // console.log('点击', obj)
-        if (obj) {
-            if (onSceneStepGroupingPick?.(obj, ev)) {
+        if (resolved) {
+            if (onSceneStepGroupingPick?.(resolved, ev)) {
                 if (doubleClickTimer.value) {
                     clearTimeout(doubleClickTimer.value)
                     doubleClickTimer.value = null
@@ -156,36 +192,23 @@ export const useSceneCore = () => {
             if (doubleClickTimer.value) {
                 clearTimeout(doubleClickTimer.value)
                 doubleClickTimer.value = null
-                if (clickObject.value && clickObject.value.length > 0 && clickObject.value[0].uuid === obj.uuid) {
+                if (clickObject.value && clickObject.value.length > 0 && clickObject.value[0].uuid === resolved.uuid) {
                     // console.log('双击')
-                    threeCore.value.lookAtSelectObj([obj])
+                    threeCore.value.lookAtSelectObj([resolved])
                     return
                 }
             }
-            if (onSceneStepGroupingPick?.(obj, ev)) {
+            if (onSceneStepGroupingPick?.(resolved, ev)) {
                 return
             }
-            if (onLinkedObjectPick?.(obj, ev)) {
+            if (onLinkedObjectPick?.(resolved, ev)) {
                 return
             }
-            if (clickObject.value && clickObject.value[0].uuid === obj.uuid) {
+            if (clickObject.value && clickObject.value[0].uuid === resolved.uuid) {
                 // console.log('点到同一个目标')
                 return
             }
-            clickObject.value = [obj]
-            operaPosition.value = threeCore.value.screenPositionFromObject(obj)
-            if (config.editMode) {
-                // 延后挂载 Gizmo，避免与 Bloom 通道同一事件帧内改场景导致闪屏
-                const target = obj
-                requestAnimationFrame(() => {
-                    const core = threeCore.value
-                    if (!core || clickObject.value?.[0]?.uuid !== target.uuid) return
-                    core.transformControls.attach(target)
-                })
-            }
-            doubleClickTimer.value = setTimeout(() => {
-                doubleClickTimer.value = null
-            }, 300)
+            selectSceneObject(resolved)
 
         } else if (threeCore.value.gizmo?.dragging) {
             // dragging logic

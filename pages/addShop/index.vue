@@ -550,15 +550,20 @@ const fetchShopDetail = async (id: number) => {
     const res = await getShopById({ shop_id: id })
     form.shop_name = res.shop_name || ''
     form.shop_url = res.shop_url || ''
+    form.wb_name = res.wb_name || ''
+    form.wb_url = res.wb_url || ''
     form.shop_describe = res.shop_describe || ''
     form.shop_logo = res.shop_logo || ''
 
-    // 设置LOGO预览
-    if (res.shop_logo && logoImagePickerRef.value) {
-      logoImagePickerRef.value.previewImages = [{
-        id: 'existing',
-        url: BASE_IMG + res.shop_logo
-      }]
+    // 设置LOGO预览（等待 ImagePicker 挂载）
+    if (res.shop_logo) {
+      await nextTick()
+      if (logoImagePickerRef.value) {
+        logoImagePickerRef.value.previewImages = [{
+          id: 'existing',
+          url: BASE_IMG + res.shop_logo
+        }]
+      }
     }
 
     // 设置国别
@@ -740,31 +745,35 @@ const handleSubmit = async () => {
         icon: 'i-heroicons-check-circle',
         color: 'green'
       })
-    } else {
-      await insertShop(params)
-      toast.add({
-        title: t('addShop.add_success'),
-        icon: 'i-heroicons-check-circle',
-        color: 'green'
-      })
-      // 重置表单
-      Object.assign(form, {
-        shop_name: '',
-        shop_url: '',
-        wb_name: '',
-        wb_url: '',
-        shop_describe: '',
-        shop_type: [],
-        shop_style: [],
-        shop_country: null,
-        shop_state: null,
-        main_type: [],
-        shop_logo: ''
-      })
-      logoFiles.value = []
-      if (logoImagePickerRef.value) {
-        logoImagePickerRef.value.clear()
-      }
+      setTimeout(() => {
+        router.push(`/shop/detail/${shopId.value}`)
+      }, 1000)
+      return
+    }
+
+    await insertShop(params)
+    toast.add({
+      title: t('addShop.add_success'),
+      icon: 'i-heroicons-check-circle',
+      color: 'green'
+    })
+    // 重置表单
+    Object.assign(form, {
+      shop_name: '',
+      shop_url: '',
+      wb_name: '',
+      wb_url: '',
+      shop_describe: '',
+      shop_type: [],
+      shop_style: [],
+      shop_country: null,
+      shop_state: null,
+      main_type: [],
+      shop_logo: ''
+    })
+    logoFiles.value = []
+    if (logoImagePickerRef.value) {
+      logoImagePickerRef.value.clear()
     }
 
     // 延迟返回
@@ -787,12 +796,17 @@ const handleSubmit = async () => {
 onMounted(async () => {
   await initOptions()
 
-  // 检查是否有shop_id参数（编辑模式）
+  // 检查是否有 shop_id 参数（编辑模式）
   const shopIdParam = route.query.shop_id
-  if (shopIdParam && user.value && user.value.access_level > 0) {
+  const minAccess = config.value?.min_add_library || 0
+  if (shopIdParam && user.value && user.value.access_level >= minAccess) {
     shopId.value = Number.parseInt(shopIdParam as string)
     await fetchShopDetail(shopId.value)
   }
+})
+
+useHead({
+  title: () => shopId.value ? t('addShop.page_title_edit') : t('addShop.page_title_add')
 })
 </script>
 

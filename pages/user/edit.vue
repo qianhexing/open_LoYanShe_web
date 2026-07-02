@@ -1,5 +1,5 @@
 <template>
-  <div v-if="user && config" class="min-h-screen bg-gray-50 dark:bg-gray-900 pb-20">
+  <div v-if="user && config" class="min-h-screen bg-gray-50 dark:bg-gray-900 pb-20 md:pb-8">
     <div class="max-w-2xl mx-auto p-4">
       <!-- 头部 -->
       <div class="mb-6">
@@ -217,14 +217,25 @@
         </div>
       </UCard>
 
-      <!-- 保存按钮 -->
-      <div class="fixed bottom-0 left-0 right-0 bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 p-4 z-10">
+      <!-- 自定义主题 -->
+      <UCard class="mb-4">
+        <CommunityCustomStyleForm
+          ref="customStyleFormRef"
+          v-model="customStyle"
+          background-hint="个人空间背景"
+        />
+      </UCard>
+
+      <!-- 保存按钮：移动端固定底栏，PC 端随内容流右对齐 -->
+      <div
+        class="fixed bottom-0 left-0 right-0 z-10 border-t border-gray-200 bg-white p-4 pb-[max(1rem,env(safe-area-inset-bottom,0px))] dark:border-gray-700 dark:bg-gray-800 md:static md:z-auto md:border-0 md:bg-transparent md:p-0 md:pt-4 md:pb-0 dark:md:bg-transparent"
+      >
         <UButton
           @click="saveUserInfo"
           block
           size="lg"
           :loading="loading"
-          class="bg-qhx-primary text-qhx-inverted hover:bg-qhx-primaryHover"
+          class="bg-qhx-primary text-qhx-inverted hover:bg-qhx-primaryHover md:max-w-[240px] md:ml-auto"
           :ui="{ rounded: 'rounded-full' }"
         >
           保存信息
@@ -332,6 +343,15 @@ import { BASE_IMG } from '@/utils/ipConfig'
 import type { User } from '@/types/api'
 import type { default as QhxSelect } from '@/components/Qhx/Select.vue'
 import EmailBindModal from '@/components/user/EmailBindModal.vue'
+// biome-ignore lint/style/useImportType: Vue SFC 组件供模板与 InstanceType 使用
+import CommunityCustomStyleForm from '@/components/community/CommunityCustomStyleForm.vue'
+import {
+  createDefaultCommunityCustomStyle,
+  hasCommunityCustomStyle,
+  parseCommunityCustomStyle,
+  serializeCommunityCustomStyle,
+  type CommunityCustomStyle,
+} from '@/utils/communityCustomStyle'
 let uni: any;
 const port = computed(() => configStore.getPort())
 
@@ -366,6 +386,8 @@ const styleSelectRef = ref<InstanceType<typeof QhxSelect>>()
 const provinceSelectRef = ref<InstanceType<typeof QhxSelect>>()
 const citySelectRef = ref<InstanceType<typeof QhxSelect>>()
 const areaSelectRef = ref<InstanceType<typeof QhxSelect>>()
+const customStyleFormRef = ref<InstanceType<typeof CommunityCustomStyleForm> | null>(null)
+const customStyle = ref<CommunityCustomStyle>(createDefaultCommunityCustomStyle())
 
 // 地址数据
 const addressData = ref<AddressItem[]>([])
@@ -422,6 +444,38 @@ const styleOptions = computed(() => {
   return config.value?.main_style || []
 })
 
+function parseMessageConfig(
+  raw: string | Record<string, unknown> | undefined
+): Record<string, unknown> {
+  if (!raw) return {}
+  if (typeof raw === 'string') {
+    try {
+      return JSON.parse(raw) as Record<string, unknown>
+    } catch {
+      return {}
+    }
+  }
+  return raw
+}
+
+async function fetchCustomStyleUpload(file: { file?: File; url: string }) {
+  try {
+    if (file.file) {
+      const res = await uploadImage(file.file)
+      return res.file_url.replace(BASE_IMG, '')
+    }
+    return file.url.replace(BASE_IMG, '')
+  } catch (error) {
+    console.error(error)
+    toast.add({
+      title: '背景图上传失败',
+      icon: 'i-heroicons-exclamation-circle',
+      color: 'red'
+    })
+    return null
+  }
+}
+
 // 获取用户信息
 const fetchUserInfo = async () => {
   try {
@@ -450,22 +504,13 @@ const fetchUserInfo = async () => {
     formData.is_achieve = userData.is_achieve === 1 || userData.is_achieve === true
     formData.user_face = data.user_face || ''
     
-    // 解析 message_config JSON，获取 email_notice 和 daily_news_subscribe 设置
-    if (userData.message_config) {
-      try {
-        const messageConfig = userData.message_config
-        formData.email_notice = messageConfig.email_notice as boolean || false
-        formData.daily_news_subscribe = messageConfig.daily_news_subscribe as boolean || false
-        console.log(formData.email_notice, formData.daily_news_subscribe, '配置项')
-      } catch (error) {
-        console.error('解析 message_config 失败:', error)
-        formData.email_notice = false
-        formData.daily_news_subscribe = false
-      }
-    } else {
-      formData.email_notice = false
-      formData.daily_news_subscribe = false
-    }
+    // 解析 message_config JSON
+    const messageConfig = parseMessageConfig(userData.message_config)
+    formData.email_notice = messageConfig.email_notice === true
+    formData.daily_news_subscribe = messageConfig.daily_news_subscribe === true
+    customStyle.value = parseCommunityCustomStyle(
+      messageConfig.custom_style as Record<string, unknown> | string | null | undefined
+    )
   } catch (error) {
     toast.add({
       title: '获取用户信息失败',
@@ -635,12 +680,14 @@ const updateMessageConfig = async () => {
   loading.value = true
 
   try {
-    // 使用 store 中的方法更新消息配置并重新拉取数据缓存
+    const messageConfig = parseMessageConfig(
+      (user.value as User & { message_config?: string | Record<string, unknown> })?.message_config
+    )
+    messageConfig.email_notice = formData.email_notice
+    messageConfig.daily_news_subscribe = formData.daily_news_subscribe
+
     await userStore.updateUserInfo({
-      message_config: {
-        email_notice: formData.email_notice,
-        daily_news_subscribe: formData.daily_news_subscribe
-      }
+      message_config: messageConfig
     })
 
     // 更新本地 user 引用
@@ -705,27 +752,33 @@ const saveUserInfo = async () => {
       params.user_face = formData.user_face
     }
 
+    const stylePayload = { ...customStyle.value }
+    const bgPicker = customStyleFormRef.value?.getBackgroundPicker()
+    if (bgPicker?.previewImages.length) {
+      const bgImg = bgPicker.previewImages[0]
+      if (bgImg && typeof bgImg === 'object' && 'url' in bgImg) {
+        const background = await fetchCustomStyleUpload(bgImg as { file?: File; url: string })
+        if (background === null) {
+          loading.value = false
+          return
+        }
+        stylePayload.background = background
+      }
+    } else {
+      stylePayload.background = null
+    }
+
     // 更新 message_config JSON
     try {
-      // 获取现有的 message_config
-      const userWithConfig = user.value as User & { message_config?: string | Record<string, unknown> }
-      let messageConfig: Record<string, boolean> = {}
-      if (userWithConfig?.message_config) {
-        try {
-          messageConfig = typeof userWithConfig.message_config === 'string'
-            ? JSON.parse(userWithConfig.message_config)
-            : userWithConfig.message_config
-        } catch (error) {
-          console.error('解析现有 message_config 失败:', error)
-          messageConfig = {}
-        }
-      }
-      // 更新 email_notice 和 daily_news_subscribe 字段
+      const messageConfig = parseMessageConfig(
+        (user.value as User & { message_config?: string | Record<string, unknown> })?.message_config
+      )
       messageConfig.email_notice = formData.email_notice
       messageConfig.daily_news_subscribe = formData.daily_news_subscribe
-      
+      messageConfig.custom_style = hasCommunityCustomStyle(stylePayload)
+        ? serializeCommunityCustomStyle(stylePayload)
+        : null
       params.message_config = messageConfig
-      console.log(params, '配置项')
     } catch (error) {
       console.error('更新 message_config 失败:', error)
     }
@@ -742,17 +795,25 @@ const saveUserInfo = async () => {
       color: 'green'
     })
 
-    // 返回上一页
-    if (port.value) {
-      // 鸿蒙环境
+    const isInUniApp =
+      typeof window !== 'undefined' &&
+      navigator.userAgent.includes('Html5Plus')
+
+    if (isInUniApp && typeof uni !== 'undefined' && typeof uni.postMessage === 'function') {
+      uni.postMessage({
+        data: {
+          type: 'updateUserInfo',
+          navigateBack: true
+        }
+      })
+    } else if (port.value) {
       port.value.postMessage(JSON.stringify({
         type: 'back',
         params: { reload: true }
-      }));
+      }))
     } else {
       router.back()
     }
-    router.back()
   } catch (error) {
     toast.add({
       title: '保存失败',

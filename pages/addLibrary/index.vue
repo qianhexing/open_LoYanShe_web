@@ -183,8 +183,20 @@
             type="text"
             placeholder="开始日期"
           /> -->
-          <VueDatePicker v-model="library.start_time" :disabled="isReviewMode" :enable-time-picker="true" :range="true"
-            format="MM/dd/yyyy" />
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <QhxDateTimePicker
+              v-model="appointmentStartDate"
+              placeholder="开始时间"
+              :disabled="isReviewMode"
+              format="YYYY-MM-DD HH:mm:ss"
+            />
+            <QhxDateTimePicker
+              v-model="appointmentEndDate"
+              placeholder="结束时间"
+              :disabled="isReviewMode"
+              format="YYYY-MM-DD HH:mm:ss"
+            />
+          </div>
           <div v-if="isReviewMode && isFieldChanged('start_time')"
             class="mt-2 text-sm text-gray-600 dark:text-gray-400">
             <span class="font-semibold">{{ t('addLibrary.original_value') }}</span>{{ getOriginalValueText('start_time')
@@ -197,8 +209,20 @@
         <UFormGroup :label="t('addLibrary.arrears_start')" name="arrears_start"
           v-if="library.state === '尾款中' && shouldShowField('arrears_start')" required
           :class="getHighlightClass('arrears_start')">
-          <VueDatePicker v-model="library.arrears_start" :disabled="isReviewMode" :enable-time-picker="true"
-            :range="true" format="MM/dd/yyyy" />
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <QhxDateTimePicker
+              v-model="arrearsStartDate"
+              placeholder="开始时间"
+              :disabled="isReviewMode"
+              format="YYYY-MM-DD HH:mm:ss"
+            />
+            <QhxDateTimePicker
+              v-model="arrearsEndDate"
+              placeholder="结束时间"
+              :disabled="isReviewMode"
+              format="YYYY-MM-DD HH:mm:ss"
+            />
+          </div>
           <div v-if="isReviewMode && isFieldChanged('arrears_start')"
             class="mt-2 text-sm text-gray-600 dark:text-gray-400">
             <span class="font-semibold">{{ t('addLibrary.original_value') }}</span>{{
@@ -622,8 +646,14 @@
         <UFormGroup :label="t('addLibrary.sale_time')" v-if="shouldShowField('sale_time')"
           :class="getHighlightClass('sale_time')">
           <div class="w-1/2 min-w-[200px]">
-            <VueDatePicker v-model="library.sale_time" :disabled="isReviewMode" :enable-time-picker="false"
-              :range="false" format="MM/yyyy" MenuView="month" month-picker type="month" mode="month" :locale="zhCN" />
+            <QhxDateTimePicker
+              v-model="library.sale_time"
+              :placeholder="t('addLibrary.sale_time')"
+              mode="yearmonth"
+              format="YYYY-MM-DD"
+              :enable-time-picker="false"
+              :disabled="isReviewMode"
+            />
           </div>
           <div v-if="isReviewMode && isFieldChanged('sale_time')" class="mt-2 text-sm text-gray-600 dark:text-gray-400">
             <span class="font-semibold">{{ t('addLibrary.original_value') }}</span>{{ getOriginalValueText('sale_time')
@@ -880,12 +910,9 @@ import { insertLibrary, type InsertParams, getLibraryById, type LibraryHistoryNe
 // import compressImage from '@/utils/compressImage'
 // import uploadImage from '@/utils/uploadImage'
 // import { formatDate } from '@/plugins/public'
-import VueDatePicker from '@vuepic/vue-datepicker'
-import '@vuepic/vue-datepicker/dist/main.css'
 import type QhxImagePicker from '@/components/Qhx/ImagePicker.vue'
 import type QhxSelect from '@/components/Qhx/Select.vue'
 import { getShopOptiosns, getShopDetail } from '@/api/shop'
-import { zhCN } from "date-fns/locale"
 import { uploadImageUrl } from '@/api'
 import { uploadFileToOSS, uploadImageOSS } from '@/utils/ossUpload'
 import { BASE_IMG } from '@/utils/ipConfig'
@@ -1297,9 +1324,9 @@ const library = ref({
   cloth_elements: [] as Wiki[],
   state: undefined as string | undefined,
   start_time: undefined as string[] | undefined,
-  arrears_start: undefined as string | undefined,
+  arrears_start: undefined as string[] | undefined,
   secondary_cloth: [] as Wiki[],
-  sale_time: undefined as { year: number, month: number } | undefined,
+  sale_time: undefined as string | null | undefined,
   notes: '',
   season: undefined as string[] | undefined,
   library_price: undefined as number | undefined,
@@ -1399,6 +1426,58 @@ const openStateSelect = (e: MouseEvent) => {
 const onLibraryTypeSelect = (option: { label: string; value: string | number }) => {
   library.value.library_type = option.label
 }
+
+const appointmentStartDate = computed({
+  get: () => {
+    const arr = library.value.start_time
+    return arr?.[0] && arr[0] !== '' ? arr[0] : null
+  },
+  set: (v: string | null) => {
+    if (!library.value.start_time) {
+      library.value.start_time = ['', '']
+    }
+    library.value.start_time[0] = v || ''
+  }
+})
+
+const appointmentEndDate = computed({
+  get: () => {
+    const arr = library.value.start_time
+    return arr?.[1] && arr[1] !== '' ? arr[1] : null
+  },
+  set: (v: string | null) => {
+    if (!library.value.start_time) {
+      library.value.start_time = ['', '']
+    }
+    library.value.start_time[1] = v || ''
+  }
+})
+
+const arrearsStartDate = computed({
+  get: () => {
+    const arr = library.value.arrears_start
+    return arr?.[0] && arr[0] !== '' ? arr[0] : null
+  },
+  set: (v: string | null) => {
+    if (!library.value.arrears_start) {
+      library.value.arrears_start = ['', '']
+    }
+    library.value.arrears_start[0] = v || ''
+  }
+})
+
+const arrearsEndDate = computed({
+  get: () => {
+    const arr = library.value.arrears_start
+    return arr?.[1] && arr[1] !== '' ? arr[1] : null
+  },
+  set: (v: string | null) => {
+    if (!library.value.arrears_start) {
+      library.value.arrears_start = ['', '']
+    }
+    library.value.arrears_start[1] = v || ''
+  }
+})
 
 const onStateSelect = (option: { label: string; value: string | number }) => {
   library.value.state = option.label
@@ -1730,7 +1809,7 @@ const fetchLibraryById = async () => {
     if (isReviewMode.value) {
       originalLibrary.value = { ...res }
     }
-    const { theme, style_list, name, library_type, state, shop, parent, library_price, library_pattern, detail_image, color, size, pattern_elements, design_elements, cloth_elements, secondary_cloth, notes, sale_time, season, link, cover, end_time, start_time, size_image, fabric_composition, quality_test, complete, json_data } = res
+    const { theme, style_list, name, library_type, state, shop, parent, library_price, library_pattern, detail_image, color, size, pattern_elements, design_elements, cloth_elements, secondary_cloth, notes, sale_time, season, link, cover, end_time, start_time, arrears_start, arrears_end, size_image, fabric_composition, quality_test, complete, json_data } = res
     library.value.name = name
 
     library.value.library_type = library_type
@@ -1796,10 +1875,7 @@ const fetchLibraryById = async () => {
     }
     library.value.notes = notes || ''
     if (sale_time) {
-      library.value.sale_time = {
-        year: dayjs(sale_time).year(),
-        month: dayjs(sale_time).month()
-      }
+      library.value.sale_time = dayjs(sale_time).format('YYYY-MM-DD')
     }
     if (season) {
       library.value.season = season.split(',')
@@ -1807,7 +1883,7 @@ const fetchLibraryById = async () => {
     library.value.link = link
     library.value.complete = !!complete
     library.value.start_time = [start_time || '', end_time || '']
-    console.log(library.value.start_time, '预约时间')
+    library.value.arrears_start = [arrears_start || '', arrears_end || '']
     if (fabric_composition) {
       library.value.fabric_composition = fabric_composition.split(',').map((item: string): FabricComposition => {
         const child = item.split('%')
@@ -1990,10 +2066,7 @@ const applyReviewData = async () => {
     library.value.notes = review.notes || ''
   }
   if (changedFields.value.has('sale_time') && review.sale_time) {
-    library.value.sale_time = {
-      year: dayjs(review.sale_time).year(),
-      month: dayjs(review.sale_time).month()
-    }
+    library.value.sale_time = dayjs(review.sale_time).format('YYYY-MM-DD')
   }
   if (changedFields.value.has('season') && review.season) {
     library.value.season = review.season.split(',')
@@ -2185,10 +2258,7 @@ const applyFieldsFromParentLibrary = (item: Library, opts?: { preserveShop?: boo
     }))
   }
   if (item.sale_time) {
-    library.value.sale_time = {
-      year: dayjs(item.sale_time).year(),
-      month: dayjs(item.sale_time).month()
-    }
+    library.value.sale_time = dayjs(item.sale_time).format('YYYY-MM-DD')
   }
   if (item.season) {
     library.value.season = item.season.split(',')
@@ -2237,7 +2307,7 @@ const init = () => {
     cloth_elements: [],
     state: undefined,
     start_time: undefined as string[] | undefined,
-    arrears_start: undefined,
+    arrears_start: undefined as string[] | undefined,
     secondary_cloth: [],
     sale_time: undefined,
     notes: '',
@@ -2677,9 +2747,7 @@ const add = async () => {
       params.shop_id = null
     }
     if (sale_time) {
-      const year = sale_time.year
-      const month = String(sale_time.month + 1).padStart(2, '0')
-      params.sale_time = `${year}-${month}-01`
+      params.sale_time = dayjs(sale_time).format('YYYY-MM-DD')
     } else {
       params.sale_time = null
     }
@@ -2820,6 +2888,7 @@ const add = async () => {
         color: 'green'
       })
       init()
+      chooseLibraryRef.value?.refresh()
     }
   } catch (error) {
     console.error('提交失败:', error)
@@ -2916,11 +2985,5 @@ const joinQQGroup = () => {
   background: #fff;
   box-shadow: 1px 1px 10px #ccc;
   border-radius: 4px;
-}
-
-.vue-datepicker {
-  --vp-background-color: var(--qhx-bg);
-  --vp-accent-color: var(--qhx-primary);
-  --vp-text-color: var(--qhx-text);
 }
 </style>

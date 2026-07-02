@@ -100,6 +100,12 @@ const onSuccess = async () => {
 
 <template>
   <div class="manage-page min-h-screen bg-[#fff8f8] dark:bg-[#141414] pb-28">
+    <div
+      v-if="configStore.statusBarHeight > 0"
+      class="shrink-0"
+      aria-hidden="true"
+      :style="{ height: `${configStore.statusBarHeight}px` }"
+    />
     <header
       class="manage-page__header sticky z-30 border-b border-pink-100/80 dark:border-gray-800 bg-white/90 dark:bg-gray-900/90 backdrop-blur-md"
       :style="{ top: headerTop }"
@@ -264,7 +270,7 @@ const onSuccess = async () => {
 
 <style scoped>
 .manage-page__add-btn {
-  background: linear-gradient(135deg, #ec4899 0%, #a855f7 100%);
+  background: linear-gradient(135deg, #ff9eb5 0%, #a855f7 100%);
 }
 
 .manage-page__add-btn:hover {

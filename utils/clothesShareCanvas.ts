@@ -157,7 +157,7 @@ const COLOR_SWATCH_BORDER = '#D1D5DB'
 const SHARE = {
   bg: '#FFFFFF',
   grayBg: '#F5F5F5',
-  accent: '#ec4899',
+  accent: '#ff9eb5',
   price: '#FF4F00',
   title: '#222222',
   body: '#444444',

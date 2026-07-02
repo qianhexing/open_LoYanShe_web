@@ -61,6 +61,31 @@ export const SCENE_ANIMATION_TIMING_PARAMS: AnimationParamDef[] = [
 
 const TAU = Math.PI * 2
 
+/** 卫星轨道相对中心的偏移：黄道 XZ 圆 → 绕 X 倾角 → 绕 Y 垂直偏转 */
+export function computeSatelliteOrbitOffset(
+	theta: number,
+	radius: number,
+	inclinationDeg: number,
+	planeAngleDeg = 0
+): { x: number; y: number; z: number } {
+	const inclinationRad = (inclinationDeg * Math.PI) / 180
+	const planeRad = (planeAngleDeg * Math.PI) / 180
+	const cosT = Math.cos(theta)
+	const sinT = Math.sin(theta)
+	const sinI = Math.sin(inclinationRad)
+	const cosI = Math.cos(inclinationRad)
+	const sinP = Math.sin(planeRad)
+	const cosP = Math.cos(planeRad)
+	const x0 = radius * cosT
+	const y0 = radius * sinT * sinI
+	const z0 = radius * sinT * cosI
+	return {
+		x: x0 * cosP + z0 * sinP,
+		y: y0,
+		z: -x0 * sinP + z0 * cosP
+	}
+}
+
 export interface SceneAnimationPreset {
 	id: string
 	label: string
@@ -329,6 +354,84 @@ export const SCENE_ANIMATION_PRESETS: SceneAnimationPreset[] = [
 				options: { ...params },
 				properties: { 'position.z': obj.position.z + d },
 				...timingFromParams(params, { repeat: -1, yoyo: true })
+			}
+		}
+	},
+	{
+		id: 'satellite',
+		label: '卫星',
+		icon: 'material-symbols:satellite-alt',
+		category: 'translate',
+		paramDefs: mergeParamDefs(
+			{
+				key: 'angle',
+				label: '偏转角度(°)',
+				type: 'number',
+				default: 0,
+				min: 0,
+				max: 90,
+				step: 1
+			},
+			{
+				key: 'planeAngle',
+				label: '垂直偏转(°)',
+				type: 'number',
+				default: 0,
+				min: 0,
+				max: 360,
+				step: 1
+			},
+			{
+				key: 'startAngle',
+				label: '起始角度(°)',
+				type: 'number',
+				default: 0,
+				min: 0,
+				max: 360,
+				step: 1
+			},
+			{
+				key: 'radius',
+				label: '半径',
+				type: 'number',
+				default: 1,
+				min: 0.05,
+				max: 50,
+				step: 0.05
+			},
+			{
+				key: 'duration',
+				label: '速度(秒/圈)',
+				type: 'number',
+				default: 4,
+				min: 0.5,
+				max: 60,
+				step: 0.5
+			},
+			{
+				key: 'repeat',
+				label: '重复',
+				type: 'number',
+				default: -1,
+				min: -1,
+				max: 100,
+				step: 1
+			}
+		),
+		buildEffect(params) {
+			return {
+				type: 'animation',
+				preset: 'satellite',
+				options: { ...params },
+				properties: {},
+				duration: num(params, 'duration', 4),
+				ease: 'none',
+				repeat:
+					Math.round(num(params, 'repeat', -1)) === -1
+						? -1
+						: Math.max(0, num(params, 'repeat', 0)),
+				yoyo: false,
+				delay: num(params, 'delay', 0)
 			}
 		}
 	},

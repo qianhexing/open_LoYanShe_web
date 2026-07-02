@@ -1,6 +1,8 @@
 <script setup lang="ts">
-import type { Library, LibrarySimilarItem, PaginationResponse, Shop, LibraryVideo, LibraryPipe, Community, User, Compilations, SenceForeign, Comment } from '@/types/api';
-import { getLibraryDetail, getLibraryList, getLibraryVideo, getLibraryPipeListAll, getLibrarySimilar, updateStateMultiple, updatePatternElementsMultiple } from '@/api/library'
+import type { Library, LibrarySimilarItem, PaginationResponse, Shop, LibraryVideo, LibraryPipe, Community, User, Compilations, SenceForeign, Comment, WardrobeClothes } from '@/types/api';
+import { getMatchingListListVisitor, type MatchingListItem } from '@/api/matching_list'
+import type MatchingAddEdit from '@/components/matching/MatchingAddEdit.vue'
+import { getLibraryDetail, getLibraryList, getLibraryVideo, getLibraryPipeListAll, getLibrarySimilar, updateStateMultiple, updatePatternElementsMultiple, updateSaleTimeMultiple } from '@/api/library'
 import html2canvas from 'html2canvas';
 import QhxTag from '~/components/Qhx/Tag.vue';
 import type { image } from 'html2canvas/dist/types/css/types/image';
@@ -29,7 +31,7 @@ import {
   starFillRatio
 } from '@/utils/libraryScore'
 import type { CommunityPostForeignContext } from '@/utils/communityPost'
-import { isHtml5PlusWebview, openLibraryWebPath, openLibraryDetailTab, libraryDetailPageHref } from '@/composables/useLibraryDetailNavigation'
+import { isHtml5PlusWebview, openLibraryWebPath, openLibraryDetailTab, libraryDetailPageHref, openMatchingDetailTab } from '@/composables/useLibraryDetailNavigation'
 import { BASE_IMG } from '@/utils/ipConfig'
 import { deleteSenceForeign, getSenceForeignList, getSceneId, insertScene } from '@/api/scene'
 import type { SceneJSON } from '@/utils/threeCore'
@@ -43,6 +45,9 @@ import { useCommentUiStore } from '@/stores/commentUi'
 import LibraryShareImage from '@/components/library/LibraryShareImage.vue'
 import type { LibrarySharePayload } from '@/utils/libraryShareCanvas'
 import { plainTextFromHtml } from '@/utils/libraryShareCanvas'
+import WikiOptionsChoose from '@/components/wiki/wikiOptionsChoose.vue'
+
+const customInput = defineAsyncComponent(() => import('~/components/Clothes/customInput.vue'))
 const user = useUserStore()
 const config = useConfigStore()
 const isMobile = computed(() => config.isMobile)
@@ -141,16 +146,22 @@ const resolveSkuRawList = (jsonData: Record<string, unknown>): LibrarySkuRaw[] =
     }))
 }
 
-const librarySkuCoverSrc = (cover: string | undefined) => {
+const normalizeSkuCoverPath = (cover: string | undefined) => {
   if (!cover?.trim()) return ''
-  const trimmed = cover.trim()
-  const pathOnly = trimmed.split('?')[0]
-  if (/^https?:\/\//i.test(pathOnly) || pathOnly.startsWith('//')) {
-    return `${pathOnly}?x-oss-process=image/quality,q_80/resize,w_300,h_300`
+  let path = cover.trim().split('?')[0]
+  if (/^https?:\/\//i.test(path) || path.startsWith('//')) {
+    path = path.replace(/^https?:\/\/[^/]+\//, '').replace(/^\//, '')
   }
-  const relative = pathOnly.replace(BASE_IMG, '').replace(/^\//, '')
-  return `${BASE_IMG}${relative}?x-oss-process=image/quality,q_80/resize,w_300,h_300`
+  return path.replace(BASE_IMG, '').replace(/^\//, '')
 }
+
+const librarySkuCoverThumb = (cover: string | undefined) => {
+  const path = normalizeSkuCoverPath(cover)
+  if (!path) return ''
+  return `${path}?x-oss-process=image/quality,q_80/resize,w_300,h_300`
+}
+
+const librarySkuCoverPreview = (cover: string | undefined) => normalizeSkuCoverPath(cover)
 
 const librarySkuList = computed((): LibrarySkuItem[] => {
   const lib = library.value
@@ -197,6 +208,188 @@ const libraryReturnTabCount = ref<number | undefined>(undefined)
 const libraryEventTabCount = ref<number | undefined>(undefined)
 const libraryCommentTabCount = ref<number | undefined>(undefined)
 
+const showReturnModal = ref(false)
+const showEventModal = ref(false)
+const showMatchingModal = ref(false)
+
+const MATCHING_LIST_PAGE_SIZE = 20
+const libraryMatchingTabCount = ref<number | undefined>(undefined)
+const matchingListLoading = ref(false)
+const matchingListItems = ref<MatchingListItem[]>([])
+const matchingListPage = ref(1)
+const matchingListTotal = ref(0)
+const matchingListRefreshKey = ref(0)
+const matchingAddEditRef = ref<InstanceType<typeof MatchingAddEdit> | null>(null)
+
+const FAB_ACTIONS_STORAGE_KEY = 'library-detail-fab-actions-expanded'
+const fabActionsExpanded = ref(true)
+const fabTotalBadgeCount = computed(() => {
+  const returnCount = libraryReturnTabCount.value ?? 0
+  const eventCount = libraryEventTabCount.value ?? 0
+  const matchingCount = libraryMatchingTabCount.value ?? 0
+  return returnCount + eventCount + matchingCount
+})
+
+const libraryMatchingFilterList = computed(() => {
+  const lid = library.value?.library_id
+  if (lid == null) return undefined
+  return [{ field: 'library_id', value: lid }]
+})
+
+function getMatchingCover(item: MatchingListItem): string {
+  if (item.cover) return item.cover
+  if (item.clothes_list?.length && item.clothes_list[0].clothes_img) {
+    return item.clothes_list[0].clothes_img
+  }
+  if (item.library_list?.length) {
+    const lib = item.library_list[0]
+    return lib.cover ?? lib.square_cover ?? ''
+  }
+  return ''
+}
+
+function parseMatchingSeasons(season?: string | null): string[] {
+  if (!season) return []
+  return season.split(',').map((s) => s.trim()).filter(Boolean)
+}
+
+const MATCHING_SEASON_THEME_CLASS: Record<string, string> = {
+  春: 'matching-season-badge--spring',
+  夏: 'matching-season-badge--summer',
+  秋: 'matching-season-badge--autumn',
+  冬: 'matching-season-badge--winter'
+}
+
+function getMatchingSeasonThemeClass(season: string): string {
+  return MATCHING_SEASON_THEME_CLASS[season] ?? 'matching-season-badge--default'
+}
+
+function getMatchingSingleSeasonClass(season: string): string {
+  return `matching-season-badge matching-season-badge--single ${getMatchingSeasonThemeClass(season)}`
+}
+
+function getMatchingMultiSeasonClass(season: string): string {
+  return `matching-season-badge matching-season-badge--multi ${getMatchingSeasonThemeClass(season)}`
+}
+
+const fetchMatchingListCount = async () => {
+  const lid = library.value?.library_id
+  if (lid == null) return
+  try {
+    const res = await getMatchingListListVisitor({
+      page: 1,
+      pageSize: 1,
+      keyword: '',
+      filter_list: libraryMatchingFilterList.value as unknown as Record<string, unknown>
+    })
+    libraryMatchingTabCount.value = res.count ?? 0
+  } catch {
+    /* 保持原数量 */
+  }
+}
+
+const fetchMatchingList = async (reset = false) => {
+  const lid = library.value?.library_id
+  if (lid == null || matchingListLoading.value) return
+  if (reset) {
+    matchingListPage.value = 1
+    matchingListItems.value = []
+  }
+  matchingListLoading.value = true
+  try {
+    const res = await getMatchingListListVisitor({
+      page: matchingListPage.value,
+      pageSize: MATCHING_LIST_PAGE_SIZE,
+      keyword: '',
+      filter_list: libraryMatchingFilterList.value as unknown as Record<string, unknown>
+    })
+    matchingListTotal.value = res.count ?? 0
+    libraryMatchingTabCount.value = res.count ?? 0
+    const rows = res.rows ?? []
+    if (reset || matchingListPage.value === 1) {
+      matchingListItems.value = rows
+    } else {
+      matchingListItems.value.push(...rows)
+    }
+  } catch {
+    toast.add({
+      title: '加载搭配列表失败',
+      icon: 'i-heroicons-exclamation-circle',
+      color: 'red'
+    })
+  } finally {
+    matchingListLoading.value = false
+  }
+}
+
+const loadMoreMatchingList = () => {
+  if (matchingListLoading.value) return
+  if (matchingListItems.value.length >= matchingListTotal.value) return
+  matchingListPage.value += 1
+  void fetchMatchingList()
+}
+
+const jumpToMatchingDetail = (item: MatchingListItem) => {
+  if (!item.matching_id) return
+  openMatchingDetailTab(item.matching_id)
+}
+
+function openNewMatching() {
+  if (!user.token) {
+    toast.add({
+      title: '请先登录',
+      icon: 'i-heroicons-exclamation-circle',
+      color: 'orange'
+    })
+    return
+  }
+  const lib = library.value
+  if (!lib?.library_id) return
+  showMatchingModal.value = false
+  matchingAddEditRef.value?.showModel([{
+    library_id: lib.library_id,
+    clothes_img: lib.cover,
+    clothes_note: lib.name
+  } as WardrobeClothes])
+}
+
+function onMatchingAddSuccess() {
+  matchingListRefreshKey.value += 1
+  void fetchMatchingListCount()
+  if (showMatchingModal.value) {
+    void fetchMatchingList(true)
+  }
+}
+
+function restoreFabActionsExpanded() {
+  if (!import.meta.client || typeof localStorage === 'undefined') return
+  try {
+    const v = localStorage.getItem(FAB_ACTIONS_STORAGE_KEY)
+    if (v !== null) fabActionsExpanded.value = v === '1'
+  } catch {
+    /* 忽略读取失败 */
+  }
+}
+
+function persistFabActionsExpanded(expanded: boolean) {
+  if (!import.meta.client || typeof localStorage === 'undefined') return
+  try {
+    localStorage.setItem(FAB_ACTIONS_STORAGE_KEY, expanded ? '1' : '0')
+  } catch {
+    /* 忽略写入失败 */
+  }
+}
+
+function toggleFabActions() {
+  fabActionsExpanded.value = !fabActionsExpanded.value
+}
+
+restoreFabActionsExpanded()
+
+watch(fabActionsExpanded, (expanded) => {
+  persistFabActionsExpanded(expanded)
+})
+
 /** 地址栏 `?comment_id=`：定位该条主楼评论 */
 const focusCommentId = computed(() => {
   const raw = route.query.comment_id
@@ -212,13 +405,6 @@ const { data: commentCountData, refresh: refreshCommentCount } = await useAsyncD
 )
 
 const commentTotal = computed(() => commentCountData.value?.count ?? 0)
-
-const libraryDetailTabCounts = computed(() => [
-  libraryReturnTabCount.value,
-  library_pipe.value.length > 0 ? library_pipe.value.length : undefined,
-  libraryEventTabCount.value,
-  libraryCommentTabCount.value ?? commentTotal.value,
-])
 
 const showCommentModal = ref(false)
 const commentModalRef = ref<{
@@ -314,7 +500,7 @@ async function prefetchLibraryTabCounts() {
   const lid = library.value?.library_id
   if (lid == null) return
   try {
-    const [foreignRes, eventRes] = await Promise.all([
+    const [foreignRes, eventRes, matchingRes] = await Promise.all([
       getCommunityForeignList({
         page: 1,
         pageSize: 1,
@@ -326,10 +512,17 @@ async function prefetchLibraryTabCounts() {
         pageSize: 1,
         pk_id: lid,
         pk_type: 2
+      }),
+      getMatchingListListVisitor({
+        page: 1,
+        pageSize: 1,
+        keyword: '',
+        filter_list: [{ field: 'library_id', value: lid }] as unknown as Record<string, unknown>
       })
     ])
     libraryReturnTabCount.value = foreignRes.count ?? 0
     libraryEventTabCount.value = eventRes.count ?? 0
+    libraryMatchingTabCount.value = matchingRes.count ?? 0
   } catch {
     // 角标预取失败时保持不显示
   }
@@ -438,11 +631,31 @@ const getStateColor = (state: number): string => {
     case 3: // 现货在售
       return '#10b981' // 绿色
     case 4: // 上新图透
-      return '#ec4899' // 粉色
+      return '#ff9eb5' // 粉色
     default:
       return '#6b7280' // 灰色（未知状态）
   }
 }
+
+const showSaleHistoryModal = ref(false)
+
+/** 未发生或正在进行的贩售阶段（结束日不早于今天） */
+const isLibraryPipeUpcomingOrActive = (pipe: LibraryPipe) => {
+  if (!pipe.end_time) return true
+  return !dayjs(pipe.end_time).isBefore(dayjs(), 'day')
+}
+
+const sortLibraryPipesDesc = (pipes: LibraryPipe[]) =>
+  [...pipes].sort((a, b) => dayjs(b.start_time).valueOf() - dayjs(a.start_time).valueOf())
+
+const hasLibraryPipe = computed(() => library_pipe.value.length > 0)
+const activeLibraryPipes = computed(() =>
+  sortLibraryPipesDesc(library_pipe.value.filter(isLibraryPipeUpcomingOrActive))
+)
+const sortedAllLibraryPipes = computed(() => sortLibraryPipesDesc(library_pipe.value))
+const hasPastLibraryPipes = computed(() =>
+  library_pipe.value.some((pipe) => !isLibraryPipeUpcomingOrActive(pipe))
+)
 const fetchLibraryVideo = () => {
   const params = {
     pk_id: Number.parseInt(id)
@@ -526,8 +739,31 @@ const fetchLibraryPipe = () => {
     }
   })
 }
+const LIBRARY_DETAIL_SIMILAR_RECOMMEND_KEY = 'library-detail-similar-recommend-enabled'
 const similarRows = ref<LibrarySimilarItem[]>([])
 const similarLoading = ref(false)
+const similarRecommendEnabled = ref(true)
+/** onMounted 读取缓存后再响应开关变更，避免初始化时重复请求 */
+const similarRecommendPrefsHydrated = ref(false)
+
+function restoreSimilarRecommendEnabled() {
+  if (!import.meta.client || typeof localStorage === 'undefined') return
+  try {
+    const v = localStorage.getItem(LIBRARY_DETAIL_SIMILAR_RECOMMEND_KEY)
+    if (v !== null) similarRecommendEnabled.value = v === '1'
+  } catch {
+    /* 忽略读取失败 */
+  }
+}
+
+function persistSimilarRecommendEnabled(enabled: boolean) {
+  if (!import.meta.client || typeof localStorage === 'undefined') return
+  try {
+    localStorage.setItem(LIBRARY_DETAIL_SIMILAR_RECOMMEND_KEY, enabled ? '1' : '0')
+  } catch {
+    /* 忽略写入失败 */
+  }
+}
 
 const senceForeignRows = ref<SenceForeign[]>([])
 const senceForeignLoading = ref(false)
@@ -770,11 +1006,18 @@ onMounted(async () => {
   fetchLibraryVideo()
   fetchLibraryPipe()
   void prefetchLibraryTabCounts()
+  restoreSimilarRecommendEnabled()
   const lid = routeLibraryId.value
   if (lid != null) {
-    void fetchSimilarLibraries(lid)
+    if (similarRecommendEnabled.value) {
+      void fetchSimilarLibraries(lid)
+    }
     void fetchSenceForeignList(true)
   }
+  similarRecommendPrefsHydrated.value = true
+  await nextTick()
+  detailImageLayout.value = readDetailImageLayoutPref()
+  detailImageLayoutReady.value = true
 })
 
 onUnmounted(() => {
@@ -790,10 +1033,43 @@ watch(routeLibraryId, (lid) => {
     senceForeignRows.value = []
     senceForeignTotal.value = 0
     senceForeignPage.value = 1
+    libraryMatchingTabCount.value = undefined
+    matchingListItems.value = []
+    matchingListTotal.value = 0
     return
   }
-  void fetchSimilarLibraries(lid)
+  libraryMatchingTabCount.value = undefined
+  matchingListItems.value = []
+  matchingListTotal.value = 0
+  void prefetchLibraryTabCounts()
+  if (similarRecommendEnabled.value) {
+    void fetchSimilarLibraries(lid)
+  } else {
+    similarRows.value = []
+    similarLoading.value = false
+  }
   void fetchSenceForeignList(true)
+})
+
+watch(showMatchingModal, (open) => {
+  if (open) {
+    void fetchMatchingList(true)
+  } else {
+    void fetchMatchingListCount()
+  }
+})
+
+watch(similarRecommendEnabled, (enabled) => {
+  if (!similarRecommendPrefsHydrated.value) return
+  persistSimilarRecommendEnabled(enabled)
+  const lid = routeLibraryId.value
+  if (lid == null) return
+  if (enabled) {
+    void fetchSimilarLibraries(lid)
+  } else {
+    similarRows.value = []
+    similarLoading.value = false
+  }
 })
 interface WikiParams {
   wiki_name: string
@@ -1064,8 +1340,7 @@ const canManagePipeline = computed(
 )
 
 const compilationsChooseRef = ref<InstanceType<typeof CompilationsChoose> | null>(null)
-const libraryChooseForStateRef = ref<InstanceType<typeof LibraryChoose> | null>(null)
-const libraryChooseForPatternRef = ref<InstanceType<typeof LibraryChoose> | null>(null)
+const libraryChooseForBatchRef = ref<InstanceType<typeof LibraryChoose> | null>(null)
 const compInsertLoading = ref(false)
 
 const showCompChoose = (e?: MouseEvent) => {
@@ -1099,6 +1374,29 @@ const batchStateEndDate = ref<string | null>(null)
 const batchStateSaving = ref(false)
 const batchStateSelectRef = ref<InstanceType<typeof QhxSelect> | null>(null)
 
+type BatchOperationType = 'state' | 'pattern' | 'saleTime'
+const showBatchTypeModal = ref(false)
+const pendingBatchType = ref<BatchOperationType | null>(null)
+
+const batchTypeOptions: { type: BatchOperationType; label: string; desc: string }[] = [
+  { type: 'state', label: '批量修改状态', desc: '统一修改选中图鉴的贩售状态' },
+  { type: 'pattern', label: '批量修改柄图', desc: '统一修改选中图鉴的柄图元素' },
+  { type: 'saleTime', label: '批量修改初贩时间', desc: '统一修改选中图鉴的初次贩售时间' }
+]
+
+const openBatchOperation = () => {
+  pendingBatchType.value = null
+  showBatchTypeModal.value = true
+}
+
+const selectBatchType = (type: BatchOperationType) => {
+  pendingBatchType.value = type
+  showBatchTypeModal.value = false
+  nextTick(() => {
+    libraryChooseForBatchRef.value?.showModel()
+  })
+}
+
 const libraryStateQhxOptions = computed(() =>
   (config.config?.library_state || []).map((item) => ({
     label: item.label,
@@ -1114,21 +1412,44 @@ const onBatchStateSelect = (option: { label: string; value: string | number }) =
   batchStateValue.value = option.label
 }
 
-const showLibraryStateChoose = (e?: MouseEvent) => {
-  libraryChooseForStateRef.value?.showModel(e)
-}
-
-const onLibraryStateChoose = (items: Library[]) => {
+const onLibraryBatchChoose = (items: Library[]) => {
   const ids = [
     ...items.map((item) => item.library_id),
     library.value?.library_id
   ].filter((id): id is number => id != null)
-  if (!ids.length) return
-  batchStateIds.value = ids.join(',')
-  batchStateValue.value = undefined
-  batchStateStartDate.value = null
-  batchStateEndDate.value = null
-  showBatchStateModal.value = true
+  if (!ids.length || !pendingBatchType.value) return
+
+  const idsStr = ids.join(',')
+  const batchType = pendingBatchType.value
+  pendingBatchType.value = null
+
+  if (batchType === 'state') {
+    batchStateIds.value = idsStr
+    batchStateValue.value = undefined
+    batchStateStartDate.value = null
+    batchStateEndDate.value = null
+    showBatchStateModal.value = true
+    return
+  }
+
+  if (batchType === 'pattern') {
+    batchPatternIds.value = idsStr
+    const current = library.value?.pattern_elements
+    selectedPatternElements.value = current
+      ? String(current).split(',').map((s) => s.trim()).filter(Boolean).map((item) => ({
+          wiki_name: item,
+          wiki_id: item
+        }))
+      : []
+    showBatchPatternModal.value = true
+    return
+  }
+
+  batchSaleTimeIds.value = idsStr
+  batchSaleTimeValue.value = library.value?.sale_time
+    ? dayjs(library.value.sale_time).format('YYYY-MM-DD')
+    : null
+  showBatchSaleTimeModal.value = true
 }
 
 const confirmBatchStateUpdate = async () => {
@@ -1166,38 +1487,40 @@ const confirmBatchStateUpdate = async () => {
 
 const batchPatternIds = ref('')
 const showBatchPatternModal = ref(false)
-const selectedPatternElements = ref<string[]>([])
-const patternElementInput = ref('')
+const selectedPatternElements = ref<Wiki[]>([])
 const batchPatternSaving = ref(false)
+const batchPatternWikiOptionsChooseRef = ref<InstanceType<typeof WikiOptionsChoose> | null>(null)
+const batchPatternElementsCustomInputRef = ref<{ showModel: (e: MouseEvent) => void } | null>(null)
 
-const showPatternElementsChoose = (e?: MouseEvent) => {
-  libraryChooseForPatternRef.value?.showModel(e)
+const showBatchPatternChooseWiki = () => {
+  batchPatternWikiOptionsChooseRef.value?.showModel({ type_id: '3' })
 }
 
-const onLibraryPatternChoose = (items: Library[]) => {
-  const ids = [
-    ...items.map((item) => item.library_id),
-    library.value?.library_id
-  ].filter((id): id is number => id != null)
-  if (!ids.length) return
-  batchPatternIds.value = ids.join(',')
-  const current = library.value?.pattern_elements
-  selectedPatternElements.value = current
-    ? String(current).split(',').map((s) => s.trim()).filter(Boolean)
-    : []
-  patternElementInput.value = ''
-  showBatchPatternModal.value = true
+const onBatchPatternWikiChoose = (wiki_list: Array<{ wiki_id?: number | string; wiki_name?: string }>) => {
+  for (const item of wiki_list) {
+    if (!item.wiki_name) continue
+    const index = selectedPatternElements.value.findIndex((child) => child.wiki_name === item.wiki_name)
+    if (index === -1) {
+      selectedPatternElements.value.push({
+        wiki_name: item.wiki_name,
+        wiki_id: item.wiki_id ?? item.wiki_name
+      })
+    }
+  }
 }
 
-const addPatternElement = async () => {
-  const val = patternElementInput.value.trim()
-  if (!val || selectedPatternElements.value.includes(val)) return
-  selectedPatternElements.value.push(val)
-  patternElementInput.value = ''
+const insertBatchPatternCustomTag = (tag: string) => {
+  const index = selectedPatternElements.value.findIndex((child) => child.wiki_name === tag)
+  if (index === -1) {
+    selectedPatternElements.value.push({
+      wiki_name: tag,
+      wiki_id: tag
+    })
+  }
 }
 
-const removePatternElement = (index: number) => {
-  selectedPatternElements.value.splice(index, 1)
+const openBatchPatternElementsCustomInput = (e: MouseEvent) => {
+  batchPatternElementsCustomInputRef.value?.showModel(e)
 }
 
 const confirmBatchPatternUpdate = async () => {
@@ -1210,7 +1533,7 @@ const confirmBatchPatternUpdate = async () => {
   try {
     await updatePatternElementsMultiple({
       ids: batchPatternIds.value,
-      pattern_elements: selectedPatternElements.value.join(',')
+      pattern_elements: selectedPatternElements.value.map((item) => item.wiki_name).join(',')
     })
     toast.add({ title: '修改成功', color: 'green' })
     showBatchPatternModal.value = false
@@ -1220,6 +1543,35 @@ const confirmBatchPatternUpdate = async () => {
     toast.add({ title: '修改失败', color: 'red' })
   } finally {
     batchPatternSaving.value = false
+  }
+}
+
+const batchSaleTimeIds = ref('')
+const showBatchSaleTimeModal = ref(false)
+const batchSaleTimeValue = ref<string | null>(null)
+const batchSaleTimeSaving = ref(false)
+
+const confirmBatchSaleTimeUpdate = async () => {
+  if (!batchSaleTimeIds.value || !batchSaleTimeValue.value || batchSaleTimeSaving.value) return
+  const saleTime = dayjs(batchSaleTimeValue.value).format('YYYY-MM-DD')
+  if (!dayjs(saleTime, 'YYYY-MM-DD', true).isValid()) {
+    toast.add({ title: '初次贩售时间格式错误', color: 'orange' })
+    return
+  }
+  batchSaleTimeSaving.value = true
+  try {
+    await updateSaleTimeMultiple({
+      ids: batchSaleTimeIds.value,
+      sale_time: saleTime
+    })
+    toast.add({ title: '修改成功', color: 'green' })
+    showBatchSaleTimeModal.value = false
+    await refreshLibraryData()
+  } catch (error) {
+    console.error(error)
+    toast.add({ title: '修改失败', color: 'red' })
+  } finally {
+    batchSaleTimeSaving.value = false
   }
 }
 
@@ -1648,6 +2000,44 @@ const libraryThumbGridClass =
   'library-thumb-grid flex flex-wrap my-2 max-md:grid max-md:grid-cols-3 max-md:gap-2'
 const libraryThumbImgClass =
   'cursor-pointer ml-3 w-[100px] h-[100px] aspect-square object-cover object-center rounded-[10px] shadow-lg border border-gray-200 max-md:ml-0 max-md:w-full'
+
+const LIBRARY_DETAIL_IMAGE_LAYOUT_KEY = 'libraryDetailImageLayout'
+type LibraryDetailImageLayout = 'thumb' | 'long'
+
+function readDetailImageLayoutPref(): LibraryDetailImageLayout {
+  if (!import.meta.client || typeof localStorage === 'undefined') return 'thumb'
+  return localStorage.getItem(LIBRARY_DETAIL_IMAGE_LAYOUT_KEY) === 'long' ? 'long' : 'thumb'
+}
+
+function persistDetailImageLayoutPref(layout: LibraryDetailImageLayout) {
+  if (!import.meta.client || typeof localStorage === 'undefined') return
+  localStorage.setItem(LIBRARY_DETAIL_IMAGE_LAYOUT_KEY, layout)
+}
+
+const detailImageLayout = ref<LibraryDetailImageLayout>('thumb')
+/** 客户端 onMounted 读取缓存后再展示详情图，避免首屏误渲染 */
+const detailImageLayoutReady = ref(false)
+
+function setDetailImageLayout(layout: LibraryDetailImageLayout) {
+  detailImageLayout.value = layout
+  persistDetailImageLayoutPref(layout)
+}
+
+const detailImageUrls = computed(() => {
+  const raw = library.value?.detail_image
+  if (!raw) return [] as string[]
+  return raw.split(',').map(item => item.trim()).filter(Boolean)
+})
+
+const detailImageThumbList = computed(() =>
+  detailImageUrls.value.map(image => ({
+    src: `${image}?x-oss-process=image/quality,q_80/resize,w_300,h_300`,
+  })),
+)
+
+const libraryDetailImageLongImgClass =
+  'cursor-pointer w-full h-auto object-contain rounded-[10px] shadow-lg border border-gray-200'
+
 const libraryVideoGridClass =
   'library-thumb-grid flex flex-wrap pb-3 max-md:grid max-md:grid-cols-3 max-md:gap-2'
 const libraryVideoItemClass = 'w-[100px] mr-3 mb-2 max-md:w-full max-md:mr-0'
@@ -1670,6 +2060,82 @@ const libraryChildThumbImgClass =
       :style="{ height: `${config.statusBarHeight}px` }"
     />
     <div class="container mx-auto p-4 max-md:p-2">
+    <div
+      v-if="library"
+      class="library-fab-anchor fixed top-20 max-md:top-16 inset-x-0 z-[60] pointer-events-none"
+    >
+      <div class="container mx-auto px-4 max-md:px-0">
+        <div class="library-fab-stack flex w-fit max-w-full flex-col items-end gap-1 ml-auto mt-2 mr-3 max-md:fixed max-md:top-16 max-md:right-2 max-md:mt-0 max-md:mr-0 max-md:ml-0">
+      <button
+        type="button"
+        class="library-fab-btn library-fab-btn--toggle"
+        :aria-expanded="fabActionsExpanded"
+        :aria-label="fabActionsExpanded ? '收起返图、大事记与搭配' : '展开返图、大事记与搭配'"
+        @click="toggleFabActions"
+      >
+        <UIcon
+          name="i-heroicons-chevron-down-20-solid"
+          class="library-fab-toggle-icon h-3 w-3 shrink-0"
+          :class="{ 'library-fab-toggle-icon--expanded': fabActionsExpanded }"
+        />
+        <span
+          v-if="!fabActionsExpanded && fabTotalBadgeCount > 0"
+          class="library-fab-badge"
+        >{{ fabTotalBadgeCount > 99 ? '99+' : fabTotalBadgeCount }}</span>
+      </button>
+      <Transition name="library-fab-panel">
+        <div
+          v-if="fabActionsExpanded"
+          class="library-fab-actions-panel flex flex-col items-end gap-1"
+        >
+          <button
+            type="button"
+            class="library-fab-btn library-fab-btn--action"
+            @click="showReturnModal = true"
+          >
+            <span class="library-fab-btn__inner">
+              <UIcon name="i-heroicons-photo" class="library-fab-btn__icon" />
+              <span class="library-fab-btn__label">返图</span>
+              <span
+                v-if="libraryReturnTabCount != null && libraryReturnTabCount > 0"
+                class="library-fab-badge library-fab-badge--corner"
+              >{{ libraryReturnTabCount > 99 ? '99+' : libraryReturnTabCount }}</span>
+            </span>
+          </button>
+          <button
+            type="button"
+            class="library-fab-btn library-fab-btn--action"
+            @click="showEventModal = true"
+          >
+            <span class="library-fab-btn__inner">
+              <UIcon name="i-heroicons-clipboard-document-list" class="library-fab-btn__icon" />
+              <span class="library-fab-btn__label">大事记</span>
+              <span
+                v-if="libraryEventTabCount != null && libraryEventTabCount > 0"
+                class="library-fab-badge library-fab-badge--corner"
+              >{{ libraryEventTabCount > 99 ? '99+' : libraryEventTabCount }}</span>
+            </span>
+          </button>
+          <button
+            type="button"
+            class="library-fab-btn library-fab-btn--action"
+            @click="showMatchingModal = true"
+          >
+            <span class="library-fab-btn__inner">
+              <UIcon name="material-symbols:style" class="library-fab-btn__icon" />
+              <span class="library-fab-btn__label">搭配</span>
+              <span
+                v-if="libraryMatchingTabCount != null && libraryMatchingTabCount > 0"
+                class="library-fab-badge library-fab-badge--corner"
+              >{{ libraryMatchingTabCount > 99 ? '99+' : libraryMatchingTabCount }}</span>
+            </span>
+          </button>
+        </div>
+      </Transition>
+        </div>
+      </div>
+    </div>
+
     <div v-if="library" ref="libraryRef" class="bg-qhx-bg-card rounded-lg shadow-lg" :key="library.library_id">
       <div class="p-3 flex max-md:block max-md:px-1">
         <div class="flex my-2 w-[434px] max-md:w-full flex-col">
@@ -1797,20 +2263,11 @@ const libraryChildThumbImgClass =
             <QhxTag
               v-if="isSeriesWithChildren && canUpdateLibrary"
               class="cursor-pointer"
-              @click="showLibraryStateChoose($event)"
+              @click="openBatchOperation"
               :active="true"
               color="blue"
             >
-              批量修改状态
-            </QhxTag>
-            <QhxTag
-              v-if="isSeriesWithChildren && canUpdateLibrary"
-              class="cursor-pointer"
-              @click="showPatternElementsChoose($event)"
-              :active="true"
-              color="blue"
-            >
-              批量修改柄图
+              批量操作
             </QhxTag>
             <QhxTag
               v-if="canUpdateLibrary"
@@ -1840,12 +2297,11 @@ const libraryChildThumbImgClass =
                 class="flex-shrink-0 w-[108px] max-md:w-[96px] rounded-[10px] border border-gray-100 dark:border-gray-700 overflow-hidden bg-white dark:bg-gray-900/40 shadow-sm"
               >
                 <div class="w-full h-[108px] max-md:h-[96px] overflow-hidden bg-gray-100 dark:bg-gray-800">
-                  <img
+                  <QhxPreviewImage
                     v-if="item.cover"
-                    :src="librarySkuCoverSrc(item.cover)"
-                    :alt="item.library_pattern"
-                    class="block w-full h-full object-cover"
-                    loading="lazy"
+                    :list="[{ src: librarySkuCoverThumb(item.cover), alt: item.library_pattern }]"
+                    :preview="[librarySkuCoverPreview(item.cover)]"
+                    className="block w-full h-full object-cover cursor-pointer"
                   />
                   <div
                     v-else
@@ -1878,7 +2334,7 @@ const libraryChildThumbImgClass =
               </div>
             </div>
           </div>
-          <div v-else-if="library.library_price" class="text-qhx-primary m-2 font-semibold">
+          <div v-if="library.library_price" class="text-qhx-primary m-2 font-semibold">
             <div>
               参考价 {{ library.library_price }} {{ formatLabel(library.shop_country || 0, config.config?.money_type) }}
             </div>
@@ -1977,6 +2433,43 @@ const libraryChildThumbImgClass =
                 </div>
               </div>
             </div>
+
+          <!-- 贩售历史（有数据才显示；仅展示未发生或进行中的阶段） -->
+          <div v-if="hasLibraryPipe" class="mb-3">
+            <div class="flex items-center justify-between m-1">
+              <h3 class="text-sm">贩售历史</h3>
+              <button
+                v-if="hasPastLibraryPipes"
+                type="button"
+                class="text-xs text-qhx-primary hover:opacity-80 transition-opacity"
+                @click="showSaleHistoryModal = true"
+              >
+                查看全部
+              </button>
+            </div>
+            <div v-if="activeLibraryPipes.length > 0" class="space-y-2 m-2">
+              <div
+                v-for="pipe in activeLibraryPipes"
+                :key="pipe.pipe_id"
+                class="rounded-xl border border-gray-100 dark:border-gray-700 bg-gradient-to-r from-white to-gray-50/60 dark:from-gray-900/40 dark:to-gray-800/40 shadow-sm overflow-hidden"
+              >
+                <div class="px-2 py-2 flex flex-wrap items-center gap-2 border-b border-gray-50 dark:border-gray-700/60">
+                  <QhxTag :active="true" :backgroundColor="getStateColor(pipe.state || 0)">
+                    <span class="text-xs">{{ formateState(pipe.state || 0) }}</span>
+                  </QhxTag>
+                  <span class="text-xs text-gray-500 dark:text-gray-400">
+                    {{ dayjs(pipe.start_time).format('YY-MM-DD') }} - {{ dayjs(pipe.end_time).format('YY-MM-DD') }}
+                  </span>
+                </div>
+                <p v-if="pipe.note" class="text-xs px-2 py-2 text-gray-600 dark:text-gray-400 line-clamp-2">
+                  备注：{{ pipe.note }}
+                </p>
+              </div>
+            </div>
+            <p v-else-if="hasPastLibraryPipes" class="text-xs text-gray-500 dark:text-gray-400 m-2">
+              暂无进行中的贩售阶段
+            </p>
+          </div>
 
           <!-- 主题 -->
           <div v-if="library.theme" class="mb-1">
@@ -2187,12 +2680,51 @@ const libraryChildThumbImgClass =
           </div>
         </div>
       </div>
-      <div v-if="library?.detail_image" :class="libraryThumbGridClass">
-        <QhxPreviewImage
-          :list="library.detail_image.split(',').map((image) => { return { src: image + '?x-oss-process=image/quality,q_80/resize,w_300,h_300' } })"
-          :preview="library.detail_image.split(',')"
-          :className="libraryThumbImgClass">
-        </QhxPreviewImage>
+      <div v-if="library?.detail_image && detailImageLayoutReady" class="my-2">
+        <div class="flex items-center justify-end gap-1 px-3 max-md:px-2 mb-1.5">
+          <div
+            class="inline-flex rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden text-xs"
+            role="group"
+            aria-label="详情图布局"
+          >
+            <button
+              type="button"
+              class="px-2.5 py-1 transition-colors"
+              :class="detailImageLayout === 'thumb'
+                ? 'bg-qhx-primary text-white'
+                : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'"
+              @click="setDetailImageLayout('thumb')"
+            >
+              缩略图
+            </button>
+            <button
+              type="button"
+              class="px-2.5 py-1 transition-colors border-l border-gray-200 dark:border-gray-700"
+              :class="detailImageLayout === 'long'
+                ? 'bg-qhx-primary text-white'
+                : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'"
+              @click="setDetailImageLayout('long')"
+            >
+              长图
+            </button>
+          </div>
+        </div>
+        <div v-if="detailImageLayout === 'long'" class="flex flex-col gap-2 px-3 max-md:px-2">
+          <QhxPreviewImage
+            v-for="(img, index) in detailImageUrls"
+            :key="`detail-long-${index}`"
+            :list="[{ src: `${img}?x-oss-process=image/quality,q_80/resize,w_750` }]"
+            :preview="detailImageUrls"
+            :className="libraryDetailImageLongImgClass"
+          />
+        </div>
+        <div v-else :class="libraryThumbGridClass">
+          <QhxPreviewImage
+            :list="detailImageThumbList"
+            :preview="detailImageUrls"
+            :className="libraryThumbImgClass"
+          />
+        </div>
       </div>
       <div v-if="shop" class="p-3 px-6">
         <ShopItem v-if="shop" :item="shop" size="small" />
@@ -2284,10 +2816,17 @@ const libraryChildThumbImgClass =
           <UserInfo :user="uploadUser" :need-jump="true" size="mini" />
         </div>
     </div>
-    <div v-if="library && (similarLoading || similarRows.length > 0)" class="bg-qhx-bg-card rounded-lg shadow-lg mt-3 p-3 max-md:p-2">
-      <h2 class="mb-3 text-lg font-semibold">相似推荐</h2>
+    <div v-if="library" class="bg-qhx-bg-card rounded-lg shadow-lg mt-3 p-3 max-md:p-2">
+      <div class="mb-3 flex items-center justify-between gap-3">
+        <h2 class="text-lg font-semibold">相似推荐</h2>
+        <label class="flex shrink-0 items-center gap-2 cursor-pointer">
+          <span class="text-xs text-gray-500 dark:text-gray-400">开启</span>
+          <UToggle v-model="similarRecommendEnabled" color="primary" />
+        </label>
+      </div>
+      <template v-if="similarRecommendEnabled">
       <div v-if="similarLoading" class="text-sm text-gray-500 py-4 text-center">加载中…</div>
-      <div v-else class="flex gap-3 overflow-x-auto pb-1">
+      <div v-else-if="similarRows.length > 0" class="flex gap-3 overflow-x-auto pb-1">
         <a
           v-for="item in similarRows"
           :key="item.library_id"
@@ -2318,6 +2857,7 @@ const libraryChildThumbImgClass =
           </div>
         </a>
       </div>
+      </template>
     </div>
     <div v-if="library && library_video.length > 0" class="bg-qhx-bg-card rounded-lg shadow-lg mt-3">
       <div class="p-3 max-md:block">
@@ -2351,7 +2891,10 @@ const libraryChildThumbImgClass =
               <QhxPreviewImage
                 v-else
                 :list="[{ src: (item.cover || item.addr?.split(',')[0] || '') + '?x-oss-process=image/quality,q_80/resize,w_300,h_300', alt: item.title || library.name }]"
-                :preview="item.cover ? [item.cover] : (item.addr ? item.addr.split(',').map((image) => ({ src: image, title: item.title })) : [])"
+                :preview="(item.json_data?.laxian_list?.length && item.addr)
+                  ? item.addr.split(',').map((image) => ({ src: image.trim(), title: item.title }))
+                  : (item.cover ? [item.cover] : (item.addr ? item.addr.split(',').map((image) => ({ src: image.trim(), title: item.title })) : []))"
+                :laxian-list="item.json_data?.laxian_list ?? []"
                 :className="`${libraryThumbImgClass} relative`">
                 <div v-if="item.addr" class="absolute right-[-20px] top-[-10px] max-md:right-1 max-md:top-1 w-[20px] h-[20px] flex justify-center items-center bg-qhx-primary text-xs text-qhx-inverted rounded-[50%]">{{ item.addr.split(',').length }}</div>
               </QhxPreviewImage>
@@ -2365,183 +2908,38 @@ const libraryChildThumbImgClass =
     <!-- SPZ模型查看器弹窗 -->
     <SPZModelViewer ref="spzModelViewerRef" />
     <div v-if="library" class="bg-qhx-bg-card rounded-lg shadow-lg mt-3">
-      <QhxTabs
-        sticky
-        panel-min-height="min(50vh, 480px)"
-        :tabs="['返图', '贩售历史', '大事记', '评论']"
-        :tab-counts="libraryDetailTabCounts"
-      >
-        <QhxTabPanel :index="0">
-          <template #default="{ isActive }">
-            <div class="bg-white dark:bg-gray-900">
-              <p class="text-sm text-gray-500 dark:text-gray-400 text-center px-4 pt-4 pb-2">
-                分享你与这条图鉴相关的返图，或关联已有帖子
-              </p>
-              <div class="flex flex-wrap gap-2 justify-center px-4 pb-4">
-                <QhxJellyButton>
-                  <button
-                    type="button"
-                    class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-full border border-qhx-primary/40 text-qhx-primary hover:bg-qhx-primary/5 disabled:opacity-50"
-                    :disabled="libraryForeignLinkLoading || !library?.library_id"
-                    @click="openLibraryReturnChooseCommunity($event)"
-                  >
-                    <UIcon name="i-heroicons-link" class="w-4 h-4" />
-                    {{ libraryForeignLinkLoading ? '处理中…' : '关联已有帖子' }}
-                  </button>
-                </QhxJellyButton>
-                <QhxJellyButton>
-                  <button
-                    type="button"
-                    class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-full bg-qhx-primary text-qhx-inverted hover:bg-qhx-primaryHover disabled:opacity-50"
-                    :disabled="!library?.library_id"
-                    @click="goLibraryReturnNewPost($event)"
-                  >
-                    <UIcon name="i-heroicons-pencil-square" class="w-4 h-4" />
-                    投稿返图
-                  </button>
-                </QhxJellyButton>
-              </div>
-              <ClientOnly>
-                <CommunityForeignList
-                  v-if="isActive && library"
-                  :key="libraryForeignRefreshKey"
-                  :pk_type="LIBRARY_RETURN_GRAPH_PK_TYPE"
-                  :pk_id="library.library_id"
-                  allow-delete-foreign
-                  :can_load="isActive"
-                  @count-change="libraryReturnTabCount = $event"
-                />
-                <template #fallback>
-                  <div class="text-center text-gray-500 py-8">加载中…</div>
-                </template>
-              </ClientOnly>
-            </div>
-          </template>
-        </QhxTabPanel>
-        <QhxTabPanel :index="1">
-          <template #default="{ isActive }">
-            <div class="bg-white" v-if="isActive">
-              <div v-if="library_pipe.length > 0" class="p-4 space-y-3">
-                <h3 class="text-base font-semibold mb-1">图鉴状态流</h3>
-                <div
-                  v-for="pipe in library_pipe"
-                  :key="pipe.pipe_id"
-                  class="rounded-xl border border-gray-100 bg-gradient-to-r from-white to-gray-50/60 shadow-sm hover:shadow-md transition-shadow duration-200 overflow-hidden"
-                >
-                  <div class="px-2 py-3 flex items-center justify-between border-b border-gray-50">
-                    <div class="flex items-center gap-2">
-                      <QhxTag :active="true" :backgroundColor="getStateColor(pipe.state || 0)">
-                        <span class="text-xs">{{ formateState(pipe.state || 0) }}</span>
-                      </QhxTag>
-                      <span class="text-xs text-gray-500">
-                        {{ dayjs(pipe.start_time).format('YY-MM-DD') }} - {{ dayjs(pipe.end_time).format('YY-MM-DD') }}
-                      </span>
-                    </div>
-                  </div>
-                  <div class="px-4 py-3 flex gap-3 items-start">
-                    <div class="flex-1 min-w-0">
-                      <div class="flex items-center gap-2 mb-1">
-                        <div class="w-[36px] h-[36px] rounded-[50%] flex-shrink-0">
-                          <QhxPreviewImage
-                            v-if="pipe.library?.cover"
-                            :list="[{ src: pipe.library.cover + '?x-oss-process=image/quality,q_80/resize,w_300,h_300', alt: pipe.library.name }]"
-                            :preview="[pipe.library.cover]"
-                            :className="'w-[36px] h-[36px] rounded-xl object-cover shadow-sm border border-gray-200 cursor-pointer'"
-                          />
-                        </div>
-                        <span class="text-sm font-medium text-gray-800 truncate">
-                          {{ pipe.library?.name || library.name }}
-                        </span>
-                      </div>
-                      <p v-if="pipe.note" class="text-xs p-2 text-gray-600 line-clamp-2">
-                        备注：{{ pipe.note }}
-                      </p>
-                      <div
-                        v-if="pipe.library_list && pipe.library_list.length > 0"
-                        class="mt-2"
-                      >
-                        <div class="text-xs font-medium text-gray-700 mb-1">
-                          包含版型
-                        </div>
-                        <div class="flex flex-wrap gap-2">
-                          <div
-                            v-for="child in pipe.library_list"
-                            :key="child.library_id"
-                            class="flex items-center gap-2  rounded-full px-2 py-1 shadow-sm border border-gray-100"
-                            :class="child.library_id === Number.parseInt(id) ? 'bg-qhx-primary text-qhx-inverted' : 'bg-white/80'"
-                          >
-                            <div class="w-[24px] h-[24px] rounded-full overflow-hidden flex-shrink-0">
-                              <QhxPreviewImage
-                                v-if="child.cover"
-                                :list="[{ src: child.cover + '?x-oss-process=image/quality,q_80/resize,w_200,h_200', alt: child.name }]"
-                                :preview="[child.cover]"
-                                :className="'w-[24px] h-[24px] rounded-full object-cover cursor-pointer'"
-                              />
-                            </div>
-                            <span class="text-[11px]">
-                              {{ child.library_type }}
-                              <span v-if="child.library_pattern">· {{ child.library_pattern }}</span>
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-              <div v-else class="p-6 text-center text-gray-500 text-sm">
-                暂无状态流
-              </div>
-            </div>
-          </template>
-        </QhxTabPanel>
-        <QhxTabPanel :index="2">
-          <template #default="{ isActive }">
-            <EventRedblack
-              v-if="isActive && library"
-              :pk_id="library.library_id"
-              :pk_type="2"
-              :can_load="isActive"
-              @load="libraryEventTabCount = $event"
+      <div class="flex items-center gap-2 px-4 py-3 border-b border-gray-100 dark:border-gray-700/60">
+        <h3 class="text-base font-semibold text-gray-900 dark:text-gray-100">评论</h3>
+        <span class="text-xs text-gray-500 dark:text-gray-400">共 {{ commentTotal }} 条</span>
+      </div>
+      <div class="bg-white dark:bg-gray-900 min-h-[min(50vh,480px)]">
+        <div class="px-4 pt-4 pb-2">
+          <div class="flex items-center gap-3 mb-3">
+            <UAvatar
+              :src="libraryCommentMyAvatar"
+              :alt="user.user?.user_name || '未登录'"
+              size="sm"
+              class="bg-gray-100 flex-shrink-0"
             />
-          </template>
-        </QhxTabPanel>
-        <QhxTabPanel :index="3">
-          <template #default="{ isActive }">
-            <div v-if="isActive && library" class="bg-white dark:bg-gray-900">
-              <div class="px-4 pt-4 pb-2">
-                <div class="flex items-center gap-3 mb-3">
-                  <UAvatar
-                    :src="libraryCommentMyAvatar"
-                    :alt="user.user?.user_name || '未登录'"
-                    size="sm"
-                    class="bg-gray-100 flex-shrink-0"
-                  />
-                  <button
-                    type="button"
-                    class="flex-1 bg-gray-100 dark:bg-gray-800 rounded-full h-10 flex items-center px-4 text-gray-400 text-sm text-left hover:bg-gray-200 dark:hover:bg-gray-700 transition"
-                    @click="openCommentComposer"
-                  >
-                    <span class="i-heroicons-pencil w-4 h-4 mr-2"></span>
-                    说点什么…
-                  </button>
-                </div>
-                <div class="mb-2 text-sm font-bold text-gray-700 dark:text-gray-300">
-                  共 {{ commentTotal }} 条评论
-                </div>
-              </div>
-              <CommentSection
-                :key="commentSectionKey"
-                :type="'library'"
-                :id="library.library_id"
-                :focus-comment-id="focusCommentId"
-                @open-reply="openReplyComposer"
-                @total="onCommentTotalChange"
-              />
-            </div>
-          </template>
-        </QhxTabPanel>
-      </QhxTabs>
+            <button
+              type="button"
+              class="flex-1 bg-gray-100 dark:bg-gray-800 rounded-full h-10 flex items-center px-4 text-gray-400 text-sm text-left hover:bg-gray-200 dark:hover:bg-gray-700 transition"
+              @click="openCommentComposer"
+            >
+              <span class="i-heroicons-pencil w-4 h-4 mr-2"></span>
+              说点什么…
+            </button>
+          </div>
+        </div>
+        <CommentSection
+          :key="commentSectionKey"
+          :type="'library'"
+          :id="library.library_id"
+          :focus-comment-id="focusCommentId"
+          @open-reply="openReplyComposer"
+          @total="onCommentTotalChange"
+        />
+      </div>
     </div>
     
     <!-- 加入衣柜相关组件 -->
@@ -2570,19 +2968,324 @@ const libraryChildThumbImgClass =
     <ClothesAdd ref="clothesAddRef" enable-wardrobe-picker @success="handleClothesAddSuccess" />
     <CompilationsChoose ref="compilationsChooseRef" @choose="onCompChoose" />
     <LibraryChoose
-      ref="libraryChooseForStateRef"
+      ref="libraryChooseForBatchRef"
       :multiple="true"
       :need-parent="false"
       :filter_list="library?.library_id ? [{ field: 'parent_id', op: 'and', value: library.library_id }] : []"
-      @choose="onLibraryStateChoose"
+      @choose="onLibraryBatchChoose"
     />
-    <LibraryChoose
-      ref="libraryChooseForPatternRef"
-      :multiple="true"
-      :need-parent="false"
-      :filter_list="library?.library_id ? [{ field: 'parent_id', op: 'and', value: library.library_id }] : []"
-      @choose="onLibraryPatternChoose"
-    />
+    
+    <QhxModal v-model="showBatchTypeModal" :close-on-backdrop="true">
+      <div class="w-[95vw] max-w-md bg-white dark:bg-gray-800 rounded-2xl shadow-xl overflow-hidden border border-gray-200/50 dark:border-gray-700/50">
+        <div class="px-4 py-3 border-b border-gray-200 dark:border-gray-700">
+          <div class="text-base font-semibold text-gray-800 dark:text-gray-100">批量操作</div>
+          <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">选择要执行的批量修改类型</p>
+        </div>
+        <div class="p-3 space-y-2">
+          <button
+            v-for="option in batchTypeOptions"
+            :key="option.type"
+            type="button"
+            class="w-full text-left rounded-xl border border-gray-200 dark:border-gray-600 px-4 py-3 hover:border-qhx-primary/50 hover:bg-qhx-primary/5 transition-colors"
+            @click="selectBatchType(option.type)"
+          >
+            <div class="text-sm font-medium text-gray-800 dark:text-gray-100">{{ option.label }}</div>
+            <div class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">{{ option.desc }}</div>
+          </button>
+        </div>
+        <div class="flex justify-end px-4 py-3 border-t border-gray-200 dark:border-gray-700">
+          <button
+            type="button"
+            class="px-4 py-2 text-sm rounded-full border border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300"
+            @click="showBatchTypeModal = false"
+          >
+            取消
+          </button>
+        </div>
+      </div>
+    </QhxModal>
+
+    <QhxModal v-model="showReturnModal">
+      <div
+        class="w-[95vw] max-w-3xl h-[90vh] max-h-[90vh] bg-white dark:bg-gray-800 rounded-2xl shadow-2xl overflow-hidden flex flex-col border border-gray-200/50 dark:border-gray-700/50 backdrop-blur-xl"
+      >
+        <div
+          class="flex items-center justify-between px-4 py-3 md:px-6 md:py-4 border-b border-gray-200 dark:border-gray-700 flex-shrink-0 bg-gradient-to-r from-pink-50/90 to-purple-50/80 dark:from-gray-800 dark:to-gray-800"
+        >
+          <h3 class="text-base md:text-lg font-semibold text-gray-900 dark:text-gray-100">返图</h3>
+          <button
+            type="button"
+            class="w-9 h-9 flex items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500"
+            aria-label="关闭"
+            @click="showReturnModal = false"
+          >
+            <UIcon name="i-heroicons-x-mark" class="w-5 h-5" />
+          </button>
+        </div>
+        <div class="overflow-y-auto flex-1 min-h-0 bg-white dark:bg-gray-900">
+          <p class="text-sm text-gray-500 dark:text-gray-400 text-center px-4 pt-4 pb-2">
+            分享你与这条图鉴相关的返图，或关联已有帖子
+          </p>
+          <div class="flex flex-wrap gap-2 justify-center px-4 pb-4">
+            <QhxJellyButton>
+              <button
+                type="button"
+                class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-full border border-qhx-primary/40 text-qhx-primary hover:bg-qhx-primary/5 disabled:opacity-50"
+                :disabled="libraryForeignLinkLoading || !library?.library_id"
+                @click="openLibraryReturnChooseCommunity($event)"
+              >
+                <UIcon name="i-heroicons-link" class="w-4 h-4" />
+                {{ libraryForeignLinkLoading ? '处理中…' : '关联已有帖子' }}
+              </button>
+            </QhxJellyButton>
+            <QhxJellyButton>
+              <button
+                type="button"
+                class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-full bg-qhx-primary text-qhx-inverted hover:bg-qhx-primaryHover disabled:opacity-50"
+                :disabled="!library?.library_id"
+                @click="goLibraryReturnNewPost($event)"
+              >
+                <UIcon name="i-heroicons-pencil-square" class="w-4 h-4" />
+                投稿返图
+              </button>
+            </QhxJellyButton>
+          </div>
+          <ClientOnly>
+            <CommunityForeignList
+              v-if="showReturnModal && library"
+              :key="libraryForeignRefreshKey"
+              :pk_type="LIBRARY_RETURN_GRAPH_PK_TYPE"
+              :pk_id="library.library_id"
+              allow-delete-foreign
+              :can_load="showReturnModal"
+              @count-change="libraryReturnTabCount = $event"
+            />
+            <template #fallback>
+              <div class="text-center text-gray-500 py-8">加载中…</div>
+            </template>
+          </ClientOnly>
+        </div>
+      </div>
+    </QhxModal>
+
+    <QhxModal v-model="showEventModal">
+      <div
+        class="w-[95vw] max-w-3xl h-[90vh] max-h-[90vh] bg-white dark:bg-gray-800 rounded-2xl shadow-2xl overflow-hidden flex flex-col border border-gray-200/50 dark:border-gray-700/50 backdrop-blur-xl"
+      >
+        <div
+          class="flex items-center justify-between px-4 py-3 md:px-6 md:py-4 border-b border-gray-200 dark:border-gray-700 flex-shrink-0 bg-gradient-to-r from-rose-50/90 to-orange-50/80 dark:from-gray-800 dark:to-gray-800"
+        >
+          <h3 class="text-base md:text-lg font-semibold text-gray-900 dark:text-gray-100">大事记</h3>
+          <button
+            type="button"
+            class="w-9 h-9 flex items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500"
+            aria-label="关闭"
+            @click="showEventModal = false"
+          >
+            <UIcon name="i-heroicons-x-mark" class="w-5 h-5" />
+          </button>
+        </div>
+        <div class="overflow-y-auto flex-1 min-h-0">
+          <EventRedblack
+            v-if="showEventModal && library"
+            :pk_id="library.library_id"
+            :pk_type="2"
+            :can_load="showEventModal"
+            @load="libraryEventTabCount = $event"
+          />
+        </div>
+      </div>
+    </QhxModal>
+
+    <QhxModal v-model="showMatchingModal">
+      <div
+        class="w-[95vw] max-w-3xl h-[90vh] max-h-[90vh] bg-white dark:bg-gray-800 rounded-2xl shadow-2xl overflow-hidden flex flex-col border border-gray-200/50 dark:border-gray-700/50 backdrop-blur-xl"
+      >
+        <div
+          class="flex items-center justify-between px-4 py-3 md:px-6 md:py-4 border-b border-gray-200 dark:border-gray-700 flex-shrink-0 bg-gradient-to-r from-purple-50/90 to-pink-50/80 dark:from-gray-800 dark:to-gray-800"
+        >
+          <h3 class="text-base md:text-lg font-semibold text-gray-900 dark:text-gray-100">搭配</h3>
+          <button
+            type="button"
+            class="w-9 h-9 flex items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500"
+            aria-label="关闭"
+            @click="showMatchingModal = false"
+          >
+            <UIcon name="i-heroicons-x-mark" class="w-5 h-5" />
+          </button>
+        </div>
+        <div class="p-2 md:p-6 overflow-y-auto flex-1 min-h-0">
+          <p class="text-sm text-gray-500 dark:text-gray-400 text-center mb-3">
+            包含本款图鉴的搭配清单
+          </p>
+          <div class="flex flex-wrap gap-2 justify-center mb-4">
+            <UButton
+              color="primary"
+              size="sm"
+              icon="i-heroicons-plus"
+              :disabled="!library?.library_id"
+              @click="openNewMatching"
+            >
+              新建搭配
+            </UButton>
+          </div>
+          <div
+            v-if="matchingListLoading && matchingListItems.length === 0"
+            class="flex flex-col items-center justify-center gap-3 py-16 text-gray-500"
+          >
+            <UIcon name="i-heroicons-arrow-path" class="w-8 h-8 animate-spin" />
+            <span class="text-sm">加载中…</span>
+          </div>
+          <div
+            v-else-if="matchingListItems.length === 0"
+            class="text-center py-12 text-sm text-gray-500 dark:text-gray-400"
+          >
+            暂无包含本款图鉴的搭配
+          </div>
+          <div v-else :key="matchingListRefreshKey" class="space-y-3">
+            <div
+              v-for="item in matchingListItems"
+              :key="item.matching_id"
+              class="flex gap-3 p-3 rounded-xl bg-gray-50 dark:bg-gray-900/50 border border-gray-200/60 dark:border-gray-700/60 cursor-pointer transition hover:ring-2 hover:ring-qhx-primary/30"
+              @click="jumpToMatchingDetail(item)"
+            >
+              <div class="relative w-20 h-20 shrink-0 rounded-lg overflow-hidden bg-gray-200 dark:bg-gray-700">
+                <img
+                  v-if="getMatchingCover(item)"
+                  :src="`${BASE_IMG}${getMatchingCover(item)}?x-oss-process=image/quality,q_80/resize,w_200`"
+                  :alt="item.note || '搭配'"
+                  class="w-full h-full object-cover"
+                />
+                <div
+                  v-else
+                  class="w-full h-full flex items-center justify-center text-gray-400"
+                >
+                  <UIcon name="material-symbols:style" class="text-2xl" />
+                </div>
+                <div
+                  v-if="parseMatchingSeasons(item.season).length > 0"
+                  class="absolute left-1 top-1 z-10 flex max-w-[calc(100%-0.5rem)] flex-wrap gap-0.5"
+                >
+                  <span
+                    v-if="parseMatchingSeasons(item.season).length === 1"
+                    :class="getMatchingSingleSeasonClass(parseMatchingSeasons(item.season)[0])"
+                  >
+                    {{ parseMatchingSeasons(item.season)[0] }}
+                  </span>
+                  <span
+                    v-for="(seasonItem, seasonIndex) in parseMatchingSeasons(item.season)"
+                    v-else
+                    :key="`${item.matching_id}-season-${seasonIndex}`"
+                    :class="getMatchingMultiSeasonClass(seasonItem)"
+                  >
+                    {{ seasonItem }}
+                  </span>
+                </div>
+              </div>
+              <div class="flex-1 min-w-0">
+                <div class="font-medium text-gray-900 dark:text-gray-100 line-clamp-1">
+                  {{ item.note || '未命名搭配' }}
+                </div>
+                <div v-if="item.main_style" class="mt-1 text-xs text-qhx-primary dark:text-pink-300 line-clamp-1">
+                  {{ item.main_style.split(',').map((s) => `★${s}`).join(' ') }}
+                </div>
+              </div>
+            </div>
+            <div v-if="matchingListItems.length < matchingListTotal" class="flex justify-center pt-2">
+              <UButton
+                variant="soft"
+                color="gray"
+                size="sm"
+                :loading="matchingListLoading"
+                @click="loadMoreMatchingList"
+              >
+                加载更多
+              </UButton>
+            </div>
+          </div>
+        </div>
+      </div>
+    </QhxModal>
+
+    <QhxModal v-model="showSaleHistoryModal">
+      <div
+        class="w-[95vw] max-w-2xl max-h-[85vh] bg-white dark:bg-gray-800 rounded-2xl shadow-2xl overflow-hidden flex flex-col border border-gray-200/50 dark:border-gray-700/50"
+      >
+        <div class="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
+          <h3 class="text-base font-semibold text-gray-900 dark:text-gray-100">贩售历史</h3>
+          <button
+            type="button"
+            class="w-9 h-9 flex items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500"
+            aria-label="关闭"
+            @click="showSaleHistoryModal = false"
+          >
+            <UIcon name="i-heroicons-x-mark" class="w-5 h-5" />
+          </button>
+        </div>
+        <div class="overflow-y-auto flex-1 min-h-0 p-4 space-y-3">
+          <div
+            v-for="pipe in sortedAllLibraryPipes"
+            :key="pipe.pipe_id"
+            class="rounded-xl border border-gray-100 dark:border-gray-700 bg-gradient-to-r from-white to-gray-50/60 dark:from-gray-900/40 dark:to-gray-800/40 shadow-sm overflow-hidden"
+          >
+            <div class="px-2 py-3 flex items-center justify-between border-b border-gray-50 dark:border-gray-700/60">
+              <div class="flex items-center gap-2">
+                <QhxTag :active="true" :backgroundColor="getStateColor(pipe.state || 0)">
+                  <span class="text-xs">{{ formateState(pipe.state || 0) }}</span>
+                </QhxTag>
+                <span class="text-xs text-gray-500 dark:text-gray-400">
+                  {{ dayjs(pipe.start_time).format('YY-MM-DD') }} - {{ dayjs(pipe.end_time).format('YY-MM-DD') }}
+                </span>
+              </div>
+            </div>
+            <div class="px-4 py-3 flex gap-3 items-start">
+              <div class="flex-1 min-w-0">
+                <div class="flex items-center gap-2 mb-1">
+                  <div class="w-[36px] h-[36px] rounded-[50%] flex-shrink-0">
+                    <QhxPreviewImage
+                      v-if="pipe.library?.cover"
+                      :list="[{ src: pipe.library.cover + '?x-oss-process=image/quality,q_80/resize,w_300,h_300', alt: pipe.library.name }]"
+                      :preview="[pipe.library.cover]"
+                      :className="'w-[36px] h-[36px] rounded-xl object-cover shadow-sm border border-gray-200 cursor-pointer'"
+                    />
+                  </div>
+                  <span class="text-sm font-medium text-gray-800 dark:text-gray-100 truncate">
+                    {{ pipe.library?.name || library?.name }}
+                  </span>
+                </div>
+                <p v-if="pipe.note" class="text-xs p-2 text-gray-600 dark:text-gray-400 line-clamp-2">
+                  备注：{{ pipe.note }}
+                </p>
+                <div v-if="pipe.library_list && pipe.library_list.length > 0" class="mt-2">
+                  <div class="text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">包含版型</div>
+                  <div class="flex flex-wrap gap-2">
+                    <div
+                      v-for="child in pipe.library_list"
+                      :key="child.library_id"
+                      class="flex items-center gap-2 rounded-full px-2 py-1 shadow-sm border border-gray-100 dark:border-gray-700"
+                      :class="child.library_id === Number.parseInt(id) ? 'bg-qhx-primary text-qhx-inverted' : 'bg-white/80 dark:bg-gray-800/80'"
+                    >
+                      <div class="w-[24px] h-[24px] rounded-full overflow-hidden flex-shrink-0">
+                        <QhxPreviewImage
+                          v-if="child.cover"
+                          :list="[{ src: child.cover + '?x-oss-process=image/quality,q_80/resize,w_200,h_200', alt: child.name }]"
+                          :preview="[child.cover]"
+                          :className="'w-[24px] h-[24px] rounded-full object-cover cursor-pointer'"
+                        />
+                      </div>
+                      <span class="text-[11px]">
+                        {{ child.library_type }}
+                        <span v-if="child.library_pattern">· {{ child.library_pattern }}</span>
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </QhxModal>
 
     <QhxModal v-model="showBatchStateModal" :close-on-backdrop="false">
       <div class="w-[95vw] max-w-md bg-white dark:bg-gray-800 rounded-2xl shadow-xl overflow-hidden border border-gray-200/50 dark:border-gray-700/50">
@@ -2650,32 +3353,22 @@ const libraryChildThumbImgClass =
           <div class="text-base font-semibold text-gray-800 dark:text-gray-100">批量修改柄图元素</div>
         </div>
         <div class="p-4 space-y-4">
-          <div class="flex flex-wrap gap-2">
-            <QhxTag
-              v-for="(item, index) in selectedPatternElements"
-              :key="`${item}-${index}`"
-              :active="true"
-              class="cursor-pointer"
-              @click="removePatternElement(index)"
-            >
-              {{ item }} ×
+          <div class="flex items-center m-1 flex-wrap gap-1" v-if="selectedPatternElements.length > 0">
+            <QhxTag v-for="(item, index) in selectedPatternElements" :key="`${item.wiki_id}-${index}`">
+              {{ item.wiki_name }}
+              <UIcon
+                name="ant-design:close-outlined"
+                class="ml-1 text-sm cursor-pointer"
+                @click="selectedPatternElements.splice(index, 1)"
+              />
             </QhxTag>
           </div>
-          <div class="flex gap-2">
-            <input
-              v-model="patternElementInput"
-              type="text"
-              placeholder="输入柄图元素"
-              class="flex-1 rounded-xl border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-900/40 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-qhx-primary/40"
-              @keyup.enter="addPatternElement"
-            />
-            <button
-              type="button"
-              class="shrink-0 px-3 py-2 text-sm rounded-full border border-qhx-primary/40 text-qhx-primary hover:bg-qhx-primary/5"
-              @click="addPatternElement"
-            >
-              添加
-            </button>
+          <div class="flex gap-2 flex-wrap">
+            <UButton color="primary" size="sm" @click="showBatchPatternChooseWiki">选择柄图元素</UButton>
+            <customInput ref="batchPatternElementsCustomInputRef" @insert="insertBatchPatternCustomTag" />
+            <UButton color="primary" size="sm" @click="(e: MouseEvent) => openBatchPatternElementsCustomInput(e)">
+              添加自定义标签
+            </UButton>
           </div>
         </div>
         <div class="flex justify-end gap-2 px-4 py-3 border-t border-gray-200 dark:border-gray-700">
@@ -2693,6 +3386,43 @@ const libraryChildThumbImgClass =
             @click="confirmBatchPatternUpdate"
           >
             {{ batchPatternSaving ? '提交中…' : '确定' }}
+          </button>
+        </div>
+      </div>
+    </QhxModal>
+
+    <QhxModal v-model="showBatchSaleTimeModal" :close-on-backdrop="false">
+      <div class="w-[95vw] max-w-md bg-white dark:bg-gray-800 rounded-2xl shadow-xl overflow-hidden border border-gray-200/50 dark:border-gray-700/50">
+        <div class="px-4 py-3 border-b border-gray-200 dark:border-gray-700">
+          <div class="text-base font-semibold text-gray-800 dark:text-gray-100">批量修改初贩时间</div>
+        </div>
+        <div class="p-4 space-y-4">
+          <div>
+            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">初贩时间 <span class="text-red-500">*</span></label>
+            <QhxDateTimePicker
+              v-model="batchSaleTimeValue"
+              placeholder="选择贩售年月"
+              mode="yearmonth"
+              format="YYYY-MM-DD"
+              :enable-time-picker="false"
+            />
+          </div>
+        </div>
+        <div class="flex justify-end gap-2 px-4 py-3 border-t border-gray-200 dark:border-gray-700">
+          <button
+            type="button"
+            class="px-4 py-2 text-sm rounded-full border border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300"
+            @click="showBatchSaleTimeModal = false"
+          >
+            取消
+          </button>
+          <button
+            type="button"
+            class="px-4 py-2 text-sm rounded-full bg-qhx-primary text-qhx-inverted hover:bg-qhx-primaryHover disabled:opacity-50"
+            :disabled="batchSaleTimeSaving"
+            @click="confirmBatchSaleTimeUpdate"
+          >
+            {{ batchSaleTimeSaving ? '提交中…' : '确定' }}
           </button>
         </div>
       </div>
@@ -2764,7 +3494,8 @@ const libraryChildThumbImgClass =
         </div>
       </div>
     </QhxModal>
-    
+    <WikiOptionsChoose ref="batchPatternWikiOptionsChooseRef" @choose="onBatchPatternWikiChoose" />
+    <MatchingAddEdit ref="matchingAddEditRef" @success="onMatchingAddSuccess" />
     <!-- 物理掉落组件 -->
     <!-- <ClientOnly>
       <PhysicsDrop 
@@ -2820,6 +3551,187 @@ const libraryChildThumbImgClass =
   object-position: center;
 }
 
+.library-fab-stack {
+  transform-origin: top right;
+}
+
+.library-fab-actions-panel {
+  pointer-events: none;
+}
+
+.library-fab-btn {
+  pointer-events: auto;
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  border: 2px solid color-mix(in srgb, var(--primary-color, #ff9eb5) 55%, transparent);
+  background: color-mix(in srgb, var(--primary-color, #ff9eb5) 5%, #fff);
+  color: var(--primary-color, #ff9eb5);
+  font-family: ui-serif, Georgia, 'Times New Roman', 'Songti SC', 'STSong', serif;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.07em;
+  white-space: nowrap;
+  cursor: pointer;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.65),
+    0 2px 8px rgba(0, 0, 0, 0.06);
+  transition:
+    background 0.2s ease,
+    border-color 0.2s ease,
+    transform 0.16s ease;
+}
+
+.library-fab-btn:hover {
+  background: color-mix(in srgb, var(--primary-color, #ff9eb5) 9%, #fff);
+  border-color: color-mix(in srgb, var(--primary-color, #ff9eb5) 68%, transparent);
+}
+
+.library-fab-btn:active {
+  transform: scale(0.97);
+}
+
+.dark .library-fab-btn {
+  background: color-mix(in srgb, var(--primary-color, #ff9eb5) 10%, rgba(17, 24, 39, 0.72));
+  border-color: color-mix(in srgb, var(--primary-color, #ff9eb5) 58%, rgba(255, 255, 255, 0.12));
+  color: color-mix(in srgb, var(--primary-color, #ff9eb5) 78%, #fce7f3);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 2px 10px rgba(0, 0, 0, 0.28);
+}
+
+.dark .library-fab-btn:hover {
+  background: color-mix(in srgb, var(--primary-color, #ff9eb5) 16%, rgba(17, 24, 39, 0.78));
+}
+
+.library-fab-btn--toggle {
+  padding: 0.22rem 0.38rem;
+}
+
+.library-fab-btn--action {
+  padding: 0.24rem 0.48rem 0.24rem 0.42rem;
+}
+
+.library-fab-btn__inner {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+}
+
+.library-fab-btn__icon {
+  width: 0.875rem;
+  height: 0.875rem;
+  flex-shrink: 0;
+}
+
+.library-fab-btn__label {
+  line-height: 1.2;
+}
+
+.library-fab-badge {
+  position: absolute;
+  top: -0.45rem;
+  right: -0.55rem;
+  z-index: 10;
+  display: flex;
+  min-height: 1rem;
+  min-width: 1rem;
+  align-items: center;
+  justify-content: center;
+  padding: 0 0.2rem;
+  border-radius: 9999px;
+  border: 1px solid rgba(255, 255, 255, 0.65);
+  background: #ef4444;
+  color: #fff;
+  font-family: ui-serif, Georgia, 'Times New Roman', 'Songti SC', 'STSong', serif;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+}
+
+.library-fab-badge--corner {
+  top: -0.45rem;
+  right: -0.55rem;
+}
+
+.library-fab-panel-enter-active,
+.library-fab-panel-leave-active {
+  transition:
+    opacity 0.28s cubic-bezier(0.22, 1, 0.36, 1),
+    transform 0.32s cubic-bezier(0.22, 1, 0.36, 1),
+    max-height 0.34s cubic-bezier(0.22, 1, 0.36, 1);
+  overflow: hidden;
+  transform-origin: top right;
+}
+
+.library-fab-panel-enter-from,
+.library-fab-panel-leave-to {
+  opacity: 0;
+  transform: translateY(-10px) scale(0.94);
+  max-height: 0;
+}
+
+.library-fab-panel-enter-to,
+.library-fab-panel-leave-from {
+  max-height: 7rem;
+}
+
+.library-fab-panel-enter-active .library-fab-btn--action {
+  transition:
+    opacity 0.26s cubic-bezier(0.22, 1, 0.36, 1),
+    transform 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.library-fab-panel-leave-active .library-fab-btn--action {
+  transition:
+    opacity 0.18s ease,
+    transform 0.2s ease;
+}
+
+.library-fab-panel-enter-from .library-fab-btn--action,
+.library-fab-panel-leave-to .library-fab-btn--action {
+  opacity: 0;
+  transform: translateY(-6px);
+}
+
+.library-fab-panel-enter-active .library-fab-btn--action:nth-child(1) {
+  transition-delay: 0.04s;
+}
+
+.library-fab-panel-enter-active .library-fab-btn--action:nth-child(2) {
+  transition-delay: 0.08s;
+}
+
+.library-fab-panel-enter-active .library-fab-btn--action:nth-child(3) {
+  transition-delay: 0.12s;
+}
+
+.library-fab-panel-leave-active .library-fab-btn--action:nth-child(3) {
+  transition-delay: 0s;
+}
+
+.library-fab-panel-leave-active .library-fab-btn--action:nth-child(2) {
+  transition-delay: 0.04s;
+}
+
+.library-fab-panel-leave-active .library-fab-btn--action:nth-child(1) {
+  transition-delay: 0.08s;
+}
+
+.library-fab-toggle-icon {
+  transition: transform 0.32s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.library-fab-toggle-icon--expanded {
+  transform: rotate(180deg);
+}
+
 @media (max-width: 767px) {
   .library-thumb-grid :deep(img),
   .library-child-below-grid :deep(img) {
@@ -2827,6 +3739,52 @@ const libraryChildThumbImgClass =
     width: 100%;
     height: auto;
   }
+}
+
+.matching-season-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
+  border-radius: 9999px;
+  backdrop-filter: blur(4px);
+}
+
+.matching-season-badge--single {
+  padding: 2px 6px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+}
+
+.matching-season-badge--multi {
+  padding: 1px 4px;
+  font-size: 9px;
+}
+
+.matching-season-badge--spring {
+  background: rgba(236, 253, 245, 0.92);
+  color: #047857;
+}
+
+.matching-season-badge--summer {
+  background: rgba(254, 243, 199, 0.92);
+  color: #b45309;
+}
+
+.matching-season-badge--autumn {
+  background: rgba(255, 237, 213, 0.92);
+  color: #c2410c;
+}
+
+.matching-season-badge--winter {
+  background: rgba(239, 246, 255, 0.92);
+  color: #1d4ed8;
+}
+
+.matching-season-badge--default {
+  background: rgba(255, 255, 255, 0.88);
+  color: #6b7280;
 }
 
 </style>

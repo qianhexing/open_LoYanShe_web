@@ -221,6 +221,8 @@
 	"addLibrary.complete_no": "Not completed",
 	"addLibrary.leave_unsaved_confirm": "Leave this page?",
 	"addShop.loading": "Loading...",
+	"addShop.page_title_add": "Add Shop",
+	"addShop.page_title_edit": "Edit Shop",
 	"addShop.notice_title": "Notice!",
 	"addShop.notice_desc": "Before adding, please join our QQ group (679654177) to discuss basic rules. Prefer using existing entries.",
 	"addShop.restrict_notice_title": "Important restriction",

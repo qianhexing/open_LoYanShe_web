@@ -276,7 +276,7 @@ async function savePreviewToAlbum() {
     return
   }
   try {
-    await saveToAlbum(url, { docFilename: `_doc/clothes_share_${Date.now()}.png` })
+    await saveToAlbum(url, { docFilename: `_doc/clothes_share_${Date.now()}.jpg` })
     toast.add({ title: '已保存到相册', color: 'green', icon: 'i-heroicons-check-circle' })
   } catch (e) {
     console.error(e)
@@ -306,9 +306,9 @@ async function confirmAndGenerate() {
     const payload = buildClothesSharePayload(source, selectedKeys.value)
     const bundle: ClothesShareImageBundle = await prepareClothesShareImages(payload, renderOptions)
     const canvas = drawClothesShareCanvas(payload, bundle, renderOptions)
-    const pngQuality = highQuality.value ? 1 : 0.92
+    const jpegQuality = highQuality.value ? 0.95 : 0.92
     const blob = await new Promise<Blob | null>((resolve) =>
-      canvas.toBlob((b) => resolve(b), 'image/png', pngQuality),
+      canvas.toBlob((b) => resolve(b), 'image/jpeg', jpegQuality),
     )
     if (!blob) {
       toast.add({ title: '生成图片失败', color: 'red', icon: 'i-heroicons-x-circle' })
@@ -316,8 +316,8 @@ async function confirmAndGenerate() {
     }
     const file = new File(
       [blob],
-      `clothes-share-${source.clothesId ?? Date.now()}-${Date.now()}.png`,
-      { type: 'image/png' },
+      `clothes-share-${source.clothesId ?? Date.now()}-${Date.now()}.jpg`,
+      { type: 'image/jpeg' },
     )
     const res = await uploadShareImageToTemp(file)
     if (!res?.file_url) {

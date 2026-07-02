@@ -89,6 +89,12 @@ const handleSearch = () => {
   waterList.value?.refresh()
 }
 
+const REFERENCE_MODEL_PAN_URL = 'https://pan.baidu.com/s/1F9jemTjyjxsz57DyzlPrSg?pwd=42un'
+
+const openReferenceModel = () => {
+  window.open(REFERENCE_MODEL_PAN_URL, '_blank', 'noopener,noreferrer')
+}
+
 const spzModelViewerRef = ref<{ showModel: (models: Array<{ url: string; type?: 'splat' | 'model'; position?: [number, number, number]; rotation?: [number, number, number]; scale?: [number, number, number]; options?: Record<string, unknown> }>) => Promise<void> } | null>(null)
 
 const handleVideoClick = (item: LibraryVideo) => {
@@ -447,6 +453,21 @@ const handleSubmit = async () => {
       <div class="text-sm text-gray-500 dark:text-gray-400">
         3D建设 - 展示所有3D人台图，支持关键词和日期筛选
       </div>
+    </div>
+
+    <!-- 基准模型 -->
+    <div class="px-4 pb-4 flex flex-col items-center gap-2">
+      <UButton
+        size="xl"
+        class="bg-qhx-primary text-qhx-inverted min-w-[200px] px-8 py-3 text-base font-semibold"
+        icon="i-heroicons-cube-transparent"
+        @click="openReferenceModel"
+      >
+        基准模型
+      </UButton>
+      <p class="text-xs text-gray-500 dark:text-gray-400 text-center">
+        所有模型的位置、缩放、旋转都对齐此模型
+      </p>
     </div>
 
     <!-- 瀑布流列表 -->

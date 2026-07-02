@@ -2,18 +2,26 @@
 import { onMounted, onUnmounted, ref, nextTick, watch, computed } from 'vue'
 import * as THREE from 'three'
 import type QhxImagePicker from '@/components/Qhx/ImagePicker.vue'
-import { uploadImage } from '@/api';
-import { uploadImageOSS } from '@/utils/ossUpload'
+import { uploadImageOSS, uploadFileToOSS } from '@/utils/ossUpload'
 import { useConfigStore } from '@/stores/config';
+import { BASE_IMG } from '@/utils/ipConfig'
+import type ThreeCore from '@/utils/threeCore'
 
 const imagePicker = ref<InstanceType<typeof QhxImagePicker> | null>(null)
+const videoFileInput = ref<HTMLInputElement | null>(null)
 const configStore = useConfigStore()
+const toast = useToast()
 const isMobile = computed(() => configStore.isMobile)
+const mediaType = ref<'image' | 'video'>('image')
+const VIDEO_ACCEPT = 'video/mp4,video/webm,video/quicktime,.mp4,.webm,.mov'
+/** 最近一次上传/加载的相对路径，避免从 video.src 解析失败导致场景保存丢素材 */
+let savedRelativeUrl = ''
 
 interface Props {
   target: THREE.Mesh | null
   imageUrl: string
   maskUrl?: string
+  threeCore?: ThreeCore | null
 }
 const props = defineProps<Props>()
 const show = ref(false)
@@ -49,6 +57,119 @@ const image = new Image()
 image.crossOrigin = 'anonymous'
 const mask = new Image()
 mask.crossOrigin = 'anonymous'
+let videoEl: HTMLVideoElement | null = null
+/** iOS/WebView：video 需挂 DOM 才能解码并绘制到 canvas */
+let videoDomHost: HTMLDivElement | null = null
+
+function ensureVideoDomHost() {
+  if (typeof document === 'undefined') return
+  if (videoDomHost?.isConnected) return
+  const host = document.createElement('div')
+  host.setAttribute('aria-hidden', 'true')
+  host.style.cssText =
+    'position:fixed;width:0;height:0;overflow:hidden;opacity:0;pointer-events:none;z-index:-1;'
+  document.body.appendChild(host)
+  videoDomHost = host
+}
+
+function configureVideoForMobileWebview(video: HTMLVideoElement) {
+  video.crossOrigin = 'anonymous'
+  video.loop = true
+  video.muted = true
+  video.defaultMuted = true
+  video.playsInline = true
+  video.preload = 'auto'
+  video.setAttribute('muted', '')
+  video.setAttribute('playsinline', '')
+  video.setAttribute('webkit-playsinline', 'true')
+  video.style.width = '1px'
+  video.style.height = '1px'
+}
+
+function isVideoMediaUrl(url: string): boolean {
+  return /\.(mp4|webm|mov|m4v|ogg)(\?|#|$)/i.test(url)
+}
+
+function toRelativeAssetUrl(absUrl: string): string {
+  if (!absUrl) return ''
+  let u = absUrl.trim()
+  if (u.startsWith(BASE_IMG)) {
+    u = u.slice(BASE_IMG.length)
+  } else if (/^https?:\/\//i.test(u)) {
+    u = u.replace(/^https?:\/\/[^/]+\//i, '')
+  }
+  return u.replace(/^\//, '')
+}
+
+function resolveSavedRelativeUrl(): string {
+  if (savedRelativeUrl) {
+    return savedRelativeUrl.replace(/^\//, '')
+  }
+  if (mediaType.value === 'video') {
+    return toRelativeAssetUrl(videoEl?.src || '')
+  }
+  return toRelativeAssetUrl(image.src || '')
+}
+
+function isVideoReplaceMesh(mesh: THREE.Mesh): boolean {
+  return mesh.name.toLowerCase().includes('video')
+}
+
+function getCanvasImageSourceSize(source: CanvasImageSource): { w: number; h: number } {
+  if (source instanceof HTMLVideoElement) {
+    return { w: source.videoWidth || 1, h: source.videoHeight || 1 }
+  }
+  const img = source as HTMLImageElement
+  return { w: img.naturalWidth || img.width || 1, h: img.naturalHeight || img.height || 1 }
+}
+
+function disposeVideoEl() {
+  if (!videoEl) return
+  videoEl.pause()
+  videoEl.removeAttribute('src')
+  videoEl.load()
+  videoEl.remove()
+  videoEl = null
+}
+
+function setupVideoSrc(url: string) {
+  disposeVideoEl()
+  image.removeAttribute('src')
+  mediaType.value = 'video'
+  ensureVideoDomHost()
+  const video = document.createElement('video')
+  configureVideoForMobileWebview(video)
+  videoDomHost?.appendChild(video)
+  video.onloadeddata = () => {
+    isDirty = true
+    video.play().catch(() => {})
+  }
+  video.onplaying = () => {
+    isDirty = true
+  }
+  video.onerror = () => {
+    isDirty = true
+  }
+  video.src = url
+  video.load()
+  videoEl = video
+  if (video.readyState >= 2) {
+    isDirty = true
+    video.play().catch(() => {})
+  }
+}
+
+function getActiveDrawSource(): CanvasImageSource | null {
+  if (mediaType.value === 'video' && videoEl && videoEl.readyState >= 2 && videoEl.videoWidth > 0) {
+    return videoEl
+  }
+  const isImageValid = image.complete
+    && image.src
+    && image.src !== window.location.href
+    && image.naturalWidth > 0
+    && image.naturalHeight > 0
+  return isImageValid ? image : null
+}
 
 // 控制参数
 let offsetX = 0
@@ -62,7 +183,8 @@ let originalState = {
   offsetY: 0,
   scale: 1,
   rotation: 0,
-  url: ''
+  url: '',
+  mediaType: 'image' as 'image' | 'video'
 }
 let isSaved = false
 
@@ -246,6 +368,7 @@ function applyCanvasMapToMesh(mesh: THREE.Mesh, tex: THREE.CanvasTexture | null)
 const showModel = async () => {
   show.value = true
   isSaved = false // 重置保存状态
+  savedRelativeUrl = ''
   isDirty = true
   
   // 开启渲染循环
@@ -284,11 +407,18 @@ const finishClose = () => {
   // 移除事件监听器
   removeEventListeners()
   
-  // 显式释放资源
-  if (texture) {
-    texture.dispose()
+  if (isSaved) {
+    // 已保存：贴图仍挂在 mesh 上，或视频已交给 threeCore 接管，不能 dispose
+    videoEl = null
     texture = null
+  } else {
+    if (texture) {
+      texture.dispose()
+      texture = null
+    }
+    disposeVideoEl()
   }
+  savedRelativeUrl = ''
   
   emit('close')
 }
@@ -314,6 +444,43 @@ const restoreOriginalState = () => {
   }
 
   if (originalState.url) {
+    mediaType.value = originalState.mediaType
+    if (originalState.mediaType === 'video') {
+      let restored = false
+      const onceRestore = () => {
+        if (restored) return
+        restored = true
+        restoreDraw()
+      }
+      disposeVideoEl()
+      mediaType.value = 'video'
+      ensureVideoDomHost()
+      const video = document.createElement('video')
+      configureVideoForMobileWebview(video)
+      videoDomHost?.appendChild(video)
+      video.onloadeddata = () => {
+        video.play().catch(() => {})
+        onceRestore()
+      }
+      video.onplaying = () => {
+        onceRestore()
+      }
+      video.onerror = () => {
+        disposeVideoEl()
+        onceRestore()
+      }
+      video.src = originalState.url
+      video.load()
+      videoEl = video
+      if (video.readyState >= 2) {
+        video.play().catch(() => {})
+        onceRestore()
+      }
+      return
+    }
+
+    disposeVideoEl()
+
     // 检查是否需要重新加载图片
     // 注意：image.src 永远是绝对路径 (包含 base_img)
     // originalState.url 在 setupTexture 里也被存为了绝对路径
@@ -347,7 +514,9 @@ const restoreOriginalState = () => {
       restoreDraw()
     }
   } else {
-    // 初始没有图片
+    // 初始没有图片/视频
+    mediaType.value = 'image'
+    disposeVideoEl()
     image.removeAttribute('src') 
     restoreDraw()
   }
@@ -480,16 +649,9 @@ function draw() {
     maskDrawn = true
   }
 
-  // 2. 绘制用户图片
-  // 检查 image.src 是否有效，并且图片不是 broken 状态
-  // naturalWidth 和 naturalHeight 为 0 表示图片加载失败
-  const isImageValid = image.complete && 
-                       image.src && 
-                       image.src !== window.location.href &&
-                       image.naturalWidth > 0 && 
-                       image.naturalHeight > 0
-  
-  if (isImageValid) {
+  // 2. 绘制用户图片或视频帧
+  const drawSource = getActiveDrawSource()
+  if (drawSource) {
     try {
       // 如果没有 Mask，直接绘制；如果有 Mask，已经在上面设置了 source-in
       if (!maskDrawn) {
@@ -500,8 +662,8 @@ function draw() {
       ctx.rotate(rotation)
       ctx.scale(scale, scale)
 
-      // 保持原图比例
-      const imgAspect = image.naturalWidth / image.naturalHeight
+      const { w: sourceW, h: sourceH } = getCanvasImageSourceSize(drawSource)
+      const imgAspect = sourceW / sourceH
       const canvasAspect = canvas.value.width / canvas.value.height
       let drawW: number
       let drawH: number
@@ -514,7 +676,7 @@ function draw() {
       }
 
       ctx.drawImage(
-        image,
+        drawSource,
         -drawW / 2,
         -drawH / 2,
         drawW,
@@ -524,11 +686,11 @@ function draw() {
       ctx.restore()
     } catch (error) {
       // 如果绘制失败，确保 restore
-      console.warn('绘制图片失败:', error)
+      console.warn('绘制贴图失败:', error)
       if (maskDrawn) ctx.restore()
     }
   } else {
-    // 如果没有图片但有 Mask，记得 restore
+    // 如果没有内容但有 Mask，记得 restore
     if (maskDrawn) ctx.restore()
   }
 
@@ -551,7 +713,7 @@ function loop() {
     return
   }
   
-  if (isDirty) {
+  if (isDirty || (mediaType.value === 'video' && videoEl && !videoEl.paused)) {
     draw()
     isDirty = false
   }
@@ -591,6 +753,7 @@ async function setupTexture() {
   // 读取并备份初始状态
   const parent = findTopmostParent(props.target)
   let targetUrl = ''
+  let initialMediaType: 'image' | 'video' = isVideoReplaceMesh(props.target) ? 'video' : 'image'
   
   // 优先从 userData 中读取之前的配置
   const entry = parent.userData.material?.[props.target.name]
@@ -602,7 +765,13 @@ async function setupTexture() {
       rotation= options.rotation
       
       if (options.url) {
-        targetUrl = BASE_IMG + options.url
+        targetUrl = BASE_IMG + String(options.url).replace(/^\//, '')
+        savedRelativeUrl = toRelativeAssetUrl(String(options.url))
+      }
+      if (options.mediaType === 'video' || (options.url && isVideoMediaUrl(options.url))) {
+        initialMediaType = 'video'
+      } else if (options.mediaType === 'image') {
+        initialMediaType = 'image'
       }
   } else {
       // 第一次编辑，使用默认值
@@ -610,19 +779,29 @@ async function setupTexture() {
       offsetY = 0
       scale = 1
       rotation = 0
-      targetUrl = sanitizeDefaultImageUrl(props.imageUrl || '')
+      if (initialMediaType === 'image') {
+        targetUrl = sanitizeDefaultImageUrl(props.imageUrl || '')
+      }
   }
+
+  mediaType.value = initialMediaType
 
   // 备份初始状态 (存绝对路径)
   originalState = { 
     offsetX, offsetY, scale, rotation, 
-    url: targetUrl 
+    url: targetUrl,
+    mediaType: initialMediaType
   }
   
   if (targetUrl) {
-    setImageSrcRedraw(targetUrl)
+    if (initialMediaType === 'video') {
+      setupVideoSrc(targetUrl)
+    } else {
+      disposeVideoEl()
+      setImageSrcRedraw(targetUrl)
+    }
   } else {
-    // 确保清空
+    disposeVideoEl()
     image.removeAttribute('src')
   }
 
@@ -648,8 +827,10 @@ onMounted(() => {
 
 onUnmounted(() => {
   cancelAnimationFrame(animationFrameId)
-  // 移除事件监听器
   removeEventListeners()
+  if (videoEl) {
+    disposeVideoEl()
+  }
   if (texture) {
     texture.dispose()
     texture = null
@@ -673,26 +854,60 @@ const saveData = () => {
   if (!props.target) {
     return
   }
-  const url = image.src.replace(BASE_IMG, '')
+  const relativeUrl = resolveSavedRelativeUrl()
+  if (!relativeUrl) {
+    toast.add({
+      title: '保存失败',
+      description: mediaType.value === 'video' ? '请先上传视频素材' : '请先选择图片素材',
+      color: 'red'
+    })
+    return
+  }
   const params = {
     id: props.target.name,
     offsetX, offsetY, scale, rotation,
-    url
+    url: relativeUrl,
+    mediaType: mediaType.value
   }
   const parent = findTopmostParent(props.target)
   if (!parent.userData.material) {
     parent.userData.material = {}
   }
   parent.userData.material[props.target.name] = params
+
+  if (
+    mediaType.value === 'video'
+    && props.threeCore
+    && videoEl
+    && texture
+    && canvas.value
+  ) {
+    props.threeCore.adoptReplaceVideoTexture(
+      props.target,
+      { offsetX, offsetY, scale, rotation },
+      videoEl,
+      texture,
+      canvas.value,
+      parent.userData?.type
+    )
+    videoEl = null
+    texture = null
+  }
   
   // 更新 originalState 为当前保存的状态，防止关闭时还原
-  originalState = { ...params, url: image.src }
+  originalState = {
+    offsetX,
+    offsetY,
+    scale,
+    rotation,
+    url: mediaType.value === 'video'
+      ? `${BASE_IMG}${relativeUrl}`
+      : image.src || `${BASE_IMG}${relativeUrl}`,
+    mediaType: mediaType.value
+  }
   isSaved = true
   
-  console.log(params, '参数', parent)
-  // 可以添加 toast 提示
-  closeModel() // 保存后自动关闭? 或者不关闭让用户继续调？根据需求，这里手动关闭比较好，或者让用户点关闭。
-  // 按照目前逻辑，点击保存只保存数据，不关闭。
+  closeModel()
 }
 
 const onUpdateFiles = (file: File[]) => {
@@ -700,14 +915,11 @@ const onUpdateFiles = (file: File[]) => {
   isLoading.value = true
   uploadImageOSS({ file: file[0] })
     .then(async (res) => {      
-      // 关键修复：更换图片时，重置 scale/rotation/offset 还是保持?
-      // 通常更换图片希望保持位置，或者重置到默认?
-      // 这里我们选择保留当前编辑状态，只换图
+      mediaType.value = 'image'
+      disposeVideoEl()
+      savedRelativeUrl = res.replace(/^\//, '')
+      const newSrc = BASE_IMG + savedRelativeUrl
       
-      // 更新 image src
-      const newSrc = BASE_IMG + res
-      
-      // 确保 image 对象感知到变化
       image.onload = () => {
         isDirty = true
         isLoading.value = false
@@ -728,6 +940,34 @@ const onUpdateFiles = (file: File[]) => {
       isLoading.value = false
     })
 }
+
+const addVideo = () => {
+  videoFileInput.value?.click()
+}
+
+const onVideoFileChange = async (event: Event) => {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ''
+  if (!file) return
+
+  const ext = file.name.split('.').pop()?.toLowerCase() || ''
+  if (!['mp4', 'webm', 'mov', 'm4v', 'ogg'].includes(ext)) {
+    return
+  }
+
+  isLoading.value = true
+  try {
+    const res = await uploadFileToOSS(file, 'video')
+    savedRelativeUrl = res.file_url.replace(/^\//, '')
+    setupVideoSrc(`${BASE_IMG}${savedRelativeUrl}`)
+    isDirty = true
+  } catch (error) {
+    console.error('视频上传失败:', error)
+  } finally {
+    isLoading.value = false
+  }
+}
 defineExpose({
   showModel
 })
@@ -735,6 +975,13 @@ defineExpose({
 
 <template>
   <QhxImagePicker :multiple="true" @update:files="onUpdateFiles" class="hidden" ref="imagePicker" />
+  <input
+    ref="videoFileInput"
+    type="file"
+    class="hidden"
+    :accept="VIDEO_ACCEPT"
+    @change="onVideoFileChange"
+  />
   
   <!-- 抽屉容器 - PC端右侧，手机端下方 -->
   <Transition :name="isMobile ? 'slide-bottom' : 'slide-right'">
@@ -749,7 +996,7 @@ defineExpose({
     >
       <!-- 头部 -->
       <div class="flex items-center justify-between px-4 py-3 border-b border-gray-100 dark:border-gray-700 flex-shrink-0">
-        <h3 class="text-base font-semibold text-gray-800 dark:text-gray-100">贴图编辑器</h3>
+        <h3 class="text-base font-semibold text-gray-800 dark:text-gray-100">贴图 / 视频编辑器</h3>
         <button @click="closeModel" 
           class="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors text-gray-500 hover:text-gray-700">
           <UIcon name="ant-design:close-outlined" class="text-lg" />
@@ -782,16 +1029,22 @@ defineExpose({
         </div>
 
         <!-- 操作按钮栏 -->
-        <div class="grid grid-cols-2 gap-3 w-full flex-shrink-0">
+        <div class="grid grid-cols-3 gap-2 w-full flex-shrink-0">
           <button @click="addImage()" 
-            class="flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600 transition-all active:scale-95 font-medium text-sm">
-            <UIcon name="ant-design:picture-filled" class="text-lg text-blue-500" />
+            class="flex items-center justify-center gap-1.5 py-2.5 px-2 rounded-xl bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600 transition-all active:scale-95 font-medium text-xs sm:text-sm">
+            <UIcon name="ant-design:picture-filled" class="text-lg text-blue-500 shrink-0" />
             更换图片
+          </button>
+
+          <button @click="addVideo()"
+            class="flex items-center justify-center gap-1.5 py-2.5 px-2 rounded-xl bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600 transition-all active:scale-95 font-medium text-xs sm:text-sm">
+            <UIcon name="material-symbols:videocam-rounded" class="text-lg text-violet-500 shrink-0" />
+            更换视频
           </button>
           
           <button @click="saveData()" 
-            class="flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-qhx-primary text-white hover:bg-qhx-primaryHover transition-all active:scale-95 shadow-lg shadow-pink-500/30 font-medium text-sm">
-            <UIcon name="ant-design:save-filled" class="text-lg" />
+            class="flex items-center justify-center gap-1.5 py-2.5 px-2 rounded-xl bg-qhx-primary text-white hover:bg-qhx-primaryHover transition-all active:scale-95 shadow-lg shadow-pink-500/30 font-medium text-xs sm:text-sm">
+            <UIcon name="ant-design:save-filled" class="text-lg shrink-0" />
             保存应用
           </button>
         </div>

@@ -1061,7 +1061,7 @@ defineExpose({
 }
 
 :deep(.topic-mention) {
-  color: #ec4899;
+  color: #ff9eb5;
   background-color: rgba(236, 72, 153, 0.1);
   border-radius: 0.25rem;
   padding: 0.125rem 0.25rem;
@@ -1080,7 +1080,7 @@ defineExpose({
 }
 
 :deep(img.ProseMirror-selectednode) {
-  outline: 2px solid #ec4899;
+  outline: 2px solid #ff9eb5;
 }
 
 :deep(img) {
@@ -1105,7 +1105,7 @@ defineExpose({
 }
 
 :deep(emoji.rich-text-emoji.ProseMirror-selectednode) {
-  outline: 2px solid #ec4899;
+  outline: 2px solid #ff9eb5;
 }
 
 .editor-content {

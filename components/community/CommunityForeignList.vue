@@ -13,7 +13,7 @@ interface Props {
   /** 关联类型：0店铺 1实体店 2衣柜服饰 3搭配场景 4搭配清单 5合集考据 6茶会返图 7图鉴返图（详见 types/api CommunityForeign） */
   pk_type: number
   can_load?: boolean // 是否允许加载
-  /** 单列纵向排列（PC 与移动端均为一行一个帖子，适用于窄容器/弹窗） */
+  /** 强制 PC / 移动端均为单列（弹窗等极窄容器）；默认仅移动端单列，PC 仍走瀑布流 */
   singleColumn?: boolean
   /** 是否允许删除关联（仅当帖子作者为当前登录用户时显示删除） */
   allowDeleteForeign?: boolean
@@ -56,16 +56,49 @@ const foreignItemCssVars = computed((): Record<string, string> | undefined =>
     : { '--foreign-pc-cols': String(resolvedPcColumns.value) }
 )
 
+/** 与 Tailwind `md` 断点一致：移动端不用瀑布流，仅 PC 端绝对定位排布 */
+const MD_BREAKPOINT = 768
+
+function isMobileViewport(): boolean {
+  return typeof window !== 'undefined' && window.innerWidth < MD_BREAKPOINT
+}
+
+function getItemSelector(): string {
+  return water_class ? `.${water_class}` : '.community-list'
+}
+
+function clearWaterfallStyles() {
+  if (!import.meta.client) return
+  for (const el of document.querySelectorAll<HTMLElement>(getItemSelector())) {
+    el.style.top = ''
+    el.style.left = ''
+    el.style.display = ''
+  }
+}
+
 function syncColumnCount() {
   if (props.singleColumn) {
     column.value = 1
     return
   }
-  if (typeof window !== 'undefined' && window.innerWidth < 768) {
+  if (isMobileViewport()) {
     column.value = 1
     return
   }
   column.value = resolvedPcColumns.value
+}
+
+function syncLayout() {
+  if (!import.meta.client) return
+  syncColumnCount()
+  if (props.singleColumn || !need_water) return
+  nextTick(() => {
+    if (isMobileViewport()) {
+      clearWaterfallStyles()
+      return
+    }
+    debounceWater()
+  })
 }
 
 const isLoading = ref(true)
@@ -169,13 +202,14 @@ const waterList = () => {
   if (!need_water || props.singleColumn) {
     return
   }
-  if (!window) {
+  if (!window || isMobileViewport()) {
+    clearWaterfallStyles()
     return
   }
-  const layout = useWaterfallLayout(water_class? `.${water_class}` : '.community-list', column.value)
+  const layout = useWaterfallLayout(getItemSelector(), column.value)
     // biome-ignore lint/complexity/noForEach: <explanation>
     layout.forEach(({ index, top, left }) => {
-      const el = document.querySelectorAll<HTMLElement>(water_class? `.${water_class}` : '.community-list')[index]
+      const el = document.querySelectorAll<HTMLElement>(getItemSelector())[index]
       // el.style.position = 'absolute'
       el.style.top = `${top}px`
       el.style.left = `${left}px`
@@ -183,30 +217,29 @@ const waterList = () => {
     })
 }
 const debounceWater = debounce(waterList, 100)
+const debounceSyncLayout = debounce(syncLayout, 150)
 
 watchEffect(() => {
-	console.log('当前列表:', list.value.length)
-  if (process.client) {
-    if (props.singleColumn || !need_water) return
-    setTimeout(() => {
-      debounceWater()
-    });
-  }
+  if (!process.client) return
+  // 列表长度变化时重新排布（PC 瀑布流）
+  void list.value.length
+  if (props.singleColumn || !need_water) return
+  setTimeout(() => {
+    syncLayout()
+  })
 })
 
 watch([() => props.singleColumn, resolvedPcColumns], () => {
   if (!import.meta.client) return
-  syncColumnCount()
-  nextTick(() => debounceWater())
+  syncLayout()
 })
 
 onMounted(() => {
-  syncColumnCount()
-  nextTick(() => {
-    if (!props.singleColumn && typeof window !== 'undefined' && window.innerWidth >= 768) {
-      debounceWater()
-    }
-  })
+  syncLayout()
+
+  if (import.meta.client) {
+    window.addEventListener('resize', debounceSyncLayout)
+  }
 
   if (user.token) {
     console.log('是否服务端渲染', isServer.value)
@@ -218,6 +251,13 @@ onMounted(() => {
     isLoading.value = false
   }
 })
+
+onUnmounted(() => {
+  if (import.meta.client) {
+    window.removeEventListener('resize', debounceSyncLayout)
+  }
+})
+
 const loadMore = () => {
   if (isLoading.value) {
     return
@@ -323,7 +363,7 @@ const { isFinished, setFinished } = useScrollBottom(
       :class="
         singleColumn
           ? 'min-h-0 flex flex-col gap-1 pt-2 pb-16'
-          : 'min-h-[600px] flex max-md:block'
+          : 'relative min-h-0 pt-2 pb-16 max-md:flex max-md:flex-col max-md:gap-1 md:min-h-[600px]'
       "
     >
       <div
@@ -334,8 +374,8 @@ const { isFinished, setFinished } = useScrollBottom(
           singleColumn
             ? 'w-full relative'
             : [
-                'w-full max-md:static foreign-list-pc-col-item',
-                need_water ? 'absolute max-md:static' : ''
+                'w-full relative foreign-list-pc-col-item',
+                need_water ? 'md:absolute' : ''
               ].filter(Boolean).join(' ')
         ]"
         :style="foreignItemCssVars"

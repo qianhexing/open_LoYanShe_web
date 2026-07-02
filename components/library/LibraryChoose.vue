@@ -303,10 +303,16 @@ const getLibraryList = async (initPage: number | undefined = undefined, initPage
     loading.value = false
   }
 }
+const refresh = () => {
+  page.value = 1
+  getLibraryList()
+}
+
 onMounted(() => {
   getLibraryList()
 })
 defineExpose({
-  showModel
+  showModel,
+  refresh
 })
 </script>

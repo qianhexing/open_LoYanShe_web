@@ -166,7 +166,7 @@ async function savePreviewToAlbum() {
     return
   }
   try {
-    await saveToAlbum(url, { docFilename: `_doc/wardrobe_statistics_${Date.now()}.png` })
+    await saveToAlbum(url, { docFilename: `_doc/wardrobe_statistics_${Date.now()}.jpg` })
     toast.add({ title: '已保存到相册', color: 'green', icon: 'i-heroicons-check-circle' })
   } catch (e) {
     console.error(e)
@@ -373,13 +373,13 @@ async function generateAndUpload() {
   try {
     const canvas = drawShareCanvas(payload)
     const blob = await new Promise<Blob | null>((resolve) =>
-      canvas.toBlob((b) => resolve(b), 'image/png', 0.92)
+      canvas.toBlob((b) => resolve(b), 'image/jpeg', 0.92)
     )
     if (!blob) {
       errorMsg.value = '生成图片失败'
       return
     }
-    const file = new File([blob], `wardrobe-statistics-${Date.now()}.png`, { type: 'image/png' })
+    const file = new File([blob], `wardrobe-statistics-${Date.now()}.jpg`, { type: 'image/jpeg' })
     const res = await uploadImageToTemp(file)
     if (!res?.file_url) {
       errorMsg.value = '上传失败：未返回地址'

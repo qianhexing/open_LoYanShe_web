@@ -1,15 +1,24 @@
 <script setup lang="ts">
-import type { Shop, PaginationResponse, LibraryPipe } from '@/types/api';
+import type { Shop, PaginationResponse, LibraryPipe, Library } from '@/types/api';
+import type QhxWaterList from '@/components/Qhx/WaterList.vue'
 import { getShopDetail } from '@/api/shop';
-import { getLibraryPipeList, getLibraryPipeListAll } from '@/api/library';
+import { getLibraryList, getLibraryPipeListAll } from '@/api/library';
 import { getEventRedblackList } from '@/api/event_redblack';
 import type { UserBlackBtn, UserGoodBtn } from '#components';
 import type LibraryPipeManage from '@/components/library/LibraryPipeManage.vue'
 import type PhysicalShopModal from '@/components/shop/PhysicalShopModal.vue'
 import type { PhysicalShop } from '@/types/api'
 import { BASE_IMG } from '@/utils/ipConfig'
+import { isHtml5PlusWebview, openLibraryWebPath } from '@/composables/useLibraryDetailNavigation'
+
+interface ShopLinkEntry {
+  href: string
+  title: string
+  clickable: boolean
+}
 
 const user = useUserStore()
+const toast = useToast()
 const configStore = useConfigStore()
 const config = computed(() => configStore.config)
 const canManagePhysicalShop = computed(() => {
@@ -44,6 +53,7 @@ const formateState = (state: number) => {
   const item = config.value?.pipe_state.find(item => item.value === state)
   return item?.label
 }
+
 onMounted(async () => {
   if (!detail.value) {
     try {
@@ -54,6 +64,7 @@ onMounted(async () => {
   }
   fetchLibraryPipe()
   void prefetchShopEventCount()
+  layoutReady.value = true
 })
 
 async function prefetchShopEventCount() {
@@ -132,6 +143,21 @@ function openPhysicalShopMap(shop: PhysicalShop) {
   if (link) window.open(link, '_blank')
 }
 
+function jumpToEditShop() {
+  router.push(`/addShop?shop_id=${id}`)
+}
+
+function jumpToAddLibrary() {
+  if (!user.token) {
+    toast.add({ title: '请先登录', color: 'red' })
+    return
+  }
+  const params = new URLSearchParams({ shop_id: id })
+  const shopName = detail.value?.shop_name?.trim()
+  if (shopName) params.set('shop_name', shopName)
+  openLibraryWebPath(`/addLibrary?${params.toString()}`)
+}
+
 function jumpToAddPhysicalShop() {
   router.push(`/addPhysicalShop?shop_id=${id}`)
 }
@@ -141,20 +167,223 @@ function jumpToEditPhysicalShop(physicalShop: PhysicalShop) {
   router.push(`/addPhysicalShop?physical_id=${physicalShop.physical_id}&shop_id=${id}`)
 }
 
+function normalizeExternalUrl(raw: string): string {
+  const trimmed = raw.trim()
+  if (!trimmed) return ''
+  if (/^https?:\/\//i.test(trimmed)) return trimmed
+  return `https://${trimmed}`
+}
+
+function isTaobaoLikeUrl(url: string): boolean {
+  return /taobao\.com|tmall\.com/i.test(url)
+}
+
+function isWeiboUrl(url: string): boolean {
+  return /weibo\.com|weibo\.cn/i.test(url)
+}
+
+function isXhsUrl(url: string): boolean {
+  return /xiaohongshu\.com|xhslink\.com/i.test(url)
+}
+
+function resolveShopOfficialLabel(url: string): string {
+  return isTaobaoLikeUrl(url) ? '淘宝店铺' : '官方网站'
+}
+
+function resolveSocialLabel(url: string): string {
+  if (isWeiboUrl(url)) return '微博'
+  if (isXhsUrl(url)) return '小红书'
+  return '社交主页'
+}
+
+const shopOfficialEntry = computed((): ShopLinkEntry | null => {
+  const raw = detail.value?.shop_url?.trim()
+  if (!raw) return null
+  return {
+    href: normalizeExternalUrl(raw),
+    title: resolveShopOfficialLabel(raw),
+    clickable: true
+  }
+})
+
+const socialMediaEntry = computed((): ShopLinkEntry | null => {
+  const rawUrl = detail.value?.wb_url?.trim() || ''
+  const name = detail.value?.wb_name?.trim() || ''
+  if (!rawUrl && !name) return null
+
+  const href = rawUrl ? normalizeExternalUrl(rawUrl) : ''
+  const title = rawUrl
+    ? resolveSocialLabel(rawUrl)
+    : '微博/小红书'
+
+  return {
+    href,
+    title,
+    clickable: !!href
+  }
+})
+
+function openExternalShopLink(url: string) {
+  if (!url || !import.meta.client || typeof window === 'undefined') return
+
+  const configStore = useConfigStore()
+  const uniApi = configStore.uniWebviewJs
+
+  if (isHtml5PlusWebview() && uniApi?.navigateTo) {
+    uniApi.navigateTo({
+      url: `/pages/common/outerLink?url=${url}`,
+      fail: () => {
+        window.open(url, '_blank', 'noopener,noreferrer')
+      }
+    })
+    return
+  }
+
+  const port = configStore.getPort()
+  if (port) {
+    try {
+      port.postMessage(
+        JSON.stringify({
+          type: 'jump',
+          path: 'Outlink',
+          params: { url }
+        })
+      )
+      return
+    } catch {
+      /* 桥接失败则回退浏览器打开 */
+    }
+  }
+
+  window.open(url, '_blank', 'noopener,noreferrer')
+}
+
 const shopPipeTabCounts = computed(() => [
   library_pipe.value.length > 0 ? library_pipe.value.length : undefined,
   undefined
 ])
 
-const shopContentTabCounts = computed(() => [
-  shopLibraryTabCount.value,
-  shopEventTabCount.value
-])
-
 const shopLibraryTabCount = ref<number | undefined>(
   detail.value?.count_library != null ? detail.value.count_library : undefined
 )
+const layoutReady = ref(false)
+
+/** 0=瀑布流列表，1=初贩时间轴（与旧版 shopLibrary 一致，sort=5） */
+type LibrarySortMode = 0 | 1
+const librarySortMode = ref<LibrarySortMode>(0)
+const waterListRef = ref<InstanceType<typeof QhxWaterList> | null>(null)
+
+const timelineLibraryList = ref<Library[]>([])
+const timelinePage = ref(1)
+const timelineLoading = ref(false)
+const timelineFinished = ref(false)
+const TIMELINE_PAGE_SIZE = 20
+
+const shopLibraryFilterList = [
+  { field: 'shop_id', op: 'and', value: id },
+  { field: 'parent_id', op: 'and', value: 0 },
+] as const
+
+async function fetchShopLibraryList(page: number, pageSize: number) {
+  try {
+    const response = await getLibraryList({
+      page,
+      pageSize,
+      need_Statistics: true,
+      filter_list: [...shopLibraryFilterList],
+    })
+    shopLibraryTabCount.value = response.count ?? 0
+    return {
+      rows: response.rows ?? [],
+      count: response.count ?? 0,
+    }
+  } catch {
+    return { rows: [], count: 0 }
+  }
+}
+
+function resetTimelineList() {
+  timelinePage.value = 1
+  timelineLibraryList.value = []
+  timelineFinished.value = false
+}
+
+async function loadTimelineLibraries() {
+  if (timelineLoading.value || timelineFinished.value) return
+  timelineLoading.value = true
+  try {
+    const response = await getLibraryList({
+      page: timelinePage.value,
+      pageSize: TIMELINE_PAGE_SIZE,
+      need_Statistics: true,
+      filter_list: [...shopLibraryFilterList],
+      sort: 5,
+    })
+    const rows = response.rows ?? []
+    timelineLibraryList.value = timelinePage.value === 1
+      ? rows
+      : [...timelineLibraryList.value, ...rows]
+    shopLibraryTabCount.value = response.count ?? 0
+    timelineFinished.value = timelinePage.value * TIMELINE_PAGE_SIZE >= (response.count ?? 0)
+  } catch {
+    if (timelinePage.value === 1) timelineLibraryList.value = []
+  } finally {
+    timelineLoading.value = false
+  }
+}
+
+function loadMoreTimeline() {
+  if (timelineLoading.value || timelineFinished.value) return
+  timelinePage.value += 1
+  void loadTimelineLibraries()
+}
+
+function onLibrarySortModeChange(mode: LibrarySortMode) {
+  if (librarySortMode.value === mode) return
+  librarySortMode.value = mode
+  if (mode === 0) {
+    nextTick(() => waterListRef.value?.refresh())
+    return
+  }
+  resetTimelineList()
+  void loadTimelineLibraries()
+}
+
 const shopEventTabCount = ref<number | undefined>(undefined)
+const showEventModal = ref(false)
+
+const FAB_ACTIONS_STORAGE_KEY = 'shop-detail-fab-actions-expanded'
+const fabActionsExpanded = ref(true)
+const fabTotalBadgeCount = computed(() => shopEventTabCount.value ?? 0)
+
+function restoreFabActionsExpanded() {
+  if (!import.meta.client || typeof localStorage === 'undefined') return
+  try {
+    const v = localStorage.getItem(FAB_ACTIONS_STORAGE_KEY)
+    if (v !== null) fabActionsExpanded.value = v === '1'
+  } catch {
+    /* 忽略读取失败 */
+  }
+}
+
+function persistFabActionsExpanded(expanded: boolean) {
+  if (!import.meta.client || typeof localStorage === 'undefined') return
+  try {
+    localStorage.setItem(FAB_ACTIONS_STORAGE_KEY, expanded ? '1' : '0')
+  } catch {
+    /* 忽略写入失败 */
+  }
+}
+
+function toggleFabActions() {
+  fabActionsExpanded.value = !fabActionsExpanded.value
+}
+
+restoreFabActionsExpanded()
+
+watch(fabActionsExpanded, (expanded) => {
+  persistFabActionsExpanded(expanded)
+})
 
 watch(
   () => detail.value?.count_library,
@@ -165,6 +394,83 @@ watch(
 </script>
 <template>
   <div class="container mx-auto p-4 max-md:p-2">
+    <div
+      v-if="detail"
+      class="shop-fab-anchor fixed top-20 max-md:top-16 inset-x-0 z-[60] pointer-events-none"
+    >
+      <div class="container mx-auto px-4 max-md:px-0">
+        <div class="shop-fab-stack flex flex-col items-end gap-1 pointer-events-auto ml-auto max-md:fixed max-md:top-16 max-md:right-2 max-md:ml-0">
+      <button
+        type="button"
+        class="shop-fab-btn shop-fab-btn--toggle"
+        :aria-expanded="fabActionsExpanded"
+        :aria-label="fabActionsExpanded ? '收起大事记' : '展开大事记'"
+        @click="toggleFabActions"
+      >
+        <UIcon
+          name="i-heroicons-chevron-down-20-solid"
+          class="shop-fab-toggle-icon h-3 w-3 shrink-0"
+          :class="{ 'shop-fab-toggle-icon--expanded': fabActionsExpanded }"
+        />
+        <span
+          v-if="!fabActionsExpanded && fabTotalBadgeCount > 0"
+          class="shop-fab-badge"
+        >{{ fabTotalBadgeCount > 99 ? '99+' : fabTotalBadgeCount }}</span>
+      </button>
+      <Transition name="shop-fab-panel">
+        <div
+          v-if="fabActionsExpanded"
+          class="shop-fab-actions-panel flex flex-col items-end gap-1"
+        >
+          <button
+            type="button"
+            class="shop-fab-btn shop-fab-btn--action"
+            @click="showEventModal = true"
+          >
+            <span class="shop-fab-btn__inner">
+              <UIcon name="i-heroicons-clipboard-document-list" class="shop-fab-btn__icon" />
+              <span class="shop-fab-btn__label">大事记</span>
+              <span
+                v-if="shopEventTabCount != null && shopEventTabCount > 0"
+                class="shop-fab-badge shop-fab-badge--corner"
+              >{{ shopEventTabCount > 99 ? '99+' : shopEventTabCount }}</span>
+            </span>
+          </button>
+        </div>
+      </Transition>
+        </div>
+      </div>
+    </div>
+
+    <QhxModal v-model="showEventModal">
+      <div
+        class="w-[95vw] max-w-3xl h-[90vh] max-h-[90vh] bg-white dark:bg-gray-800 rounded-2xl shadow-2xl overflow-hidden flex flex-col border border-gray-200/50 dark:border-gray-700/50 backdrop-blur-xl"
+      >
+        <div
+          class="flex items-center justify-between px-4 py-3 md:px-6 md:py-4 border-b border-gray-200 dark:border-gray-700 flex-shrink-0 bg-gradient-to-r from-rose-50/90 to-orange-50/80 dark:from-gray-800 dark:to-gray-800"
+        >
+          <h3 class="text-base md:text-lg font-semibold text-gray-900 dark:text-gray-100">大事记</h3>
+          <button
+            type="button"
+            class="w-9 h-9 flex items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500"
+            aria-label="关闭"
+            @click="showEventModal = false"
+          >
+            <UIcon name="i-heroicons-x-mark" class="w-5 h-5" />
+          </button>
+        </div>
+        <div class="overflow-y-auto flex-1 min-h-0">
+          <EventRedblack
+            v-if="showEventModal && detail"
+            :pk_id="detail.shop_id"
+            :pk_type="0"
+            :can_load="showEventModal"
+            @load="shopEventTabCount = $event"
+          />
+        </div>
+      </div>
+    </QhxModal>
+
     <div v-if="detail" class="bg-qhx-bg-card rounded-lg shadow-lg" :key="detail.shop_id">
       <div class="p-3 flex max-md:block max-md:px-1">
         <div class="flex my-2 w-[434px] max-md:w-full relative">
@@ -176,7 +482,71 @@ watch(
             <h1 class="mb-3 text-lg font-semibold">{{ detail?.shop_name }}</h1>
           </div>
           <h3 class="text-sm m-1" v-html="detail.shop_describe" v-if="detail.shop_describe"></h3>
-          <div class="flex justify-center p-3">
+          <!-- 淘宝/官网 & 微博/小红书入口 -->
+          <div
+            v-if="shopOfficialEntry || socialMediaEntry"
+            class="mb-2 px-1"
+          >
+            <div class="rounded-xl border border-gray-100 dark:border-gray-700/60 bg-white/60 dark:bg-gray-800/40 p-3 flex flex-row flex-wrap items-start gap-3 max-md:gap-2">
+              <div v-if="shopOfficialEntry" class="flex-1 min-w-[8.5rem]">
+                <h3 class="text-xs font-medium text-gray-800 dark:text-gray-100 mb-1.5">淘宝/官网入口</h3>
+                <QhxJellyButton>
+                  <button
+                    type="button"
+                    class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-full border border-qhx-primary/40 text-qhx-primary hover:bg-qhx-primary/5 max-w-full"
+                    @click="openExternalShopLink(shopOfficialEntry.href)"
+                  >
+                    <UIcon name="i-heroicons-shopping-bag" class="w-4 h-4 shrink-0" />
+                    <span class="truncate">{{ shopOfficialEntry.title }}</span>
+                    <UIcon name="i-heroicons-arrow-top-right-on-square" class="w-3.5 h-3.5 shrink-0 opacity-70" />
+                  </button>
+                </QhxJellyButton>
+              </div>
+              <div v-if="socialMediaEntry" class="flex-1 min-w-[8.5rem]">
+                <h3 class="text-xs font-medium text-gray-800 dark:text-gray-100 mb-1.5">微博/小红书入口</h3>
+                <div class="flex flex-wrap items-center gap-2">
+                  <QhxJellyButton v-if="socialMediaEntry.clickable">
+                    <button
+                      type="button"
+                      class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-full border border-qhx-primary/40 text-qhx-primary hover:bg-qhx-primary/5 max-w-full"
+                      @click="openExternalShopLink(socialMediaEntry.href)"
+                    >
+                      <UIcon
+                        :name="socialMediaEntry.title === '小红书' ? 'i-heroicons-book-open' : 'i-heroicons-chat-bubble-left-ellipsis'"
+                        class="w-4 h-4 shrink-0"
+                      />
+                      <span class="truncate">{{ socialMediaEntry.title }}</span>
+                      <UIcon name="i-heroicons-arrow-top-right-on-square" class="w-3.5 h-3.5 shrink-0 opacity-70" />
+                    </button>
+                  </QhxJellyButton>
+                  <QhxTag v-if="detail.wb_name?.trim()" :active="true">
+                    {{ detail.wb_name }}
+                  </QhxTag>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="flex justify-center p-3 flex-wrap gap-2">
+            <QhxJellyButton v-if="canManagePhysicalShop">
+              <button
+                type="button"
+                class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-full border border-qhx-primary/40 text-qhx-primary hover:bg-qhx-primary/5"
+                @click="jumpToEditShop"
+              >
+                <UIcon name="i-heroicons-pencil-square" class="w-4 h-4" />
+                编辑店铺
+              </button>
+            </QhxJellyButton>
+            <QhxJellyButton v-if="canManagePhysicalShop">
+              <button
+                type="button"
+                class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-full border border-qhx-primary/40 text-qhx-primary hover:bg-qhx-primary/5"
+                @click="jumpToAddLibrary"
+              >
+                <UIcon name="i-heroicons-plus" class="w-4 h-4" />
+                添加图鉴
+              </button>
+            </QhxJellyButton>
             <QhxJellyButton>
               <button
                 type="button"
@@ -371,33 +741,99 @@ watch(
       </QhxTabs>
     </div>
     <div v-if="detail" class="bg-qhx-bg-card rounded-lg shadow-lg mt-3">
-      <QhxTabs
-        sticky
-        panel-min-height="min(50vh, 480px)"
-        :tabs="['图鉴', '大事记']"
-        :tab-counts="shopContentTabCounts"
-      >
-        <QhxTabPanel :index="0">
-          <div class=" bg-white">
-            <LibraryList
-              :filter_list="[{ field: 'shop_id', op: 'and', value: id }]"
-              :size="'big'"
-              @count-change="shopLibraryTabCount = $event"
-            />
+      <div class="flex flex-wrap items-center justify-between gap-3 px-4 py-3 border-b border-gray-100 dark:border-gray-700/60">
+        <div class="flex items-center gap-2">
+          <h3 class="text-base font-semibold text-gray-900 dark:text-gray-100">图鉴</h3>
+          <span
+            v-if="shopLibraryTabCount != null && shopLibraryTabCount > 0"
+            class="text-xs text-gray-500 dark:text-gray-400"
+          >共 {{ shopLibraryTabCount }} 条</span>
+        </div>
+        <div
+          class="inline-flex rounded-full border border-gray-200 dark:border-gray-600 p-0.5 text-xs"
+          role="radiogroup"
+          aria-label="图鉴展示模式"
+        >
+          <button
+            type="button"
+            class="rounded-full px-3 py-1 transition-colors"
+            :class="librarySortMode === 0
+              ? 'bg-qhx-primary text-white shadow-sm'
+              : 'text-gray-600 hover:text-gray-900 dark:text-gray-300 dark:hover:text-gray-100'"
+            :aria-checked="librarySortMode === 0"
+            role="radio"
+            @click="onLibrarySortModeChange(0)"
+          >
+            列表
+          </button>
+          <button
+            type="button"
+            class="rounded-full px-3 py-1 transition-colors"
+            :class="librarySortMode === 1
+              ? 'bg-qhx-primary text-white shadow-sm'
+              : 'text-gray-600 hover:text-gray-900 dark:text-gray-300 dark:hover:text-gray-100'"
+            :aria-checked="librarySortMode === 1"
+            role="radio"
+            @click="onLibrarySortModeChange(1)"
+          >
+            初贩时间轴
+          </button>
+        </div>
+      </div>
+      <div class="bg-white dark:bg-gray-900 min-h-[min(50vh,480px)]">
+        <ClientOnly>
+          <QhxWaterList
+            v-if="layoutReady && librarySortMode === 0"
+            ref="waterListRef"
+            :fetch-data="fetchShopLibraryList"
+            :columns="5"
+            :item-key="0"
+            :columns_768="2"
+            :enable-waterfall="true"
+            :enable-load-more="true"
+            class-name="px-2 pb-8"
+          >
+            <template #default="{ item, debouncedApplyLayout }">
+              <div class="custom-item" :key="item.library_id">
+                <LibraryItem
+                  :item="item"
+                  size="big"
+                  @image-load="debouncedApplyLayout"
+                />
+              </div>
+            </template>
+          </QhxWaterList>
+          <div v-else-if="layoutReady && librarySortMode === 1" class="px-1 pb-[max(2rem,env(safe-area-inset-bottom))] max-md:px-0 md:px-2">
+            <div
+              v-if="timelineLoading && timelineLibraryList.length === 0"
+              class="flex items-center justify-center py-16 text-sm text-gray-500 dark:text-gray-400"
+            >
+              加载中...
+            </div>
+            <template v-else>
+              <LibraryTimeline :list="timelineLibraryList" />
+              <div v-if="timelineLibraryList.length > 0 && !timelineFinished" class="flex justify-center py-4">
+                <QhxJellyButton>
+                  <button
+                    type="button"
+                    class="inline-flex items-center gap-1.5 px-4 py-2 text-sm rounded-full border border-qhx-primary/40 text-qhx-primary hover:bg-qhx-primary/5 disabled:opacity-50"
+                    :disabled="timelineLoading"
+                    @click="loadMoreTimeline"
+                  >
+                    {{ timelineLoading ? '加载中...' : '加载更多' }}
+                  </button>
+                </QhxJellyButton>
+              </div>
+              <div
+                v-else-if="!timelineLoading && timelineLibraryList.length === 0"
+                class="py-12 text-center text-sm text-gray-500 dark:text-gray-400"
+              >
+                暂无图鉴数据
+              </div>
+            </template>
           </div>
-        </QhxTabPanel>
-        <QhxTabPanel :index="1">
-          <template #default="{ isActive }">
-            <EventRedblack
-              v-if="isActive"
-              :pk_id="detail.shop_id"
-              :pk_type="0"
-              :can_load="isActive"
-              @load="shopEventTabCount = $event"
-            />
-          </template>
-        </QhxTabPanel>
-      </QhxTabs>
+        </ClientOnly>
+      </div>
     </div>
     <LibraryPipeManage ref="libraryPipeManageRef" />
     <PhysicalShopModal
@@ -408,7 +844,157 @@ watch(
 </template>
 
 <style scoped>
+.shop-fab-stack {
+  transform-origin: top right;
+}
 
+.shop-fab-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  border: 2px solid color-mix(in srgb, var(--primary-color, #ff9eb5) 55%, transparent);
+  background: color-mix(in srgb, var(--primary-color, #ff9eb5) 5%, #fff);
+  color: var(--primary-color, #ff9eb5);
+  font-family: ui-serif, Georgia, 'Times New Roman', 'Songti SC', 'STSong', serif;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.07em;
+  white-space: nowrap;
+  cursor: pointer;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.65),
+    0 2px 8px rgba(0, 0, 0, 0.06);
+  transition:
+    background 0.2s ease,
+    border-color 0.2s ease,
+    transform 0.16s ease;
+}
+
+.shop-fab-btn:hover {
+  background: color-mix(in srgb, var(--primary-color, #ff9eb5) 9%, #fff);
+  border-color: color-mix(in srgb, var(--primary-color, #ff9eb5) 68%, transparent);
+}
+
+.shop-fab-btn:active {
+  transform: scale(0.97);
+}
+
+.dark .shop-fab-btn {
+  background: color-mix(in srgb, var(--primary-color, #ff9eb5) 10%, rgba(17, 24, 39, 0.72));
+  border-color: color-mix(in srgb, var(--primary-color, #ff9eb5) 58%, rgba(255, 255, 255, 0.12));
+  color: color-mix(in srgb, var(--primary-color, #ff9eb5) 78%, #fce7f3);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 2px 10px rgba(0, 0, 0, 0.28);
+}
+
+.dark .shop-fab-btn:hover {
+  background: color-mix(in srgb, var(--primary-color, #ff9eb5) 16%, rgba(17, 24, 39, 0.78));
+}
+
+.shop-fab-btn--toggle {
+  padding: 0.22rem 0.38rem;
+}
+
+.shop-fab-btn--action {
+  padding: 0.24rem 0.48rem 0.24rem 0.42rem;
+}
+
+.shop-fab-btn__inner {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+}
+
+.shop-fab-btn__icon {
+  width: 0.875rem;
+  height: 0.875rem;
+  flex-shrink: 0;
+}
+
+.shop-fab-btn__label {
+  line-height: 1.2;
+}
+
+.shop-fab-badge {
+  position: absolute;
+  top: -0.45rem;
+  right: -0.55rem;
+  z-index: 10;
+  display: flex;
+  min-height: 1rem;
+  min-width: 1rem;
+  align-items: center;
+  justify-content: center;
+  padding: 0 0.2rem;
+  border-radius: 9999px;
+  border: 1px solid rgba(255, 255, 255, 0.65);
+  background: #ef4444;
+  color: #fff;
+  font-family: ui-serif, Georgia, 'Times New Roman', 'Songti SC', 'STSong', serif;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+}
+
+.shop-fab-badge--corner {
+  top: -0.45rem;
+  right: -0.55rem;
+}
+
+.shop-fab-panel-enter-active,
+.shop-fab-panel-leave-active {
+  transition:
+    opacity 0.28s cubic-bezier(0.22, 1, 0.36, 1),
+    transform 0.32s cubic-bezier(0.22, 1, 0.36, 1),
+    max-height 0.34s cubic-bezier(0.22, 1, 0.36, 1);
+  overflow: hidden;
+  transform-origin: top right;
+}
+
+.shop-fab-panel-enter-from,
+.shop-fab-panel-leave-to {
+  opacity: 0;
+  transform: translateY(-10px) scale(0.94);
+  max-height: 0;
+}
+
+.shop-fab-panel-enter-to,
+.shop-fab-panel-leave-from {
+  max-height: 4rem;
+}
+
+.shop-fab-panel-enter-active .shop-fab-btn--action {
+  transition:
+    opacity 0.26s cubic-bezier(0.22, 1, 0.36, 1),
+    transform 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.shop-fab-panel-leave-active .shop-fab-btn--action {
+  transition:
+    opacity 0.18s ease,
+    transform 0.2s ease;
+}
+
+.shop-fab-panel-enter-from .shop-fab-btn--action,
+.shop-fab-panel-leave-to .shop-fab-btn--action {
+  opacity: 0;
+  transform: translateY(-6px);
+}
+
+.shop-fab-toggle-icon {
+  transition: transform 0.32s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.shop-fab-toggle-icon--expanded {
+  transform: rotate(180deg);
+}
 </style>
 
 

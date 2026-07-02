@@ -40,6 +40,9 @@ function replayAllAnimations(
 ) {
 	core.ensureAnimationBaseTransform(obj)
 	core.reapplyGsapAnimations(obj)
+	if (core.editMode) {
+		core.syncSatelliteOrbitHelpers()
+	}
 }
 
 function normalizeAnimationEffects(obj: THREE.Object3D) {

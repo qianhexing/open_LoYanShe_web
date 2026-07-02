@@ -174,7 +174,7 @@ async function savePreviewToAlbum() {
     return
   }
   try {
-    await saveToAlbum(url, { docFilename: `_doc/library_share_${Date.now()}.png` })
+    await saveToAlbum(url, { docFilename: `_doc/library_share_${Date.now()}.jpg` })
     toast.add({ title: '已保存到相册', color: 'green', icon: 'i-heroicons-check-circle' })
   } catch (e) {
     console.error(e)
@@ -238,7 +238,7 @@ async function generateAndUpload() {
     const bundle: LibraryShareImageBundle = await prepareLibraryShareImages(enriched)
     const canvas = drawLibraryShareCanvas(enriched, bundle)
     const blob = await new Promise<Blob | null>((resolve) =>
-      canvas.toBlob((b) => resolve(b), 'image/png', 0.92),
+      canvas.toBlob((b) => resolve(b), 'image/jpeg', 0.92),
     )
     if (!blob) {
       errorMsg.value = '生成图片失败'
@@ -247,8 +247,8 @@ async function generateAndUpload() {
     }
     const file = new File(
       [blob],
-      `library-share-${payload.libraryId ?? Date.now()}-${Date.now()}.png`,
-      { type: 'image/png' },
+      `library-share-${payload.libraryId ?? Date.now()}-${Date.now()}.jpg`,
+      { type: 'image/jpeg' },
     )
     const res = await uploadImageToTemp(file)
     if (!res?.file_url) {

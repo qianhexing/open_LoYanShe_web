@@ -221,6 +221,8 @@
 	"addLibrary.complete_no": "未完成",
 	"addLibrary.leave_unsaved_confirm": "确定要离开当前页面吗？",
 	"addShop.loading": "加载中...",
+	"addShop.page_title_add": "新增店铺",
+	"addShop.page_title_edit": "修改店铺",
 	"addShop.notice_title": "注意！",
 	"addShop.notice_desc": "添加之前最好可以加群和我沟通一下基础规则QQ群号679654177，尽量使用已有词条",
 	"addShop.restrict_notice_title": "强烈提示",

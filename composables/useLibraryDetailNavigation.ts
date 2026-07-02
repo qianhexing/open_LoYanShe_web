@@ -1,4 +1,5 @@
 import { useConfigStore } from '@/stores/config'
+import type { AblumForeign } from '@/types/api'
 
 const SITE_ORIGIN = 'https://lolitalibrary.com'
 
@@ -81,6 +82,124 @@ export function openLibraryDetailTab(
     '_blank',
     'noopener,noreferrer'
   )
+}
+
+/**
+ * 打开帖子详情：UniApp outerLink2 / 鸿蒙 CommunityDetail / 浏览器新标签。
+ * 与 `pages/journal/[id].vue`、`CommunityItem` 跳转行为对齐。
+ */
+export function openCommunityDetailTab(
+  communityId: number | string | null | undefined
+): void {
+  if (communityId == null || communityId === '') return
+  const idNum = Number(communityId)
+  if (!Number.isFinite(idNum)) return
+  if (!import.meta.client || typeof window === 'undefined') return
+
+  const configStore = useConfigStore()
+  const uniApi = configStore.uniWebviewJs
+  const fullUrl = `${SITE_ORIGIN}/community/detail/${idNum}`
+
+  if (isHtml5PlusWebview() && uniApi?.navigateTo) {
+    uniApi.navigateTo({
+      url: `/pages/common/outerLink2?url=${fullUrl}`,
+      fail: () => {
+        console.warn('[libraryNav] uni community 跳转失败', fullUrl)
+      }
+    })
+    return
+  }
+
+  const port = configStore.getPort()
+  if (port) {
+    try {
+      port.postMessage(
+        JSON.stringify({
+          type: 'jump',
+          path: 'CommunityDetail',
+          params: { id: idNum }
+        })
+      )
+    } catch {
+      openLibraryWebPath(`/community/detail/${idNum}`)
+    }
+    return
+  }
+
+  openLibraryWebPath(`/community/detail/${idNum}`)
+}
+
+/** 打开服饰详情：UniApp outerLink2 / 鸿蒙 Outlink / 浏览器新标签。 */
+export function openClothesDetailTab(
+  clothesId: number | string | null | undefined
+): void {
+  if (clothesId == null || clothesId === '') return
+  const idNum = Number(clothesId)
+  if (!Number.isFinite(idNum)) return
+  openLibraryWebPath(`/clothes/detail/${idNum}`)
+}
+
+/** 打开搭配详情：UniApp outerLink2 / 鸿蒙 Outlink / 浏览器新标签。 */
+export function openMatchingDetailTab(
+  matchingId: number | string | null | undefined
+): void {
+  if (matchingId == null || matchingId === '') return
+  const idNum = Number(matchingId)
+  if (!Number.isFinite(idNum)) return
+  openLibraryWebPath(`/matching/detail/${idNum}`)
+}
+
+/** 相册打卡关联内容是否可跳转 */
+export function canJumpAlbumForeignRelated(
+  pkType: number | null | undefined,
+  foreign: AblumForeign | null | undefined
+): boolean {
+  if (!foreign || pkType == null) return false
+  switch (pkType) {
+    case 1:
+      return !!foreign.community?.community_id
+    case 2:
+      return !!foreign.wardrobe_clothes?.clothes_id
+    case 3:
+      return !!foreign.matching_list?.matching_id
+    case 4:
+      return !!foreign.library?.library_id
+    default:
+      return false
+  }
+}
+
+/** 打开相册打卡关联内容详情（按 pk_type 分发，兼容多运行环境） */
+export function openAlbumForeignRelatedContent(
+  pkType: number | null | undefined,
+  foreign: AblumForeign | null | undefined
+): boolean {
+  if (!canJumpAlbumForeignRelated(pkType, foreign) || !foreign) return false
+
+  switch (pkType) {
+    case 1: {
+      const communityId = foreign.community?.community_id
+      if (communityId) openCommunityDetailTab(communityId)
+      return !!communityId
+    }
+    case 2: {
+      const clothesId = foreign.wardrobe_clothes?.clothes_id
+      if (clothesId) openClothesDetailTab(clothesId)
+      return !!clothesId
+    }
+    case 3: {
+      const matchingId = foreign.matching_list?.matching_id
+      if (matchingId) openMatchingDetailTab(matchingId)
+      return !!matchingId
+    }
+    case 4: {
+      const libraryId = foreign.library?.library_id
+      if (libraryId) openLibraryDetailTab(libraryId)
+      return !!libraryId
+    }
+    default:
+      return false
+  }
 }
 
 /**

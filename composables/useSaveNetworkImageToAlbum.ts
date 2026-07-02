@@ -122,8 +122,77 @@ function trySaveWithGlobalUni(url: string): Promise<boolean> {
 }
 
 export interface SaveNetworkImageToAlbumOptions {
-  /** plus 下载落地文件名，默认 `_doc/share_img_${timestamp}.png` */
+  /** plus 下载落地文件名，默认 `_doc/share_img_${timestamp}.jpg` */
   docFilename?: string
+  /** 浏览器下载时的文件名 */
+  filename?: string
+}
+
+function isMobileIOSBrowser(): boolean {
+  if (import.meta.server || typeof navigator === 'undefined') return false
+  return /iPad|iPhone|iPod/i.test(navigator.userAgent) && !isHtml5PlusWebView()
+}
+
+function triggerBlobDownload(blob: Blob, filename: string) {
+  const objectUrl = URL.createObjectURL(blob)
+  try {
+    const a = document.createElement('a')
+    a.href = objectUrl
+    a.download = filename
+    a.style.display = 'none'
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+  } finally {
+    URL.revokeObjectURL(objectUrl)
+  }
+}
+
+/**
+ * 普通浏览器：fetch 后触发下载；iOS 浏览器失败时新开标签页供用户长按保存。
+ */
+export async function saveImageInBrowser(
+  url: string,
+  filename?: string
+): Promise<'download' | 'opened'> {
+  if (import.meta.server) {
+    throw new Error('saveImageInBrowser 仅在客户端可用')
+  }
+  const u = url.trim()
+  if (!u) {
+    throw new Error('图片地址为空')
+  }
+  const name = filename ?? `image_${Date.now()}.jpg`
+  try {
+    const res = await fetch(u, { mode: 'cors', credentials: 'omit' })
+    if (!res.ok) throw new Error(`fetch ${res.status}`)
+    const blob = await res.blob()
+    triggerBlobDownload(blob, name)
+    return 'download'
+  } catch (e) {
+    if (isMobileIOSBrowser()) {
+      window.open(u, '_blank', 'noopener,noreferrer')
+      return 'opened'
+    }
+    throw e instanceof Error ? e : new Error('下载失败')
+  }
+}
+
+export type SaveImageResult = 'album' | 'download' | 'opened'
+
+/**
+ * 按环境保存图片：App WebView 写入相册，浏览器触发下载或打开新页。
+ */
+export async function saveImageFromUrl(
+  url: string,
+  options?: SaveNetworkImageToAlbumOptions
+): Promise<SaveImageResult> {
+  if (isHtml5PlusWebView()) {
+    await saveNetworkImageToAlbum(url, options)
+    return 'album'
+  }
+  const result = await saveImageInBrowser(url, options?.filename)
+  return result
 }
 
 /**
@@ -148,7 +217,7 @@ export async function saveNetworkImageToAlbum(
   }
   if (!ok) {
     const plusRt = await whenPlusReady()
-    const docFilename = options?.docFilename ?? `_doc/share_img_${Date.now()}.png`
+    const docFilename = options?.docFilename ?? `_doc/share_img_${Date.now()}.jpg`
     await saveRemoteImageWithPlus(plusRt, u, docFilename)
   }
 }
@@ -169,8 +238,19 @@ export function useSaveNetworkImageToAlbum() {
     }
   }
 
+  const saveImage = async (url: string, options?: SaveNetworkImageToAlbumOptions) => {
+    if (import.meta.server || saving.value) return undefined
+    saving.value = true
+    try {
+      return await saveImageFromUrl(url, options)
+    } finally {
+      saving.value = false
+    }
+  }
+
   return {
     saving: readonly(saving),
     saveToAlbum,
+    saveImage,
   }
 }

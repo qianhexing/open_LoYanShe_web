@@ -79,7 +79,7 @@ const BASE_HEIGHT = 1334
 // 颜色配置
 const COLORS = {
   bg: '#fffcfc',
-  primary: '#ec4899', // pink-500
+  primary: '#ff9eb5', // pink-500
   secondary: '#a855f7', // purple-500
   text: '#1f2937', // gray-800
   textLight: '#9ca3af', // gray-400
@@ -406,7 +406,7 @@ const drawPoster = async () => {
     ctx.save()
     roundRect(ctx, rightCardX, currentY, RIGHT_COL_WIDTH, CARD_HEIGHT, 30)
     const cardGradient = ctx.createLinearGradient(rightCardX, currentY, rightCardX + RIGHT_COL_WIDTH, currentY + CARD_HEIGHT)
-    cardGradient.addColorStop(0, '#ec4899')
+    cardGradient.addColorStop(0, '#ff9eb5')
     cardGradient.addColorStop(1, '#9333ea')
     ctx.fillStyle = cardGradient
     ctx.shadowColor = 'rgba(236, 72, 153, 0.2)'
@@ -833,9 +833,9 @@ const drawPoster = async () => {
 const downloadPoster = () => {
   if (!canvasRef.value) return
   try {
-    const dataURL = canvasRef.value.toDataURL('image/png')
+    const dataURL = canvasRef.value.toDataURL('image/jpeg', 0.92)
     const link = document.createElement('a')
-    link.download = `Lo研社_年度总结_${props.currentYear}.png`
+    link.download = `Lo研社_年度总结_${props.currentYear}.jpg`
     link.href = dataURL
     document.body.appendChild(link)
     link.click()

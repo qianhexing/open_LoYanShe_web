@@ -1,0 +1,52 @@
+---
+description: 优先使用 Qhx 组件库，无对应组件再考虑其他方案
+alwaysApply: true
+---
+
+# Qhx 组件优先
+
+实现 UI 或交互时，**必须先查 `components/Qhx/`**，有对应能力就用 Qhx；只有 Qhx 没有、且业务组件也无法复用时，才考虑第三方库或手写。
+
+## 决策顺序
+
+1. 在 `components/Qhx/` 中查找是否已有组件
+2. 若无完全匹配，优先扩展或组合现有 Qhx 组件
+3. 仍无法满足时，再查项目内业务组件（如 `components/library/`、`components/Wardrobe/` 等）
+4. 最后才考虑引入新依赖或从零实现
+
+## 导入约定
+
+```vue
+import QhxModal from '@/components/Qhx/Modal.vue'
+import type QhxSelect from '@/components/Qhx/Select.vue'
+```
+
+- 路径统一：`@/components/Qhx/<Name>.vue`
+- 模板中使用 `Qhx` 前缀（如 `<QhxModal>`、`<QhxSelect>`）
+
+## Qhx 组件清单
+
+| 场景 | 组件 |
+|------|------|
+| 弹窗 / 对话框 | `Modal` |
+| 抽屉 | `Drawer`、`BottomDrawer` |
+| 选择器 | `Select`、`ScrollPicker`、`DatePicker`、`DateTimePicker`、`HorizontalDatePicker`、`ColorPicker`、`ImageCanvasColorPicker` |
+| 图片 | `ImagePicker`、`PreviewImage`、`ImageLightbox` |
+| 编辑器 | `RichTextEditor`、`Editor`、`ChatTextarea`、`AiChatRichComposer` |
+| 列表 / 布局 | `WaterList`、`SortableList`、`Carousel`、`TabPanel`、`Tabs` |
+| 反馈 / 引导 | `Loading`、`StepGuide`、`Popover` |
+| 输入 / 调节 | `NumberStepper`、`DualRange`、`Tag` |
+| 按钮 | `JellyButton`、`FloatingButton` |
+| 其他 | `TimePipe`、`VideoUploader`、`emoji` |
+
+新增页面或改 UI 前，先对照上表；不确定时先 `Glob` / 搜索 `components/Qhx/`。
+
+## 禁止
+
+- 不经查找就直接用 Element Plus、Naive UI 等替代 Qhx 已有能力
+- 重复造轮子（如再写一套 Modal、图片选择器、日期选择器）
+- 在业务组件里复制 Qhx 逻辑，应直接引用 Qhx
+
+## 例外
+
+仅当 Qhx 确实无对应组件，或 Qhx 组件明确无法满足需求（并说明原因）时，才可选用其他方案。

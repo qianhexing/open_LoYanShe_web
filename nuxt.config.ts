@@ -23,6 +23,8 @@ export default defineNuxtConfig({
   },
 	nitro: {
 		routeRules: {
+			'/wardrobe/**': { ssr: false },
+			'/community/detail/**': { ssr: false },
 			'/node/**': {
 				proxy: 'https://lolitalibrary.com/node/**'
 			},

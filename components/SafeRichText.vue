@@ -95,13 +95,20 @@ function isAllowedIframeSrc(val: string): boolean {
   }
 }
 
-async function onRichLinkClick(ev: MouseEvent, node: RichNode) {
+function isInUniAppShell(): boolean {
+  return typeof window !== 'undefined' && navigator.userAgent.includes('Html5Plus')
+}
+
+function openLinkInNewTab(href: string) {
+  window.open(toAbsoluteUrl(href), '_blank', 'noopener,noreferrer')
+}
+
+function onSafeLinkClick(ev: MouseEvent, href: string | null) {
   if (import.meta.server) return
   if (ev.defaultPrevented) return
   if (ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.altKey) return
   if (ev.button !== 0) return
 
-  const href = getAnchorHref(node)
   if (!href) {
     ev.preventDefault()
     return
@@ -114,20 +121,14 @@ async function onRichLinkClick(ev: MouseEvent, node: RichNode) {
   ev.preventDefault()
 
   const uni = configStore.uniWebviewJs
-  const navigateToOuter = uni?.navigateTo
   const abs = toAbsoluteUrl(href)
-  console.log(abs, 'abs')
   const toast = useToast()
-  const isInUniApp =
-    typeof window !== 'undefined' &&
-    navigator.userAgent.includes('Html5Plus');
 
-  if (isInUniApp && typeof uni !== 'undefined' && uni?.navigateTo) {
+  if (isInUniAppShell() && typeof uni !== 'undefined' && uni?.navigateTo) {
     // UniApp WebView 环境 - 使用 outerlink
     uni.navigateTo({
       url: `/pages/common/outerLink?url=${abs}`,
       fail: () => {
-        console.log('跳转错误')
         toast.add({
           title: '路径调试',
           description: abs,
@@ -135,18 +136,16 @@ async function onRichLinkClick(ev: MouseEvent, node: RichNode) {
           color: 'red'
         })
       }
-    });
+    })
     return
   }
-  if (href.startsWith('/') && !href.startsWith('//')) {
-    await navigateTo(href)
-    return
-  }
-  if (/^https?:\/\//i.test(href)) {
-    window.open(href, '_blank', 'noopener,noreferrer')
-    return
-  }
-  window.location.href = href
+
+  // 网页版：站内/站外链接均新页签打开
+  openLinkInNewTab(href)
+}
+
+function onRichLinkClick(ev: MouseEvent, node: RichNode) {
+  onSafeLinkClick(ev, getAnchorHref(node))
 }
 
 // 合法标签
@@ -262,13 +261,16 @@ function getSafeAttrs(tag: string, attrs: Record<string, string>): Record<string
       <template v-else>{{ node.text }}</template>
     </a>
 
-    <NuxtLink
+    <a
       v-else-if="userSpacePathForMentionSpan(node)"
-      :to="userSpacePathForMentionSpan(node)!"
+      :href="userSpacePathForMentionSpan(node)!"
+      target="_blank"
+      rel="noopener noreferrer"
       class="inline font-medium rounded px-1 text-sky-600 underline-offset-2 hover:text-sky-700 hover:underline dark:text-sky-400 dark:hover:text-sky-300 bg-sky-500/[0.09]"
+      @click="onSafeLinkClick($event, userSpacePathForMentionSpan(node))"
     >
       {{ mentionSpanDisplay(node) }}
-    </NuxtLink>
+    </a>
 
     <div
       v-else-if="node.name === 'vote'"

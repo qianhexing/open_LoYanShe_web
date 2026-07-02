@@ -93,11 +93,11 @@ export const SCENE_EDIT_GUIDE_STEPS: SceneEditGuideStep[] = [
   },
   {
     id: 'texture-panel',
-    title: '贴图替换',
+    title: '贴图 / 视频替换',
     targetId: 'scene-guide-texture-panel',
     placement: 'right',
     description:
-      '列出名称含 replace 的可替换网格。选中一项即可打开贴图编辑器；也可在画布中选中物体后，通过底部操作条进入贴图。',
+      '列出名称含 replace 的可替换网格。选中一项即可打开贴图/视频编辑器，可更换图片或视频贴图；也可在画布中选中物体后，通过底部操作条进入。',
     layout: { collapseAllLists: true }
   },
   {

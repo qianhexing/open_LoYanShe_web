@@ -28,6 +28,10 @@
 </template>
 
 <script setup lang="ts">
+definePageMeta({
+  ssr: false,
+})
+
 import { ref, onMounted, computed } from 'vue'
 import { useUserStore } from '@/stores/user'
 import { getUserMy } from '@/api/user'
@@ -150,14 +154,14 @@ const handleLoginSuccess = async () => {
 }
 
 onMounted(async () => {
-  uni = await import('@dcloudio/uni-webview-js').catch((err) => {
-    console.error('Failed to load uni-webview-js:', err)
-  })
-  
-  // 延迟检查，确保 store 已初始化
-  setTimeout(() => {
-    checkLoginAndJump()
-  }, 100)
+  await Promise.all([
+    import('@dcloudio/uni-webview-js')
+      .then((mod) => { uni = mod })
+      .catch((err) => {
+        console.error('Failed to load uni-webview-js:', err)
+      }),
+    checkLoginAndJump(),
+  ])
 })
 
 useHead({

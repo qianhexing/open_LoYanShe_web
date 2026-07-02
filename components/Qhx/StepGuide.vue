@@ -19,11 +19,17 @@ const props = withDefaults(
     modelValue: boolean
     steps: StepGuideItem[]
     storageKey?: string
+    /** 左侧次要操作文案，如「不再提示」 */
+    skipLabel?: string
+    /** 完成全部步骤时是否写入 storageKey；为 false 时仅 skip 会持久化 */
+    persistOnFinish?: boolean
     zIndex?: number
     overlayOpacity?: number
     holeRadius?: number
   }>(),
   {
+    skipLabel: '跳过',
+    persistOnFinish: true,
     zIndex: 210,
     overlayOpacity: 0.72,
     holeRadius: 12
@@ -182,7 +188,9 @@ function closeGuide() {
 }
 
 function finishGuide() {
-  persistCompleted()
+  if (props.persistOnFinish) {
+    persistCompleted()
+  }
   emit('finish')
   closeGuide()
 }
@@ -307,7 +315,7 @@ defineExpose({
                 class="text-sm text-gray-500 transition-colors duration-200 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200"
                 @click="skipGuide"
               >
-                跳过
+                {{ skipLabel }}
               </button>
               <div class="flex gap-2">
                 <UButton

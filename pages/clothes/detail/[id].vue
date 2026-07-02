@@ -3651,9 +3651,9 @@ const showEditPlan = (e?: MouseEvent) => {
   align-items: center;
   justify-content: center;
   border-radius: 9999px;
-  border: 2px solid color-mix(in srgb, var(--primary-color, #ec4899) 55%, transparent);
-  background: color-mix(in srgb, var(--primary-color, #ec4899) 5%, #fff);
-  color: var(--primary-color, #ec4899);
+  border: 2px solid color-mix(in srgb, var(--primary-color, #ff9eb5) 55%, transparent);
+  background: color-mix(in srgb, var(--primary-color, #ff9eb5) 5%, #fff);
+  color: var(--primary-color, #ff9eb5);
   font-family: ui-serif, Georgia, 'Times New Roman', 'Songti SC', 'STSong', serif;
   font-size: 10px;
   font-weight: 500;
@@ -3672,8 +3672,8 @@ const showEditPlan = (e?: MouseEvent) => {
 }
 
 .clothes-fab-btn:hover {
-  background: color-mix(in srgb, var(--primary-color, #ec4899) 9%, #fff);
-  border-color: color-mix(in srgb, var(--primary-color, #ec4899) 68%, transparent);
+  background: color-mix(in srgb, var(--primary-color, #ff9eb5) 9%, #fff);
+  border-color: color-mix(in srgb, var(--primary-color, #ff9eb5) 68%, transparent);
 }
 
 .clothes-fab-btn:active {
@@ -3681,16 +3681,16 @@ const showEditPlan = (e?: MouseEvent) => {
 }
 
 .dark .clothes-fab-btn {
-  background: color-mix(in srgb, var(--primary-color, #ec4899) 10%, rgba(17, 24, 39, 0.72));
-  border-color: color-mix(in srgb, var(--primary-color, #ec4899) 58%, rgba(255, 255, 255, 0.12));
-  color: color-mix(in srgb, var(--primary-color, #ec4899) 78%, #fce7f3);
+  background: color-mix(in srgb, var(--primary-color, #ff9eb5) 10%, rgba(17, 24, 39, 0.72));
+  border-color: color-mix(in srgb, var(--primary-color, #ff9eb5) 58%, rgba(255, 255, 255, 0.12));
+  color: color-mix(in srgb, var(--primary-color, #ff9eb5) 78%, #fce7f3);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.08),
     0 2px 10px rgba(0, 0, 0, 0.28);
 }
 
 .dark .clothes-fab-btn:hover {
-  background: color-mix(in srgb, var(--primary-color, #ec4899) 16%, rgba(17, 24, 39, 0.78));
+  background: color-mix(in srgb, var(--primary-color, #ff9eb5) 16%, rgba(17, 24, 39, 0.78));
 }
 
 .clothes-fab-btn--toggle {

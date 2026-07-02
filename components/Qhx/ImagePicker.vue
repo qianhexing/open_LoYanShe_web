@@ -100,14 +100,10 @@
         </template>
       </Draggable>
       <ClientOnly>
-        <vue-easy-lightbox
+        <QhxImageLightbox
           :visible="lightboxVisible"
           :imgs="lightboxImgs"
           :index="lightboxIndex"
-          append-to-body
-          :teleport="'body'"
-          :zoomScale="0.4"
-          :maxZoom="5"
           @hide="lightboxVisible = false"
         />
       </ClientOnly>
@@ -137,7 +133,6 @@
 
 <script setup lang="ts">
 import Draggable from "vuedraggable"
-import VueEasyLightbox from 'vue-easy-lightbox'
 import { BASE_IMG } from '@/utils/ipConfig'
 import { useImageUploadStore } from '@/stores/imageUpload'
 const emit = defineEmits<(e: 'update:files', value: File[]) => void>()

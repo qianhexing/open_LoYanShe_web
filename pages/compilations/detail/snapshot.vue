@@ -463,8 +463,8 @@ const downloadChunk = async (index: number) => {
   }
 
   const link = document.createElement('a')
-  link.download = `${detail.value?.comp_name ?? '合集'}_${index + 1}.png`
-  link.href = canvas.toDataURL('image/png')
+  link.download = `${detail.value?.comp_name ?? '合集'}_${index + 1}.jpg`
+  link.href = canvas.toDataURL('image/jpeg', 0.92)
   link.click()
 }
 

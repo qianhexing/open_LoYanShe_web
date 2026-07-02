@@ -94,6 +94,13 @@
                   />
                   <span class="text-xs text-gray-600">只看新增</span>
                 </div>
+                <div v-if="user" class="flex items-center gap-2">
+                  <UToggle
+                    v-model="plantGrassMode"
+                    color="primary"
+                  />
+                  <span class="text-xs text-gray-600">种草模式</span>
+                </div>
                 <QhxSelect ref="qhxSelectRef" :options="filterStateOptions" :default-value="filterStateOptions[1]"
                   :canCustomize="false" @select="(select) => {
                     filterState = select.value
@@ -135,7 +142,22 @@
               <template #default="{ item, debouncedApplyLayout }">
                 <!-- 自定义内容 -->
                 <div class="custom-item mr-[1px] mb-1" :key="item.pipe_id">
-                  <div class="polaroid-card">
+                  <div class="polaroid-card relative">
+                    <div
+                      v-if="plantGrassMode && item.item?.library_id"
+                      class="absolute top-1 right-1 z-20 h-8 w-8 flex items-center justify-center cursor-pointer"
+                      @click.stop="handlePlantGrassToggle(item.item, $event)"
+                    >
+                      <div
+                        class="m-[2px] rounded-full h-6 w-6 flex items-center justify-center shadow"
+                        :class="plantGrassCartStore.hasLibrary(item.item.library_id) ? 'bg-red-500 text-white' : 'bg-qhx-primary text-white'"
+                      >
+                        <UIcon
+                          :name="plantGrassCartStore.hasLibrary(item.item.library_id) ? 'i-heroicons-trash' : 'material-symbols:add-2'"
+                          class="text-[14px]"
+                        />
+                      </div>
+                    </div>
                     <div class="flex items-center px-2" :class="layout === '2' ? 'text-sm text-gray-600 gap-2 flex-wrap' : 'justify-between'">
                       <template v-if="layout === '2'">
                         <span>{{ formateState(item.state) }}</span>
@@ -156,6 +178,7 @@
                     </div>
                     <div v-if="item.item">
                       <LibraryItem :style="layout === '0' ? { marginTop: '-10px' } : { }" :className="'p-1'" :size="layout === '0' ? 'big' : layout === '1' ? 'mini-list' : 'text-only'" :item="item.item"
+                        :need-jump="!plantGrassMode"
                         @image-load="debouncedApplyLayout">
                         <template #tagInfo v-if="layout !== '0'">
                           <div v-if="item.library_list && item.library_list.length > 0">
@@ -523,6 +546,155 @@
       :user="user"
       @success="handleEmailBindSuccess"
     />
+
+    <!-- 种草车悬浮按钮 -->
+    <QhxFloatingButton
+      v-show="currentTab === 0 && plantGrassMode && plantGrassCartStore.count > 0"
+      initial-position="bottom-left"
+      :bottom-offset="plantGrassFabBottomOffset"
+    >
+      <div
+        ref="plantGrassBtnRef"
+        class="relative w-12 h-12 rounded-full bg-qhx-primary text-white flex items-center justify-center shadow-lg cursor-pointer"
+        @click="showPlantGrassDrawer = true"
+      >
+        <UIcon name="material-symbols:grass-rounded" class="text-2xl" />
+        <span
+          class="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 flex items-center justify-center text-[10px] font-bold rounded-full bg-red-500 text-white"
+        >
+          {{ plantGrassCartStore.count > 99 ? '99+' : plantGrassCartStore.count }}
+        </span>
+      </div>
+    </QhxFloatingButton>
+
+    <QhxBottomDrawer
+      v-if="showPlantGrassDrawer"
+      :direction="isMobile ? 'bottom' : 'right'"
+      :default-size="isMobile ? 480 : 420"
+      :content-padding="false"
+    >
+      <div class="flex flex-col h-full">
+        <div class="flex items-center justify-between mb-2 px-4 pt-3 flex-shrink-0">
+          <h3 class="text-base font-bold text-gray-800 dark:text-gray-200">
+            种草车 ({{ plantGrassCartStore.count }})
+          </h3>
+          <button
+            type="button"
+            class="w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+            @click="showPlantGrassDrawer = false"
+          >
+            <UIcon name="i-heroicons-x-mark" class="text-gray-500" />
+          </button>
+        </div>
+        <div class="flex-1 overflow-y-auto px-4 pb-4 min-h-0">
+          <div v-if="plantGrassCartStore.list.length === 0" class="text-center py-12 text-gray-500">
+            暂无图鉴，开启种草模式后点击加号添加
+          </div>
+          <div v-else class="space-y-3">
+            <div
+              v-for="cartItem in plantGrassCartStore.list"
+              :key="cartItem.library_id"
+              class="rounded-xl border border-gray-100 dark:border-gray-700 bg-gray-50/80 dark:bg-gray-800/50 p-2"
+            >
+              <div class="flex items-center gap-3">
+                <div class="relative w-14 h-14 shrink-0 overflow-hidden rounded-lg bg-gray-200 dark:bg-gray-700 self-center">
+                  <img
+                    :src="`${BASE_IMG}${cartItem.cover || cartItem.square_cover}?x-oss-process=image/quality,q_80/resize,w_200`"
+                    class="h-full w-full object-cover"
+                    loading="lazy"
+                    draggable="false"
+                  />
+                </div>
+                <div class="flex-1 min-w-0 flex flex-col justify-center gap-0.5">
+                  <div class="text-sm font-medium text-gray-800 dark:text-gray-200 line-clamp-2">
+                    {{ cartItem.name }}
+                  </div>
+                  <div v-if="cartItem.library_type" class="text-xs text-gray-500">
+                    {{ cartItem.library_type }}
+                  </div>
+                  <TimepipePlantGrassScorePicker
+                    :model-value="cartItem.score"
+                    @update:model-value="plantGrassCartStore.setScore(cartItem.library_id, $event)"
+                  />
+                </div>
+                <button
+                  type="button"
+                  class="w-8 h-8 shrink-0 self-center rounded-full bg-red-500/90 hover:bg-red-500 text-white flex items-center justify-center"
+                  @click="plantGrassCartStore.remove(cartItem.library_id)"
+                >
+                  <UIcon name="i-heroicons-trash" class="text-sm" />
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="plant-grass-drawer-footer flex-shrink-0 border-t border-gray-200 dark:border-gray-700 px-3 pt-2 pb-2 bg-white/95 dark:bg-gray-900/95">
+          <button
+            type="button"
+            class="plant-grass-action-btn plant-grass-action-btn--primary w-full"
+            :disabled="plantGrassCartStore.count === 0 || plantGrassCollectLoading || plantGrassShareLoading"
+            @click="openPlantGrassShare"
+          >
+            <UIcon
+              v-if="plantGrassShareLoading"
+              name="i-heroicons-arrow-path"
+              class="h-4 w-4 shrink-0 animate-spin"
+            />
+            <span>生成分享图</span>
+          </button>
+          <div class="mt-1.5 grid grid-cols-2 gap-1.5">
+            <button
+              type="button"
+              class="plant-grass-action-btn plant-grass-action-btn--ghost min-w-0"
+              :disabled="plantGrassCartStore.count === 0 || plantGrassShareLoading || plantGrassCollectLoading"
+              @click="clearPlantGrassCart"
+            >
+              清空
+            </button>
+            <button
+              type="button"
+              class="plant-grass-action-btn plant-grass-action-btn--primary min-w-0"
+              :disabled="plantGrassCartStore.count === 0 || plantGrassShareLoading || plantGrassCollectLoading"
+              @click="collectAllPlantGrass"
+            >
+              <UIcon
+                v-if="plantGrassCollectLoading"
+                name="i-heroicons-arrow-path"
+                class="h-4 w-4 shrink-0 animate-spin"
+              />
+              <span>全部收藏</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </QhxBottomDrawer>
+
+    <QhxModal v-model="showPlantGrassShareModal">
+      <div class="flex max-h-[90vh] w-[min(94vw,440px)] flex-col overflow-hidden rounded-2xl bg-[#ebe3e8] shadow-2xl dark:bg-[#241d26]">
+        <div class="flex shrink-0 items-center justify-between gap-2 border-b border-pink-200/40 px-4 py-3 dark:border-pink-900/35">
+          <span class="text-sm font-semibold text-[#4a2f3d] dark:text-pink-50">种草分享图</span>
+          <button
+            type="button"
+            class="flex h-9 w-9 items-center justify-center rounded-xl text-[#8a6f7d] outline-none transition hover:bg-black/5 dark:text-pink-300/85 dark:hover:bg-white/10"
+            aria-label="关闭"
+            @click="showPlantGrassShareModal = false"
+          >
+            <UIcon name="i-heroicons-x-mark-20-solid" class="h-5 w-5" />
+          </button>
+        </div>
+        <div class="min-h-0 flex-1 overflow-y-auto overscroll-contain p-3 sm:p-4">
+          <TimepipePlantGrassShare
+            v-if="shareCartSnapshot.length > 0"
+            ref="plantGrassShareRef"
+            :items="shareCartSnapshot"
+            :title="plantGrassShareTitle"
+            :date-label="plantGrassShareDateLabel"
+            :user-name="user?.user_name"
+            :user-face="user?.user_face"
+          />
+        </div>
+      </div>
+    </QhxModal>
     
   </div>
 </template>
@@ -551,6 +723,14 @@ import WikiOptionsChoose from '@/components/wiki/wikiOptionsChoose.vue'
 import type WikiOptionsChooseType from '@/components/wiki/wikiOptionsChoose.vue'
 import { getWikiOptionsByKeywords } from '@/api/wiki'
 import EmailBindModal from '@/components/user/EmailBindModal.vue'
+import QhxBottomDrawer from '@/components/Qhx/BottomDrawer.vue'
+import QhxFloatingButton from '@/components/Qhx/FloatingButton.vue'
+import TimepipePlantGrassScorePicker from '@/components/timepipe/TimepipePlantGrassScorePicker.vue'
+import type TimepipePlantGrassShare from '@/components/timepipe/TimepipePlantGrassShare.vue'
+import { batchInsertCollect, insertCollect, insertFavorite } from '@/api/collect'
+import { usePlantGrassCartStore, type PlantGrassCartItem } from '@/stores/plantGrassCart'
+import { useFlyToButton } from '@/composables/useFlyToButton'
+import { BASE_IMG } from '@/utils/ipConfig'
 const clothesAddRef = ref<InstanceType<typeof ClothesAdd> | null>(null)
 const favoriteOptionsModalRef = ref<InstanceType<typeof FavoriteOptionsModal> | null>(null)
 const libraryTypeColorChooseRef = ref<InstanceType<typeof LibraryTypeColorChoose> | null>(null)
@@ -595,6 +775,137 @@ import dayjs from 'dayjs'
 let uni: any;
 const showConfirm = ref(false)
 const toast = useToast()
+const plantGrassCartStore = usePlantGrassCartStore()
+const { flyToTarget } = useFlyToButton()
+const plantGrassMode = ref(false)
+const showPlantGrassDrawer = ref(false)
+const showPlantGrassShareModal = ref(false)
+const plantGrassShareLoading = ref(false)
+const plantGrassCollectLoading = ref(false)
+const plantGrassBtnRef = ref<HTMLElement | null>(null)
+const plantGrassShareRef = ref<InstanceType<typeof TimepipePlantGrassShare> | null>(null)
+const shareCartSnapshot = ref<PlantGrassCartItem[]>([])
+const plantGrassShareTitle = ref('种草单')
+const plantGrassShareDateLabel = ref('')
+
+const isMobile = computed(() => {
+  if (typeof window === 'undefined') return false
+  return windowWidth.value < 768
+})
+
+const plantGrassFabBottomOffset = computed(() => {
+  if (configStore.uniWebviewJs) return 88
+  if (isMobile.value) return 20
+  return 0
+})
+
+const handlePlantGrassToggle = (lib: Library, e?: MouseEvent) => {
+  if (!userStore.token.value) {
+    toast.add({ title: '请先登录', icon: 'i-heroicons-exclamation-circle', color: 'red' })
+    return
+  }
+  const id = lib.library_id
+  if (plantGrassCartStore.hasLibrary(id)) {
+    plantGrassCartStore.remove(id)
+    return
+  }
+  const sourceEl = e?.currentTarget as HTMLElement | null
+  const sourceRect = sourceEl?.getBoundingClientRect()
+  const imgSrc = lib.cover ? `${BASE_IMG}${lib.cover}` : ''
+  plantGrassCartStore.addFromLibrary(lib)
+  if (sourceRect && imgSrc) {
+    nextTick(() => {
+      flyToTarget(sourceRect, imgSrc, plantGrassBtnRef)
+    })
+  }
+}
+
+const snapshotPlantGrassCart = () => {
+  const dateLabel = dayjs(formatted.value).format('YYYY-MM-DD')
+  shareCartSnapshot.value = plantGrassCartStore.list.map((item) => ({ ...item }))
+  plantGrassShareTitle.value = `种草单 ${dayjs(formatted.value).format('YY-MM-DD')}`
+  plantGrassShareDateLabel.value = `上新日期 ${dateLabel} · 共 ${shareCartSnapshot.value.length} 件`
+}
+
+/** 仅生成分享图，不写入收藏夹、不清空种草车 */
+const openPlantGrassShare = async () => {
+  if (plantGrassCartStore.count === 0) return
+  if (plantGrassShareLoading.value) return
+  snapshotPlantGrassCart()
+  showPlantGrassShareModal.value = true
+  plantGrassShareLoading.value = true
+  try {
+    await nextTick()
+    await plantGrassShareRef.value?.generateAndUpload()
+  } finally {
+    plantGrassShareLoading.value = false
+  }
+}
+
+const clearPlantGrassCart = () => {
+  if (plantGrassCartStore.count === 0) return
+  plantGrassCartStore.clear()
+  toast.add({
+    title: '已清空种草车',
+    icon: 'i-heroicons-check-circle',
+    color: 'green',
+  })
+}
+
+/** 全部收藏至新收藏夹，成功后清空种草车 */
+const collectAllPlantGrass = async () => {
+  if (!userStore.token.value) {
+    toast.add({ title: '请先登录', icon: 'i-heroicons-exclamation-circle', color: 'red' })
+    return
+  }
+  if (plantGrassCartStore.count === 0) return
+  if (plantGrassCollectLoading.value) return
+
+  plantGrassCollectLoading.value = true
+  const dateLabel = dayjs(formatted.value).format('YYYY-MM-DD')
+  const favoriteName = `种草单 ${dayjs(formatted.value).format('YY-MM-DD')}`
+  try {
+    const favorite = await insertFavorite({
+      favorite_name: favoriteName,
+      collect_type: 2,
+      favorite_desc: `${dateLabel} 上新日历种草`,
+    })
+    const libraryIds = plantGrassCartStore.list.map((item) => item.library_id)
+    await batchInsertCollect({
+      favorite_id: favorite.id,
+      collect_type: 2,
+      ids: libraryIds,
+    })
+    await Promise.all(
+      plantGrassCartStore.list.map((item) =>
+        insertCollect({
+          ids: [favorite.id],
+          pk_id: item.library_id,
+          collect_type: 2,
+          json_data: { score: item.score },
+        })
+      )
+    )
+    plantGrassCartStore.clear()
+    toast.add({
+      title: '已全部收藏',
+      description: `图鉴已加入收藏夹「${favoriteName}」`,
+      icon: 'i-heroicons-check-circle',
+      color: 'green',
+    })
+  } catch (error) {
+    console.error(error)
+    toast.add({
+      title: '收藏失败',
+      description: '请稍后重试',
+      icon: 'i-heroicons-x-circle',
+      color: 'red',
+    })
+  } finally {
+    plantGrassCollectLoading.value = false
+  }
+}
+
 const userStore = storeToRefs(useUserStore())
 const { user } = userStore
 if (route.query?.token) {
@@ -1148,7 +1459,7 @@ const getStateColor = (state: number): string => {
     case 3: // 现货在售
       return '#10b981' // 绿色
     case 4: // 上新图透
-      return '#ec4899' // 粉色
+      return '#ff9eb5' // 粉色
     default:
       return '#6b7280' // 灰色（未知状态）
   }
@@ -1391,7 +1702,7 @@ watch(
 )
 
 onMounted(async () => {
-  
+  plantGrassCartStore.loadFromStorage()
   picked.value = new Date()
   getBrowTime()
   // 初始化筛选选项
@@ -1449,5 +1760,50 @@ onBeforeUnmount(() => {
 
 .text-gray-600 {
   color: #4b5563;
+}
+
+.plant-grass-drawer-footer {
+  padding-bottom: max(0.5rem, env(safe-area-inset-bottom, 0px));
+}
+
+.plant-grass-action-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.375rem;
+  min-height: 2.25rem;
+  padding: 0.375rem 0.625rem;
+  border-radius: 0.625rem;
+  border: 1px solid transparent;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  line-height: 1.25;
+  transition: opacity 0.15s ease, background-color 0.15s ease;
+}
+
+.plant-grass-action-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.plant-grass-action-btn--primary {
+  color: var(--qhx-inverted, #fff);
+  background-color: var(--qhx-primary, #ff9eb5);
+}
+
+.plant-grass-action-btn--primary:not(:disabled):active {
+  opacity: 0.88;
+}
+
+.plant-grass-action-btn--ghost {
+  color: #4b5563;
+  background-color: #fff;
+  border-color: #d1d5db;
+}
+
+.dark .plant-grass-action-btn--ghost {
+  color: #e5e7eb;
+  background-color: #1f2937;
+  border-color: #4b5563;
 }
 </style>

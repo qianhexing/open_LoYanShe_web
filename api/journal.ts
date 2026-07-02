@@ -11,6 +11,7 @@ export async function journalInsert(params: {
   pk_type: number
   pk_id: number
   note?: string
+  tags?: string // 逗号分隔
   json_data?: Record<string, unknown>
 }): Promise<Journal> {
   const response = await use$Post<BaseResponse<Journal>>('/journal/insert', params)
@@ -24,6 +25,7 @@ export async function journalUpdate(params: {
   pk_type?: number
   pk_id?: number
   note?: string
+  tags?: string
 }): Promise<Journal> {
   const response = await use$Post<BaseResponse<Journal>>('/journal/update', params)
   return response.data

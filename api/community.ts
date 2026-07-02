@@ -118,3 +118,8 @@ export async function updateCommunityDisplayBadge(params: {
   );
   return response.data;
 }
+
+/** 删除帖子，须作者本人 */
+export async function deleteCommunity(params: { community_id: number }): Promise<void> {
+  await use$Post<BaseResponse<unknown>>('/community/delete', params);
+}

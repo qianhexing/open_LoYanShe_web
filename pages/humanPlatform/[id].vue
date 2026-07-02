@@ -20,10 +20,11 @@ interface ModelItem {
     options?: Record<string, unknown>
 }
 import { getLibraryVideoById, getLibraryVideo, updateLibraryVideoJson, getLibrarySimilar } from '@/api/library'
-import type { LibraryVideo, LaxianItem, LaxianInitialCamera, LibrarySimilarItem } from '@/types/api'
+import type { LibraryVideo, LaxianItem, LaxianInitialCamera, LaxianHighlightFrame, LaxianFrameShape, LibrarySimilarItem } from '@/types/api'
 import { useConfigStore } from '@/stores/config'
 import { BASE_IMG } from '@/utils/ipConfig'
 import { useLayoutStyle } from '@/composables/useLayoutStyle'
+import { useCopyCurrentUrl } from '@/composables/useCopyCurrentUrl'
 import * as THREE from 'three'
 
 // 设置页面标题
@@ -91,10 +92,11 @@ const loading = ref(false)
 const hasLoadedOnce = ref(false)
 const videoLoading = ref(false)
 const error = ref<string | null>(null)
+/** 切换人台图时抑制 props 自动重载，由 loadVideoData 写完后单次 reloadSceneKeepWebGL */
+const suppressViewerAutoReload = ref(false)
 
 const isMobileDevice = typeof navigator !== 'undefined'
     && /iPhone|iPad|iPod|Android/i.test(navigator.userAgent)
-let canvasNeedsRedraw = false
 
 const effectiveLibraryId = computed(() => {
     if (queryLibraryId.value != null) return queryLibraryId.value
@@ -193,8 +195,8 @@ const initVideoAndList = async () => {
         await loadLibraryVideoList()
         const first = libraryVideoList.value[0]
         if (first?.video_id != null) {
-            await loadVideoData(first.video_id)
-            router.replace(buildHumanPlatformPath(first.video_id, lid))
+            // 仅 replace 路由，由 id watch 统一 loadVideoData，避免 iframe 入口双次解码点云
+            await router.replace(buildHumanPlatformPath(first.video_id, lid))
         } else {
             loading.value = false
             error.value = '该图鉴暂无点云人台图'
@@ -214,7 +216,7 @@ watch(layoutReady, (newVal) => {
 })
 watch(isEditMode, (val) => {
     if (val && laxianListFromVideo.value.length > 0) {
-        editableLaxianList.value = laxianListFromVideo.value.map((item) => ({ ...item }))
+        editableLaxianList.value = laxianListFromVideo.value.map((item) => normalizeEditableLaxianItem(item))
     }
     if (val) {
         editableInitialCameraList.value = initialCameraList.value.map((item) => ({ ...item }))
@@ -232,6 +234,8 @@ watch(
             return
         }
         expandedLaxianId.value = null
+        soloLaxianId.value = null
+        viewerRef.value?.setLaxianSoloDisplay?.(null)
         void loadVideoData()
     }
 )
@@ -302,6 +306,9 @@ const loadVideoData = async (videoIdOverride?: number) => {
     }
 
     const isFirstLoad = !hasLoadedOnce.value
+    if (!isFirstLoad) {
+        suppressViewerAutoReload.value = true
+    }
     try {
         if (isFirstLoad) {
             loading.value = true
@@ -319,7 +326,7 @@ const loadVideoData = async (videoIdOverride?: number) => {
             const cameras = normalizeInitialCameraList(libraryVideo.value.json_data?.cameraList)
             initialCameraList.value = cameras
             if (isEditMode.value) {
-                editableLaxianList.value = (Array.isArray(list) ? list : []).map((item) => ({ ...item }))
+                editableLaxianList.value = (Array.isArray(list) ? list : []).map((item) => normalizeEditableLaxianItem(item))
                 editableInitialCameraList.value = cameras.map((item) => ({ ...item }))
             }
             // 解析模型地址
@@ -346,6 +353,16 @@ const loadVideoData = async (videoIdOverride?: number) => {
         console.error('加载视频数据失败:', err)
         error.value = err instanceof Error ? err.message : '加载视频数据失败'
     } finally {
+        if (!isFirstLoad) {
+            try {
+                if (!error.value) {
+                    await nextTick()
+                    await viewerRef.value?.reloadSceneKeepWebGL()
+                }
+            } finally {
+                suppressViewerAutoReload.value = false
+            }
+        }
         loading.value = false
         videoLoading.value = false
     }
@@ -356,10 +373,29 @@ const handleClose = () => {
     router.back()
 }
 
-// 吐槽
-const handleFeedback = () => {
-    // TODO: 打开吐槽/反馈入口
+const { copyCurrentUrl } = useCopyCurrentUrl()
+
+const handleShareLink = async () => {
+    try {
+        const result = await copyCurrentUrl()
+        if (result?.success) {
+            useToast().add({ title: '链接已复制', color: 'green' })
+        } else {
+            useToast().add({
+                title: '复制失败',
+                description: result?.message ?? '请手动复制地址栏链接',
+                color: 'orange',
+            })
+        }
+    } catch {
+        useToast().add({ title: '复制失败', color: 'red' })
+    }
 }
+
+// 吐槽
+// const handleFeedback = () => {
+//     // TODO: 打开吐槽/反馈入口
+// }
 
 // 传给查看器的拉线列表（编辑模式用可编辑列表）
 const laxianListForViewer = computed(() =>
@@ -376,6 +412,183 @@ const viewerRef = ref<InstanceType<typeof SPZModelViewerContent> | null>(null)
 const laxianList = shallowRef<LaxianInterface[]>([])
 
 // ===== 编辑模式：拉线数据制作 =====
+/** 默认线框尺寸：长、高、宽 */
+const LAXIAN_FRAME_DEFAULT: [number, number, number] = [0.3, 0.2, 0.2]
+
+const normalizeEditableLaxianItem = (item: LaxianItem): LaxianItem => ({
+    ...item,
+    frames: (item.frames ?? []).map((frame) => ({
+        ...frame,
+        position: frame.position
+            ? [frame.position[0], frame.position[1], frame.position[2]] as [number, number, number]
+            : [0, 0, 0],
+        rotation: frame.rotation
+            ? [frame.rotation[0], frame.rotation[1], frame.rotation[2]] as [number, number, number]
+            : [0, 0, 0],
+        scale: [
+            frame.scale?.[0] ?? LAXIAN_FRAME_DEFAULT[0],
+            frame.scale?.[1] ?? LAXIAN_FRAME_DEFAULT[1],
+            frame.scale?.[2] ?? LAXIAN_FRAME_DEFAULT[2]
+        ] as [number, number, number],
+        shape: frame.shape === 'ellipse' ? 'ellipse' : 'box'
+    }))
+})
+
+const ensureLaxianFrames = (item: LaxianItem): LaxianHighlightFrame[] => item.frames ?? []
+
+const syncLaxianTransformFromPayload = (payload: {
+    object: THREE.Object3D
+    laxianId?: string
+    frameId?: string
+}) => {
+    const core = viewerRef.value?.getThreeCore?.()
+    if (!core || !payload.laxianId) return
+    const idx = editableLaxianList.value.findIndex((l) => l.laxian_id === payload.laxianId)
+    if (idx < 0) return
+    const item = editableLaxianList.value[idx]
+    if (payload.frameId) {
+        const frameGroup = core.resolveScenePickTarget(payload.object)
+        if (frameGroup?.userData.type !== 'laxian_frame') return
+        const frameData = core.extractLaxianFrameData(frameGroup)
+        const frames = [...ensureLaxianFrames(item)]
+        const frameIdx = frames.findIndex((f) => f.frame_id === payload.frameId)
+        if (frameIdx >= 0) {
+            frames[frameIdx] = frameData
+            editableLaxianList.value[idx] = { ...item, frames }
+            editableLaxianList.value = [...editableLaxianList.value]
+        }
+        return
+    }
+    if (payload.object.userData.type === 'laxian') {
+        editableLaxianList.value[idx] = {
+            ...item,
+            position: [payload.object.position.x, payload.object.position.y, payload.object.position.z],
+            rotation: [payload.object.rotation.x, payload.object.rotation.y, payload.object.rotation.z]
+        }
+        editableLaxianList.value = [...editableLaxianList.value]
+    }
+}
+
+const transformType = ref<'translate' | 'rotate'>('translate')
+const selectedLaxianId = ref<string | null>(null)
+const selectedFrameId = ref<string | null>(null)
+/** 编辑独显：仅显示该定位点及其子线框 */
+const soloLaxianId = ref<string | null>(null)
+
+const syncLaxianSoloToViewer = () => {
+    viewerRef.value?.setLaxianSoloDisplay?.(soloLaxianId.value)
+}
+
+const toggleLaxianSoloDisplay = (item: LaxianItem) => {
+    if (!item.laxian_id) return
+    const next = soloLaxianId.value === item.laxian_id ? null : item.laxian_id
+    soloLaxianId.value = next
+    if (next && selectedLaxianId.value && selectedLaxianId.value !== next) {
+        viewerRef.value?.detachTransformControls?.()
+        selectedLaxianId.value = null
+        selectedFrameId.value = null
+    }
+    syncLaxianSoloToViewer()
+}
+
+const onLaxianSelect = (payload: { laxianId: string | null; frameId: string | null }) => {
+    const frameChanged = payload.frameId !== selectedFrameId.value
+    selectedLaxianId.value = payload.laxianId
+    selectedFrameId.value = payload.frameId
+    // 仅在新选中线框时默认切到移动，避免切换旋转模式时被 deep watch 重复触发重置
+    if (payload.frameId && frameChanged) {
+        transformType.value = 'translate'
+        viewerRef.value?.setTransformMode?.('translate')
+    }
+}
+
+const setLaxianTransformMode = (mode: 'translate' | 'rotate') => {
+    transformType.value = mode
+    viewerRef.value?.setTransformMode?.(mode)
+}
+
+const applyFrameBoxSizeToScene = (item: LaxianItem, frame: LaxianHighlightFrame) => {
+    if (!item.laxian_id || !frame.frame_id || !frame.scale) return
+    const [length, height, width] = frame.scale
+    const l = Math.max(0.05, Number(length) || LAXIAN_FRAME_DEFAULT[0])
+    const h = Math.max(0.05, Number(height) || LAXIAN_FRAME_DEFAULT[1])
+    const w = Math.max(0.05, Number(width) || LAXIAN_FRAME_DEFAULT[2])
+    frame.scale = [l, h, w]
+    viewerRef.value?.getThreeCore?.()?.resizeLaxianSubFrame?.(item.laxian_id, frame.frame_id, l, h, w)
+}
+
+const applyFrameShapeToScene = (item: LaxianItem, frame: LaxianHighlightFrame, shape: LaxianFrameShape) => {
+    if (!item.laxian_id || !frame.frame_id) return
+    frame.shape = shape === 'ellipse' ? 'ellipse' : 'box'
+    viewerRef.value?.getThreeCore?.()?.setLaxianSubFrameShape?.(item.laxian_id, frame.frame_id, frame.shape)
+}
+
+const selectLaxianFrameInEditor = (item: LaxianItem, frame: LaxianHighlightFrame) => {
+    if (!item.laxian_id || !frame.frame_id) return
+    selectedLaxianId.value = item.laxian_id
+    selectedFrameId.value = frame.frame_id
+    viewerRef.value?.selectLaxianFrameObject?.(item.laxian_id, frame.frame_id)
+    setLaxianTransformMode('translate')
+}
+
+const addLaxianFrameToPoint = (item: LaxianItem) => {
+    const core = viewerRef.value?.getThreeCore?.()
+    if (!core || !item.laxian_id) return
+    const frameId = `frame_${Date.now()}`
+    const newFrame: LaxianHighlightFrame = {
+        frame_id: frameId,
+        position: [0, 0, 0],
+        rotation: [0, 0, 0],
+        scale: [...LAXIAN_FRAME_DEFAULT],
+        shape: 'box'
+    }
+    const idx = editableLaxianList.value.findIndex((l) => l.laxian_id === item.laxian_id)
+    if (idx >= 0) {
+        const frames = [...ensureLaxianFrames(editableLaxianList.value[idx]), newFrame]
+        editableLaxianList.value[idx] = { ...editableLaxianList.value[idx], frames }
+        editableLaxianList.value = [...editableLaxianList.value]
+    }
+    core.addLaxianFrame(item.laxian_id, newFrame)
+    selectLaxianFrameInEditor(item, newFrame)
+}
+
+const removeLaxianFrameFromPoint = (item: LaxianItem, frame: LaxianHighlightFrame) => {
+    if (!item.laxian_id || !frame.frame_id) return
+    if (selectedFrameId.value === frame.frame_id) {
+        viewerRef.value?.detachTransformControls?.()
+        selectedFrameId.value = null
+    }
+    viewerRef.value?.getThreeCore?.()?.removeLaxianFrame?.(item.laxian_id, frame.frame_id)
+    const idx = editableLaxianList.value.findIndex((l) => l.laxian_id === item.laxian_id)
+    if (idx >= 0) {
+        const frames = ensureLaxianFrames(editableLaxianList.value[idx]).filter(
+            (f) => f.frame_id !== frame.frame_id
+        )
+        editableLaxianList.value[idx] = { ...editableLaxianList.value[idx], frames }
+        editableLaxianList.value = [...editableLaxianList.value]
+    }
+}
+
+watch(isEditMode, (edit) => {
+    if (!edit) {
+        selectedLaxianId.value = null
+        selectedFrameId.value = null
+        soloLaxianId.value = null
+        viewerRef.value?.setLaxianSoloDisplay?.(null)
+        viewerRef.value?.bindLaxianTransformListener?.(null)
+        return
+    }
+    viewerRef.value?.bindLaxianTransformListener?.(syncLaxianTransformFromPayload)
+}, { immediate: true })
+
+watch(viewerRef, (viewer) => {
+    if (!viewer) return
+    if (isEditMode.value) {
+        viewer.bindLaxianTransformListener?.(syncLaxianTransformFromPayload)
+        syncLaxianSoloToViewer()
+    }
+})
+
 const addLaxianPoint = () => {
     const core = viewerRef.value?.getThreeCore?.()
     if (!core?.controls?.target) return
@@ -386,7 +599,8 @@ const addLaxianPoint = () => {
         position: pos,
         title: '新拉线点',
         laxian_id: laxianId,
-        type: 0
+        type: 0,
+        frames: []
     }
     editableLaxianList.value = [...editableLaxianList.value, newItem]
     core.addLaxianToScene?.({
@@ -394,24 +608,16 @@ const addLaxianPoint = () => {
         title: newItem.title,
         laxian_id: newItem.laxian_id,
         type: newItem.type,
-        camera: newItem.camera
+        camera: newItem.camera,
+        frames: []
     })
 }
 
 const saveCameraForLaxian = (item: LaxianItem) => {
     const core = viewerRef.value?.getThreeCore?.()
     if (!core?.camera || !core?.controls?.target) return
-    const cam = core.camera as { position: { x: number; y: number; z: number } }
-    const target = core.controls.target
-    const dirX = cam.position.x - target.x
-    const dirZ = cam.position.z - target.z
-    const xzDist = Math.hypot(dirX, dirZ)
-    const cameraState = {
-        position: (xzDist < 1e-6
-            ? [target.x, target.y, target.z + 3]
-            : [target.x + dirX, target.y, target.z + dirZ]) as [number, number, number],
-        target: [target.x, target.y, target.z] as [number, number, number]
-    }
+    const { position, target } = core.cameraStateToStepCamera(core.recordCamera(false))
+    const cameraState = { position, target }
     const list = editableLaxianList.value
     const idx = list.findIndex((l) => l.laxian_id === item.laxian_id)
     if (idx >= 0) {
@@ -457,6 +663,15 @@ const clearInitialCamera = () => {
 }
 
 const removeLaxian = (item: LaxianItem) => {
+    if (selectedLaxianId.value === item.laxian_id) {
+        viewerRef.value?.detachTransformControls?.()
+        selectedLaxianId.value = null
+        selectedFrameId.value = null
+    }
+    if (soloLaxianId.value === item.laxian_id) {
+        soloLaxianId.value = null
+        viewerRef.value?.setLaxianSoloDisplay?.(null)
+    }
     const core = viewerRef.value?.getThreeCore?.()
     core?.removeLaxianById?.(item.laxian_id)
     editableLaxianList.value = editableLaxianList.value.filter((l) => l.laxian_id !== item.laxian_id)
@@ -478,6 +693,17 @@ const updateLaxianItem = (item: LaxianItem, updates: Partial<Pick<LaxianItem, 't
     }
 }
 
+const syncEditableLaxianFramesFromScene = () => {
+    const core = viewerRef.value?.getThreeCore?.()
+    if (!core) return
+    editableLaxianList.value = editableLaxianList.value.map((item) => {
+        if (!item.laxian_id) return item
+        const frames = core.extractLaxianFramesByLaxianId(item.laxian_id)
+        if (!frames.length) return item
+        return { ...item, frames }
+    })
+}
+
 const savingLaxian = ref(false)
 
 const saveLaxianJson = async () => {
@@ -488,6 +714,7 @@ const saveLaxianJson = async () => {
     }
     try {
         savingLaxian.value = true
+        syncEditableLaxianFramesFromScene()
         const existingJsonData = libraryVideo.value?.json_data ?? {}
         const updated = await updateLibraryVideoJson({
             video_id: videoId,
@@ -510,6 +737,7 @@ const saveLaxianJson = async () => {
 }
 
 const copyLaxianJson = async () => {
+    syncEditableLaxianFramesFromScene()
     const json = JSON.stringify(
         { laxian_list: editableLaxianList.value },
         null,
@@ -531,8 +759,8 @@ const detailModalPosition = ref({ x: 0, y: 0 })
 const activeLaxianDetail = ref<LaxianItem | null>(null)
 const laxianDetailEditorRef = ref<InstanceType<typeof QhxRichTextEditor> | null>(null)
 
-const LABEL_COLLAPSED_WIDTH = 130
-const LABEL_EXPANDED_WIDTH = 280
+const LABEL_MAX_WIDTH = 240
+const LABEL_EXPANDED_MAX_WIDTH = 320
 
 const getLaxianSourceList = () =>
     isEditMode.value ? editableLaxianList.value : laxianListFromVideo.value
@@ -567,10 +795,10 @@ const setDetailModalPosition = (e?: MouseEvent) => {
         }
 }
 
-const handleLaxianLabelClick = (item: LaxianWithLayout) => {
+const handleLaxianLabelClick = (item: LaxianInterface) => {
     viewerRef.value?.focusLaxianCamera?.(item)
     const laxianId = item.laxian_id
-    if (!laxianId) return
+    if (!laxianId || !hasLaxianDetailContent(getLaxianById(item.laxian_id))) return
     expandedLaxianId.value = expandedLaxianId.value === laxianId ? null : laxianId
 }
 
@@ -580,7 +808,7 @@ const openLaxianDetailEdit = (item: LaxianItem, e: MouseEvent) => {
     showLaxianDetailEdit.value = true
 }
 
-const openLaxianDetailEditFromLabel = (item: LaxianWithLayout, e: MouseEvent) => {
+const openLaxianDetailEditFromLabel = (item: LaxianInterface, e: MouseEvent) => {
     const src = getLaxianById(item.laxian_id) ?? { title: item.title, laxian_id: item.laxian_id }
     openLaxianDetailEdit(src, e)
 }
@@ -607,6 +835,32 @@ const saveLaxianDetailEdit = () => {
 // 拉线类型显示开关：0 设计元素，1 柄图元素
 const showType0 = ref(true)
 const showType1 = ref(true)
+const allLaxianMarkersHidden = computed(() => !showType0.value && !showType1.value)
+
+const toggleAllLaxianMarkers = () => {
+    if (isHideUi.value || laxianListForViewer.value.length === 0) return
+    const hideAll = !allLaxianMarkersHidden.value
+    showType0.value = !hideAll
+    showType1.value = !hideAll
+    if (hideAll) expandedLaxianId.value = null
+}
+
+const isTypingTarget = (target: EventTarget | null) => {
+    if (!(target instanceof HTMLElement)) return false
+    const tag = target.tagName
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true
+    return target.isContentEditable
+}
+
+const onLaxianShortcutKeyDown = (e: KeyboardEvent) => {
+    if (isHideUi.value || laxianListForViewer.value.length === 0) return
+    if (!e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return
+    if (e.key.toLowerCase() !== 'h') return
+    if (isTypingTarget(e.target)) return
+    e.preventDefault()
+    toggleAllLaxianMarkers()
+}
+
 const showLaxianModal = ref(false)
 const laxianModalPosition = ref({ x: 0, y: 0 })
 const openLaxianModal = (e: MouseEvent) => {
@@ -624,17 +878,15 @@ watch(
   },
   { immediate: true },
 )
-onBeforeUnmount(() => setLayoutStyle(0))
+onBeforeUnmount(() => {
+    setLayoutStyle(0)
+})
 
-// 屏幕中线，用于判断拉线方向
-const screenCenterX = ref(typeof window !== 'undefined' ? window.innerWidth / 2 : 0)
 const screenWidth = ref(typeof window !== 'undefined' ? window.innerWidth : 1920)
 const screenHeight = ref(typeof window !== 'undefined' ? window.innerHeight : 1080)
 const updateScreenCenter = () => {
-    screenCenterX.value = window.innerWidth / 2
     screenWidth.value = window.innerWidth
     screenHeight.value = window.innerHeight
-    canvasNeedsRedraw = true
 }
 let resizeTimer: ReturnType<typeof setTimeout> | null = null
 const debouncedUpdateScreenCenter = () => {
@@ -642,157 +894,70 @@ const debouncedUpdateScreenCenter = () => {
     resizeTimer = setTimeout(updateScreenCenter, 150)
 }
 
-// 标签安全区域：上（避开拉线按钮）、下边距
+// 标签安全区域：上（避开顶部按钮）、下边距
 const LABEL_SAFE_TOP = 56
 const LABEL_SAFE_BOTTOM = 32
 const LABEL_EDGE_OFFSET = 12
-const LABEL_MAX_WIDTH = 140
 const LABEL_HEIGHT = 70
+const LABEL_BELOW_OFFSET = 12
 
 const configStore = useConfigStore()
 
-// 按侧边均匀分布后的拉线数据（含 displayTop、lineEnd）
-interface LaxianWithLayout extends LaxianInterface {
-    displayTop: number
-    lineEnd: { x: number; y: number }
-}
-const laxianWithLayout = computed<LaxianWithLayout[]>(() => {
-    const list = laxianList.value
-    if (list.length === 0) return []
-
-    // 按类型开关过滤
-    const filtered = list.filter((item) => {
+const filterVisibleLaxian = (list: LaxianInterface[]) =>
+    list.filter((item) => {
+        if (!item.position) return false
+        if (isEditMode.value && soloLaxianId.value && item.laxian_id !== soloLaxianId.value) return false
         const t = item.type ?? 0
         return (t === 0 && showType0.value) || (t === 1 && showType1.value)
     })
-    if (filtered.length === 0) return []
 
-    const centerX = screenCenterX.value
-    const innerHeight = screenHeight.value
-    const innerWidth = screenWidth.value
-    const safeTop = LABEL_SAFE_TOP + configStore.statusBarHeight
-    const availableRange = innerHeight - safeTop - LABEL_SAFE_BOTTOM - LABEL_HEIGHT
+// 按类型过滤后的可见拉线点（结构数据；屏幕坐标由 RAF 直接写 DOM，避免 Vue 每帧重渲染）
+const laxianWithLayout = computed<LaxianInterface[]>(() => filterVisibleLaxian(laxianList.value))
 
-    const left = filtered
-        .filter((item) => (item.edgePosition?.x ?? 0) < centerX)
-        .map((item) => ({ item, y: item.edgePosition?.y ?? 0 }))
-        .sort((a, b) => a.y - b.y)
-
-    const right = filtered
-        .filter((item) => (item.edgePosition?.x ?? 0) >= centerX)
-        .map((item) => ({ item, y: item.edgePosition?.y ?? 0 }))
-        .sort((a, b) => a.y - b.y)
-
-    const assignLayout = (
-        group: { item: LaxianInterface; y: number }[],
-        isLeft: boolean
-    ): LaxianWithLayout[] => {
-        if (group.length === 0) return []
-        const count = group.length
-        const step = count > 1 ? availableRange / (count - 1) : availableRange / 2
-        const edgeX = isLeft
-            ? LABEL_EDGE_OFFSET + LABEL_MAX_WIDTH
-            : innerWidth - LABEL_EDGE_OFFSET - LABEL_MAX_WIDTH
-
-        return group.map((g, i) => {
-            const displayTop = safeTop + (count > 1 ? i * step : availableRange / 2)
-            const labelCenterY = displayTop + LABEL_HEIGHT / 2
-            return {
-                ...g.item,
-                displayTop,
-                lineEnd: { x: edgeX, y: labelCenterY }
-            }
-        })
-    }
-
-    return [...assignLayout(left, true), ...assignLayout(right, false)]
-})
-
-const getLaxianLabelStyle = (item: LaxianWithLayout) => {
-    const isLeft = (item.edgePosition?.x ?? 0) < screenCenterX.value
+const getLaxianLabelStyle = (item: LaxianInterface) => {
     const expanded = isLaxianExpanded(item.laxian_id)
-    const width = expanded ? LABEL_EXPANDED_WIDTH : LABEL_COLLAPSED_WIDTH
-    return {
-        top: `${item.displayTop + 20}px`,
-        left: isLeft ? '12px' : `calc(100% - ${width + 12}px)`,
-        width: `${width}px`
-    }
+    const maxWidth = Math.min(
+        expanded ? LABEL_EXPANDED_MAX_WIDTH : LABEL_MAX_WIDTH,
+        screenWidth.value - LABEL_EDGE_OFFSET * 2
+    )
+    return { maxWidth: `${maxWidth}px` }
 }
 
-// Canvas 拉线绘制（按需刷新，含 300ms 缓动）
+/** 拉线类型配色：0 设计元素-紫色，1 柄图元素-青色（与 Canvas 定位点一致） */
+const LAXIAN_TYPE_THEME = {
+    0: {
+        dot: 'rgba(147, 51, 234, 0.8)',
+        bg: 'bg-purple-400/35 dark:bg-purple-500/30 border border-purple-200/60 dark:border-purple-700/50',
+        ring: 'ring-2 ring-purple-300/70 dark:ring-purple-600/50',
+    },
+    1: {
+        dot: 'rgba(20, 184, 166, 0.8)',
+        bg: 'bg-teal-400/35 dark:bg-teal-500/30 border border-teal-200/60 dark:border-teal-700/50',
+        ring: 'ring-2 ring-teal-300/70 dark:ring-teal-600/50',
+    },
+} as const
+
+const getLaxianTypeTheme = (type?: number) => LAXIAN_TYPE_THEME[type === 1 ? 1 : 0]
+
+const getLaxianLabelBgClass = (type?: number) => getLaxianTypeTheme(type).bg
+
+const getLaxianLabelExpandedRingClass = (type?: number) => getLaxianTypeTheme(type).ring
+
+const computeLaxianLabelTop = (py: number) => {
+    const innerHeight = screenHeight.value
+    const safeTop = LABEL_SAFE_TOP + configStore.statusBarHeight
+    const top = py + LABEL_BELOW_OFFSET
+    return Math.max(safeTop, Math.min(top, innerHeight - LABEL_SAFE_BOTTOM - LABEL_HEIGHT))
+}
+
+// Canvas 定位点绘制 + 标签位置（每帧 RAF 同步，与 Three 动画环对齐）
 const canvasRef = ref<HTMLCanvasElement | null>(null)
-const LAXIAN_SYNC_MS = isMobileDevice ? 120 : 48
+const labelLayerRef = ref<HTMLElement | null>(null)
 let laxianOverlayLoopId = 0
 let laxianOverlayActive = false
-let lastLaxianSyncAt = 0
-const LAXIAN_DURATION = 300
-const easeOutCubic = (t: number) => 1 - (1 - t) ** 3
 const getCanvasDpr = () => {
     const raw = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1
     return isMobileDevice ? Math.min(raw, 1.5) : Math.min(raw, 2)
-}
-
-// 每个拉线的插值状态 key=laxian_id|index
-const currentLineEnd = new Map<
-    string,
-    {
-        x: number
-        y: number
-        startX: number
-        startY: number
-        startTime: number
-        lastTargetX: number
-        lastTargetY: number
-    }
->()
-
-const lerpLineEnd = (
-    key: string,
-    targetX: number,
-    targetY: number,
-    now: number
-): { x: number; y: number } => {
-    const cur = currentLineEnd.get(key)
-    if (!cur) {
-        currentLineEnd.set(key, {
-            x: targetX,
-            y: targetY,
-            startX: targetX,
-            startY: targetY,
-            startTime: now,
-            lastTargetX: targetX,
-            lastTargetY: targetY
-        })
-        return { x: targetX, y: targetY }
-    }
-    if (cur.lastTargetX !== targetX || cur.lastTargetY !== targetY) {
-        cur.startX = cur.x
-        cur.startY = cur.y
-        cur.startTime = now
-        cur.lastTargetX = targetX
-        cur.lastTargetY = targetY
-    }
-    const dx = targetX - cur.startX
-    const dy = targetY - cur.startY
-    const elapsed = now - cur.startTime
-    if (elapsed >= LAXIAN_DURATION) {
-        cur.x = targetX
-        cur.y = targetY
-        cur.startX = targetX
-        cur.startY = targetY
-        return { x: targetX, y: targetY }
-    }
-    const progress = easeOutCubic(elapsed / LAXIAN_DURATION)
-    cur.x = cur.startX + dx * progress
-    cur.y = cur.startY + dy * progress
-    return { x: cur.x, y: cur.y }
-}
-
-const hasActiveLineLerp = (now: number) => {
-    for (const cur of currentLineEnd.values()) {
-        if (now - cur.startTime < LAXIAN_DURATION) return true
-    }
-    return false
 }
 
 const readLaxianFromViewer = (): LaxianInterface[] => {
@@ -801,11 +966,20 @@ const readLaxianFromViewer = (): LaxianInterface[] => {
     return (raw as { value?: LaxianInterface[] }).value ?? (Array.isArray(raw) ? raw : [])
 }
 
-const syncLaxianListFromViewer = () => {
-    laxianList.value = readLaxianFromViewer()
+/** 仅在拉线点增删或标题变化时更新 Vue 列表，避免每帧触发模板 diff */
+const syncLaxianListStructure = (visible: LaxianInterface[]) => {
+    const prevKey = laxianList.value.map((i) => `${i.laxian_id ?? ''}:${i.title ?? ''}:${i.type ?? 0}`).join('|')
+    const nextKey = visible.map((i) => `${i.laxian_id ?? ''}:${i.title ?? ''}:${i.type ?? 0}`).join('|')
+    if (prevKey !== nextKey) {
+        laxianList.value = visible.map((item) => ({
+            ...item,
+            position: item.position ? { ...item.position } : item.position
+        }))
+        nextTick(() => updateLaxianLabelPositions(visible))
+    }
 }
 
-const drawLaxianCanvasFrame = (now: number) => {
+const drawLaxianCanvasFrame = (list: LaxianInterface[]) => {
     const canvas = canvasRef.value
     if (!canvas) return
 
@@ -827,53 +1001,47 @@ const drawLaxianCanvasFrame = (now: number) => {
     ctx.scale(dpr, dpr)
     ctx.clearRect(0, 0, w, h)
 
-    if (laxianWithLayout.value.length === 0) {
-        currentLineEnd.clear()
+    if (list.length === 0) {
         ctx.restore()
         return
     }
 
-    const list = laxianWithLayout.value
-
-    // 清除已不存在的 key
-    const keys = new Set(list.map((item, i) => item.laxian_id ?? `idx-${i}`))
-    for (const k of currentLineEnd.keys()) {
-        if (!keys.has(k)) currentLineEnd.delete(k)
-    }
-
-    // 拉线颜色：0 设计元素-紫色，1 柄图元素-青色
-    const type0Line = 'rgba(147, 51, 234, 0.6)'
-    const type0Dot = 'rgba(147, 51, 234, 0.8)'
-    const type1Line = 'rgba(20, 184, 166, 0.6)'
-    const type1Dot = 'rgba(20, 184, 166, 0.8)'
-
-    for (let i = 0; i < list.length; i++) {
-        const item = list[i]
-        const key = item.laxian_id ?? `idx-${i}`
-        const x1 = item.position?.x ?? 0
-        const y1 = item.position?.y ?? 0
-        const end = lerpLineEnd(key, item.lineEnd.x, item.lineEnd.y, now)
-        const x2 = end.x
-        const y2 = end.y
-        const t = item.type ?? 0
-        const lineColor = t === 1 ? type1Line : type0Line
-        const dotColor = t === 1 ? type1Dot : type0Dot
+    for (const item of list) {
+        const x = item.position?.x ?? 0
+        const y = item.position?.y ?? 0
+        const dotColor = getLaxianTypeTheme(item.type).dot
 
         ctx.beginPath()
-        ctx.moveTo(x1, y1)
-        ctx.lineTo(x2, y2)
-        ctx.strokeStyle = lineColor
-        ctx.lineWidth = 2
-        ctx.stroke()
-
-        ctx.beginPath()
-        ctx.arc(x1, y1, 5, 0, Math.PI * 2)
+        ctx.arc(x, y, 5, 0, Math.PI * 2)
         ctx.strokeStyle = dotColor
         ctx.lineWidth = 2
         ctx.stroke()
     }
 
     ctx.restore()
+}
+
+const updateLaxianLabelPositions = (list: LaxianInterface[]) => {
+    const layer = labelLayerRef.value
+    if (!layer) return
+    for (const item of list) {
+        const id = item.laxian_id
+        if (!id) continue
+        const el = layer.querySelector(`[data-laxian-id="${CSS.escape(id)}"]`) as HTMLElement | null
+        if (!el) continue
+        const px = item.position?.x ?? 0
+        const py = item.position?.y ?? 0
+        el.style.left = `${px}px`
+        el.style.top = `${computeLaxianLabelTop(py)}px`
+        el.style.transform = 'translate3d(-50%, 0, 0)'
+    }
+}
+
+const syncLaxianOverlayFrame = () => {
+    const visible = filterVisibleLaxian(readLaxianFromViewer())
+    syncLaxianListStructure(visible)
+    drawLaxianCanvasFrame(visible)
+    updateLaxianLabelPositions(visible)
 }
 
 const stopLaxianOverlayLoop = () => {
@@ -887,20 +1055,12 @@ const stopLaxianOverlayLoop = () => {
 const startLaxianOverlayLoop = () => {
     if (laxianOverlayActive || isHideUi.value) return
     laxianOverlayActive = true
-    const tick = (now: number) => {
+    const tick = () => {
         if (!laxianOverlayActive || document.hidden || isHideUi.value) {
             stopLaxianOverlayLoop()
             return
         }
-        if (now - lastLaxianSyncAt >= LAXIAN_SYNC_MS) {
-            lastLaxianSyncAt = now
-            syncLaxianListFromViewer()
-            canvasNeedsRedraw = true
-        }
-        if (canvasNeedsRedraw || hasActiveLineLerp(now)) {
-            drawLaxianCanvasFrame(now)
-            canvasNeedsRedraw = hasActiveLineLerp(now)
-        }
+        syncLaxianOverlayFrame()
         laxianOverlayLoopId = requestAnimationFrame(tick)
     }
     laxianOverlayLoopId = requestAnimationFrame(tick)
@@ -910,19 +1070,17 @@ watch(
     () => [viewerRef.value, viewerLaxianList.value.length, isHideUi.value] as const,
     ([viewer, count, hideUi]) => {
         if (viewer && count > 0 && !hideUi) {
-            canvasNeedsRedraw = true
             startLaxianOverlayLoop()
         } else {
             stopLaxianOverlayLoop()
             laxianList.value = []
-            currentLineEnd.clear()
         }
     },
     { immediate: true },
 )
 
-watch([expandedLaxianId, showType0, showType1], () => {
-    canvasNeedsRedraw = true
+watch([expandedLaxianId, soloLaxianId, showType0, showType1], () => {
+    syncLaxianOverlayFrame()
     if (viewerRef.value && viewerLaxianList.value.length > 0 && !isHideUi.value) {
         startLaxianOverlayLoop()
     }
@@ -940,10 +1098,12 @@ onMounted(() => {
     updateScreenCenter()
     window.addEventListener('resize', debouncedUpdateScreenCenter, { passive: true })
     document.addEventListener('visibilitychange', onVisibilityChange)
+    window.addEventListener('keydown', onLaxianShortcutKeyDown)
 })
 onUnmounted(() => {
     window.removeEventListener('resize', debouncedUpdateScreenCenter)
     document.removeEventListener('visibilitychange', onVisibilityChange)
+    window.removeEventListener('keydown', onLaxianShortcutKeyDown)
     if (resizeTimer) clearTimeout(resizeTimer)
     stopLaxianOverlayLoop()
 })
@@ -1003,6 +1163,8 @@ onUnmounted(() => {
                 :edit-mode="isEditMode"
                 :show-loading-mask="!hasLoadedOnce && !isHideUi"
                 :hide-scene-chrome="isHideUi"
+                :suppress-props-reload="suppressViewerAutoReload"
+                @laxian-select="onLaxianSelect"
             />
             <!-- 功能栏 -->
             <div
@@ -1011,14 +1173,14 @@ onUnmounted(() => {
                 :style="{ top: `${12 + configStore.statusBarHeight}px` }"
             >
                 <button
-                    v-if="laxianList.length > 0"
+                    v-if="laxianListForViewer.length > 0"
                     type="button"
                     class="flex flex-col items-center gap-0.5 py-1.5 px-2 rounded-md hover:shadow-lg transition-all duration-200 hover:scale-105 active:scale-95 text-purple-600 dark:text-purple-400"
-                    title="拉线设置"
+                    title="标点设置"
                     @click="openLaxianModal"
                 >
-                    <UIcon name="material-symbols:timeline" class="text-lg" />
-                    <span class="text-[10px] font-medium leading-tight">拉线</span>
+                    <UIcon name="material-symbols:pin-drop" class="text-lg" />
+                    <span class="text-[10px] font-medium leading-tight">标点</span>
                 </button>
                 <button
                     type="button"
@@ -1033,52 +1195,64 @@ onUnmounted(() => {
                 <button
                     type="button"
                     class="flex flex-col items-center gap-0.5 py-1.5 px-2 rounded-md hover:shadow-lg transition-all duration-200 hover:scale-105 active:scale-95 text-gray-600 dark:text-gray-400"
+                    title="分享"
+                    aria-label="分享：复制当前页链接"
+                    @click="handleShareLink"
+                >
+                    <UIcon name="ic:round-share" class="text-lg" />
+                    <span class="text-[10px] font-medium leading-tight">分享</span>
+                </button>
+                <!-- 吐槽
+                <button
+                    type="button"
+                    class="flex flex-col items-center gap-0.5 py-1.5 px-2 rounded-md hover:shadow-lg transition-all duration-200 hover:scale-105 active:scale-95 text-gray-600 dark:text-gray-400"
                     title="吐槽"
                     @click="handleFeedback"
                 >
                     <UIcon name="material-symbols:chat-bubble-outline" class="text-lg" />
                     <span class="text-[10px] font-medium leading-tight">吐槽</span>
                 </button>
+                -->
             </div>
             <!-- 悬浮人台图列表：有 library_id 时显示，可收缩展开 -->
             <div
                 v-if="effectiveLibraryId && hasLoadedOnce && !isHideUi"
                 class="fixed right-0 z-30 flex flex-col rounded-l-xl bg-white/95 dark:bg-gray-800/95 shadow-lg backdrop-blur-sm border border-gray-200/50 dark:border-gray-600/50 overflow-hidden transition-all duration-300 ease-out"
                 :class="libraryListExpanded
-                    ? 'top-1/2 -translate-y-1/2 max-h-[70vh] w-[180px] sm:w-[200px] md:w-[220px]'
-                    : 'top-1/2 -translate-y-1/2 max-h-[70vh] w-[44px] sm:w-[52px]'"
+                    ? 'top-1/2 -translate-y-1/2 max-h-[58vh] sm:max-h-[70vh] w-[108px] sm:w-[200px] md:w-[220px]'
+                    : 'top-1/2 -translate-y-1/2 max-h-[58vh] sm:max-h-[70vh] w-[36px] sm:w-[52px]'"
             >
                 <button
                     type="button"
-                    class="flex items-center justify-center gap-1.5 py-2.5 px-2 shrink-0 text-purple-600 dark:text-purple-400 hover:bg-purple-50 dark:hover:bg-gray-700/50 transition-colors"
-                    :class="libraryListExpanded ? 'border-b border-gray-100 dark:border-gray-600' : 'min-h-[48px]'"
+                    class="flex items-center justify-center gap-1.5 py-2 px-1.5 sm:py-2.5 sm:px-2 shrink-0 text-purple-600 dark:text-purple-400 hover:bg-purple-50 dark:hover:bg-gray-700/50 transition-colors"
+                    :class="libraryListExpanded ? 'border-b border-gray-100 dark:border-gray-600' : 'min-h-[40px] sm:min-h-[48px]'"
                     :title="libraryListExpanded ? '收起列表' : '展开列表'"
                     @click="libraryListExpanded = !libraryListExpanded"
                 >
                     <UIcon
                         :name="libraryListExpanded ? 'material-symbols:chevron-right' : 'material-symbols:view-module'"
-                        class="text-xl sm:text-2xl transition-transform"
+                        class="text-lg sm:text-2xl transition-transform"
                         :class="libraryListExpanded ? '' : 'rotate-90'"
                     />
-                    <span v-if="libraryListExpanded" class="text-xs font-medium hidden sm:inline">人台图</span>
+                    <span v-if="libraryListExpanded" class="text-[10px] sm:text-xs font-medium hidden sm:inline">人台图</span>
                 </button>
                 <div
                     v-show="libraryListExpanded"
-                    class="flex-1 overflow-y-auto overscroll-contain p-2 space-y-2 min-h-0"
+                    class="flex-1 overflow-y-auto overscroll-contain p-1.5 sm:p-2 space-y-1.5 sm:space-y-2 min-h-0"
                 >
-                    <div v-if="libraryVideoListLoading" class="flex items-center justify-center py-6">
-                        <div class="w-6 h-6 border-2 border-purple-400 rounded-full border-t-transparent animate-spin" />
+                    <div v-if="libraryVideoListLoading" class="flex items-center justify-center py-4 sm:py-6">
+                        <div class="w-5 h-5 sm:w-6 sm:h-6 border-2 border-purple-400 rounded-full border-t-transparent animate-spin" />
                     </div>
                     <template v-else-if="libraryVideoList.length > 0">
                         <button
                             v-for="item in libraryVideoList"
                             :key="item.video_id"
                             type="button"
-                            class="w-full flex items-center gap-2 p-2 rounded-lg hover:bg-purple-50 dark:hover:bg-gray-700/50 transition-colors text-left group"
+                            class="w-full flex flex-col items-center gap-1 p-1.5 sm:flex-row sm:items-center sm:gap-2 sm:p-2 rounded-lg hover:bg-purple-50 dark:hover:bg-gray-700/50 transition-colors text-center sm:text-left group"
                             :class="Number(id) === item.video_id ? 'bg-purple-100 dark:bg-purple-900/30 ring-1 ring-purple-200 dark:ring-purple-700' : ''"
                             @click="handleVideoSelect(item)"
                         >
-                            <div class="w-12 h-12 sm:w-14 sm:h-14 flex-shrink-0 rounded-lg overflow-hidden bg-gray-100 dark:bg-gray-700">
+                            <div class="w-full aspect-square sm:w-14 sm:h-14 sm:aspect-auto flex-shrink-0 rounded-md sm:rounded-lg overflow-hidden bg-gray-100 dark:bg-gray-700">
                                 <img
                                     v-if="item.cover"
                                     :src="`${BASE_IMG}${item.cover}?x-oss-process=image/quality,q_80/resize,w_200,h_200`"
@@ -1088,15 +1262,15 @@ onUnmounted(() => {
                                     decoding="async"
                                 />
                                 <div v-else class="w-full h-full flex items-center justify-center">
-                                    <UIcon name="i-heroicons-cube" class="w-5 h-5 text-gray-400" />
+                                    <UIcon name="i-heroicons-cube" class="w-4 h-4 sm:w-5 sm:h-5 text-gray-400" />
                                 </div>
                             </div>
-                            <div class="flex-1 min-w-0 block">
-                                <span class="text-xs font-medium text-gray-800 dark:text-gray-200 line-clamp-2">{{ item.title || '3D' }}</span>
+                            <div class="w-full min-w-0 sm:flex-1">
+                                <span class="text-[10px] sm:text-xs font-medium text-gray-800 dark:text-gray-200 line-clamp-2 leading-tight">{{ item.title || '3D' }}</span>
                             </div>
                         </button>
                     </template>
-                    <div v-else class="py-4 text-center text-xs text-gray-500 dark:text-gray-400">
+                    <div v-else class="py-3 sm:py-4 text-center text-[10px] sm:text-xs text-gray-500 dark:text-gray-400">
                         暂无点云人台图
                     </div>
                 </div>
@@ -1188,7 +1362,7 @@ onUnmounted(() => {
                     <span class="text-xs font-semibold">相似</span>
                 </button>
             </div>
-            <!-- 拉线点 overlay：Canvas 层（仅展示，忽略点击触摸） -->
+            <!-- 拉线点 overlay：Canvas 层（定位点圆环，忽略点击触摸） -->
             <div class="fixed inset-0 pointer-events-none z-10" v-show="laxianWithLayout.length > 0 && !isHideUi">
                 <canvas
                     ref="canvasRef"
@@ -1196,40 +1370,47 @@ onUnmounted(() => {
                 />
             </div>
             <!-- 拉线点 overlay：标题层（显示在 Canvas 上层，点击展开详情） -->
-            <div class="fixed inset-0 pointer-events-none z-20" v-show="laxianWithLayout.length > 0 && !isHideUi">
+            <div
+                ref="labelLayerRef"
+                class="fixed inset-0 pointer-events-none z-20"
+                v-show="laxianWithLayout.length > 0 && !isHideUi"
+            >
                 <div
                     v-for="(item, i) in laxianWithLayout"
                     :key="'label-' + (item.laxian_id ?? i)"
-                    class="absolute pointer-events-auto laxian-label transition-all duration-300 ease-out"
+                    :data-laxian-id="item.laxian_id"
+                    class="absolute pointer-events-auto laxian-label w-max"
                     :class="isLaxianExpanded(item.laxian_id)
                         ? 'z-30'
                         : 'z-20'"
                     :style="getLaxianLabelStyle(item)"
                 >
                     <div
-                        class="rounded-2xl shadow-lg text-sm bg-qhx-bg-card/95 dark:bg-qhx-bg-card-dark/95 overflow-hidden transition-all duration-300 ease-out hover:shadow-xl"
-                        :class="isLaxianExpanded(item.laxian_id)
-                            ? 'ring-2 ring-purple-300/70 dark:ring-purple-600/50'
-                            : 'hover:scale-[1.02] active:scale-[0.98]'"
+                        class="rounded-2xl shadow-lg text-sm backdrop-blur-sm overflow-hidden transition-all duration-300 ease-out hover:shadow-xl"
+                        :class="[
+                            getLaxianLabelBgClass(item.type),
+                            isLaxianExpanded(item.laxian_id)
+                                ? getLaxianLabelExpandedRingClass(item.type)
+                                : 'hover:scale-[1.02] active:scale-[0.98]',
+                        ]"
                     >
                         <button
                             type="button"
-                            class="w-full p-2 px-3 text-left cursor-pointer flex items-start gap-1"
+                            class="p-2 px-3 text-left cursor-pointer inline-flex items-center gap-1 max-w-full"
                             @click="handleLaxianLabelClick(item)"
                         >
                             <span
-                                class="flex-1 font-medium text-gray-800 dark:text-gray-100"
-                                :class="isLaxianExpanded(item.laxian_id) ? '' : 'line-clamp-3'"
+                                class="font-medium text-gray-800 dark:text-gray-100"
+                                :class="isLaxianExpanded(item.laxian_id) ? '' : 'truncate'"
                             >
                                 {{ item.title }}
                             </span>
                             <UIcon
+                                v-if="hasLaxianDetailContent(getLaxianById(item.laxian_id))"
                                 :name="isLaxianExpanded(item.laxian_id)
                                     ? 'material-symbols:expand-less'
-                                    : (hasLaxianDetailContent(getLaxianById(item.laxian_id))
-                                        ? 'material-symbols:expand-more'
-                                        : 'material-symbols:chevron-right')"
-                                class="text-base shrink-0 opacity-60 mt-0.5"
+                                    : 'material-symbols:expand-more'"
+                                class="text-base shrink-0 opacity-60"
                             />
                         </button>
                         <Transition name="laxian-detail-expand">
@@ -1293,8 +1474,32 @@ onUnmounted(() => {
                     </div>
                 </div>
                 <p class="text-xs text-gray-500 dark:text-gray-400 mb-3">
-                    调整视角后可「设为初始镜头」；添加拉线点、编辑详情，「保存镜头」记录各拉线点视角
+                    每个点位可添加多个标注线框（立方体 / 椭圆）；点击列表中的线框项即可选中，并在下方切换移动/旋转；「独显」仅显示该点及其线框
                 </p>
+                <div
+                    v-if="selectedFrameId"
+                    class="flex flex-wrap items-center gap-2 mb-3 p-2 rounded-lg bg-gray-50 dark:bg-gray-700/50 border border-gray-200/80 dark:border-gray-600/50"
+                >
+                    <span class="text-xs font-medium text-gray-600 dark:text-gray-300">变换模式</span>
+                    <UButton
+                        size="xs"
+                        :color="transformType === 'translate' ? 'primary' : 'gray'"
+                        variant="soft"
+                        @click="setLaxianTransformMode('translate')"
+                    >
+                        <UIcon name="material-symbols:open-with" class="mr-0.5" />
+                        移动
+                    </UButton>
+                    <UButton
+                        size="xs"
+                        :color="transformType === 'rotate' ? 'primary' : 'gray'"
+                        variant="soft"
+                        @click="setLaxianTransformMode('rotate')"
+                    >
+                        <UIcon name="material-symbols:rotate-right" class="mr-0.5" />
+                        旋转
+                    </UButton>
+                </div>
                 <div class="flex flex-wrap items-center gap-2 mb-3 p-2 rounded-lg bg-purple-50/80 dark:bg-purple-900/20 border border-purple-100 dark:border-purple-800/40">
                     <span class="text-xs font-medium text-purple-700 dark:text-purple-300">初始镜头</span>
                     <UButton size="xs" color="primary" variant="soft" @click="setInitialCamera">
@@ -1327,36 +1532,129 @@ onUnmounted(() => {
                         {{ hasInitialCamera ? '已设置' : '未设置（默认平视）' }}
                     </span>
                 </div>
-                <div class="max-h-48 overflow-y-auto space-y-2">
+                <div class="max-h-64 overflow-y-auto space-y-2">
                     <div
                         v-for="(item, i) in editableLaxianList"
                         :key="item.laxian_id ?? i"
-                        class="flex items-center gap-2 p-2 rounded-lg bg-gray-50 dark:bg-gray-700/50"
+                        class="p-2 rounded-lg bg-gray-50 dark:bg-gray-700/50 space-y-2"
+                        :class="soloLaxianId === item.laxian_id
+                            ? 'ring-1 ring-primary-400/80 dark:ring-primary-500/60'
+                            : ''"
                     >
-                        <input
-                            v-model="item.title"
-                            type="text"
-                            class="flex-1 min-w-0 px-2 py-1 text-sm rounded border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800"
-                            placeholder="标题"
-                            @blur="updateLaxianItem(item, { title: item.title })"
-                        />
-                        <select
-                            :value="item.type ?? 0"
-                            class="px-2 py-1 text-sm rounded border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800"
-                            @change="(e) => updateLaxianItem(item, { type: Number((e.target as HTMLSelectElement).value) as 0 | 1 })"
+                        <div class="flex items-center gap-2">
+                            <input
+                                v-model="item.title"
+                                type="text"
+                                class="flex-1 min-w-0 px-2 py-1 text-sm rounded border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800"
+                                placeholder="标题"
+                                @blur="updateLaxianItem(item, { title: item.title })"
+                            />
+                            <select
+                                :value="item.type ?? 0"
+                                class="px-2 py-1 text-sm rounded border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800"
+                                @change="(e) => updateLaxianItem(item, { type: Number((e.target as HTMLSelectElement).value) as 0 | 1 })"
+                            >
+                                <option :value="0">设计元素</option>
+                                <option :value="1">柄图元素</option>
+                            </select>
+                            <UButton size="xs" color="primary" variant="soft" title="添加线框" @click="addLaxianFrameToPoint(item)">
+                                <UIcon name="material-symbols:add-box" class="mr-0.5" />
+                                线框
+                            </UButton>
+                            <UButton size="xs" color="gray" variant="ghost" title="编辑详情" @click="openLaxianDetailEdit(item, $event)">
+                                <UIcon name="material-symbols:edit-note" />
+                            </UButton>
+                            <UButton size="xs" color="gray" variant="ghost" title="保存当前镜头到此点" @click="saveCameraForLaxian(item)">
+                                <UIcon name="material-symbols:photo-camera" />
+                            </UButton>
+                            <UButton
+                                size="xs"
+                                :color="soloLaxianId === item.laxian_id ? 'primary' : 'gray'"
+                                variant="soft"
+                                title="独显：仅显示此定位点及其线框"
+                                @click="toggleLaxianSoloDisplay(item)"
+                            >
+                                <UIcon name="material-symbols:filter-center-focus" class="mr-0.5" />
+                                独显
+                            </UButton>
+                            <UButton size="xs" color="red" variant="ghost" title="删除" @click="removeLaxian(item)">
+                                <UIcon name="material-symbols:delete-outline" />
+                            </UButton>
+                        </div>
+                        <div v-if="ensureLaxianFrames(item).length === 0" class="text-[10px] text-gray-400 pl-1">
+                            暂无线框，点击「线框」添加标注区域
+                        </div>
+                        <div
+                            v-for="(frame, fi) in (item.frames ?? [])"
+                            :key="frame.frame_id ?? `${item.laxian_id}-${fi}`"
+                            role="button"
+                            tabindex="0"
+                            class="ml-2 pl-2 py-1.5 rounded-r-md border-l-2 cursor-pointer transition-colors space-y-1.5"
+                            :class="selectedFrameId === frame.frame_id
+                                ? 'border-purple-500 bg-purple-50/80 dark:bg-purple-900/30'
+                                : 'border-purple-200 dark:border-purple-700 hover:bg-gray-100/80 dark:hover:bg-gray-600/30'"
+                            @click="selectLaxianFrameInEditor(item, frame)"
+                            @keydown.enter.prevent="selectLaxianFrameInEditor(item, frame)"
+                            @keydown.space.prevent="selectLaxianFrameInEditor(item, frame)"
                         >
-                            <option :value="0">设计元素</option>
-                            <option :value="1">柄图元素</option>
-                        </select>
-                        <UButton size="xs" color="gray" variant="ghost" title="编辑详情" @click="openLaxianDetailEdit(item, $event)">
-                            <UIcon name="material-symbols:edit-note" />
-                        </UButton>
-                        <UButton size="xs" color="gray" variant="ghost" title="保存当前镜头到此点" @click="saveCameraForLaxian(item)">
-                            <UIcon name="material-symbols:photo-camera" />
-                        </UButton>
-                        <UButton size="xs" color="red" variant="ghost" title="删除" @click="removeLaxian(item)">
-                            <UIcon name="material-symbols:delete-outline" />
-                        </UButton>
+                            <div class="flex flex-wrap items-center gap-2 text-xs">
+                                <span
+                                    class="shrink-0 font-medium"
+                                    :class="selectedFrameId === frame.frame_id
+                                        ? 'text-purple-600 dark:text-purple-300'
+                                        : 'text-gray-500 dark:text-gray-400'"
+                                >
+                                    线框 {{ fi + 1 }}
+                                </span>
+                                <label class="flex items-center gap-1" @click.stop>
+                                    <span class="text-gray-500">形状</span>
+                                    <select
+                                        :value="frame.shape ?? 'box'"
+                                        class="px-1.5 py-0.5 rounded border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800"
+                                        @change="(e) => applyFrameShapeToScene(item, frame, (e.target as HTMLSelectElement).value as LaxianFrameShape)"
+                                    >
+                                        <option value="box">立方体</option>
+                                        <option value="ellipse">椭圆</option>
+                                    </select>
+                                </label>
+                                <label class="flex items-center gap-1" @click.stop>
+                                    <span class="text-gray-500">长</span>
+                                    <input
+                                        v-model.number="frame.scale![0]"
+                                        type="number"
+                                        min="0.05"
+                                        step="0.05"
+                                        class="w-14 px-1.5 py-0.5 rounded border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800"
+                                        @change="applyFrameBoxSizeToScene(item, frame)"
+                                    />
+                                </label>
+                                <label class="flex items-center gap-1" @click.stop>
+                                    <span class="text-gray-500">高</span>
+                                    <input
+                                        v-model.number="frame.scale![1]"
+                                        type="number"
+                                        min="0.05"
+                                        step="0.05"
+                                        class="w-14 px-1.5 py-0.5 rounded border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800"
+                                        @change="applyFrameBoxSizeToScene(item, frame)"
+                                    />
+                                </label>
+                                <label class="flex items-center gap-1" @click.stop>
+                                    <span class="text-gray-500">宽</span>
+                                    <input
+                                        v-model.number="frame.scale![2]"
+                                        type="number"
+                                        min="0.05"
+                                        step="0.05"
+                                        class="w-14 px-1.5 py-0.5 rounded border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800"
+                                        @change="applyFrameBoxSizeToScene(item, frame)"
+                                    />
+                                </label>
+                                <UButton size="xs" color="red" variant="ghost" title="删除线框" @click.stop="removeLaxianFrameFromPoint(item, frame)">
+                                    <UIcon name="material-symbols:close" />
+                                </UButton>
+                            </div>
+                        </div>
                     </div>
                     <div v-if="editableLaxianList.length === 0" class="text-center py-4 text-sm text-gray-400">
                         暂无拉线点，点击「添加拉线点」开始制作
@@ -1365,7 +1663,7 @@ onUnmounted(() => {
             </div>
             <QhxModal v-if="!isHideUi" v-model="showLaxianModal" :trigger-position="laxianModalPosition" @close="showLaxianModal = false">
                 <div class="p-6 w-[240px] bg-white dark:bg-gray-800 rounded-2xl shadow-xl border border-gray-200/50 dark:border-gray-700/50">
-                    <h3 class="text-sm font-semibold text-gray-800 dark:text-gray-100 mb-4">拉线显示</h3>
+                    <h3 class="text-sm font-semibold text-gray-800 dark:text-gray-100 mb-4">标点显示</h3>
                     <div class="space-y-3">
                         <label class="flex items-center justify-between gap-3 cursor-pointer">
                             <span class="text-sm text-gray-700 dark:text-gray-300">设计元素</span>
@@ -1426,9 +1724,11 @@ onUnmounted(() => {
     overflow: hidden;
 }
 
-/* 拉线标签左右切换、上下移动时的平滑过渡 */
+/* 拉线标签：位置由 RAF 直接写 style，不做 transition，避免镜头移动时滞后抖动 */
 .laxian-label {
-    transition-property: left, top, width, transform;
+    width: max-content;
+    will-change: left, top, transform;
+    transition-property: max-width;
     transition-duration: 0.35s;
     transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
 }

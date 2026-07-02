@@ -130,6 +130,12 @@
                     {{ isFormalResident ? '正式居民' : '临时居民' }}
                   </QhxTag>
                 </div>
+                <p
+                  v-if="spaceUserId"
+                  class="text-xs text-gray-400 dark:text-gray-500 tabular-nums tracking-wide mt-0.5"
+                >
+                  ID: {{ spaceUserId }}
+                </p>
 
                 <!-- 签名 -->
                 <div v-if="userInfo.signature" class="signature-preview mt-1.5">
@@ -1589,14 +1595,15 @@ const playHeroIntro = () => {
   const scope = pageRoot.value || undefined
   $gsap.context(() => {
     const tl = $gsap.timeline({ defaults: { ease: 'power3.out' } })
-    tl.from(heroRef.value, { y: 40, autoAlpha: 0, duration: 0.7 })
-      .from('.hero-banner', { autoAlpha: 0, scale: 1.06, duration: 0.8 }, '<')
-      .from('.hero-avatar', { scale: 0.5, autoAlpha: 0, duration: 0.7, ease: 'back.out(1.7)' }, '-=0.45')
-      .from('.hero-headline > *', { y: 16, autoAlpha: 0, stagger: 0.08, duration: 0.5 }, '-=0.3')
-      .from('.hero-tag', { y: 10, autoAlpha: 0, stagger: 0.05, duration: 0.4 }, '-=0.25')
-      .from('.stat-item', { y: 14, autoAlpha: 0, stagger: 0.07, duration: 0.45 }, '-=0.2')
-      .from('.hero-action-bar__item', { y: 12, autoAlpha: 0, stagger: 0.06, duration: 0.4 }, '-=0.15')
-      .from('.space-tabs', { y: 16, autoAlpha: 0, duration: 0.5 }, '-=0.15')
+    tl.from(heroRef.value, { y: 36, autoAlpha: 0, duration: 0.65 })
+      .from('.hero-banner', { autoAlpha: 0, scale: 1.05, duration: 0.7 }, '<')
+      .from('.hero-avatar', { scale: 0.5, autoAlpha: 0, duration: 0.65, ease: 'back.out(1.7)' }, '-=0.5')
+      .from('.hero-headline > *', { y: 14, autoAlpha: 0, stagger: 0.05, duration: 0.42 }, '-=0.38')
+      .from('.hero-tag', { y: 10, autoAlpha: 0, stagger: 0.04, duration: 0.35 }, '-=0.32')
+      .from('.stat-item', { y: 12, autoAlpha: 0, stagger: 0.05, duration: 0.38 }, '-=0.36')
+      .from('.hero-action-bar__item', { y: 10, autoAlpha: 0, stagger: 0.04, duration: 0.35 }, '-=0.38')
+      .from('.space-tabs', { y: 12, autoAlpha: 0, duration: 0.4 }, '-=0.38')
+      .from('.space-tab-panel', { y: 10, autoAlpha: 0, duration: 0.38 }, '-=0.4')
   }, scope)
 
   setupParallax()
@@ -1620,26 +1627,58 @@ const setupParallax = () => {
   })
 }
 
-// 列表滚动渐显：使用 ScrollTrigger.batch，仅处理尚未处理过的元素
+// 列表渐显：首屏可见项与 Hero 同步入场，其余滚动触发
 const revealItems = (root: HTMLElement | null, selector: string) => {
-  if (!$gsap || !$ScrollTrigger || !root) return
-  if (prefersReducedMotion()) return
+  if (!$gsap || !root) return
   const els = Array.from(
     root.querySelectorAll(`${selector}:not([data-revealed])`),
   ) as HTMLElement[]
   if (!els.length) return
   for (const el of els) el.setAttribute('data-revealed', '1')
-  $gsap.set(els, { autoAlpha: 0, y: 28 })
-  const triggers = $ScrollTrigger.batch(els, {
+
+  if (prefersReducedMotion()) {
+    $gsap.set(els, { autoAlpha: 1, y: 0 })
+    return
+  }
+
+  const viewportH = typeof window !== 'undefined' ? window.innerHeight : 0
+  const inView: HTMLElement[] = []
+  const belowFold: HTMLElement[] = []
+  for (const el of els) {
+    if (viewportH && el.getBoundingClientRect().top < viewportH - 24) {
+      inView.push(el)
+    } else {
+      belowFold.push(el)
+    }
+  }
+
+  if (inView.length) {
+    $gsap.fromTo(
+      inView,
+      { autoAlpha: 0, y: 12 },
+      {
+        autoAlpha: 1,
+        y: 0,
+        duration: 0.38,
+        stagger: 0.05,
+        ease: 'power3.out',
+        overwrite: true,
+      },
+    )
+  }
+
+  if (!belowFold.length || !$ScrollTrigger) return
+  $gsap.set(belowFold, { autoAlpha: 0, y: 24 })
+  const triggers = $ScrollTrigger.batch(belowFold, {
     start: 'top bottom-=40',
     once: true,
     onEnter: (batch: Element[]) => {
       $gsap.to(batch, {
         autoAlpha: 1,
         y: 0,
-        duration: 0.55,
-        stagger: 0.08,
-        ease: 'power2.out',
+        duration: 0.42,
+        stagger: 0.05,
+        ease: 'power3.out',
         overwrite: true,
       })
     },
@@ -1882,7 +1921,7 @@ useHead({
   font-size: 0.625rem;
   font-weight: 700;
   color: #fff;
-  background: linear-gradient(135deg, #ec4899 0%, #a855f7 100%);
+  background: linear-gradient(135deg, #ff9eb5 0%, #a855f7 100%);
   box-shadow: 0 2px 8px rgba(236, 72, 153, 0.35);
 }
 
@@ -1955,7 +1994,7 @@ useHead({
   font-size: 2.25rem;
   font-weight: 800;
   line-height: 1.15;
-  background: linear-gradient(135deg, #db2777 0%, #9333ea 55%, #ec4899 100%);
+  background: linear-gradient(135deg, #db2777 0%, #9333ea 55%, #ff9eb5 100%);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
@@ -2104,7 +2143,7 @@ useHead({
 .career-stats-progress-fill {
   height: 100%;
   border-radius: 999px;
-  background: linear-gradient(90deg, #ec4899 0%, #a855f7 50%, #f472b6 100%);
+  background: linear-gradient(90deg, #ff9eb5 0%, #a855f7 50%, #f472b6 100%);
   background-size: 200% 100%;
   transition: width 0.55s cubic-bezier(0.4, 0, 0.2, 1);
   animation: career-progress-shimmer 2.8s ease-in-out infinite;
@@ -2131,7 +2170,7 @@ useHead({
   width: 0.45rem;
   height: 0.45rem;
   border-radius: 999px;
-  background: #ec4899;
+  background: #ff9eb5;
   opacity: 0.85;
   animation: career-dot-bounce 0.75s ease-in-out infinite alternate;
 }

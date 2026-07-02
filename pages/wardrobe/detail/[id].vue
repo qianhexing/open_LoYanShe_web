@@ -1,6 +1,10 @@
 <script setup lang="ts">
-import type { Wardrobe, PaginationResponse, WardrobeClothes, UserDeco } from '@/types/api';
-import { getUserDecoBadges } from '@/api/user'
+definePageMeta({
+  ssr: false,
+})
+
+import type { Wardrobe, WardrobeClothes, UserDeco } from '@/types/api';
+import { getUserDecoBadges, getUserSpace } from '@/api/user'
 import type { UserDecoBadgeItem } from '@/api/user'
 import { getWardrobeList, getClothesList, sortClothee, changeWardrobeClothes, changeWardrobeClothesBatch, deleteClothesByIds, updateClothesIds, checkWadrobePassword, sortWardrobe, updateWardrobe, deleteWardrobe } from '@/api/wardrobe'
 import { getPlanListWardrobe, planComplete } from '@/api/plan'
@@ -14,10 +18,51 @@ import { useMatchingDraftStore } from '@/stores/matchingDraft'
 import { useFlyToButton } from '~/composables/useFlyToButton'
 import { useWardrobeToolbar } from '~/composables/useWardrobeToolbar'
 import { getWardrobeToolbarTool } from '~/utils/wardrobeToolbarConfig'
-import Draggable from 'vuedraggable'
 import { BASE_IMG } from '@/utils/ipConfig'
 import { createReusableTemplate, useEventListener, useResizeObserver, useDebounceFn } from '@vueuse/core'
 import type { WardrobeToolbarToolId } from '~/utils/wardrobeToolbarConfig'
+import type QhxStepGuide from '@/components/Qhx/StepGuide.vue'
+import type QrcodeListType from '@/components/qrcode/QrcodeList.vue'
+import type ClothesAddType from '@/components/Clothes/ClothesAdd.vue'
+import type ClothesBatchAddEntryType from '@/components/Clothes/ClothesBatchAddEntry.vue'
+import type WardrobeAddEditType from '@/components/Wardrobe/WardrobeAddEdit.vue'
+import type WardrobeSearchType from '@/components/Wardrobe/WardrobeSearch.vue'
+import type WardrobeChooseType from '@/components/Wardrobe/WardrobeChoose.vue'
+import type MatchingAddEditType from '@/components/matching/MatchingAddEdit.vue'
+import dayjs from 'dayjs'
+import {
+  hasCompletedWardrobeSortGuide,
+  WARDROBE_SORT_GUIDE_STEPS,
+  WARDROBE_SORT_GUIDE_STORAGE_KEY,
+} from '@/utils/wardrobeSortGuide'
+
+const Draggable = defineAsyncComponent(() => import('vuedraggable'))
+const WardrobeClothesLongShare = defineAsyncComponent(
+  () => import('@/components/Wardrobe/WardrobeClothesLongShare.vue'),
+)
+const WardrobeClothesFavoriteShare = defineAsyncComponent(
+  () => import('@/components/Wardrobe/WardrobeClothesFavoriteShare.vue'),
+)
+const ClothesAdd = defineAsyncComponent(() => import('@/components/Clothes/ClothesAdd.vue'))
+const ClothesBatchAddEntry = defineAsyncComponent(
+  () => import('@/components/Clothes/ClothesBatchAddEntry.vue'),
+)
+const WardrobeAddEdit = defineAsyncComponent(
+  () => import('@/components/Wardrobe/WardrobeAddEdit.vue'),
+)
+const MatchingAddEdit = defineAsyncComponent(
+  () => import('@/components/matching/MatchingAddEdit.vue'),
+)
+const WardrobeSimilarRecommend = defineAsyncComponent(
+  () => import('@/components/Wardrobe/WardrobeSimilarRecommend.vue'),
+)
+const QrcodeList = defineAsyncComponent(() => import('@/components/qrcode/QrcodeList.vue'))
+const WardrobeSearch = defineAsyncComponent(
+  () => import('@/components/Wardrobe/WardrobeSearch.vue'),
+)
+const WardrobeChoose = defineAsyncComponent(
+  () => import('@/components/Wardrobe/WardrobeChoose.vue'),
+)
 
 const wardrobeStore = useWardrobeStore()
 const user = useUserStore()
@@ -31,6 +76,36 @@ const isPageOwner = computed(() => {
   const uid = user.user?.user_id
   return uid != null && Number(uid) === ownerUserId.value
 })
+
+const wardrobePageOwner = ref<{ user_name?: string; user_face?: string } | null>(null)
+
+async function loadWardrobePageOwner() {
+  const uid = ownerUserId.value
+  if (!Number.isFinite(uid)) {
+    wardrobePageOwner.value = null
+    return
+  }
+  if (isPageOwner.value && user.user) {
+    wardrobePageOwner.value = {
+      user_name: user.user.user_name,
+      user_face: user.user.user_face,
+    }
+    return
+  }
+  try {
+    const u = await getUserSpace({ user_id: uid })
+    wardrobePageOwner.value = { user_name: u.user_name, user_face: u.user_face }
+  } catch {
+    wardrobePageOwner.value = null
+  }
+}
+
+const wardrobeShareUserName = computed(
+  () => (isPageOwner.value ? user.user?.user_name : wardrobePageOwner.value?.user_name) ?? ''
+)
+const wardrobeShareUserFace = computed(
+  () => (isPageOwner.value ? user.user?.user_face : wardrobePageOwner.value?.user_face) ?? ''
+)
 const wardrobeList = ref<Wardrobe[]>([])
 const wardrobeCount = ref<number>(0)
 const currentWardrobe = ref<Wardrobe | null>(null)
@@ -48,6 +123,9 @@ const sizeList = ref<Array<string>>([])
 const isSorting = ref(false) // loading 状态
 const show = ref(true)
 const sortMode = ref(false)
+const showSortGuide = ref(false)
+const sortGuideRef = ref<InstanceType<typeof QhxStepGuide> | null>(null)
+const wardrobeSortGuideSteps = WARDROBE_SORT_GUIDE_STEPS
 // 搭配模式：与排序互斥，开启后服饰卡片右上角显示加号，可添加进搭配草稿
 const matchingMode = ref(false)
 // 多选模式：与排序、搭配、编辑互斥，开启后服饰卡片右上角显示选择框，可批量操作
@@ -107,17 +185,8 @@ const handleUniRefreshMessage = (e: MessageEvent) => {
 const opearClothesId = ref<number | null>(null)
 let oldList: { clothes_id: number; sort: number }[] = [];
 const record = ref<Wardrobe | null>(null)
-import WardrobeClothesLongShare from '@/components/Wardrobe/WardrobeClothesLongShare.vue'
-import type QrcodeList from '@/components/qrcode/QrcodeList.vue'
-import type ClothesAdd from '@/components/Clothes/ClothesAdd.vue'
-import type ClothesBatchAddEntry from '@/components/Clothes/ClothesBatchAddEntry.vue'
-import type WardrobeAddEdit from '@/components/Wardrobe/WardrobeAddEdit.vue'
-import type WardrobeSearch from '@/components/Wardrobe/WardrobeSearch.vue'
-import type WardrobeChoose from '@/components/Wardrobe/WardrobeChoose.vue'
-import type MatchingAddEdit from '@/components/matching/MatchingAddEdit.vue'
-import dayjs from 'dayjs'
-const addEditClothesRef = ref<InstanceType<typeof ClothesAdd> | null>(null)
-const clothesBatchAddEntryRef = ref<InstanceType<typeof ClothesBatchAddEntry> | null>(null)
+const addEditClothesRef = ref<InstanceType<typeof ClothesAddType> | null>(null)
+const clothesBatchAddEntryRef = ref<InstanceType<typeof ClothesBatchAddEntryType> | null>(null)
 const toast = useToast()
 
 const showBatchStatusModal = ref(false)
@@ -410,10 +479,10 @@ const handlePlanTimelineComplete = async () => {
   }
 }
 
-const addEditWardrobeRef = ref<InstanceType<typeof WardrobeAddEdit> | null>(null)
-const wardrobeSearchRef = ref<InstanceType<typeof WardrobeSearch> | null>(null)
-const wardrobeChooseRef = ref<InstanceType<typeof WardrobeChoose> | null>(null)
-const matchingAddEditRef = ref<InstanceType<typeof MatchingAddEdit> | null>(null)
+const addEditWardrobeRef = ref<InstanceType<typeof WardrobeAddEditType> | null>(null)
+const wardrobeSearchRef = ref<InstanceType<typeof WardrobeSearchType> | null>(null)
+const wardrobeChooseRef = ref<InstanceType<typeof WardrobeChooseType> | null>(null)
+const matchingAddEditRef = ref<InstanceType<typeof MatchingAddEditType> | null>(null)
 const matchingBtnRef = ref<HTMLElement | null>(null)
 const { flyToTarget } = useFlyToButton()
 
@@ -1145,7 +1214,7 @@ const copyUrl = async () => {
 }
 
 const wardrobeSimilarRecommendRef = ref<{ open: () => void } | null>(null)
-const qrcodeListRef = ref<InstanceType<typeof QrcodeList> | null>(null)
+const qrcodeListRef = ref<InstanceType<typeof QrcodeListType> | null>(null)
 
 const showQRCodeList = () => {
   const wid = currentWardrobe.value?.wardrobe_id
@@ -1979,61 +2048,72 @@ const jumpToPlan = () => {
     }
   }
 }
+async function initWardrobePage() {
+  await user.initialize()
+  if (user.token && !user.user) {
+    try {
+      await user.fetchUserInfo()
+    } catch {
+      // 无法拉取用户信息时按访客流程处理
+    }
+  }
+  if (route.query.password) {
+    password.value = route.query.password as string
+  }
+  if (route.query.qrcode) {
+    qrcode.value = route.query.qrcode as string
+  }
+
+  const initTasks: Promise<unknown>[] = [
+    fetchWardrobeList(),
+    loadWardrobePageOwner(),
+    fetchOwnerBadges(),
+  ]
+  if (isPageOwner.value) {
+    initTasks.push(wardrobeStore.getWardrobeConfig())
+  }
+  await Promise.all(initTasks)
+
+  if (wardrobeList.value.length > 0) {
+    let targetWardrobe: Wardrobe | null = null
+    if (route.query.wardrobe_id) {
+      const queryWardrobeId = Number.parseInt(route.query.wardrobe_id as string, 10)
+      targetWardrobe = wardrobeList.value.find((item) => item.wardrobe_id === queryWardrobeId) ?? null
+    }
+
+    if (isPageOwner.value) {
+      changeWardrobe(targetWardrobe || wardrobeList.value[0])
+    } else if (qrcode.value) {
+      // 二维码访问：列表接口已按 qrcode 过滤，直接选中指定或首个衣柜
+      changeWardrobe(targetWardrobe || wardrobeList.value[0])
+    } else {
+      const accessibleIndex = wardrobeList.value.findIndex(
+        (item) => item.is_private === 0 || item.password,
+      )
+      if (accessibleIndex !== -1) {
+        if (targetWardrobe && targetWardrobe.is_private === 0) {
+          changeWardrobe(targetWardrobe)
+        } else {
+          changeWardrobe(wardrobeList.value[accessibleIndex])
+        }
+      }
+    }
+  }
+}
+
 onMounted(async () => {
   if (typeof window !== 'undefined') {
     window.addEventListener('message', handleUniRefreshMessage)
   }
-  uni = await import('@dcloudio/uni-webview-js').catch((err) => {
-    console.error('Failed to load uni-webview-js:', err);
-  });
   matchingDraftStore.loadFromStorage()
-  setTimeout(async () => {
-    await user.initialize()
-    if (user.token && !user.user) {
-      try {
-        await user.fetchUserInfo()
-      } catch {
-        // 无法拉取用户信息时按访客流程处理
-      }
-    }
-    void fetchOwnerBadges()
-    if (route.query.password) {
-      password.value = route.query.password as string
-    }
-    if (route.query.qrcode) {
-      qrcode.value = route.query.qrcode as string
-    }
-    await fetchWardrobeList()
-    if (wardrobeList.value.length > 0) {
-      let targetWardrobe: Wardrobe | null = null
-      if (route.query.wardrobe_id) {
-        const queryWardrobeId = Number.parseInt(route.query.wardrobe_id as string, 10)
-        targetWardrobe = wardrobeList.value.find((item) => item.wardrobe_id === queryWardrobeId) ?? null
-      }
-
-      if (isPageOwner.value) {
-        changeWardrobe(targetWardrobe || wardrobeList.value[0])
-      } else if (qrcode.value) {
-        // 二维码访问：列表接口已按 qrcode 过滤，直接选中指定或首个衣柜
-        changeWardrobe(targetWardrobe || wardrobeList.value[0])
-      } else {
-        const accessibleIndex = wardrobeList.value.findIndex(
-          (item) => item.is_private === 0 || item.password,
-        )
-        if (accessibleIndex !== -1) {
-          if (targetWardrobe && targetWardrobe.is_private === 0) {
-            changeWardrobe(targetWardrobe)
-          } else {
-            changeWardrobe(wardrobeList.value[accessibleIndex])
-          }
-        }
-      }
-    }
-
-    if (isPageOwner.value) {
-      wardrobeStore.getWardrobeConfig()
-    }
-  });
+  await Promise.all([
+    import('@dcloudio/uni-webview-js')
+      .then((mod) => { uni = mod })
+      .catch((err) => {
+        console.error('Failed to load uni-webview-js:', err)
+      }),
+    initWardrobePage(),
+  ])
 })
 
 onUnmounted(() => {
@@ -2078,6 +2158,7 @@ useHead({
 })
 const enableDrag = () => {
   sortMode.value = true
+  tryOpenSortGuide()
 }
 
 const SIDEBAR_COLLAPSED_KEY = 'wardrobe-detail-sidebar-collapsed'
@@ -2704,7 +2785,34 @@ const toggleSortMode = () => {
     selectMode.value = false
     editMode.value = false
     selectedClothesIds.value = new Set()
+    tryOpenSortGuide()
+  } else {
+    showSortGuide.value = false
   }
+}
+
+function tryOpenSortGuide() {
+  if (!import.meta.client || !isPageOwner.value) return
+  if (timelineMode.value || hasCompletedWardrobeSortGuide()) return
+  if (sidebarCollapsed.value) {
+    sidebarCollapsed.value = false
+  }
+  nextTick(() => {
+    requestAnimationFrame(() => {
+      showSortGuide.value = true
+    })
+  })
+}
+
+function onSortGuideStepChange(index: number) {
+  if (index === 0 && sidebarCollapsed.value) {
+    sidebarCollapsed.value = false
+    nextTick(() => {
+      requestAnimationFrame(() => sortGuideRef.value?.refreshLayout())
+    })
+    return
+  }
+  nextTick(() => sortGuideRef.value?.refreshLayout())
 }
 const toggleEditMode = () => {
   editMode.value = !editMode.value
@@ -2922,14 +3030,16 @@ const confirmBatchSort = async () => {
   }
 }
 
-const showLongShareModal = ref(false)
+const showShareModal = ref(false)
+const shareImageType = ref<'long' | 'favorite'>('long')
 
-function openLongShareModal() {
+function openShareModal(type: 'long' | 'favorite' = 'long') {
   if (!currentWardrobe.value?.wardrobe_id || !info.value) {
     toast.add({ title: '请先选择衣柜', color: 'amber', icon: 'i-heroicons-information-circle' })
     return
   }
-  showLongShareModal.value = true
+  shareImageType.value = type
+  showShareModal.value = true
 }
 
 const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
@@ -2986,9 +3096,9 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
         class="pointer-events-none"
       />
     </div>
-    <clothes-add ref="addEditClothesRef" @success="onClothesAddSuccess"></clothes-add>
-    <clothes-batch-add-entry ref="clothesBatchAddEntryRef" @success="reloadWardrobe"></clothes-batch-add-entry>
-    <wardrobe-add-edit ref="addEditWardrobeRef" @success="onWardrobeEditSuccess"></wardrobe-add-edit>
+    <ClothesAdd ref="addEditClothesRef" @success="onClothesAddSuccess" />
+    <ClothesBatchAddEntry ref="clothesBatchAddEntryRef" @success="reloadWardrobe" />
+    <WardrobeAddEdit ref="addEditWardrobeRef" @success="onWardrobeEditSuccess" />
     <AchievementDecoConfigModal
       v-if="isWardrobeOwner && currentWardrobe?.wardrobe_id"
       v-model="wardrobeDecoModalOpen"
@@ -2997,32 +3107,67 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
       :wardrobe-id="currentWardrobe.wardrobe_id"
       @saved="onWardrobeDecoSaved"
     />
-    <matching-add-edit ref="matchingAddEditRef" @success="matchingDraftStore.clear" />
-    <QhxModal v-model="showLongShareModal">
+    <MatchingAddEdit ref="matchingAddEditRef" @success="matchingDraftStore.clear" />
+    <QhxModal v-model="showShareModal">
       <div
         class="flex max-h-[90vh] w-[min(94vw,440px)] flex-col overflow-hidden rounded-2xl bg-[#ebe3e8] shadow-2xl dark:bg-[#241d26]"
       >
         <div
           class="flex shrink-0 items-center justify-between gap-2 border-b border-pink-200/40 px-4 py-3 dark:border-pink-900/35"
         >
-          <span class="text-sm font-semibold text-[#4a2f3d] dark:text-pink-50">衣柜长图分享</span>
+          <span class="text-sm font-semibold text-[#4a2f3d] dark:text-pink-50">衣柜分享图</span>
           <button
             type="button"
             class="flex h-9 w-9 items-center justify-center rounded-xl text-[#8a6f7d] outline-none transition hover:bg-black/5 dark:text-pink-300/85 dark:hover:bg-white/10"
             aria-label="关闭"
-            @click="showLongShareModal = false"
+            @click="showShareModal = false"
           >
             <UIcon name="i-heroicons-x-mark-20-solid" class="h-5 w-5" />
           </button>
         </div>
+        <div class="shrink-0 border-b border-pink-200/30 px-3 py-2 dark:border-pink-900/30 sm:px-4">
+          <div class="flex gap-2 rounded-xl bg-black/[0.04] p-1 dark:bg-white/[0.06]">
+            <button
+              type="button"
+              class="flex-1 rounded-lg px-3 py-2 text-xs font-medium transition sm:text-sm"
+              :class="shareImageType === 'long'
+                ? 'bg-white text-[#5e3a4b] shadow-sm dark:bg-[#3d2f38] dark:text-pink-50'
+                : 'text-[#8a6f7d] hover:text-[#5e3a4b] dark:text-pink-300/75 dark:hover:text-pink-50'"
+              @click="shareImageType = 'long'"
+            >
+              长图
+            </button>
+            <button
+              type="button"
+              class="flex-1 rounded-lg px-3 py-2 text-xs font-medium transition sm:text-sm"
+              :class="shareImageType === 'favorite'
+                ? 'bg-white text-[#5e3a4b] shadow-sm dark:bg-[#3d2f38] dark:text-pink-50'
+                : 'text-[#8a6f7d] hover:text-[#5e3a4b] dark:text-pink-300/75 dark:hover:text-pink-50'"
+              @click="shareImageType = 'favorite'"
+            >
+              评级分享图
+            </button>
+          </div>
+        </div>
         <div class="min-h-0 flex-1 overflow-y-auto overscroll-contain p-3 sm:p-4">
           <WardrobeClothesLongShare
-            v-if="currentWardrobe?.wardrobe_id && info"
+            v-if="shareImageType === 'long' && currentWardrobe?.wardrobe_id && info"
             :wardrobe-id="currentWardrobe.wardrobe_id"
             :info="info"
             :filter-list="filter_list"
             :password="password"
             :timeline-mode="timelineMode"
+          />
+          <WardrobeClothesFavoriteShare
+            v-else-if="shareImageType === 'favorite' && currentWardrobe?.wardrobe_id && info"
+            :wardrobe-id="currentWardrobe.wardrobe_id"
+            :info="info"
+            :filter-list="filter_list"
+            :password="password"
+            :timeline-mode="timelineMode"
+            :owner-user-id="ownerUserId"
+            :user-name="wardrobeShareUserName"
+            :user-face="wardrobeShareUserFace"
           />
         </div>
       </div>
@@ -3517,6 +3662,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
       >
         <div
           v-show="!sidebarCollapsed"
+          id="wardrobe-guide-sidebar-list"
           class="wardrobe-list wardrobe-neu-sidebar wardrobe-list-height w-full overflow-y-auto"
         >
         <!-- 状态栏高度占位 -->
@@ -3964,14 +4110,14 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
               </div>
             </QhxJellyButton>
             <QhxJellyButton>
-              <div class="h-[46px] flex flex-col items-center justify-center px-0.5 cursor-pointer" @click="openLongShareModal">
+              <div class="h-[46px] flex flex-col items-center justify-center px-0.5 cursor-pointer" @click="openShareModal('long')">
                 <div
                   class="wardrobe-neu-tool-orb m-[3px] rounded-[50%] h-[24px] w-[24px] flex items-center justify-center"
                   :class="[!hasCustomBtnBg && 'bg-qhx-info', !hasCustomBtnFont && 'text-white']"
                 >
                   <UIcon name="i-heroicons-photo-20-solid" class="text-[16px]" />
                 </div>
-                <div class="text-xs text-qhx-text">截长图</div>
+                <div class="text-xs text-qhx-text">分享图</div>
               </div>
             </QhxJellyButton>
           </div>
@@ -4342,6 +4488,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
           <!-- 排序态：自研高性能拖拽排序（QhxSortableList，无 vuedraggable） -->
           <QhxSortableList
             v-else
+            id="wardrobe-guide-clothes-grid"
             v-model="list"
             item-key="clothes_id"
             class="flex flex-wrap"
@@ -5184,6 +5331,16 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
         />
       </ClientOnly>
     </div>
+
+    <QhxStepGuide
+      ref="sortGuideRef"
+      v-model="showSortGuide"
+      :steps="wardrobeSortGuideSteps"
+      :storage-key="WARDROBE_SORT_GUIDE_STORAGE_KEY"
+      skip-label="不再提示"
+      :persist-on-finish="false"
+      @step-change="onSortGuideStepChange"
+    />
   </div>
 </template>
 
@@ -5194,7 +5351,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
 }
 
 .drag-chosen {
-  /* outline: 2px solid #ec4899; */
+  /* outline: 2px solid #ff9eb5; */
   border-radius: 12px;
 }
 

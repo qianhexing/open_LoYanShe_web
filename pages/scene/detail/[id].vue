@@ -10,6 +10,7 @@ import type { DiaryInterface, LibraryInterface } from '@/types/sence'
 import type SceneMaterial from '@/components/scene/Material.vue'
 import type SceneTextureEditor from '@/components/scene/TextureEditor.vue'
 import type SceneAnimationEditor from '@/components/scene/SceneAnimationEditor.vue'
+import SceneObjectTransformEditor from '@/components/scene/SceneObjectTransformEditor.vue'
 import { isAnimatableSceneObject } from '@/composables/useSceneObjectAnimation'
 import type QhxColorPicker from '@/components/Qhx/ColorPicker.vue'
 import { useSceneStore } from '@/stores/sence'
@@ -490,7 +491,15 @@ watch([edit_mode, add_mode], ([edit, add]) => {
     if (!edit && !add) {
         showToolbar.value = false
     }
-})
+    const core = threeCore.value
+    if (!core) return
+    core.editMode = edit || add
+    if (edit || add) {
+        core.syncSatelliteOrbitHelpers()
+    } else {
+        core.clearSatelliteOrbitHelpers()
+    }
+}, { flush: 'post' })
 
 const {
     showGuide: showSceneEditGuide,
@@ -751,10 +760,15 @@ function textureReplaceableModelLabel(root: THREE.Object3D): string {
 function textureReplaceableMeshLabel(mesh: THREE.Mesh): string {
     const scene = threeCore.value?.scene
     const meshLabel = mesh.name.trim() || 'replace'
-    if (!scene) return meshLabel
+    const videoTag = isVideoReplaceMesh(mesh) ? '（视频）' : ''
+    if (!scene) return `${meshLabel}${videoTag}`
     const root = getSceneTopLevelRoot(mesh, scene)
-    if (!root || root === mesh) return meshLabel
-    return `${textureReplaceableModelLabel(root)} · ${meshLabel}`
+    if (!root || root === mesh) return `${meshLabel}${videoTag}`
+    return `${textureReplaceableModelLabel(root)} · ${meshLabel}${videoTag}`
+}
+
+function isVideoReplaceMesh(mesh: THREE.Mesh): boolean {
+    return mesh.name.toLowerCase().includes('video')
 }
 
 const textureSceneScanRev = ref(0)
@@ -895,8 +909,11 @@ const copySceneObject = async () => {
     const t = source.userData.type
     if (!source.userData.url) return
 
-    if (t === 'image') {
-        const mesh = await threeCore.value.loadImageMesh(source.userData.url)
+    if (t === 'image' || t === 'video') {
+        const mesh =
+            t === 'video'
+                ? await threeCore.value.loadVideoMesh(source.userData.url)
+                : await threeCore.value.loadImageMesh(source.userData.url)
         if (source.userData.follow) {
             mesh.userData.follow = true
         }
@@ -1054,6 +1071,9 @@ const deleteModel = () => {
         }
         const evictUrl = detachRoleControllerForObject(toRemove)
         threeCore.value.clearGroup(toRemove)
+        if (edit_mode.value || add_mode.value) {
+            threeCore.value.syncSatelliteOrbitHelpers()
+        }
         if (evictUrl) {
             threeCore.value.evictModelCacheIfOrphaned(evictUrl)
         }
@@ -1506,6 +1526,17 @@ const handlePolarRangeChange = (values: [number, number]) => {
     threeCore.value.controls.maxPolarAngle = (max * Math.PI) / 180
 }
 
+const showPreciseTransform = ref(false)
+
+const openPreciseTransform = () => {
+    if (!clickObject.value?.length) return
+    clickPosition.value = {
+        x: operaPosition.value.x + 100,
+        y: operaPosition.value.y
+    }
+    showPreciseTransform.value = true
+}
+
 const showObjectSettings = ref(false)
 const objectSettingsState = reactive({
     color: '#ffffff',
@@ -1750,7 +1781,7 @@ const openObjectSettings = () => {
             }
             showObjectSettings.value = true
         }
-        if (obj.userData.type === 'image') {
+        if (obj.userData.type === 'image' || obj.userData.type === 'video') {
             if (obj.userData.follow === undefined) {
                 obj.userData.follow = false
             }
@@ -1765,8 +1796,9 @@ const openObjectSettings = () => {
 }
 
 const onImageFollowChange = (v: boolean) => {
-    if (clickObject.value?.[0]?.userData?.type === 'image') {
-        clickObject.value[0].userData.follow = v
+    const obj = clickObject.value?.[0]
+    if (obj?.userData?.type === 'image' || obj?.userData?.type === 'video') {
+        obj.userData.follow = v
     }
 }
 
@@ -1890,6 +1922,13 @@ const addImage = () => {
     }
 }
 
+// 添加视频
+const addVideo = () => {
+    if (MaterialRef.value) {
+        MaterialRef.value.addVideo()
+    }
+}
+
 // 打开图片菜单
 const openImageMenu = (e: MouseEvent) => {
     imageMenuPosition.value = {
@@ -1903,6 +1942,12 @@ const openImageMenu = (e: MouseEvent) => {
 const selectImage = () => {
     showImageMenu.value = false
     addImage()
+}
+
+// 选择视频
+const selectVideo = () => {
+    showImageMenu.value = false
+    addVideo()
 }
 
 // 选择背景
@@ -2955,6 +3000,21 @@ const onUpdateFiles = async (resault) => {
     console.log('当前面片', mesh)
     stampAndAddSceneObject(mesh)
 }
+const onUpdateVideo = async (resault) => {
+    if (!threeCore.value) return
+    try {
+        const mesh = await threeCore.value.loadVideoMesh(BASE_IMG + resault.file_url)
+        stampAndAddSceneObject(mesh)
+    } catch (err) {
+        console.error('添加视频失败:', err)
+        toast.add({
+            title: '视频加载失败',
+            description: err instanceof Error ? err.message : '请稍后重试',
+            icon: 'i-heroicons-x-circle',
+            color: 'red'
+        })
+    }
+}
 const addBackgroun = async (resault) => {
     if (!threeCore.value) return
     threeCore.value.background = resault.file_url
@@ -3065,7 +3125,7 @@ const initThreejs = async () => {
         const gfx = loadSceneGraphicsSettings()
         sceneGraphicsPreset.value = gfx.preset
         await initScene(sceneElement, id, {
-            editMode: edit_mode.value,
+            editMode: edit_mode.value || add_mode.value,
             baseUrl: BASE_IMG,
             sceneData: detail.value,
             enableRaycaster: hasSplatObject,
@@ -3165,6 +3225,13 @@ const initThreejs = async () => {
         linkBadgeAnimCb = () => updateLinkBadgeMarkers()
         threeCore.value.addAnimationCallback(linkBadgeAnimCb)
         updateLinkBadgeMarkers()
+
+        if (threeCore.value) {
+            threeCore.value.editMode = edit_mode.value || add_mode.value
+            if (edit_mode.value || add_mode.value) {
+                threeCore.value.syncSatelliteOrbitHelpers()
+            }
+        }
     }
     bindVoxelBlockContainer(sceneElement)
     bindWallDrawContainer(sceneElement)
@@ -3356,13 +3423,22 @@ useHead({
         </div>
 
         <SceneTextureEditor ref="SceneTextureEditorRef" v-if="target" :target="target"
-            :image-url="textureEditorDefaultImageUrl" @close="target = null" />
+            :image-url="textureEditorDefaultImageUrl" :three-core="threeCore" @close="target = null" />
         <SceneAnimationEditor
             v-if="animationTarget && threeCore"
             ref="SceneAnimationEditorRef"
             :target="animationTarget"
             :three-core="threeCore"
             @close="animationTarget = null"
+        />
+        <SceneObjectTransformEditor
+            v-if="threeCore"
+            v-model="showPreciseTransform"
+            :target="clickObject?.[0] ?? null"
+            :three-core="threeCore"
+            :trigger-position="clickPosition"
+            :clone-transform-state="cloneTransformState"
+            :push-transform-undo="pushTransformUndo"
         />
         <SceneObjectLinkModal
             ref="sceneObjectLinkModalRef"
@@ -3682,7 +3758,7 @@ useHead({
                         {{ textureReplaceableMeshes.length > 99 ? '99+' : textureReplaceableMeshes.length }}
                     </span>
                 </span>
-                <span class="scene-neu-collapsed-label text-center font-medium leading-tight">贴图</span>
+                <span class="scene-neu-collapsed-label text-center font-medium leading-tight">贴图/视频</span>
             </button>
             <div
                 v-show="textureListExpanded"
@@ -3692,7 +3768,7 @@ useHead({
                     v-if="textureReplaceableMeshes.length === 0"
                     class="text-[10px] leading-relaxed text-gray-400 px-0.5"
                 >
-                    场景中暂无可替换贴图网格（名称需包含 replace）。
+                    场景中暂无可替换贴图/视频网格（名称需包含 replace）。
                 </p>
                 <button
                     v-for="m in textureReplaceableMeshes"
@@ -4314,12 +4390,18 @@ useHead({
                 <div class="scene-neu-opera-chip flex-shrink-0" @click="setMode('scale')"
                     v-show="transformType !== 'scale'">缩放
                 </div>
+                <div
+                    class="scene-neu-opera-chip scene-neu-opera-chip--violet flex-shrink-0"
+                    @click.stop="openPreciseTransform"
+                >
+                    精确
+                </div>
                 <div class="scene-neu-opera-chip flex-shrink-0" @click.stop="openObjectSettings"
-                    v-if="clickObject && (clickObject[0].userData.type === 'image' || clickObject[0].userData.type === '3Dtext' || clickObject[0].userData.type === 'longtext')">
+                    v-if="clickObject && (clickObject[0].userData.type === 'image' || clickObject[0].userData.type === 'video' || clickObject[0].userData.type === '3Dtext' || clickObject[0].userData.type === 'longtext')">
                     设置
                 </div>
                 <div class="scene-neu-opera-chip flex-shrink-0" @click.stop="copySceneObject()"
-                    v-if="clickObject && (clickObject[0].userData.type === 'model' || clickObject[0].userData.type === 'character' || clickObject[0].userData.type === 'image')">复制</div>
+                    v-if="clickObject && (clickObject[0].userData.type === 'model' || clickObject[0].userData.type === 'character' || clickObject[0].userData.type === 'image' || clickObject[0].userData.type === 'video')">复制</div>
                 <div
                     class="scene-neu-opera-chip scene-neu-opera-chip--violet flex-shrink-0"
                     v-if="canEditObjectLinks"
@@ -4327,7 +4409,7 @@ useHead({
                 >
                     关联
                 </div>
-                <div class="scene-neu-opera-chip flex-shrink-0" @click.stop="showTexture()" v-if="canTexture">贴图</div>
+                <div class="scene-neu-opera-chip flex-shrink-0" @click.stop="showTexture()" v-if="canTexture">贴图/视频</div>
                 <div
                     class="scene-neu-opera-chip scene-neu-opera-chip--violet flex-shrink-0"
                     v-if="canObjectAnimation"
@@ -4389,7 +4471,7 @@ useHead({
         </div>
         <SceneMaterial v-if="edit_mode && layoutReady" @recordCamera="recordCamera" @chooseTemplate="chooseTemplate"
             @choose-material="chooseMaterial" @clearTemplate="clearTemplate" @addDiary="addDiary" @saveScene="saveScene"
-            @addImage="onUpdateFiles" @addBackgroun="addBackgroun" @choose-effect="chooseEffect" @addText="addText"
+            @addImage="onUpdateFiles" @addVideo="onUpdateVideo" @addBackgroun="addBackgroun" @choose-effect="chooseEffect" @addText="addText"
             ref="MaterialRef" :loadTemplate="threeCore && threeCore.loadTemplate.length > 0 ? true : false">
         </SceneMaterial>
         <QhxModal
@@ -4685,8 +4767,8 @@ useHead({
                     </div>
                 </template>
 
-                <!-- 图片设置 -->
-                <template v-if="clickObject && clickObject[0] && clickObject[0].userData.type === 'image'">
+                <!-- 图片/视频设置 -->
+                <template v-if="clickObject && clickObject[0] && (clickObject[0].userData.type === 'image' || clickObject[0].userData.type === 'video')">
                     <div class="mb-2">
                         <div class="flex items-center justify-between gap-3 mb-2">
                             <span class="text-sm text-gray-700 dark:text-gray-300">面向相机</span>
@@ -4701,7 +4783,7 @@ useHead({
                             </div>
                         </div>
                         <p class="text-xs text-gray-500">
-                            开启后图片会随视角旋转，始终面向相机（Billboard）
+                            开启后{{ clickObject[0].userData.type === 'video' ? '视频' : '图片' }}会随视角旋转，始终面向相机（Billboard）
                         </p>
                     </div>
                 </template>
@@ -4919,6 +5001,19 @@ useHead({
                     <div class="flex-1">
                         <div class="text-sm font-medium text-gray-800 dark:text-gray-200">图片</div>
                         <div class="text-xs text-gray-500 dark:text-gray-400">添加图片到场景</div>
+                    </div>
+                </button>
+
+                <!-- 视频选项 -->
+                <button @click="selectVideo"
+                    class="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors text-left group mt-2">
+                    <div
+                        class="w-8 h-8 bg-violet-500 dark:bg-violet-600 rounded-lg flex items-center justify-center group-hover:scale-110 transition-transform">
+                        <UIcon name="material-symbols:videocam-rounded" class="text-base text-white" />
+                    </div>
+                    <div class="flex-1">
+                        <div class="text-sm font-medium text-gray-800 dark:text-gray-200">视频</div>
+                        <div class="text-xs text-gray-500 dark:text-gray-400">添加视频到场景</div>
                     </div>
                 </button>
 
@@ -5316,7 +5411,7 @@ html.dark .scene-page-neu .scene-neu-panel-toggle--collapsed:hover {
 }
 
 .scene-page-neu .scene-neu-action-btn--pink:hover {
-    border-color: color-mix(in srgb, #ec4899 35%, var(--scene-neu-border));
+    border-color: color-mix(in srgb, #ff9eb5 35%, var(--scene-neu-border));
 }
 
 .scene-page-neu .scene-neu-action-btn--violet:hover {

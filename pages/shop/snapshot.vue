@@ -224,8 +224,8 @@ const downloadChunk = async (index: number) => {
   }
 
   const link = document.createElement('a')
-  link.download = `店铺拼图_${keyword.value || 'all'}_${index + 1}.png`
-  link.href = canvas.toDataURL('image/png')
+  link.download = `店铺拼图_${keyword.value || 'all'}_${index + 1}.jpg`
+  link.href = canvas.toDataURL('image/jpeg', 0.92)
   link.click()
 }
 

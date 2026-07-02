@@ -8,6 +8,8 @@ import { createGltfCoverBlob } from '@/utils/gltfCoverSnapshot'
 import type QhxImagePicker from '@/components/Qhx/ImagePicker.vue'
 import type * as THREE from 'three'
 const imagePicker = ref<InstanceType<typeof QhxImagePicker> | null>(null)
+const videoFileInput = ref<HTMLInputElement | null>(null)
+const VIDEO_ACCEPT = 'video/mp4,video/webm,video/quicktime,.mp4,.webm,.mov,.m4v,.ogg'
 const toast = useToast()
 const customUploadInput = ref<HTMLInputElement | null>(null)
 const customUploading = ref(false)
@@ -47,6 +49,9 @@ const addImage = () => {
     imagePicker.value.triggerInput()
   }
 }
+const addVideo = () => {
+  videoFileInput.value?.click()
+}
 const addBackground = () => {
   imageType.value = 1
   if (imagePicker.value) {
@@ -78,7 +83,7 @@ watch(panelType, (val) => {
         visitedTypes.value = new Set([...visitedTypes.value, val])
     }
 }, { immediate: true })
-const emit = defineEmits(['addImage', 'saveScene', 'addDiary', 'chooseTemplate', 'chooseEffect', 'clearTemplate', 'recordCamera', 'addBackgroun', 'chooseMaterial', 'addText'])
+const emit = defineEmits(['addImage', 'addVideo', 'saveScene', 'addDiary', 'chooseTemplate', 'chooseEffect', 'clearTemplate', 'recordCamera', 'addBackgroun', 'chooseMaterial', 'addText'])
 
 const saveScene = () => {
   emit('saveScene')
@@ -226,10 +231,47 @@ const onUpdateFiles = (file: File[]) => {
       }
     })
 }
+
+const onVideoFileChange = async (event: Event) => {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ''
+  if (!file) return
+
+  const ext = file.name.split('.').pop()?.toLowerCase() || ''
+  if (!['mp4', 'webm', 'mov', 'm4v', 'ogg'].includes(ext)) {
+    toast.add({
+      title: '格式不支持',
+      description: '请选择 mp4、webm、mov 等视频文件',
+      icon: 'i-heroicons-exclamation-circle',
+      color: 'orange'
+    })
+    return
+  }
+
+  try {
+    const res = await uploadFileToOSS(file, 'video')
+    emit('addVideo', res)
+    toast.add({
+      title: '视频已添加',
+      icon: 'i-heroicons-check-circle',
+      color: 'green'
+    })
+  } catch (err) {
+    console.error('视频上传失败:', err)
+    toast.add({
+      title: '上传失败',
+      description: err instanceof Error ? err.message : '请稍后重试',
+      icon: 'i-heroicons-x-circle',
+      color: 'red'
+    })
+  }
+}
 const { needJump } = props
 defineExpose({
   showModel,
   addImage,
+  addVideo,
   addBackground,
   addDiary,
   addText
@@ -244,6 +286,13 @@ defineExpose({
     @change="onCustomFileChange"
   >
   <QhxImagePicker :multiple="true" @update:files="onUpdateFiles" class="hidden" ref="imagePicker" />
+  <input
+    ref="videoFileInput"
+    type="file"
+    class="hidden"
+    :accept="VIDEO_ACCEPT"
+    @change="onVideoFileChange"
+  />
   <QhxModal v-model="diary" :trigger-position="clickPosition">
     <div class="p-6 w-[400px] bg-white rounded-[10px] max-h-[50vh] overflow-y-auto">
       <UInput v-model="diaryForm.title" :placeholder="'标题'" class="flex-1 focus:ring-0" :ui="{

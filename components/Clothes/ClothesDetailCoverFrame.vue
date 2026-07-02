@@ -38,9 +38,9 @@ const show3d = defineModel<boolean>('show3d', { default: false })
 <style scoped>
 .clothes-cover-3d-toggle {
   border-radius: 9999px;
-  border: 2px solid color-mix(in srgb, var(--primary-color, #ec4899) 55%, transparent);
-  background: color-mix(in srgb, var(--primary-color, #ec4899) 5%, #fff);
-  color: var(--primary-color, #ec4899);
+  border: 2px solid color-mix(in srgb, var(--primary-color, #ff9eb5) 55%, transparent);
+  background: color-mix(in srgb, var(--primary-color, #ff9eb5) 5%, #fff);
+  color: var(--primary-color, #ff9eb5);
   padding: 0.2rem 0.55rem;
   font-family: ui-serif, Georgia, 'Times New Roman', 'Songti SC', 'STSong', serif;
   font-size: 10px;
@@ -60,8 +60,8 @@ const show3d = defineModel<boolean>('show3d', { default: false })
 }
 
 .clothes-cover-3d-toggle:hover {
-  background: color-mix(in srgb, var(--primary-color, #ec4899) 9%, #fff);
-  border-color: color-mix(in srgb, var(--primary-color, #ec4899) 68%, transparent);
+  background: color-mix(in srgb, var(--primary-color, #ff9eb5) 9%, #fff);
+  border-color: color-mix(in srgb, var(--primary-color, #ff9eb5) 68%, transparent);
 }
 
 .clothes-cover-3d-toggle:active {
@@ -69,8 +69,8 @@ const show3d = defineModel<boolean>('show3d', { default: false })
 }
 
 .dark .clothes-cover-3d-toggle {
-  background: color-mix(in srgb, var(--primary-color, #ec4899) 10%, rgba(17, 24, 39, 0.72));
-  border-color: color-mix(in srgb, var(--primary-color, #ec4899) 58%, rgba(255, 255, 255, 0.12));
-  color: color-mix(in srgb, var(--primary-color, #ec4899) 78%, #fce7f3);
+  background: color-mix(in srgb, var(--primary-color, #ff9eb5) 10%, rgba(17, 24, 39, 0.72));
+  border-color: color-mix(in srgb, var(--primary-color, #ff9eb5) 58%, rgba(255, 255, 255, 0.12));
+  color: color-mix(in srgb, var(--primary-color, #ff9eb5) 78%, #fce7f3);
 }
 </style>

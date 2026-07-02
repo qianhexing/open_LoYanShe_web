@@ -3,6 +3,7 @@ import type { Library } from '@/types/api';
 import type LibraryTypeColorChoose from '@/components/library/LibraryTypeColorChoose.vue'
 import type ClothesAdd from '@/components/Clothes/ClothesAdd.vue'
 import { librarySeedFromTypeColorChoose, type LibraryTypeColorChooseResult } from '@/utils/libraryClothesSeed'
+import { isHtml5PlusWebview } from '@/composables/useLibraryDetailNavigation'
 import { useToast } from '#imports'
 
 let uni: any;
@@ -32,6 +33,11 @@ const size = toRef(props, 'size')
 const { needShop, needJump, showActions } = props
 
 const item = toRef(props, 'item')
+
+const libraryHas3d = computed(() => {
+  const v = item.value?.has_3d
+  return v === true || v === 1
+})
 
 // 加衣柜相关
 const libraryTypeColorChooseRef = ref<InstanceType<typeof LibraryTypeColorChoose> | null>(null)
@@ -173,14 +179,58 @@ const handleJump = (id: number) => {
   // navigateTo(`/library/detail/${id}`)
   
 }
+
+const handleJumpToHumanPlatform = () => {
+  const lid = item.value?.library_id
+  if (lid == null || !libraryHas3d.value) return
+
+  const path = `/humanPlatform/0?library_id=${lid}`
+  const fullUrl = `https://lolitalibrary.com${path}`
+
+  if (isHtml5PlusWebview() && typeof uni !== 'undefined' && uni?.navigateTo) {
+    uni.navigateTo({
+      url: `/pages/common/outerLink2?fullScreen=true&url=${fullUrl}`,
+      fail: () => {
+        console.log('跳转人台图失败')
+      }
+    })
+    return
+  }
+
+  if (port.value) {
+    port.value.postMessage(
+      JSON.stringify({
+        type: 'jump',
+        path: 'Outlink',
+        params: { url: fullUrl }
+      })
+    )
+    return
+  }
+
+  window.open(
+    new URL(path, window.location.origin).href,
+    '_blank',
+    'noopener,noreferrer'
+  )
+}
 </script>
 <template>
   <div
     :class="props.className ? props.className : 'bg-qhx-bg-card polaroid-card cursor-pointer shadow-lg p-1 m-1 rounded'">
     <div v-if="size === 'big'" :to="`/library/detail/${item.library_id}`" @click="handleJump(item.library_id)">
-      <div class="">
+      <div class="relative">
         <img @load="imageLoad" :src="`${BASE_IMG}${item.cover}?x-oss-process=image/quality,q_100/resize,w_300`"
           :alt="item.name" class="w-full rounded-[10px] border border-gray-200 my-2" loading="lazy" />
+        <button
+          v-if="libraryHas3d"
+          type="button"
+          class="library-3d-badge library-3d-badge--lg"
+          aria-label="查看3D人台"
+          @click.stop="handleJumpToHumanPlatform"
+        >
+          <UIcon name="garden:box-3d-fill-12" class="text-[15px]" />
+        </button>
       </div>
       <div class="mx-1">
         <h3 class="text-base font-semibold text-gray-900 truncate w-full transition-colors duration-300">
@@ -189,9 +239,18 @@ const handleJump = (id: number) => {
       </div>
     </div>
     <div v-else-if="size === 'mid'" :to="`/library/detail/${item.library_id}`" class=" flex" @click="handleJump(item.library_id)">
-      <div class="w-[50%]">
+      <div class="w-[50%] relative">
         <img @load="imageLoad" :src="`${BASE_IMG}${item.cover}?x-oss-process=image/quality,q_100/resize,w_300`"
           :alt="item.name" class="w-[100%] object-cover rounded-[10px] border border-gray-200 my-2" loading="lazy" />
+        <button
+          v-if="libraryHas3d"
+          type="button"
+          class="library-3d-badge library-3d-badge--lg"
+          aria-label="查看3D人台"
+          @click.stop="handleJumpToHumanPlatform"
+        >
+          <UIcon name="garden:box-3d-fill-12" class="text-[15px]" />
+        </button>
       </div>
       <div class="mx-1 flex-1">
         <h3 class="text-base font-semibold text-gray-900 w-full transition-colors duration-300">
@@ -293,8 +352,19 @@ const handleJump = (id: number) => {
       </div>
     </div>
     <div v-else-if="size === 'mini'" :to="`/library/detail/${item.library_id}`" @click="handleJump(item.library_id)">
-      <img @load="imageLoad" :src="`${BASE_IMG}${item.cover}?x-oss-process=image/quality,q_100/resize,w_300`"
-        :alt="item.name" class="w-[100px] h-[100px] rounded-[10px]" loading="lazy" />
+      <div class="relative inline-block">
+        <img @load="imageLoad" :src="`${BASE_IMG}${item.cover}?x-oss-process=image/quality,q_100/resize,w_300`"
+          :alt="item.name" class="w-[100px] h-[100px] rounded-[10px]" loading="lazy" />
+        <button
+          v-if="libraryHas3d"
+          type="button"
+          class="library-3d-badge library-3d-badge--sm"
+          aria-label="查看3D人台"
+          @click.stop="handleJumpToHumanPlatform"
+        >
+          <UIcon name="garden:box-3d-fill-12" class="text-[13px]" />
+        </button>
+      </div>
       <div class="mx-1">
         <h3 class="text-base truncate w-full transition-colors duration-300">
           {{ item.name }}
@@ -319,8 +389,19 @@ const handleJump = (id: number) => {
     </div>
     <div v-else-if="size === 'mini-list'" :to="`/library/detail/${item.library_id}`" @click="handleJump(item.library_id)" >
       <div class="flex items-center">
-        <img @load="imageLoad" :src="`${BASE_IMG}${item.cover}?x-oss-process=image/quality,q_100/resize,w_300`"
-          :alt="item.name" class="w-[100px] h-[100px] rounded-[10px] object-cover" loading="lazy" />
+        <div class="relative shrink-0">
+          <img @load="imageLoad" :src="`${BASE_IMG}${item.cover}?x-oss-process=image/quality,q_100/resize,w_300`"
+            :alt="item.name" class="w-[100px] h-[100px] rounded-[10px] object-cover" loading="lazy" />
+          <button
+            v-if="libraryHas3d"
+            type="button"
+            class="library-3d-badge library-3d-badge--sm"
+            aria-label="查看3D人台"
+            @click.stop="handleJumpToHumanPlatform"
+          >
+            <UIcon name="garden:box-3d-fill-12" class="text-[13px]" />
+          </button>
+        </div>
         <div class="mx-1 flex-1 overflow-hidden">
           <h3 class="text-base truncate w-full transition-colors duration-300">
             {{ item.name }}
@@ -343,13 +424,24 @@ const handleJump = (id: number) => {
       @click="handleJump(item.library_id)"
     >
       <div class="flex items-start gap-2">
-        <img
-          @load="imageLoad"
-          :src="`${BASE_IMG}${item.cover}?x-oss-process=image/quality,q_80/resize,w_160,h_160`"
-          :alt="item.name"
-          class="w-[64px] h-[64px] shrink-0 rounded-lg object-cover border border-gray-200 dark:border-gray-600"
-          loading="lazy"
-        />
+        <div class="relative shrink-0">
+          <img
+            @load="imageLoad"
+            :src="`${BASE_IMG}${item.cover}?x-oss-process=image/quality,q_80/resize,w_160,h_160`"
+            :alt="item.name"
+            class="w-[64px] h-[64px] shrink-0 rounded-lg object-cover border border-gray-200 dark:border-gray-600"
+            loading="lazy"
+          />
+          <button
+            v-if="libraryHas3d"
+            type="button"
+            class="library-3d-badge library-3d-badge--xs"
+            aria-label="查看3D人台"
+            @click.stop="handleJumpToHumanPlatform"
+          >
+            <UIcon name="garden:box-3d-fill-12" class="text-[11px]" />
+          </button>
+        </div>
         <div class="min-w-0 flex-1 overflow-hidden pt-0.5">
           <h3 class="text-sm font-medium text-gray-900 dark:text-gray-100 leading-snug line-clamp-2">
             {{ item.name }}
@@ -469,4 +561,50 @@ const handleJump = (id: number) => {
   </div>
 </template>
 
-<style scoped></style>
+<style scoped>
+.library-3d-badge {
+  position: absolute;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.72);
+  background: rgba(255, 255, 255, 0.78);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  box-shadow: 0 1px 6px rgba(15, 23, 42, 0.14);
+  color: rgb(124 58 237);
+  transition: background-color 0.2s ease, transform 0.15s ease, box-shadow 0.2s ease;
+}
+
+.library-3d-badge:hover {
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.18);
+}
+
+.library-3d-badge:active {
+  transform: scale(0.94);
+}
+
+.library-3d-badge--lg {
+  left: 10px;
+  top: 10px;
+  padding: 5px;
+}
+
+.library-3d-badge--sm {
+  left: 6px;
+  top: 6px;
+  padding: 4px;
+  border-radius: 7px;
+}
+
+.library-3d-badge--xs {
+  left: 4px;
+  top: 4px;
+  padding: 3px;
+  border-radius: 6px;
+}
+</style>

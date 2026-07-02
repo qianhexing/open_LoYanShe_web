@@ -27,6 +27,7 @@ import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js'
 import { GammaCorrectionShader } from 'three/examples/jsm/shaders/GammaCorrectionShader.js'
 import gsap from 'gsap'
 import {
+	computeSatelliteOrbitOffset,
 	hasGsapAnimationEffects,
 	normalizeRotationForStorage,
 	resolveAnimationEffect,
@@ -199,6 +200,65 @@ export interface SceneEffectJSON {
 	sequence?: boolean // true = 顺序执行，false = 并行执行
 }
 
+/** 拉线标注线框形状：立方体 / 椭圆（椭球） */
+export type LaxianFrameShape = 'box' | 'ellipse'
+
+/** 拉线点下级标注线框（存于 laxian_list[].frames） */
+export interface LaxianHighlightFrameJSON {
+	frame_id?: string
+	position?: [number, number, number]
+	rotation?: [number, number, number]
+	/** scale[0]=长 scale[1]=高 scale[2]=宽（世界单位，对应 BoxGeometry / 椭球半轴直径） */
+	scale?: [number, number, number]
+	/** 标注形状，默认 box */
+	shape?: LaxianFrameShape
+}
+
+/** 拉线点下级线框默认长宽高（世界单位） */
+const LAXIAN_DEFAULT_FRAME_LENGTH = 0.3
+const LAXIAN_DEFAULT_FRAME_HEIGHT = 0.2
+const LAXIAN_DEFAULT_FRAME_WIDTH = 0.2
+/** 浏览态高亮：纯色呼吸灯（缩放 + 透明度，无线框） */
+const LAXIAN_FRAME_COLOR_BASE = 0x00ff88
+const LAXIAN_FRAME_EDIT_OPACITY = 0.28
+const LAXIAN_FRAME_HIGHLIGHT_COLOR = 0xff0000
+const LAXIAN_FRAME_BREATH_PERIOD_MS = 2400
+const LAXIAN_FRAME_HIGHLIGHT_OPACITY_MIN = 0
+const LAXIAN_FRAME_HIGHLIGHT_OPACITY_MAX = 0.4
+const LAXIAN_FRAME_BREATH_SCALE_MIN = 0.88
+const LAXIAN_FRAME_BREATH_SCALE_MAX = 1
+const LAXIAN_FRAME_FILL_HALO_SCALE = 1.14
+/** 高亮默认期望时长，实际会吸附到呼吸最低点 */
+const LAXIAN_FRAME_HIGHLIGHT_DEFAULT_MS = 4000
+
+const LAXIAN_FRAME_FILL_VERTEX_SHADER = /* glsl */ `
+varying vec3 vLocalPos;
+void main() {
+	vLocalPos = position;
+	gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+}
+`
+
+const LAXIAN_FRAME_FILL_FRAGMENT_SHADER = /* glsl */ `
+uniform vec3 uColor;
+uniform float uOpacity;
+uniform float uHalo;
+uniform vec3 uHalfSize;
+varying vec3 vLocalPos;
+
+void main() {
+	vec3 halfSz = max(uHalfSize, vec3(0.001));
+	vec3 norm = vLocalPos / halfSz;
+	vec3 absNorm = abs(norm);
+	float distToFace = 1.0 - max(max(absNorm.x, absNorm.y), absNorm.z);
+	float radial = 1.0 - clamp(length(norm), 0.0, 1.0);
+	float soft = mix(radial, distToFace, 0.4);
+	float edgeFade = smoothstep(0.0, mix(0.72, 0.92, uHalo), soft);
+	float alpha = uOpacity * mix(0.12, 0.95, edgeFade) * mix(1.0, 0.55, uHalo);
+	gl_FragColor = vec4(uColor, alpha);
+}
+`
+
 /** 动效播放前的基准变换（删除/重播动效时恢复，避免 GSAP 残留偏移） */
 export interface AnimationBaseTransform {
 	position: [number, number, number]
@@ -214,6 +274,24 @@ interface TextureTransform {
 	scale: number
 	rotation: number // 单位: 弧度
 }
+
+interface ManagedVideoPlayer {
+	meshUuid: string
+	mesh: THREE.Mesh
+	video: HTMLVideoElement
+	texture: THREE.CanvasTexture
+	canvas: HTMLCanvasElement
+	params: TextureTransform
+	/** 当前是否正在播放（全局同时仅 1 路，由点击切换） */
+	isPlaying: boolean
+	/** 暂停态贴图（含暂停图标）是否已绘制 */
+	pauseIconDrawn: boolean
+	update: () => void
+}
+
+type ReplaceVideoPlayer = ManagedVideoPlayer
+type SceneVideoPlayer = ManagedVideoPlayer
+
 export interface SceneObjectJSON {
 	/** 场景内对象稳定唯一标识，保存后再次加载保持不变 */
 	id?: string
@@ -224,6 +302,7 @@ export interface SceneObjectJSON {
 		/** 带 CharacterType 的 glTF 角色，与 model 同存 url / options 等，options.characterType 为控制器配置 */
 		| 'character'
 		| 'image'
+		| 'video'
 		| 'diary'
 		| 'longtext'
 		| 'template'
@@ -258,6 +337,8 @@ export interface SceneObjectJSON {
 	laxian_type?: 0 | 1
 	/** 拉线镜头聚焦参数（可选），点击拉线时若有则聚焦至该机位 */
 	camera?: { position: [number, number, number]; target: [number, number, number] }
+	/** 拉线点下级标注线框列表 */
+	frames?: LaxianHighlightFrameJSON[]
 	effect?: SceneEffectJSON[] // 如果是model效果列表
 	material?: Record<string, any> // 替换过的贴图
 	plugin?: { url: string; options?: Record<string, any> }[] // 插件地址
@@ -548,6 +629,17 @@ class ThreeCore {
 	}[] // 加载成功的模型数组
 	private loadedTextures: Map<string, THREE.Texture> = new Map() // 加载过的贴图
 	private loadingTextures = new Map<string, Promise<THREE.Texture>>() // 正在加载的贴图
+	private replaceVideoPlayers = new Map<string, ReplaceVideoPlayer>()
+	private sceneVideoPlayers = new Map<string, SceneVideoPlayer>()
+	private videoTickRegistered = false
+	/** iOS / WebView：离屏 video 必须挂 DOM，否则无法解码与 canvas 采样 */
+	private videoDomPool: HTMLElement | null = null
+	private videoPlaybackUnlocked = false
+	private videoGestureUnlockSetup = false
+	/** 当前选中播放的视频 mesh uuid（场景视频与贴图视频共用）；null 表示全部暂停 */
+	private activeReplaceVideoUuid: string | null = null
+	/** 用户是否主动暂停了全部视频（为 true 时不再自动默认播放） */
+	private replaceVideoUserPausedAll = false
 	public effectManager!: EffectManager
 	public background: string | null
 	public editMode: boolean
@@ -609,6 +701,13 @@ class ThreeCore {
 		helper: THREE.BoxHelper
 		target: THREE.Object3D
 	}[] = []
+	/** 编辑模式下卫星轨道辅助线 */
+	private satelliteOrbitHelperEntries: {
+		root: THREE.Group
+		target: THREE.Object3D
+		effectId: number | undefined
+	}[] = []
+	private static readonly SATELLITE_ORBIT_HELPER_COLOR = 0x8b5cf6
 	/** 分组列表点击子 tag 聚焦时的目标 objectId */
 	public stepGroupFocusedObjectId: string | null = null
 	private static readonly STEP_GROUP_HIGHLIGHT_COLOR = 0x34d399
@@ -1335,29 +1434,820 @@ class ThreeCore {
 		})
 		return mesh
 	}
-	public async createLaxian(obj: SceneObjectJSON): Promise<THREE.Mesh> {
-		const radius = 1
-		const geometry = new THREE.SphereGeometry(radius, 32, 32)
-		const material = new THREE.MeshStandardMaterial({
-			color: '#7fffaa'
-		})
-
-		const mesh = new THREE.Mesh(geometry, material)
-		mesh.userData.type = 'laxian'
-		mesh.userData.title = obj.title
-		mesh.userData.laxian_id = obj.laxian_id
-		mesh.userData.laxian_type = obj.laxian_type ?? 0
+	public async createLaxian(obj: SceneObjectJSON): Promise<THREE.Group> {
+		const group = new THREE.Group()
+		group.userData.type = 'laxian'
+		group.userData.title = obj.title
+		group.userData.laxian_id = obj.laxian_id
+		group.userData.laxian_type = obj.laxian_type ?? 0
 		if (obj.camera) {
-			mesh.userData.camera = obj.camera
+			group.userData.camera = obj.camera
 		}
+
+		const anchorGeo = new THREE.SphereGeometry(1, 16, 16)
+		const anchorMat = new THREE.MeshStandardMaterial({ color: '#7fffaa' })
+		const anchor = new THREE.Mesh(anchorGeo, anchorMat)
+		anchor.userData.laxian_anchor = true
+		anchor.userData.ignorePick = true
+		group.add(anchor)
+
+		const frames = this.normalizeLaxianFramesInput(obj)
+		for (const frame of frames) {
+			group.add(this.buildLaxianFrameGroup(obj.laxian_id, frame))
+		}
+
+		this.applyLaxianGroupVisualState(group)
+
 		this.loadedLaxian.push({
 			title: obj.title || '拉线点',
 			laxian_id: obj.laxian_id,
 			laxian_type: obj.laxian_type ?? 0,
-			object: mesh,
+			object: group,
 			camera: obj.camera
 		})
+		return group
+	}
+
+	private getLaxianFrameBoxSize(
+		frame: LaxianHighlightFrameJSON
+	): [number, number, number] {
+		return [
+			frame.scale?.[0] ?? LAXIAN_DEFAULT_FRAME_LENGTH,
+			frame.scale?.[1] ?? LAXIAN_DEFAULT_FRAME_HEIGHT,
+			frame.scale?.[2] ?? LAXIAN_DEFAULT_FRAME_WIDTH
+		]
+	}
+
+	private readLaxianFrameBoxUserData(group: THREE.Object3D): [number, number, number] {
+		return [
+			Number(group.userData.frameLength) || LAXIAN_DEFAULT_FRAME_LENGTH,
+			Number(group.userData.frameHeight) || LAXIAN_DEFAULT_FRAME_HEIGHT,
+			Number(group.userData.frameWidth) || LAXIAN_DEFAULT_FRAME_WIDTH
+		]
+	}
+
+	private writeLaxianFrameBoxUserData(
+		group: THREE.Object3D,
+		size: [number, number, number]
+	): void {
+		group.userData.frameLength = size[0]
+		group.userData.frameHeight = size[1]
+		group.userData.frameWidth = size[2]
+	}
+
+	private normalizeLaxianFrameShape(shape: LaxianFrameShape | undefined): LaxianFrameShape {
+		return shape === 'ellipse' ? 'ellipse' : 'box'
+	}
+
+	private readLaxianFrameShapeUserData(group: THREE.Object3D): LaxianFrameShape {
+		return this.normalizeLaxianFrameShape(group.userData.frameShape as LaxianFrameShape | undefined)
+	}
+
+	private writeLaxianFrameShapeUserData(group: THREE.Object3D, shape: LaxianFrameShape): void {
+		group.userData.frameShape = this.normalizeLaxianFrameShape(shape)
+	}
+
+	private createLaxianFrameGeometry(
+		length: number,
+		height: number,
+		width: number,
+		shape: LaxianFrameShape,
+		scaleMultiplier = 1
+	): THREE.BufferGeometry {
+		const l = length * scaleMultiplier
+		const h = height * scaleMultiplier
+		const w = width * scaleMultiplier
+		if (shape === 'ellipse') {
+			const geometry = new THREE.SphereGeometry(0.5, 32, 24)
+			geometry.scale(l, h, w)
+			return geometry
+		}
+		return new THREE.BoxGeometry(l, h, w)
+	}
+
+	private normalizeLaxianFramesInput(obj: SceneObjectJSON): LaxianHighlightFrameJSON[] {
+		if (Array.isArray(obj.frames) && obj.frames.length > 0) {
+			return obj.frames.map((frame) => {
+				const size = frame.scale
+					? [...frame.scale] as [number, number, number]
+					: [LAXIAN_DEFAULT_FRAME_LENGTH, LAXIAN_DEFAULT_FRAME_HEIGHT, LAXIAN_DEFAULT_FRAME_WIDTH]
+				return {
+					frame_id: frame.frame_id,
+					position: frame.position ? [...frame.position] as [number, number, number] : [0, 0, 0],
+					rotation: frame.rotation ? [...frame.rotation] as [number, number, number] : [0, 0, 0],
+					scale: size,
+					shape: this.normalizeLaxianFrameShape(frame.shape)
+				}
+			})
+		}
+		if (obj.scale && (obj.scale[0] !== 1 || obj.scale[1] !== 1)) {
+			return [{
+				frame_id: 'frame_legacy_0',
+				position: [0, 0, 0],
+				rotation: [0, 0, 0],
+				scale: [
+					obj.scale[0],
+					obj.scale[1],
+					obj.scale[2] && obj.scale[2] !== 1 ? obj.scale[2] : LAXIAN_DEFAULT_FRAME_WIDTH
+				],
+				shape: 'box'
+			}]
+		}
+		return []
+	}
+
+	private createLaxianFrameFillShaderMaterial(
+		halo: boolean,
+		dimensions: [number, number, number]
+	): THREE.ShaderMaterial {
+		const [length, height, width] = dimensions
+		return new THREE.ShaderMaterial({
+			uniforms: {
+				uColor: { value: new THREE.Color(LAXIAN_FRAME_HIGHLIGHT_COLOR) },
+				uOpacity: { value: LAXIAN_FRAME_HIGHLIGHT_OPACITY_MAX },
+				uHalo: { value: halo ? 1 : 0 },
+				uHalfSize: {
+					value: new THREE.Vector3(length / 2, height / 2, width / 2)
+				}
+			},
+			vertexShader: LAXIAN_FRAME_FILL_VERTEX_SHADER,
+			fragmentShader: LAXIAN_FRAME_FILL_FRAGMENT_SHADER,
+			transparent: true,
+			depthWrite: false,
+			side: THREE.DoubleSide
+		})
+	}
+
+	private isLaxianFrameFillMaterial(material: THREE.Material | undefined): boolean {
+		return material instanceof THREE.ShaderMaterial
+			&& material.vertexShader === LAXIAN_FRAME_FILL_VERTEX_SHADER
+			&& material.fragmentShader === LAXIAN_FRAME_FILL_FRAGMENT_SHADER
+	}
+
+	private disposeLaxianFrameMeshMaterial(material: THREE.Material | THREE.Material[] | undefined): void {
+		if (!material || Array.isArray(material)) return
+		material.dispose()
+	}
+
+	private setLaxianFrameFillMeshOpacity(mesh: THREE.Mesh, opacity: number): void {
+		if (mesh.material instanceof THREE.ShaderMaterial && mesh.material.uniforms.uOpacity) {
+			mesh.material.uniforms.uOpacity.value = opacity
+		}
+	}
+
+	private findLaxianFrameFillMesh(frameGroup: THREE.Object3D): THREE.Mesh | null {
+		const tagged = frameGroup.children.find(
+			(child) => child.userData.laxian_frame_fill && !child.userData.laxian_frame_fill_halo
+		)
+		if (tagged instanceof THREE.Mesh) return tagged
+		const legacy = frameGroup.children.find(
+			(child) => (child.userData.laxian_frame_fill || child.userData.laxian_frame_glow) && !child.userData.laxian_frame_fill_halo
+		)
+		return legacy instanceof THREE.Mesh ? legacy : null
+	}
+
+	private findLaxianFrameFillHaloMesh(frameGroup: THREE.Object3D): THREE.Mesh | null {
+		const tagged = frameGroup.children.find((child) => child.userData.laxian_frame_fill_halo)
+		return tagged instanceof THREE.Mesh ? tagged : null
+	}
+
+	private ensureLaxianFrameFillMesh(frameGroup: THREE.Object3D): THREE.Mesh {
+		const existing = this.findLaxianFrameFillMesh(frameGroup)
+		const shape = this.readLaxianFrameShapeUserData(frameGroup)
+		const [length, height, width] = this.readLaxianFrameBoxUserData(frameGroup)
+		if (existing && this.isLaxianFrameFillMaterial(existing.material)) {
+			const existingShape = existing.userData.laxian_frame_shape as LaxianFrameShape | undefined
+			if (this.normalizeLaxianFrameShape(existingShape) === shape) {
+				existing.userData.laxian_frame_fill = true
+				delete existing.userData.laxian_frame_glow
+				return existing
+			}
+		}
+		if (existing) {
+			existing.geometry.dispose()
+			if (this.isLaxianFrameFillMaterial(existing.material)) {
+				this.disposeLaxianFrameMeshMaterial(existing.material)
+			} else {
+				;(existing.material as THREE.Material).dispose()
+			}
+			frameGroup.remove(existing)
+		}
+		const fill = this.createLaxianFrameFillMesh(length, height, width, shape)
+		frameGroup.add(fill)
+		return fill
+	}
+
+	private ensureLaxianFrameFillHaloMesh(frameGroup: THREE.Object3D): THREE.Mesh {
+		const existing = this.findLaxianFrameFillHaloMesh(frameGroup)
+		const shape = this.readLaxianFrameShapeUserData(frameGroup)
+		const [length, height, width] = this.readLaxianFrameBoxUserData(frameGroup)
+		if (existing && this.isLaxianFrameFillMaterial(existing.material)) {
+			const existingShape = existing.userData.laxian_frame_shape as LaxianFrameShape | undefined
+			if (this.normalizeLaxianFrameShape(existingShape) === shape) {
+				return existing
+			}
+		}
+		if (existing) {
+			existing.geometry.dispose()
+			if (this.isLaxianFrameFillMaterial(existing.material)) {
+				this.disposeLaxianFrameMeshMaterial(existing.material)
+			} else {
+				;(existing.material as THREE.Material).dispose()
+			}
+			frameGroup.remove(existing)
+		}
+		const halo = this.createLaxianFrameFillHaloMesh(length, height, width, shape)
+		frameGroup.add(halo)
+		return halo
+	}
+
+	private createLaxianFrameFillMesh(
+		length: number,
+		height: number,
+		width: number,
+		shape: LaxianFrameShape = 'box'
+	): THREE.Mesh {
+		const geometry = this.createLaxianFrameGeometry(length, height, width, shape)
+		const material = this.createLaxianFrameFillShaderMaterial(false, [length, height, width])
+		const mesh = new THREE.Mesh(geometry, material)
+		mesh.userData.laxian_frame_fill = true
+		mesh.userData.laxian_frame_shape = shape
+		mesh.userData.ignorePick = true
+		mesh.visible = false
 		return mesh
+	}
+
+	private createLaxianFrameFillHaloMesh(
+		length: number,
+		height: number,
+		width: number,
+		shape: LaxianFrameShape = 'box'
+	): THREE.Mesh {
+		const s = LAXIAN_FRAME_FILL_HALO_SCALE
+		const geometry = this.createLaxianFrameGeometry(length, height, width, shape, s)
+		const material = this.createLaxianFrameFillShaderMaterial(true, [length * s, height * s, width * s])
+		const mesh = new THREE.Mesh(geometry, material)
+		mesh.userData.laxian_frame_fill_halo = true
+		mesh.userData.laxian_frame_shape = shape
+		mesh.userData.ignorePick = true
+		mesh.visible = false
+		return mesh
+	}
+
+	private getLaxianFrameWireMesh(frameGroup: THREE.Object3D): THREE.Mesh | null {
+		const tagged = frameGroup.children.find((child) => child.userData.laxian_frame_wire)
+		if (tagged instanceof THREE.Mesh) return tagged
+		const first = frameGroup.children[0]
+		if (first instanceof THREE.Mesh && !first.userData.laxian_frame_fill && !first.userData.laxian_frame_fill_halo && !first.userData.laxian_frame_glow) {
+			first.userData.laxian_frame_wire = true
+			return first
+		}
+		return null
+	}
+
+	private setLaxianFrameFillVisual(
+		fill: THREE.Mesh | null,
+		halo: THREE.Mesh | null,
+		visible: boolean,
+		breathPhase?: number
+	): void {
+		if (!fill) return
+		fill.visible = visible
+		if (halo) halo.visible = visible
+		if (!visible) {
+			this.resetLaxianFrameFillState(fill, halo)
+			return
+		}
+		const phase = breathPhase ?? 1
+		this.applyLaxianFrameFillBreath(fill, halo, phase)
+	}
+
+	private applyLaxianFrameFillBreath(fill: THREE.Mesh, halo: THREE.Mesh | null, breathPhase: number): void {
+		const opacity =
+			LAXIAN_FRAME_HIGHLIGHT_OPACITY_MIN
+			+ (LAXIAN_FRAME_HIGHLIGHT_OPACITY_MAX - LAXIAN_FRAME_HIGHLIGHT_OPACITY_MIN) * breathPhase
+		const scale =
+			LAXIAN_FRAME_BREATH_SCALE_MIN
+			+ (LAXIAN_FRAME_BREATH_SCALE_MAX - LAXIAN_FRAME_BREATH_SCALE_MIN) * breathPhase
+		this.setLaxianFrameFillMeshOpacity(fill, opacity)
+		fill.scale.set(scale, scale, scale)
+		if (halo) {
+			this.setLaxianFrameFillMeshOpacity(halo, opacity)
+			const haloScale = scale * (0.96 + 0.08 * breathPhase)
+			halo.scale.set(haloScale, haloScale, haloScale)
+		}
+	}
+
+	private resetLaxianFrameFillState(fill: THREE.Mesh | null, halo: THREE.Mesh | null = null): void {
+		if (fill) {
+			fill.visible = false
+			fill.scale.set(1, 1, 1)
+			this.setLaxianFrameFillMeshOpacity(fill, LAXIAN_FRAME_HIGHLIGHT_OPACITY_MAX)
+		}
+		if (halo) {
+			halo.visible = false
+			halo.scale.set(1, 1, 1)
+			this.setLaxianFrameFillMeshOpacity(halo, LAXIAN_FRAME_HIGHLIGHT_OPACITY_MAX)
+		}
+	}
+
+	private rebuildLaxianFrameMeshes(frameGroup: THREE.Object3D): void {
+		const [length, height, width] = this.readLaxianFrameBoxUserData(frameGroup)
+		const shape = this.readLaxianFrameShapeUserData(frameGroup)
+		for (const child of [...frameGroup.children]) {
+			if (!(child instanceof THREE.Mesh)) continue
+			if (!child.userData.laxian_frame_wire
+				&& !child.userData.laxian_frame_fill
+				&& !child.userData.laxian_frame_fill_halo
+				&& !child.userData.laxian_frame_glow) {
+				continue
+			}
+			child.geometry.dispose()
+			if (child.userData.laxian_frame_wire) {
+				this.disposeLaxianFrameMeshMaterial(child.material)
+				frameGroup.remove(child)
+				frameGroup.add(this.createLaxianFrameWireMesh(length, height, width, { shape }))
+				continue
+			}
+			if (child.userData.laxian_frame_fill && !child.userData.laxian_frame_fill_halo) {
+				this.disposeLaxianFrameMeshMaterial(child.material)
+				frameGroup.remove(child)
+				frameGroup.add(this.createLaxianFrameFillMesh(length, height, width, shape))
+				continue
+			}
+			if (child.userData.laxian_frame_fill_halo) {
+				this.disposeLaxianFrameMeshMaterial(child.material)
+				frameGroup.remove(child)
+				frameGroup.add(this.createLaxianFrameFillHaloMesh(length, height, width, shape))
+			}
+		}
+	}
+
+	private resizeLaxianFrameMeshes(frameGroup: THREE.Object3D, length: number, height: number, width: number): void {
+		this.writeLaxianFrameBoxUserData(frameGroup, [length, height, width])
+		this.rebuildLaxianFrameMeshes(frameGroup)
+	}
+
+	private applyLaxianFrameEditVisual(mesh: THREE.Mesh): void {
+		if (!(mesh.material instanceof THREE.MeshBasicMaterial)) {
+			mesh.material.dispose()
+			mesh.material = new THREE.MeshBasicMaterial({
+				color: LAXIAN_FRAME_COLOR_BASE,
+				transparent: true,
+				opacity: LAXIAN_FRAME_EDIT_OPACITY,
+				depthWrite: false,
+				side: THREE.DoubleSide
+			})
+			return
+		}
+		mesh.material.wireframe = false
+		mesh.material.color.set(LAXIAN_FRAME_COLOR_BASE)
+		mesh.material.opacity = LAXIAN_FRAME_EDIT_OPACITY
+		mesh.material.transparent = true
+		mesh.material.depthWrite = false
+		mesh.material.side = THREE.DoubleSide
+	}
+
+	private createLaxianFrameWireMesh(
+		length: number,
+		height: number,
+		width: number,
+		options?: { highlight?: boolean; shape?: LaxianFrameShape }
+	): THREE.Mesh {
+		const shape = this.normalizeLaxianFrameShape(options?.shape)
+		const geometry = this.createLaxianFrameGeometry(length, height, width, shape)
+		const material = new THREE.MeshBasicMaterial({
+			color: options?.highlight ? LAXIAN_FRAME_HIGHLIGHT_COLOR : LAXIAN_FRAME_COLOR_BASE,
+			transparent: true,
+			opacity: options?.highlight ? LAXIAN_FRAME_HIGHLIGHT_OPACITY_MAX : LAXIAN_FRAME_EDIT_OPACITY,
+			depthWrite: false,
+			side: THREE.DoubleSide
+		})
+		const mesh = new THREE.Mesh(geometry, material)
+		mesh.userData.laxian_frame_wire = true
+		mesh.userData.laxian_frame_shape = shape
+		return mesh
+	}
+
+	private setLaxianFrameWireVisual(mesh: THREE.Mesh, visible: boolean, color?: THREE.Color, opacity?: number): void {
+		mesh.visible = visible
+		if (!(mesh.material instanceof THREE.MeshBasicMaterial)) return
+		if (color) mesh.material.color.copy(color)
+		if (opacity !== undefined) mesh.material.opacity = opacity
+	}
+
+	private resetLaxianFrameVisuals(frameGroup: THREE.Object3D, hideGroup = true): void {
+		if (hideGroup && !this.editMode) {
+			frameGroup.visible = false
+		}
+		const wire = this.getLaxianFrameWireMesh(frameGroup)
+		if (wire) {
+			this.setLaxianFrameWireVisual(wire, this.editMode)
+			if (this.editMode) {
+				this.applyLaxianFrameEditVisual(wire)
+			}
+		}
+		this.resetLaxianFrameFillState(
+			this.findLaxianFrameFillMesh(frameGroup),
+			this.findLaxianFrameFillHaloMesh(frameGroup)
+		)
+	}
+
+	private buildLaxianFrameGroup(
+		laxianId: string | undefined,
+		frame: LaxianHighlightFrameJSON
+	): THREE.Group {
+		const frameId = frame.frame_id ?? `frame_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`
+		const [length, height, width] = this.getLaxianFrameBoxSize(frame)
+		const shape = this.normalizeLaxianFrameShape(frame.shape)
+		const frameGroup = new THREE.Group()
+		frameGroup.userData.type = 'laxian_frame'
+		frameGroup.userData.laxian_id = laxianId
+		frameGroup.userData.frame_id = frameId
+		this.writeLaxianFrameBoxUserData(frameGroup, [length, height, width])
+		this.writeLaxianFrameShapeUserData(frameGroup, shape)
+		frameGroup.position.set(...(frame.position ?? [0, 0, 0]))
+		frameGroup.rotation.set(...(frame.rotation ?? [0, 0, 0]))
+		frameGroup.add(this.createLaxianFrameWireMesh(length, height, width, { shape }))
+		frameGroup.add(this.createLaxianFrameFillMesh(length, height, width, shape))
+		frameGroup.add(this.createLaxianFrameFillHaloMesh(length, height, width, shape))
+		return frameGroup
+	}
+
+	private createLaxianFrameBoxMesh(
+		length: number,
+		height: number,
+		width: number,
+		options?: { highlight?: boolean }
+	): THREE.Mesh {
+		return this.createLaxianFrameWireMesh(length, height, width, options)
+	}
+
+	private getLaxianFrameGroups(group: THREE.Object3D): THREE.Group[] {
+		return group.children.filter(
+			(child): child is THREE.Group => child.userData.type === 'laxian_frame'
+		)
+	}
+
+	private findLaxianFrameGroup(
+		laxianId: string | undefined,
+		frameId: string | undefined
+	): THREE.Group | null {
+		if (!laxianId || !frameId) return null
+		const item = this.loadedLaxian.find(
+			(l) => l.object?.userData?.laxian_id === laxianId || l.laxian_id === laxianId
+		)
+		if (!item?.object) return null
+		return this.getLaxianFrameGroups(item.object).find(
+			(frame) => frame.userData.frame_id === frameId
+		) ?? null
+	}
+
+	private getLaxianAnchorMesh(group: THREE.Object3D): THREE.Mesh | null {
+		const anchor = group.children.find((child) => child.userData.laxian_anchor)
+		return anchor instanceof THREE.Mesh ? anchor : null
+	}
+
+	/** 拾取时优先返回下级线框，其次返回点位组 */
+	public resolveScenePickTarget(object: THREE.Object3D | null): THREE.Object3D | null {
+		if (!object) return null
+		let current: THREE.Object3D | null = object
+		let laxianPoint: THREE.Object3D | null = null
+		while (current) {
+			if (current.userData?.type === 'laxian_frame') return current
+			if (current.userData?.type === 'laxian') laxianPoint = current
+			if (current.parent?.type === 'Scene') break
+			current = current.parent
+		}
+		return laxianPoint ?? object
+	}
+
+	/** 编辑独显：仅显示指定 laxian_id 的定位点及其子线框 */
+	private soloLaxianId: string | null = null
+
+	private isLaxianSoloVisible(laxianId: string | undefined): boolean {
+		return !this.soloLaxianId || this.soloLaxianId === laxianId
+	}
+
+	/** 编辑模式独显：null 表示显示全部拉线点 */
+	public setLaxianSoloDisplay(laxianId: string | null): void {
+		this.soloLaxianId = laxianId
+		this.applyAllLaxianVisualStates()
+	}
+
+	/** 编辑模式显示实心标注立方体；浏览模式仅保留锚点球体用于拉线投影 */
+	public applyLaxianGroupVisualState(group: THREE.Object3D): void {
+		if (group.userData.type !== 'laxian') return
+		const laxianId = group.userData.laxian_id as string | undefined
+		group.visible = this.isLaxianSoloVisible(laxianId)
+		if (!group.visible) return
+		const anchor = this.getLaxianAnchorMesh(group)
+		if (anchor) {
+			const pointScale = this.editMode ? 0.1 : 0.001
+			anchor.scale.set(pointScale, pointScale, pointScale)
+			anchor.visible = true
+			if (this.editMode && anchor.material instanceof THREE.MeshStandardMaterial) {
+				anchor.material.emissive = new THREE.Color('#00ff88')
+				anchor.material.emissiveIntensity = 0.6
+			}
+		}
+		for (const frameGroup of this.getLaxianFrameGroups(group)) {
+			frameGroup.visible = this.editMode
+			const wire = this.getLaxianFrameWireMesh(frameGroup)
+			if (wire) {
+				wire.visible = true
+				if (this.editMode) {
+					this.applyLaxianFrameEditVisual(wire)
+				}
+			}
+			this.resetLaxianFrameFillState(
+				this.findLaxianFrameFillMesh(frameGroup),
+				this.findLaxianFrameFillHaloMesh(frameGroup)
+			)
+		}
+	}
+
+	public extractLaxianFrameData(frameGroup: THREE.Object3D): LaxianHighlightFrameJSON {
+		this.consolidateLaxianFrameChildTransform(frameGroup)
+		frameGroup.rotation.setFromQuaternion(frameGroup.quaternion)
+		const [length, height, width] = this.readLaxianFrameBoxUserData(frameGroup)
+		return {
+			frame_id: frameGroup.userData.frame_id as string | undefined,
+			position: [frameGroup.position.x, frameGroup.position.y, frameGroup.position.z],
+			rotation: [frameGroup.rotation.x, frameGroup.rotation.y, frameGroup.rotation.z],
+			scale: [length, height, width],
+			shape: this.readLaxianFrameShapeUserData(frameGroup)
+		}
+	}
+
+	/** 将误落在子 mesh 上的变换合并回 frame 组（TransformControls 偶发 attach 到子节点） */
+	private consolidateLaxianFrameChildTransform(frameGroup: THREE.Object3D): void {
+		if (frameGroup.userData.type !== 'laxian_frame') return
+		const wire = this.getLaxianFrameWireMesh(frameGroup)
+		if (!wire) return
+		const hasChildOffset =
+			wire.position.lengthSq() > 1e-10
+			|| Math.abs(wire.rotation.x) > 1e-8
+			|| Math.abs(wire.rotation.y) > 1e-8
+			|| Math.abs(wire.rotation.z) > 1e-8
+			|| Math.abs(wire.quaternion.w - 1) > 1e-6
+		if (!hasChildOffset) return
+
+		const offset = wire.position.clone()
+		offset.applyQuaternion(frameGroup.quaternion)
+		frameGroup.position.add(offset)
+
+		const childQuat = wire.quaternion.clone()
+		frameGroup.quaternion.multiply(childQuat)
+		frameGroup.rotation.setFromQuaternion(frameGroup.quaternion)
+
+		wire.position.set(0, 0, 0)
+		wire.rotation.set(0, 0, 0)
+		wire.quaternion.identity()
+	}
+
+	public extractLaxianFramesByLaxianId(laxianId: string | undefined): LaxianHighlightFrameJSON[] {
+		if (!laxianId) return []
+		const item = this.loadedLaxian.find(
+			(l) => l.object?.userData?.laxian_id === laxianId || l.laxian_id === laxianId
+		)
+		if (!item?.object) return []
+		return this.extractLaxianFramesData(item.object)
+	}
+
+	public extractLaxianFramesData(laxianGroup: THREE.Object3D): LaxianHighlightFrameJSON[] {
+		return this.getLaxianFrameGroups(laxianGroup).map((frame) =>
+			this.extractLaxianFrameData(frame)
+		)
+	}
+
+	/** 缩放结束后将 frameGroup.scale 折算进线框长宽高 */
+	public normalizeLaxianSubFrameScale(frameGroup: THREE.Object3D): void {
+		if (frameGroup.userData.type !== 'laxian_frame') return
+		const sx = frameGroup.scale.x
+		const sy = frameGroup.scale.y
+		const sz = frameGroup.scale.z
+		if (
+			Math.abs(sx - 1) < 1e-4
+			&& Math.abs(sy - 1) < 1e-4
+			&& Math.abs(sz - 1) < 1e-4
+		) {
+			return
+		}
+		const [length, height, width] = this.readLaxianFrameBoxUserData(frameGroup)
+		frameGroup.scale.set(1, 1, 1)
+		this.resizeLaxianSubFrame(
+			frameGroup.userData.laxian_id as string | undefined,
+			frameGroup.userData.frame_id as string | undefined,
+			Math.max(0.05, length * sx),
+			Math.max(0.05, height * sy),
+			Math.max(0.05, width * sz)
+		)
+	}
+
+	public resizeLaxianSubFrame(
+		laxianId: string | undefined,
+		frameId: string | undefined,
+		length: number,
+		height: number,
+		width: number
+	): boolean {
+		const frameGroup = this.findLaxianFrameGroup(laxianId, frameId)
+		if (!frameGroup) return false
+		const safeL = Math.max(0.05, length)
+		const safeH = Math.max(0.05, height)
+		const safeW = Math.max(0.05, width)
+		this.writeLaxianFrameBoxUserData(frameGroup, [safeL, safeH, safeW])
+		this.resizeLaxianFrameMeshes(frameGroup, safeL, safeH, safeW)
+		return true
+	}
+
+	public setLaxianSubFrameShape(
+		laxianId: string | undefined,
+		frameId: string | undefined,
+		shape: LaxianFrameShape
+	): boolean {
+		const frameGroup = this.findLaxianFrameGroup(laxianId, frameId)
+		if (!frameGroup) return false
+		const normalized = this.normalizeLaxianFrameShape(shape)
+		if (this.readLaxianFrameShapeUserData(frameGroup) === normalized) return true
+		this.writeLaxianFrameShapeUserData(frameGroup, normalized)
+		this.rebuildLaxianFrameMeshes(frameGroup)
+		const wire = this.getLaxianFrameWireMesh(frameGroup)
+		if (wire && this.editMode) {
+			this.applyLaxianFrameEditVisual(wire)
+		}
+		return true
+	}
+
+	public addLaxianFrame(
+		laxianId: string | undefined,
+		frame?: Partial<LaxianHighlightFrameJSON>
+	): THREE.Group | null {
+		if (!laxianId) return null
+		const item = this.loadedLaxian.find(
+			(l) => l.object?.userData?.laxian_id === laxianId || l.laxian_id === laxianId
+		)
+		const laxianGroup = item?.object
+		if (!laxianGroup || laxianGroup.userData.type !== 'laxian') return null
+		const frameData: LaxianHighlightFrameJSON = {
+			frame_id: frame?.frame_id ?? `frame_${Date.now()}`,
+			position: frame?.position ?? [0, 0, 0],
+			rotation: frame?.rotation ?? [0, 0, 0],
+			scale: frame?.scale ?? [
+				LAXIAN_DEFAULT_FRAME_LENGTH,
+				LAXIAN_DEFAULT_FRAME_HEIGHT,
+				LAXIAN_DEFAULT_FRAME_WIDTH
+			],
+			shape: this.normalizeLaxianFrameShape(frame?.shape)
+		}
+		const frameGroup = this.buildLaxianFrameGroup(laxianId, frameData)
+		laxianGroup.add(frameGroup)
+		this.applyLaxianGroupVisualState(laxianGroup)
+		return frameGroup
+	}
+
+	public removeLaxianFrame(
+		laxianId: string | undefined,
+		frameId: string | undefined
+	): boolean {
+		const frameGroup = this.findLaxianFrameGroup(laxianId, frameId)
+		if (!frameGroup?.parent) return false
+		frameGroup.parent.remove(frameGroup)
+		frameGroup.traverse((child) => {
+			if (child instanceof THREE.Mesh) {
+				child.geometry?.dispose()
+				this.disposeLaxianFrameMeshMaterial(child.material)
+			}
+		})
+		return true
+	}
+
+	private laxianHighlightSessions = new Map<
+		string,
+		{
+			frameGroups: THREE.Group[]
+			startedAt: number
+			endsAt: number
+		}
+	>()
+	private laxianHighlightAnimRegistered = false
+
+	/** 将结束时间对齐到呼吸周期透明度最低点（sin 谷值） */
+	private computeLaxianHighlightDurationMs(preferredMs = LAXIAN_FRAME_HIGHLIGHT_DEFAULT_MS): number {
+		const period = LAXIAN_FRAME_BREATH_PERIOD_MS
+		const minTimes: number[] = []
+		for (let k = 0; k < 8; k++) {
+			minTimes.push((0.75 + k) * period)
+		}
+		const floor = Math.max(period * 0.5, preferredMs * 0.65)
+		const valid = minTimes.filter((t) => t >= floor)
+		if (valid.length === 0) return minTimes[0]
+		return valid.reduce((best, t) =>
+			Math.abs(t - preferredMs) < Math.abs(best - preferredMs) ? t : best
+		)
+	}
+
+	private updateLaxianHighlightAnimation = (): void => {
+		if (this.laxianHighlightSessions.size === 0) return
+		const now = performance.now()
+		for (const [laxianId, session] of [...this.laxianHighlightSessions.entries()]) {
+			if (now >= session.endsAt) {
+				for (const frameGroup of session.frameGroups) {
+					const wire = this.getLaxianFrameWireMesh(frameGroup)
+					const fill = this.ensureLaxianFrameFillMesh(frameGroup)
+					const halo = this.ensureLaxianFrameFillHaloMesh(frameGroup)
+					if (wire) wire.visible = false
+					this.setLaxianFrameFillVisual(fill, halo, true, 0)
+				}
+				this.stopLaxianHighlightSession(laxianId)
+				continue
+			}
+			const breathPhase =
+				(Math.sin(((now - session.startedAt) / LAXIAN_FRAME_BREATH_PERIOD_MS) * Math.PI * 2) + 1) / 2
+			for (const frameGroup of session.frameGroups) {
+				frameGroup.visible = true
+				const wire = this.getLaxianFrameWireMesh(frameGroup)
+				const fill = this.ensureLaxianFrameFillMesh(frameGroup)
+				const halo = this.ensureLaxianFrameFillHaloMesh(frameGroup)
+				if (wire) wire.visible = false
+				this.setLaxianFrameFillVisual(fill, halo, true, breathPhase)
+			}
+		}
+	}
+
+	private ensureLaxianHighlightAnimLoop(): void {
+		if (this.laxianHighlightAnimRegistered) return
+		this.addAnimationCallback(this.updateLaxianHighlightAnimation)
+		this.laxianHighlightAnimRegistered = true
+	}
+
+	private stopLaxianHighlightAnimLoopIfIdle(): void {
+		if (this.laxianHighlightSessions.size > 0 || !this.laxianHighlightAnimRegistered) return
+		const idx = this.animationCallbacks.indexOf(this.updateLaxianHighlightAnimation)
+		if (idx >= 0) this.animationCallbacks.splice(idx, 1)
+		this.laxianHighlightAnimRegistered = false
+	}
+
+	private stopLaxianHighlightSession(laxianId: string, hideFrames = true): void {
+		const session = this.laxianHighlightSessions.get(laxianId)
+		if (!session) return
+		if (hideFrames && !this.editMode) {
+			for (const frameGroup of session.frameGroups) {
+				this.resetLaxianFrameVisuals(frameGroup)
+			}
+		}
+		this.laxianHighlightSessions.delete(laxianId)
+		this.stopLaxianHighlightAnimLoopIfIdle()
+	}
+
+	private stopAllLaxianHighlight(hideFrames = true): void {
+		for (const laxianId of [...this.laxianHighlightSessions.keys()]) {
+			this.stopLaxianHighlightSession(laxianId, hideFrames)
+		}
+	}
+
+	/** 浏览态点击标签时，显示纯色呼吸灯；消失时对齐透明度最低点 */
+	public flashLaxianFrameById(
+		laxianId: string | undefined,
+		preferredDurationMs = LAXIAN_FRAME_HIGHLIGHT_DEFAULT_MS
+	): void {
+		if (!laxianId || this.editMode) return
+		const item = this.loadedLaxian.find(
+			(l) => l.object?.userData?.laxian_id === laxianId || l.laxian_id === laxianId
+		)
+		const laxianGroup = item?.object
+		if (!laxianGroup) return
+		const frameGroups = this.getLaxianFrameGroups(laxianGroup)
+		if (frameGroups.length === 0) return
+
+		this.stopLaxianHighlightSession(laxianId, false)
+
+		const startedAt = performance.now()
+		const durationMs = this.computeLaxianHighlightDurationMs(preferredDurationMs)
+		this.laxianHighlightSessions.set(laxianId, {
+			frameGroups,
+			startedAt,
+			endsAt: startedAt + durationMs
+		})
+		this.ensureLaxianHighlightAnimLoop()
+	}
+
+	public laxianTransformListener?: (payload: {
+		object: THREE.Object3D
+		laxianId?: string
+		frameId?: string
+	}) => void
+
+	public applyAllLaxianVisualStates(): void {
+		if (this.editMode) {
+			this.stopAllLaxianHighlight(false)
+		}
+		for (const item of this.loadedLaxian) {
+			if (item.object) {
+				this.applyLaxianGroupVisualState(item.object)
+			}
+		}
 	}
 
 	/**
@@ -1365,7 +2255,7 @@ class ThreeCore {
 	 */
 	private createEditTargetMarker() {
 		if (!this.scene || !this.controls) return
-		const geometry = new THREE.SphereGeometry(0.12, 16, 16)
+		const geometry = new THREE.SphereGeometry(0.03, 16, 16)
 		const material = new THREE.MeshBasicMaterial({
 			color: 0xff6600,
 			wireframe: true,
@@ -1391,11 +2281,17 @@ class ThreeCore {
 		if (idx < 0) return false
 		const item = this.loadedLaxian[idx]
 		if (item?.object) {
-			this.scene.remove(item.object)
-			if (item.object instanceof THREE.Mesh) {
-				item.object.geometry?.dispose()
-				;(item.object.material as THREE.Material)?.dispose?.()
+			const highlightId = item.object.userData?.laxian_id as string | undefined
+			if (highlightId) {
+				this.stopLaxianHighlightSession(highlightId, false)
 			}
+			item.object.traverse((child) => {
+				if (child instanceof THREE.Mesh) {
+					child.geometry?.dispose()
+					this.disposeLaxianFrameMeshMaterial(child.material)
+				}
+			})
+			this.scene.remove(item.object)
 		}
 		this.loadedLaxian.splice(idx, 1)
 		return true
@@ -1410,6 +2306,9 @@ class ThreeCore {
 			title?: string
 			type?: 0 | 1
 			camera?: { position: [number, number, number]; target: [number, number, number] }
+			position?: [number, number, number]
+			rotation?: [number, number, number]
+			frames?: LaxianHighlightFrameJSON[]
 		}
 	): boolean {
 		if (!laxianId) return false
@@ -1429,6 +2328,28 @@ class ThreeCore {
 			item.object.userData.camera = updates.camera
 			item.camera = updates.camera
 		}
+		if (updates.position) {
+			item.object.position.set(...updates.position)
+		}
+		if (updates.rotation) {
+			item.object.rotation.set(...updates.rotation)
+		}
+		if (updates.frames) {
+			const oldFrames = this.getLaxianFrameGroups(item.object)
+			for (const frameGroup of oldFrames) {
+				item.object.remove(frameGroup)
+				frameGroup.traverse((child) => {
+					if (child instanceof THREE.Mesh) {
+						child.geometry?.dispose()
+						this.disposeLaxianFrameMeshMaterial(child.material)
+					}
+				})
+			}
+			for (const frame of updates.frames) {
+				item.object.add(this.buildLaxianFrameGroup(laxianId, frame))
+			}
+			this.applyLaxianGroupVisualState(item.object)
+		}
 		return true
 	}
 
@@ -1441,33 +2362,33 @@ class ThreeCore {
 		laxian_id?: string
 		type?: 0 | 1
 		camera?: { position: [number, number, number]; target: [number, number, number] }
-	}): Promise<THREE.Mesh | null> {
+		rotation?: [number, number, number]
+		frames?: LaxianHighlightFrameJSON[]
+	}): Promise<THREE.Group | null> {
 		const obj: SceneObjectJSON = {
 			type: 'laxian',
 			position: item.position,
+			rotation: item.rotation,
+			frames: item.frames,
 			title: item.title || '新拉线点',
 			laxian_id: item.laxian_id,
 			laxian_type: item.type ?? 0,
 			camera: item.camera
 		}
-		const mesh = await this.createLaxian(obj)
-		mesh.position.set(...item.position)
-		// 编辑模式下放大可见，方便查看位置
-		const pointScale = this.editMode ? 0.1 : 0.001
-		mesh.scale.set(pointScale, pointScale, pointScale)
-		if (this.editMode && mesh instanceof THREE.Mesh && mesh.material) {
-			const mat = mesh.material as THREE.MeshStandardMaterial
-			mat.emissive = new THREE.Color('#00ff88')
-			mat.emissiveIntensity = 0.6
+		const group = await this.createLaxian(obj)
+		group.position.set(...item.position)
+		if (item.rotation) {
+			group.rotation.set(...item.rotation)
 		}
-		this.allObjects.push(mesh)
-		this.assignSceneObjectId(mesh)
+		this.applyLaxianGroupVisualState(group)
+		this.allObjects.push(group)
+		this.assignSceneObjectId(group)
 		if (this.options.enableAR && this.arContentGroup) {
-			this.arContentGroup.add(mesh)
+			this.arContentGroup.add(group)
 		} else {
-			this.scene.add(mesh)
+			this.scene.add(group)
 		}
-		return mesh
+		return group
 	}
 
 	public fitGaussianSplatCamera(
@@ -1870,6 +2791,129 @@ class ThreeCore {
 		})
 	}
 
+	public async loadVideoMesh(url: string, baseWidth = 5): Promise<THREE.Mesh> {
+		return new Promise((resolve, reject) => {
+			const canvas = document.createElement('canvas')
+			canvas.width = 512
+			canvas.height = 512
+			const texture = new THREE.CanvasTexture(canvas)
+			texture.colorSpace = THREE.SRGBColorSpace
+			texture.wrapS = THREE.ClampToEdgeWrapping
+			texture.wrapT = THREE.ClampToEdgeWrapping
+
+			const video = this.createManagedVideoElement()
+
+			const params: TextureTransform = {
+				offsetX: 0,
+				offsetY: 0,
+				scale: 1,
+				rotation: 0
+			}
+
+			video.onloadeddata = () => {
+				const sourceW = video.videoWidth || 1
+				const sourceH = video.videoHeight || 1
+				const aspect = sourceH / sourceW
+				const width = baseWidth
+				const height = baseWidth * aspect
+
+				const geometry = new THREE.PlaneGeometry(width, height)
+				const material = new THREE.MeshBasicMaterial({ map: texture })
+				material.side = THREE.DoubleSide
+				material.needsUpdate = true
+
+				const mesh = new THREE.Mesh(geometry, material)
+				mesh.userData.url = url
+				mesh.userData.type = 'video'
+				mesh.userData.effect = []
+
+				const meshUuid = mesh.uuid
+				const update = () => {
+					if (!this.sceneVideoPlayers.has(meshUuid)) return
+					const player = this.sceneVideoPlayers.get(meshUuid)
+					if (!player) return
+					this.drawVideoFrameToCanvas(
+						video,
+						canvas,
+						params,
+						!player.isPlaying
+					)
+					texture.needsUpdate = true
+				}
+
+				this.setupSceneVideoPlayer(mesh, video, texture, canvas, params, update)
+				update()
+				this.syncAllVideoPlaybackSlots()
+
+				resolve(mesh)
+			}
+
+			video.onerror = () => {
+				reject(new Error(`加载视频失败: ${url}`))
+			}
+
+			video.src = url
+			video.load()
+		})
+	}
+
+	private setupSceneVideoPlayer(
+		mesh: THREE.Mesh,
+		video: HTMLVideoElement,
+		texture: THREE.CanvasTexture,
+		canvas: HTMLCanvasElement,
+		params: TextureTransform,
+		update: () => void
+	) {
+		const meshUuid = mesh.uuid
+		this.disposeSceneVideoPlayer(meshUuid)
+		this.sceneVideoPlayers.set(meshUuid, {
+			meshUuid,
+			mesh,
+			video,
+			texture,
+			canvas,
+			params,
+			isPlaying: false,
+			pauseIconDrawn: false,
+			update
+		})
+		this.ensureVideoTick()
+	}
+
+	private disposeSceneVideoPlayer(meshUuid: string) {
+		const player = this.sceneVideoPlayers.get(meshUuid)
+		if (!player) return
+		if (this.activeReplaceVideoUuid === meshUuid) {
+			this.activeReplaceVideoUuid = null
+		}
+		this.releaseManagedVideoElement(player.video)
+		player.texture.dispose()
+		this.sceneVideoPlayers.delete(meshUuid)
+	}
+
+	private disposeAllSceneVideoPlayers() {
+		for (const meshUuid of [...this.sceneVideoPlayers.keys()]) {
+			this.disposeSceneVideoPlayer(meshUuid)
+		}
+	}
+
+	private hasVideoPlayer(meshUuid: string): boolean {
+		return (
+			this.replaceVideoPlayers.has(meshUuid)
+			|| this.sceneVideoPlayers.has(meshUuid)
+		)
+	}
+
+	private *iterateManagedVideoPlayers(): Generator<ManagedVideoPlayer> {
+		for (const player of this.replaceVideoPlayers.values()) {
+			yield player
+		}
+		for (const player of this.sceneVideoPlayers.values()) {
+			yield player
+		}
+	}
+
 	/**
 	 * 加载长文本为 Mesh
 	 * @param text 文本内容（长文本）
@@ -2127,15 +3171,14 @@ class ThreeCore {
 	 * @param size 生成 canvas 尺寸（默认 1024x1024）
 	 */
 	createTransformedTexture(
-		img: HTMLImageElement,
+		source: CanvasImageSource,
 		params: TextureTransform,
 		size = 512
 	): THREE.CanvasTexture {
 		const { offsetX, offsetY, scale, rotation } = params
 
-		// 设置允许跨域（如果图片还未加载完成，这会生效）
-		if (!img.crossOrigin) {
-			img.crossOrigin = 'Anonymous'
+		if (source instanceof HTMLImageElement && !source.crossOrigin) {
+			source.crossOrigin = 'Anonymous'
 		}
 
 		// 创建画布
@@ -2147,33 +3190,36 @@ class ThreeCore {
 
 		// 将画布中心作为变换中心
 		ctx.save()
-		// ctx.translate(size / 2 + offsetX, size / 2 + offsetY)
-		// ctx.rotate(rotation)
-		// ctx.scale(scale, scale)
-
-		// // 绘制图片 (以中心点对齐)
-		// ctx.drawImage(img, -img.width / 2, -img.height / 2)
 
 		ctx.translate(canvas.width / 2 + offsetX, canvas.height / 2 + offsetY)
 		ctx.rotate(rotation)
 		ctx.scale(scale, scale)
 
-		// === 新增：保持原图比例 ===
-		const imgAspect = img.width / img.height
+		const sourceW =
+			source instanceof HTMLVideoElement
+				? source.videoWidth || 1
+				: (source as HTMLImageElement).naturalWidth ||
+					(source as HTMLImageElement).width ||
+					1
+		const sourceH =
+			source instanceof HTMLVideoElement
+				? source.videoHeight || 1
+				: (source as HTMLImageElement).naturalHeight ||
+					(source as HTMLImageElement).height ||
+					1
+		const imgAspect = sourceW / sourceH
 		const canvasAspect = canvas.width / canvas.height
 		let drawW: number
 		let drawH: number
 		if (imgAspect > canvasAspect) {
-			// 图片更宽 → 宽占满
 			drawW = canvas.width
 			drawH = drawW / imgAspect
 		} else {
-			// 图片更高 → 高占满
 			drawH = canvas.height
 			drawW = drawH * imgAspect
 		}
 
-		ctx.drawImage(img, -drawW / 2, -drawH / 2, drawW, drawH)
+		ctx.drawImage(source, -drawW / 2, -drawH / 2, drawW, drawH)
 
 		ctx.restore()
 
@@ -2184,6 +3230,515 @@ class ThreeCore {
 		texture.needsUpdate = true
 
 		return texture
+	}
+
+	private isVideoMaterialOptions(options: Record<string, unknown>): boolean {
+		if (options.mediaType === 'video') return true
+		const url = String(options.url || '')
+		return /\.(mp4|webm|mov|m4v|ogg)(\?|#|$)/i.test(url)
+	}
+
+	private ensureVideoDomPool() {
+		if (typeof document === 'undefined') return
+		if (this.videoDomPool?.isConnected) return
+		const pool = document.createElement('div')
+		pool.id = 'three-core-video-pool'
+		pool.setAttribute('aria-hidden', 'true')
+		pool.style.cssText =
+			'position:fixed;width:0;height:0;overflow:hidden;opacity:0;pointer-events:none;z-index:-1;'
+		const mount = this.container ?? document.body
+		mount.appendChild(pool)
+		this.videoDomPool = pool
+	}
+
+	private configureVideoForMobileWebview(video: HTMLVideoElement) {
+		video.crossOrigin = 'anonymous'
+		video.loop = true
+		video.muted = true
+		video.defaultMuted = true
+		video.playsInline = true
+		video.preload = 'auto'
+		video.setAttribute('muted', '')
+		video.setAttribute('playsinline', '')
+		video.setAttribute('webkit-playsinline', 'true')
+		video.setAttribute('x-webkit-airplay', 'deny')
+		video.style.width = '1px'
+		video.style.height = '1px'
+		video.style.position = 'absolute'
+		video.style.left = '0'
+		video.style.top = '0'
+	}
+
+	private createManagedVideoElement(): HTMLVideoElement {
+		this.ensureVideoDomPool()
+		this.setupVideoGestureUnlock()
+		const video = document.createElement('video')
+		this.configureVideoForMobileWebview(video)
+		this.videoDomPool?.appendChild(video)
+		return video
+	}
+
+	private ensureVideoInDomPool(video: HTMLVideoElement) {
+		this.ensureVideoDomPool()
+		this.configureVideoForMobileWebview(video)
+		if (video.parentElement !== this.videoDomPool) {
+			this.videoDomPool?.appendChild(video)
+		}
+	}
+
+	private releaseManagedVideoElement(video: HTMLVideoElement) {
+		video.pause()
+		video.removeAttribute('src')
+		video.load()
+		video.remove()
+	}
+
+	private setupVideoGestureUnlock() {
+		if (this.videoGestureUnlockSetup || typeof document === 'undefined') {
+			return
+		}
+		this.videoGestureUnlockSetup = true
+		const unlock = () => {
+			this.unlockVideoPlayback()
+		}
+		const opts: AddEventListenerOptions = { capture: true, passive: true }
+		const target = this.container ?? document
+		target.addEventListener('touchstart', unlock, opts)
+		target.addEventListener('pointerdown', unlock, opts)
+		document.addEventListener('touchstart', unlock, opts)
+	}
+
+	/** iOS / WebView 首次用户交互后解锁 video.play() */
+	private unlockVideoPlayback() {
+		if (this.videoPlaybackUnlocked) return
+		this.videoPlaybackUnlocked = true
+		this.syncAllVideoPlaybackSlots()
+		for (const player of this.iterateManagedVideoPlayers()) {
+			if (player.isPlaying) {
+				void this.tryPlayManagedVideo(player.video).then(() => {
+					player.update()
+				})
+			}
+		}
+	}
+
+	private tryPlayManagedVideo(video: HTMLVideoElement): Promise<void> {
+		video.muted = true
+		video.defaultMuted = true
+		if (!video.isConnected) {
+			this.ensureVideoInDomPool(video)
+		}
+		return video.play().catch(err => {
+			console.warn('[ThreeCore] video.play failed:', err)
+		})
+	}
+
+	private disposeReplaceVideoPlayer(meshUuid: string) {
+		const player = this.replaceVideoPlayers.get(meshUuid)
+		if (!player) return
+		if (this.activeReplaceVideoUuid === meshUuid) {
+			this.activeReplaceVideoUuid = null
+		}
+		this.releaseManagedVideoElement(player.video)
+		player.texture.dispose()
+		this.replaceVideoPlayers.delete(meshUuid)
+	}
+
+	private disposeAllReplaceVideoPlayers() {
+		for (const meshUuid of [...this.replaceVideoPlayers.keys()]) {
+			this.disposeReplaceVideoPlayer(meshUuid)
+		}
+		this.activeReplaceVideoUuid = null
+		this.replaceVideoUserPausedAll = false
+	}
+
+	private pickDefaultVideoUuid(): string {
+		const players = [...this.iterateManagedVideoPlayers()]
+		if (players.length === 0) return ''
+		if (!this.camera) return players[0].meshUuid
+		const camPos = this.camera.position
+		let best = players[0]
+		let bestDist = Number.POSITIVE_INFINITY
+		for (const player of players) {
+			const worldPos = new THREE.Vector3()
+			player.mesh.getWorldPosition(worldPos)
+			const distSq = camPos.distanceToSquared(worldPos)
+			if (distSq < bestDist) {
+				bestDist = distSq
+				best = player
+			}
+		}
+		return best.meshUuid
+	}
+
+	private ensureVideoTick() {
+		if (this.videoTickRegistered) return
+		this.videoTickRegistered = true
+		this.addAnimationCallback(() => {
+			this.syncAllVideoPlaybackSlots()
+			for (const player of this.iterateManagedVideoPlayers()) {
+				if (player.isPlaying) {
+					player.update()
+				}
+			}
+		})
+	}
+
+	/** 场景视频与贴图视频共用：全局最多 1 路播放；无选中时默认播放离相机最近的一路 */
+	private syncAllVideoPlaybackSlots() {
+		const players = [...this.iterateManagedVideoPlayers()]
+		if (players.length === 0) return
+
+		if (
+			!this.activeReplaceVideoUuid
+			&& !this.replaceVideoUserPausedAll
+		) {
+			this.activeReplaceVideoUuid = this.pickDefaultVideoUuid()
+		}
+
+		const playingId =
+			this.activeReplaceVideoUuid
+			&& this.hasVideoPlayer(this.activeReplaceVideoUuid)
+				? this.activeReplaceVideoUuid
+				: null
+
+		for (const player of players) {
+			const shouldPlay = playingId === player.meshUuid
+			if (player.isPlaying === shouldPlay) {
+				if (
+					!shouldPlay
+					&& !player.pauseIconDrawn
+					&& player.video.readyState >= 2
+				) {
+					player.update()
+					player.pauseIconDrawn = true
+				}
+				continue
+			}
+			player.isPlaying = shouldPlay
+			this.applyVideoPlayState(player)
+		}
+	}
+
+	/** 射线检测点击是否落在场景视频或贴图视频网格上 */
+	private pickVideoMesh(
+		ev: MouseEvent | TouchEvent
+	): THREE.Mesh | null {
+		if (
+			this.replaceVideoPlayers.size === 0
+			&& this.sceneVideoPlayers.size === 0
+		) {
+			return null
+		}
+		const hits = this.raycastPointerEvent(ev)
+		for (const hit of hits) {
+			let cur: THREE.Object3D | null = hit.object
+			while (cur) {
+				if (cur instanceof THREE.Mesh && this.hasVideoPlayer(cur.uuid)) {
+					return cur
+				}
+				cur = cur.parent
+			}
+		}
+		return null
+	}
+
+	private raycastPointerEvent(
+		ev: MouseEvent | TouchEvent
+	): THREE.Intersection[] {
+		if (!this.renderer || !this.camera || !this.scene) return []
+
+		const clientCoords = (() => {
+			if ('touches' in ev && ev.touches.length > 0) {
+				const t = ev.touches[0]
+				return { clientX: t.clientX, clientY: t.clientY }
+			}
+			if (
+				'changedTouches' in ev
+				&& (ev as TouchEvent).changedTouches.length > 0
+			) {
+				const t = (ev as TouchEvent).changedTouches[0]
+				return { clientX: t.clientX, clientY: t.clientY }
+			}
+			const me = ev as MouseEvent
+			return { clientX: me.clientX, clientY: me.clientY }
+		})()
+
+		const rect = this.renderer.domElement.getBoundingClientRect()
+		const clickCoords = new THREE.Vector2(
+			((clientCoords.clientX - rect.left) / rect.width) * 2 - 1,
+			-((clientCoords.clientY - rect.top) / rect.height) * 2 + 1
+		)
+
+		const raycaster = this.raycaster ?? new THREE.Raycaster()
+		raycaster.setFromCamera(clickCoords, this.camera)
+
+		const objectsToCheck = this.scene.children.filter(obj => {
+			if (obj instanceof SparkRenderer) return false
+			if (obj.userData?.ignorePick) return false
+			return (
+				obj instanceof THREE.Mesh
+				|| obj instanceof THREE.Group
+				|| obj instanceof THREE.Points
+			)
+		})
+
+		return raycaster.intersectObjects(objectsToCheck, true)
+	}
+
+	/**
+	 * 点击场景视频或贴图视频：播放 / 暂停切换；播放时其余视频自动暂停。
+	 * @returns 命中时返回该视频所属的场景顶层对象，否则 null
+	 */
+	public toggleReplaceVideoAtEvent(
+		ev: MouseEvent | TouchEvent
+	): THREE.Object3D | null {
+		const mesh = this.pickVideoMesh(ev)
+		if (!mesh) return null
+
+		this.unlockVideoPlayback()
+
+		if (this.activeReplaceVideoUuid === mesh.uuid) {
+			this.activeReplaceVideoUuid = null
+			this.replaceVideoUserPausedAll = true
+		} else {
+			this.activeReplaceVideoUuid = mesh.uuid
+			this.replaceVideoUserPausedAll = false
+		}
+		this.syncAllVideoPlaybackSlots()
+		return this.getSceneTopLevelRoot(mesh)
+	}
+
+	/** 获取场景 direct child 顶层对象（与 gpuPick 一致） */
+	public getSceneTopLevelRoot(object: THREE.Object3D): THREE.Object3D {
+		let current = object
+		while (current.parent && current.parent.type !== 'Scene') {
+			current = current.parent
+		}
+		return current
+	}
+
+	private applyVideoPlayState(player: ManagedVideoPlayer) {
+		if (player.isPlaying) {
+			player.pauseIconDrawn = false
+			if (player.video.readyState >= 2) {
+				if (player.video.paused) {
+					void this.tryPlayManagedVideo(player.video).then(() => {
+						player.update()
+					})
+				} else {
+					player.update()
+				}
+			}
+			return
+		}
+		if (!player.video.paused) {
+			player.video.pause()
+		}
+		player.update()
+		player.pauseIconDrawn = true
+	}
+
+	private drawPauseIconOnCanvas(
+		ctx: CanvasRenderingContext2D,
+		canvas: HTMLCanvasElement
+	) {
+		const cx = canvas.width / 2
+		const cy = canvas.height / 2
+		const size = Math.min(canvas.width, canvas.height) * 0.16
+		ctx.save()
+		ctx.fillStyle = 'rgba(0, 0, 0, 0.5)'
+		ctx.beginPath()
+		ctx.arc(cx, cy, size * 1.2, 0, Math.PI * 2)
+		ctx.fill()
+		ctx.fillStyle = 'rgba(255, 255, 255, 0.95)'
+		const barW = size * 0.28
+		const barH = size * 1.1
+		const gap = size * 0.22
+		ctx.fillRect(cx - gap / 2 - barW, cy - barH / 2, barW, barH)
+		ctx.fillRect(cx + gap / 2, cy - barH / 2, barW, barH)
+		ctx.restore()
+	}
+
+	private resolveMaterialAssetUrl(url: string): string {
+		const trimmed = String(url || '').trim()
+		if (!trimmed) return ''
+		if (/^https?:\/\//i.test(trimmed)) return trimmed
+		return `${BASE_IMG}${trimmed.replace(/^\//, '')}`
+	}
+
+	/** 贴图编辑器保存视频后，接管播放循环（避免关闭编辑器时视频停住） */
+	public adoptReplaceVideoTexture(
+		mesh: THREE.Mesh,
+		options: {
+			offsetX: number
+			offsetY: number
+			scale: number
+			rotation: number
+		},
+		video: HTMLVideoElement,
+		texture: THREE.CanvasTexture,
+		canvas: HTMLCanvasElement,
+		rootUserDataType?: string
+	) {
+		const meshUuid = mesh.uuid
+		this.disposeReplaceVideoPlayer(meshUuid)
+		this.ensureVideoInDomPool(video)
+
+		const params: TextureTransform = { ...options }
+		texture.wrapS = THREE.ClampToEdgeWrapping
+		texture.wrapT = THREE.ClampToEdgeWrapping
+		texture.flipY = false
+		texture.colorSpace = THREE.SRGBColorSpace
+
+		const update = () => {
+			if (!this.replaceVideoPlayers.has(meshUuid)) return
+			const player = this.replaceVideoPlayers.get(meshUuid)
+			if (!player) return
+			this.drawVideoFrameToCanvas(
+				video,
+				canvas,
+				params,
+				!player.isPlaying
+			)
+			texture.needsUpdate = true
+		}
+
+		this.replaceVideoPlayers.set(meshUuid, {
+			meshUuid,
+			mesh,
+			video,
+			texture,
+			canvas,
+			params,
+			isPlaying: false,
+			pauseIconDrawn: false,
+			update
+		})
+		this.ensureVideoTick()
+		this.applyReplaceTextureToMesh(mesh, texture, rootUserDataType)
+		this.applyTransparentRenderSettings(mesh.parent as THREE.Object3D)
+		update()
+		this.syncAllVideoPlaybackSlots()
+	}
+
+	/** 当前是否有场景视频或贴图视频处于播放选中态 */
+	public hasActiveReplaceVideo(): boolean {
+		return this.activeReplaceVideoUuid != null
+	}
+
+	private drawVideoFrameToCanvas(
+		video: HTMLVideoElement,
+		canvas: HTMLCanvasElement,
+		params: TextureTransform,
+		showPauseIcon = false
+	) {
+		if (video.readyState < 2) return
+		const ctx = canvas.getContext('2d')
+		if (!ctx) return
+		ctx.clearRect(0, 0, canvas.width, canvas.height)
+		ctx.save()
+		ctx.translate(canvas.width / 2 + params.offsetX, canvas.height / 2 + params.offsetY)
+		ctx.rotate(params.rotation)
+		ctx.scale(params.scale, params.scale)
+		const sourceW = video.videoWidth || 1
+		const sourceH = video.videoHeight || 1
+		const imgAspect = sourceW / sourceH
+		const canvasAspect = canvas.width / canvas.height
+		let drawW: number
+		let drawH: number
+		if (imgAspect > canvasAspect) {
+			drawW = canvas.width
+			drawH = drawW / imgAspect
+		} else {
+			drawH = canvas.height
+			drawW = drawH * imgAspect
+		}
+		ctx.drawImage(video, -drawW / 2, -drawH / 2, drawW, drawH)
+		ctx.restore()
+		if (showPauseIcon) {
+			this.drawPauseIconOnCanvas(ctx, canvas)
+		}
+	}
+
+	private applyReplaceTextureToMesh(
+		child: THREE.Mesh,
+		tex: THREE.Texture,
+		rootUserDataType?: string
+	) {
+		for (const mat of this.getMeshMaterials(child)) {
+			if (!('map' in mat)) continue
+			const m = mat as THREE.MeshStandardMaterial
+			m.map = tex
+			if (!this.applyAlphaCutoutDepthMaterial(m, rootUserDataType)) {
+				m.transparent = true
+				m.depthWrite = false
+			}
+			m.needsUpdate = true
+		}
+	}
+
+	private setupReplaceVideoTexture(
+		child: THREE.Mesh,
+		options: Record<string, unknown>,
+		rootUserDataType?: string
+	) {
+		const meshUuid = child.uuid
+		this.disposeReplaceVideoPlayer(meshUuid)
+
+		const params: TextureTransform = {
+			offsetX: Number(options.offsetX ?? 0),
+			offsetY: Number(options.offsetY ?? 0),
+			scale: Number(options.scale ?? 1),
+			rotation: Number(options.rotation ?? 0)
+		}
+
+		const canvas = document.createElement('canvas')
+		canvas.width = 512
+		canvas.height = 512
+		const texture = new THREE.CanvasTexture(canvas)
+		texture.wrapS = THREE.ClampToEdgeWrapping
+		texture.wrapT = THREE.ClampToEdgeWrapping
+		texture.flipY = false
+		texture.colorSpace = THREE.SRGBColorSpace
+
+		const video = this.createManagedVideoElement()
+
+		const update = () => {
+			if (!this.replaceVideoPlayers.has(meshUuid)) return
+			const player = this.replaceVideoPlayers.get(meshUuid)
+			if (!player) return
+			this.drawVideoFrameToCanvas(
+				video,
+				canvas,
+				params,
+				!player.isPlaying
+			)
+			texture.needsUpdate = true
+		}
+
+		video.onloadeddata = () => {
+			update()
+			this.applyReplaceTextureToMesh(child, texture, rootUserDataType)
+			this.applyTransparentRenderSettings(child.parent as THREE.Object3D)
+			this.syncAllVideoPlaybackSlots()
+		}
+
+		video.src = this.resolveMaterialAssetUrl(String(options.url || ''))
+		video.load()
+
+		this.replaceVideoPlayers.set(meshUuid, {
+			meshUuid,
+			mesh: child,
+			video,
+			texture,
+			canvas,
+			params,
+			isPlaying: false,
+			pauseIconDrawn: false,
+			update
+		})
+		this.ensureVideoTick()
 	}
 	disableLighting(object: THREE.Object3D) {
 		object.traverse((child: any) => {
@@ -2322,7 +3877,7 @@ class ThreeCore {
 		explicitRenderOrder?: number
 	): void {
 		const objectType = object.userData?.type as string | undefined
-		if (objectType === 'image') return
+		if (objectType === 'image' || objectType === 'video') return
 
 		if (explicitRenderOrder !== undefined) {
 			object.renderOrder = explicitRenderOrder
@@ -2997,7 +4552,7 @@ class ThreeCore {
 		this.scene.traverse(obj => {
 			if (
 				obj instanceof THREE.Mesh &&
-				obj.userData.type === 'image' &&
+				(obj.userData.type === 'image' || obj.userData.type === 'video') &&
 				obj.userData.follow
 			) {
 				obj.quaternion.copy(this.camera.quaternion)
@@ -4632,6 +6187,8 @@ class ThreeCore {
 		this.container = container
 
 		if (this.container) {
+			this.ensureVideoDomPool()
+			this.setupVideoGestureUnlock()
 			// 添加WebGL渲染器
 			this.container.appendChild(this.renderer.domElement)
 
@@ -5165,6 +6722,236 @@ class ThreeCore {
 		}
 	}
 
+	private listSatelliteOrbitScanRoots(): THREE.Object3D[] {
+		return this.getStepManagedRoots().filter(child => {
+			if (child === this.editTargetMarker) return false
+			if (child === this.voxelBlocks?.root) return false
+			return isSceneStepContentRoot(child)
+		})
+	}
+
+	private getSatelliteAnimationEffects(obj: THREE.Object3D): SceneEffectJSON[] {
+		const effects = obj.userData.effect as SceneEffectJSON[] | undefined
+		if (!Array.isArray(effects)) return []
+		return effects.filter(e => e.preset === 'satellite')
+	}
+
+	private readSatelliteEffectNumber(
+		effect: SceneEffectJSON,
+		key: string,
+		fallback: number
+	): number {
+		const params = effect.options ?? {}
+		const v = params[key]
+		const n = typeof v === 'number' ? v : Number(v)
+		return Number.isFinite(n) ? n : fallback
+	}
+
+	private getSatelliteOrbitCenter(
+		obj: THREE.Object3D
+	): [number, number, number] {
+		const base = obj.userData._animationBaseTransform as
+			| AnimationBaseTransform
+			| undefined
+		if (base?.position) {
+			return [...base.position]
+		}
+		return [obj.position.x, obj.position.y, obj.position.z]
+	}
+
+	private buildSatelliteOrbitPoints(
+		cx: number,
+		cy: number,
+		cz: number,
+		radius: number,
+		inclinationDeg: number,
+		planeAngleDeg = 0,
+		segments = 72
+	): THREE.Vector3[] {
+		const points: THREE.Vector3[] = []
+		for (let i = 0; i < segments; i++) {
+			const theta = (i / segments) * Math.PI * 2
+			const offset = computeSatelliteOrbitOffset(
+				theta,
+				radius,
+				inclinationDeg,
+				planeAngleDeg
+			)
+			points.push(
+				new THREE.Vector3(cx + offset.x, cy + offset.y, cz + offset.z)
+			)
+		}
+		return points
+	}
+
+	private buildSatelliteOrbitHelperGroup(
+		cx: number,
+		cy: number,
+		cz: number,
+		radius: number,
+		inclinationDeg: number,
+		planeAngleDeg = 0,
+		startAngleDeg = 0
+	): THREE.Group {
+		const group = new THREE.Group()
+		group.userData.sceneEditorOverlay = true
+		group.userData.ignorePick = true
+		group.userData.satelliteOrbitHelper = true
+		group.renderOrder = 100001
+
+		const orbitMat = new THREE.LineBasicMaterial({
+			color: ThreeCore.SATELLITE_ORBIT_HELPER_COLOR,
+			transparent: true,
+			opacity: 0.95,
+			depthTest: false
+		})
+		const orbitGeom = new THREE.BufferGeometry().setFromPoints(
+			this.buildSatelliteOrbitPoints(
+				cx,
+				cy,
+				cz,
+				radius,
+				inclinationDeg,
+				planeAngleDeg
+			)
+		)
+		orbitGeom.computeBoundingSphere()
+		const orbitLine = new THREE.LineLoop(orbitGeom, orbitMat)
+		orbitLine.frustumCulled = false
+		orbitLine.renderOrder = 100001
+		orbitLine.userData.sceneEditorOverlay = true
+		orbitLine.userData.ignorePick = true
+		group.add(orbitLine)
+
+		const centerSize = Math.min(0.12, Math.max(0.04, radius * 0.08))
+		const centerGeom = new THREE.SphereGeometry(centerSize, 10, 10)
+		const centerMat = new THREE.MeshBasicMaterial({
+			color: ThreeCore.SATELLITE_ORBIT_HELPER_COLOR,
+			transparent: true,
+			opacity: 0.85,
+			depthTest: false
+		})
+		const centerMarker = new THREE.Mesh(centerGeom, centerMat)
+		centerMarker.position.set(cx, cy, cz)
+		centerMarker.renderOrder = 100001
+		centerMarker.userData.skipBloomDarken = true
+		centerMarker.userData.sceneEditorOverlay = true
+		centerMarker.userData.ignorePick = true
+		group.add(centerMarker)
+
+		const radiusMat = new THREE.LineBasicMaterial({
+			color: ThreeCore.SATELLITE_ORBIT_HELPER_COLOR,
+			transparent: true,
+			opacity: 0.65,
+			depthTest: false
+		})
+		const radiusPoints = [
+			new THREE.Vector3(cx, cy, cz),
+			(() => {
+				const startRad = (startAngleDeg * Math.PI) / 180
+				const startOffset = computeSatelliteOrbitOffset(
+					startRad,
+					radius,
+					inclinationDeg,
+					planeAngleDeg
+				)
+				return new THREE.Vector3(
+					cx + startOffset.x,
+					cy + startOffset.y,
+					cz + startOffset.z
+				)
+			})()
+		]
+		const radiusGeom = new THREE.BufferGeometry().setFromPoints(radiusPoints)
+		radiusGeom.computeBoundingSphere()
+		const radiusLine = new THREE.Line(radiusGeom, radiusMat)
+		radiusLine.frustumCulled = false
+		radiusLine.renderOrder = 100001
+		radiusLine.userData.sceneEditorOverlay = true
+		radiusLine.userData.ignorePick = true
+		group.add(radiusLine)
+
+		return group
+	}
+
+	private disposeSatelliteOrbitHelperGroup(group: THREE.Group): void {
+		group.traverse(child => {
+			if (child instanceof THREE.Line || child instanceof THREE.LineLoop) {
+				child.geometry?.dispose()
+				const mat = child.material
+				if (Array.isArray(mat)) {
+					for (const m of mat) m.dispose()
+				} else {
+					mat?.dispose()
+				}
+			}
+			if (child instanceof THREE.Mesh) {
+				child.geometry?.dispose()
+				const mat = child.material
+				if (Array.isArray(mat)) {
+					for (const m of mat) m.dispose()
+				} else {
+					mat?.dispose()
+				}
+			}
+		})
+	}
+
+	/** 清除卫星轨道辅助线 */
+	public clearSatelliteOrbitHelpers(): void {
+		for (const { root } of this.satelliteOrbitHelperEntries) {
+			this.scene?.remove(root)
+			this.disposeSatelliteOrbitHelperGroup(root)
+		}
+		this.satelliteOrbitHelperEntries = []
+	}
+
+	/** 扫描场景并重建卫星轨道辅助线（仅编辑模式） */
+	public syncSatelliteOrbitHelpers(): void {
+		if (!this.editMode || !this.scene) {
+			this.clearSatelliteOrbitHelpers()
+			return
+		}
+		this.clearSatelliteOrbitHelpers()
+
+		for (const obj of this.listSatelliteOrbitScanRoots()) {
+			const satelliteEffects = this.getSatelliteAnimationEffects(obj)
+			if (!satelliteEffects.length) continue
+
+			for (const effect of satelliteEffects) {
+				const radius = this.readSatelliteEffectNumber(effect, 'radius', 1)
+				if (radius <= 0) continue
+				const inclinationDeg = this.readSatelliteEffectNumber(effect, 'angle', 0)
+				const planeAngleDeg = this.readSatelliteEffectNumber(effect, 'planeAngle', 0)
+				const startAngleDeg = this.readSatelliteEffectNumber(effect, 'startAngle', 0)
+				const [cx, cy, cz] = this.getSatelliteOrbitCenter(obj)
+				const root = this.buildSatelliteOrbitHelperGroup(
+					cx,
+					cy,
+					cz,
+					radius,
+					inclinationDeg,
+					planeAngleDeg,
+					startAngleDeg
+				)
+				this.scene.add(root)
+				this.satelliteOrbitHelperEntries.push({
+					root,
+					target: obj,
+					effectId: effect.id
+				})
+			}
+		}
+	}
+
+	private refreshSatelliteOrbitHelpersIfEditing(): void {
+		if (this.editMode) {
+			this.syncSatelliteOrbitHelpers()
+		} else {
+			this.clearSatelliteOrbitHelpers()
+		}
+	}
+
 	public saveSceneToJSON(): SceneJSON {
 		const objects: SceneObjectJSON[] = []
 		console.log(this.scene.children)
@@ -5202,6 +6989,9 @@ class ThreeCore {
 					}
 					if (obj.userData.type === 'splat') {
 						return 'splat'
+					}
+					if (obj.userData.type === 'video') {
+						return 'video'
 					}
 					return 'image'
 				}
@@ -5324,7 +7114,9 @@ class ThreeCore {
 					jsonObj.options = obj.userData.options
 				}
 				if (obj.userData.material) {
-					jsonObj.material = obj.userData.material
+					jsonObj.material = JSON.parse(
+						JSON.stringify(obj.userData.material)
+					) as Record<string, unknown>
 				}
 				if (obj.userData.links?.length) {
 					jsonObj.links = normalizeSceneObjectLinks(obj.userData.links)
@@ -5338,7 +7130,7 @@ class ThreeCore {
 							: { ...e }
 				)
 			}
-			if (typeGuess === 'image') {
+			if (typeGuess === 'image' || typeGuess === 'video') {
 				jsonObj.url = obj.userData.url.replace(BASE_IMG, '')
 			}
 			if (typeGuess === 'effect') {
@@ -5380,6 +7172,7 @@ class ThreeCore {
 				if (obj.userData.camera) {
 					jsonObj.camera = obj.userData.camera
 				}
+				jsonObj.frames = this.extractLaxianFramesData(obj)
 			}
 			if (typeGuess === 'splat') {
 				if (obj.userData.url) {
@@ -5957,7 +7750,10 @@ class ThreeCore {
 	) {
 		this.ensureAnimationBaseTransform(mesh)
 		mesh.userData.effect = effects.map(e => ({ ...e }))
-		if (effects.length === 0) return
+		if (effects.length === 0) {
+			this.refreshSatelliteOrbitHelpersIfEditing()
+			return
+		}
 		// biome-ignore lint/complexity/noForEach: <explanation>
 		effects.forEach(effect => {
 			if (effect.type === 'effect' && effect.effect_name) {
@@ -6021,10 +7817,32 @@ class ThreeCore {
 
 	/** 拖拽结束 / 手动变换完成：以当前姿态更新基准，并重播 GSAP 动效 */
 	onObjectTransformManuallyChanged(obj: THREE.Object3D) {
+		const frameGroup = this.resolveScenePickTarget(obj)
+		if (frameGroup?.userData.type === 'laxian_frame') {
+			this.normalizeLaxianSubFrameScale(frameGroup)
+			this.laxianTransformListener?.({
+				object: frameGroup,
+				laxianId: frameGroup.userData.laxian_id as string | undefined,
+				frameId: frameGroup.userData.frame_id as string | undefined
+			})
+			this.syncAnimationBaseTransform(frameGroup)
+			if (hasGsapAnimationEffects(frameGroup.userData.effect as SceneEffectJSON[] | undefined)) {
+				this.reapplyGsapAnimations(frameGroup)
+			}
+			this.refreshSatelliteOrbitHelpersIfEditing()
+			return
+		}
+		if (obj.userData.type === 'laxian') {
+			this.laxianTransformListener?.({
+				object: obj,
+				laxianId: obj.userData.laxian_id as string | undefined
+			})
+		}
 		this.syncAnimationBaseTransform(obj)
 		if (hasGsapAnimationEffects(obj.userData.effect as SceneEffectJSON[] | undefined)) {
 			this.reapplyGsapAnimations(obj)
 		}
+		this.refreshSatelliteOrbitHelpersIfEditing()
 	}
 
 	/** 保存前整理变换：无 GSAP 动效时清除过期基准，有动效时确保基准存在 */
@@ -6044,6 +7862,7 @@ class ThreeCore {
 		const effects = obj.userData.effect as SceneEffectJSON[] | undefined
 		if (!hasGsapAnimationEffects(effects)) {
 			delete obj.userData._animationBaseTransform
+			this.refreshSatelliteOrbitHelpersIfEditing()
 			return
 		}
 		for (const effect of effects ?? []) {
@@ -6051,6 +7870,7 @@ class ThreeCore {
 				this.applyAnimation(obj, effect)
 			}
 		}
+		this.refreshSatelliteOrbitHelpersIfEditing()
 	}
 	// 为模型设置贴图
 	public setMaterialModel(
@@ -6061,19 +7881,17 @@ class ThreeCore {
 			if (child.name.includes('replace') && child instanceof THREE.Mesh) {
 				if (material[child.name]) {
 					const options = material[child.name]
-					// console.log('缓存的贴图属性', options)
-					// const texture = await this.loadTexture(BASE_IMG + options.url)
-					// texture.offset.set(options.offsetX ?? 0, options.offsetY ?? 0)
-					// texture.repeat.set(options.scaleX ?? 1, options.scaleY ?? 1)
-					// texture.rotation = options.rotation ?? 0
-					// texture.center.set(0.5, 0.5)
-					// child.material.map = texture
-					// child.material.transparent = true
+					if (this.isVideoMaterialOptions(options)) {
+						this.setupReplaceVideoTexture(
+							child,
+							options,
+							mesh.userData?.type
+						)
+						return
+					}
 					const img = new Image()
-					// 设置允许跨域
 					img.crossOrigin = 'Anonymous'
-					img.src = BASE_IMG + options.url
-					console.log('参数', options)
+					img.src = this.resolveMaterialAssetUrl(String(options.url || ''))
 					img.onload = () => {
 						const tex = this.createTransformedTexture(img, {
 							offsetX: options.offsetX ?? 0,
@@ -6083,24 +7901,17 @@ class ThreeCore {
 						})
 						tex.flipY = false
 						tex.colorSpace = THREE.SRGBColorSpace
-						child.material.map = tex
-						if (
-							!this.applyAlphaCutoutDepthMaterial(
-								child.material,
-								mesh.userData?.type
-							)
-						) {
-							child.material.transparent = true
-							child.material.depthWrite = false
-							child.material.needsUpdate = true
-						}
+						this.applyReplaceTextureToMesh(
+							child,
+							tex,
+							mesh.userData?.type
+						)
 						this.applyTransparentRenderSettings(mesh)
 					}
 				}
 			} else if (child instanceof THREE.Mesh) {
 				if (child.material.map) {
 					child.material.map.colorSpace = THREE.SRGBColorSpace
-					console.log('其他模型', child.material.map)
 				}
 			}
 		})
@@ -6156,6 +7967,84 @@ class ThreeCore {
 			}
 		})
 	}
+	/** 卫星轨道：黄道面(XZ)公转 + 倾角偏转；朝向始终锁定轨道中心（同步自转，不改动基准旋转） */
+	applySatelliteAnimation(
+		obj: THREE.Object3D,
+		anim: SceneEffectJSON,
+		opts?: { track?: boolean }
+	): gsap.core.Tween[] {
+		const tweens: gsap.core.Tween[] = []
+		const params = (anim.options ?? {}) as Record<string, number | string | boolean>
+		const readNum = (key: string, fallback: number) => {
+			const v = params[key]
+			const n = typeof v === 'number' ? v : Number(v)
+			return Number.isFinite(n) ? n : fallback
+		}
+		const inclinationDeg = readNum('angle', 0)
+		const planeAngleDeg = readNum('planeAngle', 0)
+		const startAngleDeg = readNum('startAngle', 0)
+		const startAngleRad = (startAngleDeg * Math.PI) / 180
+		const radius = readNum('radius', 1)
+		const base = obj.userData._animationBaseTransform as
+			| AnimationBaseTransform
+			| undefined
+		const cx = base?.position[0] ?? obj.position.x
+		const cy = base?.position[1] ?? obj.position.y
+		const cz = base?.position[2] ?? obj.position.z
+		const baseRot = base?.rotation ?? [0, 0, 0]
+		const baseQuat = new THREE.Quaternion()
+		if (base?.quaternion) {
+			baseQuat.set(
+				base.quaternion[0],
+				base.quaternion[1],
+				base.quaternion[2],
+				base.quaternion[3]
+			)
+		} else {
+			baseQuat.setFromEuler(
+				new THREE.Euler(baseRot[0], baseRot[1], baseRot[2])
+			)
+		}
+		const eye = new THREE.Vector3()
+		const target = new THREE.Vector3(cx, cy, cz)
+		const up = new THREE.Vector3(0, 1, 0)
+		const lookMat = new THREE.Matrix4()
+		const faceQuat = new THREE.Quaternion()
+		const state = { theta: 0 }
+		const tw = gsap.to(state, {
+			theta: Math.PI * 2,
+			duration: anim.duration ?? 4,
+			ease: 'none',
+			delay: anim.delay ?? 0,
+			repeat: anim.repeat ?? -1,
+			yoyo: false,
+			repeatDelay: anim.repeatDelay ?? 0,
+			onUpdate: () => {
+				const offset = computeSatelliteOrbitOffset(
+					state.theta + startAngleRad,
+					radius,
+					inclinationDeg,
+					planeAngleDeg
+				)
+				obj.position.x = cx + offset.x
+				obj.position.y = cy + offset.y
+				obj.position.z = cz + offset.z
+				// 同步自转：始终面向轨道中心，基准四元数仅作模型朝向偏移
+				eye.set(obj.position.x, obj.position.y, obj.position.z)
+				if (eye.distanceToSquared(target) < 1e-10) return
+				lookMat.lookAt(eye, target, up)
+				faceQuat.setFromRotationMatrix(lookMat)
+				obj.quaternion.copy(faceQuat).multiply(baseQuat)
+			}
+		})
+		tweens.push(tw)
+		if (opts?.track !== false) {
+			const prev = (obj.userData._gsapTweens as gsap.core.Tween[] | undefined) ?? []
+			obj.userData._gsapTweens = [...prev, ...tweens]
+		}
+		return tweens
+	}
+
 	/** 停止物体上由本编辑器创建的 GSAP 动画 */
 	killObjectGsapAnimations(obj: THREE.Object3D) {
 		gsap.killTweensOf(obj)
@@ -6191,6 +8080,9 @@ class ThreeCore {
 			return tweens
 		}
 		const resolved = resolveAnimationEffect(anim, obj)
+		if (resolved.preset === 'satellite') {
+			return this.applySatelliteAnimation(obj, resolved, opts)
+		}
 		const properties = resolved.properties
 		if (!properties || Object.keys(properties).length === 0) {
 			return tweens
@@ -6329,6 +8221,13 @@ class ThreeCore {
 							rel,
 							this.loadImageMesh(full, obj.baseWidth || 5).catch(e => {
 								console.warn(`预加载图片失败：${rel}`, e)
+							})
+						)
+					} else if (obj.type === 'video') {
+						resourcePreloads.set(
+							rel,
+							this.loadVideoMesh(full, obj.baseWidth || 5).catch(e => {
+								console.warn(`预加载视频失败：${rel}`, e)
 							})
 						)
 					} else if (obj.type === 'splat') {
@@ -6576,6 +8475,9 @@ class ThreeCore {
 			if (obj.type === 'image' && obj.url) {
 				mesh = await this.loadImageMesh(BASE_IMG + obj.url, obj.baseWidth || 5)
 			}
+			if (obj.type === 'video' && obj.url) {
+				mesh = await this.loadVideoMesh(BASE_IMG + obj.url, obj.baseWidth || 5)
+			}
 			if (obj.type === 'longtext' && obj.content) {
 				mesh = await this.loadTextMesh(
 					obj.content,
@@ -6675,12 +8577,16 @@ class ThreeCore {
 				})
 				mesh.position.set(...(position || [0, 0, 0]))
 				mesh.rotation.set(...(rotation || [0, 0, 0]))
-				mesh.scale.set(...(scale || [1, 1, 1]))
+				if (obj.type === 'laxian') {
+					mesh.scale.set(1, 1, 1)
+				} else {
+					mesh.scale.set(...(scale || [1, 1, 1]))
+				}
 				this.captureAnimationBaseTransform(mesh)
 				if (obj.effect?.length) {
 					this.setEffectModel(mesh, obj.effect)
 				}
-				if (obj.type === 'image') {
+				if (obj.type === 'image' || obj.type === 'video') {
 					this.applySplatMeshDepthCompat(mesh)
 				} else {
 					this.applyTransparentRenderSettings(mesh, obj.renderOrder)
@@ -6710,16 +8616,7 @@ class ThreeCore {
 					}
 				}
 				if (obj.type === 'laxian') {
-					if (!this.editMode) {
-						mesh.scale.set(0.001, 0.001, 0.001)
-					} else {
-						mesh.scale.set(0.1, 0.1, 0.1)
-						if (mesh instanceof THREE.Mesh && mesh.material) {
-							const mat = mesh.material as THREE.MeshStandardMaterial
-							mat.emissive = new THREE.Color('#00ff88')
-							mat.emissiveIntensity = 0.6
-						}
-					}
+					this.applyLaxianGroupVisualState(mesh)
 				}
 				if (renturGroup) {
 					mesh.userData.ignorePick = true
@@ -6762,6 +8659,7 @@ class ThreeCore {
 		}
 
 		this.syncSceneColorSpaces()
+		this.refreshSatelliteOrbitHelpersIfEditing()
 		return null
 	}
 
@@ -6915,6 +8813,10 @@ class ThreeCore {
 	}
 
 	private disposeMeshLikeNode(child: THREE.Object3D) {
+		if (child instanceof THREE.Mesh) {
+			this.disposeReplaceVideoPlayer(child.uuid)
+			this.disposeSceneVideoPlayer(child.uuid)
+		}
 		if (child instanceof SplatMesh) {
 			this.disposeSplatMesh(child)
 			return
@@ -7028,6 +8930,7 @@ class ThreeCore {
 
 		this.sceneLoadGeneration++
 		this.clearStepGroupHighlights()
+		this.clearSatelliteOrbitHelpers()
 
 		if (this.transformControls) {
 			this.transformControls.detach()
@@ -7064,6 +8967,7 @@ class ThreeCore {
 		this.sweepRemovableSceneRoots(seen)
 		this.disposeAllEffects()
 		this.disposeTextureCaches()
+		this.disposeAllReplaceVideoPlayers()
 		this.disposeAllMatCache()
 
 		this.voxelBlocks?.clear()
@@ -7203,12 +9107,16 @@ class ThreeCore {
 		}
 
 		// 清理编辑模式视点标记
+		this.clearSatelliteOrbitHelpers()
 		if (this.editTargetMarker) {
 			this.editTargetMarker.geometry?.dispose()
 			;(this.editTargetMarker.material as THREE.Material)?.dispose?.()
 			this.scene?.remove(this.editTargetMarker)
 			this.editTargetMarker = undefined
 		}
+
+		this.disposeAllReplaceVideoPlayers()
+		this.disposeAllSceneVideoPlayers()
 
 		// 清理场景中剩余节点（含 SparkRenderer / 灯光）
 		if (this.scene) {

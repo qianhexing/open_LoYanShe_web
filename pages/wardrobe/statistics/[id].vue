@@ -1,4 +1,8 @@
 <script setup lang="ts">
+definePageMeta({
+  ssr: false,
+})
+
 import type { EChartsOption } from 'echarts'
 import {
   getWardrobeStatistics,
@@ -6,10 +10,17 @@ import {
   type WardrobeStatisticsShopRow,
 } from '@/api/wardrobe'
 import { BASE_IMG } from '@/utils/ipConfig'
-import WardrobeStatsEchart from '@/components/Wardrobe/WardrobeStatsEchart.vue'
-import WardrobeCompareModal from '@/components/Wardrobe/WardrobeCompareModal.vue'
-import WardrobeStatisticsShareImage from '@/components/Wardrobe/WardrobeStatisticsShareImage.vue'
 import type { StatisticsSharePayload } from '@/components/Wardrobe/WardrobeStatisticsShareImage.vue'
+
+const WardrobeStatsEchart = defineAsyncComponent(
+  () => import('@/components/Wardrobe/WardrobeStatsEchart.vue'),
+)
+const WardrobeCompareModal = defineAsyncComponent(
+  () => import('@/components/Wardrobe/WardrobeCompareModal.vue'),
+)
+const WardrobeStatisticsShareImage = defineAsyncComponent(
+  () => import('@/components/Wardrobe/WardrobeStatisticsShareImage.vue'),
+)
 import QhxModal from '@/components/Qhx/Modal.vue'
 import { useCopyCurrentUrl } from '@/composables/useCopyCurrentUrl'
 import { isHtml5PlusWebView } from '@/composables/useSaveNetworkImageToAlbum'

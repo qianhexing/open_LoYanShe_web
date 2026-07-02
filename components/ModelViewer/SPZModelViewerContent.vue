@@ -46,6 +46,8 @@ interface Props {
         target: [number, number, number]
         fov?: number
     }>
+    /** 为 true 时跳过 props 变更触发的自动重载（由父级在数据写完后手动 reloadSceneKeepWebGL） */
+    suppressPropsReload?: boolean
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -56,6 +58,7 @@ const props = withDefaults(defineProps<Props>(), {
     showLoadingMask: true,
     hideSceneChrome: false,
     initialCameraList: () => [],
+    suppressPropsReload: false,
     laxianList: () => [
         {
             position: [0, 1, 0] as [number, number, number],
@@ -84,6 +87,8 @@ const props = withDefaults(defineProps<Props>(), {
 const emit = defineEmits<{
     /** 加载中 / 进度 / 错误 任一变化时触发 */
     'load-state-change': [state: SceneLoadState]
+    /** 编辑模式选中拉线点/线框变化 */
+    'laxian-select': [payload: { laxianId: string | null; frameId: string | null }]
 }>()
 
 // 场景相关状态
@@ -111,8 +116,20 @@ const {
     threeCore,
     initScene,
     disposeScene,
-    laxianList
+    laxianList,
+    clickObject,
+    operaPosition
 } = useSceneCore()
+
+watch(clickObject, (list) => {
+    const obj = list?.[0]
+    const laxianId = (obj?.userData?.laxian_id as string | undefined) ?? null
+    const frameId =
+        obj?.userData?.type === 'laxian_frame'
+            ? ((obj.userData.frame_id as string | undefined) ?? null)
+            : null
+    emit('laxian-select', { laxianId, frameId })
+}, { deep: true })
 
 /** 挂载 WebGL 的容器（避免仅用 id 时在 client-only / 首轮 tick 中取不到 DOM） */
 const sceneViewerEl = ref<HTMLElement | null>(null)
@@ -196,7 +213,8 @@ const loadModels = async () => {
                 type: 'laxian' as const,
                 position: item.position || [0, 0, 0],
                 rotation: item.rotation || [0, 0, 0],
-                scale: item.scale || [1, 1, 1],
+                scale: item.scale,
+                frames: item.frames,
                 title: item.title || '拉线点',
                 laxian_id: item.laxian_id,
                 laxian_type: item.type ?? 0,
@@ -225,7 +243,8 @@ const loadModels = async () => {
                 type: 'laxian' as const,
                 position: item.position || [0, 0, 0],
                 rotation: item.rotation || [0, 0, 0],
-                scale: item.scale || [1, 1, 1],
+                scale: item.scale,
+                frames: item.frames,
                 title: item.title || '拉线点',
                 laxian_id: item.laxian_id,
                 laxian_type: item.type ?? 0,
@@ -381,7 +400,76 @@ const focusLaxianCamera = (item: LaxianInterface) => {
     } else if (item.object) {
         threeCore.value.lookAtSelectObj([item.object])
     }
+    if (item.laxian_id) {
+        threeCore.value.flashLaxianFrameById(item.laxian_id)
+    }
 }
+
+const setLaxianSoloDisplay = (laxianId: string | null) => {
+    threeCore.value?.setLaxianSoloDisplay(laxianId)
+}
+
+const setTransformMode = (mode: 'translate' | 'rotate' | 'scale') => {
+    const core = threeCore.value
+    if (!core?.transformControls) return
+    const raw = clickObject.value?.[0]
+    const selected = raw ? (core.resolveScenePickTarget(raw) ?? raw) : null
+    if (selected && core.transformControls.object !== selected) {
+        core.transformControls.attach(selected)
+    }
+    core.transformControls.setMode(mode)
+}
+
+const selectLaxianFrameObject = (laxianId?: string, frameId?: string) => {
+    if (!laxianId || !frameId || !threeCore.value) return
+    const frameGroup = threeCore.value.loadedLaxian
+        .find((l) => l.laxian_id === laxianId || l.object?.userData?.laxian_id === laxianId)
+        ?.object
+        ?.children
+        ?.find((child) => child.userData.type === 'laxian_frame' && child.userData.frame_id === frameId)
+    if (!frameGroup) return
+    clickObject.value = [frameGroup]
+    threeCore.value.transformControls.attach(frameGroup)
+}
+
+const bindLaxianTransformListener = (
+    listener: ((payload: {
+        object: THREE.Object3D
+        laxianId?: string
+        frameId?: string
+    }) => void) | null
+) => {
+    if (threeCore.value) {
+        threeCore.value.laxianTransformListener = listener ?? undefined
+    }
+}
+
+const detachTransformControls = () => {
+    threeCore.value?.transformControls?.detach()
+    clickObject.value = null
+}
+
+watch(threeCore, (core) => {
+    if (!core) return
+    if (!props.editMode) {
+        core.laxianTransformListener = undefined
+        core.transformControls?.detach()
+        clickObject.value = null
+    }
+    core.applyAllLaxianVisualStates()
+}, { immediate: true })
+
+watch(() => props.editMode, (editMode) => {
+    const core = threeCore.value
+    if (!core) return
+    core.editMode = editMode
+    core.applyAllLaxianVisualStates()
+    if (!editMode) {
+        core.laxianTransformListener = undefined
+        core.transformControls?.detach()
+        clickObject.value = null
+    }
+})
 
 /** 清空场景内容，不销毁 WebGL 渲染上下文与 Wasm 单例 */
 const clearSceneContent = () => {
@@ -398,7 +486,9 @@ const reloadSceneKeepWebGL = async () => {
     if (!sceneElement) return
 
     try {
-        sceneLoading.value = true
+        if (props.showLoadingMask) {
+            sceneLoading.value = true
+        }
         sceneLoadError.value = null
 
         if (!threeCore.value) {
@@ -436,30 +526,53 @@ const reloadSceneKeepWebGL = async () => {
     }
 }
 
-// 监听模型列表/场景 JSON/拉线点变化（已有 WebGL 时复用上下文重载，无数据时仅清空）
+let propsReloadQueued = false
+
+const applyPropsReload = async () => {
+    if (props.suppressPropsReload) return
+
+    await nextTick()
+    await nextTick()
+
+    const newScene = props.sceneJson
+    const newList = props.modelList
+    const newLaxian = props.editMode ? null : props.laxianList
+    const hasScene = !!newScene && Array.isArray(newScene.objects) && newScene.objects.length > 0
+    const hasModels = newList && newList.length > 0
+    const hasLaxian = newLaxian && newLaxian.length > 0
+    if (hasScene || hasModels || hasLaxian) {
+        if (threeCore.value) {
+            await reloadSceneKeepWebGL()
+        } else {
+            await initThreejs()
+        }
+    } else if (threeCore.value) {
+        clearSceneContent()
+    }
+}
+
+const schedulePropsReload = () => {
+    if (propsReloadQueued) return
+    propsReloadQueued = true
+    queueMicrotask(() => {
+        propsReloadQueued = false
+        void applyPropsReload()
+    })
+}
+
+// 监听模型/拉线/镜头变更：合并同 tick 内多次写入，已有 WebGL 时仅 reloadSceneKeepWebGL（不 dispose）
 watch(
     [
         () => props.sceneJson,
         () => props.modelList,
-        () => (props.editMode ? null : props.laxianList)
+        () => (props.editMode ? null : props.laxianList),
+        () => props.initialCameraList,
     ],
-    async ([newScene, newList, newLaxian]) => {
-        const hasScene = !!newScene && Array.isArray(newScene.objects) && newScene.objects.length > 0
-        const hasModels = newList && newList.length > 0
-        const hasLaxian = newLaxian && newLaxian.length > 0
-        if (hasScene || hasModels || hasLaxian) {
-            await nextTick()
-            await nextTick()
-            if (threeCore.value) {
-                await reloadSceneKeepWebGL()
-            } else {
-                await initThreejs()
-            }
-        } else if (threeCore.value) {
-            clearSceneContent()
-        }
+    () => {
+        if (props.suppressPropsReload) return
+        schedulePropsReload()
     },
-    { immediate: true }
+    { immediate: true, deep: true },
 )
 
 // 重试加载（已有 WebGL 时复用 Wasm，不 disposeScene 重建）
@@ -490,10 +603,17 @@ defineExpose({
     modelCount: computed(() => props.modelList.length),
     laxianList,
     focusLaxianCamera,
+    setLaxianSoloDisplay,
     getThreeCore,
     clearSceneContent,
     reloadSceneKeepWebGL,
-    applyInitialCameraIfAny
+    applyInitialCameraIfAny,
+    clickObject,
+    operaPosition,
+    setTransformMode,
+    detachTransformControls,
+    bindLaxianTransformListener,
+    selectLaxianFrameObject
 })
 </script>
 

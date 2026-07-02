@@ -17,7 +17,6 @@ import {
   prepareWardrobeQrcodeShareImages,
 } from '@/utils/wardrobeQrcodeShareCanvas'
 import dayjs from 'dayjs'
-import VueEasyLightbox from 'vue-easy-lightbox'
 
 const toast = useToast()
 const { saving: savingToAlbum, saveToAlbum } = useSaveNetworkImageToAlbum()
@@ -237,13 +236,13 @@ async function generateSharePoster(item: QrCode) {
     const bundle = await prepareWardrobeQrcodeShareImages(payload)
     const canvas = drawWardrobeQrcodeShareCanvas(payload, bundle)
     const blob = await new Promise<Blob | null>((resolve) =>
-      canvas.toBlob((b) => resolve(b), 'image/png', 0.92),
+      canvas.toBlob((b) => resolve(b), 'image/jpeg', 0.92),
     )
     if (!blob) {
       shareErrorMsg.value = '生成图片失败'
       return
     }
-    const file = new File([blob], `wardrobe-qrcode-share-${Date.now()}.png`, { type: 'image/png' })
+    const file = new File([blob], `wardrobe-qrcode-share-${Date.now()}.jpg`, { type: 'image/jpeg' })
     const res = await uploadImageToTemp(file)
     if (!res?.file_url) {
       shareErrorMsg.value = '上传失败'
@@ -265,7 +264,7 @@ async function saveShareToAlbum() {
   const url = previewShareSrc.value
   if (!url) return
   try {
-    await saveToAlbum(url, { docFilename: `_doc/wardrobe_qrcode_share_${Date.now()}.png` })
+    await saveToAlbum(url, { docFilename: `_doc/wardrobe_qrcode_share_${Date.now()}.jpg` })
     toast.add({ title: '已保存到相册', color: 'green', icon: 'i-heroicons-check-circle' })
   } catch (e) {
     console.error(e)
@@ -515,11 +514,10 @@ defineExpose({ open })
   </QhxModal>
 
   <ClientOnly>
-    <VueEasyLightbox
+    <QhxImageLightbox
       :visible="lightboxVisible"
       :imgs="lightboxImgs"
       :index="lightboxIndex"
-      teleport="body"
       @hide="lightboxVisible = false"
     />
   </ClientOnly>

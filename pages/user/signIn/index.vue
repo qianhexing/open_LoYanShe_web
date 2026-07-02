@@ -28,7 +28,6 @@ import {
 import type { CommentOpenReplyPayload } from '@/composables/communityCommentSection'
 import type CommentSectionType from '@/components/comment/CommentSection.vue'
 import type CommunityCommentModalType from '@/components/community/CommentModal.vue'
-import VueEasyLightbox from 'vue-easy-lightbox'
 
 interface WordCloudDatum {
   name: string
@@ -828,12 +827,10 @@ useHead({
         v-model="showLoginModal"
         @success="handleLoginSuccess"
       />
-      <vue-easy-lightbox
+      <QhxImageLightbox
         :visible="previewVisible"
         :imgs="previewImages.map((src) => ({ src }))"
         :index="previewIndex"
-        append-to-body
-        teleport="body"
         @hide="previewVisible = false"
       />
     </ClientOnly>

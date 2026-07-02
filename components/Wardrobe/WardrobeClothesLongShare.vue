@@ -146,7 +146,7 @@ async function savePreviewToAlbum() {
     return
   }
   try {
-    await saveToAlbum(url, { docFilename: `_doc/wardrobe_long_${Date.now()}.png` })
+    await saveToAlbum(url, { docFilename: `_doc/wardrobe_long_${Date.now()}.jpg` })
     toast.add({
       title: '已保存到相册',
       color: 'green',
@@ -253,7 +253,7 @@ function buildShareTheme(info: Wardrobe): ShareCanvasTheme {
   const fontColor =
     typeof style?.fontColor === 'string' ? style.fontColor : getCssVar('--text-color', '#4b5563')
   const primary =
-    typeof style?.btnColor === 'string' ? style.btnColor : getCssVar('--primary-color', '#ec4899')
+    typeof style?.btnColor === 'string' ? style.btnColor : getCssVar('--primary-color', '#ff9eb5')
   const defaultBg = getCssVar('--background-color', '#f3f4f6')
 
   let bg = defaultBg
@@ -980,14 +980,14 @@ async function generateAndUpload() {
       })
     }
     const blob = await new Promise<Blob | null>((resolve) =>
-      canvas.toBlob((b) => resolve(b), 'image/png', 0.9)
+      canvas.toBlob((b) => resolve(b), 'image/jpeg', 0.92)
     )
     if (!blob) {
       errorMsg.value = '生成图片失败（可能被跨域图片污染画布，请稍后重试）'
       return
     }
     progressLabel.value = '上传中…'
-    const file = new File([blob], `wardrobe-long-${Date.now()}.png`, { type: 'image/png' })
+    const file = new File([blob], `wardrobe-long-${Date.now()}.jpg`, { type: 'image/jpeg' })
     const res = await uploadTempFileToOSS(file)
     if (!res?.file_url) {
       errorMsg.value = '上传失败：未返回地址'

@@ -360,6 +360,18 @@ export async function updatePatternElementsMultiple(
   return response.data
 }
 
+export interface UpdateSaleTimeMultipleParams {
+  ids: string
+  sale_time: string
+}
+
+export async function updateSaleTimeMultiple(
+  params: UpdateSaleTimeMultipleParams
+): Promise<Library[]> {
+  const response = await use$Post<BaseResponse<Library[]>>('/library/update/saleTime', params)
+  return response.data
+}
+
 export interface LibraryHistoryParams {
   library_id: number
 }

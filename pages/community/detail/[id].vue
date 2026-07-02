@@ -1,12 +1,17 @@
 <script setup lang="ts">
+definePageMeta({
+  ssr: false,
+})
+
 import type { Comment, Community, User, UserDeco } from '@/types/api'
-import { getCommunityDetail } from '@/api/community'
+import { getCommunityDetail, deleteCommunity } from '@/api/community'
 import { getBrowTimeOne, insertBrowTime } from '@/api/brow_time'
 import { getCommentList } from '@/api/comment'
 import { getUserDecoBadges } from '@/api/user'
 import type { UserDecoBadgeItem } from '@/api/user'
 import UserGoodBtn from '@/components/user/GoodBtn.vue'
 import UserCollectBtn from '@/components/user/CollectBtn.vue'
+import type CommunityCommentModalType from '@/components/community/CommentModal.vue'
 import {
   communityCommentSectionRefreshKey,
   type CommentOpenReplyPayload,
@@ -18,6 +23,19 @@ import { useLayoutStyle } from '@/composables/useLayoutStyle'
 import { useCommentUiStore } from '@/stores/commentUi'
 import { BASE_IMG } from '@/utils/ipConfig'
 
+const CommentSection = defineAsyncComponent(
+  () => import('@/components/comment/CommentSection.vue'),
+)
+const CommunityDetailForeignSection = defineAsyncComponent(
+  () => import('@/components/community/CommunityDetailForeignSection.vue'),
+)
+const CommunityCommentModal = defineAsyncComponent(
+  () => import('@/components/community/CommentModal.vue'),
+)
+const AchievementDecoConfigModal = defineAsyncComponent(
+  () => import('@/components/achievement/DecoConfigModal.vue'),
+)
+
 /** 互动接口：与店铺(1)、图鉴(2)、搭配(4) 对齐，社区帖使用 3 */
 const PK_TYPE_COMMUNITY = 3
 /** 关注楼主：collect 表 pk_type 与 userSpace 一致为 0 */
@@ -27,6 +45,7 @@ const { setLayoutStyle } = useLayoutStyle()
 const { copyCurrentUrl } = useCopyCurrentUrl()
 const user = useUserStore()
 const config = useConfigStore()
+const port = computed(() => config.getPort())
 const isMobile = computed(() => config.isMobile)
 const route = useRoute()
 const id = route.params.id as string
@@ -41,15 +60,38 @@ const focusCommentId = computed(() => {
   return Number.isFinite(n) && n > 0 ? n : undefined
 })
 
-const { data } = await useAsyncData('communityDeatil', () => {
-  return getCommunityDetail({ community_id: communityId })
-}, {})
-console.log('data===========', data.value)
-
-const { data: commentCountData, refresh: refreshCommentCount } = await useAsyncData(
-  `community-detail-comment-count-${id}`,
-  () => getCommentList({ type: 'community', id: communityId, page: 1, pageSize: 1 })
+const { data: pageData, pending: pageLoading } = useAsyncData(
+  `community-detail-${id}`,
+  async () => {
+    const [detailRes, commentRes] = await Promise.all([
+      getCommunityDetail({ community_id: communityId }),
+      getCommentList({ type: 'community', id: communityId, page: 1, pageSize: 1 }),
+    ])
+    return { detail: detailRes, commentCount: commentRes }
+  },
+  { server: false, lazy: true },
 )
+
+const detail = ref<Community | null>(null)
+watch(
+  () => pageData.value?.detail,
+  (val) => {
+    detail.value = val ?? null
+  },
+  { immediate: true },
+)
+
+async function refreshCommentCount() {
+  const commentRes = await getCommentList({
+    type: 'community',
+    id: communityId,
+    page: 1,
+    pageSize: 1,
+  })
+  if (pageData.value) {
+    pageData.value = { ...pageData.value, commentCount: commentRes }
+  }
+}
 
 /** 楼主已拥有徽章 + 帖子 display_badge 顺序解析（与衣柜页一致） */
 function badgeToUserDeco(item: UserDecoBadgeItem): UserDeco {
@@ -63,7 +105,6 @@ function badgeToUserDeco(item: UserDecoBadgeItem): UserDeco {
   }
 }
 
-const detail = ref<Community | null>(null)
 const { customStyle, customBtnStyle, pageBackgroundStyle, pageContentStyle } =
   useCommunityDetailTheme(detail)
 const authorBadgeRows = ref<UserDecoBadgeItem[]>([])
@@ -155,8 +196,127 @@ const onCommunityDecoSaved = (payload?: { display_badge?: string | null }) => {
   if (s == null || String(s).trim() === '') detail.value.display_badge = undefined
   else detail.value.display_badge = String(s).trim()
 }
+
+type CommunityAuthorMoreMenuItem = {
+  key: string
+  label: string
+  desc: string
+  icon: string
+  iconBgClass: string
+  run: (e?: MouseEvent) => void
+}
+
+const communityAuthorMoreMenuOpen = ref(false)
+const communityAuthorMoreMenuPosition = ref({ x: 0, y: 0 })
+
+const communityAuthorMoreMenuItems = computed((): CommunityAuthorMoreMenuItem[] => [
+  {
+    key: 'deco',
+    label: '配置徽章',
+    desc: '选择要展示的成就徽章',
+    icon: 'i-heroicons-cog-6-tooth',
+    iconBgClass: 'from-purple-500 to-pink-500',
+    run: (e) => openCommunityDecoConfig(e),
+  },
+  {
+    key: 'edit',
+    label: '编辑',
+    desc: '修改帖子内容',
+    icon: 'i-heroicons-pencil-square',
+    iconBgClass: 'from-amber-500 to-orange-500',
+    run: () => {
+      const cid = detail.value?.community_id
+      if (cid) void navigateTo(`/community/edit/${cid}`)
+    },
+  },
+  {
+    key: 'delete',
+    label: '删除',
+    desc: '永久删除此帖子',
+    icon: 'i-heroicons-trash',
+    iconBgClass: 'from-red-500 to-red-600',
+    run: () => {
+      communityDeleteModalOpen.value = true
+    },
+  },
+])
+
+const openCommunityAuthorMoreMenu = (e: MouseEvent) => {
+  communityAuthorMoreMenuPosition.value = {
+    x: e.clientX + 50,
+    y: e.clientY,
+  }
+  communityAuthorMoreMenuOpen.value = true
+}
+
+const onCommunityAuthorMoreItemClick = (item: CommunityAuthorMoreMenuItem, e: MouseEvent) => {
+  communityAuthorMoreMenuOpen.value = false
+  item.run(e)
+}
+
+const communityDeleteModalOpen = ref(false)
+const communityDeleteLoading = ref(false)
+
+function navigateAfterCommunityDelete() {
+  const isInUniApp =
+    typeof window !== 'undefined' && navigator.userAgent.includes('Html5Plus')
+
+  if (isInUniApp && typeof uni !== 'undefined' && uni.navigateBack) {
+    if (typeof uni.postMessage === 'function') {
+      uni.postMessage({ data: { type: 'BackAndReload' } })
+    }
+    uni.navigateBack()
+    return
+  }
+
+  if (port.value) {
+    port.value.postMessage(JSON.stringify({ type: 'BackAndReload' }))
+    return
+  }
+
+  void navigateTo('/community', { replace: true })
+}
+
+async function handleCommunityDelete() {
+  const cid = detail.value?.community_id
+  if (!cid) return
+  communityDeleteLoading.value = true
+  try {
+    await deleteCommunity({ community_id: cid })
+    useToast().add({
+      title: '删除成功',
+      icon: 'i-heroicons-check-circle',
+      color: 'green',
+    })
+    communityDeleteModalOpen.value = false
+    navigateAfterCommunityDelete()
+  } catch (e) {
+    console.error('删除帖子失败:', e)
+    useToast().add({
+      title: '删除失败',
+      icon: 'i-heroicons-x-circle',
+      color: 'red',
+    })
+  } finally {
+    communityDeleteLoading.value = false
+  }
+}
+
+const communityAuthorMoreBtnClass = computed(() => [
+  'inline-flex w-8 h-8 shrink-0 items-center justify-center rounded-full shadow-md transition-all hover:scale-105 active:scale-95',
+  detail.value?.sence_id && 'ring-2 ring-white/60 dark:ring-white/20',
+  !customStyle.value?.btnColor && 'bg-qhx-primary text-qhx-inverted hover:bg-qhx-primaryHover',
+  customStyle.value?.btnColor && 'hover:opacity-90',
+])
 const richText = ref<RichNode[] | null>(null)
-detail.value = data.value
+
+watch(
+  () => detail.value?.content,
+  (content) => {
+    richText.value = content ? parseRichText(content.replace('60vh', '70vh')) : null
+  },
+  { immediate: true },
+)
 
 const communityCarouselItems = computed(() => {
   const raw = detail.value?.img_list
@@ -171,6 +331,36 @@ const communityCarouselItems = computed(() => {
 
 /** 轮播当前索引，与 QhxCarousel v-model 同步 */
 const communityCarouselIndex = ref(0)
+
+const communityLightboxVisible = ref(false)
+
+let communityCarouselPressX = 0
+let communityCarouselPressY = 0
+let communityCarouselMoved = false
+
+function onCommunityCarouselPressStart(e: MouseEvent | TouchEvent) {
+  const point = 'touches' in e ? (e.touches[0] ?? e.changedTouches[0]) : e
+  if (!point) return
+  communityCarouselPressX = point.clientX
+  communityCarouselPressY = point.clientY
+  communityCarouselMoved = false
+}
+
+function onCommunityCarouselPressMove(e: MouseEvent | TouchEvent) {
+  const point = 'touches' in e ? (e.touches[0] ?? e.changedTouches[0]) : e
+  if (!point) return
+  if (
+    Math.hypot(point.clientX - communityCarouselPressX, point.clientY - communityCarouselPressY) >
+    10
+  ) {
+    communityCarouselMoved = true
+  }
+}
+
+function openCommunityCarouselLightbox() {
+  if (communityCarouselMoved) return
+  communityLightboxVisible.value = true
+}
 watch(
   () => detail.value?.community_id,
   () => {
@@ -189,7 +379,7 @@ watch(
   { immediate: true }
 )
 
-const commentTotal = computed(() => commentCountData.value?.count ?? 0)
+const commentTotal = computed(() => pageData.value?.commentCount?.count ?? 0)
 
 const BROW_TIME_TYPE_COMMUNITY = 'community'
 const browTimeViewCount = ref(0)
@@ -225,16 +415,7 @@ const communityViewCount = computed(
 )
 
 const showCommentModal = ref(false)
-const commentModalRef = ref<{
-  showModel: (e: {
-    id: number | string
-    type: string
-    reply_to?: number
-    reply_to_name?: string
-    reply_to_user?: User
-    threadRootCommentId?: number
-  }) => void
-} | null>(null)
+const commentModalRef = ref<InstanceType<typeof CommunityCommentModalType> | null>(null)
 /** 仅顶层评论成功时整表重挂载；回复成功通过 inject 注册的子评论刷新函数处理（避免模板 ref 拿不到 defineExpose） */
 const commentSectionKey = ref(0)
 const commentSectionRefreshFn = shallowRef<RefreshCommentRepliesFn | null>(null)
@@ -249,15 +430,6 @@ onMounted(() => {
     if (user.user?.user_id === 1) return
     void recordCommunityView()
   }, 5000)
-  if (!detail.value) {
-    getCommunityDetail({ community_id: communityId })
-      .then((res) => {
-        detail.value = res
-      })
-      .catch((err) => {
-        console.error('获取帖子详情失败:', err)
-      })
-  }
 })
 onUnmounted(() => {
   if (communityViewRecordTimer) clearTimeout(communityViewRecordTimer)
@@ -321,11 +493,6 @@ const onCommentSuccess = async (
   }
 }
 
-onMounted(() => {
-  if (detail.value?.content) {
-    richText.value = parseRichText(detail.value.content.replace('60vh', '70vh'))
-  }
-})
 interface WikiParams {
   wiki_name: string
   type_id: number
@@ -383,6 +550,17 @@ useHead({
     :class="detail ? 'pb-[calc(5.5rem+env(safe-area-inset-bottom,0px))]' : ''"
     :style="pageContentStyle"
   >
+    <div
+      v-if="pageLoading && !detail"
+      class="relative z-[1] flex min-h-[40vh] flex-col items-center justify-center py-16"
+    >
+      <div class="relative">
+        <div class="h-12 w-12 rounded-full border-4 border-pink-100" />
+        <div class="absolute left-0 top-0 h-12 w-12 animate-spin rounded-full border-4 border-pink-400 border-t-transparent" />
+      </div>
+      <p class="mt-4 text-sm tracking-widest text-pink-400">加载中...</p>
+    </div>
+
     <!-- 主题背景：固定铺满视口，不随内容滚动（关联场景全屏 iframe 时不展示） -->
     <div
       v-if="customStyle && !(detail && detail.sence_id)"
@@ -437,26 +615,16 @@ useHead({
                 <div class="font-semibold flex-1 min-w-0">
                   {{ detail.title }}
                 </div>
-                <div v-if="isCommunityAuthor" class="flex shrink-0 items-center gap-1.5">
-                  <button
-                    type="button"
-                    class="community-scene-glass-chip inline-flex items-center gap-0.5 px-2.5 py-1 text-xs font-medium rounded-full border border-qhx-primary/40 text-qhx-primary hover:bg-qhx-primary/10 transition-colors"
-                    @click="openCommunityDecoConfig"
-                  >
-                    配置徽章
-                  </button>
-                  <NuxtLink
-                    :to="`/community/edit/${detail.community_id}`"
-                    class="inline-flex items-center gap-0.5 px-2.5 py-1 text-xs font-medium rounded-full transition-colors"
-                    :class="[
-                      !customStyle?.btnColor && 'bg-qhx-primary text-qhx-inverted hover:bg-qhx-primaryHover',
-                      customStyle?.btnColor && 'hover:opacity-90',
-                    ]"
-                    :style="customBtnStyle"
-                  >
-                    编辑
-                  </NuxtLink>
-                </div>
+                <button
+                  v-if="isCommunityAuthor"
+                  type="button"
+                  :class="communityAuthorMoreBtnClass"
+                  :style="customBtnStyle"
+                  aria-label="更多选项"
+                  @click="openCommunityAuthorMoreMenu"
+                >
+                  <UIcon name="i-heroicons-ellipsis-vertical" class="w-4 h-4" />
+                </button>
               </div>
               <div class="p-3 max-md:px-1">
                 <div v-if="richText" class="leading-[1.8]">
@@ -500,8 +668,18 @@ useHead({
                 <img
                   :src="item.src"
                   :alt="item.alt"
-                  class="h-full w-full max-h-full object-contain left-cover"
+                  class="h-full w-full max-h-full cursor-pointer object-contain left-cover"
                   draggable="false"
+                  role="button"
+                  tabindex="0"
+                  aria-label="查看大图"
+                  @click="openCommunityCarouselLightbox"
+                  @keydown.enter.prevent="openCommunityCarouselLightbox"
+                  @keydown.space.prevent="openCommunityCarouselLightbox"
+                  @mousedown="onCommunityCarouselPressStart"
+                  @mousemove="onCommunityCarouselPressMove"
+                  @touchstart.passive="onCommunityCarouselPressStart"
+                  @touchmove.passive="onCommunityCarouselPressMove"
                 />
               </template>
             </QhxCarousel>
@@ -546,26 +724,16 @@ useHead({
               <div class="font-semibold flex-1 min-w-0">
                 {{ detail.title }}
               </div>
-              <div v-if="isCommunityAuthor" class="flex shrink-0 items-center gap-1.5">
-                <button
-                  type="button"
-                  class="inline-flex items-center gap-0.5 px-2.5 py-1 text-xs font-medium rounded-full border border-qhx-primary/40 text-qhx-primary bg-qhx-bg-card hover:bg-qhx-primary/10 transition-colors"
-                  @click="openCommunityDecoConfig"
-                >
-                  配置徽章
-                </button>
-                <NuxtLink
-                  :to="`/community/edit/${detail.community_id}`"
-                  class="inline-flex items-center gap-0.5 px-2.5 py-1 text-xs font-medium rounded-full transition-colors"
-                  :class="[
-                    !customStyle?.btnColor && 'bg-qhx-primary text-qhx-inverted hover:bg-qhx-primaryHover',
-                    customStyle?.btnColor && 'hover:opacity-90',
-                  ]"
-                  :style="customBtnStyle"
-                >
-                  编辑
-                </NuxtLink>
-              </div>
+              <button
+                v-if="isCommunityAuthor"
+                type="button"
+                :class="communityAuthorMoreBtnClass"
+                :style="customBtnStyle"
+                aria-label="更多选项"
+                @click="openCommunityAuthorMoreMenu"
+              >
+                <UIcon name="i-heroicons-ellipsis-vertical" class="w-4 h-4" />
+              </button>
             </div>
             <div class="p-3 max-md:px-3" >
               <div v-if="richText" class=" leading-[1.8]">
@@ -676,6 +844,63 @@ useHead({
       </ClientOnly>
     </div>
 
+    <QhxModal v-model="communityAuthorMoreMenuOpen" :trigger-position="communityAuthorMoreMenuPosition">
+      <div class="p-4 w-[200px] bg-white dark:bg-gray-800 rounded-[10px] shadow-lg">
+        <h3 class="text-sm font-bold mb-3 text-gray-800 dark:text-gray-200">更多选项</h3>
+
+        <button
+          v-for="(item, index) in communityAuthorMoreMenuItems"
+          :key="item.key"
+          type="button"
+          class="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors text-left group"
+          :class="index > 0 ? 'mt-2' : ''"
+          @click="onCommunityAuthorMoreItemClick(item, $event)"
+        >
+          <div
+            class="w-8 h-8 rounded-lg flex items-center justify-center group-hover:scale-110 transition-transform bg-gradient-to-br"
+            :class="item.iconBgClass"
+          >
+            <UIcon :name="item.icon" class="text-base text-white" />
+          </div>
+          <div class="flex-1 min-w-0">
+            <div class="text-sm font-medium text-gray-800 dark:text-gray-200">{{ item.label }}</div>
+            <div class="text-xs text-gray-500 dark:text-gray-400">{{ item.desc }}</div>
+          </div>
+        </button>
+      </div>
+    </QhxModal>
+
+    <QhxModal
+      v-model="communityDeleteModalOpen"
+      :trigger-position="communityAuthorMoreMenuPosition"
+      :close-on-backdrop="false"
+    >
+      <div class="p-6 w-[400px] max-md:w-[90vw] bg-white dark:bg-gray-800 rounded-xl shadow-lg">
+        <h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">操作确认</h3>
+        <p class="text-gray-600 dark:text-gray-300 mb-6">
+          确定要删除帖子「{{ detail?.title || '未命名' }}」吗？此操作不可恢复。
+        </p>
+        <div class="flex gap-3 justify-end">
+          <UButton
+            color="gray"
+            variant="ghost"
+            class="px-4"
+            @click="communityDeleteModalOpen = false"
+          >
+            取消
+          </UButton>
+          <UButton
+            color="red"
+            class="px-4"
+            :loading="communityDeleteLoading"
+            @click="handleCommunityDelete"
+          >
+            确认删除
+          </UButton>
+        </div>
+      </div>
+    </QhxModal>
+
     <AchievementDecoConfigModal
       v-if="isCommunityAuthor && detail"
       v-model="communityDecoModalOpen"
@@ -690,6 +915,16 @@ useHead({
       v-model="showCommentModal"
       @success="onCommentSuccess"
     />
+
+    <ClientOnly>
+      <QhxImageLightbox
+        v-if="communityCarouselItems.length"
+        :visible="communityLightboxVisible"
+        :imgs="communityCarouselItems"
+        :index="communityCarouselIndex"
+        @hide="communityLightboxVisible = false"
+      />
+    </ClientOnly>
   </div>
 </template>
 
