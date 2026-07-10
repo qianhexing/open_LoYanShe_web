@@ -29,6 +29,14 @@
         </button>
         <div class="flex items-center gap-3 pointer-events-auto">
           <button
+            v-if="isCreator"
+            @click="openEditTeaparty"
+            class="bg-white/90 dark:bg-gray-800/90 backdrop-blur-md rounded-full px-4 py-2 shadow-lg border border-white/50 dark:border-gray-700 flex items-center gap-2 hover:bg-pink-50 dark:hover:bg-gray-700 transition-colors"
+          >
+            <UIcon name="i-heroicons-pencil-square" class="text-lg" />
+            <span class="text-sm font-medium text-gray-700 dark:text-gray-200">编辑</span>
+          </button>
+          <button
             @click="handleShare"
             class="bg-white/90 dark:bg-gray-800/90 backdrop-blur-md rounded-full px-4 py-2 shadow-lg border border-white/50 dark:border-gray-700 flex items-center gap-2 hover:bg-pink-50 dark:hover:bg-gray-700 transition-colors"
           >
@@ -79,6 +87,31 @@
               {{ detail.tea_title || '未命名茶会' }}
             </h1>
 
+            <div v-if="detail.state != null" class="flex flex-wrap items-center gap-2">
+              <span
+                class="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium"
+                :class="stateBadgeClass"
+              >
+                {{ stateLabel }}
+              </span>
+              <span
+                v-if="detail.organizer"
+                class="inline-flex items-center gap-1 text-sm text-gray-600 dark:text-gray-300"
+              >
+                <UIcon name="i-heroicons-building-office-2" class="w-4 h-4" />
+                {{ detail.organizer }}
+              </span>
+            </div>
+
+            <div v-if="detail.mian_style" class="flex flex-wrap gap-2">
+              <QhxTag
+                v-for="tag in detail.mian_style.split(',').filter(Boolean)"
+                :key="tag"
+              >
+                {{ tag }}
+              </QhxTag>
+            </div>
+
             <p
               v-if="detail.tea_desc"
               class="text-gray-700 dark:text-gray-300 leading-relaxed text-sm md:text-base whitespace-pre-line"
@@ -124,6 +157,17 @@
                 <span class="truncate">
                   <span class="font-medium">地点：</span>{{ locationText }}
                 </span>
+              </div>
+
+              <div
+                v-if="detail.dress_code"
+                class="flex items-start gap-2 text-gray-600 dark:text-gray-300"
+              >
+                <UIcon name="i-heroicons-sparkles" class="w-5 h-5 text-pink-500 mt-0.5" />
+                <div>
+                  <span class="font-medium">着装要求：</span>
+                  <span class="whitespace-pre-line">{{ detail.dress_code }}</span>
+                </div>
               </div>
 
               <div v-if="detail.latitude && detail.longitude" class="flex items-center gap-2 text-xs text-gray-500">
@@ -236,6 +280,8 @@
         </UButton>
       </div>
     </div>
+
+    <TeapartyAdd ref="teapartyAddRef" @success="loadDetail" />
   </div>
 </template>
 
@@ -246,16 +292,27 @@ import type { Teaparty } from '@/types/api'
 import { getTeapartyById } from '@/api/teapart'
 import { BASE_IMG } from '@/utils/ipConfig'
 import { useCopyCurrentUrl } from '@/composables/useCopyCurrentUrl'
+import { getTeapartyStateBadgeClass, getTeapartyStateLabel } from '@/utils/teaparty'
 import QhxPreviewImage from '@/components/Qhx/PreviewImage.vue'
 import CommunityForeignList from '@/components/community/CommunityForeignList.vue'
+import type TeapartyAdd from '@/components/Teaparty/TeapartyAdd.vue'
 
 const route = useRoute()
 const router = useRouter()
 const toast = useToast()
-// 如果后续需要根据是否登录展示额外信息，可再引入 useUserStore
+const user = useUserStore()
+const teapartyAddRef = ref<InstanceType<typeof TeapartyAdd> | null>(null)
 
 const loading = ref(true)
 const detail = ref<Teaparty | null>(null)
+
+const isCreator = computed(() => {
+  if (!detail.value?.admin_user || !user.user?.user_id) return false
+  return detail.value.admin_user === user.user.user_id
+})
+
+const stateLabel = computed(() => getTeapartyStateLabel(detail.value?.state))
+const stateBadgeClass = computed(() => getTeapartyStateBadgeClass(detail.value?.state))
 
 // 完整封面地址
 const fullCoverUrl = computed(() => {
@@ -297,7 +354,7 @@ const imageList = computed(() => {
 })
 
 // 时间格式化
-const formatDate = (date: Date | string | undefined) => {
+const formatDate = (date: Date | string | null | undefined) => {
   if (!date) return ''
   const d = typeof date === 'string' ? new Date(date) : date
   if (Number.isNaN(d.getTime())) return ''
@@ -351,6 +408,11 @@ const loadDetail = async () => {
 // 返回
 const goBack = () => {
   router.back()
+}
+
+const openEditTeaparty = (e?: MouseEvent) => {
+  if (!detail.value) return
+  teapartyAddRef.value?.showModel(detail.value, false, e)
 }
 
 // 分享

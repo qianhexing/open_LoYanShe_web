@@ -1,18 +1,21 @@
-/** 展馆 JSON 中精简的 library_video 条目 */
-export interface GalleryLibraryVideo {
-  /** 关联图鉴 id（对应 pk_id / library.library_id） */
-  library_id: number
-  /** 模型地址（.rad / .glb 等，相对 OSS 或绝对 URL） */
-  addr: string
-  /** 可选展示标题（接口拉取前备用） */
-  title?: string
-  /** 相对店铺标点的局部坐标 [x, y, z] */
-  position?: [number, number, number]
-  /** 缩放：数字为均匀缩放，或 [x, y, z] */
-  scale?: number | [number, number, number]
-  /** 欧拉角旋转 [x, y, z]（弧度，绕各轴） */
-  rotation?: [number, number, number]
-  video_id?: number
+import type { SceneObjectJSON } from '@/utils/threeCore'
+
+/** 展馆内 3D 对象（与场景 SceneObjectJSON 中 model / splat 字段对齐） */
+export type GallerySceneObject = Pick<
+  SceneObjectJSON,
+  | 'id'
+  | 'type'
+  | 'url'
+  | 'position'
+  | 'rotation'
+  | 'scale'
+  | 'options'
+  | 'useDracoLoader'
+  | 'library_id'
+  | 'title'
+> & {
+  type: 'model' | 'splat'
+  url: string
 }
 
 /** 展馆内店铺标点配置 */
@@ -24,7 +27,8 @@ export interface GalleryShopMarker {
   position: [number, number]
   /** 高度偏移，默认 0 */
   y?: number
-  library_video?: GalleryLibraryVideo[]
+  /** 店铺关联 3D 模型/点云（position 为相对店铺标点的局部坐标） */
+  objects?: GallerySceneObject[]
 }
 
 /** 展馆墙体配置 */
@@ -40,11 +44,16 @@ export interface GalleryExhibit {
   id: string
   position: [number, number]
   size: [number, number]
-  modelUrl?: string
   name: string
   description?: string
+  /** 展台绕 Y 轴旋转（弧度） */
   rotation?: number
   pedestalHeight?: number
+  /** 与 SceneObjectJSON 对齐的模型字段 */
+  type?: 'model' | 'splat'
+  url?: string
+  options?: Record<string, unknown>
+  useDracoLoader?: boolean
 }
 
 /** 展馆整体配置 */

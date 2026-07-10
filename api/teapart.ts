@@ -1,4 +1,12 @@
-import type { BaseResponse, PaginationParams, PaginationResponse, Teaparty, TeapartyAttend } from '@/types/api';
+import type {
+  BaseResponse,
+  PaginationParams,
+  PaginationResponse,
+  Teaparty,
+  TeapartyAttend,
+  TeapartyInsertParams,
+  TeapartyUpdateParams
+} from '@/types/api';
 
 /** 获取茶会列表参数 */
 interface GetTeapartyListParams extends PaginationParams {
@@ -58,7 +66,7 @@ export async function getTeapartyList(
 
 /** 创建茶会 */
 export async function insertTeaparty(
-  params: Teaparty
+  params: TeapartyInsertParams
 ): Promise<Teaparty> {
   const response = await use$Post<BaseResponse<Teaparty>>(
     '/teaparty/insert',
@@ -133,9 +141,9 @@ export async function quitTeaparty(
   return response.data;
 }
 
-/** 更新茶会 */
+/** 更新茶会（部分更新，仅传需要修改的字段；需 tea_id） */
 export async function updateTeaparty(
-  params: Teaparty
+  params: TeapartyUpdateParams
 ): Promise<Teaparty> {
   const response = await use$Post<BaseResponse<Teaparty>>(
     '/teaparty/update',

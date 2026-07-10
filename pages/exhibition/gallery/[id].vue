@@ -33,14 +33,18 @@ const {
   clearJoystickInput,
   nearbyShop,
   selectedShop,
+  shopPanelOpen,
+  selectedShopDetail,
+  shopDetailLoading,
+  shopDetailError,
   selectedLibrary,
   selectedLibraryTitle,
   libraryLoading,
   shopVideosLoading,
-  config
+  config,
+  closeShopPanel
 } = useGalleryWalkthrough()
 
-const closeShopPanel = () => { selectedShop.value = null }
 const closeLibraryPanel = () => {
   selectedLibrary.value = null
   selectedLibraryTitle.value = ''
@@ -143,9 +147,13 @@ const pageError = computed(() => configError.value || error.value)
     </div>
 
     <GalleryShopPanel
+      :open="shopPanelOpen"
       :shop="selectedShop"
+      :shop-detail="selectedShopDetail"
+      :loading="shopDetailLoading"
+      :error="shopDetailError"
       :nearby="!!nearbyShop"
-      :videos-loading="shopVideosLoading"
+      :objects-loading="shopVideosLoading"
       @close="closeShopPanel"
     />
 

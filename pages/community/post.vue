@@ -28,19 +28,33 @@
 
       <ClientOnly>
         <div
-          class="rounded-[1.35rem] border border-gray-200/95 bg-white p-6 shadow-xl shadow-gray-900/[0.06] md:p-8 dark:border-gray-700/85 dark:bg-gray-800 dark:shadow-gray-950/40">
-          <CommunityPostEditor embedded :user-id="userId" :skip-summary-link="true"
-            :foreign-pk="foreignPkFromQuery ?? null" :initial-type="initialTypeFromQuery"
-            :initial-is-open="initialIsOpenFromQuery ?? 1" :editor-min-height-embedded="editorMin"
-            :editor-max-height-embedded="editorMax" @success="onSuccess" @cancel="onCancel" />
+          class="rounded-[1.35rem] border border-gray-200/95 bg-white p-6 shadow-xl shadow-gray-900/[0.06] md:p-8 dark:border-gray-700/85 dark:bg-gray-800 dark:shadow-gray-950/40"
+        >
+          <CommunityPostEditor
+            embedded
+            :user-id="userId"
+            :skip-summary-link="true"
+            :foreign-pk="foreignPkFromQuery ?? null"
+            :initial-type="initialTypeFromQuery"
+            :initial-is-open="initialIsOpenFromQuery ?? 1"
+            :editor-min-height-embedded="editorMin"
+            :editor-max-height-embedded="editorMax"
+            @success="onSuccess"
+            @cancel="onCancel"
+          />
         </div>
         <template #fallback>
           <div
-            class="h-[420px] animate-pulse rounded-[1.35rem] border border-gray-200 bg-gray-100/90 dark:border-gray-700 dark:bg-gray-800/80"
-            aria-hidden="true" />
-          <p class="mt-3 text-center text-xs text-gray-500 dark:text-gray-400">
-            加载编辑器…
-          </p>
+            class="rounded-[1.35rem] border border-gray-200/95 bg-white p-6 shadow-xl shadow-gray-900/[0.06] md:p-8 dark:border-gray-700/85 dark:bg-gray-800 dark:shadow-gray-950/40"
+          >
+            <div
+              class="h-[420px] animate-pulse rounded-[1.35rem] border border-gray-200 bg-gray-100/90 dark:border-gray-700 dark:bg-gray-800/80"
+              aria-hidden="true"
+            />
+            <p class="mt-3 text-center text-xs text-gray-500 dark:text-gray-400">
+              加载编辑器…
+            </p>
+          </div>
         </template>
       </ClientOnly>
 
@@ -59,18 +73,28 @@
 import type { Community } from '@/types/api'
 import {
   parseCommunityPostForeignFromQuery,
-  parseCommunityPostIsOpenFromQuery
+  parseCommunityPostIsOpenFromQuery,
 } from '@/utils/communityPost'
 
 definePageMeta({
-  ssr: false
+  ssr: false,
 })
-let uni: any;
-onMounted(async () => {
+
+const CommunityPostEditor = defineAsyncComponent(
+  () => import('@/components/community/PostEditor.vue'),
+)
+
+// biome-ignore lint/suspicious/noExplicitAny: uni-webview-js 类型声明缺失
+let uni: any
+
+async function ensureUniWebview() {
+  if (uni) return uni
   uni = await import('@dcloudio/uni-webview-js').catch((err) => {
-    console.error('Failed to load uni-webview-js:', err);
-  });
-})
+    console.error('Failed to load uni-webview-js:', err)
+    return undefined
+  })
+  return uni
+}
 const route = useRoute()
 const router = useRouter()
 const config = useConfigStore()
@@ -136,8 +160,14 @@ function onSuccess(community: Community) {
     const isInUniApp =
       typeof window !== 'undefined' &&
       navigator.userAgent.includes('Html5Plus')
-    if (isInUniApp && typeof uni !== 'undefined' && typeof uni.postMessage === 'function') {
-      uni.postMessage({ data: { type: 'reloadBlackList' } })
+    if (isInUniApp) {
+      void ensureUniWebview().then((u) => {
+        if (u && typeof u.postMessage === 'function') {
+          u.postMessage({ data: { type: 'reloadBlackList' } })
+        } else {
+          void router.push(`/community/detail/${id}`)
+        }
+      })
     } else {
       void router.push(`/community/detail/${id}`)
     }

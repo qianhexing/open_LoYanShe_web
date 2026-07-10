@@ -12,7 +12,7 @@ interface ExtendedWardrobeClothes extends WardrobeClothes {
 }
 import { getClothesDetail, getClothesListAllFallback, parseClothesIdsFromRows, updateClothes, deteleClothes, addClothesCitation } from '@/api/wardrobe'
 import { getCommunityForeignList, insertCommunityForeign } from '@/api/community'
-import { getMatchingListListVisitor, type MatchingListItem } from '@/api/matching_list'
+import { getMatchingListListVisitor, deleteMatchingList, type MatchingListItem } from '@/api/matching_list'
 import type MatchingAddEdit from '@/components/matching/MatchingAddEdit.vue'
 import { planComplete, deletePlanList } from '@/api/plan'
 import type ClothesAdd from '@/components/Clothes/ClothesAdd.vue'
@@ -153,6 +153,9 @@ const matchingListPage = ref(1)
 const matchingListTotal = ref(0)
 const MATCHING_LIST_PAGE_SIZE = 20
 const matchingAddEditRef = ref<InstanceType<typeof MatchingAddEdit> | null>(null)
+const showDeleteMatchingModal = ref(false)
+const deletingMatchingItem = ref<MatchingListItem | null>(null)
+const matchingDeleteLoading = ref(false)
 const FAB_ACTIONS_STORAGE_KEY = 'clothes-detail-fab-actions-expanded'
 /** 记忆/搭配悬浮按钮组是否展开（localStorage 持久化） */
 const fabActionsExpanded = ref(true)
@@ -1271,22 +1274,18 @@ function parseMatchingSeasons(season?: string | null): string[] {
 }
 
 const MATCHING_SEASON_THEME_CLASS: Record<string, string> = {
-  春: 'matching-season-badge--spring',
-  夏: 'matching-season-badge--summer',
-  秋: 'matching-season-badge--autumn',
-  冬: 'matching-season-badge--winter'
+  春: 'matching-season-capsule--spring',
+  夏: 'matching-season-capsule--summer',
+  秋: 'matching-season-capsule--autumn',
+  冬: 'matching-season-capsule--winter'
 }
 
 function getMatchingSeasonThemeClass(season: string): string {
-  return MATCHING_SEASON_THEME_CLASS[season] ?? 'matching-season-badge--default'
+  return MATCHING_SEASON_THEME_CLASS[season] ?? 'matching-season-capsule--default'
 }
 
-function getMatchingSingleSeasonClass(season: string): string {
-  return `matching-season-badge matching-season-badge--single ${getMatchingSeasonThemeClass(season)}`
-}
-
-function getMatchingMultiSeasonClass(season: string): string {
-  return `matching-season-badge matching-season-badge--multi ${getMatchingSeasonThemeClass(season)}`
+function getMatchingSeasonCapsuleClass(season: string): string {
+  return `matching-season-capsule ${getMatchingSeasonThemeClass(season)}`
 }
 
 const fetchMatchingListCount = async () => {
@@ -1392,6 +1391,42 @@ function onMatchingAddSuccess() {
   void fetchMatchingListCount()
   if (showMatchingListModal.value) {
     void fetchMatchingList(true)
+  }
+}
+
+function isMyMatchingItem(item: MatchingListItem): boolean {
+  const myId = user.user?.user_id
+  if (myId == null) return false
+  return item.user_id === myId
+}
+
+function openDeleteMatchingConfirm(item: MatchingListItem) {
+  deletingMatchingItem.value = item
+  showDeleteMatchingModal.value = true
+}
+
+async function confirmDeleteMatching() {
+  const item = deletingMatchingItem.value
+  if (!item?.matching_id) {
+    showDeleteMatchingModal.value = false
+    return
+  }
+  matchingDeleteLoading.value = true
+  try {
+    await deleteMatchingList({ matching_id: item.matching_id })
+    toast.add({ title: '删除成功', icon: 'i-heroicons-check-circle', color: 'green' })
+    matchingListItems.value = matchingListItems.value.filter(
+      (i) => i.matching_id !== item.matching_id
+    )
+    matchingListTotal.value = Math.max(0, matchingListTotal.value - 1)
+    onMatchingCountChange(matchingListTotal.value)
+    matchingListRefreshKey.value += 1
+  } catch {
+    toast.add({ title: '删除失败', icon: 'i-heroicons-exclamation-circle', color: 'red' })
+  } finally {
+    matchingDeleteLoading.value = false
+    showDeleteMatchingModal.value = false
+    deletingMatchingItem.value = null
   }
 }
 
@@ -1820,26 +1855,27 @@ const showEditPlan = (e?: MouseEvent) => {
             发帖记录你与小裙子之间的美好记忆
           </p>
           <div class="flex flex-wrap gap-2 justify-center mb-4">
-            <UButton
-              color="primary"
-              variant="soft"
-              size="sm"
-              icon="i-heroicons-link"
-              :loading="memoryForeignLinkLoading"
+            <button
+              type="button"
+              class="modal-capsule-btn"
               :disabled="memoryForeignLinkLoading || clothesMemoryPkId == null"
               @click="openMemoryChooseCommunity($event)"
             >
-              关联已有帖子
-            </UButton>
-            <UButton
-              color="primary"
-              size="sm"
-              icon="i-heroicons-pencil-square"
+              <UIcon
+                :name="memoryForeignLinkLoading ? 'i-heroicons-arrow-path' : 'i-heroicons-link'"
+                :class="['w-4 h-4 shrink-0', memoryForeignLinkLoading && 'animate-spin']"
+              />
+              <span>关联已有帖子</span>
+            </button>
+            <button
+              type="button"
+              class="modal-capsule-btn"
               :disabled="clothesMemoryPkId == null"
               @click="goNewMemoryPost($event)"
             >
-              写新记忆
-            </UButton>
+              <UIcon name="i-heroicons-pencil-square" class="w-4 h-4 shrink-0" />
+              <span>写新记忆</span>
+            </button>
           </div>
           <CommunityForeignList
             v-if="showMemoryListModal && clothesMemoryPkId != null"
@@ -1876,15 +1912,15 @@ const showEditPlan = (e?: MouseEvent) => {
             包含本条裙子的搭配清单
           </p>
           <div class="flex flex-wrap gap-2 justify-center mb-4">
-            <UButton
-              color="primary"
-              size="sm"
-              icon="i-heroicons-plus"
+            <button
+              type="button"
+              class="modal-capsule-btn"
               :disabled="clothesMemoryPkId == null"
               @click="openNewMatching($event)"
             >
-              新建搭配
-            </UButton>
+              <UIcon name="i-heroicons-plus" class="w-4 h-4 shrink-0" />
+              <span>新建搭配</span>
+            </button>
           </div>
           <div
             v-if="matchingListLoading && matchingListItems.length === 0"
@@ -1899,19 +1935,19 @@ const showEditPlan = (e?: MouseEvent) => {
           >
             暂无包含本条裙子的搭配
           </div>
-          <div v-else :key="matchingListRefreshKey" class="space-y-3">
+          <div v-else :key="matchingListRefreshKey" class="space-y-2.5">
             <div
               v-for="item in matchingListItems"
               :key="item.matching_id"
-              class="flex gap-3 p-3 rounded-xl bg-gray-50 dark:bg-gray-900/50 border border-gray-200/60 dark:border-gray-700/60 cursor-pointer transition hover:ring-2 hover:ring-qhx-primary/30"
+              class="group flex items-stretch gap-3 p-3 rounded-2xl bg-white/80 dark:bg-gray-900/40 border border-gray-200/70 dark:border-gray-700/60 cursor-pointer transition-all duration-200 hover:border-qhx-primary/35 hover:shadow-md hover:shadow-qhx-primary/10 dark:hover:border-pink-400/30"
               @click="jumpToMatchingDetail(item)"
             >
-              <div class="relative w-20 h-20 shrink-0 rounded-lg overflow-hidden bg-gray-200 dark:bg-gray-700">
+              <div class="relative w-[4.5rem] h-[4.5rem] shrink-0 rounded-xl overflow-hidden bg-gray-100 dark:bg-gray-700 ring-1 ring-black/5 dark:ring-white/10">
                 <img
                   v-if="getMatchingCover(item)"
                   :src="`${BASE_IMG}${getMatchingCover(item)}?x-oss-process=image/quality,q_80/resize,w_200`"
                   :alt="item.note || '搭配'"
-                  class="w-full h-full object-cover"
+                  class="w-full h-full object-cover transition-transform duration-300 group-hover:scale-[1.03]"
                 />
                 <div
                   v-else
@@ -1919,45 +1955,54 @@ const showEditPlan = (e?: MouseEvent) => {
                 >
                   <UIcon name="material-symbols:style" class="text-2xl" />
                 </div>
+              </div>
+              <div class="flex-1 min-w-0 flex flex-col justify-center gap-1 py-0.5">
+                <div class="font-medium text-[15px] text-gray-900 dark:text-gray-100 line-clamp-1">
+                  {{ item.note || '未命名搭配' }}
+                </div>
+                <div v-if="item.main_style" class="text-xs text-qhx-primary/90 dark:text-pink-300/90 line-clamp-1">
+                  {{ item.main_style.split(',').map((s) => `★${s}`).join(' ') }}
+                </div>
+                <div v-if="item.user_name" class="text-xs text-gray-400 dark:text-gray-500 line-clamp-1">
+                  {{ item.user_name }}
+                </div>
                 <div
                   v-if="parseMatchingSeasons(item.season).length > 0"
-                  class="absolute left-1 top-1 z-10 flex max-w-[calc(100%-0.5rem)] flex-wrap gap-0.5"
+                  class="flex flex-wrap gap-1 mt-0.5"
                 >
                   <span
-                    v-if="parseMatchingSeasons(item.season).length === 1"
-                    :class="getMatchingSingleSeasonClass(parseMatchingSeasons(item.season)[0])"
-                  >
-                    {{ parseMatchingSeasons(item.season)[0] }}
-                  </span>
-                  <span
                     v-for="(seasonItem, seasonIndex) in parseMatchingSeasons(item.season)"
-                    v-else
                     :key="`${item.matching_id}-season-${seasonIndex}`"
-                    :class="getMatchingMultiSeasonClass(seasonItem)"
+                    :class="getMatchingSeasonCapsuleClass(seasonItem)"
                   >
                     {{ seasonItem }}
                   </span>
                 </div>
               </div>
-              <div class="flex-1 min-w-0">
-                <div class="font-medium text-gray-900 dark:text-gray-100 line-clamp-1">
-                  {{ item.note || '未命名搭配' }}
-                </div>
-                <div v-if="item.main_style" class="mt-1 text-xs text-qhx-primary dark:text-pink-300 line-clamp-1">
-                  {{ item.main_style.split(',').map((s) => `★${s}`).join(' ') }}
-                </div>
-              </div>
+              <button
+                v-if="isMyMatchingItem(item)"
+                type="button"
+                class="shrink-0 self-center w-8 h-8 flex items-center justify-center rounded-full text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+                aria-label="删除搭配"
+                @click.stop="openDeleteMatchingConfirm(item)"
+              >
+                <UIcon name="i-heroicons-trash" class="w-4 h-4" />
+              </button>
             </div>
             <div v-if="matchingListItems.length < matchingListTotal" class="flex justify-center pt-2">
-              <UButton
-                variant="soft"
-                color="gray"
-                size="sm"
-                :loading="matchingListLoading"
+              <button
+                type="button"
+                class="modal-capsule-btn modal-capsule-btn--soft"
+                :disabled="matchingListLoading"
                 @click="loadMoreMatchingList"
               >
-                加载更多
-              </UButton>
+                <UIcon
+                  v-if="matchingListLoading"
+                  name="i-heroicons-arrow-path"
+                  class="w-4 h-4 shrink-0 animate-spin"
+                />
+                <span>加载更多</span>
+              </button>
             </div>
           </div>
         </div>
@@ -1973,6 +2018,41 @@ const showEditPlan = (e?: MouseEvent) => {
     />
 
     <MatchingAddEdit ref="matchingAddEditRef" @success="onMatchingAddSuccess" />
+
+    <QhxModal
+      v-model="showDeleteMatchingModal"
+      :close-on-backdrop="!matchingDeleteLoading"
+    >
+      <div class="capsule-confirm-card">
+        <h3 class="capsule-confirm-card__title">操作确认</h3>
+        <p class="capsule-confirm-card__desc">
+          确定要删除该搭配吗？删除后将无法恢复。
+        </p>
+        <div class="capsule-confirm-card__actions">
+          <button
+            type="button"
+            class="modal-capsule-btn modal-capsule-btn--ghost w-full min-w-0 sm:flex-1"
+            :disabled="matchingDeleteLoading"
+            @click="showDeleteMatchingModal = false"
+          >
+            取消
+          </button>
+          <button
+            type="button"
+            class="modal-capsule-btn modal-capsule-btn--danger w-full min-w-0 sm:flex-1"
+            :disabled="matchingDeleteLoading"
+            @click="confirmDeleteMatching"
+          >
+            <UIcon
+              v-if="matchingDeleteLoading"
+              name="i-heroicons-arrow-path"
+              class="w-4 h-4 shrink-0 animate-spin"
+            />
+            <span>确定删除</span>
+          </button>
+        </div>
+      </div>
+    </QhxModal>
 
     <CommunityPostModal
       ref="clothesMemoryPostModalRef"
@@ -2448,15 +2528,14 @@ const showEditPlan = (e?: MouseEvent) => {
                         <UIcon name="material-symbols:savings-rounded" class="text-amber-500 dark:text-amber-400 text-lg" />
                         <span class="text-sm font-semibold font-serif tracking-wide text-amber-700 dark:text-amber-300">尾款计划</span>
                       </div>
-                      <UButton
+                      <button
                         type="button"
-                        size="sm"
-                        class="bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white"
+                        class="modal-capsule-btn modal-capsule-btn--amber"
                         @click="showAddPlan"
                       >
-                        <UIcon name="i-heroicons-plus" class="mr-1" />
-                        添加尾款计划
-                      </UButton>
+                        <UIcon name="i-heroicons-plus" class="w-4 h-4 shrink-0" />
+                        <span>添加尾款计划</span>
+                      </button>
                     </div>
 
                     <!-- 图鉴信息 -->
@@ -2526,7 +2605,9 @@ const showEditPlan = (e?: MouseEvent) => {
 
                     <!-- 查看衣柜按钮 -->
                     <div v-if="route.query.needBack === '1'" class="text-center mt-4">
-                      <UButton color="primary" @click="jumpToWardrobe">查看该衣柜</UButton>
+                      <button type="button" class="modal-capsule-btn" @click="jumpToWardrobe">
+                        查看该衣柜
+                      </button>
                     </div>
 
                     <!-- 是否共享 -->
@@ -3156,15 +3237,14 @@ const showEditPlan = (e?: MouseEvent) => {
                         <UIcon name="material-symbols:savings-rounded" class="text-amber-500 dark:text-amber-400 text-lg" />
                         <span class="text-sm font-semibold font-serif tracking-wide text-amber-700 dark:text-amber-300">尾款计划</span>
                       </div>
-                      <UButton
+                      <button
                         type="button"
-                        size="sm"
-                        class="bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white"
+                        class="modal-capsule-btn modal-capsule-btn--amber"
                         @click="showAddPlan"
                       >
-                        <UIcon name="i-heroicons-plus" class="mr-1" />
-                        添加尾款计划
-                      </UButton>
+                        <UIcon name="i-heroicons-plus" class="w-4 h-4 shrink-0" />
+                        <span>添加尾款计划</span>
+                      </button>
                     </div>
 
                     <!-- 图鉴信息 -->
@@ -3216,9 +3296,10 @@ const showEditPlan = (e?: MouseEvent) => {
 
                     <!-- 关联服饰 -->
                     <!-- <div v-if="isOwner && detail.include && detail.include.length < 10" class="mt-4">
-                    <UButton icon="i-heroicons-plus" color="primary" @click="showAddClothesModal = true">
-                      关联服饰
-                    </UButton>
+                    <button type="button" class="modal-capsule-btn" @click="showAddClothesModal = true">
+                      <UIcon name="i-heroicons-plus" class="w-4 h-4 shrink-0" />
+                      <span>关联服饰</span>
+                    </button>
                   </div>
                   <div v-else-if="isOwner && detail.include && detail.include.length >= 10"
                     class="text-sm text-center text-gray-500 mt-4">
@@ -3227,7 +3308,9 @@ const showEditPlan = (e?: MouseEvent) => {
 
                     <!-- 查看衣柜按钮 -->
                     <div v-if="route.query.needBack === '1'" class="text-center mt-4">
-                      <UButton color="primary" @click="jumpToWardrobe">查看该衣柜</UButton>
+                      <button type="button" class="modal-capsule-btn" @click="jumpToWardrobe">
+                        查看该衣柜
+                      </button>
                     </div>
                     </div>
                   </div>
@@ -3381,70 +3464,118 @@ const showEditPlan = (e?: MouseEvent) => {
     </div>
 
     <!-- 删除确认弹窗 -->
-    <UModal v-model="showDeleteModal" title="操作确认">
-        <div class="p-4">
-          <p class="mb-4">确定要删除吗？</p>
-          <div class="flex justify-end gap-2">
-            <UButton color="gray" @click="showDeleteModal = false">取消</UButton>
-            <UButton color="red" @click="confirmDelete">确定</UButton>
-          </div>
+    <QhxModal v-model="showDeleteModal">
+      <div class="capsule-confirm-card">
+        <h3 class="capsule-confirm-card__title">操作确认</h3>
+        <p class="capsule-confirm-card__desc">确定要删除吗？</p>
+        <div class="capsule-confirm-card__actions">
+          <button type="button" class="modal-capsule-btn modal-capsule-btn--ghost w-full min-w-0 sm:flex-1" @click="showDeleteModal = false">
+            取消
+          </button>
+          <button type="button" class="modal-capsule-btn modal-capsule-btn--danger w-full min-w-0 sm:flex-1" @click="confirmDelete">
+            确定
+          </button>
         </div>
-      </UModal>
+      </div>
+    </QhxModal>
 
       <!-- 移除场景确认弹窗 -->
-      <UModal v-model="showRemoveSceneModal" title="操作确认">
-        <div class="p-4">
-          <p class="mb-4">确定要移除当前关联的场景吗？</p>
-          <div class="flex justify-end gap-2">
-            <UButton color="gray" @click="showRemoveSceneModal = false">取消</UButton>
-            <UButton color="red" @click="removeScene">确定</UButton>
+      <QhxModal v-model="showRemoveSceneModal">
+        <div class="capsule-confirm-card">
+          <h3 class="capsule-confirm-card__title">操作确认</h3>
+          <p class="capsule-confirm-card__desc">确定要移除当前关联的场景吗？</p>
+          <div class="capsule-confirm-card__actions">
+            <button type="button" class="modal-capsule-btn modal-capsule-btn--ghost w-full min-w-0 sm:flex-1" @click="showRemoveSceneModal = false">
+              取消
+            </button>
+            <button type="button" class="modal-capsule-btn modal-capsule-btn--danger w-full min-w-0 sm:flex-1" @click="removeScene">
+              确定
+            </button>
           </div>
         </div>
-      </UModal>
+      </QhxModal>
 
       <!-- 完成计划确认弹窗 -->
-      <UModal v-model="showCompletePlanModal" title="操作确认">
-        <div class="p-4">
-          <p class="mb-4">确定要完成该计划吗？</p>
-          <div class="flex justify-end gap-2">
-            <UButton color="gray" @click="showCompletePlanModal = false; completePlanListId = null">取消</UButton>
-            <UButton color="primary" @click="handleCompletePlan" :loading="planCompleteLoading">确认完成</UButton>
+      <QhxModal v-model="showCompletePlanModal">
+        <div class="capsule-confirm-card">
+          <h3 class="capsule-confirm-card__title">操作确认</h3>
+          <p class="capsule-confirm-card__desc">确定要完成该计划吗？</p>
+          <div class="capsule-confirm-card__actions">
+            <button type="button" class="modal-capsule-btn modal-capsule-btn--ghost w-full min-w-0 sm:flex-1" @click="showCompletePlanModal = false; completePlanListId = null">
+              取消
+            </button>
+            <button
+              type="button"
+              class="modal-capsule-btn w-full min-w-0 sm:flex-1"
+              :disabled="planCompleteLoading"
+              @click="handleCompletePlan"
+            >
+              <UIcon v-if="planCompleteLoading" name="i-heroicons-arrow-path" class="w-4 h-4 shrink-0 animate-spin" />
+              <span>确认完成</span>
+            </button>
           </div>
         </div>
-      </UModal>
+      </QhxModal>
 
       <!-- 移除计划确认弹窗 -->
-      <UModal v-model="showRemovePlanModal" title="操作确认">
-        <div class="p-4">
-          <p class="mb-4">确定要移除该计划与服饰的关联吗？计划仍将保留在计划列表中。</p>
-          <div class="flex justify-end gap-2">
-            <UButton color="gray" @click="showRemovePlanModal = false">取消</UButton>
-            <UButton color="primary" @click="handleRemovePlan" :loading="planRemoveLoading">确认移除</UButton>
+      <QhxModal v-model="showRemovePlanModal">
+        <div class="capsule-confirm-card">
+          <h3 class="capsule-confirm-card__title">操作确认</h3>
+          <p class="capsule-confirm-card__desc">确定要移除该计划与服饰的关联吗？计划仍将保留在计划列表中。</p>
+          <div class="capsule-confirm-card__actions">
+            <button type="button" class="modal-capsule-btn modal-capsule-btn--ghost w-full min-w-0 sm:flex-1" @click="showRemovePlanModal = false">
+              取消
+            </button>
+            <button
+              type="button"
+              class="modal-capsule-btn w-full min-w-0 sm:flex-1"
+              :disabled="planRemoveLoading"
+              @click="handleRemovePlan"
+            >
+              <UIcon v-if="planRemoveLoading" name="i-heroicons-arrow-path" class="w-4 h-4 shrink-0 animate-spin" />
+              <span>确认移除</span>
+            </button>
           </div>
         </div>
-      </UModal>
+      </QhxModal>
 
       <!-- 删除计划确认弹窗 -->
-      <UModal v-model="showDeletePlanModal" title="操作确认">
-        <div class="p-4">
-          <p class="mb-4">确定要删除该计划吗？删除后将无法恢复。</p>
-          <div class="flex justify-end gap-2">
-            <UButton color="gray" @click="showDeletePlanModal = false">取消</UButton>
-            <UButton color="red" @click="handleDeletePlan" :loading="planDeleteLoading">确认删除</UButton>
+      <QhxModal v-model="showDeletePlanModal">
+        <div class="capsule-confirm-card">
+          <h3 class="capsule-confirm-card__title">操作确认</h3>
+          <p class="capsule-confirm-card__desc">确定要删除该计划吗？删除后将无法恢复。</p>
+          <div class="capsule-confirm-card__actions">
+            <button type="button" class="modal-capsule-btn modal-capsule-btn--ghost w-full min-w-0 sm:flex-1" @click="showDeletePlanModal = false">
+              取消
+            </button>
+            <button
+              type="button"
+              class="modal-capsule-btn modal-capsule-btn--danger w-full min-w-0 sm:flex-1"
+              :disabled="planDeleteLoading"
+              @click="handleDeletePlan"
+            >
+              <UIcon v-if="planDeleteLoading" name="i-heroicons-arrow-path" class="w-4 h-4 shrink-0 animate-spin" />
+              <span>确认删除</span>
+            </button>
           </div>
         </div>
-      </UModal>
+      </QhxModal>
 
       <!-- 删除关联确认弹窗 -->
-      <UModal v-model="showDeleteLinkModal" title="操作确认">
-        <div class="p-4">
-          <p class="mb-4">确定要取消关联吗？</p>
-          <div class="flex justify-end gap-2">
-            <UButton color="gray" @click="showDeleteLinkModal = false">取消</UButton>
-            <UButton color="red" @click="deleteLinkClothes">确定</UButton>
+      <QhxModal v-model="showDeleteLinkModal">
+        <div class="capsule-confirm-card">
+          <h3 class="capsule-confirm-card__title">操作确认</h3>
+          <p class="capsule-confirm-card__desc">确定要取消关联吗？</p>
+          <div class="capsule-confirm-card__actions">
+            <button type="button" class="modal-capsule-btn modal-capsule-btn--ghost w-full min-w-0 sm:flex-1" @click="showDeleteLinkModal = false">
+              取消
+            </button>
+            <button type="button" class="modal-capsule-btn modal-capsule-btn--danger w-full min-w-0 sm:flex-1" @click="deleteLinkClothes">
+              确定
+            </button>
           </div>
         </div>
-      </UModal>
+      </QhxModal>
     
     <!-- 物理掉落组件 - 只在没有 sence_id 时显示 -->
     <!-- <ClientOnly>
@@ -3809,78 +3940,296 @@ const showEditPlan = (e?: MouseEvent) => {
   transform: rotate(180deg);
 }
 
-/* 搭配列表封面季节角标 */
-.matching-season-badge {
-  line-height: 1.2;
+/* 记忆/搭配弹窗胶囊按钮 */
+.modal-capsule-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.375rem;
+  padding: 0.5rem 1.35rem;
+  border-radius: 9999px;
+  border: 1.5px solid color-mix(in srgb, var(--primary-color, #ff9eb5) 58%, transparent);
+  background: linear-gradient(
+    145deg,
+    color-mix(in srgb, var(--primary-color, #ff9eb5) 90%, #fff) 0%,
+    color-mix(in srgb, var(--primary-color, #ff9eb5) 68%, #f472b6) 100%
+  );
+  color: #fff;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
   white-space: nowrap;
+  cursor: pointer;
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
   box-shadow:
-    0 1px 3px rgb(0 0 0 / 0.18),
-    0 0 0 1px rgb(255 255 255 / 0.55);
+    inset 0 1px 0 rgb(255 255 255 / 0.38),
+    0 2px 8px color-mix(in srgb, var(--primary-color, #ff9eb5) 22%, transparent);
+  transition:
+    transform 0.16s ease,
+    box-shadow 0.2s ease,
+    filter 0.2s ease,
+    border-color 0.2s ease;
 }
 
-.matching-season-badge--single {
-  padding: 0.125rem 0.5rem;
+.modal-capsule-btn:hover:not(:disabled) {
+  filter: brightness(1.04);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.4),
+    0 4px 14px color-mix(in srgb, var(--primary-color, #ff9eb5) 34%, transparent);
+}
+
+.modal-capsule-btn:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.modal-capsule-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+.dark .modal-capsule-btn {
+  border-color: color-mix(in srgb, var(--primary-color, #ff9eb5) 55%, rgb(255 255 255 / 0.15));
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--primary-color, #ff9eb5) 75%, #831843) 0%,
+    color-mix(in srgb, var(--primary-color, #ff9eb5) 58%, #4c0519) 100%
+  );
+  color: #fce7f3;
+}
+
+.modal-capsule-btn--ghost {
+  border-color: rgb(209 213 219 / 0.95);
+  background: rgb(249 250 251 / 0.95);
+  color: #4b5563;
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.8),
+    0 1px 4px rgb(0 0 0 / 0.05);
+}
+
+.modal-capsule-btn--ghost:hover:not(:disabled) {
+  filter: none;
+  background: rgb(243 244 246 / 0.98);
+  border-color: rgb(156 163 175 / 0.55);
+}
+
+.modal-capsule-btn--danger {
+  border-color: color-mix(in srgb, #ef4444 62%, transparent);
+  background: linear-gradient(135deg, #f87171 0%, #ef4444 100%);
+  color: #fff;
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.28),
+    0 2px 10px rgb(239 68 68 / 0.28);
+}
+
+.modal-capsule-btn--danger:hover:not(:disabled) {
+  filter: brightness(1.04);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.32),
+    0 4px 14px rgb(239 68 68 / 0.34);
+}
+
+.dark .modal-capsule-btn--ghost {
+  border-color: rgb(75 85 99 / 0.75);
+  background: rgb(31 41 55 / 0.82);
+  color: #d1d5db;
+}
+
+.dark .modal-capsule-btn--ghost:hover:not(:disabled) {
+  background: rgb(55 65 81 / 0.88);
+  border-color: rgb(107 114 128 / 0.75);
+}
+
+.dark .modal-capsule-btn--danger {
+  border-color: color-mix(in srgb, #f87171 55%, rgb(255 255 255 / 0.12));
+  background: linear-gradient(135deg, rgb(185 28 28 / 0.92) 0%, rgb(127 29 29 / 0.95) 100%);
+  color: #fecaca;
+}
+
+.modal-capsule-btn--soft {
+  border-color: rgb(229 231 235 / 0.95);
+  background: linear-gradient(180deg, rgb(255 255 255 / 0.98) 0%, rgb(249 250 251 / 0.96) 100%);
+  color: #6b7280;
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.9),
+    0 1px 4px rgb(0 0 0 / 0.04);
+}
+
+.modal-capsule-btn--soft:hover:not(:disabled) {
+  filter: none;
+  color: #4b5563;
+  border-color: rgb(209 213 219 / 0.95);
+  background: linear-gradient(180deg, rgb(255 255 255) 0%, rgb(243 244 246) 100%);
+}
+
+.modal-capsule-btn--amber {
+  border-color: color-mix(in srgb, #f59e0b 58%, transparent);
+  background: linear-gradient(145deg, #fcd34d 0%, #f97316 100%);
+  color: #fff;
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.35),
+    0 2px 10px rgb(245 158 11 / 0.28);
+}
+
+.modal-capsule-btn--amber:hover:not(:disabled) {
+  filter: brightness(1.03);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.4),
+    0 4px 14px rgb(245 158 11 / 0.32);
+}
+
+.dark .modal-capsule-btn--soft {
+  border-color: rgb(75 85 99 / 0.7);
+  background: linear-gradient(180deg, rgb(55 65 81 / 0.72) 0%, rgb(31 41 55 / 0.82) 100%);
+  color: #d1d5db;
+}
+
+.dark .modal-capsule-btn--soft:hover:not(:disabled) {
+  background: linear-gradient(180deg, rgb(75 85 99 / 0.78) 0%, rgb(55 65 81 / 0.88) 100%);
+  color: #f3f4f6;
+}
+
+.dark .modal-capsule-btn--amber {
+  border-color: color-mix(in srgb, #fbbf24 50%, rgb(255 255 255 / 0.1));
+  background: linear-gradient(145deg, rgb(180 83 9 / 0.92) 0%, rgb(154 52 18 / 0.95) 100%);
+  color: #fef3c7;
+}
+
+/* 确认弹窗卡片 */
+.capsule-confirm-card {
+  width: min(calc(100vw - 2rem), 360px);
+  padding: 1.25rem 1.25rem 1.125rem;
+  border-radius: 1.25rem;
+  border: 1px solid rgb(255 255 255 / 0.65);
+  background: linear-gradient(165deg, rgb(255 255 255 / 0.98) 0%, rgb(253 242 248 / 0.94) 100%);
+  box-shadow:
+    0 16px 40px rgb(0 0 0 / 0.1),
+    inset 0 1px 0 rgb(255 255 255 / 0.85);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.dark .capsule-confirm-card {
+  border-color: rgb(255 255 255 / 0.08);
+  background: linear-gradient(165deg, rgb(31 41 55 / 0.96) 0%, rgb(17 24 39 / 0.98) 100%);
+  box-shadow:
+    0 16px 40px rgb(0 0 0 / 0.35),
+    inset 0 1px 0 rgb(255 255 255 / 0.06);
+}
+
+.capsule-confirm-card__title {
+  font-size: 1rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: #111827;
+}
+
+.dark .capsule-confirm-card__title {
+  color: #f9fafb;
+}
+
+.capsule-confirm-card__desc {
+  margin-top: 0.5rem;
+  font-size: 0.875rem;
+  line-height: 1.6;
+  color: #6b7280;
+}
+
+.dark .capsule-confirm-card__desc {
+  color: #9ca3af;
+}
+
+.capsule-confirm-card__actions {
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  gap: 0.625rem;
+  margin-top: 1.125rem;
+}
+
+.capsule-confirm-card__actions .modal-capsule-btn {
+  flex: 1 1 0;
+  min-width: 0;
+  padding-left: 0.875rem;
+  padding-right: 0.875rem;
+}
+
+/* 搭配列表季节胶囊 */
+.matching-season-capsule {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.75rem;
+  padding: 0.2rem 0.55rem;
   border-radius: 9999px;
   font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-}
-
-.matching-season-badge--multi {
-  padding: 0.0625rem 0.3125rem;
-  border-radius: 0.25rem;
-  font-size: 9px;
   font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  border: 1px solid transparent;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.06);
 }
 
-.matching-season-badge--spring {
-  background: linear-gradient(135deg, #bbf7d0 0%, #fbcfe8 100%);
-  color: #166534;
+.matching-season-capsule--spring {
+  background: linear-gradient(135deg, #ecfdf5 0%, #fce7f3 100%);
+  color: #047857;
+  border-color: rgb(16 185 129 / 0.22);
 }
 
-.matching-season-badge--summer {
-  background: linear-gradient(135deg, #fde047 0%, #fb923c 100%);
-  color: #92400e;
+.matching-season-capsule--summer {
+  background: linear-gradient(135deg, #fef9c3 0%, #ffedd5 100%);
+  color: #b45309;
+  border-color: rgb(245 158 11 / 0.28);
 }
 
-.matching-season-badge--autumn {
-  background: linear-gradient(135deg, #fdba74 0%, #ea580c 100%);
-  color: #78350f;
+.matching-season-capsule--autumn {
+  background: linear-gradient(135deg, #ffedd5 0%, #fed7aa 100%);
+  color: #c2410c;
+  border-color: rgb(249 115 22 / 0.28);
 }
 
-.matching-season-badge--winter {
-  background: linear-gradient(135deg, #bfdbfe 0%, #e0e7ff 100%);
-  color: #1e3a8a;
+.matching-season-capsule--winter {
+  background: linear-gradient(135deg, #eff6ff 0%, #e0e7ff 100%);
+  color: #1d4ed8;
+  border-color: rgb(59 130 246 / 0.24);
 }
 
-.matching-season-badge--default {
-  background: rgb(255 255 255 / 0.92);
-  color: #374151;
+.matching-season-capsule--default {
+  background: rgb(249 250 251 / 0.95);
+  color: #6b7280;
+  border-color: rgb(209 213 219 / 0.8);
 }
 
-.dark .matching-season-badge--spring {
-  background: linear-gradient(135deg, rgb(22 101 52 / 0.85) 0%, rgb(157 23 77 / 0.75) 100%);
-  color: #ecfdf5;
+.dark .matching-season-capsule--spring {
+  background: linear-gradient(135deg, rgb(6 78 59 / 0.55) 0%, rgb(131 24 67 / 0.45) 100%);
+  color: #a7f3d0;
+  border-color: rgb(52 211 153 / 0.35);
 }
 
-.dark .matching-season-badge--summer {
-  background: linear-gradient(135deg, rgb(161 98 7 / 0.9) 0%, rgb(234 88 12 / 0.85) 100%);
-  color: #fef9c3;
+.dark .matching-season-capsule--summer {
+  background: linear-gradient(135deg, rgb(120 53 15 / 0.55) 0%, rgb(154 52 18 / 0.5) 100%);
+  color: #fde68a;
+  border-color: rgb(251 191 36 / 0.35);
 }
 
-.dark .matching-season-badge--autumn {
-  background: linear-gradient(135deg, rgb(154 52 18 / 0.9) 0%, rgb(180 83 9 / 0.85) 100%);
-  color: #ffedd5;
+.dark .matching-season-capsule--autumn {
+  background: linear-gradient(135deg, rgb(124 45 18 / 0.55) 0%, rgb(154 52 18 / 0.5) 100%);
+  color: #fdba74;
+  border-color: rgb(251 146 60 / 0.35);
 }
 
-.dark .matching-season-badge--winter {
-  background: linear-gradient(135deg, rgb(30 58 138 / 0.9) 0%, rgb(51 65 85 / 0.85) 100%);
-  color: #dbeafe;
+.dark .matching-season-capsule--winter {
+  background: linear-gradient(135deg, rgb(30 58 138 / 0.55) 0%, rgb(49 46 129 / 0.5) 100%);
+  color: #bfdbfe;
+  border-color: rgb(96 165 250 / 0.35);
 }
 
-.dark .matching-season-badge--default {
-  background: rgb(31 41 55 / 0.92);
-  color: #e5e7eb;
+.dark .matching-season-capsule--default {
+  background: rgb(31 41 55 / 0.75);
+  color: #d1d5db;
+  border-color: rgb(75 85 99 / 0.65);
 }
 </style>
 

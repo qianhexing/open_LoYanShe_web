@@ -1,25 +1,23 @@
 <script setup lang="ts">
 import type { Library, LibrarySimilarItem, PaginationResponse, Shop, LibraryVideo, LibraryPipe, Community, User, Compilations, SenceForeign, Comment, WardrobeClothes } from '@/types/api';
 import { getMatchingListListVisitor, type MatchingListItem } from '@/api/matching_list'
-import type MatchingAddEdit from '@/components/matching/MatchingAddEdit.vue'
+import type MatchingAddEditType from '@/components/matching/MatchingAddEdit.vue'
 import { getLibraryDetail, getLibraryList, getLibraryVideo, getLibraryPipeListAll, getLibrarySimilar, updateStateMultiple, updatePatternElementsMultiple, updateSaleTimeMultiple } from '@/api/library'
-import html2canvas from 'html2canvas';
 import QhxTag from '~/components/Qhx/Tag.vue';
-import type { image } from 'html2canvas/dist/types/css/types/image';
-import type LibraryTypeColorChoose from '@/components/library/LibraryTypeColorChoose.vue'
-import type ClothesAdd from '@/components/Clothes/ClothesAdd.vue'
+import type LibraryTypeColorChooseType from '@/components/library/LibraryTypeColorChoose.vue'
+import type ClothesAddType from '@/components/Clothes/ClothesAdd.vue'
 import { librarySeedFromTypeColorChoose, type LibraryTypeColorChooseResult } from '@/utils/libraryClothesSeed'
 import { getWardrobeListOptions } from '@/api/wardrobe'
 import { useToast } from '#imports'
 import type { Wiki } from '@/types/api'
 import dayjs from 'dayjs'
-import PhysicsDrop from '@/components/PhysicsDrop.client.vue'
 import { getWikiDetail, type WikiDetailParams } from '@/api/wiki'
 import { insertCompDetail } from '@/api/compilations'
-import type LibraryChoose from '@/components/library/LibraryChoose.vue'
-import type CompilationsChoose from '@/components/compilations/CompilationsChoose.vue'
+import type LibraryChooseType from '@/components/library/LibraryChoose.vue'
+import type CompilationsChooseType from '@/components/compilations/CompilationsChoose.vue'
 import type QhxSelect from '@/components/Qhx/Select.vue'
-import SPZModelViewer from '@/components/ModelViewer/SPZModelViewer.vue'
+import type CommunityCommentModalType from '@/components/community/CommentModal.vue'
+import type WikiOptionsChooseType from '@/components/wiki/wikiOptionsChoose.vue'
 import { insertCommunityForeign, getCommunityForeignList } from '@/api/community'
 import { getEventRedblackList } from '@/api/event_redblack'
 import { getScoreOne, insertScore, type ScoreRecord } from '@/api/score'
@@ -42,10 +40,43 @@ import {
   type RefreshCommentRepliesFn,
 } from '@/composables/communityCommentSection'
 import { useCommentUiStore } from '@/stores/commentUi'
-import LibraryShareImage from '@/components/library/LibraryShareImage.vue'
-import type { LibrarySharePayload } from '@/utils/libraryShareCanvas'
+import type { LibrarySharePayload, LibraryRecommendPayload } from '@/utils/libraryShareCanvas'
 import { plainTextFromHtml } from '@/utils/libraryShareCanvas'
-import WikiOptionsChoose from '@/components/wiki/wikiOptionsChoose.vue'
+import CommentSection from '@/components/comment/CommentSection.vue'
+import CommunityCommentModal from '@/components/community/CommentModal.vue'
+import LibraryShareImage from '@/components/library/LibraryShareImage.vue'
+import LibrarySimilarRecommendImage from '@/components/library/LibrarySimilarRecommendImage.vue'
+
+const CommunityChoose = defineAsyncComponent(
+  () => import('@/components/community/CommunityChoose.vue'),
+)
+const CommunityPostModal = defineAsyncComponent(
+  () => import('@/components/community/CommunityPostModal.vue'),
+)
+const SPZModelViewer = defineAsyncComponent(
+  () => import('@/components/ModelViewer/SPZModelViewer.vue'),
+)
+const PhysicsDrop = defineAsyncComponent(
+  () => import('@/components/PhysicsDrop.client.vue'),
+)
+const WikiOptionsChoose = defineAsyncComponent(
+  () => import('@/components/wiki/wikiOptionsChoose.vue'),
+)
+const MatchingAddEdit = defineAsyncComponent(
+  () => import('@/components/matching/MatchingAddEdit.vue'),
+)
+const ClothesAdd = defineAsyncComponent(
+  () => import('@/components/Clothes/ClothesAdd.vue'),
+)
+const CompilationsChoose = defineAsyncComponent(
+  () => import('@/components/compilations/CompilationsChoose.vue'),
+)
+const LibraryChoose = defineAsyncComponent(
+  () => import('@/components/library/LibraryChoose.vue'),
+)
+const LibraryTypeColorChoose = defineAsyncComponent(
+  () => import('@/components/library/LibraryTypeColorChoose.vue'),
+)
 
 const customInput = defineAsyncComponent(() => import('~/components/Clothes/customInput.vue'))
 const user = useUserStore()
@@ -70,9 +101,41 @@ const libraryReturnPostModalRef = ref<{
 const showLibraryReturnPostModal = ref(false)
 
 const id = route.params.id as string
-const { data } = await useAsyncData('libraryDeatil', () => {
-  return getLibraryDetail({ library_id: Number.parseInt(id) })
-}, {})
+const libraryId = Number.parseInt(id, 10)
+
+type LibraryDetailPageData = {
+  detail: Awaited<ReturnType<typeof getLibraryDetail>>
+  commentCount: Awaited<ReturnType<typeof getCommentList>>
+  children: Library[]
+}
+
+const { data: pageData, refresh: refreshPageData } = await useAsyncData(
+  `library-detail-${id}`,
+  async (): Promise<LibraryDetailPageData> => {
+    const detailRes = await getLibraryDetail({ library_id: libraryId })
+    const lid = detailRes.library?.library_id ?? libraryId
+    const [commentRes, childListRes] = await Promise.all([
+      getCommentList({ type: 'library', id: lid, page: 1, pageSize: 1 }),
+      detailRes.library?.library_type === '系列'
+        ? getLibraryList({
+            filter_list: [{
+              field: 'parent_id',
+              op: 'and',
+              value: id,
+            }],
+            page: 1,
+            pageSize: 999,
+          })
+        : Promise.resolve(null),
+    ])
+    return {
+      detail: detailRes,
+      commentCount: commentRes,
+      children: childListRes?.rows ?? [],
+    }
+  },
+)
+
 const library = ref<Library | null>(null)
 const libraryRef = ref(null)
 const shop = ref<Shop | null>(null)
@@ -80,14 +143,22 @@ const uploadUser = ref<User | null>(null)
 const style_list = ref<Wiki[]>([])
 const parent = ref<Library | null>(null)
 const child_list = ref<Library[]>([])
+
+function applyPageData(payload: LibraryDetailPageData | null) {
+  if (!payload) return
+  library.value = payload.detail.library ?? null
+  style_list.value = payload.detail.style_list ?? []
+  parent.value = payload.detail.parent ?? null
+  shop.value = payload.detail.shop ?? null
+  uploadUser.value = payload.detail.upload_user ?? null
+  child_list.value = payload.children
+}
+
+watch(pageData, (val) => applyPageData(val), { immediate: true })
+
 const library_video = ref<LibraryVideo[]>([])
 const library_pipe = ref<LibraryPipe[]>([])
 const spzModelViewerRef = ref<{ showModel: (models: Array<{ url: string; type?: 'splat' | 'model'; position?: [number, number, number]; rotation?: [number, number, number]; scale?: [number, number, number]; options?: Record<string, unknown> }>) => Promise<void> } | null>(null)
-library.value = data.value?.library ?? null
-style_list.value = data.value?.style_list ?? []
-parent.value = data.value?.parent ?? null
-shop.value = data.value?.shop ?? null
-uploadUser.value = data.value?.upload_user ?? null
 
 interface LibrarySkuItem {
   library_pattern: string
@@ -219,7 +290,7 @@ const matchingListItems = ref<MatchingListItem[]>([])
 const matchingListPage = ref(1)
 const matchingListTotal = ref(0)
 const matchingListRefreshKey = ref(0)
-const matchingAddEditRef = ref<InstanceType<typeof MatchingAddEdit> | null>(null)
+const matchingAddEditRef = ref<InstanceType<typeof MatchingAddEditType> | null>(null)
 
 const FAB_ACTIONS_STORAGE_KEY = 'library-detail-fab-actions-expanded'
 const fabActionsExpanded = ref(true)
@@ -399,24 +470,10 @@ const focusCommentId = computed(() => {
   return Number.isFinite(n) && n > 0 ? n : undefined
 })
 
-const { data: commentCountData, refresh: refreshCommentCount } = await useAsyncData(
-  `library-detail-comment-count-${id}`,
-  () => getCommentList({ type: 'library', id: Number.parseInt(id, 10), page: 1, pageSize: 1 })
-)
-
-const commentTotal = computed(() => commentCountData.value?.count ?? 0)
+const commentTotal = computed(() => pageData.value?.commentCount?.count ?? 0)
 
 const showCommentModal = ref(false)
-const commentModalRef = ref<{
-  showModel: (e: {
-    id: number | string
-    type: string
-    reply_to?: number
-    reply_to_name?: string
-    reply_to_user?: User
-    threadRootCommentId?: number
-  }) => void
-} | null>(null)
+const commentModalRef = ref<InstanceType<typeof CommunityCommentModalType> | null>(null)
 const commentSectionKey = ref(0)
 const commentSectionRefreshFn = shallowRef<RefreshCommentRepliesFn | null>(null)
 provide(communityCommentSectionRefreshKey, commentSectionRefreshFn)
@@ -464,6 +521,18 @@ const openReplyComposer = (payload: CommentOpenReplyPayload) => {
       threadRootCommentId,
     })
   })
+}
+
+async function refreshCommentCount() {
+  const commentRes = await getCommentList({
+    type: 'library',
+    id: libraryId,
+    page: 1,
+    pageSize: 1,
+  })
+  if (pageData.value) {
+    pageData.value = { ...pageData.value, commentCount: commentRes }
+  }
 }
 
 const onCommentSuccess = async (
@@ -587,20 +656,7 @@ function goLibraryReturnNewPost(e?: MouseEvent) {
 function onLibraryReturnPostSuccess() {
   libraryForeignRefreshKey.value += 1
 }
-if (library.value && library.value?.library_type === '系列') {
-  const { data } = await useAsyncData('librarys', () => {
-    return getLibraryList({
-      filter_list: [{
-        field: 'parent_id',
-        op: 'and',
-        value: id
-      }],
-      page: 1,
-      pageSize: 999
-    })
-  }, {})
-  child_list.value = data.value?.rows ?? []
-}
+
 const formateState = (state: number) => {
   // 0 预约中 1尾款中 2截团制作 3现货在售
   switch (state) {
@@ -656,14 +712,11 @@ const sortedAllLibraryPipes = computed(() => sortLibraryPipesDesc(library_pipe.v
 const hasPastLibraryPipes = computed(() =>
   library_pipe.value.some((pipe) => !isLibraryPipeUpcomingOrActive(pipe))
 )
-const fetchLibraryVideo = () => {
+const fetchLibraryVideo = async () => {
   const params = {
-    pk_id: Number.parseInt(id)
+    pk_id: libraryId,
   }
-  getLibraryVideo(params)
-    .then((res) => {
-      library_video.value = res
-    })
+  library_video.value = await getLibraryVideo(params)
 }
 
 // 处理人台图点击事件
@@ -677,11 +730,17 @@ function jumpToHumanPlatform(item: LibraryVideo) {
       : `/humanPlatform/${vid}`
   const fullUrl = `https://lolitalibrary.com${path}`
 
-  if (isHtml5PlusWebview() && typeof uni !== 'undefined' && uni?.navigateTo) {
-    uni.navigateTo({
-      url: `/pages/common/outerLink2?fullScreen=true&url=${fullUrl}`,
-      fail: () => {
-        console.log('跳转人台图失败')
+  if (isHtml5PlusWebview()) {
+    void ensureUniWebview().then((u) => {
+      if (u?.navigateTo) {
+        u.navigateTo({
+          url: `/pages/common/outerLink2?fullScreen=true&url=${fullUrl}`,
+          fail: () => {
+            console.log('跳转人台图失败')
+          },
+        })
+      } else {
+        void navigateTo(path)
       }
     })
     return
@@ -693,13 +752,13 @@ function jumpToHumanPlatform(item: LibraryVideo) {
       JSON.stringify({
         type: 'jump',
         path: 'Outlink',
-        params: { url: fullUrl }
-      })
+        params: { url: fullUrl },
+      }),
     )
     return
   }
 
-  navigateTo(path)
+  void navigateTo(path)
 }
 
 const handleVideoClick = (item: LibraryVideo) => {
@@ -722,22 +781,20 @@ const handleVideoClick = (item: LibraryVideo) => {
     spzModelViewerRef.value?.showModel(modelList)
   }
 }
-const fetchLibraryPipe = () => {
-  let pk_id = Number.parseInt(id)
+const fetchLibraryPipe = async () => {
+  let pk_id = libraryId
   if (library.value?.library_type !== '系列' && library.value?.parent_id !== 0) {
     pk_id = library.value?.parent_id as number
   }
-  getLibraryPipeListAll({
-    pk_id: pk_id,
-    // end_time: dayjs().format('YYYY-MM-DD'),
-    pk_type: 0
-  }).then((res) => {
-    if (library.value?.library_type !== '系列' && library.value?.parent_id !== 0) {
-      library_pipe.value = res.filter((item) => { return item.library_list?.some((child) => child.library_id === Number.parseInt(id)) })
-    } else {
-      library_pipe.value = res
-    }
+  const res = await getLibraryPipeListAll({
+    pk_id,
+    pk_type: 0,
   })
+  if (library.value?.library_type !== '系列' && library.value?.parent_id !== 0) {
+    library_pipe.value = res.filter((item) => item.library_list?.some((child) => child.library_id === libraryId))
+  } else {
+    library_pipe.value = res
+  }
 }
 const LIBRARY_DETAIL_SIMILAR_RECOMMEND_KEY = 'library-detail-similar-recommend-enabled'
 const similarRows = ref<LibrarySimilarItem[]>([])
@@ -832,11 +889,17 @@ function jumpToSceneEdit(senceId: number) {
   const sceneUrl = `/scene/detail/${senceId}?edit=1`
   const fullUrl = `https://lolitalibrary.com${sceneUrl}`
 
-  if (isHtml5PlusWebview() && typeof uni !== 'undefined' && uni?.navigateTo) {
-    uni.navigateTo({
-      url: `/pages/common/outerLink2?fullScreen=true&url=${fullUrl}`,
-      fail: () => {
-        console.log('跳转错误')
+  if (isHtml5PlusWebview()) {
+    void ensureUniWebview().then((u) => {
+      if (u?.navigateTo) {
+        u.navigateTo({
+          url: `/pages/common/outerLink2?fullScreen=true&url=${fullUrl}`,
+          fail: () => {
+            console.log('跳转错误')
+          },
+        })
+      } else {
+        window.open(sceneUrl, '_blank', 'noopener,noreferrer')
       }
     })
     return
@@ -846,7 +909,7 @@ function jumpToSceneEdit(senceId: number) {
     port.value.postMessage(JSON.stringify({
       type: 'jump',
       path: 'Outlink',
-      params: { url: fullUrl }
+      params: { url: fullUrl },
     }))
     return
   }
@@ -993,28 +1056,29 @@ const fetchSimilarLibraries = async (lid: number) => {
 onMounted(async () => {
   if (!library.value) {
     try {
-      const detail = await getLibraryDetail({ library_id: Number.parseInt(id) })
-      library.value = detail.library ?? null
-      style_list.value = detail.style_list ?? []
-      parent.value = detail.parent ?? null
-      shop.value = detail.shop ?? null
-      uploadUser.value = detail.upload_user ?? null
+      await refreshPageData()
     } catch {
       // SSR 或首次 useAsyncData 异常时客户端补拉失败则保持空状态
     }
   }
-  fetchLibraryVideo()
-  fetchLibraryPipe()
-  void prefetchLibraryTabCounts()
+
   restoreSimilarRecommendEnabled()
-  const lid = routeLibraryId.value
-  if (lid != null) {
-    if (similarRecommendEnabled.value) {
-      void fetchSimilarLibraries(lid)
-    }
-    void fetchSenceForeignList(true)
-  }
   similarRecommendPrefsHydrated.value = true
+
+  const lid = routeLibraryId.value
+  const clientTasks: Promise<unknown>[] = [
+    fetchLibraryVideo(),
+    fetchLibraryPipe(),
+    prefetchLibraryTabCounts(),
+  ]
+  if (lid != null) {
+    clientTasks.push(fetchSenceForeignList(true))
+    if (similarRecommendEnabled.value) {
+      clientTasks.push(fetchSimilarLibraries(lid))
+    }
+  }
+  await Promise.all(clientTasks)
+
   await nextTick()
   detailImageLayout.value = readDetailImageLayoutPref()
   detailImageLayoutReady.value = true
@@ -1075,16 +1139,19 @@ interface WikiParams {
   wiki_name: string
   type_id: number
 }
-let uni: { navigateTo?: (options: { url: string; fail?: () => void }) => void } | undefined
-onMounted(async () => {
-  try {
-    // @ts-ignore
-    uni = await import('@dcloudio/uni-webview-js')
-  } catch (err) {
+
+// biome-ignore lint/suspicious/noExplicitAny: uni-webview-js 类型声明缺失
+let uni: any
+
+async function ensureUniWebview() {
+  if (uni) return uni
+  uni = await import('@dcloudio/uni-webview-js').catch((err) => {
     console.error('Failed to load uni-webview-js:', err)
-    uni = undefined
-  }
-})
+    return undefined
+  })
+  return uni
+}
+
 const port = computed(() => config.getPort())
 const jumpToWiki = async (params: WikiParams) => {
   const { wiki_name, type_id } = params
@@ -1124,13 +1191,18 @@ const jumpToWiki = async (params: WikiParams) => {
     const isInUniApp =
       typeof window !== 'undefined' &&
       navigator.userAgent.includes('Html5Plus')
-    
-    if (isInUniApp && uni && uni.navigateTo) {
-      // UniApp WebView 环境
-      uni.navigateTo({
-        url: `/pages/lolitaWiki/detail/${wikiId}`,
-        fail: () => {
-          console.log('跳转错误')
+
+    if (isInUniApp) {
+      void ensureUniWebview().then((u) => {
+        if (u?.navigateTo) {
+          u.navigateTo({
+            url: `/pages/lolitaWiki/detail/${wikiId}`,
+            fail: () => {
+              console.log('跳转错误')
+            },
+          })
+        } else {
+          void navigateTo(`/lolitaWiki/detail/${wikiId}`)
         }
       })
     } else if (port.value) {
@@ -1168,16 +1240,6 @@ useHead({
     }
   ]
 })
-const { captureElement: capture } = useScreenshot()
-const captureScreen = async () => {
-  if (libraryRef.value) {
-    try {
-      capture(libraryRef.value, 'my-screenshot.png')
-    } catch (error) {
-      console.error('Failed to capture screenshot:', error);
-    }
-  }
-};
 const exchangeRate = (shop_country: number, price: number) => {
   if (!config.config) {
     return false
@@ -1199,8 +1261,8 @@ const exchangeRate = (shop_country: number, price: number) => {
 }
 
 // 加入衣柜相关
-const libraryTypeColorChooseRef = ref<InstanceType<typeof LibraryTypeColorChoose> | null>(null)
-const clothesAddRef = ref<InstanceType<typeof ClothesAdd> | null>(null)
+const libraryTypeColorChooseRef = ref<InstanceType<typeof LibraryTypeColorChooseType> | null>(null)
+const clothesAddRef = ref<InstanceType<typeof ClothesAddType> | null>(null)
 const wardrobeCount = ref(0)
 const isInWardrobe = ref(false)
 const wardrobeLoading = ref(false)
@@ -1275,14 +1337,6 @@ watch(() => library.value, (newLibrary) => {
   }
 }, { immediate: true })
 
-onMounted(() => {
-  if (library.value) {
-    console.log(library.value.wardrobe_count,'初始化时检查状态')
-    
-    wardrobeCount.value = library.value.wardrobe_count || 0
-    checkWardrobeStatus()
-  }
-})
 const jumpToLibraryHistory = () => {
   if (!library.value?.library_id) return
   openLibraryWebPath(`/library/history?library_id=${library.value.library_id}`)
@@ -1332,15 +1386,68 @@ const toggleChildListExpanded = () => {
   childListExpanded.value = !childListExpanded.value
 }
 
+const childTypeFilter = ref('')
+
+const childTypeTagOptions = computed(() => {
+  const types: string[] = []
+  const seen = new Set<string>()
+  for (const item of child_list.value) {
+    const type = item.library_type?.trim()
+    if (type && !seen.has(type)) {
+      seen.add(type)
+      types.push(type)
+    }
+  }
+  return types
+})
+
+const filteredChildList = computed(() => {
+  if (!childTypeFilter.value) return child_list.value
+  return child_list.value.filter((item) => item.library_type?.trim() === childTypeFilter.value)
+})
+
+const LIBRARY_DETAIL_CHILD_LIST_SECTION_KEY = 'libraryDetailChildListSectionExpanded'
+const childListSectionExpanded = ref(true)
+
+function restoreChildListSectionExpanded() {
+  if (!import.meta.client || typeof localStorage === 'undefined') return
+  try {
+    const v = localStorage.getItem(LIBRARY_DETAIL_CHILD_LIST_SECTION_KEY)
+    if (v !== null) childListSectionExpanded.value = v === '1'
+  } catch {
+    /* 忽略读取失败 */
+  }
+}
+
+function persistChildListSectionExpanded(expanded: boolean) {
+  if (!import.meta.client || typeof localStorage === 'undefined') return
+  try {
+    localStorage.setItem(LIBRARY_DETAIL_CHILD_LIST_SECTION_KEY, expanded ? '1' : '0')
+  } catch {
+    /* 忽略写入失败 */
+  }
+}
+
+function toggleChildListSectionExpanded() {
+  childListSectionExpanded.value = !childListSectionExpanded.value
+}
+
+restoreChildListSectionExpanded()
+
+watch(childListSectionExpanded, (expanded) => {
+  persistChildListSectionExpanded(expanded)
+})
+
 watch(routeLibraryId, () => {
   childListExpanded.value = false
+  childTypeFilter.value = ''
 })
 const canManagePipeline = computed(
   () => canUpdateLibrary.value && library.value?.parent_id === 0
 )
 
-const compilationsChooseRef = ref<InstanceType<typeof CompilationsChoose> | null>(null)
-const libraryChooseForBatchRef = ref<InstanceType<typeof LibraryChoose> | null>(null)
+const compilationsChooseRef = ref<InstanceType<typeof CompilationsChooseType> | null>(null)
+const libraryChooseForBatchRef = ref<InstanceType<typeof LibraryChooseType> | null>(null)
 const compInsertLoading = ref(false)
 
 const showCompChoose = (e?: MouseEvent) => {
@@ -1489,7 +1596,7 @@ const batchPatternIds = ref('')
 const showBatchPatternModal = ref(false)
 const selectedPatternElements = ref<Wiki[]>([])
 const batchPatternSaving = ref(false)
-const batchPatternWikiOptionsChooseRef = ref<InstanceType<typeof WikiOptionsChoose> | null>(null)
+const batchPatternWikiOptionsChooseRef = ref<InstanceType<typeof WikiOptionsChooseType> | null>(null)
 const batchPatternElementsCustomInputRef = ref<{ showModel: (e: MouseEvent) => void } | null>(null)
 
 const showBatchPatternChooseWiki = () => {
@@ -1995,6 +2102,32 @@ const librarySharePayload = computed((): LibrarySharePayload | null => {
   }
 })
 
+const libraryRecommendPayload = computed((): LibraryRecommendPayload | null => {
+  const lib = library.value
+  if (!lib || !similarRows.value.length) return null
+
+  const similarList = similarRows.value.slice(0, 8).map((item) => ({
+    name: item.name,
+    cover: item.cover,
+    libraryType: item.library_type || '图鉴',
+    similarityText:
+      item.similarity_score != null && !Number.isNaN(Number(item.similarity_score))
+        ? formatSimilarityScore(Number(item.similarity_score))
+        : undefined,
+    shopName: item.shop?.shop_name?.trim() || undefined,
+  }))
+
+  return {
+    name: lib.name,
+    cover: lib.cover,
+    libraryType: lib.library_type || '图鉴',
+    libraryId: lib.library_id,
+    shopName: shop.value?.shop_name?.trim() || lib.shop?.shop_name?.trim() || undefined,
+    shopLogo: shop.value?.shop_logo?.trim() || lib.shop?.shop_logo?.trim() || undefined,
+    similarList,
+  }
+})
+
 /** 图鉴缩略图：手机端三列等宽网格，桌面端保持原 flex + 固定尺寸 */
 const libraryThumbGridClass =
   'library-thumb-grid flex flex-wrap my-2 max-md:grid max-md:grid-cols-3 max-md:gap-2'
@@ -2147,10 +2280,6 @@ const libraryChildThumbImgClass =
             <QhxPreviewImage :key="library.library_id" :list="[{ src: library.cover, alt: library.name }]" :className="child_list.length > 0 || parent ? 'cursor-pointer ml-3 w-[300px] max-md:w-0 max-md:flex-1 h-[430px]  object-cover rounded-[10px] shadow-lg border border-gray-200'
               : 'cursor-pointer w-full ml-0 h-[430px]  object-cover rounded-[10px] shadow-lg border border-gray-200'">
             </QhxPreviewImage>
-            <!-- <img :src="`${BASE_IMG}${library.cover}`" :alt="library.name"
-              class=" h-[430px]  object-cover rounded-[10px] shadow-lg border border-gray-200"
-              :class="child_list.length > 0 || parent ? 'ml-3 w-[300px] max-md:w-0 max-md:flex-1' : 'w-full ml-0'"
-              loading="lazy" /> -->
             <div class="w-[100px] h-[430px] ml-3 shrink-0" v-if="child_list.length > 0 || parent">
               <div class="w-[100px]" v-if="child_list && child_list.length > 0">
                 <nuxt-link :to="`/library/detail/${item.library_id}`" v-for="(item) in sideChildList"
@@ -2819,10 +2948,16 @@ const libraryChildThumbImgClass =
     <div v-if="library" class="bg-qhx-bg-card rounded-lg shadow-lg mt-3 p-3 max-md:p-2">
       <div class="mb-3 flex items-center justify-between gap-3">
         <h2 class="text-lg font-semibold">相似推荐</h2>
-        <label class="flex shrink-0 items-center gap-2 cursor-pointer">
-          <span class="text-xs text-gray-500 dark:text-gray-400">开启</span>
-          <UToggle v-model="similarRecommendEnabled" color="primary" />
-        </label>
+        <div class="flex shrink-0 items-center gap-3">
+          <LibrarySimilarRecommendImage
+            v-if="similarRecommendEnabled && !similarLoading && similarRows.length > 0"
+            :payload="libraryRecommendPayload"
+          />
+          <label class="flex shrink-0 items-center gap-2 cursor-pointer">
+            <span class="text-xs text-gray-500 dark:text-gray-400">开启</span>
+            <UToggle v-model="similarRecommendEnabled" color="primary" />
+          </label>
+        </div>
       </div>
       <template v-if="similarRecommendEnabled">
       <div v-if="similarLoading" class="text-sm text-gray-500 py-4 text-center">加载中…</div>
@@ -2858,6 +2993,90 @@ const libraryChildThumbImgClass =
         </a>
       </div>
       </template>
+    </div>
+    <div v-if="library && child_list.length > 0" class="bg-qhx-bg-card rounded-lg shadow-lg mt-3 p-3 max-md:p-2">
+      <button
+        type="button"
+        class="flex w-full items-center justify-between gap-2 mb-2 text-left"
+        :aria-expanded="childListSectionExpanded"
+        @click="toggleChildListSectionExpanded"
+      >
+        <h2 class="text-lg font-semibold">
+          子图鉴
+          <span class="text-sm font-normal text-gray-400 dark:text-gray-500">（{{ filteredChildList.length }}）</span>
+        </h2>
+        <span class="flex shrink-0 items-center gap-1 text-xs text-gray-500 transition-colors hover:text-qhx-primary">
+          <UIcon
+            name="i-heroicons-chevron-down-20-solid"
+            class="text-base transition-transform duration-300 ease-in-out"
+            :class="childListSectionExpanded ? 'rotate-180' : ''"
+          />
+          <span>{{ childListSectionExpanded ? '收起' : '展开' }}</span>
+        </span>
+      </button>
+      <Transition name="library-child-expand">
+        <div v-if="childListSectionExpanded">
+          <div v-if="childTypeTagOptions.length > 0" class="flex flex-wrap gap-1.5 mb-3">
+            <QhxTag
+              class="cursor-pointer"
+              :active="childTypeFilter === ''"
+              @click="childTypeFilter = ''"
+            >
+              全部
+            </QhxTag>
+            <QhxTag
+              v-for="tag in childTypeTagOptions"
+              :key="tag"
+              class="cursor-pointer"
+              :active="childTypeFilter === tag"
+              @click="childTypeFilter = tag"
+            >
+              {{ tag }}
+            </QhxTag>
+          </div>
+          <div
+            v-if="filteredChildList.length > 0"
+            class="divide-y divide-gray-100 dark:divide-gray-700 rounded-xl border border-gray-100 dark:border-gray-700 overflow-hidden"
+          >
+            <nuxt-link
+              v-for="item in filteredChildList"
+              :key="item.library_id"
+              :to="`/library/detail/${item.library_id}`"
+              class="flex items-center gap-3 px-3 py-2.5 bg-white dark:bg-gray-900/30 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors"
+            >
+              <div class="relative w-14 h-14 shrink-0 rounded-[10px] overflow-hidden shadow-sm border border-gray-100 dark:border-gray-700">
+                <img
+                  :src="`${BASE_IMG}${item.cover}?x-oss-process=image/quality,q_80/resize,w_200,h_200`"
+                  :alt="item.name"
+                  class="w-full h-full object-cover"
+                  loading="lazy"
+                />
+                <div
+                  class="absolute left-0 top-0 px-1 py-0.5 bg-qhx-primary text-qhx-inverted text-[10px] rounded-br-[6px] leading-none"
+                >
+                  {{ item.library_type }}
+                </div>
+              </div>
+              <div class="flex-1 min-w-0">
+                <p class="text-sm font-medium text-gray-900 dark:text-gray-100 truncate" :title="item.name">
+                  {{ item.name }}
+                </p>
+                <div class="flex flex-wrap items-center gap-1 mt-1">
+                  <QhxTag v-if="item.library_pattern">{{ item.library_pattern }}</QhxTag>
+                  <QhxTag v-if="item.state">{{ item.state }}</QhxTag>
+                  <QhxTag v-if="item.library_price" :active="true">
+                    参考价 {{ item.library_price }} {{ formatLabel(item.shop_country || library?.shop_country || 0, config.config?.money_type) }}
+                  </QhxTag>
+                </div>
+              </div>
+              <UIcon name="i-heroicons-chevron-right-20-solid" class="text-gray-400 shrink-0" />
+            </nuxt-link>
+          </div>
+          <p v-else class="text-sm text-gray-500 dark:text-gray-400 py-4 text-center">
+            暂无匹配子图鉴
+          </p>
+        </div>
+      </Transition>
     </div>
     <div v-if="library && library_video.length > 0" class="bg-qhx-bg-card rounded-lg shadow-lg mt-3">
       <div class="p-3 max-md:block">
@@ -2906,7 +3125,9 @@ const libraryChildThumbImgClass =
     </div>
     
     <!-- SPZ模型查看器弹窗 -->
-    <SPZModelViewer ref="spzModelViewerRef" />
+    <ClientOnly>
+      <SPZModelViewer ref="spzModelViewerRef" />
+    </ClientOnly>
     <div v-if="library" class="bg-qhx-bg-card rounded-lg shadow-lg mt-3">
       <div class="flex items-center gap-2 px-4 py-3 border-b border-gray-100 dark:border-gray-700/60">
         <h3 class="text-base font-semibold text-gray-900 dark:text-gray-100">评论</h3>
@@ -2932,6 +3153,7 @@ const libraryChildThumbImgClass =
           </div>
         </div>
         <CommentSection
+          v-if="library.library_id"
           :key="commentSectionKey"
           :type="'library'"
           :id="library.library_id"
@@ -2943,37 +3165,39 @@ const libraryChildThumbImgClass =
     </div>
     
     <!-- 加入衣柜相关组件 -->
-    <CommunityCommentModal
-      ref="commentModalRef"
-      v-model="showCommentModal"
-      @success="onCommentSuccess"
-    />
-    <CommunityChoose
-      ref="libraryCommunityChooseRef"
-      :only-mine="true"
-      title="选择要关联的返图帖子"
-      placeholder="搜索我的帖子..."
-      @choose="onLibraryReturnCommunityChosen"
-    />
-    <CommunityPostModal
-      ref="libraryReturnPostModalRef"
-      v-model="showLibraryReturnPostModal"
-      :foreign-pk="libraryReturnForeignPk"
-      modal-title="投稿返图"
-      :skip-summary-link="true"
-      :success-redirect="false"
-      @success="onLibraryReturnPostSuccess"
-    />
-    <LibraryTypeColorChoose ref="libraryTypeColorChooseRef" @choose="handleLibraryTypeColorChoose" />
-    <ClothesAdd ref="clothesAddRef" enable-wardrobe-picker @success="handleClothesAddSuccess" />
-    <CompilationsChoose ref="compilationsChooseRef" @choose="onCompChoose" />
-    <LibraryChoose
-      ref="libraryChooseForBatchRef"
-      :multiple="true"
-      :need-parent="false"
-      :filter_list="library?.library_id ? [{ field: 'parent_id', op: 'and', value: library.library_id }] : []"
-      @choose="onLibraryBatchChoose"
-    />
+    <ClientOnly>
+      <CommunityCommentModal
+        ref="commentModalRef"
+        v-model="showCommentModal"
+        @success="onCommentSuccess"
+      />
+      <CommunityChoose
+        ref="libraryCommunityChooseRef"
+        :only-mine="true"
+        title="选择要关联的返图帖子"
+        placeholder="搜索我的帖子..."
+        @choose="onLibraryReturnCommunityChosen"
+      />
+      <CommunityPostModal
+        ref="libraryReturnPostModalRef"
+        v-model="showLibraryReturnPostModal"
+        :foreign-pk="libraryReturnForeignPk"
+        modal-title="投稿返图"
+        :skip-summary-link="true"
+        :success-redirect="false"
+        @success="onLibraryReturnPostSuccess"
+      />
+      <LibraryTypeColorChoose ref="libraryTypeColorChooseRef" @choose="handleLibraryTypeColorChoose" />
+      <ClothesAdd ref="clothesAddRef" enable-wardrobe-picker @success="handleClothesAddSuccess" />
+      <CompilationsChoose ref="compilationsChooseRef" @choose="onCompChoose" />
+      <LibraryChoose
+        ref="libraryChooseForBatchRef"
+        :multiple="true"
+        :need-parent="false"
+        :filter_list="library?.library_id ? [{ field: 'parent_id', op: 'and', value: library.library_id }] : []"
+        @choose="onLibraryBatchChoose"
+      />
+    </ClientOnly>
     
     <QhxModal v-model="showBatchTypeModal" :close-on-backdrop="true">
       <div class="w-[95vw] max-w-md bg-white dark:bg-gray-800 rounded-2xl shadow-xl overflow-hidden border border-gray-200/50 dark:border-gray-700/50">
@@ -3494,8 +3718,10 @@ const libraryChildThumbImgClass =
         </div>
       </div>
     </QhxModal>
-    <WikiOptionsChoose ref="batchPatternWikiOptionsChooseRef" @choose="onBatchPatternWikiChoose" />
-    <MatchingAddEdit ref="matchingAddEditRef" @success="onMatchingAddSuccess" />
+    <ClientOnly>
+      <WikiOptionsChoose ref="batchPatternWikiOptionsChooseRef" @choose="onBatchPatternWikiChoose" />
+      <MatchingAddEdit ref="matchingAddEditRef" @success="onMatchingAddSuccess" />
+    </ClientOnly>
     <!-- 物理掉落组件 -->
     <!-- <ClientOnly>
       <PhysicsDrop 

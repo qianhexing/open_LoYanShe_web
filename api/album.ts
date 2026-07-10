@@ -115,3 +115,14 @@ export async function unsubscribeAlbum(params: {
   >('/album/unsubscribe', params);
   return response.data;
 }
+
+/** 删除自己创建的非公开成就簿（含全部子目标） */
+export async function deleteAlbum(params: {
+  album_id: number;
+}): Promise<{ album_id: number }> {
+  const response = await use$Post<BaseResponse<{ album_id: number }>>(
+    '/album/delete',
+    params,
+  );
+  return response.data;
+}

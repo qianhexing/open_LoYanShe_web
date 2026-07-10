@@ -56,6 +56,9 @@ export interface LibraryShareImageBundle {
 }
 
 const CW = 750
+/** 4K 导出宽度（设计稿 750px 等比放大） */
+const CANVAS_EXPORT_WIDTH = 3840
+const CANVAS_EXPORT_SCALE = CANVAS_EXPORT_WIDTH / CW
 const P = 36
 const DEFAULT_COVER = 'static/plan_cover/default.jpg'
 const CONTENT_W = CW - P * 2
@@ -71,7 +74,8 @@ function infoInnerWidth(): number {
 const CHILD_COLS = 4
 const CHILD_GAP = 10
 const CHILD_CELL_W = (CONTENT_W - CHILD_GAP * (CHILD_COLS - 1)) / CHILD_COLS
-const CHILD_THUMB_H = CHILD_CELL_W
+/** 子图鉴缩略图：宽 3 : 高 4 */
+const CHILD_THUMB_H = Math.round(CHILD_CELL_W * (4 / 3))
 const CHILD_NAME_H = 34
 const SIMILAR_COLS = 4
 const SIMILAR_GAP = 10
@@ -204,11 +208,41 @@ function coverHeight(width: number): number {
   return Math.round(width * (4 / 3))
 }
 
-function resolveImgUrl(path: string | null | undefined, resize = 600): string {
+function exportImageSize(designPx: number, designHeightPx?: number): number | [number, number] {
+  const w = Math.min(4096, Math.ceil(designPx * CANVAS_EXPORT_SCALE))
+  if (designHeightPx != null) {
+    const h = Math.min(4096, Math.ceil(designHeightPx * CANVAS_EXPORT_SCALE))
+    return [w, h]
+  }
+  return w
+}
+
+function resolveExportImgUrl(
+  path: string | null | undefined,
+  designW: number,
+  designH?: number,
+): string {
+  const size = exportImageSize(designW, designH)
+  if (Array.isArray(size)) return resolveImgUrl(path, size[0], size[1])
+  return resolveImgUrl(path, size)
+}
+
+function create4KCanvas(designH: number): { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D } {
+  const canvas = document.createElement('canvas')
+  canvas.width = CANVAS_EXPORT_WIDTH
+  canvas.height = Math.round(designH * CANVAS_EXPORT_SCALE)
+  const ctx = canvas.getContext('2d')
+  if (!ctx) throw new Error('canvas')
+  ctx.scale(CANVAS_EXPORT_SCALE, CANVAS_EXPORT_SCALE)
+  return { canvas, ctx }
+}
+
+function resolveImgUrl(path: string | null | undefined, resize = 600, resizeH?: number): string {
   const p = (path?.trim() || DEFAULT_COVER).trim()
   if (/^https?:\/\//i.test(p)) return p
   const rel = p.replace(/^\//, '')
-  return `${BASE_IMG}${rel}?x-oss-process=image/quality,q_85/resize,w_${resize}`
+  const size = resizeH != null ? `w_${resize},h_${resizeH}` : `w_${resize}`
+  return `${BASE_IMG}${rel}?x-oss-process=image/quality,q_85/resize,${size}`
 }
 
 export function loadImageCors(src: string): Promise<HTMLImageElement | null> {
@@ -223,21 +257,25 @@ export function loadImageCors(src: string): Promise<HTMLImageElement | null> {
 }
 
 export async function prepareLibraryShareImages(payload: LibrarySharePayload): Promise<LibraryShareImageBundle> {
-  const cover = await loadImageCors(resolveImgUrl(payload.cover, 900))
+  const cover = await loadImageCors(resolveExportImgUrl(payload.cover, MAIN_COVER_W, MAIN_COVER_H))
   const shopLogo = payload.shopLogo
-    ? await loadImageCors(resolveImgUrl(payload.shopLogo, 200))
+    ? await loadImageCors(resolveExportImgUrl(payload.shopLogo, 40, 40))
     : null
   const childList = await Promise.all(
-    payload.childList.map((item) => loadImageCors(resolveImgUrl(item.cover, 300))),
+    payload.childList.map((item) =>
+      loadImageCors(resolveExportImgUrl(item.cover, CHILD_CELL_W, CHILD_THUMB_H)),
+    ),
   )
   const skuCovers = await Promise.all(
     (payload.skuList ?? []).map((item) =>
-      item.cover ? loadImageCors(resolveImgUrl(item.cover, 300)) : Promise.resolve(null),
+      item.cover
+        ? loadImageCors(resolveExportImgUrl(item.cover, SKU_CELL_W, SKU_THUMB_H))
+        : Promise.resolve(null),
     ),
   )
   const similarCovers = await Promise.all(
     (payload.similarList ?? []).slice(0, SIMILAR_MAX).map((item) =>
-      loadImageCors(resolveImgUrl(item.cover, 300)),
+      loadImageCors(resolveExportImgUrl(item.cover, SIMILAR_CELL_W, SIMILAR_THUMB_H)),
     ),
   )
 
@@ -997,11 +1035,7 @@ export function drawLibraryShareCanvas(
   bundle: LibraryShareImageBundle,
 ): HTMLCanvasElement {
   const H = measurePayloadHeight(payload)
-  const canvas = document.createElement('canvas')
-  canvas.width = CW
-  canvas.height = H
-  const ctx = canvas.getContext('2d')
-  if (!ctx) throw new Error('canvas')
+  const { canvas, ctx } = create4KCanvas(H)
 
   drawJapaneseBookPageBackground(ctx, CW, H)
 
@@ -1043,4 +1077,230 @@ export function plainTextFromHtml(input: string): string[] {
     .trim()
   if (!text) return []
   return logicalLinesFromText(text)
+}
+
+/** 相似推荐单（独立分享图，可展示更多条目） */
+export interface LibraryRecommendPayload {
+  name: string
+  cover: string
+  libraryType: string
+  libraryId?: number
+  shopName?: string
+  shopLogo?: string
+  similarList: LibraryShareSimilarItem[]
+}
+
+export interface LibraryRecommendImageBundle {
+  cover: HTMLImageElement | null
+  shopLogo: HTMLImageElement | null
+  similarCovers: (HTMLImageElement | null)[]
+}
+
+const RECOMMEND_SIMILAR_MAX = 8
+const RECOMMEND_HERO_COVER_W = 200
+const RECOMMEND_HERO_COVER_H = coverHeight(RECOMMEND_HERO_COVER_W)
+
+export async function prepareLibraryRecommendImages(
+  payload: LibraryRecommendPayload,
+): Promise<LibraryRecommendImageBundle> {
+  const cover = await loadImageCors(
+    resolveExportImgUrl(payload.cover, RECOMMEND_HERO_COVER_W, RECOMMEND_HERO_COVER_H),
+  )
+  const shopLogo = payload.shopLogo
+    ? await loadImageCors(resolveExportImgUrl(payload.shopLogo, 32, 32))
+    : null
+  const similarCovers = await Promise.all(
+    payload.similarList.slice(0, RECOMMEND_SIMILAR_MAX).map((item) =>
+      loadImageCors(resolveExportImgUrl(item.cover, SIMILAR_CELL_W, SIMILAR_THUMB_H)),
+    ),
+  )
+  return { cover, shopLogo, similarCovers }
+}
+
+function measureRecommendHeroSection(ctx: CanvasRenderingContext2D, payload: LibraryRecommendPayload): number {
+  const textW = CONTENT_W - RECOMMEND_HERO_COVER_W - HERO_GAP - INFO_INNER_PAD * 2
+  let infoH = INFO_INNER_PAD * 2
+  ctx.font = 'bold 16px system-ui, "Microsoft YaHei", sans-serif'
+  infoH += wrapLines(ctx, payload.name.trim(), textW).slice(0, 2).length * 20 + 8
+  if (payload.shopName?.trim()) infoH += 44
+  infoH += 24
+  return Math.max(RECOMMEND_HERO_COVER_H, infoH) + 20
+}
+
+function measureRecommendSimilarGridSection(list: LibraryShareSimilarItem[]): number {
+  if (!list.length) return 0
+  const rows = Math.ceil(Math.min(list.length, RECOMMEND_SIMILAR_MAX) / SIMILAR_COLS)
+  return 8 + 32 + rows * (SIMILAR_THUMB_H + SIMILAR_NAME_H + 8) + 12
+}
+
+function measureRecommendPayloadHeight(payload: LibraryRecommendPayload): number {
+  const mc = document.createElement('canvas')
+  const ctx = mc.getContext('2d')
+  if (!ctx) return 900
+  let y = P + 44
+  y += measureRecommendHeroSection(ctx, payload)
+  y += measureRecommendSimilarGridSection(payload.similarList)
+  return Math.max(480, y + P + 36)
+}
+
+function drawRecommendHeroSection(
+  ctx: CanvasRenderingContext2D,
+  startY: number,
+  payload: LibraryRecommendPayload,
+  bundle: LibraryRecommendImageBundle,
+): number {
+  const coverX = P
+  const coverY = startY
+  const infoX = coverX + RECOMMEND_HERO_COVER_W + HERO_GAP
+  const textW = CONTENT_W - RECOMMEND_HERO_COVER_W - HERO_GAP - INFO_INNER_PAD * 2
+
+  let infoContentH = INFO_INNER_PAD
+  infoContentH += 20
+  ctx.font = 'bold 16px system-ui, "Microsoft YaHei", sans-serif'
+  infoContentH += wrapLines(ctx, payload.name.trim(), textW).slice(0, 2).length * 20 + 8
+  if (payload.shopName?.trim()) infoContentH += 40
+  infoContentH += INFO_INNER_PAD
+  const heroH = Math.max(RECOMMEND_HERO_COVER_H, infoContentH)
+
+  drawCoverFrame(ctx, coverX, coverY, RECOMMEND_HERO_COVER_W, RECOMMEND_HERO_COVER_H, bundle.cover, 14)
+  const mainType = payload.libraryType || '图鉴'
+  drawWardrobeBadge(
+    ctx,
+    mainType,
+    coverX + 6,
+    coverY + 6,
+    getWardrobeBadgePalette(mainType, 0),
+  )
+
+  drawCard(ctx, infoX, coverY, CONTENT_W - RECOMMEND_HERO_COVER_W - HERO_GAP, heroH, PAGE.card, 14)
+
+  let y = coverY + INFO_INNER_PAD
+  ctx.fillStyle = PAGE.muted
+  ctx.font = '12px system-ui, "Microsoft YaHei", sans-serif'
+  ctx.textAlign = 'left'
+  ctx.textBaseline = 'alphabetic'
+  ctx.fillText('参考图鉴', infoX + INFO_INNER_PAD, y + 12)
+  y += 20
+
+  ctx.fillStyle = PAGE.title
+  ctx.font = 'bold 16px system-ui, "Microsoft YaHei", sans-serif'
+  for (const line of wrapLines(ctx, payload.name.trim(), textW).slice(0, 2)) {
+    ctx.fillText(line, infoX + INFO_INNER_PAD, y + 16)
+    y += 20
+  }
+  y += 8
+
+  const shopName = payload.shopName?.trim()
+  if (shopName) {
+    const logoSize = 32
+    const shopX = infoX + INFO_INNER_PAD
+    drawCard(ctx, shopX, y, logoSize, logoSize, '#ffffff', 8)
+    ctx.save()
+    drawRoundRectPath(ctx, shopX, y, logoSize, logoSize, 8)
+    ctx.clip()
+    if (bundle.shopLogo?.naturalWidth && bundle.shopLogo.naturalHeight) {
+      drawImageCover(ctx, bundle.shopLogo, shopX, y, logoSize, logoSize)
+    } else {
+      ctx.fillStyle = PAGE.coverEmpty
+      ctx.fillRect(shopX, y, logoSize, logoSize)
+    }
+    ctx.restore()
+    ctx.fillStyle = PAGE.title
+    ctx.font = '12px system-ui, "Microsoft YaHei", sans-serif'
+    ctx.fillText(truncateName(shopName, 18), shopX + logoSize + 8, y + 20)
+  }
+
+  return startY + heroH + 20
+}
+
+function drawRecommendSimilarGridSection(
+  ctx: CanvasRenderingContext2D,
+  startY: number,
+  list: LibraryShareSimilarItem[],
+  bundle: LibraryRecommendImageBundle,
+): number {
+  const items = list.slice(0, RECOMMEND_SIMILAR_MAX)
+  if (!items.length) return startY
+
+  let y = startY + 8
+  ctx.fillStyle = PAGE.title
+  ctx.font = 'bold 18px system-ui, "Microsoft YaHei", sans-serif'
+  ctx.textAlign = 'left'
+  ctx.fillText(`相似推荐（${items.length}）`, P, y + 20)
+  y += 32
+
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i]
+    const col = i % SIMILAR_COLS
+    const row = Math.floor(i / SIMILAR_COLS)
+    const cellX = P + col * (SIMILAR_CELL_W + SIMILAR_GAP)
+    const cellY = y + row * (SIMILAR_THUMB_H + SIMILAR_NAME_H + 8)
+
+    drawCoverFrame(ctx, cellX, cellY, SIMILAR_CELL_W, SIMILAR_THUMB_H, bundle.similarCovers[i], 10)
+
+    const simType = item.libraryType || '图鉴'
+    drawWardrobeBadge(
+      ctx,
+      simType,
+      cellX + 4,
+      cellY + 4,
+      getWardrobeBadgePalette(simType, i),
+    )
+
+    if (item.similarityText?.trim()) {
+      drawSimilarityScoreBadge(
+        ctx,
+        item.similarityText.trim(),
+        cellX,
+        cellY,
+        SIMILAR_CELL_W,
+        SIMILAR_THUMB_H,
+      )
+    }
+
+    ctx.fillStyle = PAGE.title
+    ctx.font = '11px system-ui, "Microsoft YaHei", sans-serif'
+    ctx.textAlign = 'left'
+    let ny = cellY + SIMILAR_THUMB_H + 14
+    for (const line of wrapLines(ctx, item.name, SIMILAR_CELL_W - 6).slice(0, 2)) {
+      ctx.fillText(line, cellX + 3, ny)
+      ny += 14
+    }
+    if (item.shopName?.trim()) {
+      ctx.fillStyle = PAGE.muted
+      ctx.font = '9px system-ui, "Microsoft YaHei", sans-serif'
+      ctx.fillText(truncateName(item.shopName.trim(), 14), cellX + 3, ny + 2)
+    }
+  }
+
+  const rows = Math.ceil(items.length / SIMILAR_COLS)
+  return y + rows * (SIMILAR_THUMB_H + SIMILAR_NAME_H + 8) + 12
+}
+
+export function drawLibraryRecommendCanvas(
+  payload: LibraryRecommendPayload,
+  bundle: LibraryRecommendImageBundle,
+): HTMLCanvasElement {
+  const H = measureRecommendPayloadHeight(payload)
+  const { canvas, ctx } = create4KCanvas(H)
+
+  drawJapaneseBookPageBackground(ctx, CW, H)
+
+  let y = P
+  ctx.fillStyle = PAGE.title
+  ctx.font = 'bold 28px system-ui, "Microsoft YaHei", "PingFang SC", sans-serif'
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'alphabetic'
+  ctx.fillText('Lo研社 Lolita图鉴', CW / 2, y + 26)
+  y += 44
+
+  y = drawRecommendHeroSection(ctx, y, payload, bundle)
+  y = drawRecommendSimilarGridSection(ctx, y, payload.similarList, bundle)
+
+  ctx.fillStyle = PAGE.footer
+  ctx.font = '12px system-ui, "Microsoft YaHei", sans-serif'
+  ctx.textAlign = 'center'
+  ctx.fillText('Lo研社 · 相似推荐单', CW / 2, H - P + 4)
+
+  return canvas
 }

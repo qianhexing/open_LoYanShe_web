@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { Album } from '@/types/api'
 import type AlbumAddEdit from '@/components/Album/AlbumAddEdit.vue'
-import { unsubscribeAlbum } from '@/api/album'
+import { deleteAlbum, unsubscribeAlbum } from '@/api/album'
 import { BASE_IMG } from '@/utils/ipConfig'
 import useScrollBottom from '@/composables/useScrollBottom'
 import {
@@ -47,6 +47,10 @@ const showUnsubscribeConfirm = ref(false)
 const pendingUnsubscribeItem = ref<Album | null>(null)
 const unsubscribeConfirmPosition = ref({ x: 0, y: 0 })
 const unsubscribingId = ref<number | null>(null)
+const showDeleteConfirm = ref(false)
+const pendingDeleteItem = ref<Album | null>(null)
+const deleteConfirmPosition = ref({ x: 0, y: 0 })
+const deletingId = ref<number | null>(null)
 
 const decoInitialSelectedIds = computed(() =>
   displayBadgeStr.value
@@ -143,6 +147,11 @@ const isAlbumPublic = (item: Album) => (item.is_private ?? 1) === 0
 
 const canEditAlbum = (item: Album) => isAlbumOwned(item)
 
+const canDeleteAlbum = (item: Album) => isAlbumOwned(item) && !isAlbumPublic(item)
+
+const hasAlbumCardActions = (item: Album) =>
+  canEditAlbum(item) || canDeleteAlbum(item) || isAlbumSubscribed(item)
+
 const ensureLoggedIn = () => {
   if (userStore.token) return true
   toast.add({
@@ -162,6 +171,47 @@ const openEditAlbum = (item: Album, event: MouseEvent) => {
   event.stopPropagation()
   if (!ensureLoggedIn()) return
   albumAddEditRef.value?.showModel(item.album_id, event)
+}
+
+const openDeleteConfirm = (item: Album, event: MouseEvent) => {
+  event.stopPropagation()
+  if (!ensureLoggedIn()) return
+  if (!canDeleteAlbum(item)) return
+
+  pendingDeleteItem.value = item
+  deleteConfirmPosition.value = { x: event.clientX, y: event.clientY }
+  showDeleteConfirm.value = true
+}
+
+const cancelDelete = () => {
+  showDeleteConfirm.value = false
+  pendingDeleteItem.value = null
+}
+
+const confirmDelete = async () => {
+  const item = pendingDeleteItem.value
+  if (!item || !canDeleteAlbum(item)) {
+    cancelDelete()
+    return
+  }
+
+  deletingId.value = item.album_id
+  try {
+    await deleteAlbum({ album_id: item.album_id })
+    list.value = list.value.filter((album) => album.album_id !== item.album_id)
+    total.value = Math.max(0, total.value - 1)
+    toast.add({
+      title: '已删除成就簿',
+      icon: 'i-heroicons-check-circle',
+      color: 'green',
+    })
+    cancelDelete()
+    await fetchAchievementStats()
+  } catch {
+    // 错误提示由 http 拦截器统一处理
+  } finally {
+    deletingId.value = null
+  }
 }
 
 const onAlbumSaved = () => {
@@ -359,7 +409,7 @@ useHead({
               <div
                 v-if="isAlbumItemCompleted(item)"
                 class="album-complete-badge"
-                :class="{ 'album-complete-badge--stacked': isAlbumSubscribed(item) || canEditAlbum(item) }"
+                :class="{ 'album-complete-badge--stacked': hasAlbumCardActions(item) }"
               >
                 <UIcon name="i-heroicons-check-circle" class="h-3.5 w-3.5" />
                 已完成
@@ -378,15 +428,31 @@ useHead({
                 公开
               </div>
 
-              <button
-                v-if="canEditAlbum(item)"
-                type="button"
-                class="album-edit-btn"
-                aria-label="编辑相册"
-                @click="openEditAlbum(item, $event)"
+              <div
+                v-if="canEditAlbum(item) || canDeleteAlbum(item)"
+                class="album-action-group"
               >
-                <UIcon name="i-heroicons-pencil-square" class="h-3.5 w-3.5" />
-              </button>
+                <button
+                  v-if="canEditAlbum(item)"
+                  type="button"
+                  class="album-action-btn album-edit-btn"
+                  aria-label="编辑相册"
+                  @click="openEditAlbum(item, $event)"
+                >
+                  <UIcon name="i-heroicons-pencil-square" class="h-3.5 w-3.5" />
+                </button>
+
+                <button
+                  v-if="canDeleteAlbum(item)"
+                  type="button"
+                  class="album-action-btn album-delete-btn"
+                  title="删除成就簿"
+                  aria-label="删除成就簿"
+                  @click="openDeleteConfirm(item, $event)"
+                >
+                  <UIcon name="i-heroicons-trash" class="h-3.5 w-3.5" />
+                </button>
+              </div>
 
               <button
                 v-if="isAlbumSubscribed(item)"
@@ -445,6 +511,51 @@ useHead({
     </section>
 
     <AlbumAddEdit ref="albumAddEditRef" @success="onAlbumSaved" />
+
+    <QhxModal
+      v-model="showDeleteConfirm"
+      :trigger-position="deleteConfirmPosition"
+      :close-on-backdrop="false"
+      @close="cancelDelete"
+    >
+      <div class="w-[90vw] max-w-md overflow-hidden rounded-2xl border border-gray-200/50 bg-white shadow-2xl dark:border-gray-700/50 dark:bg-gray-800">
+        <div class="border-b border-gray-200 px-6 py-4 dark:border-gray-700">
+          <h3 class="flex items-center gap-2 text-lg font-semibold text-gray-900 dark:text-gray-100">
+            <UIcon name="i-heroicons-trash" class="h-5 w-5 text-red-500" />
+            删除成就簿
+          </h3>
+        </div>
+        <div class="space-y-4 px-6 py-4">
+          <div class="rounded-xl border border-red-200/80 bg-red-50 px-4 py-3 dark:border-red-500/30 dark:bg-red-950/30">
+            <p class="text-sm font-medium text-red-800 dark:text-red-200">
+              此操作不可恢复
+            </p>
+            <p class="mt-1 text-xs leading-relaxed text-red-700 dark:text-red-300/90">
+              将永久删除该成就簿及其全部子目标与打卡记录，请谨慎操作。
+            </p>
+          </div>
+          <p class="text-sm leading-relaxed text-gray-600 dark:text-gray-400">
+            确定删除
+            <span class="font-medium text-gray-900 dark:text-gray-100">
+              「{{ pendingDeleteItem?.album_title }}」
+            </span>
+            吗？
+          </p>
+        </div>
+        <div class="flex justify-end gap-2 border-t border-gray-200 px-6 py-4 dark:border-gray-700">
+          <UButton color="gray" variant="outline" @click="cancelDelete">取消</UButton>
+          <UButton
+            color="red"
+            variant="soft"
+            icon="i-heroicons-trash"
+            :loading="deletingId === pendingDeleteItem?.album_id"
+            @click="confirmDelete"
+          >
+            确认删除
+          </UButton>
+        </div>
+      </div>
+    </QhxModal>
 
     <QhxModal
       v-model="showUnsubscribeConfirm"
@@ -635,24 +746,42 @@ useHead({
   top: 2.55rem;
 }
 
-.album-edit-btn {
+.album-action-group {
   position: absolute;
   top: 0.65rem;
   right: 0.65rem;
   z-index: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.album-action-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   width: 1.75rem;
   height: 1.75rem;
   border-radius: 9999px;
-  background: rgba(0, 0, 0, 0.55);
   color: #fff;
   transition: background 0.2s ease;
 }
 
+.album-edit-btn {
+  background: rgba(0, 0, 0, 0.55);
+}
+
 .album-edit-btn:hover {
   background: rgba(0, 0, 0, 0.72);
+}
+
+.album-delete-btn {
+  background: rgba(220, 38, 38, 0.92);
+  box-shadow: 0 2px 8px rgba(220, 38, 38, 0.35);
+}
+
+.album-delete-btn:hover {
+  background: rgba(185, 28, 28, 0.96);
 }
 
 .album-subscribed-badge {
@@ -771,6 +900,14 @@ useHead({
   border-color: rgba(51, 65, 85, 0.6);
   background: rgb(31 41 55);
   box-shadow: 0 6px 24px rgba(0, 0, 0, 0.3);
+}
+
+.dark .album-delete-btn {
+  background: rgba(220, 38, 38, 0.88);
+}
+
+.dark .album-delete-btn:hover {
+  background: rgba(185, 28, 28, 0.95);
 }
 
 .dark .album-unsubscribe-btn {

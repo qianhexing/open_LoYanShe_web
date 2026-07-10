@@ -284,13 +284,49 @@ const shopLibraryFilterList = [
   { field: 'parent_id', op: 'and', value: 0 },
 ] as const
 
+const librarySearchInput = ref('')
+const libraryKeyword = ref('')
+
+function buildShopLibraryFilterList() {
+  const filters = [...shopLibraryFilterList]
+  if (libraryKeyword.value) {
+    filters.push({
+      field: 'name',
+      op: 'and',
+      value: libraryKeyword.value,
+    })
+  }
+  return filters
+}
+
+function refreshShopLibraryList() {
+  if (librarySortMode.value === 0) {
+    nextTick(() => waterListRef.value?.refresh())
+    return
+  }
+  resetTimelineList()
+  void loadTimelineLibraries()
+}
+
+function handleLibrarySearch() {
+  libraryKeyword.value = librarySearchInput.value.trim()
+  refreshShopLibraryList()
+}
+
+function clearLibrarySearch() {
+  librarySearchInput.value = ''
+  if (!libraryKeyword.value) return
+  libraryKeyword.value = ''
+  refreshShopLibraryList()
+}
+
 async function fetchShopLibraryList(page: number, pageSize: number) {
   try {
     const response = await getLibraryList({
       page,
       pageSize,
       need_Statistics: true,
-      filter_list: [...shopLibraryFilterList],
+      filter_list: buildShopLibraryFilterList(),
     })
     shopLibraryTabCount.value = response.count ?? 0
     return {
@@ -316,7 +352,7 @@ async function loadTimelineLibraries() {
       page: timelinePage.value,
       pageSize: TIMELINE_PAGE_SIZE,
       need_Statistics: true,
-      filter_list: [...shopLibraryFilterList],
+      filter_list: buildShopLibraryFilterList(),
       sort: 5,
     })
     const rows = response.rows ?? []
@@ -341,12 +377,7 @@ function loadMoreTimeline() {
 function onLibrarySortModeChange(mode: LibrarySortMode) {
   if (librarySortMode.value === mode) return
   librarySortMode.value = mode
-  if (mode === 0) {
-    nextTick(() => waterListRef.value?.refresh())
-    return
-  }
-  resetTimelineList()
-  void loadTimelineLibraries()
+  refreshShopLibraryList()
 }
 
 const shopEventTabCount = ref<number | undefined>(undefined)
@@ -778,6 +809,42 @@ watch(
           >
             初贩时间轴
           </button>
+        </div>
+      </div>
+      <div class="px-4 py-3 border-b border-gray-100 dark:border-gray-700/60">
+        <div class="flex items-center gap-2 max-w-xl">
+          <UInput
+            v-model="librarySearchInput"
+            placeholder="搜索图鉴 多条件空格分割"
+            class="flex-1 focus:ring-0"
+            :autofocus="false"
+            :ui="{
+              base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
+              rounded: 'rounded-full',
+              padding: { xs: 'px-4 py-2' },
+              color: {
+                white: {
+                  outline: 'bg-gray-50 dark:bg-gray-800 ring-1 ring-gray-300 dark:ring-gray-600 focus:ring-2 focus:ring-qhx-primary'
+                }
+              }
+            }"
+            @keyup.enter="handleLibrarySearch"
+          />
+          <UButton
+            icon="i-heroicons-magnifying-glass"
+            variant="ghost"
+            color="gray"
+            aria-label="搜索图鉴"
+            @click="handleLibrarySearch"
+          />
+          <UButton
+            v-if="libraryKeyword"
+            icon="i-heroicons-x-mark"
+            variant="ghost"
+            color="gray"
+            aria-label="清除搜索"
+            @click="clearLibrarySearch"
+          />
         </div>
       </div>
       <div class="bg-white dark:bg-gray-900 min-h-[min(50vh,480px)]">

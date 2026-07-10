@@ -22,15 +22,11 @@ import { useCopyCurrentUrl } from '@/composables/useCopyCurrentUrl'
 import { useLayoutStyle } from '@/composables/useLayoutStyle'
 import { useCommentUiStore } from '@/stores/commentUi'
 import { BASE_IMG } from '@/utils/ipConfig'
+import CommentSection from '@/components/comment/CommentSection.vue'
+import CommunityCommentModal from '@/components/community/CommentModal.vue'
 
-const CommentSection = defineAsyncComponent(
-  () => import('@/components/comment/CommentSection.vue'),
-)
 const CommunityDetailForeignSection = defineAsyncComponent(
   () => import('@/components/community/CommunityDetailForeignSection.vue'),
-)
-const CommunityCommentModal = defineAsyncComponent(
-  () => import('@/components/community/CommentModal.vue'),
 )
 const AchievementDecoConfigModal = defineAsyncComponent(
   () => import('@/components/achievement/DecoConfigModal.vue'),

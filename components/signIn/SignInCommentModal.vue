@@ -3,11 +3,7 @@ import type QhxImagePicker from '@/components/Qhx/ImagePicker.vue'
 import QhxModal from '@/components/Qhx/Modal.vue'
 import GardenFlowerTypePicker from '@/components/signIn/GardenFlowerTypePicker.vue'
 import { signInDaily } from '@/api/sign_in'
-import {
-  getDefaultGardenFlowerDecoId,
-  getGardenFlowerDecoMeta,
-  isGardenFlowerDecoId,
-} from '@/utils/gardenFlowerDeco'
+import { getGardenFlowerDecoMeta, isGardenFlowerDecoId } from '@/utils/gardenFlowerDeco'
 import { uploadImageOSS } from '@/utils/ossUpload'
 
 const modelValue = defineModel<boolean>({ default: false })
@@ -24,10 +20,22 @@ const addToWordCloud = ref(false)
 const selectedFlowerType = ref('')
 const submitting = ref(false)
 
+function getValidFlowerType(): string {
+  const value = selectedFlowerType.value
+  if (
+    !value ||
+    !isGardenFlowerDecoId(value) ||
+    !getGardenFlowerDecoMeta(value)?.hasOwn
+  ) {
+    return ''
+  }
+  return value
+}
+
 const resetForm = () => {
   content.value = ''
   addToWordCloud.value = false
-  selectedFlowerType.value = getDefaultGardenFlowerDecoId()
+  selectedFlowerType.value = ''
   imagePickerRef.value?.clear?.()
 }
 
@@ -55,18 +63,7 @@ const handleSubmit = async () => {
   }
 
   const trimmed = content.value.trim()
-  if (
-    !selectedFlowerType.value ||
-    !isGardenFlowerDecoId(selectedFlowerType.value) ||
-    !getGardenFlowerDecoMeta(selectedFlowerType.value)?.hasOwn
-  ) {
-    toast.add({
-      title: '请选择已解锁的花朵',
-      icon: 'i-heroicons-exclamation-circle',
-      color: 'orange',
-    })
-    return
-  }
+  const flowerType = getValidFlowerType()
 
   if (addToWordCloud.value && (trimmed.length <= 0 || trimmed.length > 8)) {
     toast.add({
@@ -84,13 +81,14 @@ const handleSubmit = async () => {
       comment_content: string
       word_cloud: boolean
       mount_img?: string
-      json_data: { flower_types: string }
+      json_data?: { flower_types: string }
     } = {
       comment_content: trimmed,
       word_cloud: addToWordCloud.value,
-      json_data: {
-        flower_types: selectedFlowerType.value,
-      },
+    }
+
+    if (flowerType) {
+      params.json_data = { flower_types: flowerType }
     }
 
     if (imagePickerRef.value?.previewImages.length) {
@@ -110,7 +108,7 @@ const handleSubmit = async () => {
 
     emit('reload', {
       word_cloud: addToWordCloud.value && trimmed ? trimmed : undefined,
-      flower_types: selectedFlowerType.value,
+      flower_types: flowerType || undefined,
     })
     handleClose()
   } catch (error) {
@@ -126,17 +124,8 @@ const handleSubmit = async () => {
   }
 }
 
-watch(modelValue, (open) => {
-  if (open && !selectedFlowerType.value) {
-    selectedFlowerType.value = getDefaultGardenFlowerDecoId()
-  }
-})
-
 defineExpose({
   open: () => {
-    if (!selectedFlowerType.value) {
-      selectedFlowerType.value = getDefaultGardenFlowerDecoId()
-    }
     modelValue.value = true
   },
 })

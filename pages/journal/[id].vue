@@ -483,6 +483,14 @@
                       </div>
                     </div>
                     <p v-else-if="j.pk_type === 5" class="text-sm text-amber-600 dark:text-amber-400">关联已失效</p>
+                    <SceneItem
+                      v-else-if="j.pk_type === 6 && j.sence"
+                      :need-jump="false"
+                      :size="'mini-list'"
+                      :item="j.sence"
+                      class="!m-0"
+                    />
+                    <p v-else-if="j.pk_type === 6" class="text-sm text-amber-600 dark:text-amber-400">关联已失效</p>
                     <p v-else class="text-sm text-[#4a2f3d] dark:text-[var(--ink-secondary)]">
                       {{ j.note || '无笔记' }}
                     </p>
@@ -495,7 +503,7 @@
                       {{ tag }}
                     </QhxTag>
                   </div>
-                  <div v-if="j.note && (j.community || j.comment || j.wardrobe_clothes || j.matching_list || j.library || j.plan)" class="px-3 pb-3 pt-0">
+                  <div v-if="j.note && (j.community || j.comment || j.wardrobe_clothes || j.matching_list || j.library || j.plan || j.sence)" class="px-3 pb-3 pt-0">
                     <div class="journal-neu-note text-xs text-[#7a5f6a] dark:text-[var(--ink-muted)] rounded-xl px-2 py-1.5">
                       <span class="font-medium text-amber-700 dark:text-amber-400"></span>
                       {{ j.note }}
@@ -583,7 +591,7 @@
           </div>
           <div v-if="form.pk_type && form.pk_type !== 5" class="space-y-1">
             <label class="block text-sm font-medium mb-1 text-gray-700 dark:text-gray-300">
-              选择{{ form.pk_type === 1 ? '帖子' : form.pk_type === 2 ? '服饰' : form.pk_type === 3 ? '搭配' : '图鉴' }}
+              选择{{ getPkTypeChooseLabel(form.pk_type) }}
             </label>
             <!-- 已选帖子：使用 CommunityItem 风格回显 -->
             <div
@@ -676,6 +684,18 @@
                 </UButton>
               </div>
             </div>
+            <!-- 已选3D场景：使用 SceneItem 回显 -->
+            <div
+              v-else-if="form.pk_type === 6 && selectedScene"
+              class="rounded-xl border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700/50 p-3"
+            >
+              <SceneItem :need-jump="false" :size="'mini-list'" :item="selectedScene" />
+              <div class="mt-2 flex justify-end">
+                <UButton size="xs" color="gray" variant="ghost" @click="openChooseModal">
+                  更换
+                </UButton>
+              </div>
+            </div>
             <!-- 未选择：显示选择按钮 -->
             <div
               v-else
@@ -683,7 +703,7 @@
               @click="openChooseModal"
             >
               <span class="text-gray-500 dark:text-gray-400">
-                点击选择{{ form.pk_type === 1 ? '帖子' : form.pk_type === 2 ? '服饰' : form.pk_type === 3 ? '搭配' : '图鉴' }}
+                点击选择{{ getPkTypeChooseLabel(form.pk_type) }}
               </span>
               <UIcon name="i-heroicons-chevron-right" class="w-4 h-4 text-gray-400" />
             </div>
@@ -911,6 +931,23 @@
             <div class="text-xs text-[#8a6f7d] dark:text-[var(--ink-muted)]">添加图鉴记录</div>
           </div>
         </button>
+
+        <!-- 3D场景选项 -->
+        <button
+          type="button"
+          class="journal-neu-type-row w-full flex items-center gap-3 p-3 rounded-xl text-left group mt-2 transition-transform active:scale-[0.99]"
+          @click="selectTypeAndOpenChooser(6)"
+        >
+          <div
+            class="w-8 h-8 bg-emerald-500 dark:bg-emerald-600 rounded-lg flex items-center justify-center group-hover:scale-110 transition-transform"
+          >
+            <UIcon name="material-symbols:view-in-ar-rounded" class="text-base text-white" />
+          </div>
+          <div class="flex-1">
+            <div class="text-sm font-medium text-[#3d2833] dark:text-[var(--ink-primary)]">3D场景</div>
+            <div class="text-xs text-[#8a6f7d] dark:text-[var(--ink-muted)]">添加3D场景记录</div>
+          </div>
+        </button>
       </div>
     </QhxModal>
 
@@ -977,6 +1014,8 @@
       :multiple="false"
       @choose="onLibraryChoose"
     />
+    <!-- 3D场景选择 -->
+    <SceneChoose ref="sceneChooseRef" @choose="onSceneChoose" />
 
     <!-- 删除自定义标签确认（QhxModal） -->
     <QhxModal
@@ -1048,7 +1087,7 @@ import {
   journalUpdate,
   journalDelete
 } from '@/api/journal'
-import type { Journal, User } from '@/types/api'
+import type { Journal, User, Scene } from '@/types/api'
 import { getUserSpace } from '@/api/user'
 import JournalCalendarShareImage from '@/components/journal/JournalCalendarShareImage.vue'
 import type { JournalCalendarSharePayload } from '@/utils/journalShareCanvas'
@@ -1063,12 +1102,15 @@ import WardrobeClothesChoose from '@/components/Wardrobe/WardrobeClothesChoose.v
 import MatchingChoose from '@/components/matching/MatchingChoose.vue'
 import LibraryChoose from '@/components/library/LibraryChoose.vue'
 import LibraryItem from '@/components/library/LibraryItem.vue'
+import SceneChoose from '@/components/scene/SceneChoose.vue'
+import SceneItem from '@/components/scene/SceneItem.vue'
 import customInput from '@/components/Clothes/customInput.vue'
 import CommunityPostModal from '@/components/community/CommunityPostModal.vue'
 import { getCommunityDetail } from '@/api/community'
 import { getClothesDetail } from '@/api/wardrobe'
 import { getMatchingDetail } from '@/api/matching_list'
 import { getLibraryDetail } from '@/api/library'
+import { getSceneId } from '@/api/scene'
 import type { MatchingListItem } from '@/api/matching_list'
 import { BASE_IMG } from '@/utils/ipConfig'
 import { useConfigStore } from '@/stores/config'
@@ -1108,6 +1150,7 @@ function canJumpJournalItem(j: Journal): boolean {
   if (j.pk_type === 3) return !!j.matching_list?.matching_id
   if (j.pk_type === 4) return !!j.library?.library_id
   if (j.pk_type === 5) return !!j.plan?.list_id
+  if (j.pk_type === 6) return !!j.sence?.sence_id
   return false
 }
 
@@ -1153,6 +1196,8 @@ function onJournalItemClick(j: Journal, event: MouseEvent) {
     openLibraryDetailTab(j.library.library_id)
   } else if (j.pk_type === 5 && j.plan?.list_id) {
     openLibraryWebPath('/user/plan')
+  } else if (j.pk_type === 6 && j.sence?.sence_id) {
+    openLibraryWebPath(`/scene/detail/${j.sence.sence_id}`)
   }
 }
 
@@ -1324,6 +1369,9 @@ function getFirstImageFromJournal(j: Journal): string | null {
     if (cover) return cover.trim()
     if (j.plan.wardrobe_clothes?.clothes_img) return j.plan.wardrobe_clothes.clothes_img.trim()
     return null
+  }
+  if (j.pk_type === 6 && j.sence?.sence_cover) {
+    return j.sence.sence_cover.trim() || null
   }
   return null
 }
@@ -1573,7 +1621,8 @@ const pkTypeOptions = [
   { label: '服饰', value: 2 },
   { label: '搭配', value: 3 },
   { label: '图鉴', value: 4 },
-  { label: '计划', value: 5 }
+  { label: '计划', value: 5 },
+  { label: '3D场景', value: 6 }
 ]
 
 // 类型选择弹框
@@ -1583,10 +1632,12 @@ const communityChooseRef = ref<{ showModel: (e?: MouseEvent) => void } | null>(n
 const wardrobeClothesChooseRef = ref<{ showModel: (e?: MouseEvent) => void } | null>(null)
 const matchingChooseRef = ref<{ showModel: (e?: MouseEvent) => void } | null>(null)
 const libraryChooseRef = ref<{ showModel: (e?: MouseEvent) => void } | null>(null)
+const sceneChooseRef = ref<{ showModel: (e?: MouseEvent) => void } | null>(null)
 const selectedCommunity = ref<Community | null>(null)
 const selectedClothes = ref<WardrobeClothes | null>(null)
 const selectedMatching = ref<MatchingListItem | null>(null)
 const selectedLibrary = ref<Library | null>(null)
+const selectedScene = ref<Scene | null>(null)
 
 const matchingFilterList = computed(() => {
   const uid = userStore.user?.user_id
@@ -1614,6 +1665,7 @@ function selectTypeAndOpenChooser(value: number) {
   selectedClothes.value = null
   selectedMatching.value = null
   selectedLibrary.value = null
+  selectedScene.value = null
   typeModalShow.value = false
   nextTick(() => {
     if (value === 1) {
@@ -1624,6 +1676,8 @@ function selectTypeAndOpenChooser(value: number) {
       matchingChooseRef.value?.showModel()
     } else if (value === 4) {
       libraryChooseRef.value?.showModel()
+    } else if (value === 6) {
+      sceneChooseRef.value?.showModel()
     }
   })
 }
@@ -1637,6 +1691,8 @@ function openChooseModal() {
     matchingChooseRef.value?.showModel()
   } else if (form.value.pk_type === 4) {
     libraryChooseRef.value?.showModel()
+  } else if (form.value.pk_type === 6) {
+    sceneChooseRef.value?.showModel()
   }
 }
 
@@ -1664,6 +1720,25 @@ function onLibraryChoose(list: Library[]) {
   const id = item.library_id ?? 0
   form.value = { ...form.value, pk_type: 4, pk_id: id }
   selectedLibrary.value = item
+}
+
+function onSceneChoose(list: Scene[]) {
+  const item = list[0]
+  if (!item) return
+  const id = item.sence_id ?? 0
+  form.value = { ...form.value, pk_type: 6, pk_id: id }
+  selectedScene.value = item
+}
+
+function getPkTypeChooseLabel(pkType: number): string {
+  const labels: Record<number, string> = {
+    1: '帖子',
+    2: '服饰',
+    3: '搭配',
+    4: '图鉴',
+    6: '3D场景'
+  }
+  return labels[pkType] ?? '关联项'
 }
 
 function getPlanCoverSrc(plan: PlanList): string {
@@ -1694,7 +1769,8 @@ function getPkTypeLabel(pkType: number): string {
     2: '服饰',
     3: '搭配',
     4: '图鉴',
-    5: '计划'
+    5: '计划',
+    6: '3D场景'
   }
   return labels[pkType] ?? '其他'
 }
@@ -1898,6 +1974,7 @@ function buildPatchedJournalFromForm(apiJournal: Journal, base: Journal | null):
   merged.library = undefined
   merged.comment = undefined
   merged.plan = undefined
+  merged.sence = undefined
 
   const pkType = form.value.pk_type
   if (pkType === 1 && selectedCommunity.value) merged.community = selectedCommunity.value
@@ -1905,6 +1982,7 @@ function buildPatchedJournalFromForm(apiJournal: Journal, base: Journal | null):
   else if (pkType === 3 && selectedMatching.value) merged.matching_list = selectedMatching.value
   else if (pkType === 4 && selectedLibrary.value) merged.library = selectedLibrary.value
   else if (pkType === 5 && base?.plan) merged.plan = base.plan
+  else if (pkType === 6 && selectedScene.value) merged.sence = selectedScene.value
 
   return merged
 }
@@ -2114,6 +2192,7 @@ function openLinkJournal(event?: MouseEvent) {
   selectedClothes.value = null
   selectedMatching.value = null
   selectedLibrary.value = null
+  selectedScene.value = null
   form.value = {
     journal_time: resolveJournalInsertDate(),
     pk_type: 0,
@@ -2171,6 +2250,7 @@ async function editJournal(item: Journal, event?: MouseEvent) {
   selectedClothes.value = null
   selectedMatching.value = null
   selectedLibrary.value = null
+  selectedScene.value = null
   form.value = {
     journal_time: item.journal_time,
     pk_type: item.pk_type,
@@ -2213,6 +2293,16 @@ async function editJournal(item: Journal, event?: MouseEvent) {
     } catch {
       // 忽略
     }
+  } else if (item.pk_type === 6) {
+    if (item.sence) {
+      selectedScene.value = item.sence
+    } else if (item.pk_id) {
+      try {
+        selectedScene.value = await getSceneId({ sence_id: item.pk_id })
+      } catch {
+        // 忽略
+      }
+    }
   }
 }
 
@@ -2238,7 +2328,7 @@ async function handleAddEditSubmit() {
 
   if (!form.value.pk_type || !form.value.pk_id) {
     toast.add({
-      title: '请选择类型并选择关联的帖子、服饰、搭配或图鉴',
+      title: '请选择类型并选择关联的帖子、服饰、搭配、图鉴或3D场景',
       icon: 'i-heroicons-exclamation-circle',
       color: 'orange'
     })

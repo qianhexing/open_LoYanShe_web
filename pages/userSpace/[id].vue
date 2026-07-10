@@ -140,7 +140,7 @@
                 <!-- 签名 -->
                 <div v-if="userInfo.signature" class="signature-preview mt-1.5">
                   <div
-                    class="text-gray-600 dark:text-gray-300 text-sm italic line-clamp-2 cursor-pointer hover:bg-white/30 dark:hover:bg-gray-700/30 rounded px-1 -mx-1 py-0.5 transition-colors"
+                    class="text-gray-600 dark:text-gray-300 text-sm line-clamp-2 cursor-pointer hover:bg-white/30 dark:hover:bg-gray-700/30 rounded px-1 -mx-1 py-0.5 transition-colors"
                     @click="showSignatureModal = true"
                   >
                     <SafeRichText :nodes="signatureNodes" />
@@ -467,7 +467,7 @@
         </div>
         <!-- 内容区 -->
         <div class="flex-1 overflow-y-auto p-5">
-          <div v-if="signatureNodes.length" class="text-gray-600 dark:text-gray-300 text-sm italic leading-relaxed">
+          <div v-if="signatureNodes.length" class="text-gray-600 dark:text-gray-300 text-sm leading-relaxed">
             <SafeRichText :nodes="signatureNodes" />
           </div>
           <p v-else class="text-gray-400 dark:text-gray-500 text-sm">暂无签名</p>

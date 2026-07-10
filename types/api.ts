@@ -256,9 +256,12 @@ export interface Library {
   has_3d?: number | boolean;
 }
 
-/** 相似推荐列表项（与列表/详情 library 结构相近，可带 shop，额外相似度分越大越相似） */
+/** 相似推荐 / 识图搜索列表项（相似度分越大越相似） */
 export interface LibrarySimilarItem extends Library {
   similarity_score: number
+  metadata_similarity_score?: number
+  vector_similarity_bonus?: number
+  vector_distance?: number | null
 }
 
 /** 衣柜配置 */
@@ -907,28 +910,47 @@ export interface NoticeMessage {
   user_id: number // 如果是1时才有
 }
 
+/** 茶会状态：0筹备中 / 1预约中 / 2已取消 / 3已结束 */
+export type TeapartyState = 0 | 1 | 2 | 3
+
+/** 茶会可写字段（新增与修改共用） */
+export interface TeapartyWritableFields {
+  tea_title?: string | null
+  tea_desc?: string | null
+  tea_cover?: string | null
+  start_time?: Date | string | null
+  end_time?: Date | string | null
+  limit_number?: number | null
+  address?: string | null
+  province?: string | null
+  city?: string | null
+  area?: string | null
+  tea_type?: number | null
+  join_way?: number | null
+  detail_image?: string | null
+  latitude?: number | null
+  longitude?: number | null
+  organizer?: string | null
+  mian_style?: string | null
+  state?: TeapartyState | null
+  dress_code?: string | null
+  json_data?: Record<string, unknown> | string | null
+  is_enable?: number | null
+}
+
+export type TeapartyInsertParams = TeapartyWritableFields
+
+export interface TeapartyUpdateParams extends TeapartyWritableFields {
+  tea_id: number
+}
+
 /** 茶会 */
-export interface Teaparty {
+export interface Teaparty extends TeapartyWritableFields {
   tea_id?: number
-  tea_title?: string
-  tea_desc?: string
-  tea_cover?: string
-  create_time?: Date
-  start_time?: Date
-  end_time?: Date
-  limit_number?: number
+  create_time?: Date | string
   current_number?: number
   admin_user?: number
-  address?: string
-  province?: string
-  city?: string
-  area?: string
-  tea_type?: number
-  join_way?: number
-  detail_image?: string
   user?: User
-  latitude?: number
-  longitude?: number
 }
 
 /** 茶会参与者 */
@@ -987,7 +1009,7 @@ export interface PlanList {
 /** 手账 */
 export interface Journal {
   journal_id: number
-  pk_type: number // 0=评论(签到) 1=帖子 2=服饰 3=搭配 4=图鉴 5=计划
+  pk_type: number // 0=评论(签到) 1=帖子 2=服饰 3=搭配 4=图鉴 5=计划 6=3D场景
   pk_id: number
   journal_time: string // YYYY-MM-DD
   create_time?: string
@@ -1002,6 +1024,7 @@ export interface Journal {
   matching_list?: MatchingListItem
   library?: Library
   plan?: PlanList
+  sence?: Scene
 }
 
 /** 投票选项 */

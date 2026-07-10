@@ -80,6 +80,7 @@ const isLoading = ref(false)
 const list = ref<Comment[]>([])
 const total = ref(0)
 const pinnedComment = ref<Comment | null>(null)
+const isSectionMounted = ref(false)
 
 const expandedReplyById = reactive<Record<number, boolean>>({})
 
@@ -138,6 +139,7 @@ async function scrollToPinnedCommentIfFocused() {
   commentUiStore.flashNewCommentHighlight(Number(props.focusCommentId))
   await nextTick()
   await nextTick()
+  if (!isSectionMounted.value) return
   pinnedCommentAnchorRef.value?.scrollIntoView({
     behavior: 'smooth',
     block: 'center',
@@ -186,7 +188,7 @@ const fetchInitial = async () => {
   } finally {
     isLoading.value = false
   }
-  if (fetchOk) {
+  if (fetchOk && isSectionMounted.value) {
     await scrollToPinnedCommentIfFocused()
   }
 }
@@ -390,6 +392,7 @@ defineExpose({
 const communityRefreshHolder = inject(communityCommentSectionRefreshKey, null)
 
 onMounted(() => {
+  isSectionMounted.value = true
   /** 等路由 query 与父级 props 落到子组件后再拉首屏，避免首包未带 `focusCommentId` */
   nextTick(() => {
     void fetchInitial()
@@ -400,6 +403,7 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  isSectionMounted.value = false
   clearPinnedUrlHighlight()
   if (communityRefreshHolder) {
     communityRefreshHolder.value = null

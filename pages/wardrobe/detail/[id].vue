@@ -687,28 +687,39 @@ function computeVirtualColumns(): number {
 
 /** 仅浏览态 + 网格布局启用虚拟滚动 */
 const CLOTHES_LIST_LAYOUT_KEY = 'wardrobe-detail-clothes-list-layout'
-type ClothesListLayout = 'grid' | 'waterfall'
+type ClothesListLayout = 'grid' | 'waterfall' | 'list'
 
 function readClothesListLayoutPref(): ClothesListLayout {
   if (!import.meta.client || typeof localStorage === 'undefined') return 'grid'
   try {
     const v = localStorage.getItem(CLOTHES_LIST_LAYOUT_KEY)
-    return v === 'waterfall' ? 'waterfall' : 'grid'
+    if (v === 'waterfall' || v === 'list') return v
+    return 'grid'
   } catch {
     return 'grid'
   }
 }
 
-/** 服饰列表布局：网格 / 瀑布流（localStorage 持久化，默认网格） */
+/** 服饰列表布局：网格 / 瀑布流 / 列表（localStorage 持久化，默认网格） */
 const clothesListLayout = ref<ClothesListLayout>(readClothesListLayoutPref())
 /** 瀑布流列表 ref（QhxWaterList 仅负责布局，数据来自 list） */
 const waterListRef = ref<InstanceType<typeof QhxWaterList> | null>(null)
+const isListLayout = computed(
+  () => clothesListLayout.value === 'list' && !sortMode.value && !timelineMode.value,
+)
 const isWaterfallLayout = computed(
   () => clothesListLayout.value === 'waterfall' && !sortMode.value && !timelineMode.value,
 )
 const virtualEnabled = computed(
   () => !sortMode.value && !timelineMode.value && clothesListLayout.value === 'grid',
 )
+
+const formatClothesListDate = (item: WardrobeClothes) => {
+  const raw = item.add_time ?? item.date
+  if (!raw) return ''
+  const d = dayjs(raw as string | Date)
+  return d.isValid() ? d.format('YYYY-MM-DD') : ''
+}
 
 /** 每行高度：DOM 实测优先，否则 max(该行各 item 估算高度) */
 const virtualPerRowHeights = computed(() => {
@@ -1859,11 +1870,8 @@ const jumpToClothes = (item: WardrobeClothes) => {
         }
       }));
     } else {
-      // 普通网页环境 不用新窗口
-      navigateTo({
-        path: `/clothes/detail/${item.clothes_id}`,
-        query: buildClothesDetailQuery(),
-      })
+      // 普通网页环境：新页签打开
+      window.open(clothesDetailUrl, '_blank', 'noopener,noreferrer')
     }
 	}
 }
@@ -2279,7 +2287,7 @@ function restoreLayoutPrefs() {
     const favorite = localStorage.getItem(SHOW_CLOTHES_FAVORITE_KEY)
     if (favorite !== null) showClothesFavorite.value = favorite === '1'
     const layout = localStorage.getItem(CLOTHES_LIST_LAYOUT_KEY)
-    if (layout === 'grid' || layout === 'waterfall') clothesListLayout.value = layout
+    if (layout === 'grid' || layout === 'waterfall' || layout === 'list') clothesListLayout.value = layout
     restoreToolbarPrefs()
   } catch {
     /* 忽略读取失败 */
@@ -3466,11 +3474,11 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
           <div class="h-px bg-gray-200 dark:bg-gray-700" />
           <div>
             <div class="text-sm font-medium text-gray-800 dark:text-gray-200 mb-1">服饰列表布局</div>
-            <div class="text-xs text-gray-500 dark:text-gray-400 mb-2">网格等宽排列，瀑布流按图片高度错落展示</div>
-            <div class="grid grid-cols-2 gap-2">
+            <div class="text-xs text-gray-500 dark:text-gray-400 mb-2">网格等宽排列，瀑布流按图片高度错落，列表一行一件展示更多信息</div>
+            <div class="grid grid-cols-3 gap-2">
               <button
                 type="button"
-                class="flex flex-col items-center gap-1.5 rounded-lg border px-3 py-2.5 transition-colors"
+                class="flex flex-col items-center gap-1.5 rounded-lg border px-2 py-2.5 transition-colors"
                 :class="clothesListLayout === 'grid'
                   ? 'border-qhx-primary bg-qhx-primary/10 text-qhx-primary'
                   : 'border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:border-gray-300 dark:hover:border-gray-500'"
@@ -3481,7 +3489,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
               </button>
               <button
                 type="button"
-                class="flex flex-col items-center gap-1.5 rounded-lg border px-3 py-2.5 transition-colors"
+                class="flex flex-col items-center gap-1.5 rounded-lg border px-2 py-2.5 transition-colors"
                 :class="clothesListLayout === 'waterfall'
                   ? 'border-qhx-primary bg-qhx-primary/10 text-qhx-primary'
                   : 'border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:border-gray-300 dark:hover:border-gray-500'"
@@ -3489,6 +3497,17 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
               >
                 <UIcon name="i-heroicons-view-columns" class="text-xl" />
                 <span class="text-xs font-medium">瀑布流</span>
+              </button>
+              <button
+                type="button"
+                class="flex flex-col items-center gap-1.5 rounded-lg border px-2 py-2.5 transition-colors"
+                :class="clothesListLayout === 'list'
+                  ? 'border-qhx-primary bg-qhx-primary/10 text-qhx-primary'
+                  : 'border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:border-gray-300 dark:hover:border-gray-500'"
+                @click="clothesListLayout = 'list'"
+              >
+                <UIcon name="i-heroicons-list-bullet" class="text-xl" />
+                <span class="text-xs font-medium">列表</span>
               </button>
             </div>
           </div>
@@ -4165,9 +4184,134 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
         </div>
         <!-- 服饰卡片：网格/排序用原版；瀑布流用独立卡片样式 -->
         <DefineClothesCard v-slot="{ element }">
+          <!-- 列表：一行一件，展示更多信息 -->
+          <div
+            v-if="isListLayout"
+            class="wardrobe-clothes-list-row group flex items-stretch gap-3 rounded-xl border border-gray-200/70 bg-white/90 p-2.5 shadow-sm transition hover:ring-2 hover:ring-qhx-primary/20 dark:border-gray-700/70 dark:bg-gray-900/50 max-md:gap-2 max-md:p-2"
+            @mousedown="opearClothesId = element.clothes_id"
+            @touchstart.passive="opearClothesId = element.clothes_id"
+            @click="selectMode ? toggleClothesSelection(element) : jumpToClothes(element)"
+          >
+            <div class="relative h-[96px] w-[96px] shrink-0 overflow-hidden rounded-lg border border-gray-200 dark:border-gray-700 max-md:h-[80px] max-md:w-[80px]">
+              <img
+                :src="`${BASE_IMG}${element.clothes_img}?x-oss-process=image/quality,q_100/resize,w_300`"
+                draggable="false"
+                class="wardrobe-detail-img block h-full w-full object-cover"
+                :loading="wardrobeImgLoadingMode(element.clothes_img)"
+                decoding="async"
+                @load="markWardrobeImgLoaded(element.clothes_img)"
+                @contextmenu.prevent
+              />
+              <div
+                v-if="shouldShowClothesStatusBadge(element)"
+                class="pointer-events-none absolute left-1 top-1 z-10 max-w-[calc(100%-0.5rem)] truncate rounded px-1 py-0.5 text-[10px] font-medium"
+                :class="getWardrobeStatusBadgeClass(element.wardrobe_status)"
+              >
+                {{ element.wardrobe_status }}
+              </div>
+              <div
+                v-if="shouldShowClothesFavoriteBadge(element)"
+                class="wardrobe-clothes-fav-badge pointer-events-none absolute right-1 top-1 z-10 flex items-center gap-0.5"
+                :title="getClothesFavoriteLevelTitle(element)"
+              >
+                <span class="wardrobe-clothes-fav-badge__num">{{ getClothesFavoriteLevel(element) }}</span>
+                <UIcon name="i-heroicons-star-solid" class="wardrobe-clothes-fav-badge__star" aria-hidden="true" />
+              </div>
+              <div
+                v-if="element.color"
+                class="absolute bottom-1 left-1 z-10 flex flex-wrap gap-0.5"
+              >
+                <div
+                  v-for="(c, ci) in element.color.split(',')"
+                  :key="ci"
+                  class="h-2.5 w-2.5 shrink-0 rounded-full border border-white/50 shadow-sm dark:border-gray-700/50"
+                  :style="{ backgroundColor: c.trim() }"
+                />
+              </div>
+              <div
+                v-if="selectMode && getClothesDisplaySortNo(element)"
+                class="wardrobe-select-sort-mask absolute inset-0 z-[5] flex items-center justify-center pointer-events-none rounded-lg"
+                :class="isClothesSelected(element.clothes_id) ? 'wardrobe-select-sort-mask--selected' : ''"
+              >
+                <span class="wardrobe-select-sort-no tabular-nums font-bold text-white drop-shadow-[0_1px_4px_rgba(0,0,0,0.6)]">
+                  {{ getClothesDisplaySortNo(element) }}
+                </span>
+              </div>
+            </div>
+            <div class="flex min-w-0 flex-1 flex-col justify-center py-0.5">
+              <div class="line-clamp-2 text-sm font-medium leading-5 text-gray-900 dark:text-gray-100">
+                {{ element.clothes_note?.trim() || '暂无备注' }}
+              </div>
+              <div class="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 text-xs text-gray-600 dark:text-gray-400">
+                <span class="tabular-nums">穿着次数：{{ element.times ?? 0 }}</span>
+                <span v-if="hasClothesPrice(element)">
+                  价格：￥{{ info?.show_price === 2 ? '***' : (element.price || 0) }}
+                </span>
+                <span v-if="element.size?.trim()">尺码：{{ element.size }}</span>
+                <span v-if="element.clothes_part?.trim()">部位：{{ element.clothes_part }}</span>
+                <span v-if="formatClothesListDate(element)">入柜：{{ formatClothesListDate(element) }}</span>
+              </div>
+              <div v-if="element.season?.trim()" class="mt-1.5 flex flex-wrap items-center gap-1">
+                <QhxTag
+                  v-for="(season, seasonIndex) in element.season.split(',').filter(Boolean)"
+                  :key="`${element.clothes_id}-season-${seasonIndex}`"
+                  class="!text-[10px]"
+                >
+                  {{ season.trim() }}
+                </QhxTag>
+              </div>
+              <div v-if="element.tags?.trim()" class="mt-1 line-clamp-1 text-[11px] text-gray-500 dark:text-gray-500">
+                标签：{{ element.tags }}
+              </div>
+            </div>
+            <div class="flex shrink-0 flex-col items-center justify-center self-center">
+              <div
+                v-if="selectMode && element.clothes_id"
+                class="flex h-8 w-8 cursor-pointer items-center justify-center"
+                @click.stop="toggleClothesSelection(element)"
+              >
+                <div
+                  class="wardrobe-neu-clothes-check flex h-6 w-6 items-center justify-center rounded-md border-2 transition-all duration-200"
+                  :class="isClothesSelected(element.clothes_id) ? (hasCustomBtnBg ? 'border-transparent' : 'bg-qhx-primary border-qhx-primary') : 'border-gray-400 bg-white/80 dark:bg-gray-700/80'"
+                  :style="isClothesSelected(element.clothes_id) && hasCustomBtnBg ? { ...customBtnStyle, borderColor: customStyle?.btnColor } : {}"
+                >
+                  <UIcon v-if="isClothesSelected(element.clothes_id)" name="i-heroicons-check" class="text-sm" :class="!hasCustomBtnFont && 'text-white'" />
+                </div>
+              </div>
+              <div
+                v-else-if="matchingMode && element.clothes_id"
+                class="flex h-8 w-8 cursor-pointer items-center justify-center"
+                @click.stop="handleMatchingDraftToggle(element, $event)"
+              >
+                <div
+                  class="wardrobe-neu-tool-orb m-[3px] flex h-6 w-6 items-center justify-center rounded-[50%]"
+                  :class="isInMatchingDraft(element.clothes_id) ? [!hasCustomBtnBg && 'bg-red-500', !hasCustomBtnFont && 'text-white'] : [!hasCustomBtnBg && 'bg-qhx-primary', !hasCustomBtnFont && 'text-white']"
+                  :style="isInMatchingDraft(element.clothes_id) ? {} : customBtnStyle"
+                >
+                  <UIcon
+                    :name="isInMatchingDraft(element.clothes_id) ? 'i-heroicons-trash' : 'material-symbols:add-2'"
+                    class="text-[14px]"
+                  />
+                </div>
+              </div>
+              <div
+                v-else-if="editMode && element.clothes_id"
+                class="flex h-8 w-8 cursor-pointer items-center justify-center"
+                @click.stop="openEditClothes(element, $event)"
+              >
+                <div
+                  class="wardrobe-neu-tool-orb m-[3px] flex h-6 w-6 items-center justify-center rounded-[50%]"
+                  :class="[!hasCustomBtnBg && 'bg-qhx-primary', !hasCustomBtnFont && 'text-white']"
+                  :style="customBtnStyle"
+                >
+                  <UIcon name="i-heroicons-pencil-square" class="text-[14px]" />
+                </div>
+              </div>
+            </div>
+          </div>
           <!-- 网格 / 排序（原版） -->
           <div
-            v-if="!isWaterfallLayout"
+            v-else-if="!isWaterfallLayout"
             class="group drag-handle flex flex-col items-center py-[10px] px-[15px] max-md:px-[5px]"
             :class="preferLiteEffects ? '' : 'transition-transform duration-300 ease-out hover:scale-105'"
             @mousedown="opearClothesId = element.clothes_id"
@@ -4467,6 +4611,14 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
                 </div>
               </div>
             </div>
+          </div>
+          <!-- 浏览态：列表，一行一件 -->
+          <div v-else-if="isListLayout" class="wardrobe-clothes-list flex flex-col gap-2 px-1">
+            <ReuseClothesCard
+              v-for="element in list"
+              :key="element.clothes_id ?? `list-${element.clothes_img}`"
+              :element="element"
+            />
           </div>
           <!-- 浏览态：瀑布流（QhxWaterList 布局 + 外部 list 数据） -->
           <QhxWaterList

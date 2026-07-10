@@ -76,7 +76,7 @@ export async function journalListByDate(params: {
  * - `pageSize`（number，可选，默认 100，建议服务端封顶例如 200）
  *
  * **响应 `data`**：本项目通用的 `{ rows: Journal[]; count: number }`（即 PaginationResponse）
- * - `rows`：每条 **结构与 `/journal/listByDate` 单条一致**（同样按需附带 community / comment / wardrobe_clothes / matching_list / library / plan 等嵌套，字段可与现有接口复用同一套组装逻辑）
+ * - `rows`：每条 **结构与 `/journal/listByDate` 单条一致**（同样按需附带 community / comment / wardrobe_clothes / matching_list / library / plan / sence 等嵌套，字段可与现有接口复用同一套组装逻辑）
  * - `count`：满足条件的总条数（分页累加直至 `rows 累积长度 >= count` 或本页为空）
  *
  * **排序建议**：`journal_time` 降序，同一天内 `create_time` 降序（与前端分组展示一致）

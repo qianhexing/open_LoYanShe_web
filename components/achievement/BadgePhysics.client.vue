@@ -8,7 +8,17 @@ import * as THREE from "three"
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js"
 import { DRACOLoader } from "three/examples/jsm/loaders/DRACOLoader.js"
 import type { UserDeco } from "@/types/api"
-import { BASE_IMG, BASE_IMG_MODEL } from "@/utils/ipConfig"
+import { BASE_IMG } from "@/utils/ipConfig"
+import {
+  createBadgeSparkContext,
+  disposeBadgeSparkContext,
+  disposeBadgeSplatMesh,
+  getBadgeCoverKind,
+  loadBadgeSplatGroup,
+  refreshBadgeSplatMesh,
+  resolveBadgeAssetUrl,
+  type BadgeSparkContext,
+} from "@/utils/badgeAsset"
 
 export type BadgePhysicsMotionPreset = "gravity" | "wallBounce"
 
@@ -20,16 +30,8 @@ const props = withDefaults(
   { motionPreset: "wallBounce" }
 )
 
-function isModelCover(cover: string | undefined): boolean {
-  if (!cover) return false
-  const low = cover.toLowerCase()
-  return low.endsWith(".glb") || low.endsWith(".gltf")
-}
-
 function getModelUrl(cover: string): string {
-  if (cover.startsWith("http")) return cover
-  const path = cover.startsWith("/") ? cover.slice(1) : cover
-  return `${BASE_IMG_MODEL}${path}`
+  return resolveBadgeAssetUrl(cover, "model")
 }
 
 const containerRef = ref<HTMLDivElement>()
@@ -67,6 +69,7 @@ let tapPointerId = -1
 
 let animationId = 0
 let resizeObserver: ResizeObserver | null = null
+const sparkCtx: BadgeSparkContext = createBadgeSparkContext()
 
 const BADGE_SIZE = 1.2
 const BADGE_DEPTH = 0.18
@@ -539,7 +542,7 @@ function loadGlbModel(url: string): Promise<{ mesh: THREE.Object3D; size: THREE.
 
 async function createBadge(deco:UserDeco){
   const cover = deco.foreign?.cover ?? ""
-  const isModel = isModelCover(cover)
+  const coverKind = getBadgeCoverKind(cover)
 
   const spawnCenter =
     props.motionPreset === "wallBounce"
@@ -553,21 +556,32 @@ async function createBadge(deco:UserDeco){
   let mesh: THREE.Object3D
   let centerOffset = new THREE.Vector3(0, 0, 0)
 
-  if (isModel) {
-    const url = cover.startsWith("http") ? cover : getModelUrl(cover)
-    const loaded = await loadGlbModel(url)
+  const el = containerRef.value
+  const modelScale = el ? getAspectScale(el.clientWidth, el.clientHeight) : 1
+
+  if (coverKind === "model" || coverKind === "splat") {
+    const url =
+      coverKind === "model"
+        ? getModelUrl(cover)
+        : resolveBadgeAssetUrl(cover, "splat")
+    const loaded =
+      coverKind === "model"
+        ? await loadGlbModel(url)
+        : await loadBadgeSplatGroup(url, scene, renderer, sparkCtx)
     if (!loaded) return
-    mesh = loaded.mesh.clone(true)
-    mesh.traverse((child) => {
-      if (child instanceof THREE.Mesh && child.material) {
-        try {
-          child.material = (child.material as THREE.Material).clone()
-        } catch (_) {}
-      }
-    })
-    // 根据容器比例设置模型缩放，16:9 时为 1
-    const el = containerRef.value
-    const modelScale = el ? getAspectScale(el.clientWidth, el.clientHeight) : 1
+    mesh =
+      coverKind === "model"
+        ? loaded.mesh.clone(true)
+        : loaded.mesh
+    if (coverKind === "model") {
+      mesh.traverse((child) => {
+        if (child instanceof THREE.Mesh && child.material) {
+          try {
+            child.material = (child.material as THREE.Material).clone()
+          } catch (_) {}
+        }
+      })
+    }
     mesh.scale.setScalar(modelScale)
     centerOffset.copy(loaded.center)
     const halfExt = loaded.size.clone().multiplyScalar(0.5).multiplyScalar(modelScale)
@@ -579,6 +593,7 @@ async function createBadge(deco:UserDeco){
     meshes.push(mesh)
     meshCenterOffsets.push(centerOffset.clone())
     createRigidBody(mesh, halfExt, bodyPos)
+    if (coverKind === "splat") refreshBadgeSplatMesh(mesh)
   } else {
     const texture = await new THREE.TextureLoader().loadAsync(getCoverUrl(deco))
     const radius = BADGE_SIZE / 2
@@ -821,6 +836,10 @@ function updatePhysics(){
     } else {
       mesh.position.set(px, py, pz)
     }
+
+    if (mesh.userData?.type === "splat") {
+      refreshBadgeSplatMesh(mesh)
+    }
   }
 }
 
@@ -892,6 +911,14 @@ onBeforeUnmount(()=>{
   resizeObserver?.disconnect()
   resizeObserver = null
   cancelAnimationFrame(animationId)
+
+  for (const mesh of meshes) {
+    if (mesh.userData?.type === "splat") {
+      scene?.remove(mesh)
+      mesh.traverse((child) => disposeBadgeSplatMesh(child))
+    }
+  }
+  if (scene) disposeBadgeSparkContext(sparkCtx, scene)
 
   renderer.dispose()
 

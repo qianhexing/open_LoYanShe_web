@@ -25,6 +25,7 @@ export default defineNuxtConfig({
 		routeRules: {
 			'/wardrobe/**': { ssr: false },
 			'/community/detail/**': { ssr: false },
+			'/community/post': { ssr: false },
 			'/node/**': {
 				proxy: 'https://lolitalibrary.com/node/**'
 			},

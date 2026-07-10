@@ -2,6 +2,7 @@
 import type { Teaparty, PaginationResponse } from '@/types/api';
 import { getTeapartyList } from '@/api/teapart';
 import { BASE_IMG } from '@/utils/ipConfig';
+import { getTeapartyStateBadgeClass, getTeapartyStateLabel } from '@/utils/teaparty';
 import type QhxWaterList from '@/components/Qhx/WaterList.vue'
 import type TeapartyAdd from '@/components/Teaparty/TeapartyAdd.vue'
 
@@ -157,6 +158,13 @@ const formatDate = (date: Date | string | undefined) => {
                 class="w-full h-full object-cover transition-transform duration-300 hover:scale-105"
                 @load="debouncedApplyLayout"
               />
+              <div
+                v-if="item.state != null"
+                class="absolute top-2 left-2 px-2 py-1 rounded-full text-xs font-medium"
+                :class="getTeapartyStateBadgeClass(item.state)"
+              >
+                {{ getTeapartyStateLabel(item.state) }}
+              </div>
               <!-- <div
                 v-if="item.current_number !== undefined && item.limit_number !== undefined"
                 class="absolute top-2 right-2 bg-black/60 text-white px-2 py-1 rounded-full text-xs font-medium"
@@ -179,6 +187,28 @@ const formatDate = (date: Date | string | undefined) => {
               >
                 {{ item.tea_desc }}
               </p>
+
+              <!-- 主办单位 -->
+              <div
+                v-if="item.organizer"
+                class="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400 mb-2"
+              >
+                <UIcon name="i-heroicons-building-office-2" class="w-4 h-4" />
+                <span>{{ item.organizer }}</span>
+              </div>
+
+              <!-- 风格 -->
+              <div
+                v-if="item.mian_style"
+                class="flex flex-wrap gap-1 mb-3"
+              >
+                <QhxTag
+                  v-for="tag in item.mian_style.split(',').filter(Boolean)"
+                  :key="tag"
+                >
+                  {{ tag }}
+                </QhxTag>
+              </div>
 
               <!-- 时间信息 -->
               <div class="space-y-1 mb-3">
@@ -217,7 +247,7 @@ const formatDate = (date: Date | string | undefined) => {
     </QhxWaterList>
 
     <!-- 新增/编辑弹窗 -->
-    <TeapartyAdd ref="teapartyAddRef" @success="handleTeapartySaved" />
+    <TeapartyAdd ref="teapartyAddRef" :close-on-backdrop="false" @success="handleTeapartySaved" />
   </div>
 </template>
 

@@ -5,17 +5,30 @@ export interface CalendarDateParts {
   d: number
 }
 
+export interface CalendarDayDisplayMeta {
+  count: number
+  coverUrl: string | null
+  hasCover: boolean
+}
+
+const props = defineProps<{
+  getDayMeta?: (day: number) => CalendarDayDisplayMeta
+}>()
+
 const emit = defineEmits<{
   chooseDay: [value: CalendarDateParts]
   changeMonth: [startDate: string]
 }>()
 
-const weekTitles = ['日', '一', '二', '三', '四', '五', '六']
+const emptyDayMeta: CalendarDayDisplayMeta = {
+  count: 0,
+  coverUrl: null,
+  hasCover: false,
+}
 
 const currentTime = ref<CalendarDateParts>(formatDate(new Date()))
 const calendarTime = ref<CalendarDateParts>({ ...currentTime.value })
 const activeTime = ref<CalendarDateParts>({ ...currentTime.value })
-const calendarDays = ref<Array<number | ''>>([])
 
 function formatDate(date: Date | string): CalendarDateParts {
   const dateObj = new Date(date)
@@ -26,29 +39,16 @@ function formatDate(date: Date | string): CalendarDateParts {
   }
 }
 
-function getCountDays(year: number, month: number) {
-  return new Date(year, month, 0).getDate()
-}
-
 function pad2(value: number) {
   return value >= 10 ? String(value) : `0${value}`
 }
 
-function initCalendar(year: number, month: number) {
-  const week = new Date(`${year}-${pad2(month)}-01T00:00:00.000Z`).getDay()
-  const countDays = getCountDays(calendarTime.value.y, calendarTime.value.m)
-  const temp: Array<number | ''> = []
+function getMonthStartDate() {
+  return `${calendarTime.value.y}-${pad2(calendarTime.value.m)}-01`
+}
 
-  for (let i = 0; i < countDays; i++) {
-    if (i === 0) {
-      for (let x = 0; x <= week; x++) {
-        temp[x] = ''
-      }
-    }
-    temp[i + week] = i + 1
-  }
-
-  calendarDays.value = temp
+function emitMonthChange() {
+  emit('changeMonth', getMonthStartDate())
 }
 
 function emitChooseDay(day: number) {
@@ -57,32 +57,49 @@ function emitChooseDay(day: number) {
   emit('chooseDay', activeTime.value)
 }
 
-function changeMonth(direction: 0 | 1) {
+function prevYear() {
+  calendarTime.value = {
+    ...calendarTime.value,
+    y: calendarTime.value.y - 1,
+  }
+  emitMonthChange()
+}
+
+function nextYear() {
+  calendarTime.value = {
+    ...calendarTime.value,
+    y: calendarTime.value.y + 1,
+  }
+  emitMonthChange()
+}
+
+function prevMonth() {
   let month = calendarTime.value.m
   let year = calendarTime.value.y
+  if (month <= 1) {
+    year -= 1
+    month = 12
+  } else {
+    month -= 1
+  }
+  calendarTime.value = { ...calendarTime.value, y: year, m: month }
+  emitMonthChange()
+}
 
-  if (direction === 0) {
-    if (month - 1 < 1) {
-      month = 12
-      year -= 1
-    } else {
-      month -= 1
-    }
-  } else if (month + 1 > 12) {
-    month = 1
+function nextMonth() {
+  let month = calendarTime.value.m
+  let year = calendarTime.value.y
+  if (month >= 12) {
     year += 1
+    month = 1
   } else {
     month += 1
   }
-
-  const startDate = `${year}-${pad2(month)}-01`
-  emit('changeMonth', startDate)
-  calendarTime.value = formatDate(`${startDate}T00:00:00.000Z`)
-  initCalendar(calendarTime.value.y, calendarTime.value.m)
+  calendarTime.value = { ...calendarTime.value, y: year, m: month }
+  emitMonthChange()
 }
 
-function isActiveDay(day: number | '') {
-  if (day === '') return false
+function isActiveDay(day: number) {
   return (
     activeTime.value.y === calendarTime.value.y &&
     activeTime.value.m === calendarTime.value.m &&
@@ -90,84 +107,191 @@ function isActiveDay(day: number | '') {
   )
 }
 
-function isToday(day: number | '') {
-  if (day === '') return false
-  return (
-    calendarTime.value.y === currentTime.value.y &&
-    calendarTime.value.m === currentTime.value.m &&
-    day === currentTime.value.d
-  )
+function resolveDayMeta(day: number): CalendarDayDisplayMeta {
+  return props.getDayMeta?.(day) ?? emptyDayMeta
 }
+
+const daysInMonth = computed(() => {
+  const { y, m } = calendarTime.value
+  return new Date(y, m, 0).getDate()
+})
+
+const allDaysInMonth = computed(() =>
+  Array.from({ length: daysInMonth.value }, (_, index) => index + 1)
+)
 
 onMounted(() => {
   emit('chooseDay', activeTime.value)
-  initCalendar(calendarTime.value.y, calendarTime.value.m)
 })
 
 defineExpose({
-  getMonthStartDate: () => `${calendarTime.value.y}-${pad2(calendarTime.value.m)}-01`,
+  getMonthStartDate,
 })
 </script>
 
 <template>
-  <div class="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 overflow-hidden">
-    <div class="flex items-center justify-between px-3 py-2 border-b border-gray-100 dark:border-gray-700">
-      <button
-        type="button"
-        class="w-8 h-8 rounded-full bg-qhx-primary/10 text-qhx-primary hover:bg-qhx-primary/20 transition-colors"
-        @click="changeMonth(0)"
-      >
-        <UIcon name="i-heroicons-chevron-left" class="w-4 h-4 mx-auto" />
-      </button>
-      <div class="text-sm font-semibold text-gray-800 dark:text-gray-100">
-        {{ calendarTime.y }} 年 {{ pad2(calendarTime.m) }} 月
+  <div class="sign-in-journal-calendar journal-book-page mb-3">
+    <div class="mb-3 px-1">
+      <div class="flex items-center justify-between gap-2 flex-wrap">
+        <div class="flex items-center gap-2 flex-wrap">
+          <div class="flex items-center gap-1">
+            <button
+              type="button"
+              class="journal-neu-icon-btn w-8 h-8 flex items-center justify-center rounded-xl text-[#6b4f5f] dark:text-[var(--ink-muted)]"
+              @click="prevYear"
+            >
+              <UIcon name="i-heroicons-chevron-left" class="w-4 h-4" />
+            </button>
+            <span class="text-sm font-semibold text-[#4a2f3d] dark:text-[var(--ink-primary)] min-w-[50px] text-center">
+              {{ calendarTime.y }}年
+            </span>
+            <button
+              type="button"
+              class="journal-neu-icon-btn w-8 h-8 flex items-center justify-center rounded-xl text-[#6b4f5f] dark:text-[var(--ink-muted)]"
+              @click="nextYear"
+            >
+              <UIcon name="i-heroicons-chevron-right" class="w-4 h-4" />
+            </button>
+          </div>
+          <div class="flex items-center gap-1">
+            <button
+              type="button"
+              class="journal-neu-icon-btn w-8 h-8 flex items-center justify-center rounded-xl text-[#6b4f5f] dark:text-[var(--ink-muted)]"
+              @click="prevMonth"
+            >
+              <UIcon name="i-heroicons-chevron-left" class="w-4 h-4" />
+            </button>
+            <span class="text-sm font-semibold text-[#4a2f3d] dark:text-[var(--ink-primary)] min-w-[40px] text-center">
+              {{ calendarTime.m }}月
+            </span>
+            <button
+              type="button"
+              class="journal-neu-icon-btn w-8 h-8 flex items-center justify-center rounded-xl text-[#6b4f5f] dark:text-[var(--ink-muted)]"
+              @click="nextMonth"
+            >
+              <UIcon name="i-heroicons-chevron-right" class="w-4 h-4" />
+            </button>
+          </div>
+        </div>
       </div>
-      <button
-        type="button"
-        class="w-8 h-8 rounded-full bg-qhx-primary/10 text-qhx-primary hover:bg-qhx-primary/20 transition-colors"
-        @click="changeMonth(1)"
-      >
-        <UIcon name="i-heroicons-chevron-right" class="w-4 h-4 mx-auto" />
-      </button>
     </div>
 
-    <div class="grid grid-cols-7 gap-1 px-2 pt-2">
-      <div
-        v-for="week in weekTitles"
-        :key="week"
-        class="text-center text-[11px] font-medium text-gray-500 dark:text-gray-400 py-1"
-      >
-        {{ week }}
-      </div>
-    </div>
-
-    <div class="grid grid-cols-7 gap-1 p-2">
+    <div class="grid grid-cols-7 gap-2">
       <button
-        v-for="(day, index) in calendarDays"
-        :key="`${index}-${day}`"
+        v-for="day in allDaysInMonth"
+        :key="day"
         type="button"
-        class="relative aspect-square rounded-lg text-sm font-semibold transition-colors disabled:cursor-default"
-        :class="[
-          day === ''
-            ? 'invisible'
-            : isActiveDay(day)
-              ? 'bg-qhx-primary text-white shadow-sm'
-              : 'hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-800 dark:text-gray-100',
-        ]"
-        :disabled="day === ''"
-        @click="typeof day === 'number' && emitChooseDay(day)"
+        class="journal-neu-tile relative aspect-[1/1] cursor-pointer overflow-hidden rounded-xl text-center min-w-0 min-h-[48px] transition-all active:scale-[0.98]"
+        :class="{ 'journal-neu-tile--active': isActiveDay(day) }"
+        @click="emitChooseDay(day)"
       >
-        <slot name="item" :item="day" :index="index">
-          <span>{{ day }}</span>
+        <slot name="item" :item="day" :meta="resolveDayMeta(day)">
+          <img
+            v-if="resolveDayMeta(day).coverUrl"
+            :src="resolveDayMeta(day).coverUrl!"
+            alt=""
+            class="absolute inset-0 w-full h-full object-cover"
+            loading="lazy"
+            decoding="async"
+          />
+          <span
+            class="absolute inset-0 flex items-center justify-center text-xs font-medium"
+            :class="
+              resolveDayMeta(day).hasCover
+                ? 'text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)]'
+                : 'text-gray-500 dark:text-gray-400'
+            "
+          >
+            {{ day }}日
+          </span>
+          <span
+            v-if="resolveDayMeta(day).count > 0"
+            class="journal-neu-badge absolute top-[-2px] right-[-2px] min-w-[18px] h-[18px] flex items-center justify-center rounded-full text-white text-[10px] font-semibold px-1 leading-none z-[1]"
+          >
+            {{ resolveDayMeta(day).count > 99 ? '99+' : resolveDayMeta(day).count }}
+          </span>
         </slot>
-        <span
-          v-if="isToday(day)"
-          class="absolute bottom-1 left-1/2 -translate-x-1/2 text-[10px] font-normal"
-          :class="isActiveDay(day) ? 'text-white/90' : 'text-qhx-primary'"
-        >
-          今天
-        </span>
       </button>
     </div>
   </div>
 </template>
+
+<style scoped>
+.sign-in-journal-calendar.journal-book-page {
+  --paper-bg: #f7f0e8;
+  --paper-sheet: #fefcf9;
+  --paper-raised: #fffefb;
+  --paper-dent: #f5efe6;
+  --ink-primary: #3d3429;
+  --ink-secondary: #5c4f42;
+  --ink-muted: #8a7b6a;
+  --ink-faint: #b5a898;
+  --border-paper: rgba(120, 95, 70, 0.14);
+  --border-light: rgba(120, 95, 70, 0.08);
+  --shadow-paper: 0 1px 0 rgba(255, 255, 255, 0.85), 0 8px 32px rgba(110, 88, 62, 0.06);
+  --shadow-soft: 0 2px 8px rgba(110, 88, 62, 0.05);
+  --seal-red: #b85c48;
+  --accent-warm: #8a7355;
+  color: var(--ink-primary);
+}
+
+:global(.dark) .sign-in-journal-calendar.journal-book-page {
+  --paper-bg: #1a1612;
+  --paper-sheet: #221e19;
+  --paper-raised: #2a2520;
+  --paper-dent: #1e1a16;
+  --ink-primary: #e8dfd0;
+  --ink-secondary: #c9bfb0;
+  --ink-muted: #9a8f80;
+  --ink-faint: #6b6258;
+  --border-paper: rgba(200, 180, 150, 0.12);
+  --border-light: rgba(200, 180, 150, 0.06);
+  --shadow-paper: 0 1px 0 rgba(255, 255, 255, 0.04), 0 8px 32px rgba(0, 0, 0, 0.35);
+  --shadow-soft: 0 2px 8px rgba(0, 0, 0, 0.25);
+  --seal-red: #c46a55;
+  --accent-warm: #a89070;
+}
+
+.journal-neu-icon-btn {
+  border: 1px solid var(--border-paper);
+  background: var(--paper-sheet);
+  color: var(--ink-muted);
+  box-shadow: none;
+}
+
+.journal-neu-icon-btn:hover {
+  color: var(--ink-secondary);
+  border-color: rgba(120, 95, 70, 0.22);
+}
+
+.journal-neu-icon-btn:active {
+  background: var(--paper-dent);
+}
+
+.journal-neu-tile {
+  background: var(--paper-sheet);
+  border: 1px solid var(--border-paper);
+  box-shadow: var(--shadow-soft);
+}
+
+.journal-neu-tile:hover {
+  border-color: rgba(120, 95, 70, 0.28);
+}
+
+.journal-neu-tile--active {
+  border: 2px solid var(--accent-warm);
+  outline: 2px solid rgba(138, 115, 85, 0.5);
+  outline-offset: 1px;
+  box-shadow: var(--shadow-soft);
+  z-index: 2;
+}
+
+:global(.dark) .journal-neu-tile--active {
+  outline-color: rgba(168, 144, 112, 0.55);
+}
+
+.journal-neu-badge {
+  background: var(--seal-red);
+  box-shadow: 0 1px 3px rgba(110, 88, 62, 0.2);
+}
+</style>

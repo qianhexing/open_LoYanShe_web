@@ -10,7 +10,10 @@ export function normalizeGalleryConfigFile(data: GalleryConfigFile): GalleryConf
     ...data,
     walls: data.walls ?? [],
     exhibits: data.exhibits ?? [],
-    shops: data.shops ?? [],
+    shops: (data.shops ?? []).map(shop => ({
+      ...shop,
+      objects: shop.objects ?? []
+    })),
     mapSize: data.mapSize ?? { width: 20, depth: 20 }
   }
 }

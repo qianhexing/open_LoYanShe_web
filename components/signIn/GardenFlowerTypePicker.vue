@@ -5,7 +5,6 @@ import QhxModal from '@/components/Qhx/Modal.vue'
 import { BASE_IMG } from '@/utils/ipConfig'
 import {
   getDecoDisplayTitle,
-  getDefaultGardenFlowerDecoId,
   getGardenFlowerDecoMeta,
   setGardenFlowerDecoRegistry,
 } from '@/utils/gardenFlowerDeco'
@@ -58,14 +57,17 @@ function is3DModel(url: string): boolean {
 
 const selectedMeta = computed(() => getGardenFlowerDecoMeta(modelValue.value))
 
+const NO_FLOWER_ID = 0
+
 const selectedTitle = computed(() => {
+  if (!modelValue.value) return '不种花'
   if (selectedMeta.value) return selectedMeta.value.title
   const id = Number(modelValue.value)
   if (Number.isFinite(id) && id > 0) {
     const row = decoList.value.find((item) => item.deco_id === id)
     if (row) return getDecoDisplayTitle(row)
   }
-  return '请选择花朵'
+  return '不种花'
 })
 
 const selectedCover = computed(() => {
@@ -95,11 +97,15 @@ async function fetchDecoList(page = 1, append = false) {
 function openModal() {
   const currentId = Number(modelValue.value)
   pendingDecoId.value =
-    Number.isFinite(currentId) && currentId > 0 ? currentId : null
+    Number.isFinite(currentId) && currentId > 0 ? currentId : NO_FLOWER_ID
   showModal.value = true
   if (!decoList.value.length) {
     void fetchDecoList(1)
   }
+}
+
+function selectNoFlower() {
+  pendingDecoId.value = NO_FLOWER_ID
 }
 
 function selectDeco(item: DecoItem) {
@@ -112,6 +118,11 @@ function isPendingSelected(decoId: number) {
 }
 
 function confirmSelect() {
+  if (pendingDecoId.value === NO_FLOWER_ID) {
+    modelValue.value = ''
+    showModal.value = false
+    return
+  }
   if (pendingDecoId.value == null) return
   const picked = decoList.value.find((item) => item.deco_id === pendingDecoId.value)
   if (!picked || picked.has_own !== 1) return
@@ -127,24 +138,16 @@ watch(showModal, (open) => {
   if (!open) return
   const currentId = Number(modelValue.value)
   pendingDecoId.value =
-    Number.isFinite(currentId) && currentId > 0 ? currentId : null
+    Number.isFinite(currentId) && currentId > 0 ? currentId : NO_FLOWER_ID
 })
-
-/** 注册表加载后补默认选中（仅当尚未选择） */
-watch(
-  () => getDefaultGardenFlowerDecoId(),
-  (defaultId) => {
-    if (!modelValue.value && defaultId) {
-      modelValue.value = defaultId
-    }
-  },
-  { immediate: true }
-)
 </script>
 
 <template>
   <div class="space-y-2">
-    <div class="text-sm font-medium text-gray-700 dark:text-gray-200">选择今日花朵</div>
+    <div class="text-sm font-medium text-gray-700 dark:text-gray-200">
+      选择今日花朵
+      <span class="font-normal text-qhx-text-muted">（可选）</span>
+    </div>
 
     <button
       type="button"
@@ -179,7 +182,7 @@ watch(
         <div class="truncate text-sm font-semibold text-gray-800 dark:text-gray-100">
           {{ selectedTitle }}
         </div>
-        <div class="mt-0.5 text-xs text-qhx-text-muted">点击选择已解锁的花朵</div>
+        <div class="mt-0.5 text-xs text-qhx-text-muted">可选 · 点击选择已解锁的花朵</div>
       </div>
       <UIcon name="i-heroicons-chevron-right" class="h-5 w-5 shrink-0 text-gray-400" />
     </button>
@@ -220,6 +223,31 @@ watch(
             <span class="text-sm">暂无可用花朵</span>
           </div>
           <div v-else class="grid grid-cols-2 gap-2 sm:gap-3">
+            <div
+              class="relative flex min-h-0 min-w-0 touch-manipulation gap-2 rounded-2xl border-2 p-2 transition-all sm:gap-3 sm:p-3 cursor-pointer active:scale-[0.98]"
+              :class="
+                pendingDecoId === NO_FLOWER_ID
+                  ? 'border-qhx-primary bg-qhx-primary/10 ring-2 ring-qhx-primary dark:bg-qhx-primary/15'
+                  : 'border-gray-200 hover:border-qhx-primary/50 dark:border-gray-600'
+              "
+              @click="selectNoFlower"
+            >
+              <div
+                class="relative flex aspect-square w-14 shrink-0 items-center justify-center self-center rounded-xl bg-gray-100 text-2xl sm:w-[4.5rem] dark:bg-gray-700/50"
+                aria-hidden="true"
+              >
+                —
+              </div>
+              <div class="flex min-w-0 flex-1 flex-col justify-center gap-1 py-0.5 text-left">
+                <div class="line-clamp-2 text-sm font-semibold leading-snug text-qhx-primary">
+                  不种花
+                  <span v-if="pendingDecoId === NO_FLOWER_ID" class="ml-0.5">✓</span>
+                </div>
+                <p class="line-clamp-3 text-xs leading-relaxed text-gray-600 dark:text-gray-400">
+                  仅打卡签到，不在花园中种植花朵
+                </p>
+              </div>
+            </div>
             <div
               v-for="item in decoList"
               :key="item.deco_id"

@@ -2,6 +2,7 @@
 // biome-ignore lint/style/useImportType: Vue SFC 供 template 与 InstanceType 使用
 import SPZModelViewerContent from '@/components/ModelViewer/SPZModelViewerContent.vue'
 import QhxModal from '@/components/Qhx/Modal.vue'
+import QhxSortableList from '@/components/Qhx/SortableList.vue'
 import QhxRichTextEditor from '@/components/Qhx/RichTextEditor.vue'
 import type { RichTextToolbarItem } from '@/components/Qhx/RichTextEditor.vue'
 import SafeRichText from '@/components/SafeRichText.vue'
@@ -74,6 +75,7 @@ const buildHumanPlatformPath = (videoId: number | string, libraryId?: number | n
 
 // 编辑模式：通过地址栏 edit=1 开启
 const isEditMode = computed(() => Boolean(route.query.edit) && !isHideUi.value)
+const laxianEditPanelExpanded = ref(true)
 
 // library_id：优先地址栏 query，否则从当前 video 的 pk_id 获取
 const queryLibraryId = computed(() => {
@@ -117,7 +119,10 @@ const similarLoading = ref(false)
 const similarRows = ref<LibrarySimilarItem[]>([])
 const similarFetched = ref(false)
 
-const similarPanelBottom = computed(() => (isEditMode.value ? 200 : 16))
+const similarPanelBottom = computed(() => {
+    if (!isEditMode.value) return 16
+    return laxianEditPanelExpanded.value ? 200 : 56
+})
 
 const formatSimilarityScore = (score: number) => {
     if (score >= 0 && score <= 1) {
@@ -234,6 +239,7 @@ watch(
             return
         }
         expandedLaxianId.value = null
+        focusedLaxianId.value = null
         soloLaxianId.value = null
         viewerRef.value?.setLaxianSoloDisplay?.(null)
         void loadVideoData()
@@ -459,11 +465,12 @@ const syncLaxianTransformFromPayload = (payload: {
         }
         return
     }
-    if (payload.object.userData.type === 'laxian') {
+    const laxianGroup = core.resolveScenePickTarget(payload.object)
+    if (laxianGroup?.userData.type === 'laxian') {
         editableLaxianList.value[idx] = {
             ...item,
-            position: [payload.object.position.x, payload.object.position.y, payload.object.position.z],
-            rotation: [payload.object.rotation.x, payload.object.rotation.y, payload.object.rotation.z]
+            position: [laxianGroup.position.x, laxianGroup.position.y, laxianGroup.position.z],
+            rotation: [laxianGroup.rotation.x, laxianGroup.rotation.y, laxianGroup.rotation.z]
         }
         editableLaxianList.value = [...editableLaxianList.value]
     }
@@ -523,6 +530,14 @@ const applyFrameShapeToScene = (item: LaxianItem, frame: LaxianHighlightFrame, s
     viewerRef.value?.getThreeCore?.()?.setLaxianSubFrameShape?.(item.laxian_id, frame.frame_id, frame.shape)
 }
 
+const selectLaxianPointInEditor = (item: LaxianItem) => {
+    if (!item.laxian_id) return
+    selectedLaxianId.value = item.laxian_id
+    selectedFrameId.value = null
+    viewerRef.value?.selectLaxianObject?.(item.laxian_id)
+    setLaxianTransformMode('translate')
+}
+
 const selectLaxianFrameInEditor = (item: LaxianItem, frame: LaxianHighlightFrame) => {
     if (!item.laxian_id || !frame.frame_id) return
     selectedLaxianId.value = item.laxian_id
@@ -530,6 +545,8 @@ const selectLaxianFrameInEditor = (item: LaxianItem, frame: LaxianHighlightFrame
     viewerRef.value?.selectLaxianFrameObject?.(item.laxian_id, frame.frame_id)
     setLaxianTransformMode('translate')
 }
+
+const laxianEditListScrollRef = ref<HTMLElement | null>(null)
 
 const addLaxianFrameToPoint = (item: LaxianItem) => {
     const core = viewerRef.value?.getThreeCore?.()
@@ -693,14 +710,22 @@ const updateLaxianItem = (item: LaxianItem, updates: Partial<Pick<LaxianItem, 't
     }
 }
 
-const syncEditableLaxianFramesFromScene = () => {
+const syncEditableLaxianFromScene = () => {
     const core = viewerRef.value?.getThreeCore?.()
     if (!core) return
     editableLaxianList.value = editableLaxianList.value.map((item) => {
         if (!item.laxian_id) return item
-        const frames = core.extractLaxianFramesByLaxianId(item.laxian_id)
-        if (!frames.length) return item
-        return { ...item, frames }
+        const loaded = core.loadedLaxian.find(
+            (l) => l.laxian_id === item.laxian_id || l.object?.userData?.laxian_id === item.laxian_id
+        )
+        if (!loaded?.object) return item
+        const obj = loaded.object
+        return {
+            ...item,
+            position: [obj.position.x, obj.position.y, obj.position.z] as [number, number, number],
+            rotation: [obj.rotation.x, obj.rotation.y, obj.rotation.z] as [number, number, number],
+            frames: core.extractLaxianFramesByLaxianId(item.laxian_id)
+        }
     })
 }
 
@@ -714,7 +739,7 @@ const saveLaxianJson = async () => {
     }
     try {
         savingLaxian.value = true
-        syncEditableLaxianFramesFromScene()
+        syncEditableLaxianFromScene()
         const existingJsonData = libraryVideo.value?.json_data ?? {}
         const updated = await updateLibraryVideoJson({
             video_id: videoId,
@@ -737,7 +762,7 @@ const saveLaxianJson = async () => {
 }
 
 const copyLaxianJson = async () => {
-    syncEditableLaxianFramesFromScene()
+    syncEditableLaxianFromScene()
     const json = JSON.stringify(
         { laxian_list: editableLaxianList.value },
         null,
@@ -754,6 +779,16 @@ const copyLaxianJson = async () => {
 // ===== 拉线点详情 =====
 const laxianDetailToolbar: RichTextToolbarItem[] = ['bold', 'italic', 'strike', 'image', 'internalLink', 'emoji']
 const expandedLaxianId = ref<string | null>(null)
+/** 浏览模式下当前聚焦的标点（用于键盘 ↑/↓ 切换） */
+const focusedLaxianId = ref<string | null>(null)
+
+watch(isEditMode, (edit) => {
+    if (edit) {
+        laxianEditPanelExpanded.value = true
+        focusedLaxianId.value = null
+        expandedLaxianId.value = null
+    }
+})
 const showLaxianDetailEdit = ref(false)
 const detailModalPosition = ref({ x: 0, y: 0 })
 const activeLaxianDetail = ref<LaxianItem | null>(null)
@@ -798,8 +833,44 @@ const setDetailModalPosition = (e?: MouseEvent) => {
 const handleLaxianLabelClick = (item: LaxianInterface) => {
     viewerRef.value?.focusLaxianCamera?.(item)
     const laxianId = item.laxian_id
-    if (!laxianId || !hasLaxianDetailContent(getLaxianById(item.laxian_id))) return
+    if (!laxianId) return
+    focusedLaxianId.value = laxianId
+    if (!hasLaxianDetailContent(getLaxianById(item.laxian_id))) return
     expandedLaxianId.value = expandedLaxianId.value === laxianId ? null : laxianId
+}
+
+const getActiveViewLaxianIndex = () => {
+    const list = getNavigableLaxianList()
+    if (!list.length) return -1
+    const activeId = focusedLaxianId.value ?? expandedLaxianId.value
+    if (!activeId) return -1
+    return list.findIndex((l) => l.laxian_id === activeId)
+}
+
+const selectViewLaxian = (item: LaxianInterface) => {
+    const laxianId = item.laxian_id
+    if (!laxianId) return
+    focusedLaxianId.value = laxianId
+    viewerRef.value?.focusLaxianCamera?.(item)
+    if (hasLaxianDetailContent(getLaxianById(laxianId))) {
+        expandedLaxianId.value = laxianId
+    } else {
+        expandedLaxianId.value = null
+    }
+}
+
+const switchViewLaxianByDelta = (delta: -1 | 1) => {
+    const list = getNavigableLaxianList()
+    if (!list.length) return
+    let current = getActiveViewLaxianIndex()
+    if (current < 0) {
+        current = delta < 0 ? list.length : -1
+    }
+    const next = Math.max(0, Math.min(list.length - 1, current + delta))
+    const item = list[next]
+    if (!item?.laxian_id) return
+    if (next === current && focusedLaxianId.value === item.laxian_id) return
+    selectViewLaxian(item)
 }
 
 const openLaxianDetailEdit = (item: LaxianItem, e: MouseEvent) => {
@@ -842,7 +913,6 @@ const toggleAllLaxianMarkers = () => {
     const hideAll = !allLaxianMarkersHidden.value
     showType0.value = !hideAll
     showType1.value = !hideAll
-    if (hideAll) expandedLaxianId.value = null
 }
 
 const isTypingTarget = (target: EventTarget | null) => {
@@ -853,10 +923,20 @@ const isTypingTarget = (target: EventTarget | null) => {
 }
 
 const onLaxianShortcutKeyDown = (e: KeyboardEvent) => {
+    if (isTypingTarget(e.target)) return
+
+    if (!isEditMode.value && !isHideUi.value && !showLaxianModal.value) {
+        if (!e.ctrlKey && !e.metaKey && !e.altKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+            if (getNavigableLaxianList().length === 0) return
+            e.preventDefault()
+            switchViewLaxianByDelta(e.key === 'ArrowUp' ? -1 : 1)
+            return
+        }
+    }
+
     if (isHideUi.value || laxianListForViewer.value.length === 0) return
     if (!e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return
     if (e.key.toLowerCase() !== 'h') return
-    if (isTypingTarget(e.target)) return
     e.preventDefault()
     toggleAllLaxianMarkers()
 }
@@ -903,10 +983,15 @@ const LABEL_BELOW_OFFSET = 12
 
 const configStore = useConfigStore()
 
-const filterVisibleLaxian = (list: LaxianInterface[]) =>
+const filterNavigableLaxian = (list: LaxianInterface[]) =>
     list.filter((item) => {
         if (!item.position) return false
         if (isEditMode.value && soloLaxianId.value && item.laxian_id !== soloLaxianId.value) return false
+        return true
+    })
+
+const filterVisibleLaxian = (list: LaxianInterface[]) =>
+    filterNavigableLaxian(list).filter((item) => {
         const t = item.type ?? 0
         return (t === 0 && showType0.value) || (t === 1 && showType1.value)
     })
@@ -965,6 +1050,8 @@ const readLaxianFromViewer = (): LaxianInterface[] => {
     if (!raw) return []
     return (raw as { value?: LaxianInterface[] }).value ?? (Array.isArray(raw) ? raw : [])
 }
+
+const getNavigableLaxianList = () => filterNavigableLaxian(readLaxianFromViewer())
 
 /** 仅在拉线点增删或标题变化时更新 Vue 列表，避免每帧触发模板 diff */
 const syncLaxianListStructure = (visible: LaxianInterface[]) => {
@@ -1389,7 +1476,7 @@ onUnmounted(() => {
                         class="rounded-2xl shadow-lg text-sm backdrop-blur-sm overflow-hidden transition-all duration-300 ease-out hover:shadow-xl"
                         :class="[
                             getLaxianLabelBgClass(item.type),
-                            isLaxianExpanded(item.laxian_id)
+                            isLaxianExpanded(item.laxian_id) || (!isEditMode && focusedLaxianId === item.laxian_id)
                                 ? getLaxianLabelExpandedRingClass(item.type)
                                 : 'hover:scale-[1.02] active:scale-[0.98]',
                         ]"
@@ -1446,13 +1533,28 @@ onUnmounted(() => {
             </div>
             <!-- 拉线设置弹窗 -->
             <!-- 编辑模式：拉线数据制作面板 -->
+            <button
+                v-if="isEditMode && hasLoadedOnce && !laxianEditPanelExpanded"
+                type="button"
+                class="fixed bottom-4 left-1/2 -translate-x-1/2 z-40 flex items-center justify-center w-11 h-11 rounded-full bg-white/95 dark:bg-gray-800/95 shadow-lg backdrop-blur-sm border border-gray-200/50 dark:border-gray-600/50 text-purple-600 dark:text-purple-400 hover:shadow-xl hover:scale-105 active:scale-95 transition-all"
+                title="展开拉线编辑"
+                @click="laxianEditPanelExpanded = true"
+            >
+                <UIcon name="material-symbols:edit-location-alt" class="text-xl" />
+                <span
+                    v-if="editableLaxianList.length > 0"
+                    class="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 flex items-center justify-center rounded-full bg-purple-500 text-white text-[10px] font-bold leading-none"
+                >
+                    {{ editableLaxianList.length }}
+                </span>
+            </button>
             <div
-                v-if="isEditMode && hasLoadedOnce"
+                v-if="isEditMode && hasLoadedOnce && laxianEditPanelExpanded"
                 class="fixed bottom-4 left-1/2 -translate-x-1/2 z-40 max-w-lg w-[calc(100vw-2rem)] rounded-2xl bg-white/95 dark:bg-gray-800/95 shadow-xl border border-gray-200/50 dark:border-gray-600/50 p-4 backdrop-blur-sm"
             >
-                <div class="flex items-center justify-between mb-3">
-                    <h3 class="text-sm font-semibold text-gray-800 dark:text-gray-100">拉线数据编辑</h3>
-                    <div class="flex items-center gap-2">
+                <div class="flex items-center justify-between gap-2 mb-3">
+                    <h3 class="text-sm font-semibold text-gray-800 dark:text-gray-100 shrink-0">拉线数据编辑</h3>
+                    <div class="flex items-center gap-1.5 flex-wrap justify-end">
                         <UButton size="xs" color="primary" @click="addLaxianPoint">
                             <UIcon name="material-symbols:add" class="mr-1" />
                             添加拉线点
@@ -1471,10 +1573,18 @@ onUnmounted(() => {
                             <UIcon name="material-symbols:content-copy" class="mr-1" />
                             复制 JSON
                         </UButton>
+                        <button
+                            type="button"
+                            class="shrink-0 w-7 h-7 flex items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-400 transition-colors"
+                            title="收起面板"
+                            @click="laxianEditPanelExpanded = false"
+                        >
+                            <UIcon name="material-symbols:keyboard-arrow-down" class="text-lg" />
+                        </button>
                     </div>
                 </div>
                 <p class="text-xs text-gray-500 dark:text-gray-400 mb-3">
-                    每个点位可添加多个标注线框（立方体 / 椭圆）；点击列表中的线框项即可选中，并在下方切换移动/旋转；「独显」仅显示该点及其线框
+                    拖拽左侧手柄可调整标点顺序；每个点位可添加多个标注线框（立方体 / 椭圆）；点击线框项选中后可切换移动/旋转；「独显」仅显示该点及其线框
                 </p>
                 <div
                     v-if="selectedFrameId"
@@ -1532,54 +1642,93 @@ onUnmounted(() => {
                         {{ hasInitialCamera ? '已设置' : '未设置（默认平视）' }}
                     </span>
                 </div>
-                <div class="max-h-64 overflow-y-auto space-y-2">
-                    <div
-                        v-for="(item, i) in editableLaxianList"
-                        :key="item.laxian_id ?? i"
-                        class="p-2 rounded-lg bg-gray-50 dark:bg-gray-700/50 space-y-2"
-                        :class="soloLaxianId === item.laxian_id
-                            ? 'ring-1 ring-primary-400/80 dark:ring-primary-500/60'
-                            : ''"
+                <div ref="laxianEditListScrollRef" class="max-h-64 overflow-y-auto">
+                    <QhxSortableList
+                        v-model="editableLaxianList"
+                        item-key="laxian_id"
+                        :animation="200"
+                        :delay="120"
+                        item-class="mb-2"
+                        :get-scroll-container="() => laxianEditListScrollRef"
                     >
-                        <div class="flex items-center gap-2">
-                            <input
-                                v-model="item.title"
-                                type="text"
-                                class="flex-1 min-w-0 px-2 py-1 text-sm rounded border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800"
-                                placeholder="标题"
-                                @blur="updateLaxianItem(item, { title: item.title })"
-                            />
-                            <select
-                                :value="item.type ?? 0"
-                                class="px-2 py-1 text-sm rounded border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800"
-                                @change="(e) => updateLaxianItem(item, { type: Number((e.target as HTMLSelectElement).value) as 0 | 1 })"
-                            >
-                                <option :value="0">设计元素</option>
-                                <option :value="1">柄图元素</option>
-                            </select>
-                            <UButton size="xs" color="primary" variant="soft" title="添加线框" @click="addLaxianFrameToPoint(item)">
-                                <UIcon name="material-symbols:add-box" class="mr-0.5" />
-                                线框
-                            </UButton>
-                            <UButton size="xs" color="gray" variant="ghost" title="编辑详情" @click="openLaxianDetailEdit(item, $event)">
-                                <UIcon name="material-symbols:edit-note" />
-                            </UButton>
-                            <UButton size="xs" color="gray" variant="ghost" title="保存当前镜头到此点" @click="saveCameraForLaxian(item)">
-                                <UIcon name="material-symbols:photo-camera" />
-                            </UButton>
-                            <UButton
-                                size="xs"
-                                :color="soloLaxianId === item.laxian_id ? 'primary' : 'gray'"
-                                variant="soft"
-                                title="独显：仅显示此定位点及其线框"
-                                @click="toggleLaxianSoloDisplay(item)"
-                            >
-                                <UIcon name="material-symbols:filter-center-focus" class="mr-0.5" />
-                                独显
-                            </UButton>
-                            <UButton size="xs" color="red" variant="ghost" title="删除" @click="removeLaxian(item)">
-                                <UIcon name="material-symbols:delete-outline" />
-                            </UButton>
+                        <template #item="{ element: item, index: i }">
+                    <div
+                        :data-laxian-edit-id="item.laxian_id"
+                        class="p-2 rounded-lg bg-gray-50 dark:bg-gray-700/50 space-y-2"
+                        :class="[
+                            soloLaxianId === item.laxian_id
+                                ? 'ring-1 ring-primary-400/80 dark:ring-primary-500/60'
+                                : '',
+                            selectedLaxianId === item.laxian_id && !selectedFrameId
+                                ? 'ring-1 ring-purple-500/70 dark:ring-purple-400/60'
+                                : ''
+                        ]"
+                    >
+                        <div class="space-y-2" @click="selectLaxianPointInEditor(item)">
+                            <div class="flex items-center gap-2 cursor-pointer">
+                                <button
+                                    type="button"
+                                    class="shrink-0 flex items-center justify-center w-6 h-8 rounded text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 cursor-grab active:cursor-grabbing touch-none"
+                                    title="拖拽排序"
+                                    aria-label="拖拽排序"
+                                >
+                                    <UIcon name="material-symbols:drag-indicator" class="text-base" />
+                                </button>
+                                <span
+                                    class="shrink-0 inline-flex items-center justify-center w-5 h-5 rounded-full text-[10px] font-bold text-white"
+                                    :style="{ backgroundColor: LAXIAN_TYPE_THEME[item.type === 1 ? 1 : 0].dot }"
+                                >
+                                    {{ i + 1 }}
+                                </span>
+                                <input
+                                    v-model="item.title"
+                                    type="text"
+                                    class="flex-1 min-w-0 px-2 py-1 text-sm rounded border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800"
+                                    placeholder="标题"
+                                    @click.stop
+                                    @pointerdown.stop
+                                    @blur="updateLaxianItem(item, { title: item.title })"
+                                />
+                                <select
+                                    :value="item.type ?? 0"
+                                    class="shrink-0 px-2 py-1 text-sm rounded border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800"
+                                    @click.stop
+                                    @pointerdown.stop
+                                    @change="(e) => updateLaxianItem(item, { type: Number((e.target as HTMLSelectElement).value) as 0 | 1 })"
+                                >
+                                    <option :value="0">设计元素</option>
+                                    <option :value="1">柄图元素</option>
+                                </select>
+                            </div>
+                            <div class="flex flex-wrap items-center gap-1.5 pl-8">
+                                <UButton size="xs" color="primary" variant="soft" title="添加线框" @pointerdown.stop @click.stop="addLaxianFrameToPoint(item)">
+                                    <UIcon name="material-symbols:add-box" class="mr-0.5" />
+                                    线框
+                                </UButton>
+                                <UButton size="xs" color="gray" variant="ghost" title="编辑详情" @pointerdown.stop @click.stop="openLaxianDetailEdit(item, $event)">
+                                    <UIcon name="material-symbols:edit-note" class="mr-0.5" />
+                                    详情
+                                </UButton>
+                                <UButton size="xs" color="gray" variant="ghost" title="保存当前镜头到此点" @pointerdown.stop @click.stop="saveCameraForLaxian(item)">
+                                    <UIcon name="material-symbols:photo-camera" class="mr-0.5" />
+                                    镜头
+                                </UButton>
+                                <UButton
+                                    size="xs"
+                                    :color="soloLaxianId === item.laxian_id ? 'primary' : 'gray'"
+                                    variant="soft"
+                                    title="独显：仅显示此定位点及其线框"
+                                    @pointerdown.stop
+                                    @click.stop="toggleLaxianSoloDisplay(item)"
+                                >
+                                    <UIcon name="material-symbols:filter-center-focus" class="mr-0.5" />
+                                    独显
+                                </UButton>
+                                <UButton size="xs" color="red" variant="ghost" title="删除" @pointerdown.stop @click.stop="removeLaxian(item)">
+                                    <UIcon name="material-symbols:delete-outline" class="mr-0.5" />
+                                    删除
+                                </UButton>
+                            </div>
                         </div>
                         <div v-if="ensureLaxianFrames(item).length === 0" class="text-[10px] text-gray-400 pl-1">
                             暂无线框，点击「线框」添加标注区域
@@ -1593,6 +1742,7 @@ onUnmounted(() => {
                             :class="selectedFrameId === frame.frame_id
                                 ? 'border-purple-500 bg-purple-50/80 dark:bg-purple-900/30'
                                 : 'border-purple-200 dark:border-purple-700 hover:bg-gray-100/80 dark:hover:bg-gray-600/30'"
+                            @pointerdown.stop
                             @click="selectLaxianFrameInEditor(item, frame)"
                             @keydown.enter.prevent="selectLaxianFrameInEditor(item, frame)"
                             @keydown.space.prevent="selectLaxianFrameInEditor(item, frame)"
@@ -1656,6 +1806,8 @@ onUnmounted(() => {
                             </div>
                         </div>
                     </div>
+                        </template>
+                    </QhxSortableList>
                     <div v-if="editableLaxianList.length === 0" class="text-center py-4 text-sm text-gray-400">
                         暂无拉线点，点击「添加拉线点」开始制作
                     </div>

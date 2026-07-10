@@ -3,10 +3,21 @@
     <!-- 新增图鉴 -->
     <div class="head-seat"></div>
     <div class="add-library">
-      <div class="mb-6 flex justify-center">
+      <div class="mb-6 flex justify-center gap-3 flex-wrap">
         <UButton color="primary" size="lg" icon="i-heroicons-chat-bubble-left-right" @click="joinQQGroup"
           class="rounded-full">
           加入交流QQ群
+        </UButton>
+        <UButton
+          v-if="isAddMode"
+          color="primary"
+          size="lg"
+          icon="i-heroicons-sparkles"
+          variant="soft"
+          class="rounded-full"
+          @click="openAnalyzeTagsModal"
+        >
+          AI 分析
         </UButton>
       </div>
       <UForm ref="libraryForm" :state="library" :rules="rules" class="space-y-6">
@@ -897,6 +908,103 @@
         </template>
       </UCard>
     </UModal>
+
+    <!-- AI 识 Tag 弹窗（仅新增） -->
+    <QhxModal v-model="showAnalyzeTagsModal" @close="closeAnalyzeTagsModal">
+      <div
+        class="flex max-h-[85vh] w-[95vw] max-w-xl flex-col overflow-hidden rounded-2xl border border-gray-200/60 bg-white shadow-2xl dark:border-gray-600/60 dark:bg-gray-800"
+      >
+        <div
+          class="flex shrink-0 items-center justify-between border-b border-gray-200/60 px-5 py-4 dark:border-gray-600/60"
+        >
+          <h3 class="flex items-center gap-2 text-lg font-semibold text-gray-800 dark:text-gray-100">
+            <UIcon name="i-heroicons-sparkles" class="text-qhx-primary" />
+            AI 识 Tag
+          </h3>
+          <button
+            type="button"
+            class="flex h-9 w-9 items-center justify-center rounded-full text-gray-500 transition-colors hover:bg-gray-100 dark:hover:bg-gray-700"
+            :disabled="analyzeTagsLoading"
+            @click="closeAnalyzeTagsModal"
+          >
+            <UIcon name="i-heroicons-x-mark" class="h-5 w-5" />
+          </button>
+        </div>
+
+        <div class="min-h-0 flex-1 overflow-y-auto p-5 space-y-4">
+          <p v-if="!analyzeTagsResultReady" class="text-sm text-gray-600 dark:text-gray-400">
+            选择 1～8 张图片，首张作为封面，其余作为细节图。识别约 3～10 秒。
+          </p>
+          <QhxImagePicker
+            v-if="!analyzeTagsResultReady"
+            ref="analyzeTagsPickerRef"
+            :multiple="true"
+            :max="8"
+          />
+
+          <div v-if="analyzeTagsResultReady" class="space-y-4">
+            <div class="flex items-center justify-between gap-2">
+              <p class="text-sm text-gray-700 dark:text-gray-300">
+                识别完成，点击 Tag 切换选中。已命中 Wiki 默认选中，未入库默认不选。
+              </p>
+              <UButton size="xs" color="gray" variant="soft" @click="resetAnalyzeTagsPreview">
+                重新选图
+              </UButton>
+            </div>
+            <div
+              v-for="group in analyzeTagsPreviewGroups"
+              :key="group.field"
+              class="rounded-xl border border-gray-200/80 bg-gray-50/80 p-3 dark:border-gray-600/60 dark:bg-gray-900/30"
+            >
+              <div class="mb-2 text-xs font-medium text-gray-500 dark:text-gray-400">
+                {{ group.label }}
+              </div>
+              <div class="flex flex-wrap gap-1">
+                <button
+                  v-for="item in group.items"
+                  :key="item.key"
+                  type="button"
+                  class="cursor-pointer rounded-full transition-opacity hover:opacity-80"
+                  @click="toggleAnalyzeTagCandidate(item.key)"
+                >
+                  <QhxTag :active="item.selected">
+                    {{ item.wikiName }}
+                    <span v-if="!item.matched" class="ml-0.5 text-[10px] opacity-70">(未入库)</span>
+                  </QhxTag>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div
+          class="flex shrink-0 justify-end gap-2 border-t border-gray-200/60 px-5 py-4 dark:border-gray-600/60"
+        >
+          <UButton color="gray" variant="soft" :disabled="analyzeTagsLoading" @click="closeAnalyzeTagsModal">
+            取消
+          </UButton>
+          <UButton
+            v-if="!analyzeTagsResultReady"
+            color="primary"
+            icon="i-heroicons-sparkles"
+            :loading="analyzeTagsLoading"
+            :disabled="!canSubmitAnalyzeTags || analyzeTagsLoading"
+            @click="handleAnalyzeTags"
+          >
+            {{ analyzeTagsLoading ? '识别中…' : '识 Tag' }}
+          </UButton>
+          <UButton
+            v-else
+            color="primary"
+            icon="i-heroicons-arrow-down-tray"
+            :disabled="!hasSelectedAnalyzeTags"
+            @click="applySelectedAnalyzeTags"
+          >
+            代入表单
+          </UButton>
+        </div>
+      </div>
+    </QhxModal>
   </div>
 </template>
 
@@ -912,12 +1020,20 @@ import { insertLibrary, type InsertParams, getLibraryById, type LibraryHistoryNe
 // import { formatDate } from '@/plugins/public'
 import type QhxImagePicker from '@/components/Qhx/ImagePicker.vue'
 import type QhxSelect from '@/components/Qhx/Select.vue'
+import QhxModal from '@/components/Qhx/Modal.vue'
 import { getShopOptiosns, getShopDetail } from '@/api/shop'
 import { uploadImageUrl } from '@/api'
-import { uploadFileToOSS, uploadImageOSS } from '@/utils/ossUpload'
+import {
+  analyzeLibraryTags,
+  type LibraryAnalyzeTagsData,
+  type LibraryTagAnalyzeUrlRole,
+} from '@/api/vector'
+import { uploadFileToOSS, uploadImageOSS, uploadTempFileToOSS } from '@/utils/ossUpload'
 import { BASE_IMG } from '@/utils/ipConfig'
 import dayjs from 'dayjs'
 const { t } = useI18n()
+const { navigateToLogin } = useLoginRedirect()
+const userStore = useUserStore()
 let uni: any;
 const showConfirmLibrary = ref(false)
 // 定义组件
@@ -960,6 +1076,55 @@ interface PatternCoverDraft {
   file?: File
   url: string
 }
+
+type AnalyzeTagFieldKey =
+  | 'library_type'
+  | 'library_pattern'
+  | 'pattern_elements'
+  | 'design_elements'
+  | 'cloth_elements'
+  | 'secondary_cloth'
+  | 'main_style'
+  | 'theme'
+  | 'color'
+
+interface AnalyzeTagCandidate {
+  key: string
+  field: AnalyzeTagFieldKey
+  wikiName: string
+  wikiId: number | string
+  matched: boolean
+  selected: boolean
+  score?: number
+}
+
+interface AnalyzeTagPreviewGroup {
+  field: AnalyzeTagFieldKey
+  label: string
+  items: AnalyzeTagCandidate[]
+}
+
+const ANALYZE_TAG_FIELD_LABELS: Record<AnalyzeTagFieldKey, string> = {
+  library_type: '版型',
+  library_pattern: '柄图',
+  pattern_elements: '柄图元素',
+  design_elements: '设计元素',
+  cloth_elements: '辅料',
+  secondary_cloth: '次辅料',
+  main_style: '主风格',
+  theme: '主题',
+  color: '颜色',
+}
+
+const WIKI_NAME_ANALYZE_FIELDS = [
+  'library_pattern',
+  'pattern_elements',
+  'design_elements',
+  'cloth_elements',
+  'secondary_cloth',
+  'theme',
+  'color',
+] as const
 
 const parseLibraryJsonData = (jsonData: unknown): Record<string, unknown> => {
   if (jsonData == null) return {}
@@ -1082,6 +1247,298 @@ const libraryImageFullUrl = (path: string | null | undefined) => {
   const t = String(path).trim()
   if (t.startsWith('http://') || t.startsWith('https://') || t.startsWith('//')) return t
   return `${BASE_IMG}${t.replace(/^\//, '')}`
+}
+
+const toPublicImageUrl = (pathOrUrl: string) => libraryImageFullUrl(pathOrUrl)
+
+const isAddMode = computed(() => !library_id.value && !isReviewMode.value)
+const showAnalyzeTagsModal = ref(false)
+const analyzeTagsLoading = ref(false)
+const analyzeTagsPickerRef = ref<InstanceType<typeof QhxImagePicker> | null>(null)
+const analyzeTagsPreviewGroups = ref<AnalyzeTagPreviewGroup[]>([])
+
+const canSubmitAnalyzeTags = computed(() => (analyzeTagsPickerRef.value?.previewImages.length ?? 0) > 0)
+const analyzeTagsResultReady = computed(() => analyzeTagsPreviewGroups.value.length > 0)
+const hasSelectedAnalyzeTags = computed(() =>
+  analyzeTagsPreviewGroups.value.some((group) => group.items.some((item) => item.selected))
+)
+
+const resetAnalyzeTagsPreview = () => {
+  analyzeTagsPreviewGroups.value = []
+  analyzeTagsPickerRef.value?.clear()
+}
+
+const openAnalyzeTagsModal = async () => {
+  if (!userStore.token) {
+    await navigateToLogin()
+    return
+  }
+  resetAnalyzeTagsPreview()
+  showAnalyzeTagsModal.value = true
+}
+
+const closeAnalyzeTagsModal = () => {
+  if (analyzeTagsLoading.value) return
+  showAnalyzeTagsModal.value = false
+  resetAnalyzeTagsPreview()
+}
+
+const parseCommaTagNames = (value?: string) => {
+  if (!value?.trim()) return []
+  return value.split(',').map((name) => name.trim()).filter(Boolean)
+}
+
+const buildAnalyzeTagPreview = (data: LibraryAnalyzeTagsData): AnalyzeTagPreviewGroup[] => {
+  const { tags, matched_wiki: matchedWiki, unmatched } = data
+  const groups: AnalyzeTagPreviewGroup[] = []
+
+  if (tags.library_type?.trim()) {
+    const value = tags.library_type.trim()
+    groups.push({
+      field: 'library_type',
+      label: ANALYZE_TAG_FIELD_LABELS.library_type,
+      items: [{
+        key: 'library_type',
+        field: 'library_type',
+        wikiName: value,
+        wikiId: value,
+        matched: true,
+        selected: true,
+      }],
+    })
+  }
+
+  for (const field of WIKI_NAME_ANALYZE_FIELDS) {
+    const namesFromTags = parseCommaTagNames(tags[field])
+    const matchedList = matchedWiki?.[field] ?? []
+    const unmatchedList = unmatched?.[field] ?? []
+    const matchedByName = new Map(matchedList.map((item) => [item.wiki_name, item]))
+    const allNames = [...namesFromTags]
+    for (const name of unmatchedList) {
+      if (!allNames.includes(name)) allNames.push(name)
+    }
+    if (!allNames.length) continue
+
+    groups.push({
+      field,
+      label: ANALYZE_TAG_FIELD_LABELS[field],
+      items: allNames.map((name, index) => {
+        const hit = matchedByName.get(name)
+        return {
+          key: `${field}-${name}-${index}`,
+          field,
+          wikiName: name,
+          wikiId: hit?.wiki_id ?? name,
+          matched: !!hit,
+          selected: !!hit,
+          score: hit?.score,
+        }
+      }),
+    })
+  }
+
+  const styleIds = parseCommaTagNames(tags.main_style)
+    .map((item) => Number(item))
+    .filter((id) => !Number.isNaN(id))
+  const matchedStyles = matchedWiki?.main_style ?? []
+  const matchedStyleById = new Map(matchedStyles.map((item) => [item.wiki_id, item]))
+  const unmatchedStyles = unmatched?.main_style ?? []
+  const styleItems: AnalyzeTagCandidate[] = []
+
+  for (const id of styleIds) {
+    const hit = matchedStyleById.get(id)
+    styleItems.push({
+      key: `main_style-id-${id}`,
+      field: 'main_style',
+      wikiName: hit?.wiki_name
+        ?? main_style_options.value.find((option) => option.value === id)?.label
+        ?? String(id),
+      wikiId: id,
+      matched: !!hit,
+      selected: !!hit,
+      score: hit?.score,
+    })
+  }
+  for (const name of unmatchedStyles) {
+    if (styleItems.some((item) => item.wikiName === name)) continue
+    styleItems.push({
+      key: `main_style-unmatched-${name}`,
+      field: 'main_style',
+      wikiName: name,
+      wikiId: name,
+      matched: false,
+      selected: false,
+    })
+  }
+  if (styleItems.length) {
+    groups.push({
+      field: 'main_style',
+      label: ANALYZE_TAG_FIELD_LABELS.main_style,
+      items: styleItems,
+    })
+  }
+
+  return groups
+}
+
+const toggleAnalyzeTagCandidate = (key: string) => {
+  for (const group of analyzeTagsPreviewGroups.value) {
+    const item = group.items.find((candidate) => candidate.key === key)
+    if (item) {
+      item.selected = !item.selected
+      return
+    }
+  }
+}
+
+const wikiFromCandidate = (item: AnalyzeTagCandidate): Wiki => ({
+  wiki_id: item.wikiId,
+  wiki_name: item.wikiName,
+})
+
+const mergeWikiCandidates = (
+  field: 'pattern_elements' | 'design_elements' | 'cloth_elements' | 'secondary_cloth' | 'theme' | 'color',
+  items: AnalyzeTagCandidate[]
+) => {
+  for (const item of items) {
+    const wiki = wikiFromCandidate(item)
+    const exists = library.value[field].some((child) => child.wiki_name === wiki.wiki_name)
+    if (!exists) library.value[field].push(wiki)
+  }
+}
+
+const mergePatternCandidates = (items: AnalyzeTagCandidate[]) => {
+  for (const item of items) {
+    const wiki = wikiFromCandidate(item)
+    const exists = library.value.library_pattern_list.some(
+      (child) => child.library_pattern.wiki_name === wiki.wiki_name
+    )
+    if (!exists) {
+      library.value.library_pattern_list.push({
+        library_pattern: wiki,
+        library_price: library.value.library_price,
+      })
+    }
+  }
+}
+
+const applySelectedAnalyzeTags = () => {
+  const selected = analyzeTagsPreviewGroups.value.flatMap((group) =>
+    group.items.filter((item) => item.selected)
+  )
+  if (!selected.length) return
+
+  const byField = new Map<AnalyzeTagFieldKey, AnalyzeTagCandidate[]>()
+  for (const item of selected) {
+    const list = byField.get(item.field) ?? []
+    list.push(item)
+    byField.set(item.field, list)
+  }
+
+  const libraryType = byField.get('library_type')?.[0]
+  if (libraryType) {
+    library.value.library_type = libraryType.wikiName
+  }
+
+  const patternItems = byField.get('library_pattern')
+  if (patternItems?.length) mergePatternCandidates(patternItems)
+
+  const wikiFieldMap = {
+    pattern_elements: 'pattern_elements',
+    design_elements: 'design_elements',
+    cloth_elements: 'cloth_elements',
+    secondary_cloth: 'secondary_cloth',
+    theme: 'theme',
+    color: 'color',
+  } as const
+
+  for (const [field, formField] of Object.entries(wikiFieldMap)) {
+    const items = byField.get(field as AnalyzeTagFieldKey)
+    if (items?.length) mergeWikiCandidates(formField, items)
+  }
+
+  const mainStyleItems = byField.get('main_style')
+  if (mainStyleItems?.length) {
+    if (!library.value.main_style) library.value.main_style = []
+    for (const item of mainStyleItems) {
+      const id = Number(item.wikiId)
+      if (Number.isNaN(id)) continue
+      if (!library.value.main_style.includes(id)) {
+        library.value.main_style.push(id)
+      }
+    }
+  }
+
+  toast.add({
+    title: '代入完成',
+    description: `已代入 ${selected.length} 项标签到表单`,
+    color: 'green',
+  })
+  closeAnalyzeTagsModal()
+}
+
+const prepareAnalyzeTagImages = async (): Promise<{ urls: string[]; url_roles: LibraryTagAnalyzeUrlRole[] }> => {
+  const images = analyzeTagsPickerRef.value?.previewImages ?? []
+  const limited = images.slice(0, 8)
+  const urls: string[] = []
+  const url_roles: LibraryTagAnalyzeUrlRole[] = []
+
+  for (let i = 0; i < limited.length; i++) {
+    const img = limited[i]
+    if (img.file) {
+      const res = await uploadTempFileToOSS(img.file)
+      urls.push(toPublicImageUrl(res.file_url))
+    } else if (img.url) {
+      urls.push(toPublicImageUrl(img.url))
+    }
+    url_roles.push(i === 0 ? 'cover' : 'detail')
+  }
+
+  return { urls, url_roles }
+}
+
+const handleAnalyzeTags = async () => {
+  if (analyzeTagsLoading.value || !canSubmitAnalyzeTags.value) return
+
+  analyzeTagsLoading.value = true
+
+  try {
+    const { urls, url_roles } = await prepareAnalyzeTagImages()
+    if (!urls.length) {
+      toast.add({
+        title: t('addLibrary.warning'),
+        description: '请至少选择 1 张图片',
+        color: 'orange',
+      })
+      return
+    }
+
+    const data = await analyzeLibraryTags({ urls, url_roles })
+    analyzeTagsPreviewGroups.value = buildAnalyzeTagPreview(data)
+
+    if (!analyzeTagsPreviewGroups.value.length) {
+      toast.add({
+        title: t('addLibrary.warning'),
+        description: '未识别到可用标签，请换图重试',
+        color: 'orange',
+      })
+      return
+    }
+
+    const durationSec = data.meta?.duration_ms ? Math.round(data.meta.duration_ms / 1000) : null
+    const cacheHint = data.meta?.cached ? '（命中缓存）' : ''
+    toast.add({
+      title: '识 Tag 完成',
+      description: durationSec != null
+        ? `请确认要代入的标签，耗时约 ${durationSec} 秒${cacheHint}`
+        : `请确认要代入的标签${cacheHint}`,
+      color: 'green',
+    })
+  } catch (error) {
+    console.error('识 Tag 失败:', error)
+  } finally {
+    analyzeTagsLoading.value = false
+  }
 }
 
 const getPatternCoverPreview = (item: LibraryPatternPriceItem) => {

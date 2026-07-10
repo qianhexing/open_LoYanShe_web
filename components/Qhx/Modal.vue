@@ -157,8 +157,8 @@ const onBackdropClick = () => {
 }
 
 // 进入前设置初始位置和缩放
-const setPosition = () => {
-  if (!isClient) return
+const setPosition = (el: Element | null) => {
+  if (!el || !isClient) return
   
   const pos = props.triggerPosition ?? {
     x: window.innerWidth,
@@ -171,7 +171,11 @@ const setPosition = () => {
 }
 
 // 进入动画
-const onEnter = (el: Element, done: () => void) => {
+const onEnter = (el: Element | null, done: () => void) => {
+  if (!el || !isClient) {
+    done()
+    return
+  }
   requestAnimationFrame(() => {
     modalStyle.value = {
       transform: 'translate(0, 0) scale(1)',
@@ -183,8 +187,8 @@ const onEnter = (el: Element, done: () => void) => {
 }
 
 // 离开动画
-const onLeave = async (el: Element, done: () => void) => {
-  if (!isClient) {
+const onLeave = async (el: Element | null, done: () => void) => {
+  if (!el || !isClient) {
     done()
     return
   }

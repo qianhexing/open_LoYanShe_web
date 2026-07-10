@@ -399,7 +399,11 @@ function onSignInReload(payload?: { word_cloud?: string; flower_types?: string }
     }
   }
   total.value += 1
-  appendFlowerMeta(payload?.flower_types)
+  if (payload?.flower_types) {
+    appendFlowerMeta(payload.flower_types)
+  } else {
+    appendFlowerMeta()
+  }
   void commentSectionRef.value?.refreshList?.()
   void fetchSignInStatus()
 }
@@ -638,40 +642,10 @@ useHead({
 
           <SignInCalendar
             v-if="activeTab === 'calendar'"
+            :get-day-meta="getCalendarDayMeta"
             @choose-day="onChooseDay"
             @change-month="onChangeMonth"
-          >
-            <template #item="{ item: day }">
-              <div
-                class="relative flex h-full w-full flex-col items-center justify-center overflow-hidden rounded-lg"
-              >
-                <span
-                  class="relative z-[1]"
-                  :class="getCalendarDayMeta(day).hasCover ? 'text-qhx-primary' : ''"
-                >
-                  {{ day }}
-                </span>
-                <div
-                  v-if="getCalendarDayMeta(day).coverUrl"
-                  class="absolute inset-0 m-0.5 overflow-hidden rounded-md"
-                >
-                  <img
-                    :src="getCalendarDayMeta(day).coverUrl!"
-                    alt=""
-                    class="h-full w-full object-cover"
-                    loading="lazy"
-                    decoding="async"
-                  />
-                </div>
-                <span
-                  v-if="getCalendarDayMeta(day).count > 0"
-                  class="absolute right-0.5 top-0.5 z-[2] min-w-[16px] rounded-full bg-qhx-primary px-1 text-[10px] leading-4 text-white"
-                >
-                  {{ getCalendarDayMeta(day).count }}
-                </span>
-              </div>
-            </template>
-          </SignInCalendar>
+          />
 
           <div v-if="selectedDayComment" class="mb-3 space-y-3">
             <div

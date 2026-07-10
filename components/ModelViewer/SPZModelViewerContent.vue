@@ -420,11 +420,22 @@ const setTransformMode = (mode: 'translate' | 'rotate' | 'scale') => {
     core.transformControls.setMode(mode)
 }
 
+const findLaxianGroup = (laxianId: string) =>
+    threeCore.value?.loadedLaxian
+        .find((l) => l.laxian_id === laxianId || l.object?.userData?.laxian_id === laxianId)
+        ?.object ?? null
+
+const selectLaxianObject = (laxianId?: string) => {
+    if (!laxianId || !threeCore.value) return
+    const laxianGroup = findLaxianGroup(laxianId)
+    if (!laxianGroup) return
+    clickObject.value = [laxianGroup]
+    threeCore.value.transformControls.attach(laxianGroup)
+}
+
 const selectLaxianFrameObject = (laxianId?: string, frameId?: string) => {
     if (!laxianId || !frameId || !threeCore.value) return
-    const frameGroup = threeCore.value.loadedLaxian
-        .find((l) => l.laxian_id === laxianId || l.object?.userData?.laxian_id === laxianId)
-        ?.object
+    const frameGroup = findLaxianGroup(laxianId)
         ?.children
         ?.find((child) => child.userData.type === 'laxian_frame' && child.userData.frame_id === frameId)
     if (!frameGroup) return
@@ -432,16 +443,61 @@ const selectLaxianFrameObject = (laxianId?: string, frameId?: string) => {
     threeCore.value.transformControls.attach(frameGroup)
 }
 
-const bindLaxianTransformListener = (
-    listener: ((payload: {
-        object: THREE.Object3D
-        laxianId?: string
-        frameId?: string
-    }) => void) | null
-) => {
-    if (threeCore.value) {
-        threeCore.value.laxianTransformListener = listener ?? undefined
+type LaxianTransformListener = ((payload: {
+    object: THREE.Object3D
+    laxianId?: string
+    frameId?: string
+}) => void) | null
+
+const laxianTransformListenerRef = ref<LaxianTransformListener>(null)
+let laxianTransformDragHandler: ((event: { value: boolean }) => void) | null = null
+
+const emitLaxianTransformChange = (obj: THREE.Object3D) => {
+    const core = threeCore.value
+    const listener = laxianTransformListenerRef.value
+    if (!core || !listener || !props.editMode) return
+    const resolved = core.resolveScenePickTarget(obj) ?? obj
+    if (resolved.userData.type === 'laxian_frame') {
+        listener({
+            object: resolved,
+            laxianId: resolved.userData.laxian_id as string | undefined,
+            frameId: resolved.userData.frame_id as string | undefined
+        })
+        return
     }
+    if (resolved.userData.type === 'laxian') {
+        listener({
+            object: resolved,
+            laxianId: resolved.userData.laxian_id as string | undefined
+        })
+    }
+}
+
+const teardownLaxianTransformBridge = () => {
+    const core = threeCore.value
+    if (laxianTransformDragHandler && core?.transformControls) {
+        core.transformControls.removeEventListener('dragging-changed', laxianTransformDragHandler)
+    }
+    laxianTransformDragHandler = null
+}
+
+/** 编辑模式：监听 TransformControls 拖拽结束，归一化拉线/线框对象后回传页面 */
+const setupLaxianTransformBridge = () => {
+    teardownLaxianTransformBridge()
+    const core = threeCore.value
+    if (!core || !props.editMode || !laxianTransformListenerRef.value) return
+
+    laxianTransformDragHandler = (event: { value: boolean }) => {
+        if (event.value) return
+        const obj = core.transformControls.object as THREE.Object3D | undefined
+        if (obj) emitLaxianTransformChange(obj)
+    }
+    core.transformControls.addEventListener('dragging-changed', laxianTransformDragHandler)
+}
+
+const bindLaxianTransformListener = (listener: LaxianTransformListener) => {
+    laxianTransformListenerRef.value = listener
+    setupLaxianTransformBridge()
 }
 
 const detachTransformControls = () => {
@@ -452,9 +508,11 @@ const detachTransformControls = () => {
 watch(threeCore, (core) => {
     if (!core) return
     if (!props.editMode) {
-        core.laxianTransformListener = undefined
+        teardownLaxianTransformBridge()
         core.transformControls?.detach()
         clickObject.value = null
+    } else {
+        setupLaxianTransformBridge()
     }
     core.applyAllLaxianVisualStates()
 }, { immediate: true })
@@ -465,9 +523,11 @@ watch(() => props.editMode, (editMode) => {
     core.editMode = editMode
     core.applyAllLaxianVisualStates()
     if (!editMode) {
-        core.laxianTransformListener = undefined
+        teardownLaxianTransformBridge()
         core.transformControls?.detach()
         clickObject.value = null
+    } else {
+        setupLaxianTransformBridge()
     }
 })
 
@@ -587,6 +647,7 @@ const handleRetry = async () => {
 
 // 组件卸载时清理
 onUnmounted(() => {
+    teardownLaxianTransformBridge()
     const sceneElement = sceneViewerEl.value
     if (sceneElement) {
         disposeScene(sceneElement)
@@ -613,6 +674,7 @@ defineExpose({
     setTransformMode,
     detachTransformControls,
     bindLaxianTransformListener,
+    selectLaxianObject,
     selectLaxianFrameObject
 })
 </script>

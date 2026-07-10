@@ -4,19 +4,21 @@ import type {
   GalleryConfig,
   GalleryConfigFile,
   GalleryExhibit,
-  GalleryLibraryVideo,
+  GallerySceneObject,
   GalleryShopMarker
 } from '@/types/gallery'
 import { getLibraryById } from '@/api/library'
-import type { Library } from '@/types/api'
+import { getShopDetail } from '@/api/shop'
+import type { Library, Shop } from '@/types/api'
+import { isSplatUrl } from '@/utils/materiaModelKind'
 import {
   animateGalleryAssetScaleIn,
-  applyGalleryVideoTransform,
+  applyGalleryObjectTransform,
   getGalleryTargetScale,
-  isGallerySplatUrl,
   killGalleryAssetScaleTweens,
-  resolveGalleryModelUrl
-} from '@/utils/galleryAssetUrl'
+  loadGallerySceneObject,
+  resolveGalleryObjectType
+} from '@/utils/gallerySceneObject'
 import { resolveShopLogoUrl } from '@/utils/galleryShopMarker'
 import {
   createMapBoundaryAABB,
@@ -25,6 +27,7 @@ import {
   type AABB2D
 } from '@/utils/galleryCollision'
 import { defaultGalleryConfig } from '@/utils/galleryConfig'
+import { GalleryPlayerController } from '@/utils/galleryPlayer'
 
 /** 相机俯视角度（弧度） */
 const CAMERA_PITCH = Math.PI / 4
@@ -73,6 +76,10 @@ export function useGalleryWalkthrough() {
   const selectedExhibit = ref<GalleryExhibit | null>(null)
   const nearbyShop = ref<GalleryShopMarker | null>(null)
   const selectedShop = ref<GalleryShopMarker | null>(null)
+  const shopPanelOpen = ref(false)
+  const selectedShopDetail = ref<Shop | null>(null)
+  const shopDetailLoading = ref(false)
+  const shopDetailError = ref<string | null>(null)
   const selectedLibrary = ref<Library | null>(null)
   const selectedLibraryTitle = ref('')
   const libraryLoading = ref(false)
@@ -80,7 +87,7 @@ export function useGalleryWalkthrough() {
   const isMobile = ref(false)
 
   // --- 内部状态 ---
-  let playerMesh: THREE.Group | null = null
+  let playerController: GalleryPlayerController | null = null
   let exhibitGroups: THREE.Group[] = []
   let shopGroups: THREE.Group[] = []
   let colliders: AABB2D[] = []
@@ -227,32 +234,10 @@ export function useGalleryWalkthrough() {
     }
   }
 
-  /** 创建玩家（胶囊体视觉） */
-  const createPlayer = (scene: THREE.Scene) => {
-    const group = new THREE.Group()
-    const bodyGeo = new THREE.CapsuleGeometry(playerRadius, 0.8, 8, 16)
-    const bodyMat = new THREE.MeshStandardMaterial({
-      color: 0x7ec8e3,
-      roughness: 0.4,
-      metalness: 0.2
-    })
-    const body = new THREE.Mesh(bodyGeo, bodyMat)
-    body.position.y = 0.8
-    body.castShadow = true
-    group.add(body)
-
-    // 朝向指示器
-    const arrowGeo = new THREE.ConeGeometry(0.15, 0.4, 8)
-    const arrowMat = new THREE.MeshStandardMaterial({ color: 0xffffff })
-    const arrow = new THREE.Mesh(arrowGeo, arrowMat)
-    arrow.rotation.x = -Math.PI / 2
-    arrow.position.set(0, 1.2, -0.5)
-    group.add(arrow)
-
-    group.position.set(playerX.value, 0, playerZ.value)
-    group.userData.isGalleryPlayer = true
-    scene.add(group)
-    playerMesh = group
+  /** 加载玩家角色（sence/role/role.glb） */
+  const createPlayer = async (core: ThreeCore, scene: THREE.Scene) => {
+    playerController = await GalleryPlayerController.create(core, scene)
+    playerController.setTransform(playerX.value, playerZ.value, cameraYaw.value)
   }
 
   /** 创建单个展品（展台 + 模型/占位） */
@@ -315,13 +300,17 @@ export function useGalleryWalkthrough() {
     group.userData.exhibitId = exhibit.id
     group.userData.exhibitData = exhibit
 
-    // 加载 3D 模型
-    if (exhibit.modelUrl) {
+    // 加载 3D 模型 / 点云（SceneObjectJSON 对齐字段）
+    if (exhibit.url) {
       try {
-        const model = await core.loadModel(exhibit.modelUrl, {
-          useDracoLoader: true,
-          dracoDecoderPath: '/draco/gltf/'
-        })
+        const sceneObj: GallerySceneObject = {
+          type: exhibit.type ?? (isSplatUrl(exhibit.url) ? 'splat' : 'model'),
+          url: exhibit.url,
+          options: exhibit.options,
+          useDracoLoader: exhibit.useDracoLoader
+        }
+        const model = await loadGallerySceneObject(core, sceneObj, isMobile.value)
+        if (!model) throw new Error('模型加载失败')
         const box = new THREE.Box3().setFromObject(model)
         const size = box.getSize(new THREE.Vector3())
         const maxDim = Math.max(size.x, size.y, size.z)
@@ -529,9 +518,8 @@ export function useGalleryWalkthrough() {
     cam.position.set(px - offsetX, height, pz - offsetZ)
     cam.lookAt(px, 0.8, pz)
 
-    if (playerMesh) {
-      playerMesh.position.set(px, 0, pz)
-      playerMesh.rotation.y = yaw
+    if (playerController) {
+      playerController.setTransform(px, pz, yaw)
     }
   }
 
@@ -589,7 +577,8 @@ export function useGalleryWalkthrough() {
     }
 
     const len = Math.sqrt(inputX * inputX + inputZ * inputZ)
-    if (len > 0.01) {
+    const isMoving = len > 0.01
+    if (isMoving) {
       inputX /= len
       inputZ /= len
 
@@ -613,6 +602,8 @@ export function useGalleryWalkthrough() {
       playerZ.value = nz
     }
 
+    playerController?.update(delta, isMoving)
+
     updateCamera(core)
     updateShopBillboards(core)
     updateNearbyExhibit()
@@ -628,7 +619,7 @@ export function useGalleryWalkthrough() {
     if (k === 'd') keys.d = true
     if (k === 'escape') {
       selectedExhibit.value = null
-      selectedShop.value = null
+      shopPanelOpen.value = false
       selectedLibrary.value = null
       selectedLibraryTitle.value = ''
     }
@@ -723,8 +714,8 @@ export function useGalleryWalkthrough() {
     loadedShopKey = null
   }
 
-  /** 并行加载店铺 library_video 并加入场景（同时仅保留一组） */
-  const loadShopLibraryVideos = async (shop: GalleryShopMarker) => {
+  /** 并行加载店铺 objects 并加入场景（同时仅保留一组） */
+  const loadShopObjects = async (shop: GalleryShopMarker) => {
     const core = threeCore.value
     if (!core) return
 
@@ -734,13 +725,12 @@ export function useGalleryWalkthrough() {
     clearShopLibraryVideos()
     loadedShopKey = shopKey
 
-    const videos = shop.library_video ?? []
-    if (videos.length === 0) return
+    const objects = shop.objects ?? []
+    if (objects.length === 0) return
 
-    const hasSplatVideo = videos.some(v => {
-      const url = resolveGalleryModelUrl(v.addr)
-      return url ? isGallerySplatUrl(url) : false
-    })
+    const hasSplatVideo = objects.some(
+      obj => resolveGalleryObjectType(obj) === 'splat'
+    )
 
     shopVideosLoading.value = true
     const container = new THREE.Group()
@@ -750,29 +740,19 @@ export function useGalleryWalkthrough() {
 
     try {
       await Promise.all(
-        videos.map(async (video, index) => {
-          const url = resolveGalleryModelUrl(video.addr)
-          if (!url) return
-
+        objects.map(async (obj, index) => {
           try {
-            const isSplat = isGallerySplatUrl(url)
-            const asset = isSplat
-              ? await core.loadSplat(url, {
-                  paged: true,
-                  mobileOptimized: isMobile.value
-                })
-              : await core.loadModel(url, {
-                  useDracoLoader: true,
-                  dracoDecoderPath: '/draco/gltf/'
-                })
+            const isSplat = resolveGalleryObjectType(obj) === 'splat'
+            const asset = await loadGallerySceneObject(core, obj, isMobile.value)
+            if (!asset) return
 
-            applyGalleryVideoTransform(
+            applyGalleryObjectTransform(
               asset,
-              video,
+              obj,
               { x: shopX, y: shopY, z: shopZ },
               index
             )
-            const targetScale = getGalleryTargetScale(video.scale)
+            const targetScale = getGalleryTargetScale(obj.scale)
             asset.scale.set(0, 0, 0)
 
             const hitBox = new THREE.Mesh(
@@ -783,7 +763,7 @@ export function useGalleryWalkthrough() {
               })
             )
             hitBox.position.y = 1
-            hitBox.userData.libraryVideoData = video
+            hitBox.userData.galleryObjectData = obj
             asset.add(hitBox)
             videoClickables.push(hitBox)
 
@@ -794,7 +774,7 @@ export function useGalleryWalkthrough() {
             })
           } catch (err) {
             console.warn(
-              `[gallery] 模型加载失败 library_id=${video.library_id}`,
+              `[gallery] 模型加载失败 library_id=${obj.library_id ?? 'unknown'}`,
               err
             )
           }
@@ -810,13 +790,14 @@ export function useGalleryWalkthrough() {
   }
 
   /** 点击 3D 模型：拉取图鉴详情 */
-  const openLibraryFromVideo = async (video: GalleryLibraryVideo) => {
+  const openLibraryFromObject = async (obj: GallerySceneObject) => {
+    if (!obj.library_id) return
     selectedLibrary.value = null
-    selectedLibraryTitle.value = video.title ?? ''
+    selectedLibraryTitle.value = obj.title ?? ''
     libraryLoading.value = true
     try {
       selectedLibrary.value = await getLibraryById({
-        library_id: video.library_id,
+        library_id: obj.library_id,
         attributes: [
           'library_id',
           'name',
@@ -835,14 +816,59 @@ export function useGalleryWalkthrough() {
     }
   }
 
+  const isSameShopMarker = (
+    a: GalleryShopMarker | null,
+    b: GalleryShopMarker
+  ) =>
+    a != null
+    && a.shop_id === b.shop_id
+    && a.position[0] === b.position[0]
+    && a.position[1] === b.position[1]
+
+  /** 关闭店铺弹窗（保留已激活店铺与 3D 藏品） */
+  const closeShopPanel = () => {
+    shopPanelOpen.value = false
+  }
+
+  /** 激活店铺并打开弹窗 */
+  const activateShop = (shop: GalleryShopMarker) => {
+    selectedShop.value = shop
+    shopPanelOpen.value = true
+  }
+
+  /** 根据 shop_id 拉取店铺详情 */
+  const fetchShopDetail = async (marker: GalleryShopMarker) => {
+    selectedShopDetail.value = null
+    shopDetailError.value = null
+
+    if (!marker.shop_id || marker.shop_id <= 0) {
+      shopDetailError.value = '该标点暂无有效店铺'
+      return
+    }
+
+    shopDetailLoading.value = true
+    try {
+      selectedShopDetail.value = await getShopDetail({ shop_id: marker.shop_id })
+    } catch (err) {
+      console.error('[gallery] 店铺详情加载失败', err)
+      shopDetailError.value = '店铺信息加载失败，请稍后重试'
+    } finally {
+      shopDetailLoading.value = false
+    }
+  }
+
   watch(selectedShop, shop => {
     if (!shop) {
       clearShopLibraryVideos()
       selectedLibrary.value = null
       selectedLibraryTitle.value = ''
+      selectedShopDetail.value = null
+      shopDetailError.value = null
+      shopDetailLoading.value = false
       return
     }
-    void loadShopLibraryVideos(shop)
+    void loadShopObjects(shop)
+    void fetchShopDetail(shop)
   })
 
   /** 点击场景对象 */
@@ -871,20 +897,25 @@ export function useGalleryWalkthrough() {
       let obj: THREE.Object3D | null = hits[0].object
       while (
         obj
-        && !obj.userData.libraryVideoData
+        && !obj.userData.galleryObjectData
         && !obj.userData.shopData
         && !obj.userData.exhibitData
       ) {
         obj = obj.parent
       }
-      if (obj?.userData.libraryVideoData) {
-        void openLibraryFromVideo(
-          obj.userData.libraryVideoData as GalleryLibraryVideo
+      if (obj?.userData.galleryObjectData) {
+        void openLibraryFromObject(
+          obj.userData.galleryObjectData as GallerySceneObject
         )
         return
       }
       if (obj?.userData.shopData) {
-        selectedShop.value = obj.userData.shopData as GalleryShopMarker
+        const shop = obj.userData.shopData as GalleryShopMarker
+        if (isSameShopMarker(selectedShop.value, shop)) {
+          shopPanelOpen.value = true
+        } else {
+          activateShop(shop)
+        }
         selectedExhibit.value = null
         selectedLibrary.value = null
         return
@@ -892,6 +923,7 @@ export function useGalleryWalkthrough() {
       if (obj?.userData.exhibitData) {
         selectedExhibit.value = obj.userData.exhibitData as GalleryExhibit
         selectedShop.value = null
+        shopPanelOpen.value = false
         selectedLibrary.value = null
       }
     }
@@ -980,7 +1012,7 @@ export function useGalleryWalkthrough() {
 
       createFloor(core.scene)
       createWalls(core.scene)
-      createPlayer(core.scene)
+      await createPlayer(core, core.scene)
       applyGalleryRenderSettings(core, false)
 
       const shops = config.shops ?? []
@@ -1062,7 +1094,8 @@ export function useGalleryWalkthrough() {
       threeCore.value = null
     }
 
-    playerMesh = null
+    playerController?.dispose()
+    playerController = null
     exhibitGroups = []
     shopGroups = []
     exhibitClickables = []
@@ -1082,6 +1115,10 @@ export function useGalleryWalkthrough() {
     selectedExhibit,
     nearbyShop,
     selectedShop,
+    shopPanelOpen,
+    selectedShopDetail,
+    shopDetailLoading,
+    shopDetailError,
     selectedLibrary,
     selectedLibraryTitle,
     libraryLoading,
@@ -1093,6 +1130,7 @@ export function useGalleryWalkthrough() {
     setJoystickInput,
     clearJoystickInput,
     teleportToExhibit,
+    closeShopPanel,
     config: galleryConfig
   }
 }

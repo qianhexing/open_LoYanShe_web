@@ -35,6 +35,15 @@
         <!-- 右侧操作区 -->
         <div class="flex items-center gap-2 md:gap-4">
           <LocaleSwitcher class="hidden sm:block mr-0 md:mr-3" />
+          <NuxtLink
+            to="/search/search"
+            class="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+            aria-label="搜索"
+          >
+            <svg class="w-6 h-6 text-gray-700 dark:text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
+          </NuxtLink>
           <div class="flex items-center gap-2 md:gap-4" v-show="!user">
             <LoginBox />
           </div>

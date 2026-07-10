@@ -238,7 +238,7 @@ async function generateAndUpload() {
     const bundle: LibraryShareImageBundle = await prepareLibraryShareImages(enriched)
     const canvas = drawLibraryShareCanvas(enriched, bundle)
     const blob = await new Promise<Blob | null>((resolve) =>
-      canvas.toBlob((b) => resolve(b), 'image/jpeg', 0.92),
+      canvas.toBlob((b) => resolve(b), 'image/jpeg', 0.95),
     )
     if (!blob) {
       errorMsg.value = '生成图片失败'

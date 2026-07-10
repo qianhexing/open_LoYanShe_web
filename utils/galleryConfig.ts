@@ -9,24 +9,26 @@ const fallbackShops: GalleryShopMarker[] = [
     shop_name: '示例店铺 A',
     shop_logo: 'static/plan_cover/default.jpg',
     position: [-6, -2],
-    library_video: [
+    objects: [
       {
-        video_id: 11611,
+        type: 'splat',
         library_id: 805,
-        addr: 'library/966d9e9c627502744057f9e543e0763b/anxiang.compressed-lod.rad',
+        url: 'sence/point_cloud/rad/3988/xrcm.compressed-lod.rad',
         title: '暗香 粉蓝色',
         position: [0, 2, 2],
-        scale: 0.5,
-        rotation: [0, -1.8, 0]
+        scale: [0.5, 0.5, 0.5],
+        rotation: [0, -1.8, 0],
+        options: { paged: true, maxSplats: 50000, maxSh: 2 }
       },
       {
-        video_id: 11611,
+        type: 'splat',
         library_id: 805,
-        addr: 'library/966d9e9c627502744057f9e543e0763b/anxiang.compressed-lod.rad',
+        url: 'sence/point_cloud/9ca3ef945aef438ecd141142430ce36a.spz',
         title: '暗香 粉蓝色',
         position: [0, 2, -2],
-        scale: 0.5,
-        rotation: [0, -1.57, 0]
+        scale: [0.5, 0.5, 0.5],
+        rotation: [0, -1.57, 0],
+        options: { maxSplats: 50000, maxSh: 2 }
       }
     ]
   },

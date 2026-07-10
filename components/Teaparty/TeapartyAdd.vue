@@ -1,14 +1,42 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
-import type { Teaparty } from '~/types/api'
+import type { Teaparty, TeapartyInsertParams, TeapartyUpdateParams, TeapartyState } from '~/types/api'
 import { insertTeaparty, updateTeaparty } from '@/api/teapart'
 import type QhxImagePicker from '@/components/Qhx/ImagePicker.vue'
 const teaCoverRef = ref<InstanceType<typeof QhxImagePicker> | null>(null)
 const detailImageRef = ref<InstanceType<typeof QhxImagePicker> | null>(null)
-import type { default as QhxSelect, optionsInterface } from '@/components/Qhx/Select.vue'
+import type { default as QhxSelect } from '@/components/Qhx/Select.vue'
 import { uploadImage } from '@/api'
 import { BASE_IMG } from '@/utils/ipConfig'
 import addressData from '~/public/address.json'
+import { TEAPARTY_STATE_OPTIONS } from '@/utils/teaparty'
+import dayjs from 'dayjs'
+
+const TIME_FORMAT = 'YYYY-MM-DD HH:mm:ss'
+
+const TEA_STYLE_OPTIONS = ['甜系', '哥特系', '设计展', '王子系'] as const
+
+const inputUi = {
+  base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
+  rounded: 'rounded-full',
+  padding: { xs: 'px-4 py-2' },
+  color: {
+    white: {
+      outline: 'bg-gray-50 dark:bg-gray-800 ring-1 ring-gray-300 dark:ring-gray-600 focus:ring-2 focus:ring-qhx-primary'
+    }
+  }
+}
+
+const textareaUi = {
+  base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
+  rounded: 'rounded-[10px]',
+  padding: { xs: 'px-4 py-2' },
+  color: {
+    white: {
+      outline: 'bg-gray-50 dark:bg-gray-800 ring-1 ring-gray-300 dark:ring-gray-600 focus:ring-2 focus:ring-qhx-primary'
+    }
+  }
+}
 
 // 地址数据类型
 interface AddressItem {
@@ -17,13 +45,21 @@ interface AddressItem {
   children?: AddressItem[]
 }
 
+const props = withDefaults(
+  defineProps<{
+    /** 点击遮罩是否关闭弹窗，默认 true */
+    closeOnBackdrop?: boolean
+  }>(),
+  {
+    closeOnBackdrop: true
+  }
+)
+
 const emit = defineEmits(['success'])
 
 const provinceSelectRef = ref<InstanceType<typeof QhxSelect>>()
 const citySelectRef = ref<InstanceType<typeof QhxSelect>>()
 const areaSelectRef = ref<InstanceType<typeof QhxSelect>>()
-const teaTypeSelectRef = ref<InstanceType<typeof QhxSelect>>()
-const joinWaySelectRef = ref<InstanceType<typeof QhxSelect>>()
 
 const show = ref(false)
 const loading = ref(false)
@@ -36,18 +72,15 @@ const selectedProvince = ref<{ label: string; value: string } | null>(null)
 const selectedCity = ref<{ label: string; value: string } | null>(null)
 const selectedArea = ref<{ label: string; value: string } | null>(null)
 
-// 茶会类型选项
-const teaTypeOptions = ref<optionsInterface[]>([
-  { value: 1, label: '线下茶会' },
-  { value: 2, label: '线上茶会' },
-  { value: 3, label: '混合茶会' }
-])
-
 // 参与方式选项
-const joinWayOptions = ref<optionsInterface[]>([
-  { value: 1, label: '直接参与' },
-  { value: 2, label: '需要审批' }
-])
+const joinWayOptions = [
+  { value: 1, label: '抽选' },
+  { value: 2, label: '免费' },
+  { value: 3, label: '公开售票' },
+  { value: 4, label: '邀请' }
+] as const
+
+const stateOptions = TEAPARTY_STATE_OPTIONS
 
 const form = ref<{
   tea_id: number | null
@@ -66,6 +99,10 @@ const form = ref<{
   detail_image: string | null
   latitude: number | null
   longitude: number | null
+  organizer: string | null
+  mian_style: string | null
+  state: TeapartyState | null
+  dress_code: string | null
 }>({
   tea_id: null,
   tea_title: '',
@@ -82,7 +119,11 @@ const form = ref<{
   join_way: null,
   detail_image: null,
   latitude: null,
-  longitude: null
+  longitude: null,
+  organizer: null,
+  mian_style: null,
+  state: 0,
+  dress_code: null
 })
 
 // UInput 的 v-model 不接受 null，这里做一层适配（空字符串 <-> null）
@@ -91,6 +132,14 @@ const addressModel = computed({
   set: (val: string) => {
     form.value.address = val?.trim() ? val : null
   }
+})
+
+const regionText = computed(() => {
+  const { province, city, area } = form.value
+  if (province && city && area) {
+    return `${province} ${city} ${area}`
+  }
+  return ''
 })
 
 // 经纬度适配为字符串输入，再转换为 number | null
@@ -109,6 +158,28 @@ const longitudeModel = computed<string | number | undefined>({
     form.value.longitude = Number.isFinite(num) ? num : null
   }
 })
+
+const organizerModel = computed({
+  get: () => form.value.organizer ?? '',
+  set: (val: string) => {
+    form.value.organizer = val?.trim() ? val : null
+  }
+})
+
+const dressCodeModel = computed({
+  get: () => form.value.dress_code ?? '',
+  set: (val: string) => {
+    form.value.dress_code = val?.trim() ? val : null
+  }
+})
+
+const toggleSingleOption = <T,>(current: T, value: T) => (current === value ? null : value)
+
+const parseMianStyle = (value?: string | null) => {
+  if (!value) return null
+  const label = value.split(',').map((s) => s.trim()).find(Boolean)
+  return label ?? null
+}
 
 // 地址选项
 const provinceOptions = computed(() => {
@@ -166,7 +237,7 @@ const showModel = (item: Teaparty | null, isCopy = false, event?: MouseEvent) =>
     form.value.start_time = item.start_time ? formatDateForInput(item.start_time) : null
     form.value.end_time = item.end_time ? formatDateForInput(item.end_time) : null
     form.value.limit_number = item.limit_number || null
-    form.value.address = (item as any).address || null
+    form.value.address = item.address || null
     form.value.province = item.province || null
     form.value.city = item.city || null
     form.value.area = item.area || null
@@ -174,6 +245,10 @@ const showModel = (item: Teaparty | null, isCopy = false, event?: MouseEvent) =>
     form.value.join_way = item.join_way || null
     form.value.latitude = item.latitude ?? null
     form.value.longitude = item.longitude ?? null
+    form.value.organizer = item.organizer || null
+    form.value.state = item.state ?? (isCopy ? 0 : null)
+    form.value.dress_code = item.dress_code || null
+    form.value.mian_style = parseMianStyle(item.mian_style)
 
     // 初始化地址选择状态
     if (item.province && item.city && item.area) {
@@ -218,16 +293,11 @@ const showModel = (item: Teaparty | null, isCopy = false, event?: MouseEvent) =>
   show.value = true
 }
 
-// 格式化日期为 input[type="datetime-local"] 格式
+// 格式化为 QhxDateTimePicker 使用的字符串
 const formatDateForInput = (date: Date | string): string => {
   if (!date) return ''
-  const d = typeof date === 'string' ? new Date(date) : date
-  const year = d.getFullYear()
-  const month = String(d.getMonth() + 1).padStart(2, '0')
-  const day = String(d.getDate()).padStart(2, '0')
-  const hours = String(d.getHours()).padStart(2, '0')
-  const minutes = String(d.getMinutes()).padStart(2, '0')
-  return `${year}-${month}-${day}T${hours}:${minutes}`
+  const d = dayjs(date)
+  return d.isValid() ? d.format(TIME_FORMAT) : ''
 }
 
 const closeModel = () => {
@@ -254,7 +324,13 @@ const initData = () => {
     area: null,
     tea_type: null,
     join_way: null,
-    detail_image: null
+    detail_image: null,
+    latitude: null,
+    longitude: null,
+    organizer: null,
+    mian_style: null,
+    state: 0,
+    dress_code: null
   }
   selectedProvince.value = null
   selectedCity.value = null
@@ -375,14 +451,53 @@ const deleteAddress = () => {
   selectedArea.value = null
 }
 
-// 打开茶会类型选择器
-const openTeaTypePicker = (e: MouseEvent) => {
-  teaTypeSelectRef.value?.showPicker(e)
-}
+const buildWritableParams = async (): Promise<TeapartyInsertParams> => {
+  const params: TeapartyInsertParams = {
+    tea_title: form.value.tea_title || null,
+    tea_desc: form.value.tea_desc || null,
+    start_time: form.value.start_time || null,
+    end_time: form.value.end_time || null,
+    limit_number: form.value.limit_number || null,
+    address: form.value.address || null,
+    province: form.value.province || null,
+    city: form.value.city || null,
+    area: form.value.area || null,
+    tea_type: form.value.tea_type || null,
+    join_way: form.value.join_way || null,
+    latitude: form.value.latitude ?? null,
+    longitude: form.value.longitude ?? null,
+    organizer: form.value.organizer || null,
+    state: form.value.state ?? null,
+    dress_code: form.value.dress_code || null,
+    mian_style: form.value.mian_style || null
+  }
 
-// 打开参与方式选择器
-const openJoinWayPicker = (e: MouseEvent) => {
-  joinWaySelectRef.value?.showPicker(e)
+  if (teaCoverRef.value && teaCoverRef.value.previewImages.length > 0) {
+    try {
+      params.tea_cover = await fetchUpload(teaCoverRef.value.previewImages[0])
+    } catch (error) {
+      console.log('上传封面失败', error)
+      params.tea_cover = null
+    }
+  } else {
+    params.tea_cover = null
+  }
+
+  if (detailImageRef.value && detailImageRef.value.previewImages.length > 0) {
+    const detail_image: string[] = []
+    for (const element of detailImageRef.value.previewImages) {
+      try {
+        detail_image.push(await fetchUpload(element))
+      } catch (error) {
+        console.log('上传详情图失败', error)
+      }
+    }
+    params.detail_image = detail_image.length > 0 ? detail_image.join(',') : null
+  } else {
+    params.detail_image = null
+  }
+
+  return params
 }
 
 const insert = async () => {
@@ -393,54 +508,9 @@ const insert = async () => {
   const toast = useToast()
   
   try {
-    const params: any = {
-      tea_title: form.value.tea_title || null,
-      tea_desc: form.value.tea_desc || null,
-      start_time: form.value.start_time || null,
-      end_time: form.value.end_time || null,
-      limit_number: form.value.limit_number || null,
-      address: form.value.address || null,
-      province: form.value.province || null,
-      city: form.value.city || null,
-      area: form.value.area || null,
-      tea_type: form.value.tea_type || null,
-      join_way: form.value.join_way || null,
-      latitude: form.value.latitude ?? null,
-      longitude: form.value.longitude ?? null
-    }
-
-    // 上传封面图片
-    if (teaCoverRef.value && teaCoverRef.value.previewImages.length > 0) {
-      try {
-        const tea_cover = await fetchUpload(teaCoverRef.value.previewImages[0])
-        params.tea_cover = tea_cover
-      } catch (error) {
-        console.log('上传封面失败', error)
-        params.tea_cover = null
-      }
-    } else {
-      params.tea_cover = null
-    }
-
-    // 上传详情图片
-    if (detailImageRef.value && detailImageRef.value.previewImages.length > 0) {
-      const detail_image = []
-      for (let index = 0; index < detailImageRef.value.previewImages.length; index++) {
-        const element = detailImageRef.value.previewImages[index]
-        try {
-          const url = await fetchUpload(element)
-          detail_image.push(url)
-        } catch (error) {
-          console.log('上传详情图失败', error)
-        }
-      }
-      params.detail_image = detail_image.length > 0 ? detail_image.join(',') : null
-    } else {
-      params.detail_image = null
-    }
+    const params = await buildWritableParams()
 
     if (type.value === 0) {
-      // 添加
       await insertTeaparty(params)
       toast.add({
         title: '创建成功',
@@ -449,10 +519,12 @@ const insert = async () => {
       })
       emit('success')
       closeModel()
-    } else {
-      // 编辑
-      params.tea_id = form.value.tea_id
-      await updateTeaparty(params)
+    } else if (form.value.tea_id) {
+      const updateParams: TeapartyUpdateParams = {
+        tea_id: form.value.tea_id,
+        ...params
+      }
+      await updateTeaparty(updateParams)
       toast.add({
         title: '更新成功',
         icon: 'i-heroicons-check-circle',
@@ -481,7 +553,7 @@ defineExpose({
 
 <template>
   <!-- Popup -->
-  <QhxModal v-model="show" :trigger-position="clickPosition" @close="handleClose">
+  <QhxModal v-model="show" :trigger-position="clickPosition" :close-on-backdrop="props.closeOnBackdrop" @close="handleClose">
     <div class="w-[95vw] max-w-3xl max-h-[90vh] bg-white dark:bg-gray-800 rounded-2xl shadow-2xl overflow-hidden flex flex-col backdrop-blur-xl border border-gray-200/50 dark:border-gray-700/50">
       <!-- 头部 -->
       <div class="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-700 bg-gradient-to-r from-pink-50 to-purple-50 dark:from-gray-800 dark:to-gray-800 flex-shrink-0">
@@ -498,285 +570,188 @@ defineExpose({
 
       <!-- 内容区域 -->
       <div class="flex-1 overflow-y-auto p-6 space-y-6 scrollbar-thin scrollbar-thumb-gray-300 dark:scrollbar-thumb-gray-600 scrollbar-track-transparent">
-        <!-- 主要信息板块 -->
-        <div class="space-y-6">
-          <!-- 茶会标题 -->
-          <UFormGroup label="茶会标题">
-            <UInput
-              v-model="form.tea_title"
-              placeholder="请输入茶会标题"
-              class="flex-1 focus:ring-0"
-              :ui="{
-                base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
-                rounded: 'rounded-full',
-                padding: { xs: 'px-4 py-2' },
-                color: {
-                  white: {
-                    outline: 'bg-gray-50 dark:bg-gray-800 ring-1 ring-gray-300 dark:ring-gray-600 focus:ring-2 focus:ring-qhx-primary'
-                  }
-                }
-              }"
-            />
-          </UFormGroup>
+        <!-- 1. 茶会标题 -->
+        <UFormGroup label="茶会标题">
+          <UInput
+            v-model="form.tea_title"
+            placeholder="请输入茶会标题"
+            class="flex-1 focus:ring-0"
+            :ui="inputUi"
+          />
+        </UFormGroup>
 
-          <!-- 茶会描述 -->
-          <UFormGroup label="茶会描述">
-            <UTextarea
-              v-model="form.tea_desc"
-              placeholder="请输入茶会描述"
-              :rows="4"
-              :ui="{
-                base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
-                rounded: 'rounded-[10px]',
-                padding: { xs: 'px-4 py-2' },
-                color: {
-                  white: {
-                    outline: 'bg-gray-50 dark:bg-gray-800 ring-1 ring-gray-300 dark:ring-gray-600 focus:ring-2 focus:ring-qhx-primary'
-                  }
-                }
-              }"
-            />
-          </UFormGroup>
+        <!-- 2. 茶会封面 -->
+        <UFormGroup label="茶会封面" class="space-y-2">
+          <div class="bg-gray-50 dark:bg-gray-700/30 rounded-xl">
+            <QhxImagePicker :multiple="false" @update:files="onUpdateFiles" ref="teaCoverRef" />
+          </div>
+        </UFormGroup>
 
-          <!-- 封面图片 -->
-          <UFormGroup label="封面图片" class="space-y-2">
-            <div class="bg-gray-50 dark:bg-gray-700/30 rounded-xl">
-              <QhxImagePicker :multiple="false" @update:files="onUpdateFiles" ref="teaCoverRef" />
+        <!-- 3. 茶会简介 -->
+        <UFormGroup label="茶会简介">
+          <UTextarea
+            v-model="form.tea_desc"
+            placeholder="请输入茶会简介"
+            :rows="4"
+            :ui="textareaUi"
+          />
+        </UFormGroup>
+
+        <!-- 4. 类型 -->
+        <UFormGroup label="类型">
+          <div class="flex flex-wrap gap-2">
+            <QhxJellyButton v-for="opt in TEA_STYLE_OPTIONS" :key="opt">
+              <QhxTag
+                :active="form.mian_style === opt"
+                class="cursor-pointer"
+                @click="form.mian_style = toggleSingleOption(form.mian_style, opt)"
+              >
+                {{ opt }}
+              </QhxTag>
+            </QhxJellyButton>
+          </div>
+        </UFormGroup>
+
+        <!-- 5. 茶会状态 -->
+        <UFormGroup label="茶会状态">
+          <div class="flex flex-wrap gap-2">
+            <QhxJellyButton v-for="opt in stateOptions" :key="opt.value">
+              <QhxTag
+                :active="form.state === opt.value"
+                class="cursor-pointer"
+                @click="form.state = toggleSingleOption(form.state, opt.value)"
+              >
+                {{ opt.label }}
+              </QhxTag>
+            </QhxJellyButton>
+          </div>
+        </UFormGroup>
+
+        <!-- 6. 茶会时间 -->
+        <UFormGroup label="茶会时间">
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <QhxDateTimePicker
+              v-model="form.start_time"
+              placeholder="开始时间"
+              :format="TIME_FORMAT"
+            />
+            <QhxDateTimePicker
+              v-model="form.end_time"
+              placeholder="结束时间"
+              :format="TIME_FORMAT"
+            />
+          </div>
+        </UFormGroup>
+
+        <!-- 7. 地点 -->
+        <UFormGroup label="地点">
+          <div class="flex gap-3 items-stretch">
+            <div
+              class="region-input flex items-center gap-2 min-h-[36px] w-[34%] min-w-[7.5rem] max-w-[11rem] px-3 py-2 rounded-full ring-1 ring-gray-300 dark:ring-gray-600 bg-gray-50 dark:bg-gray-800 cursor-pointer transition-colors hover:ring-qhx-primary focus-within:ring-2 focus-within:ring-qhx-primary"
+              @click="openAddressPicker"
+            >
+              <span
+                class="flex-1 min-w-0 truncate text-sm"
+                :class="regionText ? 'text-gray-900 dark:text-gray-100' : 'text-gray-400 dark:text-gray-500'"
+              >
+                {{ regionText || '选择省市区' }}
+              </span>
+              <button
+                v-if="regionText"
+                type="button"
+                class="shrink-0 w-5 h-5 flex items-center justify-center rounded-full text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
+                @click.stop="deleteAddress"
+              >
+                <UIcon name="i-heroicons-x-mark" class="w-4 h-4" />
+              </button>
+              <UIcon
+                v-else
+                name="i-heroicons-chevron-down"
+                class="shrink-0 w-4 h-4 text-gray-400 dark:text-gray-500"
+              />
             </div>
-          </UFormGroup>
-        </div>
+            <UInput
+              v-model="addressModel"
+              placeholder="详细地址（街道/门牌号等）"
+              class="flex-1 focus:ring-0"
+              :ui="inputUi"
+            />
+          </div>
+          <div class="my-1 text-sm">
+            <div class="text-red-500">填写经纬度后可以添加进地图</div>
+            <div class="text-blue-500">
+              <a href="https://lbs.baidu.com/maptool/getpoint" target="_blank">去获取经纬度</a>
+            </div>
+          </div>
+          <div class="mt-3 grid grid-cols-2 gap-3">
+            <UInput
+              v-model="latitudeModel"
+              type="number"
+              placeholder="纬度"
+              class="flex-1 focus:ring-0"
+              :ui="inputUi"
+            />
+            <UInput
+              v-model="longitudeModel"
+              type="number"
+              placeholder="经度"
+              class="flex-1 focus:ring-0"
+              :ui="inputUi"
+            />
+          </div>
+        </UFormGroup>
 
-        <!-- 时间信息板块 -->
+        <!-- 8. 参与方式 -->
+        <UFormGroup label="参与方式">
+          <div class="flex flex-wrap gap-2">
+            <QhxJellyButton v-for="opt in joinWayOptions" :key="opt.value">
+              <QhxTag
+                :active="form.join_way === opt.value"
+                class="cursor-pointer"
+                @click="form.join_way = toggleSingleOption(form.join_way, opt.value)"
+              >
+                {{ opt.label }}
+              </QhxTag>
+            </QhxJellyButton>
+          </div>
+        </UFormGroup>
+
+        <!-- 9. 着装要求 -->
+        <UFormGroup label="着装要求">
+          <UTextarea
+            v-model="dressCodeModel"
+            placeholder="请输入着装要求（可选）"
+            :rows="3"
+            :ui="textareaUi"
+          />
+        </UFormGroup>
+
+        <!-- 10. 其他信息 -->
         <div class="space-y-4">
-          <div class="flex items-center gap-2 mb-2">
-            <UIcon name="i-heroicons-calendar" class="text-lg text-gray-500 dark:text-gray-400" />
-            <h3 class="text-base font-semibold text-gray-700 dark:text-gray-300">时间信息</h3>
+          <div class="flex items-center gap-2">
+            <UIcon name="material-symbols:more-horiz-rounded" class="text-lg text-gray-500 dark:text-gray-400" />
+            <h3 class="text-base font-semibold text-gray-700 dark:text-gray-300">其他信息</h3>
           </div>
 
-          <!-- 开始时间 -->
-          <UFormGroup label="开始时间">
+          <UFormGroup label="主办单位">
             <UInput
-              v-model="form.start_time"
-              type="datetime-local"
-              placeholder="选择开始时间"
+              v-model="organizerModel"
+              placeholder="请输入主办单位（可选）"
               class="flex-1 focus:ring-0"
-              :ui="{
-                base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
-                rounded: 'rounded-full',
-                padding: { xs: 'px-4 py-2' },
-                color: {
-                  white: {
-                    outline: 'bg-gray-50 dark:bg-gray-800 ring-1 ring-gray-300 dark:ring-gray-600 focus:ring-2 focus:ring-qhx-primary'
-                  }
-                }
-              }"
+              :ui="inputUi"
             />
           </UFormGroup>
 
-          <!-- 结束时间 -->
-          <UFormGroup label="结束时间">
-            <UInput
-              v-model="form.end_time"
-              type="datetime-local"
-              placeholder="选择结束时间"
-              class="flex-1 focus:ring-0"
-              :ui="{
-                base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
-                rounded: 'rounded-full',
-                padding: { xs: 'px-4 py-2' },
-                color: {
-                  white: {
-                    outline: 'bg-gray-50 dark:bg-gray-800 ring-1 ring-gray-300 dark:ring-gray-600 focus:ring-2 focus:ring-qhx-primary'
-                  }
-                }
-              }"
-            />
-          </UFormGroup>
-
-          <!-- 人数限制 -->
           <UFormGroup label="人数限制">
             <UInput
               v-model="form.limit_number"
               type="number"
               placeholder="请输入人数限制（可选）"
               class="flex-1 focus:ring-0"
-              :ui="{
-                base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
-                rounded: 'rounded-full',
-                padding: { xs: 'px-4 py-2' },
-                color: {
-                  white: {
-                    outline: 'bg-gray-50 dark:bg-gray-800 ring-1 ring-gray-300 dark:ring-gray-600 focus:ring-2 focus:ring-qhx-primary'
-                  }
-                }
-              }"
+              :ui="inputUi"
             />
           </UFormGroup>
-        </div>
 
-        <!-- 地点信息板块 -->
-        <div class="space-y-4">
-          <div class="flex items-center gap-2 mb-2">
-            <UIcon name="i-heroicons-map-pin" class="text-lg text-gray-500 dark:text-gray-400" />
-            <h3 class="text-base font-semibold text-gray-700 dark:text-gray-300">地点信息</h3>
-          </div>
-
-          <!-- 地址选择 -->
-          <UFormGroup label="活动地址">
-            <div v-if="form.province && form.city && form.area" class="inline-block mb-2">
-              <QhxTag
-                :active="true"
-                class="transition-all duration-200 hover:scale-105"
-              >
-                <div class="flex items-center gap-2">
-                  <QhxJellyButton class="cursor-pointer flex items-center justify-center w-5 h-5 text-white rounded-full bg-gradient-to-r from-pink-500 to-purple-500 hover:from-pink-600 hover:to-purple-600 transition-all" @click.stop="deleteAddress">
-                    <UIcon name="ant-design:close-outlined" class="text-xs text-white" />
-                  </QhxJellyButton>
-                  <span class="font-medium">{{ form.province }} {{ form.city }} {{ form.area }}</span>
-                </div>
-              </QhxTag>
-            </div>
-            <UButton
-              type="submit"
-              size="sm"
-              class="bg-gradient-to-r from-pink-500 to-purple-500 hover:from-pink-600 hover:to-purple-600 text-white shadow-md shadow-pink-500/30 transition-all duration-200"
-              :loading="loading"
-              @click="openAddressPicker"
-            >
-              <UIcon name="i-heroicons-map-pin" class="mr-1" />
-              {{ form.province ? '修改地址' : '选择地址' }}
-            </UButton>
-
-            <!-- 详细地址 -->
-            <div class="mt-3">
-              <UInput
-                v-model="addressModel"
-                placeholder="请输入详细地址（街道/门牌号等）"
-                class="flex-1 focus:ring-0"
-                :ui="{
-                  base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
-                  rounded: 'rounded-full',
-                  padding: { xs: 'px-4 py-2' },
-                  color: {
-                    white: {
-                      outline: 'bg-gray-50 dark:bg-gray-800 ring-1 ring-gray-300 dark:ring-gray-600 focus:ring-2 focus:ring-qhx-primary'
-                    }
-                  }
-                }"
-              />
-            </div>
-            <div class="my-1 text-sm ">
-              <div class="text-red-500">填写经纬度后可以添加进地图</div>
-              <div class="text-blue-500"><a href="https://lbs.baidu.com/maptool/getpoint" target="_blank">去获取经纬度</a></div>
-            </div>
-            <!-- 经纬度 -->
-            <div class="mt-3 grid grid-cols-2 gap-3">
-              <UInput
-                v-model="latitudeModel"
-                type="number"
-                placeholder="纬度"
-                class="flex-1 focus:ring-0"
-                :ui="{
-                  base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
-                  rounded: 'rounded-full',
-                  padding: { xs: 'px-4 py-2' },
-                  color: {
-                    white: {
-                      outline: 'bg-gray-50 dark:bg-gray-800 ring-1 ring-gray-300 dark:ring-gray-600 focus:ring-2 focus:ring-qhx-primary'
-                    }
-                  }
-                }"
-              />
-              <UInput
-                v-model="longitudeModel"
-                type="number"
-                placeholder="经度"
-                class="flex-1 focus:ring-0"
-                :ui="{
-                  base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
-                  rounded: 'rounded-full',
-                  padding: { xs: 'px-4 py-2' },
-                  color: {
-                    white: {
-                      outline: 'bg-gray-50 dark:bg-gray-800 ring-1 ring-gray-300 dark:ring-gray-600 focus:ring-2 focus:ring-qhx-primary'
-                    }
-                  }
-                }"
-              />
-            </div>
-          </UFormGroup>
-        </div>
-
-        <!-- 其他信息板块 -->
-        <div class="space-y-4">
-          <div class="flex items-center gap-2 mb-2">
-            <UIcon name="material-symbols:more-horiz-rounded" class="text-lg text-gray-500 dark:text-gray-400" />
-            <h3 class="text-base font-semibold text-gray-700 dark:text-gray-300">其他信息</h3>
-          </div>
-
-          <!-- 茶会类型 -->
-          <!-- <UFormGroup label="茶会类型">
-            <div v-if="form.tea_type" class="mb-2">
-              <QhxTag>
-                <div class="flex">
-                  <QhxJellyButton class="cursor-pointer flex items-center mr-[5px] text-white rounded-[50%] w-[18px] h-[18px] justify-center bg-qhx-primary" @click="form.tea_type = null">
-                    <UIcon name="ant-design:close-outlined" class="text-[14px] text-[#ffffff]" />
-                  </QhxJellyButton>
-                  <div>{{ teaTypeOptions.find(opt => opt.value === form.tea_type)?.label || '未知类型' }}</div>
-                </div>
-              </QhxTag>
-            </div>
-            <UButton
-              type="submit"
-              size="xs"
-              class="bg-qhx-primary text-qhx-inverted hover:bg-qhx-primaryHover mt-2"
-              :loading="loading"
-              @click="(e: MouseEvent) => { openTeaTypePicker(e) }"
-            >
-              选择类型
-            </UButton>
-            <QhxSelect
-              ref="teaTypeSelectRef"
-              :options="teaTypeOptions"
-              :default-value="teaTypeOptions[0]"
-              @select="(select) => { 
-                form.tea_type = select.value as number
-              }"
-            />
-          </UFormGroup> -->
-
-          <!-- 参与方式 -->
-          <!-- <UFormGroup label="参与方式">
-            <div v-if="form.join_way" class="mb-2">
-              <QhxTag>
-                <div class="flex">
-                  <QhxJellyButton class="cursor-pointer flex items-center mr-[5px] text-white rounded-[50%] w-[18px] h-[18px] justify-center bg-qhx-primary" @click="form.join_way = null">
-                    <UIcon name="ant-design:close-outlined" class="text-[14px] text-[#ffffff]" />
-                  </QhxJellyButton>
-                  <div>{{ joinWayOptions.find(opt => opt.value === form.join_way)?.label || '未知方式' }}</div>
-                </div>
-              </QhxTag>
-            </div>
-            <UButton
-              type="submit"
-              size="xs"
-              class="bg-qhx-primary text-qhx-inverted hover:bg-qhx-primaryHover mt-2"
-              :loading="loading"
-              @click="(e: MouseEvent) => { openJoinWayPicker(e) }"
-            >
-              选择方式
-            </UButton>
-            <QhxSelect
-              ref="joinWaySelectRef"
-              :options="joinWayOptions"
-              :default-value="joinWayOptions[0]"
-              @select="(select) => { 
-                form.join_way = select.value as number
-              }"
-            />
-          </UFormGroup> -->
-
-          <!-- 详情图片 -->
           <UFormGroup label="详情图片" class="space-y-2">
             <div class="bg-gray-50 dark:bg-gray-700/30 rounded-xl border border-gray-200 dark:border-gray-600">
               <QhxImagePicker :multiple="true" @update:files="onUpdateFiles" ref="detailImageRef" />

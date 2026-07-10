@@ -80,11 +80,7 @@ function getBadgeConditionsFromJson(item: DecoItem): string | null {
   return String(c);
 }
 
-/** 判断是否为 3D 模型 */
-function is3DModel(url: string): boolean {
-  const lower = String(url || '').toLowerCase();
-  return lower.endsWith('.glb') || lower.endsWith('.gltf');
-}
+import { isBadge3DCover } from '@/utils/badgeAsset';
 
 const fetchDecoList = async (page = 1, append = false) => {
   decoListLoading.value = true;
@@ -225,7 +221,7 @@ watch(
               :class="{ 'deco-cover-unowned': item.has_own !== 1 }"
             >
               <img
-                v-if="!is3DModel(getBadgeCover(item))"
+                v-if="!isBadge3DCover(getBadgeCover(item))"
                 :src="`${BASE_IMG}${getBadgeCover(item)}`"
                 :alt="getBadgeTitle(item)"
                 class="absolute inset-0 w-full h-full object-cover"

@@ -1,12 +1,21 @@
 <script setup lang="ts">
-import type { Library } from '@/types/api'
+import type { Library, LibrarySimilarItem } from '@/types/api'
 import { BASE_IMG } from '@/utils/ipConfig'
 import { formatLabel } from '@/utils/public'
+import { formatSimilarityScore } from '@/utils/aiChatFormat'
 
 const props = defineProps<{
   items: Library[]
   keywords: string[]
+  /** 识图 / 相似推荐模式：展示 similarity_score 徽章 */
+  showSimilarityScore?: boolean
 }>()
+
+function similarityScore(item: Library): number | null {
+  const score = (item as LibrarySimilarItem).similarity_score
+  if (score == null || Number.isNaN(Number(score))) return null
+  return Number(score)
+}
 
 const configStore = useConfigStore()
 const config = computed(() => configStore.config)
@@ -87,6 +96,12 @@ function openDetail(id: number) {
             <h3 class="line-clamp-2 text-sm font-semibold leading-snug text-gray-900 dark:text-gray-100">
               {{ item.name }}
             </h3>
+            <span
+              v-if="showSimilarityScore && similarityScore(item) != null"
+              class="shrink-0 rounded-md bg-qhx-primary/10 px-1.5 py-0.5 text-[10px] font-semibold text-qhx-primary"
+            >
+              相似 {{ formatSimilarityScore(similarityScore(item)!) }}
+            </span>
           </div>
 
           <p
