@@ -9,7 +9,7 @@ import type { default as QhxSelect } from '@/components/Qhx/Select.vue'
 import { uploadImage } from '@/api'
 import { BASE_IMG } from '@/utils/ipConfig'
 import addressData from '~/public/address.json'
-import { TEAPARTY_STATE_OPTIONS } from '@/utils/teaparty'
+import { TEAPARTY_STATE_OPTIONS, parseTeapartyPrice } from '@/utils/teaparty'
 import dayjs from 'dayjs'
 
 const TIME_FORMAT = 'YYYY-MM-DD HH:mm:ss'
@@ -103,6 +103,7 @@ const form = ref<{
   mian_style: string | null
   state: TeapartyState | null
   dress_code: string | null
+  price: number | null
 }>({
   tea_id: null,
   tea_title: '',
@@ -123,7 +124,8 @@ const form = ref<{
   organizer: null,
   mian_style: null,
   state: 0,
-  dress_code: null
+  dress_code: null,
+  price: null
 })
 
 // UInput 的 v-model 不接受 null，这里做一层适配（空字符串 <-> null）
@@ -170,6 +172,18 @@ const dressCodeModel = computed({
   get: () => form.value.dress_code ?? '',
   set: (val: string) => {
     form.value.dress_code = val?.trim() ? val : null
+  }
+})
+
+const priceModel = computed<string | number | undefined>({
+  get: () => form.value.price ?? '',
+  set: (val) => {
+    if (val === '' || val == null) {
+      form.value.price = null
+      return
+    }
+    const num = Number(val)
+    form.value.price = Number.isFinite(num) ? num : null
   }
 })
 
@@ -248,6 +262,7 @@ const showModel = (item: Teaparty | null, isCopy = false, event?: MouseEvent) =>
     form.value.organizer = item.organizer || null
     form.value.state = item.state ?? (isCopy ? 0 : null)
     form.value.dress_code = item.dress_code || null
+    form.value.price = parseTeapartyPrice(item.price)
     form.value.mian_style = parseMianStyle(item.mian_style)
 
     // 初始化地址选择状态
@@ -330,7 +345,8 @@ const initData = () => {
     organizer: null,
     mian_style: null,
     state: 0,
-    dress_code: null
+    dress_code: null,
+    price: null
   }
   selectedProvince.value = null
   selectedCity.value = null
@@ -469,7 +485,8 @@ const buildWritableParams = async (): Promise<TeapartyInsertParams> => {
     organizer: form.value.organizer || null,
     state: form.value.state ?? null,
     dress_code: form.value.dress_code || null,
-    mian_style: form.value.mian_style || null
+    mian_style: form.value.mian_style || null,
+    price: form.value.price ?? null
   }
 
   if (teaCoverRef.value && teaCoverRef.value.previewImages.length > 0) {
@@ -714,6 +731,19 @@ defineExpose({
               </QhxTag>
             </QhxJellyButton>
           </div>
+        </UFormGroup>
+
+        <!-- 8.1 票价 -->
+        <UFormGroup label="票价">
+          <UInput
+            v-model="priceModel"
+            type="number"
+            min="0"
+            step="0.01"
+            placeholder="请输入票价（可选，单位：元）"
+            class="flex-1 focus:ring-0"
+            :ui="inputUi"
+          />
         </UFormGroup>
 
         <!-- 9. 着装要求 -->

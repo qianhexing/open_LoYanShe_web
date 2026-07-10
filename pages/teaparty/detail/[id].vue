@@ -152,6 +152,16 @@
                 </div>
               </div>
 
+              <div
+                v-if="formatTeapartyPrice(detail.price, detail.join_way)"
+                class="flex items-center gap-2 text-gray-600 dark:text-gray-300"
+              >
+                <UIcon name="i-heroicons-banknotes" class="w-5 h-5 text-amber-500" />
+                <div>
+                  <span class="font-medium">票价：</span>{{ formatTeapartyPrice(detail.price, detail.join_way) }}
+                </div>
+              </div>
+
               <div v-if="locationText" class="flex items-center gap-2 text-gray-600 dark:text-gray-300">
                 <UIcon name="i-heroicons-map-pin" class="w-5 h-5 text-blue-500" />
                 <span class="truncate">
@@ -292,7 +302,7 @@ import type { Teaparty } from '@/types/api'
 import { getTeapartyById } from '@/api/teapart'
 import { BASE_IMG } from '@/utils/ipConfig'
 import { useCopyCurrentUrl } from '@/composables/useCopyCurrentUrl'
-import { getTeapartyStateBadgeClass, getTeapartyStateLabel } from '@/utils/teaparty'
+import { getTeapartyStateBadgeClass, getTeapartyStateLabel, formatTeapartyPrice } from '@/utils/teaparty'
 import QhxPreviewImage from '@/components/Qhx/PreviewImage.vue'
 import CommunityForeignList from '@/components/community/CommunityForeignList.vue'
 import type TeapartyAdd from '@/components/Teaparty/TeapartyAdd.vue'
@@ -307,8 +317,10 @@ const loading = ref(true)
 const detail = ref<Teaparty | null>(null)
 
 const isCreator = computed(() => {
-  if (!detail.value?.admin_user || !user.user?.user_id) return false
-  return detail.value.admin_user === user.user.user_id
+  if (!user.user?.user_id || !detail.value) return false
+  const creatorId = detail.value.admin_user ?? detail.value.user?.user_id
+  if (creatorId == null) return false
+  return Number(creatorId) === Number(user.user.user_id)
 })
 
 const stateLabel = computed(() => getTeapartyStateLabel(detail.value?.state))

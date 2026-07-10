@@ -935,6 +935,8 @@ export interface TeapartyWritableFields {
   state?: TeapartyState | null
   dress_code?: string | null
   json_data?: Record<string, unknown> | string | null
+  /** 票价 DECIMAL(10,2)，可为空 */
+  price?: number | null
   is_enable?: number | null
 }
 

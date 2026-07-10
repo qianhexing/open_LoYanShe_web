@@ -15,6 +15,8 @@ import {
   disposeBadgeSplatMesh,
   getBadgeCoverKind,
   loadBadgeSplatGroup,
+  markBadgeSparkDirty,
+  refreshBadgeScenePagedRadFlag,
   refreshBadgeSplatMesh,
   resolveBadgeAssetUrl,
   type BadgeSparkContext,
@@ -47,12 +49,46 @@ let zeroVec3: any
 
 const meshes: THREE.Object3D[] = []
 const meshCenterOffsets: THREE.Vector3[] = []
+const meshIsSplat: boolean[] = []
+const meshSnapshots: Array<{
+  prevPos: THREE.Vector3
+  currPos: THREE.Vector3
+  prevQuat: THREE.Quaternion
+  currQuat: THREE.Quaternion
+  splatSleeping: boolean
+}> = []
+const splatRefreshStates: Array<{
+  px: number
+  py: number
+  pz: number
+  qx: number
+  qy: number
+  qz: number
+  qw: number
+} | null> = []
 const bodies: any[] = []
 const wallBodies: any[] = []
 const boundDebugLines: THREE.LineSegments[] = []
 
 const raycaster = new THREE.Raycaster()
 const mouse = new THREE.Vector2()
+
+/** 递增以取消进行中的异步加载 / 动画帧 */
+let badgeGeneration = 0
+let disposed = false
+
+const sharedDracoLoader = new DRACOLoader()
+sharedDracoLoader.setDecoderPath('/draco/gltf/')
+const sharedGltfLoader = new GLTFLoader()
+sharedGltfLoader.setDRACOLoader(sharedDracoLoader)
+const sharedTextureLoader = new THREE.TextureLoader()
+
+type GlbTemplate = {
+  mesh: THREE.Object3D
+  size: THREE.Vector3
+  center: THREE.Vector3
+}
+const glbTemplateCache = new Map<string, Promise<GlbTemplate | null>>()
 /** 每帧将模型局部包围盒中心旋到世界系，避免与刚体原点错位导致底部被裁切 */
 const tmpMeshWorldCenter = new THREE.Vector3()
 const PLANE_Z = 0
@@ -69,7 +105,10 @@ let tapPointerId = -1
 
 let animationId = 0
 let resizeObserver: ResizeObserver | null = null
+let lastAnimTime = 0
+let physicsAccumulator = 0
 const sparkCtx: BadgeSparkContext = createBadgeSparkContext()
+const tmpSplatQuat = new THREE.Quaternion()
 
 const BADGE_SIZE = 1.2
 const BADGE_DEPTH = 0.18
@@ -87,6 +126,29 @@ const WALL_BOUNCE_SPAWN_IMPULSE_MIN = 5
 const WALL_BOUNCE_SPAWN_IMPULSE_MAX = 12
 /** 碰壁模式：水平速度模长下限，避免阻尼把运动完全磨没 */
 const WALL_BOUNCE_MIN_LINEAR_SPEED = 0.32
+/** 点云徽章：球形碰撞 + 更高阻尼，运动更慢、更易停下 */
+const SPLAT_COLLIDER_SCALE = 0.92
+const SPLAT_MASS = 1.85
+const SPLAT_LINEAR_DAMPING_MUL = 2.4
+const SPLAT_ANGULAR_DAMPING_MUL = 2.5
+const SPLAT_FRICTION_MUL = 1.75
+const SPLAT_RESTITUTION = 0.38
+const SPLAT_WALL_BOUNCE_RESTITUTION = 0.52
+const SPLAT_RANDOM_FORCE_SCALE = 0.32
+const SPLAT_PUSH_FORCE_SCALE = 0.42
+const SPLAT_SPAWN_IMPULSE_SCALE = 0.45
+const SPLAT_WALL_BOUNCE_MIN_SPEED = 0.1
+const SPLAT_VELOCITY_SLEEP_THRESHOLD = 0.07
+/** 点云渲染：变换变化低于阈值时跳过 updateGenerator */
+const SPLAT_TRANSFORM_REFRESH_EPS = 0.002
+const SPLAT_QUAT_REFRESH_DOT = 0.99995
+const PHYSICS_FIXED_DT = 1 / 60
+const PHYSICS_MAX_STEPS_PER_FRAME = 2
+const PHYSICS_MAX_FRAME_DELTA = 0.05
+/** 点云：保持站立 — 绕 Y 轴可转背面，pitch/roll 仅允许轻微倾斜 */
+const SPLAT_MAX_TILT = 0.32
+const SPLAT_EULER_ORDER = 'YXZ' as const
+const tmpSplatEuler = new THREE.Euler(0, 0, 0, SPLAT_EULER_ORDER)
 
 /** 运动预设：重力掉落（默认） / 零重力高弹性碰壁回弹 */
 const MOTION_PRESET_CONFIG: Record<
@@ -134,10 +196,22 @@ function applyMotionPresetToWorld() {
   for (const b of wallBodies) {
     b.setRestitution(cfg.wallRestitution)
   }
-  for (const b of bodies) {
-    b.setRestitution(cfg.badgeRestitution)
-    b.setFriction(cfg.friction)
-    b.setDamping(cfg.linearDamping, cfg.angularDamping)
+  for (let i = 0; i < bodies.length; i++) {
+    const b = bodies[i]
+    const isSplat = meshIsSplat[i]
+    const wallBounce = props.motionPreset === "wallBounce"
+    b.setRestitution(
+      isSplat
+        ? wallBounce
+          ? SPLAT_WALL_BOUNCE_RESTITUTION
+          : SPLAT_RESTITUTION
+        : cfg.badgeRestitution
+    )
+    b.setFriction(isSplat ? cfg.friction * SPLAT_FRICTION_MUL : cfg.friction)
+    b.setDamping(
+      cfg.linearDamping * (isSplat ? SPLAT_LINEAR_DAMPING_MUL : 1),
+      cfg.angularDamping * (isSplat ? SPLAT_ANGULAR_DAMPING_MUL : 1)
+    )
   }
 }
 
@@ -249,10 +323,81 @@ function createWall(sizeX:number,sizeY:number,sizeZ:number,pos:THREE.Vector3){
   wallBodies.push(body)
 }
 
-function clearBounds(){
-  for(const body of wallBodies){
+function destroyAmmoRigidBody(body: unknown) {
+  if (!physicsWorld || !AmmoLib || !body) return
+  try {
+    const rb = body as {
+      getMotionState?: () => unknown
+      getCollisionShape?: () => unknown
+    }
     physicsWorld.removeRigidBody(body)
+    const motionState = rb.getMotionState?.()
+    const shape = rb.getCollisionShape?.()
+    if (motionState) AmmoLib.destroy(motionState)
+    if (shape) AmmoLib.destroy(shape)
+    AmmoLib.destroy(body)
+  } catch (_) {}
+}
+
+function disposeBadgeMaterial(mat: THREE.Material) {
+  const textured = mat as THREE.MeshBasicMaterial & { map?: THREE.Texture | null }
+  textured.map?.dispose()
+  mat.dispose()
+}
+
+function disposeBadgeMesh(mesh: THREE.Object3D) {
+  if (mesh.userData?.type === 'splat') {
+    mesh.traverse((child) => disposeBadgeSplatMesh(child))
+    return
   }
+  mesh.traverse((child) => {
+    if (!(child instanceof THREE.Mesh)) return
+    child.geometry?.dispose()
+    const mat = child.material
+    if (Array.isArray(mat)) {
+      for (const m of mat) disposeBadgeMaterial(m)
+    } else if (mat) {
+      disposeBadgeMaterial(mat)
+    }
+  })
+}
+
+function removeBadgeAt(index: number) {
+  const mesh = meshes[index]
+  const body = bodies[index]
+
+  if (mesh && scene) {
+    scene.remove(mesh)
+    disposeBadgeMesh(mesh)
+  }
+  if (body) destroyAmmoRigidBody(body)
+
+  meshes.splice(index, 1)
+  meshCenterOffsets.splice(index, 1)
+  meshIsSplat.splice(index, 1)
+  meshSnapshots.splice(index, 1)
+  splatRefreshStates.splice(index, 1)
+  bodies.splice(index, 1)
+
+  for (let i = 0; i < meshes.length; i++) {
+    const ud = meshes[i].userData as { badgeIndex?: number }
+    ud.badgeIndex = i
+  }
+
+  if (scene) refreshBadgeScenePagedRadFlag(scene, sparkCtx)
+}
+
+function clearAllBadges() {
+  while (meshes.length > 0) removeBadgeAt(meshes.length - 1)
+}
+
+function getBadgeKey(deco: UserDeco): string {
+  const cover = deco.foreign?.cover ?? ''
+  return `${deco.deco_id ?? ''}:${cover}`
+}
+
+function clearBounds(){
+  for (const body of wallBodies) destroyAmmoRigidBody(body)
   wallBodies.length = 0
   for(const line of boundDebugLines){
     scene.remove(line)
@@ -441,9 +586,23 @@ function updateCameraAndBounds(){
   createBounds()
 }
 
-function createRigidBody(mesh:THREE.Object3D, halfExt?: THREE.Vector3, bodyPos?: THREE.Vector3){
+function createRigidBody(
+  mesh: THREE.Object3D,
+  halfExt?: THREE.Vector3,
+  bodyPos?: THREE.Vector3,
+  opts?: {
+    sphereRadius?: number
+    angularDampingMul?: number
+    linearDampingMul?: number
+    restitution?: number
+    friction?: number
+    mass?: number
+  }
+) {
 
-  const shape = halfExt
+  const shape = opts?.sphereRadius !== undefined
+    ? new AmmoLib.btSphereShape(Math.max(opts.sphereRadius, 0.15))
+    : halfExt
     ? new AmmoLib.btBoxShape(new AmmoLib.btVector3(
         Math.max(halfExt.x, 0.1),
         Math.max(halfExt.y, 0.1),
@@ -464,7 +623,7 @@ function createRigidBody(mesh:THREE.Object3D, halfExt?: THREE.Vector3, bodyPos?:
 
   const motion=new AmmoLib.btDefaultMotionState(transform)
 
-  const mass=1
+  const mass = opts?.mass ?? 1
 
   const inertia=new AmmoLib.btVector3(0,0,0)
 
@@ -480,12 +639,12 @@ function createRigidBody(mesh:THREE.Object3D, halfExt?: THREE.Vector3, bodyPos?:
   const body=new AmmoLib.btRigidBody(rbInfo)
 
   const cfg = motionCfg()
-  body.setFriction(cfg.friction)
-  body.setRestitution(cfg.badgeRestitution)
+  body.setFriction(opts?.friction ?? cfg.friction)
+  body.setRestitution(opts?.restitution ?? cfg.badgeRestitution)
 
   body.setDamping(
-    cfg.linearDamping,
-    cfg.angularDamping
+    cfg.linearDamping * (opts?.linearDampingMul ?? 1),
+    cfg.angularDamping * (opts?.angularDampingMul ?? 1)
   )
 
   physicsWorld.addRigidBody(body)
@@ -493,13 +652,147 @@ function createRigidBody(mesh:THREE.Object3D, halfExt?: THREE.Vector3, bodyPos?:
   bodies.push(body)
 }
 
-function applyWallBounceSpawnKick(body: { activate: () => void; applyCentralImpulse: (v: unknown) => void }) {
+function syncBodyRotationFromMesh(body: typeof bodies[number], mesh: THREE.Object3D) {
+  if (!AmmoLib) return
+  const transform = body.getWorldTransform()
+  const q = mesh.quaternion
+  transform.setRotation(new AmmoLib.btQuaternion(q.x, q.y, q.z, q.w))
+  body.setWorldTransform(transform)
+  body.activate()
+}
+
+/** 点云：保留完整 yaw(Y)，仅校正 pitch/roll 以尽量站立 */
+function constrainSplatRotation(mesh: THREE.Object3D, body: typeof bodies[number]) {
+  if (!AmmoLib) return
+
+  tmpSplatEuler.setFromQuaternion(mesh.quaternion, SPLAT_EULER_ORDER)
+  const yaw = tmpSplatEuler.y
+  const pitch = tmpSplatEuler.x
+  const roll = tmpSplatEuler.z
+  const clampedPitch = THREE.MathUtils.clamp(
+    pitch,
+    -SPLAT_MAX_TILT,
+    SPLAT_MAX_TILT
+  )
+  const clampedRoll = THREE.MathUtils.clamp(
+    roll,
+    -SPLAT_MAX_TILT,
+    SPLAT_MAX_TILT
+  )
+
+  if (
+    Math.abs(clampedPitch - pitch) < 1e-5 &&
+    Math.abs(clampedRoll - roll) < 1e-5
+  ) {
+    return
+  }
+
+  tmpSplatEuler.set(clampedPitch, yaw, clampedRoll, SPLAT_EULER_ORDER)
+  mesh.quaternion.setFromEuler(tmpSplatEuler, SPLAT_EULER_ORDER)
+
+  const transform = body.getWorldTransform()
+  const q = mesh.quaternion
+  transform.setRotation(new AmmoLib.btQuaternion(q.x, q.y, q.z, q.w))
+  body.setWorldTransform(transform)
+  body.activate()
+}
+
+function applySplatYawSpin(body: typeof bodies[number], strength = 2.2) {
+  if (!AmmoLib || !tempVec3) return
+  tempVec3.setValue(0, (Math.random() - 0.5) * strength, 0)
+  body.setAngularVelocity(tempVec3)
+  body.activate()
+}
+
+function pushMeshSnapshot(mesh: THREE.Object3D, isSplat: boolean) {
+  const snapshot = {
+    prevPos: mesh.position.clone(),
+    currPos: mesh.position.clone(),
+    prevQuat: mesh.quaternion.clone(),
+    currQuat: mesh.quaternion.clone(),
+    splatSleeping: false,
+  }
+  meshSnapshots.push(snapshot)
+  splatRefreshStates.push(null)
+}
+
+function saveMeshPhysicsPrev() {
+  for (let i = 0; i < meshSnapshots.length; i++) {
+    const s = meshSnapshots[i]
+    s.prevPos.copy(s.currPos)
+    s.prevQuat.copy(s.currQuat)
+  }
+}
+
+function captureMeshPhysicsState() {
+  for (let i = 0; i < meshes.length; i++) {
+    const s = meshSnapshots[i]
+    s.currPos.copy(meshes[i].position)
+    s.currQuat.copy(meshes[i].quaternion)
+  }
+}
+
+function wakeSplatBadge(index: number) {
+  const snapshot = meshSnapshots[index]
+  if (!snapshot) return
+  snapshot.splatSleeping = false
+  splatRefreshStates[index] = null
+}
+
+function recordSplatRefreshState(index: number, mesh: THREE.Object3D) {
+  splatRefreshStates[index] = {
+    px: mesh.position.x,
+    py: mesh.position.y,
+    pz: mesh.position.z,
+    qx: mesh.quaternion.x,
+    qy: mesh.quaternion.y,
+    qz: mesh.quaternion.z,
+    qw: mesh.quaternion.w,
+  }
+}
+
+function shouldRefreshBadgeSplat(index: number, mesh: THREE.Object3D) {
+  if (meshSnapshots[index]?.splatSleeping) return false
+  const last = splatRefreshStates[index]
+  if (!last) return true
+  const posDelta = Math.hypot(
+    mesh.position.x - last.px,
+    mesh.position.y - last.py,
+    mesh.position.z - last.pz
+  )
+  tmpSplatQuat.set(last.qx, last.qy, last.qz, last.qw)
+  const quatDelta = Math.abs(mesh.quaternion.dot(tmpSplatQuat))
+  return posDelta > SPLAT_TRANSFORM_REFRESH_EPS || quatDelta < SPLAT_QUAT_REFRESH_DOT
+}
+
+function applyInterpolatedMeshTransforms(alpha: number) {
+  let splatDirty = false
+  for (let i = 0; i < meshes.length; i++) {
+    const mesh = meshes[i]
+    const s = meshSnapshots[i]
+    if (!s) continue
+    mesh.position.lerpVectors(s.prevPos, s.currPos, alpha)
+    mesh.quaternion.slerpQuaternions(s.prevQuat, s.currQuat, alpha)
+    if (meshIsSplat[i] && shouldRefreshBadgeSplat(i, mesh)) {
+      refreshBadgeSplatMesh(mesh)
+      recordSplatRefreshState(i, mesh)
+      splatDirty = true
+    }
+  }
+  if (splatDirty) markBadgeSparkDirty(sparkCtx)
+}
+
+function applyWallBounceSpawnKick(
+  body: { activate: () => void; applyCentralImpulse: (v: unknown) => void },
+  impulseScale = 1
+) {
   if (!AmmoLib || props.motionPreset !== "wallBounce") return
   body.activate()
   const angle = Math.random() * Math.PI * 2
   const mag =
-    WALL_BOUNCE_SPAWN_IMPULSE_MIN +
-    Math.random() * (WALL_BOUNCE_SPAWN_IMPULSE_MAX - WALL_BOUNCE_SPAWN_IMPULSE_MIN)
+    (WALL_BOUNCE_SPAWN_IMPULSE_MIN +
+      Math.random() * (WALL_BOUNCE_SPAWN_IMPULSE_MAX - WALL_BOUNCE_SPAWN_IMPULSE_MIN)) *
+    impulseScale
   const ix = Math.cos(angle) * mag
   const iy = Math.sin(angle) * mag
   const imp = new AmmoLib.btVector3(ix, iy, 0)
@@ -507,22 +800,19 @@ function applyWallBounceSpawnKick(body: { activate: () => void; applyCentralImpu
   AmmoLib.destroy(imp)
 }
 
-function loadGlbModel(url: string): Promise<{ mesh: THREE.Object3D; size: THREE.Vector3; center: THREE.Vector3 } | null>{
-  return new Promise((resolve)=>{
-    const dracoLoader = new DRACOLoader()
-    const decoderPath = '/draco/gltf/'
-    dracoLoader.setDecoderPath(decoderPath)
-    const loader = new GLTFLoader()
-    loader.setDRACOLoader(dracoLoader)
-    loader.load(
+function loadGlbTemplate(url: string): Promise<GlbTemplate | null> {
+  const cached = glbTemplateCache.get(url)
+  if (cached) return cached
+
+  const pending = new Promise<GlbTemplate | null>((resolve) => {
+    sharedGltfLoader.load(
       url,
-      (gltf)=>{
+      (gltf) => {
         const mesh = gltf.scene
-        mesh.traverse((child)=>{
+        mesh.traverse((child) => {
           if (child instanceof THREE.Mesh) {
-            if (child.material && !Array.isArray(child.material)) {
-              // (child.material as THREE.MeshStandardMaterial).color?.setHex(0xffffff)
-            }
+            child.castShadow = false
+            child.receiveShadow = false
           }
         })
         const box = new THREE.Box3().setFromObject(mesh)
@@ -535,12 +825,41 @@ function loadGlbModel(url: string): Promise<{ mesh: THREE.Object3D; size: THREE.
         resolve({ mesh, size, center })
       },
       undefined,
-      (err)=>{ console.error("[BadgePhysics] 加载模型失败:", url, err); resolve(null) }
+      (err) => {
+        console.error('[BadgePhysics] 加载模型失败:', url, err)
+        glbTemplateCache.delete(url)
+        resolve(null)
+      }
     )
   })
+  glbTemplateCache.set(url, pending)
+  return pending
 }
 
-async function createBadge(deco:UserDeco){
+async function loadGlbModel(
+  url: string
+): Promise<{ mesh: THREE.Object3D; size: THREE.Vector3; center: THREE.Vector3 } | null> {
+  const template = await loadGlbTemplate(url)
+  if (!template) return null
+  const mesh = template.mesh.clone(true)
+  mesh.traverse((child) => {
+    if (child instanceof THREE.Mesh && child.material) {
+      try {
+        child.material = (child.material as THREE.Material).clone()
+      } catch (_) {}
+    }
+  })
+  return {
+    mesh,
+    size: template.size.clone(),
+    center: template.center.clone(),
+  }
+}
+
+async function createBadge(deco: UserDeco, badgeKey?: string) {
+  const gen = badgeGeneration
+  if (disposed || gen !== badgeGeneration) return
+
   const cover = deco.foreign?.cover ?? ""
   const coverKind = getBadgeCoverKind(cover)
 
@@ -555,6 +874,7 @@ async function createBadge(deco:UserDeco){
 
   let mesh: THREE.Object3D
   let centerOffset = new THREE.Vector3(0, 0, 0)
+  let isSplat = false
 
   const el = containerRef.value
   const modelScale = el ? getAspectScale(el.clientWidth, el.clientHeight) : 1
@@ -568,34 +888,67 @@ async function createBadge(deco:UserDeco){
       coverKind === "model"
         ? await loadGlbModel(url)
         : await loadBadgeSplatGroup(url, scene, renderer, sparkCtx)
-    if (!loaded) return
-    mesh =
-      coverKind === "model"
-        ? loaded.mesh.clone(true)
-        : loaded.mesh
-    if (coverKind === "model") {
-      mesh.traverse((child) => {
-        if (child instanceof THREE.Mesh && child.material) {
-          try {
-            child.material = (child.material as THREE.Material).clone()
-          } catch (_) {}
-        }
-      })
+    if (disposed || gen !== badgeGeneration) {
+      if (loaded?.mesh) disposeBadgeMesh(loaded.mesh)
+      return
     }
+    if (!loaded) return
+    mesh = loaded.mesh
     mesh.scale.setScalar(modelScale)
-    centerOffset.copy(loaded.center)
-    const halfExt = loaded.size.clone().multiplyScalar(0.5).multiplyScalar(modelScale)
-    mesh.rotation.set(Math.random() * 0.4, Math.random() * 0.4, Math.random() * 0.4)
+    isSplat = coverKind === "splat"
+    if (isSplat) {
+      centerOffset.set(0, 0, 0)
+      tmpSplatEuler.set(
+        (Math.random() - 0.5) * SPLAT_MAX_TILT * 1.4,
+        Math.random() * Math.PI * 2,
+        (Math.random() - 0.5) * SPLAT_MAX_TILT * 1.4
+      )
+      mesh.quaternion.setFromEuler(tmpSplatEuler, SPLAT_EULER_ORDER)
+    } else {
+      centerOffset.copy(loaded.center)
+      mesh.rotation.set(
+        Math.random() * 0.4,
+        Math.random() * 0.4,
+        Math.random() * 0.4
+      )
+    }
     const rc = centerOffset.clone().applyQuaternion(mesh.quaternion)
     mesh.position.copy(spawnCenter).sub(rc)
     const bodyPos = spawnCenter.clone()
     scene.add(mesh)
     meshes.push(mesh)
     meshCenterOffsets.push(centerOffset.clone())
-    createRigidBody(mesh, halfExt, bodyPos)
-    if (coverKind === "splat") refreshBadgeSplatMesh(mesh)
+    meshIsSplat.push(isSplat)
+    if (isSplat) {
+      const cfg = motionCfg()
+      const sphereRadius =
+        Math.max(loaded.size.x, loaded.size.y, loaded.size.z) *
+        0.5 *
+        modelScale *
+        SPLAT_COLLIDER_SCALE
+      const wallBounce = props.motionPreset === "wallBounce"
+      createRigidBody(mesh, undefined, bodyPos, {
+        sphereRadius,
+        mass: SPLAT_MASS,
+        linearDampingMul: SPLAT_LINEAR_DAMPING_MUL,
+        angularDampingMul: SPLAT_ANGULAR_DAMPING_MUL,
+        friction: cfg.friction * SPLAT_FRICTION_MUL,
+        restitution: wallBounce ? SPLAT_WALL_BOUNCE_RESTITUTION : SPLAT_RESTITUTION,
+      })
+      syncBodyRotationFromMesh(bodies[bodies.length - 1], mesh)
+      applySplatYawSpin(bodies[bodies.length - 1])
+      refreshBadgeSplatMesh(mesh)
+    } else {
+      const halfExt = loaded.size.clone().multiplyScalar(0.5).multiplyScalar(modelScale)
+      createRigidBody(mesh, halfExt, bodyPos)
+      syncBodyRotationFromMesh(bodies[bodies.length - 1], mesh)
+    }
   } else {
-    const texture = await new THREE.TextureLoader().loadAsync(getCoverUrl(deco))
+    const texture = await sharedTextureLoader.loadAsync(getCoverUrl(deco))
+    if (disposed || gen !== badgeGeneration) {
+      texture.dispose()
+      return
+    }
     const radius = BADGE_SIZE / 2
     const geo = new THREE.SphereGeometry(radius, 32, 32)
     const material = new THREE.MeshBasicMaterial({ map: texture, color: "#ffffff" })
@@ -605,17 +958,25 @@ async function createBadge(deco:UserDeco){
     scene.add(mesh)
     meshes.push(mesh)
     meshCenterOffsets.push(new THREE.Vector3(0, 0, 0))
+    meshIsSplat.push(false)
     createRigidBody(mesh, undefined, spawnCenter.clone())
+    syncBodyRotationFromMesh(bodies[bodies.length - 1], mesh)
   }
 
   if (props.motionPreset === "wallBounce" && bodies.length > 0) {
-    applyWallBounceSpawnKick(bodies[bodies.length - 1])
+    applyWallBounceSpawnKick(
+      bodies[bodies.length - 1],
+      meshIsSplat[meshIsSplat.length - 1] ? SPLAT_SPAWN_IMPULSE_SCALE : 1
+    )
   }
 
   mesh.userData = mesh.userData || {}
-  const ud = mesh.userData as { badgeIndex: number; deco: UserDeco }
+  const ud = mesh.userData as { badgeIndex: number; deco: UserDeco; badgeKey: string }
   ud.badgeIndex = meshes.length - 1
   ud.deco = deco
+  ud.badgeKey = badgeKey ?? getBadgeKey(deco)
+  pushMeshSnapshot(mesh, isSplat)
+  if (isSplat) recordSplatRefreshState(meshes.length - 1, mesh)
 }
 
 function getBadgeIndexFromHit(obj: THREE.Object3D): number {
@@ -666,11 +1027,13 @@ function applyTapImpulseAtScreen(clientX: number, clientY: number) {
     const idx = getBadgeIndexFromHit(hit.object as THREE.Object3D)
     if (idx >= 0) {
       const body = bodies[idx]
+      const pushForce = PUSH_FORCE * (meshIsSplat[idx] ? SPLAT_PUSH_FORCE_SCALE : 1)
       const dx = hit.point.x - worldPt.x
       const dy = hit.point.y - worldPt.y
       const len = Math.sqrt(dx * dx + dy * dy) || 1
       body.activate()
-      const imp = new AmmoLib.btVector3((dx / len) * PUSH_FORCE, (dy / len) * PUSH_FORCE + 3, 0)
+      if (meshIsSplat[idx]) wakeSplatBadge(idx)
+      const imp = new AmmoLib.btVector3((dx / len) * pushForce, (dy / len) * pushForce + 3 * (meshIsSplat[idx] ? SPLAT_PUSH_FORCE_SCALE : 1), 0)
       body.applyCentralImpulse(imp)
       AmmoLib.destroy(imp)
     }
@@ -683,7 +1046,9 @@ function applyTapImpulseAtScreen(clientX: number, clientY: number) {
       const dy = trans.getOrigin().y() - worldPt.y
       if (dx * dx + dy * dy < radius * radius) {
         bodies[i].activate()
-        const imp = new AmmoLib.btVector3((Math.random() - 0.5) * PUSH_FORCE, PUSH_FORCE * 0.5, 0)
+        if (meshIsSplat[i]) wakeSplatBadge(i)
+        const pushForce = PUSH_FORCE * (meshIsSplat[i] ? SPLAT_PUSH_FORCE_SCALE : 1)
+        const imp = new AmmoLib.btVector3((Math.random() - 0.5) * pushForce, pushForce * 0.5, 0)
         bodies[i].applyCentralImpulse(imp)
         AmmoLib.destroy(imp)
       }
@@ -728,10 +1093,11 @@ function onGlobalPointerCancel(e: PointerEvent) {
 function updatePhysics(){
   if(!tempVec3) return
 
-  const rf = motionCfg().randomForce
-  for(const body of bodies){
-    tempVec3.setValue((Math.random()-0.5)*rf,(Math.random()-0.5)*rf,0)
-    body.applyCentralForce(tempVec3)
+  const rfBase = motionCfg().randomForce
+  for (let i = 0; i < bodies.length; i++) {
+    const rf = rfBase * (meshIsSplat[i] ? SPLAT_RANDOM_FORCE_SCALE : 1)
+    tempVec3.setValue((Math.random() - 0.5) * rf, (Math.random() - 0.5) * rf, 0)
+    bodies[i].applyCentralForce(tempVec3)
   }
 
   physicsWorld.stepSimulation(1/60,5)
@@ -754,7 +1120,6 @@ function updatePhysics(){
     const transform=body.getWorldTransform()
 
     const pos=transform.getOrigin()
-    const rot=transform.getRotation()
 
     let px = pos.x()
     let py = pos.y()
@@ -786,14 +1151,16 @@ function updatePhysics(){
       transform.setOrigin(tempVec3)
       body.setWorldTransform(transform)
       if (wallBounce) {
+        const minSpeed = meshIsSplat[i] ? SPLAT_WALL_BOUNCE_MIN_SPEED : WALL_BOUNCE_MIN_LINEAR_SPEED
         const a = Math.random() * Math.PI * 2
         tempVec3.setValue(
-          Math.cos(a) * WALL_BOUNCE_MIN_LINEAR_SPEED,
-          Math.sin(a) * WALL_BOUNCE_MIN_LINEAR_SPEED,
+          Math.cos(a) * minSpeed,
+          Math.sin(a) * minSpeed,
           0
         )
         body.setLinearVelocity(tempVec3)
-        body.setAngularVelocity(zeroVec3)
+        if (meshIsSplat[i]) applySplatYawSpin(body, 1.6)
+        else body.setAngularVelocity(zeroVec3)
       } else {
         body.setLinearVelocity(zeroVec3)
         body.setAngularVelocity(zeroVec3)
@@ -806,24 +1173,41 @@ function updatePhysics(){
       let vx = vel.x()
       let vy = vel.y()
       if (wallBounce) {
+        const minSpeed = meshIsSplat[i] ? SPLAT_WALL_BOUNCE_MIN_SPEED : WALL_BOUNCE_MIN_LINEAR_SPEED
         const sp = Math.hypot(vx, vy)
-        if (sp < WALL_BOUNCE_MIN_LINEAR_SPEED) {
+        if (sp < minSpeed) {
           if (sp > 1e-5) {
-            const s = WALL_BOUNCE_MIN_LINEAR_SPEED / sp
+            const s = minSpeed / sp
             vx *= s
             vy *= s
-          } else {
+          } else if (!meshIsSplat[i]) {
             const a = Math.random() * Math.PI * 2
-            vx = Math.cos(a) * WALL_BOUNCE_MIN_LINEAR_SPEED
-            vy = Math.sin(a) * WALL_BOUNCE_MIN_LINEAR_SPEED
+            vx = Math.cos(a) * minSpeed
+            vy = Math.sin(a) * minSpeed
+          } else {
+            vx = 0
+            vy = 0
           }
         }
+      }
+      if (meshIsSplat[i] && Math.hypot(vx, vy) < SPLAT_VELOCITY_SLEEP_THRESHOLD) {
+        vx = 0
+        vy = 0
+        body.setAngularVelocity(zeroVec3)
+        if (meshSnapshots[i]) meshSnapshots[i].splatSleeping = true
+      } else if (meshIsSplat[i] && meshSnapshots[i]) {
+        meshSnapshots[i].splatSleeping = false
       }
       tempVec3.setValue(vx, vy, 0)
       body.setLinearVelocity(tempVec3)
     }
 
-    mesh.quaternion.set(rot.x(), rot.y(), rot.z(), rot.w())
+    const rotQuat = body.getWorldTransform().getRotation()
+    mesh.quaternion.set(rotQuat.x(), rotQuat.y(), rotQuat.z(), rotQuat.w())
+
+    if (meshIsSplat[i]) {
+      constrainSplatRotation(mesh, body)
+    }
 
     const offset = meshCenterOffsets[i]
     if (offset && (offset.x !== 0 || offset.y !== 0 || offset.z !== 0)) {
@@ -836,18 +1220,31 @@ function updatePhysics(){
     } else {
       mesh.position.set(px, py, pz)
     }
-
-    if (mesh.userData?.type === "splat") {
-      refreshBadgeSplatMesh(mesh)
-    }
   }
 }
 
-function animate(){
+function animate(now = 0){
+  if (disposed) return
 
   animationId=requestAnimationFrame(animate)
 
-  updatePhysics()
+  if (!lastAnimTime) lastAnimTime = now
+  const frameDelta = Math.min((now - lastAnimTime) / 1000, PHYSICS_MAX_FRAME_DELTA)
+  lastAnimTime = now
+  physicsAccumulator += frameDelta
+
+  let steps = 0
+  while (physicsAccumulator >= PHYSICS_FIXED_DT && steps < PHYSICS_MAX_STEPS_PER_FRAME) {
+    if (meshSnapshots.length > 0) saveMeshPhysicsPrev()
+    updatePhysics()
+    captureMeshPhysicsState()
+    physicsAccumulator -= PHYSICS_FIXED_DT
+    steps++
+  }
+
+  const alpha =
+    PHYSICS_FIXED_DT > 0 ? physicsAccumulator / PHYSICS_FIXED_DT : 0
+  applyInterpolatedMeshTransforms(alpha)
 
   renderer.render(scene,camera)
 }
@@ -856,10 +1253,28 @@ const MOCK_BADGE: UserDeco = {
   foreign: { cover: "/material/524af6c3386c5060d621cd36ff32943d.glb", name: "测试模型" }
 }
 
-async function spawnBadges(){
-  const list = props.badges.length > 0 ? props.badges : [MOCK_BADGE]
-  for(const deco of list){
-    await createBadge(deco)
+async function syncBadges(list: UserDeco[]) {
+  if (!scene || !physicsWorld || disposed) return
+
+  const targetList = list.length > 0 ? list : [MOCK_BADGE]
+  const targetKeys = targetList.map(getBadgeKey)
+  const gen = ++badgeGeneration
+
+  for (let i = meshes.length - 1; i >= 0; i--) {
+    const key = (meshes[i].userData as { badgeKey?: string }).badgeKey ?? ''
+    if (!targetKeys.includes(key)) removeBadgeAt(i)
+  }
+
+  const existingKeys = new Set(
+    meshes.map((mesh) => (mesh.userData as { badgeKey?: string }).badgeKey ?? '')
+  )
+
+  for (const deco of targetList) {
+    if (disposed || gen !== badgeGeneration) return
+    const key = getBadgeKey(deco)
+    if (existingKeys.has(key)) continue
+    await createBadge(deco, key)
+    existingKeys.add(key)
   }
 }
 
@@ -869,6 +1284,14 @@ watch(
     applyMotionPresetToWorld()
     updateCameraAndBounds()
   }
+)
+
+watch(
+  () => props.badges,
+  (list) => {
+    void syncBadges(list ?? [])
+  },
+  { deep: true }
 )
 
 onMounted(async()=>{
@@ -881,7 +1304,7 @@ onMounted(async()=>{
 
   createBounds()
 
-  await spawnBadges()
+  await syncBadges(props.badges)
 
   animate()
 
@@ -899,29 +1322,32 @@ onMounted(async()=>{
 })
 
 onBeforeUnmount(()=>{
+  disposed = true
+  badgeGeneration++
 
   document.removeEventListener("pointerdown", onGlobalPointerDown, true)
   document.removeEventListener("pointermove", onGlobalPointerMove, true)
   document.removeEventListener("pointerup", onGlobalPointerUp, true)
   document.removeEventListener("pointercancel", onGlobalPointerCancel, true)
 
-  if(AmmoLib && tempVec3){ AmmoLib.destroy(tempVec3); tempVec3 = null }
-  if(AmmoLib && zeroVec3){ AmmoLib.destroy(zeroVec3); zeroVec3 = null }
-
   resizeObserver?.disconnect()
   resizeObserver = null
   cancelAnimationFrame(animationId)
 
-  for (const mesh of meshes) {
-    if (mesh.userData?.type === "splat") {
-      scene?.remove(mesh)
-      mesh.traverse((child) => disposeBadgeSplatMesh(child))
-    }
-  }
+  clearAllBadges()
+  clearBounds()
+
   if (scene) disposeBadgeSparkContext(sparkCtx, scene)
 
-  renderer.dispose()
+  if (renderer) {
+    renderer.dispose()
+    renderer.domElement.remove()
+  }
 
+  if(AmmoLib && tempVec3){ AmmoLib.destroy(tempVec3); tempVec3 = null }
+  if(AmmoLib && zeroVec3){ AmmoLib.destroy(zeroVec3); zeroVec3 = null }
+
+  physicsWorld = null
 })
 </script>
 

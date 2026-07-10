@@ -31,7 +31,7 @@ const blank_list = [
   'matching/my',
   'user/signIn',
   '/userSpace/', '/exhibition/wardrobe/', '/exhibition/',
-  '/humanPlatform/', '/user/plan', '/user/signIn', '/user/center', '/post/', '/distributedMaps', '/visualization/wardrobe', '/visualization/shop-cloud', '/rank', '/yearlySummary', '/user/changePassword','/matching/detail','/album/detail', '/album', 'clothes/detail', 'scene/detail', 'wardrobe/detail', 'wardrobe/statistics', 'register', 'login', 'lighting-debug', 'timepipe', 'user/edit', '/journal', '/shop/shanzheng', '/library/search', '/search/', '/features', 'ai/chat']
+  '/humanPlatform/', '/user/plan', '/user/signIn', '/user/center', '/post/', '/distributedMaps', '/visualization/wardrobe', '/visualization/shop-cloud', '/rank', '/yearlySummary', '/user/changePassword','/matching/detail','/album/detail', '/album', 'clothes/detail', 'scene/detail', 'wardrobe/detail', 'wardrobe/statistics', 'register', 'login', 'lighting-debug', 'timepipe', 'user/edit', '/journal', '/shop/shanzheng', '/library/search', '/search/', '/features', 'ai/chat', '/teaparty/detail', '/teaparty/snapshot']
 const route = useRoute()
 if (route.query?.token) {
   useUserStore().setToken(route.query.token.toString())

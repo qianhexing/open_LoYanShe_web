@@ -15,6 +15,11 @@ interface GetTeapartyListParams extends PaginationParams {
   province?: string
   city?: string
   area?: string
+  /** 茶会状态：0筹备中 / 1预约中 / 2已取消 / 3已结束 */
+  state?: number
+  /** 按开始日期筛选，格式 YYYY-MM-DD */
+  time?: string
+  sort?: number
 }
 
 /** 获取茶会详情参数 */

@@ -2,7 +2,7 @@
 import type { Teaparty, PaginationResponse } from '@/types/api';
 import { getTeapartyList } from '@/api/teapart';
 import { BASE_IMG } from '@/utils/ipConfig';
-import { getTeapartyStateBadgeClass, getTeapartyStateLabel } from '@/utils/teaparty';
+import { getTeapartyStateBadgeClass, getTeapartyStateLabel, formatTeapartyPrice } from '@/utils/teaparty';
 import type QhxWaterList from '@/components/Qhx/WaterList.vue'
 import type TeapartyAdd from '@/components/Teaparty/TeapartyAdd.vue'
 
@@ -107,8 +107,17 @@ const formatDate = (date: Date | string | undefined) => {
         />
       </div>
 
-      <!-- 新增茶会 -->
-      <div class="flex items-center justify-end">
+      <!-- 新增茶会 / 生图 -->
+      <div class="flex items-center justify-end gap-2">
+        <NuxtLink to="/teaparty/snapshot">
+          <UButton
+            icon="i-heroicons-photo"
+            color="gray"
+            variant="soft"
+          >
+            未开始生图
+          </UButton>
+        </NuxtLink>
         <UButton
           icon="i-heroicons-plus"
           class="bg-gradient-to-r from-pink-500 to-purple-500 hover:from-pink-600 hover:to-purple-600 text-white"
@@ -208,6 +217,15 @@ const formatDate = (date: Date | string | undefined) => {
                 >
                   {{ tag }}
                 </QhxTag>
+              </div>
+
+              <!-- 票价 -->
+              <div
+                v-if="formatTeapartyPrice(item.price, item.join_way)"
+                class="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400 mb-3"
+              >
+                <UIcon name="i-heroicons-banknotes" class="w-4 h-4" />
+                <span>{{ formatTeapartyPrice(item.price, item.join_way) }}</span>
               </div>
 
               <!-- 时间信息 -->

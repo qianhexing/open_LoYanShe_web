@@ -67,12 +67,9 @@ function inferSplatFileTypeFromUrl(url: string): SplatFileType | undefined {
   }
 }
 
-function isMobileDevice(): boolean {
-  if (typeof navigator === 'undefined') return false
-  return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(
-    navigator.userAgent
-  )
-}
+/** 徽章点云：模型已预优化，移动端与桌面端使用同一套高质量参数 */
+const BADGE_SPLAT_MAX_SPLATS = 120000
+const BADGE_SPLAT_MAX_SH = 2
 
 export interface BadgeSparkContext {
   sparkRenderer: SparkRenderer | null
@@ -92,7 +89,6 @@ export function ensureBadgeSparkRenderer(
     ctx.sparkRenderer.pagedExtSplats = ctx.sceneHasPagedRadSplats
     return ctx.sparkRenderer
   }
-  const mobile = isMobileDevice()
   const sparkRenderer = new SparkRenderer({
     renderer,
     encodeLinear: false,
@@ -100,18 +96,9 @@ export function ensureBadgeSparkRenderer(
     depthTest: true,
     depthWrite: false,
     pagedExtSplats: ctx.sceneHasPagedRadSplats,
-    ...(mobile
-      ? {
-          sortRadial: true,
-          focalAdjustment: 1.05,
-          maxPixelRadius: 240,
-          lodSplatScale: 0.52,
-        }
-      : {
-          sortRadial: false,
-          focalAdjustment: 1.2,
-          minSortIntervalMs: 12,
-        }),
+    sortRadial: false,
+    focalAdjustment: 1.2,
+    minSortIntervalMs: 18,
   })
   scene.add(sparkRenderer)
   ctx.sparkRenderer = sparkRenderer
@@ -132,6 +119,10 @@ function notifyBadgeSparkDirty(ctx: BadgeSparkContext) {
   sr?.setDirty?.()
 }
 
+export function markBadgeSparkDirty(ctx: BadgeSparkContext) {
+  notifyBadgeSparkDirty(ctx)
+}
+
 export async function loadBadgeSplatGroup(
   url: string,
   scene: THREE.Scene,
@@ -142,19 +133,16 @@ export async function loadBadgeSplatGroup(
     ensureBadgeSparkRenderer(scene, renderer, ctx)
     const inferredFileType = inferSplatFileTypeFromUrl(url)
     const usePaged = isRadLodSplatUrl(url)
-    const mobile = isMobileDevice()
-    const skipRuntimeLod = inferredFileType === SplatFileType.RAD
 
     const splatMesh = new SplatMesh({
       url,
       ...(inferredFileType !== undefined ? { fileType: inferredFileType } : {}),
-      maxSplats: mobile ? 40000 : 120000,
+      maxSplats: BADGE_SPLAT_MAX_SPLATS,
       ...(usePaged ? { paged: true } : {}),
-      ...(mobile && !skipRuntimeLod ? { lod: true, lodScale: 0.55 } : {}),
     })
     await splatMesh.initialized
 
-    splatMesh.maxSh = mobile ? 1 : 2
+    splatMesh.maxSh = BADGE_SPLAT_MAX_SH
     splatMesh.userData.type = 'splat'
     splatMesh.userData.url = url
     splatMesh.userData.paged = usePaged
@@ -177,6 +165,14 @@ export async function loadBadgeSplatGroup(
     const center = new THREE.Vector3()
     box.getSize(size)
     box.getCenter(center)
+
+    // 将点云几何中心对齐到 group 原点，避免物理旋转时视觉 pivot 偏移
+    splatMesh.position.sub(center)
+    splatMesh.updateGenerator()
+
+    const centeredBox = new THREE.Box3().setFromObject(group)
+    centeredBox.getSize(size)
+    center.set(0, 0, 0)
 
     return { mesh: group, size, center }
   } catch (error) {
