@@ -452,17 +452,17 @@ defineExpose({
   <div v-else class="w-full">
     <!-- 素材列表 -->
     <div v-if="panelType === 'material'" class="w-full">
-      <MateriaList @choose="chooseMaterial" :compact="true" :pk-type="[0, 1, 2]"></MateriaList>
+      <MateriaList @choose="chooseMaterial" :compact="true" enable-drag :pk-type="[0, 1, 2]"></MateriaList>
     </div>
     
     <!-- 服饰列表 -->
     <div v-if="panelType === 'clothing'" class="w-full">
-      <MateriaList @choose="chooseMaterial" :compact="true" :pk-type="3"></MateriaList>
+      <MateriaList @choose="chooseMaterial" :compact="true" enable-drag :pk-type="3"></MateriaList>
     </div>
 
     <!-- 场景列表 -->
     <div v-if="panelType === 'scene'" class="w-full">
-      <MateriaList @choose="chooseMaterial" :compact="true" :pk-type="4"></MateriaList>
+      <MateriaList @choose="chooseMaterial" :compact="true" enable-drag :pk-type="4"></MateriaList>
     </div>
 
     <!-- 自定义素材（pk_type 与后端约定为 5） -->
@@ -487,6 +487,7 @@ defineExpose({
         hide-item-title
         allow-delete
         allow-gltf-edit
+        enable-drag
         @choose="chooseMaterial"
         @edit-gltf="openGltfEdit"
         :compact="true"

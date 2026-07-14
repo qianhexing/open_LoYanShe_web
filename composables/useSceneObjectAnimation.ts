@@ -18,7 +18,8 @@ const ANIMATABLE_TYPES = new Set([
 	'image',
 	'3Dtext',
 	'template',
-	'splat'
+	'splat',
+	'eztree'
 ])
 
 export function isAnimatableSceneObject(obj: THREE.Object3D | null | undefined): boolean {

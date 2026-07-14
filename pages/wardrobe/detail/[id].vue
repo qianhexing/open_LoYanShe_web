@@ -6,7 +6,7 @@ definePageMeta({
 import type { Wardrobe, WardrobeClothes, UserDeco } from '@/types/api';
 import { getUserDecoBadges, getUserSpace } from '@/api/user'
 import type { UserDecoBadgeItem } from '@/api/user'
-import { getWardrobeList, getClothesList, sortClothee, changeWardrobeClothes, changeWardrobeClothesBatch, deleteClothesByIds, updateClothesIds, checkWadrobePassword, sortWardrobe, updateWardrobe, deleteWardrobe } from '@/api/wardrobe'
+import { getWardrobeList, getClothesList, sortClothee, changeWardrobeClothes, changeWardrobeClothesBatch, deleteClothesByIds, updateClothesIds, batchUpdateClothesTags, sortClothesTags, deleteClothesTag, checkWadrobePassword, sortWardrobe, updateWardrobe, deleteWardrobe, insertWardrobe } from '@/api/wardrobe'
 import { getPlanListWardrobe, planComplete } from '@/api/plan'
 import type { ClothesParams } from '@/api/wardrobe'
 import { useCopyCurrentUrl } from '~/composables/useCopyCurrentUrl';
@@ -29,12 +29,43 @@ import type WardrobeAddEditType from '@/components/Wardrobe/WardrobeAddEdit.vue'
 import type WardrobeSearchType from '@/components/Wardrobe/WardrobeSearch.vue'
 import type WardrobeChooseType from '@/components/Wardrobe/WardrobeChoose.vue'
 import type MatchingAddEditType from '@/components/matching/MatchingAddEdit.vue'
+import customInput from '@/components/Clothes/customInput.vue'
 import dayjs from 'dayjs'
+import {
+  hasCompletedWardrobeEditGuide,
+  hasCompletedWardrobeMatchingGuide,
+  hasCompletedWardrobeSelectGuide,
+  WARDROBE_EDIT_GUIDE_STEPS,
+  WARDROBE_EDIT_GUIDE_STORAGE_KEY,
+  WARDROBE_MATCHING_GUIDE_STEPS,
+  WARDROBE_MATCHING_GUIDE_STORAGE_KEY,
+  WARDROBE_SELECT_GUIDE_STEPS,
+  WARDROBE_SELECT_GUIDE_STORAGE_KEY,
+} from '@/utils/wardrobeModeGuides'
 import {
   hasCompletedWardrobeSortGuide,
   WARDROBE_SORT_GUIDE_STEPS,
   WARDROBE_SORT_GUIDE_STORAGE_KEY,
 } from '@/utils/wardrobeSortGuide'
+import {
+  WARDROBE_GUIDE_HEADER_TOGGLE_ID,
+  WARDROBE_OVERVIEW_GUIDE_STEPS,
+  WARDROBE_OVERVIEW_GUIDE_STORAGE_KEY,
+} from '@/utils/wardrobeOverviewGuide'
+import {
+  WARDROBE_GUIDE_FIRST_CLOTHES_ID,
+  WARDROBE_GUIDE_SELECT_BAR_ID,
+} from '@/utils/wardrobeGuideTargets'
+import {
+  clearWardrobeTutorialCaches,
+  getWardrobeTutorialPopupStatus,
+  hasWardrobeTutorialPopupConfig,
+  isWardrobeTutorialPopupEnabled,
+  setWardrobeTutorialDismissed,
+  WARDROBE_TUTORIAL_ITEMS,
+  WARDROBE_TUTORIAL_POPUP_KEY,
+  type WardrobeTutorialId,
+} from '@/utils/wardrobeTutorialConfig'
 
 const Draggable = defineAsyncComponent(() => import('vuedraggable'))
 const WardrobeClothesLongShare = defineAsyncComponent(
@@ -107,6 +138,8 @@ const wardrobeShareUserFace = computed(
   () => (isPageOwner.value ? user.user?.user_face : wardrobePageOwner.value?.user_face) ?? ''
 )
 const wardrobeList = ref<Wardrobe[]>([])
+const creatingDefaultWardrobe = ref(false)
+const wardrobePageInitialized = ref(false)
 const wardrobeCount = ref<number>(0)
 const currentWardrobe = ref<Wardrobe | null>(null)
 const pageSize = 40
@@ -119,6 +152,32 @@ const isLoading = ref(false)
 /** 服饰列表请求序号：丢弃过期响应，避免并发 reload / 切换衣柜导致 loading 卡死 */
 let clothesListFetchSeq = 0
 const tagList = ref<Array<string>>([])
+function filterEmptyTags(tags: readonly string[]): string[] {
+  return tags.map((t) => (typeof t === 'string' ? t.trim() : '')).filter((t) => t !== '')
+}
+/** 按 info.config.tags 优先排序；未配置排序的 tag 保持原顺序并排在末尾 */
+function sortTagsByConfig(allTags: readonly string[], configTags?: readonly string[] | null): string[] {
+  const cleaned = filterEmptyTags(allTags)
+  if (!cleaned.length) return []
+  const cleanedConfig = configTags?.length ? filterEmptyTags(configTags) : []
+  if (!cleanedConfig.length) return cleaned
+  const ordered: string[] = []
+  const remaining = new Set(cleaned)
+  for (const t of cleanedConfig) {
+    if (!remaining.has(t)) continue
+    ordered.push(t)
+    remaining.delete(t)
+  }
+  for (const t of cleaned) {
+    if (remaining.has(t)) ordered.push(t)
+  }
+  return ordered
+}
+const wardrobeConfigTags = computed(() => {
+  const tags = info.value?.config?.tags
+  return Array.isArray(tags) ? filterEmptyTags(tags) : []
+})
+const sortedTagList = computed(() => sortTagsByConfig(tagList.value, wardrobeConfigTags.value))
 const sizeList = ref<Array<string>>([])
 const isSorting = ref(false) // loading 状态
 const show = ref(true)
@@ -126,6 +185,24 @@ const sortMode = ref(false)
 const showSortGuide = ref(false)
 const sortGuideRef = ref<InstanceType<typeof QhxStepGuide> | null>(null)
 const wardrobeSortGuideSteps = WARDROBE_SORT_GUIDE_STEPS
+const showEditGuide = ref(false)
+const editGuideRef = ref<InstanceType<typeof QhxStepGuide> | null>(null)
+const wardrobeEditGuideSteps = WARDROBE_EDIT_GUIDE_STEPS
+const showMatchingGuide = ref(false)
+const matchingGuideRef = ref<InstanceType<typeof QhxStepGuide> | null>(null)
+const wardrobeMatchingGuideSteps = WARDROBE_MATCHING_GUIDE_STEPS
+const showSelectGuide = ref(false)
+const selectGuideRef = ref<InstanceType<typeof QhxStepGuide> | null>(null)
+const wardrobeSelectGuideSteps = WARDROBE_SELECT_GUIDE_STEPS
+const showOverviewGuide = ref(false)
+const overviewGuideRef = ref<InstanceType<typeof QhxStepGuide> | null>(null)
+const wardrobeOverviewGuideSteps = WARDROBE_OVERVIEW_GUIDE_STEPS
+const showTutorialModal = ref(false)
+const showTutorialFirstAskModal = ref(false)
+const tutorialFirstAskTriggered = ref(false)
+const wardrobeTutorialPopupToggle = ref(true)
+const savingTutorialPopup = ref(false)
+const tutorialCacheVersion = ref(0)
 // 搭配模式：与排序互斥，开启后服饰卡片右上角显示加号，可添加进搭配草稿
 const matchingMode = ref(false)
 // 多选模式：与排序、搭配、编辑互斥，开启后服饰卡片右上角显示选择框，可批量操作
@@ -190,6 +267,7 @@ const clothesBatchAddEntryRef = ref<InstanceType<typeof ClothesBatchAddEntryType
 const toast = useToast()
 
 const showBatchStatusModal = ref(false)
+const showBatchTagsModal = ref(false)
 const showBatchSortModal = ref(false)
 /** 批量排序：目标序号（1 起，与封面蒙版一致） */
 const batchSortTargetNo = ref('')
@@ -268,6 +346,159 @@ const confirmBatchStatus = async () => {
     showBatchStatusModal.value = false
   } catch {
     toast.add({ title: '更新失败', icon: 'i-heroicons-exclamation-circle', color: 'red' })
+  }
+}
+
+/** 批量追加标签：与 ClothesAdd 自定义标签交互一致 */
+const batchTagsToAdd = ref<string[]>([])
+const batchTagInputRef = ref<InstanceType<typeof customInput> | null>(null)
+const openBatchTagsModal = () => {
+  if (selectedClothesIds.value.size === 0) return
+  batchTagsToAdd.value = []
+  showBatchTagsModal.value = true
+}
+const openBatchTagInput = (e: MouseEvent) => {
+  batchTagInputRef.value?.showModel(e)
+}
+const onBatchTagInputInsert = (tag: string) => {
+  if (batchTagsToAdd.value.indexOf(tag) === -1) {
+    batchTagsToAdd.value.push(tag)
+  }
+}
+const toggleBatchTagQuickPick = (tag: string) => {
+  const idx = batchTagsToAdd.value.indexOf(tag)
+  if (idx === -1) {
+    batchTagsToAdd.value.push(tag)
+  } else {
+    batchTagsToAdd.value.splice(idx, 1)
+  }
+}
+function mergeClothesTagsString(existing?: string | null, append: string[] = []): string {
+  const parts = (existing ?? '')
+    .split(',')
+    .map((t) => t.trim())
+    .filter(Boolean)
+  for (const tag of append) {
+    const t = tag.trim()
+    if (t && !parts.includes(t)) parts.push(t)
+  }
+  return parts.join(',')
+}
+/** 标签管理：拖拽排序 + 删除 */
+const showTagManageModal = ref(false)
+const tagManageDraft = ref<string[]>([])
+const tagManageSaving = ref(false)
+const showDeleteWardrobeTagModal = ref(false)
+const pendingDeleteWardrobeTag = ref<string | null>(null)
+const deleteWardrobeTagLoading = ref(false)
+const tagManageItemKey = (item: string) => item
+
+function patchWardrobeConfigTags(nextTags: string[]) {
+  if (!info.value) return
+  info.value = {
+    ...info.value,
+    config: {
+      ...(info.value.config ?? {}),
+      tags: nextTags,
+    },
+  }
+}
+
+function stripTagFromClothesList(tag: string) {
+  for (let i = 0; i < list.value.length; i++) {
+    const item = list.value[i]
+    if (!item.tags?.trim()) continue
+    const parts = item.tags.split(',').map((t) => t.trim()).filter(Boolean)
+    const filtered = parts.filter((t) => t !== tag)
+    if (filtered.length !== parts.length) {
+      list.value[i] = { ...item, tags: filtered.length ? filtered.join(',') : undefined }
+    }
+  }
+}
+
+const openTagManageModal = () => {
+  if (!isPageOwner.value || sortedTagList.value.length === 0) return
+  tagManageDraft.value = filterEmptyTags(sortedTagList.value)
+  showTagManageModal.value = true
+}
+
+const confirmTagManageSort = async () => {
+  const wid = currentWardrobe.value?.wardrobe_id
+  if (!wid || tagManageDraft.value.length === 0) return
+  tagManageSaving.value = true
+  try {
+    await sortClothesTags({ wardrobe_id: wid, sort: filterEmptyTags(tagManageDraft.value) })
+    patchWardrobeConfigTags(filterEmptyTags(tagManageDraft.value))
+    toast.add({ title: '标签排序已保存', icon: 'i-heroicons-check-circle', color: 'green' })
+    showTagManageModal.value = false
+  } catch {
+    toast.add({ title: '保存排序失败', icon: 'i-heroicons-exclamation-circle', color: 'red' })
+  } finally {
+    tagManageSaving.value = false
+  }
+}
+
+const openDeleteWardrobeTagConfirm = (tag: string) => {
+  pendingDeleteWardrobeTag.value = tag
+  showDeleteWardrobeTagModal.value = true
+}
+
+const confirmDeleteWardrobeTag = async () => {
+  const tag = pendingDeleteWardrobeTag.value
+  const wid = currentWardrobe.value?.wardrobe_id
+  if (!tag || !wid) return
+  deleteWardrobeTagLoading.value = true
+  try {
+    await deleteClothesTag({ wardrobe_id: wid, tag })
+    tagList.value = tagList.value.filter((t) => t !== tag)
+    tagManageDraft.value = tagManageDraft.value.filter((t) => t !== tag)
+    if (info.value?.config?.tags) {
+      patchWardrobeConfigTags(wardrobeConfigTags.value.filter((t) => t !== tag))
+    }
+    const filterIdx = filter_list.value.tags.indexOf(tag)
+    if (filterIdx !== -1) filter_list.value.tags.splice(filterIdx, 1)
+    stripTagFromClothesList(tag)
+    toast.add({ title: '标签已删除', icon: 'i-heroicons-check-circle', color: 'green' })
+    showDeleteWardrobeTagModal.value = false
+    pendingDeleteWardrobeTag.value = null
+    if (tagList.value.length === 0) showTagManageModal.value = false
+  } catch {
+    toast.add({ title: '删除标签失败', icon: 'i-heroicons-exclamation-circle', color: 'red' })
+  } finally {
+    deleteWardrobeTagLoading.value = false
+  }
+}
+
+const confirmBatchTags = async () => {
+  const ids = Array.from(selectedClothesIds.value)
+  if (ids.length === 0) return
+  const tagsToAdd = filterEmptyTags(batchTagsToAdd.value)
+  if (tagsToAdd.length === 0) {
+    toast.add({ title: '请先添加标签', color: 'amber', icon: 'i-heroicons-information-circle' })
+    return
+  }
+  const tags = tagsToAdd.join(',')
+  try {
+    const { updated } = await batchUpdateClothesTags({ ids: ids.join(','), tags })
+    toast.add({
+      title: `已为 ${updated} 件服饰添加标签`,
+      icon: 'i-heroicons-check-circle',
+      color: 'green',
+    })
+    for (const cid of ids) {
+      const idx = list.value.findIndex((item) => item.clothes_id === cid)
+      if (idx !== -1) {
+        const merged = mergeClothesTagsString(list.value[idx].tags, tagsToAdd)
+        list.value[idx] = { ...list.value[idx], tags: merged || undefined }
+      }
+    }
+    for (const tag of tagsToAdd) {
+      if (!tagList.value.includes(tag)) tagList.value.push(tag)
+    }
+    selectedClothesIds.value = new Set()
+    showBatchTagsModal.value = false
+  } catch {
+    toast.add({ title: '添加标签失败', icon: 'i-heroicons-exclamation-circle', color: 'red' })
   }
 }
 
@@ -1028,6 +1259,30 @@ const fetchWardrobeList = async () => {
   wardrobeList.value = response.rows
   wardrobeCount.value = response.count
 }
+
+/** 当前用户进入自己的衣柜页且没有任何衣柜时，自动创建一个默认衣柜 */
+async function ensureDefaultWardrobeForOwner() {
+  if (!isPageOwner.value || wardrobeList.value.length > 0 || creatingDefaultWardrobe.value) return
+  creatingDefaultWardrobe.value = true
+  try {
+    await insertWardrobe({
+      wardrobe_name: '我的衣柜',
+      is_private: 0,
+      sort_type: 0,
+      show_price: 1,
+      config: { open_danmu: 0 },
+    })
+    await fetchWardrobeList()
+  } catch (e) {
+    console.error('创建默认衣柜失败:', e)
+  } finally {
+    creatingDefaultWardrobe.value = false
+  }
+}
+
+function canShowWardrobeTutorial(): boolean {
+  return import.meta.client && isPageOwner.value && isWardrobeUserLoggedIn()
+}
 const checkPassword = (wardrobe_id: number) => {
   const params = {
     wardrobe_id,
@@ -1181,7 +1436,7 @@ const fetchClothesList = async (Ipage: number | null = null, IpageSize: number |
     }
     if (params.page === 1) {
       if (response.tags_list) {
-        tagList.value = response.tags_list
+        tagList.value = filterEmptyTags(response.tags_list)
       } else {
         tagList.value = []
       }
@@ -1553,6 +1808,201 @@ function syncWardrobeAsHomeToggleFromUser() {
   )
 }
 
+function syncWardrobeTutorialPopupFromUser() {
+  const base = getWardrobeMessageConfigBase()
+  wardrobeTutorialPopupToggle.value = hasWardrobeTutorialPopupConfig(base)
+    ? isWardrobeTutorialPopupEnabled(base)
+    : true
+}
+
+function tryShowTutorialFirstAsk() {
+  if (tutorialFirstAskTriggered.value) return
+  if (!wardrobePageInitialized.value) return
+  if (!canShowWardrobeTutorial()) return
+  if (hasWardrobeTutorialPopupConfig(getWardrobeMessageConfigBase())) return
+  tutorialFirstAskTriggered.value = true
+  showTutorialFirstAskModal.value = true
+}
+
+const wardrobeTutorialList = computed(() => {
+  void tutorialCacheVersion.value
+  const globalEnabled = wardrobeTutorialPopupToggle.value
+  return WARDROBE_TUTORIAL_ITEMS.map((item) => ({
+    ...item,
+    status: getWardrobeTutorialPopupStatus(item.id, globalEnabled),
+  }))
+})
+
+watch(
+  () => user.user?.message_config,
+  () => {
+    if (!isPageOwner.value) return
+    syncWardrobeTutorialPopupFromUser()
+    if (wardrobePageInitialized.value) {
+      tryShowTutorialFirstAsk()
+    }
+  },
+  { immediate: true, deep: true },
+)
+
+async function confirmTutorialFirstAsk(enable: boolean) {
+  if (!canShowWardrobeTutorial()) {
+    showTutorialFirstAskModal.value = false
+    return
+  }
+  savingTutorialPopup.value = true
+  try {
+    if (enable) {
+      clearWardrobeTutorialCaches()
+      tutorialCacheVersion.value++
+    }
+    const merged: Record<string, unknown> = {
+      ...getWardrobeMessageConfigBase(),
+      [WARDROBE_TUTORIAL_POPUP_KEY]: enable,
+    }
+    await user.updateUserInfo({ message_config: merged })
+    wardrobeTutorialPopupToggle.value = enable
+    showTutorialFirstAskModal.value = false
+    if (!enable) {
+      closeAllModeGuides()
+      showOverviewGuide.value = false
+    } else {
+      openOverviewGuide()
+    }
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : '保存失败'
+    toast.add({
+      title: '保存失败',
+      description: msg,
+      icon: 'i-heroicons-x-circle',
+      color: 'red',
+    })
+  } finally {
+    savingTutorialPopup.value = false
+    syncWardrobeTutorialPopupFromUser()
+  }
+}
+
+async function handleWardrobeTutorialPopupChange(value: boolean) {
+  if (!canShowWardrobeTutorial()) {
+    wardrobeTutorialPopupToggle.value = false
+    return
+  }
+  const wasEnabled = isWardrobeTutorialPopupEnabled(getWardrobeMessageConfigBase())
+  savingTutorialPopup.value = true
+  try {
+    if (!wasEnabled && value) {
+      clearWardrobeTutorialCaches()
+      tutorialCacheVersion.value++
+    }
+    const merged: Record<string, unknown> = {
+      ...getWardrobeMessageConfigBase(),
+      [WARDROBE_TUTORIAL_POPUP_KEY]: value,
+    }
+    await user.updateUserInfo({ message_config: merged })
+    wardrobeTutorialPopupToggle.value = value
+    if (!value) {
+      closeAllModeGuides()
+      showOverviewGuide.value = false
+    }
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : '保存失败'
+    wardrobeTutorialPopupToggle.value = !value
+    toast.add({
+      title: '保存失败',
+      description: msg,
+      icon: 'i-heroicons-x-circle',
+      color: 'red',
+    })
+  } finally {
+    savingTutorialPopup.value = false
+    syncWardrobeTutorialPopupFromUser()
+  }
+}
+
+function openTutorialModal() {
+  if (!canShowWardrobeTutorial()) return
+  syncWardrobeTutorialPopupFromUser()
+  tutorialCacheVersion.value++
+  showTutorialModal.value = true
+}
+
+function handleTutorialDismissChange(id: WardrobeTutorialId, dismissed: boolean) {
+  if (!canShowWardrobeTutorial() || !wardrobeTutorialPopupToggle.value) return
+  const item = WARDROBE_TUTORIAL_ITEMS.find((t) => t.id === id)
+  if (!item) return
+  setWardrobeTutorialDismissed(item.storageKey, dismissed)
+  tutorialCacheVersion.value++
+  if (dismissed) {
+    if (id === 'overview') showOverviewGuide.value = false
+    if (id === 'sort') showSortGuide.value = false
+    if (id === 'edit') showEditGuide.value = false
+    if (id === 'matching') showMatchingGuide.value = false
+    if (id === 'select') showSelectGuide.value = false
+  }
+}
+
+function replayWardrobeTutorial(id: WardrobeTutorialId) {
+  if (!canShowWardrobeTutorial()) return
+  showTutorialModal.value = false
+  if (id === 'overview') {
+    openOverviewGuide()
+    return
+  }
+  if (id === 'sort') {
+    if (!hasWardrobeClothes()) {
+      toast.add({
+        title: '暂无服饰',
+        description: '请先至少添加一条服饰后再查看该教程',
+        icon: 'i-heroicons-information-circle',
+        color: 'amber',
+      })
+      return
+    }
+    enterModeForTutorialReplay('sort')
+    return
+  }
+  if (!hasWardrobeClothes()) {
+    toast.add({
+      title: '暂无服饰',
+      description: '请先至少添加一条服饰后再查看该教程',
+      icon: 'i-heroicons-information-circle',
+      color: 'amber',
+    })
+    return
+  }
+  if (id === 'edit') {
+    enterModeForTutorialReplay('edit')
+    return
+  }
+  if (id === 'matching') {
+    enterModeForTutorialReplay('matching')
+    return
+  }
+  if (id === 'select') {
+    enterModeForTutorialReplay('select')
+  }
+}
+
+type WardrobeModeTutorial = 'sort' | 'edit' | 'matching' | 'select'
+
+function enterModeForTutorialReplay(mode: WardrobeModeTutorial) {
+  sortMode.value = mode === 'sort'
+  editMode.value = mode === 'edit'
+  matchingMode.value = mode === 'matching'
+  selectMode.value = mode === 'select'
+  selectedClothesIds.value = new Set()
+  if (sidebarCollapsed.value) sidebarCollapsed.value = false
+  nextTick(() => {
+    requestAnimationFrame(() => {
+      if (mode === 'sort') showSortGuide.value = true
+      if (mode === 'edit') showEditGuide.value = true
+      if (mode === 'matching') showMatchingGuide.value = true
+      if (mode === 'select') showSelectGuide.value = true
+    })
+  })
+}
+
 watch(
   () => user.user?.message_config?.home_page,
   () => {
@@ -1654,12 +2104,14 @@ const wardrobeDisplayBadges = computed<UserDeco[]>(() => {
   return out
 })
 const hasWardrobeDisplayBadges = computed(() => wardrobeDisplayBadges.value.length > 0)
-const wardrobeDisplayBadgesKey = computed(
-  () =>
-    wardrobeDisplayBadgeStr.value ||
-    (wardrobeDisplayBadges.value.length
-      ? wardrobeDisplayBadges.value.map((b) => b.deco_id).join(',')
-      : 'empty')
+/** 本页曾展示过徽章后保留物理场景（WebGL/Ammo），切换衣柜只 sync 徽章，避免反复创建销毁导致内存暴涨 */
+const wardrobeBadgePhysicsKeepAlive = ref(false)
+watch(
+  hasWardrobeDisplayBadges,
+  (has) => {
+    if (has) wardrobeBadgePhysicsKeepAlive.value = true
+  },
+  { immediate: true }
 )
 const wardrobeDecoModalOpen = ref(false)
 const wardrobeDecoModalPosition = ref({ x: 0, y: 0 })
@@ -1777,6 +2229,63 @@ const chooseTags = (tags: string) => {
   }
   reload()
 }
+
+/** PC 端标签栏：拖拽 / 滚轮横向滚动 */
+const tagScrollRef = ref<HTMLElement | null>(null)
+const tagScrollDragging = ref(false)
+let tagScrollDragMoved = false
+let tagScrollDragStartX = 0
+let tagScrollDragStartLeft = 0
+
+function isTagScrollPointerFine() {
+  return import.meta.client && window.matchMedia('(pointer: fine)').matches
+}
+
+function onTagScrollMouseDown(e: MouseEvent) {
+  if (!isTagScrollPointerFine()) return
+  const el = tagScrollRef.value
+  if (!el || e.button !== 0 || el.scrollWidth <= el.clientWidth) return
+  tagScrollDragging.value = true
+  tagScrollDragMoved = false
+  tagScrollDragStartX = e.pageX
+  tagScrollDragStartLeft = el.scrollLeft
+  el.classList.add('wardrobe-tag-scroll--dragging')
+}
+
+useEventListener(document, 'mousemove', (e: MouseEvent) => {
+  if (!tagScrollDragging.value) return
+  const el = tagScrollRef.value
+  if (!el) return
+  e.preventDefault()
+  const walk = e.pageX - tagScrollDragStartX
+  if (Math.abs(walk) > 3) tagScrollDragMoved = true
+  el.scrollLeft = tagScrollDragStartLeft - walk
+})
+
+useEventListener(document, 'mouseup', () => {
+  if (!tagScrollDragging.value) return
+  tagScrollDragging.value = false
+  tagScrollRef.value?.classList.remove('wardrobe-tag-scroll--dragging')
+})
+
+function onTagScrollWheel(e: WheelEvent) {
+  if (!isTagScrollPointerFine()) return
+  const el = tagScrollRef.value
+  if (!el || el.scrollWidth <= el.clientWidth) return
+  const delta = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY
+  if (delta === 0) return
+  el.scrollLeft += delta
+  e.preventDefault()
+}
+
+function onTagChipClick(tags: string) {
+  if (tagScrollDragMoved) {
+    tagScrollDragMoved = false
+    return
+  }
+  chooseTags(tags)
+}
+
 // 选择状态
 const chooseStatus = (label: string) => {
   const index = filter_list.value.wardrobe_status.findIndex((status) => {
@@ -2082,6 +2591,10 @@ async function initWardrobePage() {
   }
   await Promise.all(initTasks)
 
+  if (isPageOwner.value) {
+    await ensureDefaultWardrobeForOwner()
+  }
+
   if (wardrobeList.value.length > 0) {
     let targetWardrobe: Wardrobe | null = null
     if (route.query.wardrobe_id) {
@@ -2106,6 +2619,12 @@ async function initWardrobePage() {
         }
       }
     }
+  }
+
+  wardrobePageInitialized.value = true
+  if (isPageOwner.value) {
+    syncWardrobeTutorialPopupFromUser()
+    tryShowTutorialFirstAsk()
   }
 }
 
@@ -2165,12 +2684,14 @@ useHead({
 
 })
 const enableDrag = () => {
+  if (!requireClothesForMode()) return
   sortMode.value = true
   tryOpenSortGuide()
 }
 
 const SIDEBAR_COLLAPSED_KEY = 'wardrobe-detail-sidebar-collapsed'
 const HEADER_COLLAPSED_KEY = 'wardrobe-detail-header-collapsed'
+const TOOLBAR_COLLAPSED_KEY = 'wardrobe-detail-toolbar-collapsed'
 const SHOW_CLOTHES_NOTE_KEY = 'wardrobe-detail-show-clothes-note'
 const SHOW_CLOTHES_PRICE_KEY = 'wardrobe-detail-show-clothes-price'
 const SHOW_CLOTHES_STATUS_KEY = 'wardrobe-detail-show-clothes-status'
@@ -2192,6 +2713,16 @@ function readHeaderCollapsedPref(): boolean {
   try {
     const h = localStorage.getItem(HEADER_COLLAPSED_KEY)
     return h === null ? true : h === '1'
+  } catch {
+    return true
+  }
+}
+
+function readToolbarCollapsedPref(): boolean {
+  if (!import.meta.client || typeof localStorage === 'undefined') return true
+  try {
+    const v = localStorage.getItem(TOOLBAR_COLLAPSED_KEY)
+    return v === null ? true : v === '1'
   } catch {
     return true
   }
@@ -2241,6 +2772,10 @@ function readShowClothesFavoritePref(): boolean {
 const sidebarCollapsed = ref(readSidebarCollapsedPref())
 /** 中间衣柜详情头部是否收起（localStorage 持久化，默认收起） */
 const headerCollapsed = ref(readHeaderCollapsedPref())
+/** 左侧功能栏是否收起（localStorage 持久化，默认收起；收起后仅保留添加与批量添加） */
+const toolbarCollapsed = ref(readToolbarCollapsedPref())
+/** 整体引导临时展开左侧功能栏（不写入偏好，关闭引导后恢复收起态） */
+const overviewGuideToolbarExpanded = ref(false)
 /** 网格卡片是否显示服饰备注（localStorage 持久化，默认显示） */
 const showClothesNote = ref(readShowClothesNotePref())
 /** 网格卡片是否显示服饰价格（localStorage 持久化，默认显示） */
@@ -2278,6 +2813,13 @@ function restoreLayoutPrefs() {
       headerCollapsed.value = true
       persistHeaderCollapsed(true)
     }
+    const toolbar = localStorage.getItem(TOOLBAR_COLLAPSED_KEY)
+    if (toolbar !== null) {
+      toolbarCollapsed.value = toolbar === '1'
+    } else {
+      toolbarCollapsed.value = true
+      persistToolbarCollapsed(true)
+    }
     const note = localStorage.getItem(SHOW_CLOTHES_NOTE_KEY)
     if (note !== null) showClothesNote.value = note === '1'
     const price = localStorage.getItem(SHOW_CLOTHES_PRICE_KEY)
@@ -2307,6 +2849,15 @@ function persistHeaderCollapsed(collapsed: boolean) {
   if (!import.meta.client || typeof localStorage === 'undefined') return
   try {
     localStorage.setItem(HEADER_COLLAPSED_KEY, collapsed ? '1' : '0')
+  } catch {
+    /* 忽略写入失败 */
+  }
+}
+
+function persistToolbarCollapsed(collapsed: boolean) {
+  if (!import.meta.client || typeof localStorage === 'undefined') return
+  try {
+    localStorage.setItem(TOOLBAR_COLLAPSED_KEY, collapsed ? '1' : '0')
   } catch {
     /* 忽略写入失败 */
   }
@@ -2365,6 +2916,10 @@ const toggleHeaderCollapsed = () => {
   headerCollapsed.value = !headerCollapsed.value
 }
 
+const toggleToolbarCollapsed = () => {
+  toolbarCollapsed.value = !toolbarCollapsed.value
+}
+
 const openLayoutModal = () => {
   showLayoutModal.value = true
 }
@@ -2385,6 +2940,7 @@ onActivated(() => {
 
 watch(sidebarCollapsed, persistSidebarCollapsed)
 watch(headerCollapsed, persistHeaderCollapsed)
+watch(toolbarCollapsed, persistToolbarCollapsed)
 watch(showClothesNote, persistShowClothesNote)
 watch(showClothesPrice, persistShowClothesPrice)
 watch(showClothesStatus, persistShowClothesStatus)
@@ -2777,22 +3333,97 @@ watch(timelineMode, (on) => {
 })
 
 // 搭配模式、排序、多选、编辑互斥
+function hasWardrobeClothes(): boolean {
+  return list.value.length > 0
+}
+
+function requireClothesForMode(): boolean {
+  if (hasWardrobeClothes()) return true
+  toast.add({
+    title: '暂无服饰',
+    description: '请先至少添加一条服饰后再使用此功能',
+    icon: 'i-heroicons-information-circle',
+    color: 'amber',
+  })
+  return false
+}
+
+const firstClothesId = computed(() => list.value[0]?.clothes_id ?? null)
+
+function getClothesGuideTargetId(element: WardrobeClothes): string | undefined {
+  const firstId = firstClothesId.value
+  if (firstId == null || element.clothes_id !== firstId) return undefined
+  return WARDROBE_GUIDE_FIRST_CLOTHES_ID
+}
+
+function prepareFirstClothesGuideTarget(onReady?: () => void) {
+  if (!import.meta.client || !hasWardrobeClothes()) return
+  if (virtualEnabled.value && scrollRootRef.value) {
+    scrollRootRef.value.scrollTop = 0
+  }
+  nextTick(() => {
+    requestAnimationFrame(() => {
+      document.getElementById(WARDROBE_GUIDE_FIRST_CLOTHES_ID)?.scrollIntoView({
+        block: 'center',
+        inline: 'nearest',
+        behavior: 'auto',
+      })
+      requestAnimationFrame(() => onReady?.())
+    })
+  })
+}
+
+function refreshGuideAfterClothesFocus(guideRef: typeof sortGuideRef) {
+  prepareFirstClothesGuideTarget(() => guideRef.value?.refreshLayout())
+}
+
+function closeAllModeGuides() {
+  showSortGuide.value = false
+  showEditGuide.value = false
+  showMatchingGuide.value = false
+  showSelectGuide.value = false
+}
+
+function shouldOfferModeGuide(hasCompleted: () => boolean): boolean {
+  return (
+    canShowWardrobeTutorial()
+    && !timelineMode.value
+    && isWardrobeTutorialPopupEnabled(getWardrobeMessageConfigBase())
+    && !hasCompleted()
+  )
+}
+
+function openModeGuide(showRef: typeof showEditGuide) {
+  nextTick(() => {
+    requestAnimationFrame(() => {
+      showRef.value = true
+    })
+  })
+}
+
 const toggleMatchingMode = () => {
+  if (!matchingMode.value && !requireClothesForMode()) return
   matchingMode.value = !matchingMode.value
   if (matchingMode.value) {
     sortMode.value = false
     selectMode.value = false
     editMode.value = false
     selectedClothesIds.value = new Set()
+    closeAllModeGuides()
+    tryOpenMatchingGuide()
+  } else {
+    showMatchingGuide.value = false
   }
 }
 const toggleSortMode = () => {
+  if (!sortMode.value && !requireClothesForMode()) return
   sortMode.value = !sortMode.value
   if (sortMode.value) {
     matchingMode.value = false
     selectMode.value = false
     editMode.value = false
     selectedClothesIds.value = new Set()
+    closeAllModeGuides()
     tryOpenSortGuide()
   } else {
     showSortGuide.value = false
@@ -2800,16 +3431,26 @@ const toggleSortMode = () => {
 }
 
 function tryOpenSortGuide() {
-  if (!import.meta.client || !isPageOwner.value) return
-  if (timelineMode.value || hasCompletedWardrobeSortGuide()) return
+  if (!shouldOfferModeGuide(hasCompletedWardrobeSortGuide)) return
   if (sidebarCollapsed.value) {
     sidebarCollapsed.value = false
   }
-  nextTick(() => {
-    requestAnimationFrame(() => {
-      showSortGuide.value = true
-    })
-  })
+  openModeGuide(showSortGuide)
+}
+
+function tryOpenEditGuide() {
+  if (!shouldOfferModeGuide(hasCompletedWardrobeEditGuide)) return
+  openModeGuide(showEditGuide)
+}
+
+function tryOpenMatchingGuide() {
+  if (!shouldOfferModeGuide(hasCompletedWardrobeMatchingGuide)) return
+  openModeGuide(showMatchingGuide)
+}
+
+function tryOpenSelectGuide() {
+  if (!shouldOfferModeGuide(hasCompletedWardrobeSelectGuide)) return
+  openModeGuide(showSelectGuide)
 }
 
 function onSortGuideStepChange(index: number) {
@@ -2820,15 +3461,117 @@ function onSortGuideStepChange(index: number) {
     })
     return
   }
+  if (index === 1) {
+    refreshGuideAfterClothesFocus(sortGuideRef)
+    return
+  }
   nextTick(() => sortGuideRef.value?.refreshLayout())
 }
+
+function onEditGuideStepChange(index: number) {
+  if (index === 1) {
+    refreshGuideAfterClothesFocus(editGuideRef)
+    return
+  }
+  nextTick(() => editGuideRef.value?.refreshLayout())
+}
+
+function onMatchingGuideStepChange(index: number) {
+  if (index === 1) {
+    refreshGuideAfterClothesFocus(matchingGuideRef)
+    return
+  }
+  nextTick(() => matchingGuideRef.value?.refreshLayout())
+}
+
+function onSelectGuideStepChange(index: number) {
+  if (index === 1) {
+    refreshGuideAfterClothesFocus(selectGuideRef)
+    return
+  }
+  if (index === 2) {
+    nextTick(() => {
+      requestAnimationFrame(() => {
+        document.getElementById(WARDROBE_GUIDE_SELECT_BAR_ID)?.scrollIntoView({
+          block: 'nearest',
+          inline: 'nearest',
+          behavior: 'auto',
+        })
+        requestAnimationFrame(() => selectGuideRef.value?.refreshLayout())
+      })
+    })
+    return
+  }
+  nextTick(() => selectGuideRef.value?.refreshLayout())
+}
+
+const OVERVIEW_SIDEBAR_TARGETS = new Set([
+  'wardrobe-guide-add-wardrobe',
+  'wardrobe-guide-sidebar-list',
+])
+
+/** 引导需完整左侧功能栏可见的步骤（收起态下这些节点会被隐藏） */
+const OVERVIEW_EXPANDED_TOOLBAR_TARGETS = new Set([
+  'wardrobe-guide-tool-sort',
+  'wardrobe-guide-tool-edit',
+  'wardrobe-guide-tool-matching',
+  'wardrobe-guide-main-toolbar',
+])
+
+function prepareOverviewGuideLayout(targetId?: string) {
+  if (targetId === WARDROBE_GUIDE_HEADER_TOGGLE_ID) {
+    if (!headerCollapsed.value) headerCollapsed.value = true
+  } else if (headerCollapsed.value) {
+    headerCollapsed.value = false
+  }
+  if (targetId && OVERVIEW_SIDEBAR_TARGETS.has(targetId) && sidebarCollapsed.value) {
+    sidebarCollapsed.value = false
+  }
+  overviewGuideToolbarExpanded.value = !!(
+    targetId && OVERVIEW_EXPANDED_TOOLBAR_TARGETS.has(targetId)
+  )
+}
+
+function openOverviewGuide() {
+  if (!canShowWardrobeTutorial()) return
+  prepareOverviewGuideLayout()
+  if (showOverviewGuide.value) {
+    showOverviewGuide.value = false
+    nextTick(() => {
+      showOverviewGuide.value = true
+    })
+    return
+  }
+  nextTick(() => {
+    requestAnimationFrame(() => {
+      showOverviewGuide.value = true
+    })
+  })
+}
+
+function onOverviewGuideStepChange(index: number) {
+  const step = wardrobeOverviewGuideSteps[index]
+  prepareOverviewGuideLayout(step?.targetId)
+  nextTick(() => {
+    requestAnimationFrame(() => overviewGuideRef.value?.refreshLayout())
+  })
+}
+
+watch(showOverviewGuide, (open) => {
+  if (!open) overviewGuideToolbarExpanded.value = false
+})
 const toggleEditMode = () => {
+  if (!editMode.value && !requireClothesForMode()) return
   editMode.value = !editMode.value
   if (editMode.value) {
     sortMode.value = false
     matchingMode.value = false
     selectMode.value = false
     selectedClothesIds.value = new Set()
+    closeAllModeGuides()
+    tryOpenEditGuide()
+  } else {
+    showEditGuide.value = false
   }
 }
 const openEditClothes = (item: WardrobeClothes, event?: MouseEvent) => {
@@ -2839,14 +3582,18 @@ const openEditClothes = (item: WardrobeClothes, event?: MouseEvent) => {
   }, false, event)
 }
 const toggleSelectMode = () => {
+  if (!selectMode.value && !requireClothesForMode()) return
   selectMode.value = !selectMode.value
   if (selectMode.value) {
     sortMode.value = false
     matchingMode.value = false
     editMode.value = false
     selectedClothesIds.value = new Set()
+    closeAllModeGuides()
+    tryOpenSelectGuide()
   } else {
     selectedClothesIds.value = new Set()
+    showSelectGuide.value = false
   }
 }
 const toggleClothesSelection = (item: WardrobeClothes) => {
@@ -3314,6 +4061,155 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
         </div>
       </div>
     </QhxModal>
+    <QhxModal v-model="showBatchTagsModal">
+      <div class="p-6 w-[min(94vw,420px)] max-h-[85vh] overflow-y-auto bg-white dark:bg-gray-800 rounded-[10px] shadow-lg">
+        <h3 class="text-base font-bold mb-4 text-gray-800 dark:text-gray-200">批量添加标签</h3>
+        <p class="text-sm text-gray-600 dark:text-gray-400 mb-4">
+          已选 {{ selectedClothesIds.size }} 件服饰，新标签将追加到原有标签（自动去重）。
+        </p>
+        <UFormGroup label="要追加的标签">
+          <div v-if="batchTagsToAdd.length > 0" class="flex flex-wrap gap-2 mb-2">
+            <QhxTag v-for="(tag, index) in batchTagsToAdd" :key="`${tag}-${index}`">
+              <div class="flex">
+                <QhxJellyButton
+                  class="cursor-pointer flex items-center mr-[5px] text-white rounded-[50%] w-[18px] h-[18px] justify-center bg-qhx-primary"
+                  @click="batchTagsToAdd.splice(index, 1)"
+                >
+                  <UIcon name="ant-design:close-outlined" class="text-[14px] text-[#ffffff]" />
+                </QhxJellyButton>
+                <div>{{ tag }}</div>
+              </div>
+            </QhxTag>
+          </div>
+          <div v-if="sortedTagList.length > 0" class="flex flex-wrap gap-2 mb-2">
+            <QhxJellyButton v-for="(tag, index) in sortedTagList" :key="`pick-${tag}-${index}`">
+              <QhxTag
+                class="cursor-pointer"
+                :active="batchTagsToAdd.includes(tag)"
+                @click="toggleBatchTagQuickPick(tag)"
+              >
+                {{ tag }}
+              </QhxTag>
+            </QhxJellyButton>
+          </div>
+          <customInput ref="batchTagInputRef" @insert="onBatchTagInputInsert" />
+          <UButton
+            type="button"
+            size="xs"
+            class="bg-qhx-primary text-qhx-inverted hover:bg-qhx-primaryHover mt-2"
+            @click="(e: MouseEvent) => openBatchTagInput(e)"
+          >
+            添加tag
+          </UButton>
+        </UFormGroup>
+        <div class="flex justify-end gap-2 mt-6">
+          <UButton
+            color="gray"
+            :class="hasAnyCustomBtnTheme && hasCustomBtnBg ? 'hover:opacity-90' : ''"
+            :style="customBtnStyle"
+            @click="showBatchTagsModal = false"
+          >
+            取消
+          </UButton>
+          <UButton
+            color="primary"
+            :class="hasAnyCustomBtnTheme && hasCustomBtnBg ? 'hover:opacity-90' : ''"
+            :style="customBtnStyle"
+            @click="confirmBatchTags"
+          >
+            确定
+          </UButton>
+        </div>
+      </div>
+    </QhxModal>
+    <QhxModal v-model="showTagManageModal">
+      <div class="p-6 w-[min(94vw,420px)] max-h-[85vh] overflow-y-auto bg-white dark:bg-gray-800 rounded-[10px] shadow-lg">
+        <h3 class="text-base font-bold mb-2 text-gray-800 dark:text-gray-200">标签管理</h3>
+        <p class="text-sm text-gray-600 dark:text-gray-400 mb-4">
+          拖拽调整展示顺序；删除后将从本衣柜全部服饰中移除该标签。
+        </p>
+        <div v-if="tagManageDraft.length === 0" class="py-8 text-center text-sm text-gray-500 dark:text-gray-400">
+          暂无标签
+        </div>
+        <QhxSortableList
+          v-else
+          v-model="tagManageDraft"
+          :item-key="tagManageItemKey"
+          :animation="200"
+          :delay="120"
+          item-class="mb-2"
+        >
+          <template #item="{ element: tag, index }">
+            <div class="flex items-center gap-2 rounded-lg border border-gray-200/80 bg-gray-50/90 px-2 py-2 dark:border-gray-700/80 dark:bg-gray-800/80">
+              <button
+                type="button"
+                class="shrink-0 flex items-center justify-center w-6 h-8 rounded text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 cursor-grab active:cursor-grabbing touch-none"
+                title="拖拽排序"
+                aria-label="拖拽排序"
+              >
+                <UIcon name="material-symbols:drag-indicator" class="text-base" />
+              </button>
+              <span class="shrink-0 inline-flex items-center justify-center min-w-[1.25rem] h-5 px-1 text-[10px] font-bold tabular-nums text-gray-500 dark:text-gray-400">
+                {{ index + 1 }}
+              </span>
+              <span class="flex-1 min-w-0 truncate text-sm font-medium text-gray-800 dark:text-gray-200">
+                {{ tag }}
+              </span>
+              <QhxJellyButton
+                class="shrink-0 cursor-pointer flex items-center justify-center rounded-[50%] w-[22px] h-[22px] bg-red-500 text-white"
+                @click="openDeleteWardrobeTagConfirm(tag)"
+              >
+                <UIcon name="ant-design:close-outlined" class="text-[14px]" />
+              </QhxJellyButton>
+            </div>
+          </template>
+        </QhxSortableList>
+        <div class="flex justify-end gap-2 mt-6">
+          <UButton
+            color="gray"
+            :class="hasAnyCustomBtnTheme && hasCustomBtnBg ? 'hover:opacity-90' : ''"
+            :style="customBtnStyle"
+            @click="showTagManageModal = false"
+          >
+            取消
+          </UButton>
+          <UButton
+            color="primary"
+            :loading="tagManageSaving"
+            :disabled="tagManageDraft.length === 0"
+            :class="hasAnyCustomBtnTheme && hasCustomBtnBg ? 'hover:opacity-90' : ''"
+            :style="customBtnStyle"
+            @click="confirmTagManageSort"
+          >
+            保存排序
+          </UButton>
+        </div>
+      </div>
+    </QhxModal>
+    <QhxModal v-model="showDeleteWardrobeTagModal">
+      <div class="p-6 w-[min(94vw,420px)] bg-white dark:bg-gray-800 rounded-[10px] shadow-lg">
+        <h3 class="text-base font-bold mb-2 text-gray-800 dark:text-gray-200">删除标签</h3>
+        <p class="text-sm text-gray-600 dark:text-gray-400 mb-6">
+          确定删除标签「{{ pendingDeleteWardrobeTag }}」？将从本衣柜全部服饰中移除；若曾设置过标签排序，也会从排序列表中移除。
+        </p>
+        <div class="flex justify-end gap-2">
+          <UButton
+            color="gray"
+            :disabled="deleteWardrobeTagLoading"
+            @click="showDeleteWardrobeTagModal = false"
+          >
+            取消
+          </UButton>
+          <UButton
+            color="red"
+            :loading="deleteWardrobeTagLoading"
+            @click="confirmDeleteWardrobeTag"
+          >
+            确定删除
+          </UButton>
+        </div>
+      </div>
+    </QhxModal>
     <QhxModal v-model="showBatchSortModal">
       <div class="p-6 w-[min(94vw,420px)] bg-white dark:bg-gray-800 rounded-[10px] shadow-lg">
         <h3 class="text-base font-bold mb-2 text-gray-800 dark:text-gray-200">批量排序</h3>
@@ -3434,6 +4330,93 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
             <div v-if="tool.moreDescription" class="text-xs text-gray-500 dark:text-gray-400">{{ tool.moreDescription }}</div>
           </div>
         </button>
+      </div>
+    </QhxModal>
+    <QhxModal v-if="isPageOwner" v-model="showTutorialFirstAskModal">
+      <div class="p-6 w-[min(94vw,400px)] bg-white dark:bg-gray-800 rounded-[10px] shadow-lg">
+        <h3 class="text-base font-bold mb-2 text-gray-800 dark:text-gray-200">开启弹窗教程？</h3>
+        <p class="text-sm text-gray-600 dark:text-gray-300 mb-1 leading-relaxed">
+          如果是第一次使用，建议开启学习一下哦。
+        </p>
+        <p class="text-xs text-gray-500 dark:text-gray-400 mb-5 leading-relaxed">
+          开启后，将先带你快速了解衣柜常用功能；之后使用排序等功能时，还会弹出对应的详细引导。
+        </p>
+        <div class="flex justify-end gap-2">
+          <UButton
+            color="gray"
+            :disabled="savingTutorialPopup"
+            @click="confirmTutorialFirstAsk(false)"
+          >
+            暂不开启
+          </UButton>
+          <UButton
+            color="primary"
+            :disabled="savingTutorialPopup"
+            @click="confirmTutorialFirstAsk(true)"
+          >
+            开启教程
+          </UButton>
+        </div>
+      </div>
+    </QhxModal>
+    <QhxModal v-if="isPageOwner" v-model="showTutorialModal">
+      <div class="p-5 w-[min(94vw,400px)] bg-white dark:bg-gray-800 rounded-[10px] shadow-lg">
+        <h3 class="text-base font-bold text-gray-800 dark:text-gray-200">功能教程</h3>
+        <p class="text-xs text-gray-500 dark:text-gray-400 mt-1 mb-4">
+          开启后，首次使用相关功能时会自动弹出步骤引导
+        </p>
+        <div class="flex items-center justify-between gap-3 mb-4">
+          <div class="min-w-0">
+            <div class="text-sm font-medium text-gray-800 dark:text-gray-200">开启弹窗教程</div>
+            <div class="text-xs text-gray-500 dark:text-gray-400">关闭后所有功能教程均不再自动弹出</div>
+          </div>
+          <UToggle
+            v-model="wardrobeTutorialPopupToggle"
+            :disabled="savingTutorialPopup"
+            @update:model-value="handleWardrobeTutorialPopupChange"
+          />
+        </div>
+        <div class="h-px bg-gray-200 dark:bg-gray-700 mb-3" />
+        <div class="space-y-2">
+          <div
+            v-for="item in wardrobeTutorialList"
+            :key="item.id"
+            class="rounded-xl border border-gray-200/80 bg-gray-50/80 px-3 py-2.5 dark:border-gray-700/80 dark:bg-gray-900/40"
+          >
+            <div class="flex items-start gap-3">
+              <div class="min-w-0 flex-1">
+                <div class="text-sm font-medium text-gray-800 dark:text-gray-200">{{ item.title }}</div>
+                <div class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{{ item.description }}</div>
+              </div>
+              <UButton
+                size="xs"
+                color="gray"
+                variant="soft"
+                class="shrink-0"
+                @click="replayWardrobeTutorial(item.id)"
+              >
+                查看
+              </UButton>
+            </div>
+            <div class="flex items-center justify-between gap-3 mt-2.5 pt-2.5 border-t border-gray-200/60 dark:border-gray-700/60">
+              <div class="min-w-0">
+                <div class="text-xs font-medium text-gray-700 dark:text-gray-300">不再提示</div>
+                <div class="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">
+                  {{ !wardrobeTutorialPopupToggle
+                    ? '请先开启弹窗教程'
+                    : item.status === 'dismissed'
+                      ? '已关闭该教程的自动弹出'
+                      : '开启后将不再自动弹出' }}
+                </div>
+              </div>
+              <UToggle
+                :model-value="item.status === 'dismissed'"
+                :disabled="!wardrobeTutorialPopupToggle"
+                @update:model-value="handleTutorialDismissChange(item.id, $event)"
+              />
+            </div>
+          </div>
+        </div>
       </div>
     </QhxModal>
     <QhxModal v-model="showLayoutModal">
@@ -3690,6 +4673,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
         <div v-if="user.user?.user_id === Number.parseInt(id)" class="flex flex-col items-center py-2 gap-1.5">
           <QhxJellyButton v-for="tool in sidebarToolbarTools" :key="tool.id">
             <div
+              :id="tool.id === 'addWardrobe' ? 'wardrobe-guide-add-wardrobe' : undefined"
               class="h-[46px] text-center px-0.5 cursor-pointer"
               @click="runToolbarAction(tool.id, $event)"
             >
@@ -3919,7 +4903,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
               {{ info.wardrobe_desc }}
             </p>
             <p class="text-sm">
-              衣柜收纳: {{ info.total_count || 0 }} 条
+              衣柜收纳: {{ info.total_count || 0 }} 条 · 穿着 {{ info.total_times ?? 0 }}次 · {{ info.total_community || 0 }}条回忆
             </p>
             <p class="text-sm flex items-center">
               <span>衣柜总价: ￥ </span>
@@ -3943,13 +4927,6 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
               <span>全衣柜总价: ￥ </span>
               <span>{{ info.show_price !== 1 ? '***' : (wardrobeStore.config?.total_price || '0.00') }}</span>
             </p>
-            <p class="text-sm">
-              穿着次数: {{ info.total_times }}
-            </p>
-            <p class="text-sm">
-              共有 {{ info.total_community || 0 }} 条与小裙子间美好的回忆(*^▽^*)
-            </p>
-            
             <!-- 是否私密（仅拥有者可见） -->
             <div v-if="isWardrobeOwner" class="flex items-center justify-between text-sm">
               <span class="text-qhx-text">是否私密:</span>
@@ -4006,6 +4983,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
         </div>
         <div v-if="info && !timelineMode" class="flex justify-center items-center gap-2 mb-3 relative z-10">
           <button
+            id="wardrobe-guide-header-toggle"
             type="button"
             class="wardrobe-collapse-toggle"
             :title="headerCollapsed ? '展开衣柜详情' : '收起衣柜详情'"
@@ -4048,137 +5026,235 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
           </button>
         </div>
         <div
-          class="flex justify-between items-center sticky z-10 gap-1.5"
+          class="flex flex-col sticky z-10 gap-1"
           :style="{ top: `${(configStore.statusBarHeight || 0) + 10}px` }"
           v-if="user.user?.user_id === Number.parseInt(id)"
         >
-          <div class="flex flex-wrap gap-1">
-            <QhxJellyButton>
-              <div class="h-[46px] flex flex-col items-center justify-center px-0.5 cursor-pointer" @click="showAddClothes()">
+          <div class="flex justify-between items-center gap-1.5">
+            <div id="wardrobe-guide-add-tools" class="flex flex-wrap gap-1 min-w-0">
+              <QhxJellyButton>
                 <div
-                  class="wardrobe-neu-tool-orb m-[3px] rounded-[50%] h-[24px] w-[24px] flex items-center justify-center"
-                  :class="[!hasCustomBtnBg && 'bg-qhx-primary', !hasCustomBtnFont && 'text-white']"
-                  :style="customBtnStyle"
+                  id="wardrobe-guide-tool-add"
+                  class="h-[56px] flex flex-col items-center justify-center px-1 cursor-pointer"
+                  @click="showAddClothes()"
                 >
-                  <UIcon name="material-symbols:add-2" class="text-[16px]" />
-                </div>
-                <div class="text-xs text-qhx-text">添加</div>
-              </div>
-            </QhxJellyButton>
-            <QhxJellyButton>
-              <div
-                class="h-[46px] flex flex-col items-center justify-center px-0.5 cursor-pointer"
-                @click="showBatchAddClothes($event)"
-              >
-                <div
-                  class="wardrobe-neu-tool-orb m-[3px] rounded-[50%] h-[24px] w-[24px] flex items-center justify-center"
-                  :class="[!hasCustomBtnBg && 'bg-qhx-primary', !hasCustomBtnFont && 'text-white']"
-                  :style="customBtnStyle"
-                >
-                  <UIcon name="i-heroicons-squares-plus" class="text-[16px]" />
-                </div>
-                <div class="text-xs text-qhx-text">批量添加</div>
-              </div>
-            </QhxJellyButton>
-            <QhxJellyButton>
-              <div class="h-[46px] flex flex-col items-center justify-center px-0.5 cursor-pointer" @click="toggleSortMode">
-                <div
-                  class="wardrobe-neu-tool-orb m-[3px] rounded-[50%] h-[24px] w-[24px] flex items-center justify-center"
-                  :class="sortMode ? [!hasCustomBtnBg && 'bg-qhx-primary', !hasCustomBtnFont && 'text-white'] : [!hasCustomBtnBg && 'bg-qhx-info', !hasCustomBtnFont && 'text-white']"
-                  :style="sortMode ? customBtnStyle : {}"
-                >
-                  <UIcon name="icon-park-outline:sort-two" class="text-[16px]" />
-                </div>
-                <div class="text-xs text-qhx-text">排序</div>
-              </div>
-            </QhxJellyButton>
-            <QhxJellyButton>
-              <div class="h-[46px] flex flex-col items-center justify-center px-0.5 cursor-pointer" @click="toggleEditMode">
-                <div
-                  class="wardrobe-neu-tool-orb m-[3px] rounded-[50%] h-[24px] w-[24px] flex items-center justify-center"
-                  :class="editMode ? [!hasCustomBtnBg && 'bg-qhx-primary', !hasCustomBtnFont && 'text-white'] : [!hasCustomBtnBg && 'bg-qhx-info', !hasCustomBtnFont && 'text-white']"
-                  :style="editMode ? customBtnStyle : {}"
-                >
-                  <UIcon name="i-heroicons-pencil-square" class="text-[16px]" />
-                </div>
-                <div class="text-xs text-qhx-text">编辑模式</div>
-              </div>
-            </QhxJellyButton>
-            <QhxJellyButton>
-              <div class="h-[46px] flex flex-col items-center justify-center px-0.5 cursor-pointer" @click="toggleMatchingMode">
-                <div
-                  class="wardrobe-neu-tool-orb m-[3px] rounded-[50%] h-[24px] w-[24px] flex items-center justify-center"
-                  :class="matchingMode ? [!hasCustomBtnBg && 'bg-qhx-primary', !hasCustomBtnFont && 'text-white'] : [!hasCustomBtnBg && 'bg-qhx-info', !hasCustomBtnFont && 'text-white']"
-                  :style="matchingMode ? customBtnStyle : {}"
-                >
-                  <UIcon name="material-symbols:add-shopping-cart-rounded" class="text-[16px]" />
-                </div>
-                <div class="text-xs text-qhx-text">搭配模式</div>
-              </div>
-            </QhxJellyButton>
-            <QhxJellyButton>
-              <div class="h-[46px] flex flex-col items-center justify-center px-0.5 cursor-pointer" @click="toggleSelectMode">
-                <div
-                  class="wardrobe-neu-tool-orb m-[3px] rounded-[50%] h-[24px] w-[24px] flex items-center justify-center"
-                  :class="selectMode ? [!hasCustomBtnBg && 'bg-qhx-primary', !hasCustomBtnFont && 'text-white'] : [!hasCustomBtnBg && 'bg-qhx-info', !hasCustomBtnFont && 'text-white']"
-                  :style="selectMode ? customBtnStyle : {}"
-                >
-                  <UIcon name="material-symbols:checklist" class="text-[16px]" />
-                </div>
-                <div class="text-xs text-qhx-text">多选</div>
-              </div>
-            </QhxJellyButton>
-            <QhxJellyButton>
-              <div class="h-[46px] flex flex-col items-center justify-center px-0.5 cursor-pointer" @click="openShareModal('long')">
-                <div
-                  class="wardrobe-neu-tool-orb m-[3px] rounded-[50%] h-[24px] w-[24px] flex items-center justify-center"
-                  :class="[!hasCustomBtnBg && 'bg-qhx-info', !hasCustomBtnFont && 'text-white']"
-                >
-                  <UIcon name="i-heroicons-photo-20-solid" class="text-[16px]" />
-                </div>
-                <div class="text-xs text-qhx-text">分享图</div>
-              </div>
-            </QhxJellyButton>
-          </div>
-          <div class="flex flex-wrap gap-1">
-            <QhxJellyButton>
-              <div class="h-[46px] flex flex-col items-center justify-center px-0.5 cursor-pointer" @click="openLayoutModal">
-                <div
-                  class="wardrobe-neu-tool-orb m-[3px] rounded-[50%] h-[24px] w-[24px] flex items-center justify-center"
-                  :class="[!hasCustomBtnBg && 'bg-qhx-info', !hasCustomBtnFont && 'text-white']"
-                >
-                  <UIcon name="material-symbols:dashboard-customize-outline" class="text-[16px]" />
-                </div>
-                <div class="text-xs text-qhx-text">布局</div>
-              </div>
-            </QhxJellyButton>
-            <QhxJellyButton>
-              <div class="h-[46px] flex flex-col items-center justify-center px-0.5 cursor-pointer" @click="showFilterDrawer = true">
-                <div
-                  class="wardrobe-neu-tool-orb relative m-[3px] rounded-[50%] h-[24px] w-[24px] flex items-center justify-center"
-                  :class="hasActiveFilter ? [!hasCustomBtnBg && 'bg-qhx-primary', !hasCustomBtnFont && 'text-white'] : [!hasCustomBtnBg && 'bg-qhx-info', !hasCustomBtnFont && 'text-white']"
-                  :style="hasActiveFilter ? customBtnStyle : {}"
-                >
-                  <UIcon name="material-symbols:filter-list" class="text-[16px]" />
-                  <span
-                    v-if="filterCount > 0"
-                    class="wardrobe-neu-tool-badge absolute -top-0.5 -right-0.5 min-w-[14px] h-[14px] px-0.5 flex items-center justify-center text-[9px] font-bold rounded-full"
-                    :class="[!hasCustomBtnBg && 'bg-red-500', !hasCustomBtnFont && 'text-white']"
+                  <div
+                    class="wardrobe-neu-tool-orb m-[3px] rounded-[50%] h-[32px] w-[32px] flex items-center justify-center"
+                    :class="[!hasCustomBtnBg && 'bg-qhx-primary', !hasCustomBtnFont && 'text-white']"
                     :style="customBtnStyle"
                   >
-                    {{ filterCount > 99 ? '99+' : filterCount }}
-                  </span>
+                    <UIcon name="material-symbols:add-2" class="text-[20px]" />
+                  </div>
+                  <div class="text-sm text-qhx-text">添加</div>
                 </div>
-                <div class="text-xs text-qhx-text">筛选</div>
+              </QhxJellyButton>
+              <QhxJellyButton>
+                <div
+                  id="wardrobe-guide-tool-batch-add"
+                  class="h-[56px] flex flex-col items-center justify-center px-1 cursor-pointer"
+                  @click="showBatchAddClothes($event)"
+                >
+                  <div
+                    class="wardrobe-neu-tool-orb m-[3px] rounded-[50%] h-[32px] w-[32px] flex items-center justify-center"
+                    :class="[!hasCustomBtnBg && 'bg-qhx-primary', !hasCustomBtnFont && 'text-white']"
+                    :style="customBtnStyle"
+                  >
+                    <UIcon name="i-heroicons-squares-plus" class="text-[20px]" />
+                  </div>
+                  <div class="text-sm text-qhx-text">批量添加</div>
+                </div>
+              </QhxJellyButton>
+              <QhxJellyButton>
+                <div
+                  class="h-[56px] flex flex-col items-center justify-center px-1 cursor-pointer"
+                  :title="toolbarCollapsed ? '展开功能栏' : '收起功能栏'"
+                  :aria-label="toolbarCollapsed ? '展开功能栏' : '收起功能栏'"
+                  @click="toggleToolbarCollapsed"
+                >
+                  <div
+                    class="wardrobe-neu-tool-orb m-[3px] rounded-[50%] h-[32px] w-[32px] flex items-center justify-center"
+                    :class="[!hasCustomBtnBg && 'bg-qhx-info', !hasCustomBtnFont && 'text-white']"
+                  >
+                    <UIcon
+                      name="material-symbols:expand-more"
+                      class="text-[20px] transition-transform duration-300 ease-[cubic-bezier(0.4,0,0.2,1)]"
+                      :class="toolbarCollapsed && !overviewGuideToolbarExpanded ? '' : 'rotate-180'"
+                    />
+                  </div>
+                  <div class="text-sm text-qhx-text">{{ toolbarCollapsed ? '展开' : '收起' }}</div>
+                </div>
+              </QhxJellyButton>
+            </div>
+            <div class="flex flex-wrap gap-1 shrink-0">
+              <QhxJellyButton>
+                <div
+                  id="wardrobe-guide-tool-tutorial"
+                  class="h-[56px] flex flex-col items-center justify-center px-1 cursor-pointer"
+                  @click="openTutorialModal"
+                >
+                  <div
+                    class="wardrobe-neu-tool-orb m-[3px] rounded-[50%] h-[32px] w-[32px] flex items-center justify-center"
+                    :class="[!hasCustomBtnBg && 'bg-qhx-info', !hasCustomBtnFont && 'text-white']"
+                  >
+                    <UIcon name="material-symbols:school-outline" class="text-[20px]" />
+                  </div>
+                  <div class="text-sm text-qhx-text">教程</div>
+                </div>
+              </QhxJellyButton>
+            </div>
+          </div>
+          <div
+            id="wardrobe-guide-main-toolbar"
+            class="grid w-full transition-[grid-template-rows] duration-350 ease-[cubic-bezier(0.4,0,0.2,1)] overflow-hidden"
+            :style="{
+              gridTemplateRows: !toolbarCollapsed || overviewGuideToolbarExpanded ? '1fr' : '0fr',
+            }"
+          >
+            <div
+              class="min-h-0 overflow-hidden transition-opacity duration-300 ease-[cubic-bezier(0.4,0,0.2,1)]"
+              :class="!toolbarCollapsed || overviewGuideToolbarExpanded
+                ? 'opacity-100'
+                : 'opacity-0 pointer-events-none'"
+            >
+              <div class="flex flex-wrap gap-1">
+                <QhxJellyButton>
+                  <div
+                    id="wardrobe-guide-tool-sort"
+                    class="h-[46px] flex flex-col items-center justify-center px-0.5 cursor-pointer"
+                    @click="toggleSortMode"
+                  >
+                    <div
+                      class="wardrobe-neu-tool-orb m-[3px] rounded-[50%] h-[24px] w-[24px] flex items-center justify-center"
+                      :class="sortMode ? [!hasCustomBtnBg && 'bg-qhx-primary', !hasCustomBtnFont && 'text-white'] : [!hasCustomBtnBg && 'bg-qhx-info', !hasCustomBtnFont && 'text-white']"
+                      :style="sortMode ? customBtnStyle : {}"
+                    >
+                      <UIcon name="icon-park-outline:sort-two" class="text-[16px]" />
+                    </div>
+                    <div class="text-xs text-qhx-text">排序</div>
+                  </div>
+                </QhxJellyButton>
+                <QhxJellyButton>
+                  <div
+                    id="wardrobe-guide-tool-edit"
+                    class="h-[46px] flex flex-col items-center justify-center px-0.5 cursor-pointer"
+                    @click="toggleEditMode"
+                  >
+                    <div
+                      class="wardrobe-neu-tool-orb m-[3px] rounded-[50%] h-[24px] w-[24px] flex items-center justify-center"
+                      :class="editMode ? [!hasCustomBtnBg && 'bg-qhx-primary', !hasCustomBtnFont && 'text-white'] : [!hasCustomBtnBg && 'bg-qhx-info', !hasCustomBtnFont && 'text-white']"
+                      :style="editMode ? customBtnStyle : {}"
+                    >
+                      <UIcon name="i-heroicons-pencil-square" class="text-[16px]" />
+                    </div>
+                    <div class="text-xs text-qhx-text">编辑模式</div>
+                  </div>
+                </QhxJellyButton>
+                <QhxJellyButton>
+                  <div
+                    id="wardrobe-guide-tool-matching"
+                    class="h-[46px] flex flex-col items-center justify-center px-0.5 cursor-pointer"
+                    @click="toggleMatchingMode"
+                  >
+                    <div
+                      class="wardrobe-neu-tool-orb m-[3px] rounded-[50%] h-[24px] w-[24px] flex items-center justify-center"
+                      :class="matchingMode ? [!hasCustomBtnBg && 'bg-qhx-primary', !hasCustomBtnFont && 'text-white'] : [!hasCustomBtnBg && 'bg-qhx-info', !hasCustomBtnFont && 'text-white']"
+                      :style="matchingMode ? customBtnStyle : {}"
+                    >
+                      <UIcon name="material-symbols:add-shopping-cart-rounded" class="text-[16px]" />
+                    </div>
+                    <div class="text-xs text-qhx-text">搭配模式</div>
+                  </div>
+                </QhxJellyButton>
+                <QhxJellyButton>
+                  <div
+                    id="wardrobe-guide-tool-select"
+                    class="h-[46px] flex flex-col items-center justify-center px-0.5 cursor-pointer"
+                    @click="toggleSelectMode"
+                  >
+                    <div
+                      class="wardrobe-neu-tool-orb m-[3px] rounded-[50%] h-[24px] w-[24px] flex items-center justify-center"
+                      :class="selectMode ? [!hasCustomBtnBg && 'bg-qhx-primary', !hasCustomBtnFont && 'text-white'] : [!hasCustomBtnBg && 'bg-qhx-info', !hasCustomBtnFont && 'text-white']"
+                      :style="selectMode ? customBtnStyle : {}"
+                    >
+                      <UIcon name="material-symbols:checklist" class="text-[16px]" />
+                    </div>
+                    <div class="text-xs text-qhx-text">多选</div>
+                  </div>
+                </QhxJellyButton>
+                <QhxJellyButton>
+                  <div class="h-[46px] flex flex-col items-center justify-center px-0.5 cursor-pointer" @click="openShareModal('long')">
+                    <div
+                      class="wardrobe-neu-tool-orb m-[3px] rounded-[50%] h-[24px] w-[24px] flex items-center justify-center"
+                      :class="[!hasCustomBtnBg && 'bg-qhx-info', !hasCustomBtnFont && 'text-white']"
+                    >
+                      <UIcon name="i-heroicons-photo-20-solid" class="text-[16px]" />
+                    </div>
+                    <div class="text-xs text-qhx-text">分享图</div>
+                  </div>
+                </QhxJellyButton>
+                <QhxJellyButton>
+                  <div class="h-[46px] flex flex-col items-center justify-center px-0.5 cursor-pointer" @click="openLayoutModal">
+                    <div
+                      class="wardrobe-neu-tool-orb m-[3px] rounded-[50%] h-[24px] w-[24px] flex items-center justify-center"
+                      :class="[!hasCustomBtnBg && 'bg-qhx-info', !hasCustomBtnFont && 'text-white']"
+                    >
+                      <UIcon name="material-symbols:dashboard-customize-outline" class="text-[16px]" />
+                    </div>
+                    <div class="text-xs text-qhx-text">布局</div>
+                  </div>
+                </QhxJellyButton>
+                <QhxJellyButton>
+                  <div class="h-[46px] flex flex-col items-center justify-center px-0.5 cursor-pointer" @click="showFilterDrawer = true">
+                    <div
+                      class="wardrobe-neu-tool-orb relative m-[3px] rounded-[50%] h-[24px] w-[24px] flex items-center justify-center"
+                      :class="hasActiveFilter ? [!hasCustomBtnBg && 'bg-qhx-primary', !hasCustomBtnFont && 'text-white'] : [!hasCustomBtnBg && 'bg-qhx-info', !hasCustomBtnFont && 'text-white']"
+                      :style="hasActiveFilter ? customBtnStyle : {}"
+                    >
+                      <UIcon name="material-symbols:filter-list" class="text-[16px]" />
+                      <span
+                        v-if="filterCount > 0"
+                        class="wardrobe-neu-tool-badge absolute -top-0.5 -right-0.5 min-w-[14px] h-[14px] px-0.5 flex items-center justify-center text-[9px] font-bold rounded-full"
+                        :class="[!hasCustomBtnBg && 'bg-red-500', !hasCustomBtnFont && 'text-white']"
+                        :style="customBtnStyle"
+                      >
+                        {{ filterCount > 99 ? '99+' : filterCount }}
+                      </span>
+                    </div>
+                    <div class="text-xs text-qhx-text">筛选</div>
+                  </div>
+                </QhxJellyButton>
               </div>
-            </QhxJellyButton>
+            </div>
           </div>
         </div>
-        <div class="flex flex-wrap gap-2" v-if="tagList && tagList.length > 0">
-          
-          <QhxJellyButton  v-for="(tags, index) in tagList">
-            <QhxTag @click="chooseTags(tags)" :active="filter_list.tags.findIndex((child) => { return child === tags}) !== -1" class=" cursor-pointer" :key="index">
-              {{ tags }}
+        <div v-if="sortedTagList.length > 0" class="flex items-center gap-2 min-w-0 my-1.5">
+          <div
+            ref="tagScrollRef"
+            class="wardrobe-tag-scroll flex flex-nowrap gap-2 flex-1 min-w-0 w-0 overflow-x-auto"
+            @mousedown="onTagScrollMouseDown"
+            @wheel="onTagScrollWheel"
+          >
+            <QhxJellyButton
+              v-for="(tags, index) in sortedTagList"
+              :key="`wardrobe-tag-${tags}-${index}`"
+              class="shrink-0"
+            >
+              <QhxTag
+                class="cursor-pointer whitespace-nowrap"
+                :active="filter_list.tags.includes(tags)"
+                @click="onTagChipClick(tags)"
+              >
+                {{ tags }}
+              </QhxTag>
+            </QhxJellyButton>
+          </div>
+          <QhxJellyButton v-if="isPageOwner" class="shrink-0">
+            <QhxTag
+              class="cursor-pointer whitespace-nowrap"
+              :active="true"
+              @click="openTagManageModal"
+            >
+              管理
             </QhxTag>
           </QhxJellyButton>
         </div>
@@ -4187,6 +5263,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
           <!-- 列表：一行一件，展示更多信息 -->
           <div
             v-if="isListLayout"
+            :id="getClothesGuideTargetId(element)"
             class="wardrobe-clothes-list-row group flex items-stretch gap-3 rounded-xl border border-gray-200/70 bg-white/90 p-2.5 shadow-sm transition hover:ring-2 hover:ring-qhx-primary/20 dark:border-gray-700/70 dark:bg-gray-900/50 max-md:gap-2 max-md:p-2"
             @mousedown="opearClothesId = element.clothes_id"
             @touchstart.passive="opearClothesId = element.clothes_id"
@@ -4312,6 +5389,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
           <!-- 网格 / 排序（原版） -->
           <div
             v-else-if="!isWaterfallLayout"
+            :id="getClothesGuideTargetId(element)"
             class="group drag-handle flex flex-col items-center py-[10px] px-[15px] max-md:px-[5px]"
             :class="preferLiteEffects ? '' : 'transition-transform duration-300 ease-out hover:scale-105'"
             @mousedown="opearClothesId = element.clothes_id"
@@ -4446,6 +5524,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
           <!-- 瀑布流（独立卡片样式） -->
           <div
             v-else
+            :id="getClothesGuideTargetId(element)"
             class="group drag-handle pt-1 px-1 pb-0.5 max-md:pt-0.5 max-md:px-0.5 max-md:pb-0"
             :class="preferLiteEffects ? '' : 'transition-transform duration-300 ease-out hover:scale-[1.02]'"
             @mousedown="opearClothesId = element.clothes_id"
@@ -4640,7 +5719,6 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
           <!-- 排序态：自研高性能拖拽排序（QhxSortableList，无 vuedraggable） -->
           <QhxSortableList
             v-else
-            id="wardrobe-guide-clothes-grid"
             v-model="list"
             item-key="clothes_id"
             class="flex flex-wrap"
@@ -5391,6 +6469,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
     <Transition name="select-bar">
       <div
         v-if="selectMode && !timelineMode"
+        id="wardrobe-guide-select-bar"
         class="wardrobe-neu-select-bar fixed bottom-0 left-0 right-0 z-50 flex flex-wrap items-center justify-center gap-2 px-3 py-3 bg-white/95 dark:bg-gray-900/95 backdrop-blur-md safe-area-pb"
       >
         <QhxJellyButton>
@@ -5402,6 +6481,25 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
               <UIcon name="material-symbols:swap-horiz" class="text-[16px]" />
             </div>
             <div class="text-xs text-qhx-text">切换衣柜</div>
+          </div>
+        </QhxJellyButton>
+        <QhxJellyButton>
+          <div
+            class="h-[46px] text-center px-0.5 cursor-pointer"
+            :class="selectedClothesIds.size === 0 ? 'cursor-not-allowed opacity-60' : ''"
+            @click="selectedClothesIds.size > 0 && openBatchTagsModal()"
+          >
+            <div
+              class="wardrobe-neu-tool-orb m-[3px] rounded-[50%] h-[24px] w-[24px] flex items-center justify-center mx-auto"
+              :class="selectedClothesIds.size > 0 ? [!hasCustomBtnBg && 'bg-emerald-500', !hasCustomBtnFont && 'text-white'] : [!hasCustomBtnBg && 'bg-qhx-info', !hasCustomBtnFont && 'text-white']"
+              :style="selectedClothesIds.size > 0 ? customBtnStyle : {}"
+            >
+              <UIcon name="i-heroicons-plus-circle-20-solid" class="text-[16px]" />
+            </div>
+            <div class="text-xs text-qhx-text">
+              添加tag
+              <span v-if="selectedClothesIds.size > 0">({{ selectedClothesIds.size }})</span>
+            </div>
           </div>
         </QhxJellyButton>
         <QhxJellyButton>
@@ -5464,9 +6562,9 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
       </div>
     </Transition>
 
-    <!-- 全屏徽章装饰：与 community/detail 一致，pointer-events-none 不拦截主页面点击 -->
+    <!-- 全屏徽章装饰：曾有过徽章后 keep-alive 场景，仅清空/加载徽章；pointer-events-none 不拦截主页面点击 -->
     <div
-      v-if="hasWardrobeDisplayBadges"
+      v-if="wardrobeBadgePhysicsKeepAlive"
       class="pointer-events-none fixed inset-x-0 top-0 z-[110] overflow-hidden"
       :class="
         selectMode && !timelineMode
@@ -5477,7 +6575,6 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
     >
       <ClientOnly>
         <AchievementBadgePhysics
-          :key="wardrobeDisplayBadgesKey"
           class="h-full w-full"
           :badges="wardrobeDisplayBadges"
         />
@@ -5485,6 +6582,18 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
     </div>
 
     <QhxStepGuide
+      v-if="isPageOwner"
+      ref="overviewGuideRef"
+      v-model="showOverviewGuide"
+      :steps="wardrobeOverviewGuideSteps"
+      :storage-key="WARDROBE_OVERVIEW_GUIDE_STORAGE_KEY"
+      skip-label="不再提示"
+      :persist-on-finish="false"
+      @step-change="onOverviewGuideStepChange"
+      @skip="tutorialCacheVersion++"
+    />
+    <QhxStepGuide
+      v-if="isPageOwner"
       ref="sortGuideRef"
       v-model="showSortGuide"
       :steps="wardrobeSortGuideSteps"
@@ -5492,6 +6601,40 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
       skip-label="不再提示"
       :persist-on-finish="false"
       @step-change="onSortGuideStepChange"
+      @skip="tutorialCacheVersion++"
+    />
+    <QhxStepGuide
+      v-if="isPageOwner"
+      ref="editGuideRef"
+      v-model="showEditGuide"
+      :steps="wardrobeEditGuideSteps"
+      :storage-key="WARDROBE_EDIT_GUIDE_STORAGE_KEY"
+      skip-label="不再提示"
+      :persist-on-finish="false"
+      @step-change="onEditGuideStepChange"
+      @skip="tutorialCacheVersion++"
+    />
+    <QhxStepGuide
+      v-if="isPageOwner"
+      ref="matchingGuideRef"
+      v-model="showMatchingGuide"
+      :steps="wardrobeMatchingGuideSteps"
+      :storage-key="WARDROBE_MATCHING_GUIDE_STORAGE_KEY"
+      skip-label="不再提示"
+      :persist-on-finish="false"
+      @step-change="onMatchingGuideStepChange"
+      @skip="tutorialCacheVersion++"
+    />
+    <QhxStepGuide
+      v-if="isPageOwner"
+      ref="selectGuideRef"
+      v-model="showSelectGuide"
+      :steps="wardrobeSelectGuideSteps"
+      :storage-key="WARDROBE_SELECT_GUIDE_STORAGE_KEY"
+      skip-label="不再提示"
+      :persist-on-finish="false"
+      @step-change="onSelectGuideStepChange"
+      @skip="tutorialCacheVersion++"
     />
   </div>
 </template>
@@ -5528,6 +6671,29 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
   width: 0;
   height: 0;
 }
+
+.wardrobe-tag-scroll {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.wardrobe-tag-scroll::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+@media (pointer: fine) {
+  .wardrobe-tag-scroll {
+    cursor: grab;
+  }
+
+  .wardrobe-tag-scroll--dragging {
+    cursor: grabbing;
+    user-select: none;
+  }
+}
+
 .wardrobe-wrap{
   position: relative;
   user-select: none;

@@ -79,13 +79,16 @@ interface Props {
   allowDelete?: boolean // 列表项显示删除（会调接口并刷新）
   /** GLB/GLTF 显示修改（仅标题/封面），需由父级接 @edit-gltf 打开弹窗 */
   allowGltfEdit?: boolean
+  /** 允许拖拽到场景地面放置 */
+  enableDrag?: boolean
 }
 const props = withDefaults(defineProps<Props>(), {
   compact: false,
   pkType: undefined,
   hideItemTitle: false,
   allowDelete: false,
-  allowGltfEdit: false
+  allowGltfEdit: false,
+  enableDrag: false
 })
 
 const emit = defineEmits<{
@@ -143,6 +146,7 @@ onMounted(() => {
           :hide-title="hideItemTitle"
           :deletable="allowDelete"
           :allow-gltf-edit="allowGltfEdit"
+          :enable-drag="enableDrag"
         />
       </div>
     </div>

@@ -51,15 +51,6 @@
           <p class="text-xs text-gray-500 mt-1" v-if="!form.is_private">非私有衣柜将对其他用户开放</p>
         </UFormGroup>
 
-        <!-- 开放弹幕 -->
-        <UFormGroup label="开放弹幕">
-          <div class="flex items-center gap-2">
-            <UToggle v-model="form.config.open_danmu" />
-            <span class="text-sm text-gray-600 dark:text-gray-400">{{ form.config.open_danmu ? '开启' : '关闭' }}</span>
-          </div>
-          <p class="text-xs text-gray-500 mt-1">开启后访客可在衣柜页面发送弹幕</p>
-        </UFormGroup>
-
         <!-- 访问密码 -->
         <UFormGroup label="访问密码" v-if="form.is_private">
           <UInput v-model="form.password" type="text" placeholder="设置密码后需要密码才能访问" class="flex-1 focus:ring-0" :ui="{
@@ -74,13 +65,6 @@
           }" />
           <p class="text-xs text-gray-500 mt-1" v-if="form.password">可通过输入正确密码访问衣柜</p>
         </UFormGroup>
-
-        <!-- 自定义主题（与帖子对齐） -->
-        <CommunityCustomStyleForm
-          ref="customStyleFormRef"
-          v-model="customStyle"
-          background-hint="衣柜详情页背景"
-        />
 
         <!-- 排序类型 -->
         <UFormGroup label="排序类型">
@@ -103,26 +87,67 @@
           />
         </UFormGroup>
 
-        <!-- 显示价格 -->
-        <UFormGroup label="显示价格">
-          <div class="flex flex-wrap items-center gap-2">
-            <span class="text-sm text-gray-900 dark:text-gray-100">{{ currentShowPriceLabel }}</span>
-            <UButton
-              type="button"
-              size="xs"
-              class="bg-qhx-primary text-qhx-inverted hover:bg-qhx-primaryHover"
-              @click="openShowPriceSelect($event)"
-            >
-              选择模式
-            </UButton>
+        <!-- 自定义衣柜（默认收起，展开状态缓存） -->
+        <section class="rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
+          <button
+            type="button"
+            class="w-full flex items-center justify-between gap-3 px-4 py-3 text-left transition-colors hover:bg-gray-50 dark:hover:bg-gray-900/40"
+            :aria-expanded="customSectionExpanded"
+            @click="toggleCustomSection"
+          >
+            <div class="min-w-0">
+              <div class="text-sm font-medium text-gray-800 dark:text-gray-200">自定义衣柜</div>
+              <div class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                开放弹幕、自定义主题、显示总价等
+              </div>
+            </div>
+            <UIcon
+              :name="customSectionExpanded ? 'material-symbols:expand-less' : 'material-symbols:expand-more'"
+              class="shrink-0 text-[18px] text-gray-500 dark:text-gray-400"
+            />
+          </button>
+          <div
+            v-show="customSectionExpanded"
+            class="space-y-6 px-4 pb-4 pt-2 border-t border-gray-200 dark:border-gray-700"
+          >
+            <!-- 开放弹幕 -->
+            <UFormGroup label="开放弹幕">
+              <div class="flex items-center gap-2">
+                <UToggle v-model="form.config.open_danmu" />
+                <span class="text-sm text-gray-600 dark:text-gray-400">{{ form.config.open_danmu ? '开启' : '关闭' }}</span>
+              </div>
+              <p class="text-xs text-gray-500 mt-1">开启后访客可在衣柜页面发送弹幕</p>
+            </UFormGroup>
+
+            <!-- 自定义主题（与帖子对齐） -->
+            <CommunityCustomStyleForm
+              ref="customStyleFormRef"
+              v-model="customStyle"
+              background-hint="衣柜详情页背景"
+            />
+
+            <!-- 显示价格 -->
+            <UFormGroup label="显示价格">
+              <div class="flex flex-wrap items-center gap-2">
+                <span class="text-sm text-gray-900 dark:text-gray-100">{{ currentShowPriceLabel }}</span>
+                <UButton
+                  type="button"
+                  size="xs"
+                  class="bg-qhx-primary text-qhx-inverted hover:bg-qhx-primaryHover"
+                  @click="openShowPriceSelect($event)"
+                >
+                  选择模式
+                </UButton>
+              </div>
+              <QhxSelect
+                ref="showPriceSelectRef"
+                :options="showPriceOptions"
+                :default-value="defaultShowPriceForSelect"
+                @select="onShowPriceSelect"
+              />
+            </UFormGroup>
           </div>
-          <QhxSelect
-            ref="showPriceSelectRef"
-            :options="showPriceOptions"
-            :default-value="defaultShowPriceForSelect"
-            @select="onShowPriceSelect"
-          />
-        </UFormGroup>
+        </section>
       </div>
       <!-- 底部 -->
       <div class="flex justify-end gap-2 px-6 py-4 border-t border-gray-200 dark:border-gray-700 flex-shrink-0">
@@ -154,7 +179,28 @@ import {
   type CommunityCustomStyle,
 } from '@/utils/communityCustomStyle'
 
+const WARDROBE_CUSTOM_SECTION_KEY = 'wardrobe-add-edit-custom-section-expanded'
+
+function readCustomSectionExpanded(): boolean {
+  if (!import.meta.client || typeof localStorage === 'undefined') return false
+  try {
+    return localStorage.getItem(WARDROBE_CUSTOM_SECTION_KEY) === '1'
+  } catch {
+    return false
+  }
+}
+
+function persistCustomSectionExpanded(expanded: boolean) {
+  if (!import.meta.client || typeof localStorage === 'undefined') return
+  try {
+    localStorage.setItem(WARDROBE_CUSTOM_SECTION_KEY, expanded ? '1' : '0')
+  } catch {
+    /* ignore */
+  }
+}
+
 const show = ref<boolean>(false)
+const customSectionExpanded = ref(readCustomSectionExpanded())
 const clickPosition = ref({ x: 0, y: 0 })
 const emit = defineEmits(['success'])
 const toast = useToast()
@@ -251,6 +297,11 @@ function onShowPriceSelect(sel: optionsInterface | { label: string; value: strin
   }
 }
 
+function toggleCustomSection() {
+  customSectionExpanded.value = !customSectionExpanded.value
+  persistCustomSectionExpanded(customSectionExpanded.value)
+}
+
 // 关闭回调
 const handleClose = () => {
   closeModel()
@@ -298,6 +349,7 @@ const showModel = (item: Wardrobe | null = null, event?: MouseEvent) => {
     customStyle.value = createDefaultCommunityCustomStyle()
     nextTick(() => customStyleFormRef.value?.reset())
   }
+  customSectionExpanded.value = readCustomSectionExpanded()
   show.value = true
 }
 

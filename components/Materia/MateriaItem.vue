@@ -1,7 +1,11 @@
 <script setup lang="ts">
-import type { Material } from '@/types/api';
+import type { Material } from '@/types/api'
 import { useSceneStore } from '@/stores/sence'
 import { isGltfGlbModelMaterial } from '@/utils/materiaModelKind'
+import {
+  beginSceneMaterialPointerDrag,
+  shouldSuppressMaterialClick
+} from '@/utils/sceneMaterialDrag'
 interface Props {
   item: Material,
   className?: string,
@@ -13,6 +17,8 @@ interface Props {
   deletable?: boolean // 显示删除按钮
   /** 对 GLB/GLTF 显示「修改」入口（标题/封面，不换模型） */
   allowGltfEdit?: boolean
+  /** 允许拖拽到场景放置（场景编辑侧栏） */
+  enableDrag?: boolean
 }
 const props = withDefaults(defineProps<Props>(), {
   size: 'mini',
@@ -20,7 +26,8 @@ const props = withDefaults(defineProps<Props>(), {
   compact: false,
   hideTitle: false,
   deletable: false,
-  allowGltfEdit: false
+  allowGltfEdit: false,
+  enableDrag: false
 })
 const sceneStore = useSceneStore()
 const { size, needJump } = props
@@ -30,9 +37,18 @@ const emit = defineEmits<{
   delete: [el: Material]
   'edit-gltf': [el: Material]
 }>()
+
 const handleClick = (element: Material) => {
+  if (shouldSuppressMaterialClick()) return
   emit('choose', element)
-  // navigateTo(`/shop/detail/${id}`)
+}
+
+const onPointerDown = (e: PointerEvent) => {
+  if (!props.enableDrag) return
+  if (e.button !== 0) return
+  const t = e.target as HTMLElement | null
+  if (t?.closest('button')) return
+  beginSceneMaterialPointerDrag(props.item, e)
 }
 
 const showItemTitle = computed(
@@ -41,7 +57,14 @@ const showItemTitle = computed(
 </script>
 <template>
   <div :class="className ? className : 'w-full relative'">
-    <div v-if="compact" class="w-full relative flex flex-col items-center gap-1 p-1 bg-white dark:bg-gray-800 rounded-md cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors active:scale-95" @click="handleClick(item)">
+    <div
+      v-if="compact"
+      class="w-full relative flex flex-col items-center gap-1 p-1 bg-white dark:bg-gray-800 rounded-md cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors active:scale-95"
+      :class="enableDrag ? 'cursor-grab active:cursor-grabbing touch-none' : ''"
+      :title="enableDrag ? '拖到场景地面松手放置，或点击在视野中心放置' : undefined"
+      @click="handleClick(item)"
+      @pointerdown="onPointerDown"
+    >
       <button
         v-if="allowGltfEdit && isGltfGlbModelMaterial(item)"
         type="button"
@@ -63,8 +86,9 @@ const showItemTitle = computed(
         <UIcon name="i-heroicons-trash" class="size-3" />
       </button>
       <img :src="`${BASE_IMG}${item.cover || 'static/plan_cover/default.jpg'}`"
-        class="object-cover w-[50px] h-[50px] rounded-md border border-gray-200 dark:border-gray-700 shadow-sm"
-        loading="lazy" />
+        class="object-cover w-[50px] h-[50px] rounded-md border border-gray-200 dark:border-gray-700 shadow-sm pointer-events-none"
+        loading="lazy"
+        draggable="false" />
       <div v-if="showItemTitle" class="w-full px-0.5">
         <h3 class="text-[10px] font-medium text-gray-900 dark:text-gray-100 truncate text-center leading-tight">
           {{ item.materia_title }}
@@ -88,7 +112,8 @@ const showItemTitle = computed(
         </button>
         <img :src="`${BASE_IMG}${item.cover || 'static/plan_cover/default.jpg'}`"
           class="object-cover w-full  h-[100px] rounded-[10px] border border-gray-200 dark:border-gray-800 shadow-sm bg-white"
-          loading="lazy" />
+          loading="lazy"
+          draggable="false" />
       </div>
       <div v-if="showItemTitle" class="w-full flex flex-col items-center justify-between px-3 pb-4 pt-2 relative">
         <h3

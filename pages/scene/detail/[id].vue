@@ -51,7 +51,15 @@ import {
     settingsFromPreset,
     type SceneGraphicsPreset
 } from '@/utils/sceneGraphicsSettings';
-import { isGltfGlbModelMaterial, isRadLodSplatUrl, isSplatMaterial, isSplatUrl } from '@/utils/materiaModelKind';
+import { isGltfGlbModelMaterial, isRadLodSplatUrl, isSplatMaterial, isSplatUrl } from '@/utils/materiaModelKind'
+import {
+    createMaterialLoadPlaceholder,
+    defaultGroundPlacement,
+    groundPointFromClient,
+    removeMaterialLoadPlaceholder,
+    setSceneMaterialPointerDragHandlers
+} from '@/utils/sceneMaterialDrag'
+import { EZ_TREE_PRESETS, createEzTree } from '@/utils/ezTree';
 // @ts-ignore - 缺少类型定义
 import InfiniteGridHelper from '@plackyfantacky/three.infinitegridhelper';
 
@@ -1564,6 +1572,10 @@ const showLightMenu = ref(false)
 const lightMenuPosition = ref({ x: 0, y: 0 })
 const currentLightPreset = ref('default')
 
+const showPlantMenu = ref(false)
+const plantMenuPosition = ref({ x: 0, y: 0 })
+const plantCreating = ref(false)
+
 const showPostModal = ref(false)
 const showMoreMenu = ref(false)
 const moreMenuPosition = ref({ x: 0, y: 0 })
@@ -2043,6 +2055,51 @@ const openLightMenu = (e: MouseEvent) => {
     showLightMenu.value = true
 }
 
+const openPlantMenu = (e: MouseEvent) => {
+    plantMenuPosition.value = {
+        x: e.clientX + 50,
+        y: e.clientY
+    }
+    showPlantMenu.value = true
+}
+
+/** 用 ez-tree 预设快速创建植物 */
+const addPlantFromPreset = async (presetId: string) => {
+    if (!threeCore.value || plantCreating.value) return
+    showPlantMenu.value = false
+    plantCreating.value = true
+    sceneStore.setLoading(true)
+    const placeAt = getDefaultMaterialPlacement()
+    const placeholder = createMaterialLoadPlaceholder(placeAt)
+    threeCore.value.scene.add(placeholder)
+    try {
+        const tree = await createEzTree({ preset: presetId })
+        tree.position.copy(placeAt)
+        removeMaterialLoadPlaceholder(placeholder, threeCore.value?.scene)
+        stampAndAddSceneObject(tree)
+        if (process.client) {
+            toast.add({
+                title: '植物',
+                description: '已添加到场景',
+                color: 'green'
+            })
+        }
+    } catch (err) {
+        console.error('创建植物失败:', err)
+        removeMaterialLoadPlaceholder(placeholder, threeCore.value?.scene)
+        if (process.client) {
+            toast.add({
+                title: '创建失败',
+                description: '植物生成失败，请重试',
+                color: 'red'
+            })
+        }
+    } finally {
+        plantCreating.value = false
+        sceneStore.setLoading(false)
+    }
+}
+
 // 应用灯光预设
 const applyLightPreset = (presetKey: string, silent = false) => {
     if (!threeCore.value || !lightPresets[presetKey]) return
@@ -2248,13 +2305,38 @@ const chooseEffect = async (item: Effect) => {
     }
     threeCore.value.addEffect(item)
 }
-// 获取屏幕中心坐标
+// 获取屏幕中心坐标（轨道目标，兼容旧逻辑）
 const getScreenCenter = () => {
     if (!threeCore.value) return new THREE.Vector3()
-    const screenCenter = new THREE.Vector3()
-    threeCore.value.camera.getWorldPosition(screenCenter)
     return threeCore.value.controls.target.clone()
 }
+
+/** 素材放置默认点：视野中心射线与地面（y=0）交点 */
+const getDefaultMaterialPlacement = () => {
+    if (!threeCore.value?.camera) return new THREE.Vector3(0, 0, 0)
+    return defaultGroundPlacement(
+        threeCore.value.camera,
+        threeCore.value.controls?.target
+    )
+}
+
+const resolveMaterialDropPoint = (clientX: number, clientY: number) => {
+    const core = threeCore.value
+    if (core?.camera && core.renderer?.domElement) {
+        const hit = groundPointFromClient(
+            core.camera,
+            core.renderer.domElement,
+            clientX,
+            clientY
+        )
+        if (hit) return hit
+    }
+    return getDefaultMaterialPlacement()
+}
+
+/** 指针拖拽素材预览 */
+const materialDragging = ref(false)
+const materialDragGhost = ref<{ cover: string; x: number; y: number } | null>(null)
 
 /** 写入稳定 userData.id 后加入场景；savedId 用于恢复已保存对象（如编辑长文本） */
 const stampAndAddSceneObject = (obj: THREE.Object3D, savedId?: string) => {
@@ -2459,22 +2541,42 @@ const onSceneStepEditorChange = () => {
     syncSceneStepUi()
     applyGroupingStepVisibility()
 }
-const chooseMaterial = async (item: Material) => {
+/** 添加素材；position 缺省时落到视野中心与地面（y=0）交点；加载中用立方体示意落点 */
+const chooseMaterial = async (item: Material, position?: THREE.Vector3) => {
     if (!threeCore.value) return
+    const placeAt = position?.clone() ?? getDefaultMaterialPlacement()
     const isModel = isGltfGlbModelMaterial(item)
     const isSplat = isSplatMaterial(item)
-    if (isSplat) {
-        sceneStore.setLoading(true)
-        try {
-            // 判断是否射线模式，如果不是则切换至射线模式
+
+    if (isModel) {
+        const modelUrl = BASE_IMG + item.materia_url
+        const rawCt = item.options?.characterType as CharacterTypeConfig | undefined
+        const hasCharacterType = Boolean(
+            rawCt
+            && typeof rawCt.stand?.primary === 'string'
+            && rawCt.stand.primary.length > 0
+        )
+        if (hasCharacterType && loadedRoleModelUrls.has(modelUrl)) {
+            if (process.client) {
+                toast.add({
+                    title: '角色',
+                    description: '该模型已作为角色加载，请勿重复添加',
+                    color: 'amber'
+                })
+            }
+            return
+        }
+    }
+
+    const placeholder = createMaterialLoadPlaceholder(placeAt)
+    threeCore.value.scene.add(placeholder)
+    sceneStore.setLoading(true)
+    try {
+        if (isSplat) {
             if (!threeCore.value.options.enableRaycaster) {
                 threeCore.value.setRaycasterMode(true)
             }
-            
-            // 获取屏幕中心坐标
-            const screenCenter = getScreenCenter()
-            
-            // Spark 2.0：.rad 头 + paged 流式拉取 .radc 分片（build-lod --rad-chunked）
+
             const url = BASE_IMG + item.materia_url
             const splatOptions = {
                 fileType: item.options?.fileType || undefined,
@@ -2485,40 +2587,14 @@ const chooseMaterial = async (item: Material) => {
                     isRadLodSplatUrl(item.materia_url || ''),
                 mobileOptimized: item.options?.mobileOptimized
             }
-            
+
             const group = await threeCore.value.loadSplat(url, splatOptions)
-            
-            // 设置位置、旋转和缩放
-            group.position.set(screenCenter.x, screenCenter.y, screenCenter.z)
+            group.position.copy(placeAt)
             group.rotation.set(0, 0, 0)
             group.scale.set(1, 1, 1)
-            
-            // 设置额外的 userData
             group.userData.materia_id = item.materia_id
-            
-            // 添加到场景
             stampAndAddSceneObject(group)
-            
-            // 调整相机视角
-            // setTimeout(() => {
-            //     threeCore.value!.lookAtSelectObj([group])
-            // })
-        } catch (error) {
-            console.error('加载点云失败:', error)
-            if (process.client) {
-                toast.add({
-                    title: '加载失败',
-                    description: '点云模型加载失败，请稍后重试',
-                    color: 'red'
-                })
-            }
-        } finally {
-            sceneStore.setLoading(false)
-        }
-    } else if (isModel) {
-        sceneStore.setLoading(true)
-        try {
-            const screenCenter = getScreenCenter()
+        } else if (isModel) {
             const modelUrl = BASE_IMG + item.materia_url
             const rawCt = item.options?.characterType as CharacterTypeConfig | undefined
             const hasCharacterType = Boolean(
@@ -2526,22 +2602,12 @@ const chooseMaterial = async (item: Material) => {
                 && typeof rawCt.stand?.primary === 'string'
                 && rawCt.stand.primary.length > 0
             )
-            if (hasCharacterType && loadedRoleModelUrls.has(modelUrl)) {
-                if (process.client) {
-                    toast.add({
-                        title: '角色',
-                        description: '该模型已作为角色加载，请勿重复添加',
-                        color: 'amber'
-                    })
-                }
-                return
-            }
             const mesh = await threeCore.value.loadModel(modelUrl, {
                 useDracoLoader: item.options?.useDracoLoader !== false,
                 dracoDecoderPath: '/draco/gltf/',
                 ...(hasCharacterType ? { skipDefaultAnimations: true } : {})
             })
-            mesh.position.set(screenCenter.x, screenCenter.y, screenCenter.z)
+            mesh.position.copy(placeAt)
             if (item.options) {
                 threeCore.value.setOptionsModel(mesh, item.options)
             }
@@ -2587,39 +2653,68 @@ const chooseMaterial = async (item: Material) => {
                 }
             }
             bumpTextureReplaceableScan()
-        } catch (error) {
-            console.error('加载素材失败:', error)
-            if (process.client) {
-                toast.add({
-                    title: '加载失败',
-                    description: '素材加载失败，请稍后重试',
-                    color: 'red'
-                })
-            }
-        } finally {
-            sceneStore.setLoading(false)
-        }
-    } else {
-        sceneStore.setLoading(true)
-        try {
-            const screenCenter = getScreenCenter()
+        } else {
             const mesh = await threeCore.value.loadImageMesh(BASE_IMG + item.materia_url)
-            mesh.position.set(screenCenter.x, screenCenter.y, screenCenter.z)
+            mesh.position.copy(placeAt)
             stampAndAddSceneObject(mesh)
-        } catch (error) {
-            console.error('加载素材失败:', error)
-            if (process.client) {
-                toast.add({
-                    title: '加载失败',
-                    description: '素材加载失败，请稍后重试',
-                    color: 'red'
-                })
-            }
-        } finally {
-            sceneStore.setLoading(false)
         }
+    } catch (error) {
+        console.error('加载素材失败:', error)
+        if (process.client) {
+            toast.add({
+                title: '加载失败',
+                description: isSplat ? '点云模型加载失败，请稍后重试' : '素材加载失败，请稍后重试',
+                color: 'red'
+            })
+        }
+    } finally {
+        removeMaterialLoadPlaceholder(placeholder, threeCore.value?.scene)
+        sceneStore.setLoading(false)
     }
 }
+
+/** 指针拖拽素材到场景地面（须在 chooseMaterial 之后注册） */
+const bindSceneMaterialDrop = (_el?: HTMLElement) => {
+    setSceneMaterialPointerDragHandlers({
+        onActiveChange(active, item) {
+            materialDragging.value = active
+            if (!active || !item) {
+                materialDragGhost.value = null
+                return
+            }
+            materialDragGhost.value = {
+                cover: item.cover || 'static/plan_cover/default.jpg',
+                x: 0,
+                y: 0
+            }
+        },
+        onMove(clientX, clientY) {
+            if (!materialDragGhost.value) return
+            materialDragGhost.value = {
+                ...materialDragGhost.value,
+                x: clientX,
+                y: clientY
+            }
+        },
+        onDrop(item, clientX, clientY) {
+            materialDragging.value = false
+            materialDragGhost.value = null
+            if (!(edit_mode.value || add_mode.value)) return
+            void chooseMaterial(item, resolveMaterialDropPoint(clientX, clientY))
+        },
+        onCancel() {
+            materialDragging.value = false
+            materialDragGhost.value = null
+        }
+    })
+}
+
+const unbindSceneMaterialDrop = () => {
+    setSceneMaterialPointerDragHandlers(null)
+    materialDragging.value = false
+    materialDragGhost.value = null
+}
+
 /** 选择模版后先展示确认弹窗，确认后再写入场景 */
 const showTemplateConfirmModal = ref(false)
 const pendingTemplateItem = ref<TemplateInterface | null>(null)
@@ -3054,6 +3149,7 @@ onUnmounted(() => {
     showRoleDialog.value = false
     detachLinkBadgeAnimCb()
     linkBadgeMarkers.value = []
+    unbindSceneMaterialDrop()
     disposeScene(document.getElementById('scene') || undefined)
 
     // 恢复 body 样式
@@ -3232,12 +3328,15 @@ const initThreejs = async () => {
                 threeCore.value.syncSatelliteOrbitHelpers()
             }
         }
+        bindVoxelBlockContainer(sceneElement)
+        bindWallDrawContainer(sceneElement)
+        bindSceneMaterialDrop(sceneElement)
     }
-    bindVoxelBlockContainer(sceneElement)
-    bindWallDrawContainer(sceneElement)
 }
 
 onMounted(async () => {
+    // 尽早注册拖拽落点，不等 Three 初始化完成
+    bindSceneMaterialDrop()
     // 设置 body 样式
     if (process.client) {
         document.body.style.width = '100vw'
@@ -3325,6 +3424,21 @@ useHead({
 </script>
 <template>
     <div class="select-none touch-callout-none scene-page-neu" :style="scenePageBackgroundStyle">
+        <!-- 素材拖拽跟随预览 -->
+        <div
+            v-if="materialDragging && materialDragGhost"
+            class="pointer-events-none fixed z-[200] -translate-x-1/2 -translate-y-1/2"
+            :style="{ left: `${materialDragGhost.x}px`, top: `${materialDragGhost.y}px` }"
+        >
+            <img
+                :src="`${BASE_IMG}${materialDragGhost.cover}`"
+                class="h-14 w-14 rounded-lg border-2 border-violet-400 object-cover shadow-xl opacity-95"
+                alt=""
+            />
+            <div class="mt-1 whitespace-nowrap rounded-full bg-black/60 px-2 py-0.5 text-center text-[10px] text-white">
+                松手放到地面
+            </div>
+        </div>
         <div
             v-if="showSceneCloneAction || showSceneOwnerActions"
             class="fixed right-3 z-50 flex items-center gap-1.5"
@@ -3538,28 +3652,6 @@ useHead({
                         <span class="scene-neu-tool-label">文本</span>
                     </button>
 
-                    <!-- 方块搭建 -->
-                    <button v-if="edit_mode || add_mode" type="button" @click="showVoxelBlock"
-                        class="scene-neu-tool-btn group"
-                        :class="voxelBuildActive ? 'ring-2 ring-emerald-400/80 rounded-xl' : ''"
-                        title="方块搭建（我的世界/乐高）">
-                        <div class="scene-neu-icon-orb scene-neu-icon-orb--emerald">
-                            <UIcon name="material-symbols:grid-on-rounded" class="text-sm text-white" />
-                        </div>
-                        <span class="scene-neu-tool-label">方块</span>
-                    </button>
-
-                    <!-- 墙体绘制 -->
-                    <button v-if="edit_mode || add_mode" type="button" @click="showWallDraw"
-                        class="scene-neu-tool-btn group"
-                        :class="wallDrawActive ? 'ring-2 ring-sky-400/80 rounded-xl' : ''"
-                        title="墙体绘制（展馆同款）">
-                        <div class="scene-neu-icon-orb scene-neu-icon-orb--cyan">
-                            <UIcon name="material-symbols:fence-rounded" class="text-sm text-white" />
-                        </div>
-                        <span class="scene-neu-tool-label">墙体</span>
-                    </button>
-
                     <!-- 素材 -->
                     <!-- <button v-if="edit_mode || add_mode" @click="showMaterial()"
                         class="w-full flex flex-col items-center gap-1 p-1.5 rounded-xl hover:bg-purple-50 dark:hover:bg-purple-900/20 transition-colors group active:scale-95"
@@ -3654,6 +3746,22 @@ useHead({
                             <UIcon name="material-symbols:lightbulb-rounded" class="text-sm text-white" />
                         </div>
                         <span class="scene-neu-tool-label">灯光</span>
+                    </button>
+
+                    <!-- 植物（ez-tree） -->
+                    <button
+                        v-if="edit_mode || add_mode"
+                        type="button"
+                        class="scene-neu-tool-btn group"
+                        :class="plantCreating ? 'opacity-60 cursor-wait' : ''"
+                        :disabled="plantCreating"
+                        title="快速创建植物"
+                        @click="openPlantMenu"
+                    >
+                        <div class="scene-neu-icon-orb scene-neu-icon-orb--emerald">
+                            <UIcon name="material-symbols:park-rounded" class="text-sm text-white" />
+                        </div>
+                        <span class="scene-neu-tool-label">植物</span>
                     </button>
                 </div>
             </div>
@@ -4298,14 +4406,14 @@ useHead({
             <template v-if="!isMobile">
                 <span>WASD 移动</span>
                 <span>·</span>
-                <span>左键拖拽旋转视角</span>
+                <span>拖拽旋转/俯仰（不低于地面）</span>
                 <span>·</span>
                 <span>滚轮缩放镜头</span>
                 <span>·</span>
                 <span>Esc 退出</span>
             </template>
             <template v-else>
-                <span>左侧摇杆移动 · 单指滑动旋转 · 双指缩放 · Esc 退出</span>
+                <span>左侧摇杆移动 · 单指旋转/俯仰 · 双指缩放 · Esc 退出</span>
             </template>
         </div>
         <div
@@ -5094,6 +5202,34 @@ useHead({
                     </div>
                     <UIcon v-if="currentLightPreset === 'cool'" name="material-symbols:check-circle-rounded"
                         class="text-yellow-500 text-lg" />
+                </button>
+            </div>
+        </QhxModal>
+
+        <QhxModal v-model="showPlantMenu" :trigger-position="plantMenuPosition">
+            <div class="p-4 w-[280px] max-h-[70vh] overflow-y-auto bg-white dark:bg-gray-800 rounded-[10px] shadow-lg scrollbar-hide">
+                <h3 class="text-sm font-bold mb-1 text-gray-800 dark:text-gray-200">快速创建植物</h3>
+                <p class="text-xs text-gray-500 dark:text-gray-400 mb-3">基于 ez-tree 程序化生成，保存后可还原</p>
+
+                <button
+                    v-for="preset in EZ_TREE_PRESETS"
+                    :key="preset.id"
+                    type="button"
+                    class="w-full flex items-center gap-3 p-2.5 rounded-lg hover:bg-emerald-50 dark:hover:bg-emerald-900/20 transition-colors text-left group mt-1 first:mt-0"
+                    :disabled="plantCreating"
+                    @click="addPlantFromPreset(preset.id)"
+                >
+                    <div
+                        class="w-8 h-8 bg-emerald-500 dark:bg-emerald-600 rounded-lg flex items-center justify-center group-hover:scale-110 transition-transform shrink-0">
+                        <UIcon
+                            :name="preset.kind === 'bush' ? 'material-symbols:grass' : 'material-symbols:park-rounded'"
+                            class="text-base text-white"
+                        />
+                    </div>
+                    <div class="flex-1 min-w-0">
+                        <div class="text-sm font-medium text-gray-800 dark:text-gray-200">{{ preset.label }}</div>
+                        <div class="text-xs text-gray-500 dark:text-gray-400 truncate">{{ preset.id }}</div>
+                    </div>
                 </button>
             </div>
         </QhxModal>

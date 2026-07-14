@@ -1249,14 +1249,17 @@ function animate(now = 0){
   renderer.render(scene,camera)
 }
 
-const MOCK_BADGE: UserDeco = {
-  foreign: { cover: "/material/524af6c3386c5060d621cd36ff32943d.glb", name: "测试模型" }
-}
-
 async function syncBadges(list: UserDeco[]) {
   if (!scene || !physicsWorld || disposed) return
 
-  const targetList = list.length > 0 ? list : [MOCK_BADGE]
+  const targetList = list ?? []
+  /** 空列表：只清空徽章，保留镜头/物理世界，供父级切换衣柜时复用场景 */
+  if (targetList.length === 0) {
+    badgeGeneration++
+    clearAllBadges()
+    return
+  }
+
   const targetKeys = targetList.map(getBadgeKey)
   const gen = ++badgeGeneration
 

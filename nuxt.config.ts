@@ -19,7 +19,7 @@ export default defineNuxtConfig({
 		}
 	},
 	build: {
-    transpile: ['three', 'mind-ar']
+    transpile: ['three', 'mind-ar', '@dgreenheck/ez-tree']
   },
 	nitro: {
 		routeRules: {

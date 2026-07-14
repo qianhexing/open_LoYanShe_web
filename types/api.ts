@@ -267,6 +267,8 @@ export interface LibrarySimilarItem extends Library {
 /** 衣柜配置 */
 export interface WardrobeConfig {
   open_danmu?: number
+  /** 标签自定义排序，未出现在此数组中的 tag 展示时排在末尾 */
+  tags?: string[]
 }
 
 /** 衣柜 */

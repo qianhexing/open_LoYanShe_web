@@ -312,6 +312,8 @@ export interface SceneObjectJSON {
 		| '3Dtext'
 		| 'splat'
 		| 'voxelBlock'
+		/** @dgreenheck/ez-tree 程序化植物 */
+		| 'eztree'
 	position?: [number, number, number]
 	rotation?: [number, number, number]
 	baseWidth?: number
@@ -329,6 +331,10 @@ export interface SceneObjectJSON {
 	loopOnce?: boolean
 	template_id?: number
 	options?: Record<string, any> // 如果是特效类型 或 模型属性
+	/** ez-tree 预设名，如 'Oak Small' */
+	preset?: string
+	/** ez-tree 随机种子 */
+	seed?: number
 	effect_name?: string // 特效名称
 	cover?: string // 图鉴类型
 	library_id?: number // 图鉴类型
@@ -6036,6 +6042,20 @@ class ThreeCore {
 			const delta = this.clock.getDelta()
 			this.effectManager.update(delta)
 
+			// ez-tree 叶片风动
+			if (this.scene) {
+				const elapsed = this.clock.elapsedTime
+				for (const child of this.scene.children) {
+					if (
+						child.userData?.type === 'eztree' &&
+						typeof (child as { update?: (t: number) => void }).update ===
+							'function'
+					) {
+						;(child as { update: (t: number) => void }).update(elapsed)
+					}
+				}
+			}
+
 			// AR Hit Test
 			if (this.options.enableAR && frame) {
 				this.handleARHitTest(frame)
@@ -6995,6 +7015,9 @@ class ThreeCore {
 					}
 					return 'image'
 				}
+				if (obj.userData.type === 'eztree') {
+					return 'eztree'
+				}
 				if (obj.userData.type === 'effect') {
 					return 'effect'
 				}
@@ -7136,6 +7159,20 @@ class ThreeCore {
 			if (typeGuess === 'effect') {
 				jsonObj.options = obj.userData.options
 				jsonObj.effect_name = obj.userData.effectName
+			}
+			if (typeGuess === 'eztree') {
+				const preset =
+					typeof obj.userData.preset === 'string'
+						? obj.userData.preset
+						: 'Oak Small'
+				const seed =
+					typeof obj.userData.seed === 'number' &&
+					Number.isFinite(obj.userData.seed)
+						? obj.userData.seed
+						: 0
+				jsonObj.preset = preset
+				jsonObj.seed = seed
+				jsonObj.options = { preset, seed }
 			}
 			if (typeGuess === 'diary') {
 				jsonObj.title = obj.userData.title
@@ -8369,6 +8406,19 @@ class ThreeCore {
 				})
 				mesh = new THREE.Mesh(geometry, material)
 				mesh.userData.type = 'sphere'
+			}
+
+			if (obj.type === 'eztree') {
+				try {
+					const { createEzTreeFromJSON } = await import('@/utils/ezTree')
+					mesh = await createEzTreeFromJSON({
+						preset: obj.preset,
+						seed: obj.seed,
+						options: obj.options
+					})
+				} catch (e) {
+					console.warn('ez-tree 植物加载失败', e)
+				}
 			}
 
 			const chCfg = obj.options?.characterType as

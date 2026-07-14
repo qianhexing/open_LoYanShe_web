@@ -490,6 +490,25 @@ const isOwner = computed(() => {
   return detail.value?.wardrobe && detail.value.wardrobe.user_id === user.user?.user_id
 })
 
+const OWNER_LARGE_IMAGE_PARAMS = '?x-oss-process=image/quality,q_100/resize,w_1920'
+
+/** 当前用户服饰大图 OSS 参数 */
+function appendOwnerLargeImageParams(path?: string | null): string {
+  const p = path?.trim() || ''
+  if (!p || !isOwner.value) return p
+  if (p.includes('x-oss-process')) return p
+  return `${p}${OWNER_LARGE_IMAGE_PARAMS}`
+}
+
+function mapOwnerLargeImageParams(paths?: Array<string | null | undefined>): string[] {
+  if (!paths?.length) return []
+  return paths.map((p) => appendOwnerLargeImageParams(p)).filter(Boolean)
+}
+
+function clothesPreviewItem(src: string | null | undefined, alt = '') {
+  return [{ src: appendOwnerLargeImageParams(src), alt }]
+}
+
 // 是否共享（兼容 undefined/null/0）
 const isShared = computed(() => (detail.value?.is_shared ?? 0) === 1)
 
@@ -2599,7 +2618,8 @@ const showEditPlan = (e?: MouseEvent) => {
                     <!-- 详情图片列表 -->
                     <div v-if="detail.detail_image_list && detail.detail_image_list.length > 0" class="mt-4 space-y-2">
                       <QhxPreviewImage v-for="(img, index) in detail.detail_image_list" :key="index"
-                        :list="[{ src: img, alt: detail.clothes_note || '' }]" :preview="detail.detail_image_list"
+                        :list="clothesPreviewItem(img, detail.clothes_note || '')"
+                        :preview="mapOwnerLargeImageParams(detail.detail_image_list)"
                         className="w-full rounded-lg" />
                     </div>
 
@@ -2678,8 +2698,10 @@ const showEditPlan = (e?: MouseEvent) => {
                               :show3d-toggle="libraryHas3d"
                               :iframe-src="humanPlatformIframeSrc"
                             >
-                              <QhxPreviewImage :list="[{ src: detail.clothes_img, alt: detail.clothes_note || '' }]"
-                                :preview="[detail.clothes_img]" className="w-full h-full object-cover" />
+                              <QhxPreviewImage
+                                :list="clothesPreviewItem(detail.clothes_img, detail.clothes_note || '')"
+                                :preview="mapOwnerLargeImageParams([detail.clothes_img])"
+                                className="w-full h-full object-cover" />
                               <ClothesFavoriteCoverOverlay
                                 v-if="detail.is_favorite !== undefined"
                                 :level="favoriteLevelDisplay"
@@ -2693,8 +2715,10 @@ const showEditPlan = (e?: MouseEvent) => {
                             :key="item.clothes_id"
                             class="w-full aspect-[1/1] p-1">
                             <div class="relative w-full h-full rounded-xl overflow-hidden shadow-md ring-1 ring-black/5 transition-all duration-200 hover:shadow-lg hover:ring-2 hover:ring-qhx-primary/40 group">
-                              <QhxPreviewImage :list="[{ src: item.clothes_img, alt: item.clothes_note || '' }]"
-                                :preview="[item.clothes_img]" className="w-full h-full object-cover transition-transform duration-200 group-hover:scale-105" />
+                              <QhxPreviewImage
+                                :list="clothesPreviewItem(item.clothes_img, item.clothes_note || '')"
+                                :preview="mapOwnerLargeImageParams([item.clothes_img])"
+                                className="w-full h-full object-cover transition-transform duration-200 group-hover:scale-105" />
                               <div v-if="isOwner && sortMode"
                                 class="absolute top-1.5 right-1.5 w-6 h-6 rounded-full bg-red-500/90 backdrop-blur-sm text-white flex items-center justify-center cursor-pointer z-10 shadow-lg transition-all hover:scale-110 hover:bg-red-500"
                                 @click.stop="selectedClothes = item; showDeleteLinkModal = true">
@@ -2725,8 +2749,10 @@ const showEditPlan = (e?: MouseEvent) => {
                           :key="item.clothes_id"
                           class="w-1/3 aspect-[1/1] float-left p-1">
                           <div class="relative w-full h-full rounded-xl overflow-hidden shadow-md ring-1 ring-black/5 transition-all duration-200 hover:shadow-lg hover:ring-2 hover:ring-qhx-primary/40 group">
-                            <QhxPreviewImage :list="[{ src: item.clothes_img, alt: item.clothes_note || '' }]"
-                              :preview="[item.clothes_img]" className="w-full h-full object-cover transition-transform duration-200 group-hover:scale-105" />
+                            <QhxPreviewImage
+                              :list="clothesPreviewItem(item.clothes_img, item.clothes_note || '')"
+                              :preview="mapOwnerLargeImageParams([item.clothes_img])"
+                              className="w-full h-full object-cover transition-transform duration-200 group-hover:scale-105" />
                             <div v-if="isOwner && sortMode"
                               class="absolute top-1.5 right-1.5 w-6 h-6 rounded-full bg-red-500/90 backdrop-blur-sm text-white flex items-center justify-center cursor-pointer z-10 shadow-lg transition-all hover:scale-110 hover:bg-red-500"
                               @click.stop="selectedClothes = item; showDeleteLinkModal = true">
@@ -2764,8 +2790,10 @@ const showEditPlan = (e?: MouseEvent) => {
                               :show3d-toggle="libraryHas3d"
                               :iframe-src="humanPlatformIframeSrc"
                             >
-                              <QhxPreviewImage :list="[{ src: detail.clothes_img, alt: detail.clothes_note || '' }]"
-                                :preview="[detail.clothes_img]" className="w-full h-full object-cover" />
+                              <QhxPreviewImage
+                                :list="clothesPreviewItem(detail.clothes_img, detail.clothes_note || '')"
+                                :preview="mapOwnerLargeImageParams([detail.clothes_img])"
+                                className="w-full h-full object-cover" />
                               <ClothesFavoriteCoverOverlay
                                 v-if="detail.is_favorite !== undefined"
                                 :level="favoriteLevelDisplay"
@@ -2779,8 +2807,10 @@ const showEditPlan = (e?: MouseEvent) => {
                             :key="index"
                             class="w-full aspect-[1/1] p-1">
                             <div class="relative w-full h-full rounded-xl overflow-hidden shadow-md ring-1 ring-black/5 transition-all duration-200 hover:shadow-lg hover:ring-2 hover:ring-qhx-primary/30">
-                              <QhxPreviewImage :list="[{ src: img, alt: detail.clothes_note || '' }]"
-                                :preview="detail.detail_image_list" className="w-full h-full object-cover transition-transform duration-200 hover:scale-105" />
+                              <QhxPreviewImage
+                                :list="clothesPreviewItem(img, detail.clothes_note || '')"
+                                :preview="mapOwnerLargeImageParams(detail.detail_image_list)"
+                                className="w-full h-full object-cover transition-transform duration-200 hover:scale-105" />
                             </div>
                           </div>
                         </div>
@@ -2791,8 +2821,10 @@ const showEditPlan = (e?: MouseEvent) => {
                           :key="`detail-img-${index + 3}`"
                           class="w-1/3 aspect-[1/1] float-left p-1">
                           <div class="relative w-full h-full rounded-xl overflow-hidden shadow-md ring-1 ring-black/5 transition-all duration-200 hover:shadow-lg hover:ring-2 hover:ring-qhx-primary/30">
-                            <QhxPreviewImage :list="[{ src: img, alt: detail.clothes_note || '' }]"
-                              :preview="detail.detail_image_list" className="w-full h-full object-cover transition-transform duration-200 hover:scale-105" />
+                            <QhxPreviewImage
+                              :list="clothesPreviewItem(img, detail.clothes_note || '')"
+                              :preview="mapOwnerLargeImageParams(detail.detail_image_list)"
+                              className="w-full h-full object-cover transition-transform duration-200 hover:scale-105" />
                           </div>
                         </div>
                         <div class="clear-both"></div>
@@ -2805,8 +2837,10 @@ const showEditPlan = (e?: MouseEvent) => {
                         :show3d-toggle="libraryHas3d"
                         :iframe-src="humanPlatformIframeSrc"
                       >
-                        <QhxPreviewImage :list="[{ src: detail.clothes_img, alt: detail.clothes_note || '' }]"
-                          :preview="[detail.clothes_img]" className="w-full h-full object-cover" />
+                        <QhxPreviewImage
+                          :list="clothesPreviewItem(detail.clothes_img, detail.clothes_note || '')"
+                          :preview="mapOwnerLargeImageParams([detail.clothes_img])"
+                          className="w-full h-full object-cover" />
                         <ClothesFavoriteCoverOverlay
                           v-if="detail.is_favorite !== undefined"
                           :level="favoriteLevelDisplay"
@@ -3330,7 +3364,8 @@ const showEditPlan = (e?: MouseEvent) => {
                 <!-- 详情图片列表 -->
                 <div v-if="detail.detail_image_list && detail.detail_image_list.length > 0" class="mt-4 space-y-2">
                   <QhxPreviewImage v-for="(img, index) in detail.detail_image_list" :key="index"
-                    :list="[{ src: img, alt: detail.clothes_note || '' }]" :preview="detail.detail_image_list"
+                    :list="clothesPreviewItem(img, detail.clothes_note || '')"
+                    :preview="mapOwnerLargeImageParams(detail.detail_image_list)"
                     className="w-full rounded-lg" />
                 </div>
 

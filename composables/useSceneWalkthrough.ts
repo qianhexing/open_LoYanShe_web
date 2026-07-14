@@ -8,8 +8,7 @@ import {
 } from '@/utils/sceneWalkCollision'
 import * as THREE from 'three'
 
-/** 与展馆漫游一致 */
-const CAMERA_PITCH = Math.PI / 4
+/** 第三人称跟随：水平距离与俯仰可调，相机限制在地面以上 */
 const CAMERA_DISTANCE_DEFAULT = 8
 const CAMERA_DISTANCE_MIN = 3
 const CAMERA_DISTANCE_MAX = 18
@@ -18,6 +17,13 @@ const PINCH_ZOOM_SPEED = 0.025
 const MOVE_SPEED = 5
 const PLAYER_RADIUS = 0.4
 const POINTER_MOVE_THRESHOLD = 5
+/** 注视点高度（角色胸口附近） */
+const LOOK_AT_Y = 0.8
+/** 相机最低离地高度 */
+const MIN_CAMERA_Y = 0.2
+/** 接近竖直俯视的上限（略小于 π/2，避免万向锁） */
+const MAX_PITCH = Math.PI / 2 - 0.08
+const DEFAULT_PITCH = Math.PI / 6
 
 export interface SceneWalkCameraSnapshot {
 	position: THREE.Vector3
@@ -53,6 +59,7 @@ export function useSceneWalkthrough(options: UseSceneWalkthroughOptions) {
 	const playerX = ref(0)
 	const playerZ = ref(0)
 	const cameraYaw = ref(0)
+	const cameraPitch = ref(DEFAULT_PITCH)
 	const cameraDistance = ref(CAMERA_DISTANCE_DEFAULT)
 
 	let playerMesh: THREE.Group | null = null
@@ -67,6 +74,7 @@ export function useSceneWalkthrough(options: UseSceneWalkthroughOptions) {
 	const joystickInput = { x: 0, y: 0 }
 	let isRotating = false
 	let lastPointerX = 0
+	let lastPointerY = 0
 	let pointerDownX = 0
 	let pointerDownY = 0
 	let pointerHasMoved = false
@@ -124,17 +132,15 @@ export function useSceneWalkthrough(options: UseSceneWalkthroughOptions) {
 		cameraSnapshot = null
 	}
 
-	function syncCameraYawFromCore(core: ThreeCore) {
-		const controls = asOrbitControls(core)
-		if (!controls) return
-		const px = controls.target.x
-		const pz = controls.target.z
-		const cam = core.camera.position
-		const dx = px - cam.x
-		const dz = pz - cam.z
-		cameraYaw.value = Math.atan2(dx, dz)
-		const horizontal = Math.hypot(cam.x - px, cam.z - pz)
-		cameraDistance.value = clampCameraDistance(horizontal)
+	/** 当前距离下，保证相机在地面以上的最小俯仰角 */
+	function minPitchForDistance(dist: number) {
+		const minSin = (MIN_CAMERA_Y - LOOK_AT_Y) / Math.max(dist, 0.01)
+		return Math.asin(Math.max(-1, Math.min(1, minSin)))
+	}
+
+	function clampPitch(pitch: number, dist = cameraDistance.value) {
+		const minP = minPitchForDistance(dist)
+		return Math.max(minP, Math.min(MAX_PITCH, pitch))
 	}
 
 	function clampCameraDistance(distance: number) {
@@ -146,6 +152,29 @@ export function useSceneWalkthrough(options: UseSceneWalkthroughOptions) {
 
 	function adjustCameraDistance(delta: number) {
 		cameraDistance.value = clampCameraDistance(cameraDistance.value + delta)
+		cameraPitch.value = clampPitch(cameraPitch.value, cameraDistance.value)
+	}
+
+	function syncCameraFromCore(core: ThreeCore) {
+		const controls = asOrbitControls(core)
+		if (!controls) return
+		const px = controls.target.x
+		const pz = controls.target.z
+		const cam = core.camera.position
+		const dx = px - cam.x
+		const dz = pz - cam.z
+		cameraYaw.value = Math.atan2(dx, dz)
+		const horizontal = Math.hypot(cam.x - px, cam.z - pz)
+		cameraDistance.value = clampCameraDistance(
+			Math.hypot(horizontal, cam.y - LOOK_AT_Y) || CAMERA_DISTANCE_DEFAULT
+		)
+		if (horizontal < 1e-4) {
+			cameraPitch.value = clampPitch(
+				cam.y >= LOOK_AT_Y ? MAX_PITCH : minPitchForDistance(cameraDistance.value)
+			)
+		} else {
+			cameraPitch.value = clampPitch(Math.atan2(cam.y - LOOK_AT_Y, horizontal))
+		}
 	}
 
 	function buildColliders(core: ThreeCore) {
@@ -218,16 +247,19 @@ export function useSceneWalkthrough(options: UseSceneWalkthroughOptions) {
 	function updateCamera(core: ThreeCore) {
 		const cam = core.camera as THREE.PerspectiveCamera
 		const yaw = cameraYaw.value
+		const pitch = clampPitch(cameraPitch.value)
+		cameraPitch.value = pitch
 		const px = playerX.value
 		const pz = playerZ.value
 		const dist = cameraDistance.value
-		const height = dist * Math.tan(CAMERA_PITCH)
 
-		const offsetX = Math.sin(yaw) * dist
-		const offsetZ = Math.cos(yaw) * dist
+		const horiz = dist * Math.cos(pitch)
+		const offsetX = Math.sin(yaw) * horiz
+		const offsetZ = Math.cos(yaw) * horiz
+		const camY = Math.max(MIN_CAMERA_Y, LOOK_AT_Y + dist * Math.sin(pitch))
 
-		cam.position.set(px - offsetX, height, pz - offsetZ)
-		cam.lookAt(px, 0.8, pz)
+		cam.position.set(px - offsetX, camY, pz - offsetZ)
+		cam.lookAt(px, LOOK_AT_Y, pz)
 
 		if (playerMesh) {
 			playerMesh.position.set(px, 0, pz)
@@ -320,6 +352,7 @@ export function useSceneWalkthrough(options: UseSceneWalkthroughOptions) {
 		if (e.button !== 0) return
 		isRotating = true
 		lastPointerX = e.clientX
+		lastPointerY = e.clientY
 		pointerDownX = e.clientX
 		pointerDownY = e.clientY
 		pointerHasMoved = false
@@ -343,8 +376,12 @@ export function useSceneWalkthrough(options: UseSceneWalkthroughOptions) {
 
 		if (!isRotating) return
 		const dx = e.clientX - lastPointerX
+		const dy = e.clientY - lastPointerY
 		lastPointerX = e.clientX
+		lastPointerY = e.clientY
 		cameraYaw.value -= dx * 0.005
+		// 上拖抬头（俯仰减小），下拖俯视（俯仰增大）；并钳制在地面以上
+		cameraPitch.value = clampPitch(cameraPitch.value + dy * 0.005)
 		if (
 			Math.hypot(e.clientX - pointerDownX, e.clientY - pointerDownY)
 			> POINTER_MOVE_THRESHOLD
@@ -421,7 +458,7 @@ export function useSceneWalkthrough(options: UseSceneWalkthroughOptions) {
 		if (!core || !container || active.value) return
 
 		cameraSnapshot = captureCameraSnapshot(core)
-		syncCameraYawFromCore(core)
+		syncCameraFromCore(core)
 		buildColliders(core)
 
 		const controls = asOrbitControls(core)
@@ -489,6 +526,7 @@ export function useSceneWalkthrough(options: UseSceneWalkthroughOptions) {
 		playerX,
 		playerZ,
 		cameraYaw,
+		cameraPitch,
 		enter,
 		exit,
 		toggle,

@@ -1,4 +1,5 @@
 import type { StepGuideItem } from '@/components/Qhx/StepGuide.vue'
+import { WARDROBE_GUIDE_FIRST_CLOTHES_ID } from '@/utils/wardrobeGuideTargets'
 
 /** 衣柜详情页排序模式步骤引导：仅「不再提示」时写入 localStorage */
 export const WARDROBE_SORT_GUIDE_STORAGE_KEY = 'loyanshe-wardrobe-sort-guide-v1'
@@ -26,8 +27,8 @@ export const WARDROBE_SORT_GUIDE_STEPS: StepGuideItem[] = [
     id: 'clothes-list',
     title: '长按服饰可排序',
     description:
-      '排序模式下，长按服饰卡片并拖动即可调整当前衣柜内的顺序。若无法拖动，请先在衣柜设置中将排序模式改为「自定义」。',
-    targetId: 'wardrobe-guide-clothes-grid',
+      '排序模式下，长按第一件服饰卡片并拖动即可调整顺序；其他服饰同样支持拖动。若无法拖动，请先在衣柜设置中将排序模式改为「自定义」。',
+    targetId: WARDROBE_GUIDE_FIRST_CLOTHES_ID,
     placement: 'top',
     padding: 8,
   },

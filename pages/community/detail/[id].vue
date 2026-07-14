@@ -3,7 +3,7 @@ definePageMeta({
   ssr: false,
 })
 
-import type { Comment, Community, User, UserDeco } from '@/types/api'
+import type { Comment, Community, UserDeco } from '@/types/api'
 import { getCommunityDetail, deleteCommunity } from '@/api/community'
 import { getBrowTimeOne, insertBrowTime } from '@/api/brow_time'
 import { getCommentList } from '@/api/comment'
@@ -22,15 +22,40 @@ import { useCopyCurrentUrl } from '@/composables/useCopyCurrentUrl'
 import { useLayoutStyle } from '@/composables/useLayoutStyle'
 import { useCommentUiStore } from '@/stores/commentUi'
 import { BASE_IMG } from '@/utils/ipConfig'
-import CommentSection from '@/components/comment/CommentSection.vue'
-import CommunityCommentModal from '@/components/community/CommentModal.vue'
 
+const CommentSection = defineAsyncComponent(
+  () => import('@/components/comment/CommentSection.vue'),
+)
+const CommunityCommentModal = defineAsyncComponent(
+  () => import('@/components/community/CommentModal.vue'),
+)
 const CommunityDetailForeignSection = defineAsyncComponent(
   () => import('@/components/community/CommunityDetailForeignSection.vue'),
 )
 const AchievementDecoConfigModal = defineAsyncComponent(
   () => import('@/components/achievement/DecoConfigModal.vue'),
 )
+const AchievementBadgePhysics = defineAsyncComponent(
+  () => import('@/components/achievement/BadgePhysics.client.vue'),
+)
+
+/** 空闲时执行，避免挡住首屏（WebView 友好） */
+function runWhenIdle(fn: () => void, timeout = 2000): number {
+  if (!import.meta.client) return 0
+  if (typeof window.requestIdleCallback === 'function') {
+    return window.requestIdleCallback(fn, { timeout }) as unknown as number
+  }
+  return window.setTimeout(fn, Math.min(timeout, 900))
+}
+
+function cancelIdle(handle: number) {
+  if (!import.meta.client || !handle) return
+  if (typeof window.cancelIdleCallback === 'function') {
+    window.cancelIdleCallback(handle)
+  } else {
+    clearTimeout(handle)
+  }
+}
 
 /** 互动接口：与店铺(1)、图鉴(2)、搭配(4) 对齐，社区帖使用 3 */
 const PK_TYPE_COMMUNITY = 3
@@ -59,11 +84,9 @@ const focusCommentId = computed(() => {
 const { data: pageData, pending: pageLoading } = useAsyncData(
   `community-detail-${id}`,
   async () => {
-    const [detailRes, commentRes] = await Promise.all([
-      getCommunityDetail({ community_id: communityId }),
-      getCommentList({ type: 'community', id: communityId, page: 1, pageSize: 1 }),
-    ])
-    return { detail: detailRes, commentCount: commentRes }
+    // 首屏只拉详情；评论数由 CommentSection @total 回填，避免重复 comment/list
+    const detailRes = await getCommunityDetail({ community_id: communityId })
+    return { detail: detailRes }
   },
   { server: false, lazy: true },
 )
@@ -77,6 +100,12 @@ watch(
   { immediate: true },
 )
 
+/** 底栏评论数：评论区加载后回填；发评成功时刷新 */
+const commentTotal = ref(0)
+const onCommentSectionTotal = (count: number) => {
+  commentTotal.value = count ?? 0
+}
+
 async function refreshCommentCount() {
   const commentRes = await getCommentList({
     type: 'community',
@@ -84,9 +113,7 @@ async function refreshCommentCount() {
     page: 1,
     pageSize: 1,
   })
-  if (pageData.value) {
-    pageData.value = { ...pageData.value, commentCount: commentRes }
-  }
+  commentTotal.value = commentRes.count ?? 0
 }
 
 /** 楼主已拥有徽章 + 帖子 display_badge 顺序解析（与衣柜页一致） */
@@ -142,6 +169,26 @@ const hasPostDisplayBadges = computed(() => decorationBadges.value.length > 0)
 const decorationBadgesKey = computed(
   () =>
     `${postDisplayBadgeStr.value}:${decorationBadges.value.map((b) => b.deco_id).join(',') || 'empty'}`
+)
+
+/** 徽章物理（Three/Ammo/Spark）延后挂载，避免抢首屏 */
+const badgePhysicsReady = ref(false)
+let badgePhysicsIdleHandle = 0
+watch(
+  hasPostDisplayBadges,
+  (has) => {
+    cancelIdle(badgePhysicsIdleHandle)
+    badgePhysicsIdleHandle = 0
+    if (!has) {
+      badgePhysicsReady.value = false
+      return
+    }
+    badgePhysicsIdleHandle = runWhenIdle(() => {
+      badgePhysicsReady.value = true
+      badgePhysicsIdleHandle = 0
+    }, 2800)
+  },
+  { immediate: true },
 )
 
 const isCommunityAuthor = computed(
@@ -366,16 +413,27 @@ watch(
   { immediate: true }
 )
 
-/** 关联场景 iframe 全屏时隐藏全局顶栏/底栏 */
+/** 关联场景 iframe：延后设 src，避免与详情首屏抢带宽 */
+const sceneIframeSrc = ref('')
+let sceneIframeIdleHandle = 0
 watch(
   () => detail.value?.sence_id,
   (sid) => {
     setLayoutStyle(sid ? 1 : 0)
+    cancelIdle(sceneIframeIdleHandle)
+    sceneIframeIdleHandle = 0
+    sceneIframeSrc.value = ''
+    if (!sid) return
+    const targetSid = sid
+    sceneIframeIdleHandle = runWhenIdle(() => {
+      if (detail.value?.sence_id === targetSid) {
+        sceneIframeSrc.value = `https://lolitalibrary.com/scene/detail/${targetSid}?from_iframe=true`
+      }
+      sceneIframeIdleHandle = 0
+    }, 1600)
   },
-  { immediate: true }
+  { immediate: true },
 )
-
-const commentTotal = computed(() => pageData.value?.commentCount?.count ?? 0)
 
 const BROW_TIME_TYPE_COMMUNITY = 'community'
 const browTimeViewCount = ref(0)
@@ -411,24 +469,62 @@ const communityViewCount = computed(
 )
 
 const showCommentModal = ref(false)
+/** 首次打开后再挂载评论弹窗（含 RichTextEditor），避免进页即拉重包 */
+const commentModalEverOpened = ref(false)
 const commentModalRef = ref<InstanceType<typeof CommunityCommentModalType> | null>(null)
 /** 仅顶层评论成功时整表重挂载；回复成功通过 inject 注册的子评论刷新函数处理（避免模板 ref 拿不到 defineExpose） */
 const commentSectionKey = ref(0)
 const commentSectionRefreshFn = shallowRef<RefreshCommentRepliesFn | null>(null)
 provide(communityCommentSectionRefreshKey, commentSectionRefreshFn)
 
+/** 评论区延后挂载；带 ?comment_id= 时立即挂载以便定位 */
+const commentSectionReady = ref(false)
+let commentSectionIdleHandle = 0
+
+async function waitCommentModalRef(maxTries = 40) {
+  for (let i = 0; i < maxTries; i++) {
+    if (commentModalRef.value) return commentModalRef.value
+    await new Promise<void>((r) => setTimeout(r, 25))
+  }
+  return commentModalRef.value
+}
+
+async function openCommentModalWithParams(
+  params: Parameters<InstanceType<typeof CommunityCommentModalType>['showModel']>[0]
+) {
+  commentModalEverOpened.value = true
+  await nextTick()
+  const modal = await waitCommentModalRef()
+  modal?.showModel(params)
+}
+
 const commentUiStore = useCommentUiStore()
 
 onMounted(() => {
-  void loadCommunityViewStat()
+  // 浏览统计延后，不挡首屏
+  runWhenIdle(() => {
+    void loadCommunityViewStat()
+  }, 2500)
   communityViewRecordTimer = setTimeout(() => {
     communityViewRecordTimer = null
     if (user.user?.user_id === 1) return
     void recordCommunityView()
   }, 5000)
+
+  if (focusCommentId.value) {
+    commentSectionReady.value = true
+  } else {
+    commentSectionIdleHandle = runWhenIdle(() => {
+      commentSectionReady.value = true
+      commentSectionIdleHandle = 0
+    }, 1200)
+  }
 })
 onUnmounted(() => {
   if (communityViewRecordTimer) clearTimeout(communityViewRecordTimer)
+  cancelIdle(badgePhysicsIdleHandle)
+  cancelIdle(sceneIframeIdleHandle)
+  cancelIdle(commentSectionIdleHandle)
   commentUiStore.clearNewCommentHighlight()
 })
 
@@ -441,12 +537,9 @@ const openCommentComposer = () => {
     })
     return
   }
-  showCommentModal.value = true
-  nextTick(() => {
-    commentModalRef.value?.showModel({
-      id: communityId,
-      type: 'community'
-    })
+  void openCommentModalWithParams({
+    id: communityId,
+    type: 'community',
   })
 }
 
@@ -461,17 +554,14 @@ const openReplyComposer = (payload: CommentOpenReplyPayload) => {
     return
   }
   const { comment, threadRootCommentId, subReply } = payload
-  showCommentModal.value = true
-  nextTick(() => {
-    commentModalRef.value?.showModel({
-      id: comment.comment_id,
-      type: 'reply',
-      reply_to: subReply?.reply_to,
-      reply_to_user: subReply?.replyToUser,
-      reply_to_name:
-        subReply?.replyToUser?.user_name ?? comment.user?.user_name ?? '',
-      threadRootCommentId,
-    })
+  void openCommentModalWithParams({
+    id: comment.comment_id,
+    type: 'reply',
+    reply_to: subReply?.reply_to,
+    reply_to_user: subReply?.replyToUser,
+    reply_to_name:
+      subReply?.replyToUser?.user_name ?? comment.user?.user_name ?? '',
+    threadRootCommentId,
   })
 }
 
@@ -574,13 +664,22 @@ useHead({
     <div class="relative z-[1]">
       <!-- 关联场景：与服饰详情一致，全屏场景 iframe + 可拖拽抽屉承载正文与评论 -->
       <template v-if="detail && detail.sence_id">
-        <div class="fixed inset-0 w-screen h-screen z-0">
+        <div class="fixed inset-0 w-screen h-screen z-0 bg-qhx-bg-card">
           <iframe
-            :src="`https://lolitalibrary.com/scene/detail/${detail.sence_id}?from_iframe=true`"
+            v-if="sceneIframeSrc"
+            :src="sceneIframeSrc"
             class="w-full h-full border-0"
             frameborder="0"
             title="场景预览"
           />
+          <div
+            v-else
+            class="flex h-full w-full flex-col items-center justify-center gap-3 text-sm text-gray-400"
+            aria-busy="true"
+          >
+            <div class="h-10 w-10 animate-spin rounded-full border-4 border-pink-200 border-t-pink-400" />
+            <span>场景加载中…</span>
+          </div>
         </div>
         <Transition :name="`drawer-${isMobile ? 'bottom' : 'right'}`">
           <QhxBottomDrawer v-if="detail" glass :direction="isMobile ? 'bottom' : 'right'">
@@ -633,13 +732,22 @@ useHead({
               </div>
               <div class="community-scene-glass-panel rounded-lg shadow-inner mt-1 border border-white/50 dark:border-white/10 overflow-hidden">
                 <CommentSection
+                  v-if="commentSectionReady"
                   :key="commentSectionKey"
                   :type="'community'"
                   :id="detail.community_id"
                   :focus-comment-id="focusCommentId"
                   reserve-bottom-for-fixed-bar
                   @open-reply="openReplyComposer"
+                  @total="onCommentSectionTotal"
                 />
+                <div
+                  v-else
+                  class="flex min-h-[120px] items-center justify-center py-8 text-sm text-gray-400"
+                  aria-busy="true"
+                >
+                  评论加载中…
+                </div>
               </div>
             </div>
           </QhxBottomDrawer>
@@ -660,11 +768,13 @@ useHead({
               indicators
               root-class="!shadow-none rounded-[18px] h-full max-h-full [&_.qhx-carousel-track]:h-full [&_.qhx-carousel-slide]:h-full"
             >
-              <template #item="{ item }">
+              <template #item="{ item, index }">
                 <img
                   :src="item.src"
                   :alt="item.alt"
                   class="h-full w-full max-h-full cursor-pointer object-contain left-cover"
+                  :loading="index === 0 ? 'eager' : 'lazy'"
+                  decoding="async"
                   draggable="false"
                   role="button"
                   tabindex="0"
@@ -696,7 +806,7 @@ useHead({
           <div class="flex-1">
             <div
               v-if="detail.user"
-              class="mx-3 max-md:mx-1 mb-1 rounded-lg bg-[color-mix(in_srgb,var(--card-color)_95%,transparent)] backdrop-blur-sm shadow-sm"
+              class="mx-3 max-md:mx-1 mb-1"
             >
               <div class="flex items-center justify-between gap-3 p-2">
                 <UserInfo
@@ -746,13 +856,22 @@ useHead({
         <div v-if="detail" class="rounded-lg shadow-lg mt-3">
           <div>
             <CommentSection
+              v-if="commentSectionReady"
               :key="commentSectionKey"
               :type="'community'"
               :id="detail.community_id"
               :focus-comment-id="focusCommentId"
               reserve-bottom-for-fixed-bar
               @open-reply="openReplyComposer"
+              @total="onCommentSectionTotal"
             />
+            <div
+              v-else
+              class="flex min-h-[120px] items-center justify-center py-8 text-sm text-gray-400"
+              aria-busy="true"
+            >
+              评论加载中…
+            </div>
           </div>
         </div>
       </template>
@@ -820,9 +939,9 @@ useHead({
       </div>
     </div>
 
-    <!-- 全屏徽章：仅当帖子配置了 display_badge 且能解析出已拥有徽章；底部让出互动栏 -->
+    <!-- 全屏徽章：idle 后再挂载物理引擎，避免抢首屏 -->
     <div
-      v-if="hasPostDisplayBadges"
+      v-if="hasPostDisplayBadges && badgePhysicsReady"
       class="pointer-events-none fixed inset-x-0 top-0 z-[110] overflow-hidden"
       :class="
         detail
@@ -907,6 +1026,7 @@ useHead({
     />
 
     <CommunityCommentModal
+      v-if="commentModalEverOpened"
       ref="commentModalRef"
       v-model="showCommentModal"
       @success="onCommentSuccess"
@@ -914,7 +1034,7 @@ useHead({
 
     <ClientOnly>
       <QhxImageLightbox
-        v-if="communityCarouselItems.length"
+        v-if="communityLightboxVisible && communityCarouselItems.length"
         :visible="communityLightboxVisible"
         :imgs="communityCarouselItems"
         :index="communityCarouselIndex"

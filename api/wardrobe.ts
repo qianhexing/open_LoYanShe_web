@@ -214,6 +214,33 @@ export async function updateClothesIds(data: {
   return response.data
 }
 
+/** 批量追加服饰标签，ids / tags 均为逗号分割字符串 */
+export async function batchUpdateClothesTags(data: {
+  ids: string
+  tags: string
+}): Promise<{ updated: number }> {
+  const response = await use$Post<BaseResponse<{ updated: number }>>('/clothes/update/tags', data)
+  return response.data
+}
+
+/** 保存衣柜标签排序至 wardrobe.config.tags */
+export async function sortClothesTags(data: {
+  wardrobe_id: number
+  sort: string[]
+}): Promise<boolean> {
+  const response = await use$Post<BaseResponse<boolean>>('/clothes/tags/sort', data)
+  return response.data
+}
+
+/** 从衣柜所有服饰中移除指定 tag；若 config.tags 存在则同步移除 */
+export async function deleteClothesTag(data: {
+  wardrobe_id: number
+  tag: string
+}): Promise<boolean> {
+  const response = await use$Post<BaseResponse<boolean>>('/clothes/delete/tag', data)
+  return response.data
+}
+
 export async function deteleClothes(
   params: {
     clothes_id: number
