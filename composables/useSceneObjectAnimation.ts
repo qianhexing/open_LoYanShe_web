@@ -16,6 +16,7 @@ const ANIMATABLE_TYPES = new Set([
 	'box',
 	'sphere',
 	'image',
+	'canvas',
 	'3Dtext',
 	'template',
 	'splat',

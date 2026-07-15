@@ -44,26 +44,29 @@ export const ALT_IMAGE_TARGET: ImageTargetConfig = {
 	targetIndex: 0
 }
 
+/**
+ * 场景 ID → 识别图 .mind。
+ * 路线 A（`pages/scene/detail/ar/[id]`）用此配置做追踪，场景本体仍走 ThreeCore 完整加载。
+ */
 export const AR_SCENE_MAP: Record<number, ARSceneConfig> = {
 	1: {
 		id: 1,
 		name: '示例场景',
-		mindUrl:
-			'https://cdn.jsdelivr.net/gh/hiukim/mind-ar-js@1.2.5/examples/image-tracking/assets/card-example/card.mind',
-		targetIndex: 0
+		mindUrl: DEFAULT_IMAGE_TARGET.mindUrl,
+		targetIndex: DEFAULT_IMAGE_TARGET.targetIndex
 	}
-	// 可以添加更多 — 使用 `key: { ... },` 追加
+	// 追加：`[sceneId]: { id, name, mindUrl, targetIndex }`
 }
 
 /**
- * 按场景 ID 取 MindAR 资源；无映射时回退场景 1，再无则使用 DEFAULT_IMAGE_TARGET
+ * 按场景 ID 取 MindAR 资源；无映射时用默认识别图（仍可打开任意场景做完整 3D + 追踪联调）
  */
 export const getARConfig = (sceneId: number): ARSceneConfig => {
-	const mapped = AR_SCENE_MAP[sceneId] ?? AR_SCENE_MAP[1]
+	const mapped = AR_SCENE_MAP[sceneId]
 	if (mapped) return mapped
 	return {
 		id: sceneId,
-		name: '默认',
+		name: `场景 ${sceneId}`,
 		mindUrl: DEFAULT_IMAGE_TARGET.mindUrl,
 		targetIndex: DEFAULT_IMAGE_TARGET.targetIndex
 	}

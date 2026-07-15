@@ -17,6 +17,9 @@ importers:
       '@mkkellogg/gaussian-splats-3d':
         specifier: ^0.4.7
         version: 0.4.7(three@0.180.0)
+      '@msgpack/msgpack':
+        specifier: 2.8.0
+        version: 2.8.0
       '@nuxt/image':
         specifier: 1.9.0
         version: 1.9.0(db0@0.2.1)(ioredis@5.4.2)(magicast@0.3.5)(rollup@4.31.0)

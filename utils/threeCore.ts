@@ -72,6 +72,7 @@ import {
 	SplatFileType,
 	SparkRenderer
 } from '@sparkjsdev/spark'
+import { collectSceneResourceSnapshot } from '@/utils/sceneResourceMonitor'
 
 /** 当前 ThreeCore 主渲染后端 */
 export type RendererBackend = 'webgpu' | 'webgl'
@@ -314,6 +315,8 @@ export interface SceneObjectJSON {
 		| 'voxelBlock'
 		/** @dgreenheck/ez-tree 程序化植物 */
 		| 'eztree'
+		/** 2D 画布合成贴图（options.canvas 存可二次编辑文档） */
+		| 'canvas'
 	position?: [number, number, number]
 	rotation?: [number, number, number]
 	baseWidth?: number
@@ -504,6 +507,21 @@ export interface SceneJSON {
 		maxPolarAngle?: number // 控制器垂直旋转最大角度（弧度）
 	},
 	origin?: number
+	/**
+	 * MindAR 识别图（服务端 OfflineCompiler 编译后写入）。
+	 * mindUrl / previewUrl 一般为 OSS 相对路径。
+	 */
+	arTarget?: SceneArTargetJSON | null
+}
+
+/** 场景级 MindAR 识别图配置 */
+export interface SceneArTargetJSON {
+	mindUrl: string
+	previewUrl: string
+	targetIndex?: number
+	name?: string
+	/** ISO 时间 */
+	updatedAt?: string
 }
 
 /** 检测是否为移动设备（用于 Splat 等渲染优化） */
@@ -543,6 +561,12 @@ interface ThreeCoreOptions {
 	enableCSS3DRenderer?: boolean // 新增选项：是否启用CSS3D渲染器
 	editMode?: boolean
 	enableAR?: boolean
+	/**
+	 * AR 模式（需 enableAR: true）：
+	 * - `webxr`：WebXR hit-test，不支持时降级 Webcam+陀螺仪（默认）
+	 * - `mindar`：识别图位姿由外部 MindAR Controller 驱动，本类只提供 arContentGroup 锚点
+	 */
+	arMode?: 'webxr' | 'mindar'
 	/** @deprecated 请用 preferWebGPU；显式 false 时强制 WebGL */
 	enableWebGPU?: boolean
 	/** 优先 WebGPU（默认 false，效果稳定后再开启），不可用时自动回退 WebGL */
@@ -593,10 +617,32 @@ class ThreeCore {
 	public arHitTestSourceRequested = false
 	public arContentGroup?: THREE.Group // AR模式下包裹所有内容的组
 	public isWebcamAR = false // 是否处于Webcam降级AR模式
+	/** 识别图 MindAR 锚点模式（位姿由外部注入，相机固定在原点） */
+	public isMindArMode = false
+	/** 是否已用 MindAR worldMatrix 锚定（false 时为镜头前预览） */
+	public isMindArPoseLocked = false
 	public videoElement?: HTMLVideoElement // Webcam AR video
 	public qrScanCanvas?: HTMLCanvasElement
 	public qrScanContext?: CanvasRenderingContext2D | null
 	public lastQRScanTime = 0
+	private readonly mindArMatrixScratch = new THREE.Matrix4()
+	private readonly mindArScaleScratch = new THREE.Matrix4()
+	private readonly mindArFitBox = new THREE.Box3()
+	private readonly mindArFitSize = new THREE.Vector3()
+	private readonly mindArFitCenter = new THREE.Vector3()
+	/** MindAR 位姿平滑（抑制突变） */
+	private mindArPoseHasSample = false
+	private mindArOutlierStreak = 0
+	private readonly mindArTargetPos = new THREE.Vector3()
+	private readonly mindArTargetQuat = new THREE.Quaternion()
+	private readonly mindArTargetScale = new THREE.Vector3(1, 1, 1)
+	private readonly mindArSmoothPos = new THREE.Vector3()
+	private readonly mindArSmoothQuat = new THREE.Quaternion()
+	private readonly mindArSmoothScale = new THREE.Vector3(1, 1, 1)
+	private readonly mindArDecompPos = new THREE.Vector3()
+	private readonly mindArDecompQuat = new THREE.Quaternion()
+	private readonly mindArDecompScale = new THREE.Vector3()
+	private readonly mindArComposeMat = new THREE.Matrix4()
 	// 渲染顺序计数
 	public renderOrderCount = 10000
 	// 光源系统
@@ -675,6 +721,8 @@ class ThreeCore {
 		config: Record<string, unknown>
 	}> = []
 	public cameraList: CameraState[]
+	/** 场景 MindAR 识别图（随 json_data.arTarget 存取） */
+	public arTarget: SceneArTargetJSON | null = null
 	public clock: THREE.Clock
 	public picker: GPUPicker | null
 	public gizmo: TransformGizmo | null
@@ -2797,6 +2845,89 @@ class ThreeCore {
 		})
 	}
 
+	/** 画布合成贴图：由 options.canvas 文档本地光栅化，不上传合成图 */
+	public async loadCanvasMesh(
+		canvasDoc: Record<string, unknown> | null | undefined,
+		baseWidth = 5
+	): Promise<THREE.Mesh> {
+		const {
+			normalizeSceneCanvasDocument,
+			createEmptySceneCanvasDocument,
+			renderSceneCanvasDocument
+		} = await import('@/utils/sceneCanvas')
+		const doc =
+			normalizeSceneCanvasDocument(canvasDoc) ??
+			createEmptySceneCanvasDocument()
+		const canvas = await renderSceneCanvasDocument(doc)
+		const texture = new THREE.CanvasTexture(canvas)
+		texture.colorSpace = THREE.SRGBColorSpace
+		texture.wrapS = THREE.ClampToEdgeWrapping
+		texture.wrapT = THREE.ClampToEdgeWrapping
+		texture.needsUpdate = true
+
+		const aspect = canvas.height / Math.max(1, canvas.width)
+		const geometry = new THREE.PlaneGeometry(baseWidth, baseWidth * aspect)
+		const material = new THREE.MeshBasicMaterial()
+		this.configureImagePlaneMaterial(material, texture)
+		const mesh = new THREE.Mesh(geometry, material)
+		mesh.userData.type = 'canvas'
+		mesh.userData.baseWidth = baseWidth
+		mesh.userData.effect = []
+		mesh.userData.options = {
+			canvas: JSON.parse(JSON.stringify(doc))
+		}
+		this.applySplatMeshDepthCompat(mesh)
+		return mesh
+	}
+
+	/** 就地按文档重绘贴图（保留变换），不上传 */
+	public async updateCanvasMeshTexture(
+		mesh: THREE.Mesh,
+		canvasDoc: Record<string, unknown> | null | undefined,
+		baseWidth?: number
+	): Promise<void> {
+		const {
+			normalizeSceneCanvasDocument,
+			createEmptySceneCanvasDocument,
+			renderSceneCanvasDocument
+		} = await import('@/utils/sceneCanvas')
+		const doc =
+			normalizeSceneCanvasDocument(canvasDoc) ??
+			createEmptySceneCanvasDocument()
+		const canvas = await renderSceneCanvasDocument(doc)
+		const texture = new THREE.CanvasTexture(canvas)
+		texture.colorSpace = THREE.SRGBColorSpace
+		texture.wrapS = THREE.ClampToEdgeWrapping
+		texture.wrapT = THREE.ClampToEdgeWrapping
+		texture.needsUpdate = true
+
+		const bw =
+			baseWidth ??
+			(typeof mesh.userData.baseWidth === 'number'
+				? mesh.userData.baseWidth
+				: 5)
+		const aspect = canvas.height / Math.max(1, canvas.width)
+		const geometry = new THREE.PlaneGeometry(bw, bw * aspect)
+		mesh.geometry.dispose()
+		mesh.geometry = geometry
+
+		const material = mesh.material as THREE.MeshBasicMaterial
+		const oldMap = material.map
+		this.configureImagePlaneMaterial(material, texture)
+		oldMap?.dispose()
+
+		mesh.userData.type = 'canvas'
+		mesh.userData.baseWidth = bw
+		mesh.userData.url = undefined
+		const prev =
+			mesh.userData.options && typeof mesh.userData.options === 'object'
+				? { ...mesh.userData.options }
+				: {}
+		prev.canvas = JSON.parse(JSON.stringify(doc))
+		mesh.userData.options = prev
+		this.applySplatMeshDepthCompat(mesh)
+	}
+
 	public async loadVideoMesh(url: string, baseWidth = 5): Promise<THREE.Mesh> {
 		return new Promise((resolve, reject) => {
 			const canvas = document.createElement('canvas')
@@ -3009,18 +3140,27 @@ class ThreeCore {
 					}
 				}
 
-				// 计算 canvas 尺寸
+				// 计算 canvas 尺寸：按实际文本占位，不强制拉满 maxWidth（否则短文留大片空白、拉伸难看）
 				const lineHeightPx = fontSize * lineHeight
-				const textWidth = Math.max(
-					...lines.map(line => ctx.measureText(line).width),
-					maxWidth
-				)
-				const textHeight = lines.length * lineHeightPx
+				const measuredWidth = lines.length
+					? Math.max(...lines.map(line => ctx.measureText(line).width), 1)
+					: fontSize
+				// 单字极宽等边界：不超过换行上限
+				const textWidth = Math.min(measuredWidth, maxWidth)
+				const textHeight = Math.max(lines.length, 1) * lineHeightPx
 
-				canvas.width = textWidth + padding * 2
-				canvas.height = textHeight + padding * 2
+				const cssWidth = Math.ceil(textWidth + padding * 2)
+				const cssHeight = Math.ceil(textHeight + padding * 2)
+				// 提高像素密度，避免近看发糊
+				const dpr = Math.min(
+					typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1,
+					2
+				)
+				canvas.width = Math.max(1, Math.ceil(cssWidth * dpr))
+				canvas.height = Math.max(1, Math.ceil(cssHeight * dpr))
 
 				// 重新设置上下文（canvas 尺寸改变后需要重新设置）
+				ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
 				ctx.font = `${fontSize}px ${fontFamily}`
 				ctx.fillStyle = color
 				ctx.textBaseline = 'top'
@@ -3028,7 +3168,7 @@ class ThreeCore {
 				// 绘制背景
 				if (backgroundColor) {
 					ctx.fillStyle = backgroundColor
-					ctx.fillRect(0, 0, canvas.width, canvas.height)
+					ctx.fillRect(0, 0, cssWidth, cssHeight)
 				}
 
 				// 绘制文本
@@ -3041,12 +3181,13 @@ class ThreeCore {
 				// 创建纹理
 				const texture = new THREE.CanvasTexture(canvas)
 				texture.colorSpace = THREE.SRGBColorSpace
+				texture.anisotropy = 4
 				texture.needsUpdate = true
 
-				// 计算 mesh 尺寸
-				const aspect = canvas.height / canvas.width
-				const width = baseWidth
-				const height = baseWidth * aspect
+				// 计算 mesh 尺寸：世界宽度随内容宽高比变化，短文不会被拉成大横板
+				const aspect = cssHeight / cssWidth
+				const width = baseWidth * Math.min(Math.max(cssWidth / maxWidth, 0.25), 1)
+				const height = width * aspect
 
 				// 创建几何体和材质
 				const geometry = new THREE.PlaneGeometry(width, height)
@@ -4335,7 +4476,7 @@ class ThreeCore {
 	}
 
 	/** 场景内是否含高斯点云（SplatMesh 或 type=splat 组） */
-	private sceneHasSplats(): boolean {
+	public sceneHasSplats(): boolean {
 		if (!this.scene) return false
 		let has = false
 		this.scene.traverse(obj => {
@@ -4558,7 +4699,9 @@ class ThreeCore {
 		this.scene.traverse(obj => {
 			if (
 				obj instanceof THREE.Mesh &&
-				(obj.userData.type === 'image' || obj.userData.type === 'video') &&
+				(obj.userData.type === 'image' ||
+					obj.userData.type === 'video' ||
+					obj.userData.type === 'canvas') &&
 				obj.userData.follow
 			) {
 				obj.quaternion.copy(this.camera.quaternion)
@@ -5631,6 +5774,11 @@ class ThreeCore {
 	// 	animate()
 	// }
 	async initAR() {
+		if (this.options.arMode === 'mindar') {
+			this.initMindArAnchorMode()
+			return
+		}
+
 		// 检测 WebXR 支持
 		let isWebXRSupported = false
 		if ('xr' in navigator) {
@@ -5643,6 +5791,264 @@ class ThreeCore {
 		} else {
 			console.warn('WebXR not supported, falling back to Webcam AR')
 			this.initWebcamAR()
+		}
+	}
+
+	/**
+	 * 路线 A：ThreeCore 只负责完整场景挂载到锚点组；
+	 * MindAR Controller 在外部输出 worldMatrix，经 applyMindArPose 写入本 Group。
+	 */
+	initMindArAnchorMode() {
+		this.isMindArMode = true
+		this.isMindArPoseLocked = false
+		this.isWebcamAR = false
+		this.renderer.xr.enabled = false
+		this.scene.background = null
+		this.renderer.setClearColor(0x000000, 0)
+		if (this.renderer.domElement) {
+			this.renderer.domElement.style.background = 'transparent'
+			this.renderer.domElement.style.position = 'relative'
+			this.renderer.domElement.style.zIndex = '10'
+		}
+
+		this.camera.position.set(0, 0, 0)
+		this.camera.quaternion.identity()
+		this.camera.up.set(0, 1, 0)
+		if (this.camera instanceof THREE.PerspectiveCamera) {
+			this.camera.fov = 45
+			this.camera.near = 0.01
+			this.camera.far = 2000
+			this.camera.updateProjectionMatrix()
+		}
+
+		if (this.controls && 'enabled' in this.controls) {
+			this.controls.enabled = false
+		}
+
+		this.arContentGroup = new THREE.Group()
+		this.arContentGroup.name = 'mindArAnchor'
+		// 识别成功前隐藏；由 applyMindArPose 首次命中后再显示
+		this.arContentGroup.visible = false
+		this.arContentGroup.matrixAutoUpdate = false
+		this.arContentGroup.matrix.identity()
+		this.scene.add(this.arContentGroup)
+	}
+
+	/**
+	 * 将已加载到 arContentGroup 的场景内容居中并缩放到约 1 个 marker 单位，
+	 * 并做直立校正（编辑器 Y-up → 识别图法向）+ 底面贴识别图平面。
+	 */
+	prepareMindArContentFit() {
+		if (!this.arContentGroup) return
+		const anchor = this.arContentGroup
+		if (anchor.getObjectByName('mindArContentFit')) {
+			anchor.visible = false
+			return
+		}
+
+		const children = [...anchor.children]
+		if (children.length === 0) {
+			anchor.visible = false
+			return
+		}
+
+		const wrap = new THREE.Group()
+		wrap.name = 'mindArContentFit'
+		for (const child of children) {
+			wrap.add(child)
+		}
+
+		this.mindArFitBox.setFromObject(wrap)
+		if (!this.mindArFitBox.isEmpty()) {
+			this.mindArFitBox.getSize(this.mindArFitSize)
+			this.mindArFitBox.getCenter(this.mindArFitCenter)
+			const maxDim = Math.max(
+				this.mindArFitSize.x,
+				this.mindArFitSize.y,
+				this.mindArFitSize.z,
+				1e-6
+			)
+			wrap.scale.setScalar(1 / maxDim)
+			wrap.updateMatrixWorld(true)
+			this.mindArFitBox.setFromObject(wrap)
+			this.mindArFitBox.getCenter(this.mindArFitCenter)
+			wrap.position.sub(this.mindArFitCenter)
+		}
+
+		// 直立：+90° 绕 X，使场景 Y-up 对齐识别图法向（Z 出纸面）
+		const orient = new THREE.Group()
+		orient.name = 'mindArOrient'
+		orient.rotation.x = Math.PI / 2
+		orient.add(wrap)
+		anchor.add(orient)
+		orient.updateMatrixWorld(true)
+
+		// 把包围盒底面贴到识别图平面（z=0）
+		this.mindArFitBox.setFromObject(orient)
+		if (!this.mindArFitBox.isEmpty()) {
+			orient.position.z -= this.mindArFitBox.min.z
+		}
+
+		anchor.visible = false
+		this.isMindArPoseLocked = false
+		this.resetMindArPoseSmooth()
+	}
+
+	/**
+	 * @deprecated 调试用：镜头前预览。正式流程改为识别成功后再显示。
+	 */
+	showMindArPreview(distance = 1.6) {
+		if (!this.arContentGroup) return
+		this.isMindArPoseLocked = false
+		this.resetMindArPoseSmooth()
+		const g = this.arContentGroup
+		g.matrixAutoUpdate = true
+		g.matrix.identity()
+		g.position.set(0, 0, -Math.abs(distance))
+		g.rotation.set(0, 0, 0)
+		g.scale.set(1, 1, 1)
+		g.visible = true
+		g.updateMatrix()
+		g.updateMatrixWorld(true)
+
+		if (this.camera instanceof THREE.PerspectiveCamera) {
+			const w = this.container?.clientWidth || window.innerWidth
+			const h = this.container?.clientHeight || window.innerHeight
+			this.camera.position.set(0, 0, 0)
+			this.camera.quaternion.identity()
+			this.camera.fov = 45
+			this.camera.near = 0.01
+			this.camera.far = 2000
+			this.camera.aspect = h > 0 ? w / h : 1
+			this.camera.updateProjectionMatrix()
+		}
+	}
+
+	/** 识别成功前隐藏场景 */
+	hideMindArContent() {
+		if (!this.arContentGroup) return
+		this.isMindArPoseLocked = false
+		this.arContentGroup.visible = false
+		this.resetMindArPoseSmooth()
+	}
+
+	private resetMindArPoseSmooth() {
+		this.mindArPoseHasSample = false
+		this.mindArOutlierStreak = 0
+	}
+
+	/**
+	 * 写入目标位姿；渲染循环里再平滑插值，避免 MindAR 帧间大幅跳变。
+	 */
+	applyMindArPose(
+		worldMatrix: ArrayLike<number> | null,
+		postMatrix: THREE.Matrix4,
+		contentScale = 1
+	) {
+		if (!this.arContentGroup) return
+		if (!worldMatrix) {
+			if (!this.isMindArPoseLocked) {
+				this.arContentGroup.visible = false
+			}
+			return
+		}
+		const m = this.mindArMatrixScratch
+		m.fromArray(worldMatrix as number[])
+		m.multiply(postMatrix)
+		if (contentScale !== 1) {
+			m.multiply(
+				this.mindArScaleScratch.makeScale(
+					contentScale,
+					contentScale,
+					contentScale
+				)
+			)
+		}
+
+		m.decompose(
+			this.mindArDecompPos,
+			this.mindArDecompQuat,
+			this.mindArDecompScale
+		)
+
+		// 极端跳变（疑似错误帧）先丢弃，连续多次才接受
+		if (this.mindArPoseHasSample) {
+			const ang = this.mindArSmoothQuat.angleTo(this.mindArDecompQuat)
+			const scaleRef = Math.max(this.mindArSmoothScale.x, 1e-6)
+			const posRel =
+				this.mindArSmoothPos.distanceTo(this.mindArDecompPos) / scaleRef
+			if (ang > Math.PI * 0.55 || posRel > 0.85) {
+				this.mindArOutlierStreak += 1
+				if (this.mindArOutlierStreak < 4) {
+					return
+				}
+			} else {
+				this.mindArOutlierStreak = 0
+			}
+		}
+
+		this.mindArTargetPos.copy(this.mindArDecompPos)
+		this.mindArTargetQuat.copy(this.mindArDecompQuat)
+		this.mindArTargetScale.copy(this.mindArDecompScale)
+
+		if (!this.mindArPoseHasSample) {
+			this.mindArSmoothPos.copy(this.mindArTargetPos)
+			this.mindArSmoothQuat.copy(this.mindArTargetQuat)
+			this.mindArSmoothScale.copy(this.mindArTargetScale)
+			this.mindArPoseHasSample = true
+			this.writeMindArSmoothMatrix()
+		}
+
+		this.isMindArPoseLocked = true
+		this.arContentGroup.visible = true
+	}
+
+	/** 每帧向目标位姿插值；大跳变时更慢，减小突变感 */
+	private updateMindArPoseSmooth(delta: number) {
+		if (
+			!this.isMindArMode ||
+			!this.isMindArPoseLocked ||
+			!this.mindArPoseHasSample ||
+			!this.arContentGroup
+		) {
+			return
+		}
+
+		const ang = this.mindArSmoothQuat.angleTo(this.mindArTargetQuat)
+		const scaleRef = Math.max(this.mindArSmoothScale.x, 1e-6)
+		const posRel =
+			this.mindArSmoothPos.distanceTo(this.mindArTargetPos) / scaleRef
+
+		// 正常跟手 ~12；跳变大时降到 ~3，避免瞬间翻面/甩动
+		let lambda = 12
+		if (ang > Math.PI / 8 || posRel > 0.2) {
+			lambda = 3.5
+		} else if (ang > Math.PI / 16 || posRel > 0.08) {
+			lambda = 7
+		}
+		const t = 1 - Math.exp(-lambda * Math.min(Math.max(delta, 0), 0.1))
+
+		this.mindArSmoothPos.lerp(this.mindArTargetPos, t)
+		this.mindArSmoothQuat.slerp(this.mindArTargetQuat, t)
+		this.mindArSmoothScale.lerp(this.mindArTargetScale, t)
+		this.writeMindArSmoothMatrix()
+	}
+
+	private writeMindArSmoothMatrix() {
+		if (!this.arContentGroup) return
+		this.mindArComposeMat.compose(
+			this.mindArSmoothPos,
+			this.mindArSmoothQuat,
+			this.mindArSmoothScale
+		)
+		this.arContentGroup.matrixAutoUpdate = false
+		this.arContentGroup.matrix.copy(this.mindArComposeMat)
+		this.arContentGroup.updateMatrixWorld(true)
+	}
+
+	setMindArAnchorVisible(visible: boolean) {
+		if (this.arContentGroup) {
+			this.arContentGroup.visible = visible
 		}
 	}
 
@@ -6042,19 +6448,7 @@ class ThreeCore {
 			const delta = this.clock.getDelta()
 			this.effectManager.update(delta)
 
-			// ez-tree 叶片风动
-			if (this.scene) {
-				const elapsed = this.clock.elapsedTime
-				for (const child of this.scene.children) {
-					if (
-						child.userData?.type === 'eztree' &&
-						typeof (child as { update?: (t: number) => void }).update ===
-							'function'
-					) {
-						;(child as { update: (t: number) => void }).update(elapsed)
-					}
-				}
-			}
+			// ez-tree 已烘焙为静态 Mesh，无需每帧风动 update
 
 			// AR Hit Test
 			if (this.options.enableAR && frame) {
@@ -6084,7 +6478,12 @@ class ThreeCore {
 				}
 			}
 
-			this.updateCameraClipPlanes()
+			// MindAR 投影矩阵由外部设置，勿用场景包围盒改写 near/far
+			if (!this.isMindArMode) {
+				this.updateCameraClipPlanes()
+			} else {
+				this.updateMindArPoseSmooth(delta)
+			}
 
 			// 更新高斯泼溅查看器
 			if (this.splatViewer) {
@@ -6988,6 +7387,9 @@ class ThreeCore {
 			)
 				return
 			const typeGuess = (() => {
+				if (obj.userData.type === 'canvas') {
+					return 'canvas'
+				}
 				if (obj.userData.url) {
 					if (obj.userData.type === 'character') {
 						return 'character'
@@ -7156,6 +7558,16 @@ class ThreeCore {
 			if (typeGuess === 'image' || typeGuess === 'video') {
 				jsonObj.url = obj.userData.url.replace(BASE_IMG, '')
 			}
+			if (typeGuess === 'canvas') {
+				if (obj.userData.options) {
+					jsonObj.options = JSON.parse(
+						JSON.stringify(obj.userData.options)
+					) as Record<string, unknown>
+				}
+				if (typeof obj.userData.baseWidth === 'number') {
+					jsonObj.baseWidth = obj.userData.baseWidth
+				}
+			}
 			if (typeGuess === 'effect') {
 				jsonObj.options = obj.userData.options
 				jsonObj.effect_name = obj.userData.effectName
@@ -7278,6 +7690,19 @@ class ThreeCore {
 			if (lightingConfig) {
 				resault.lighting = lightingConfig
 			}
+		}
+		if (this.arTarget?.mindUrl && this.arTarget?.previewUrl) {
+			resault.arTarget = {
+				mindUrl: this.arTarget.mindUrl,
+				previewUrl: this.arTarget.previewUrl,
+				targetIndex: this.arTarget.targetIndex ?? 0,
+				...(this.arTarget.name ? { name: this.arTarget.name } : {}),
+				...(this.arTarget.updatedAt
+					? { updatedAt: this.arTarget.updatedAt }
+					: {})
+			}
+		} else {
+			resault.arTarget = null
 		}
 		return resault
 	}
@@ -8194,6 +8619,19 @@ class ThreeCore {
 			if (json.cameraList) {
 				this.cameraList = json.cameraList
 			}
+			if (json.arTarget?.mindUrl && json.arTarget?.previewUrl) {
+				this.arTarget = {
+					mindUrl: json.arTarget.mindUrl,
+					previewUrl: json.arTarget.previewUrl,
+					targetIndex: json.arTarget.targetIndex ?? 0,
+					...(json.arTarget.name ? { name: json.arTarget.name } : {}),
+					...(json.arTarget.updatedAt
+						? { updatedAt: json.arTarget.updatedAt }
+						: {})
+				}
+			} else {
+				this.arTarget = null
+			}
 			if (json.background) {
 				// 纯色与图片背景均走 DOM；WebGL 不设置 scene.background
 				if (json.background.startsWith('color:')) {
@@ -8525,6 +8963,27 @@ class ThreeCore {
 			if (obj.type === 'image' && obj.url) {
 				mesh = await this.loadImageMesh(BASE_IMG + obj.url, obj.baseWidth || 5)
 			}
+			if (obj.type === 'canvas') {
+				const canvasDoc = obj.options?.canvas as
+					| Record<string, unknown>
+					| null
+					| undefined
+				if (canvasDoc) {
+					mesh = await this.loadCanvasMesh(
+						canvasDoc,
+						obj.baseWidth || 5
+					)
+				} else if (obj.url) {
+					// 兼容旧数据：曾上传合成贴图
+					mesh = await this.loadImageMesh(
+						BASE_IMG + obj.url,
+						obj.baseWidth || 5
+					)
+					mesh.userData.type = 'canvas'
+					mesh.userData.baseWidth = obj.baseWidth || 5
+					mesh.userData.options = { ...(obj.options || {}), canvas: null }
+				}
+			}
 			if (obj.type === 'video' && obj.url) {
 				mesh = await this.loadVideoMesh(BASE_IMG + obj.url, obj.baseWidth || 5)
 			}
@@ -8636,9 +9095,9 @@ class ThreeCore {
 				if (obj.effect?.length) {
 					this.setEffectModel(mesh, obj.effect)
 				}
-				if (obj.type === 'image' || obj.type === 'video') {
+				if (obj.type === 'image' || obj.type === 'video' || obj.type === 'canvas') {
 					this.applySplatMeshDepthCompat(mesh)
-				} else {
+				} else if (obj.type !== 'eztree') {
 					this.applyTransparentRenderSettings(mesh, obj.renderOrder)
 				}
 				if (obj.follow) {
@@ -8827,7 +9286,7 @@ class ThreeCore {
 		return found
 	}
 
-	/** 点云增删后通知 Spark 重建/清空累积器，避免按旧 maxSplats 做全量排序卡死 */
+	/** 点云增删后通知 Spark；若已无点云则彻底销毁 SparkRenderer，释放显存 */
 	private notifySparkSplatsChanged(): void {
 		const sr = this.sparkRenderer as
 			| (SparkRenderer & {
@@ -8835,13 +9294,61 @@ class ThreeCore {
 					clearSplats?: () => void
 			  })
 			| undefined
-		if (!sr) return
+		if (!sr) {
+			this.refreshScenePagedRadFlag()
+			this.syncSceneColorSpaces()
+			return
+		}
 		if (!this.sceneHasSplats()) {
-			sr.clearSplats?.()
+			// 删光点云后若仍保留 Spark，后续首次加载 ez-tree 会在同一 WebGL 上下文崩掉
+			this.releaseSparkRenderer()
+			this.syncSceneColorSpaces()
+			return
 		}
 		sr.setDirty?.()
 		this.refreshScenePagedRadFlag()
 		this.syncSceneColorSpaces()
+	}
+
+	/** 销毁 SparkRenderer（删光点云或整页销毁时调用；下次 loadSplat 会 recreate） */
+	private releaseSparkRenderer(): void {
+		if (!this.sparkRenderer) return
+		const sr = this.sparkRenderer as SparkRenderer & { dispose?: () => void }
+		try {
+			;(sr as SparkRenderer & { clearSplats?: () => void }).clearSplats?.()
+		} catch {
+			/* ignore */
+		}
+		this.scene?.remove(this.sparkRenderer)
+		try {
+			sr.dispose?.()
+		} catch (e) {
+			console.warn('SparkRenderer dispose failed:', e)
+		}
+		this.sparkRenderer = undefined
+		this.sceneHasPagedRadSplats = false
+	}
+
+	/**
+	 * 在加载点云之前预热 ez-tree：把贴图/材质 compile 进当前 WebGL 上下文。
+	 * 必须在首次 ensureSparkRenderer 之前调用。
+	 */
+	public async warmEzTreeAssets(): Promise<void> {
+		await this.whenRendererReady()
+		const gl = this.getWebGLRenderer()
+		const { warmEzTree } = await import('@/utils/ezTree')
+		await warmEzTree(gl)
+	}
+
+	/** 编辑器用：采集 WebGL / 场景资源占用快照 */
+	public getResourceSnapshot() {
+		return collectSceneResourceSnapshot({
+			scene: this.scene,
+			glRenderer: this.getWebGLRenderer(),
+			sparkActive: Boolean(this.sparkRenderer),
+			isSplatObject: (obj) =>
+				obj instanceof SplatMesh || obj.userData?.type === 'splat'
+		})
 	}
 
 	private scheduleDeferredDispose(root: THREE.Object3D): void {
@@ -8973,7 +9480,7 @@ class ThreeCore {
 
 	/**
 	 * 清空已加载的场景内容（模型、拉线、点云等），保留 WebGL 渲染器、相机、OrbitControls、
-	 * SparkRenderer / DRACOLoader（Wasm 单例，切换时不销毁）。
+	 * DRACOLoader（Wasm 单例）。无点云时会释放 SparkRenderer，避免残留显存导致后续 ez-tree 崩溃。
 	 */
 	public clearSceneContent(): void {
 		if (!this.scene) return
@@ -9141,14 +9648,7 @@ class ThreeCore {
 		}
 
 		if (this.sparkRenderer) {
-			this.scene?.remove(this.sparkRenderer)
-			const sr = this.sparkRenderer as SparkRenderer & { dispose?: () => void }
-			try {
-				sr.dispose?.()
-			} catch (e) {
-				console.warn('SparkRenderer dispose failed:', e)
-			}
-			this.sparkRenderer = undefined
+			this.releaseSparkRenderer()
 		}
 
 		if (this.dracoLoader) {

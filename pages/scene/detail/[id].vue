@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { CameraState, SceneObjectJSON, SceneJSON } from '@/utils/threeCore';
+import type { CameraState, SceneObjectJSON, SceneJSON, SceneArTargetJSON } from '@/utils/threeCore';
 import { sceneStepLabel, pruneSceneObjectIdFromSteps, resolveStepGroupRoot, labelForStepGroupRoot, isSceneStepContentRoot } from '@/utils/sceneSteps';
 import type ThreeCore from '@/utils/threeCore';
 import * as THREE from 'three';
@@ -10,7 +10,11 @@ import type { DiaryInterface, LibraryInterface } from '@/types/sence'
 import type SceneMaterial from '@/components/scene/Material.vue'
 import type SceneTextureEditor from '@/components/scene/TextureEditor.vue'
 import type SceneAnimationEditor from '@/components/scene/SceneAnimationEditor.vue'
+import type SceneCanvasEditor from '@/components/scene/CanvasEditor.vue'
+import type { SceneCanvasApplyPayload } from '@/components/scene/CanvasEditor.vue'
 import SceneObjectTransformEditor from '@/components/scene/SceneObjectTransformEditor.vue'
+import SceneArTargetModal from '@/components/scene/SceneArTargetModal.vue'
+import { hasSceneArTarget } from '@/utils/ar/sceneArTarget'
 import { isAnimatableSceneObject } from '@/composables/useSceneObjectAnimation'
 import type QhxColorPicker from '@/components/Qhx/ColorPicker.vue'
 import { useSceneStore } from '@/stores/sence'
@@ -19,7 +23,6 @@ import { createFont } from '~/api';
 import { uploadFileToOSS } from '@/utils/ossUpload';
 import { useSceneCore } from '@/composables/useSceneCore';
 import { useSceneUndo, type TransformState } from '@/composables/useSceneUndo';
-import { useVoxelBlockBuild } from '@/composables/useVoxelBlockBuild';
 import { useSceneWallDraw } from '@/composables/useSceneWallDraw';
 import { useSceneWalkthrough } from '@/composables/useSceneWalkthrough';
 import GalleryJoystick from '@/components/gallery/GalleryJoystick.vue';
@@ -59,7 +62,14 @@ import {
     removeMaterialLoadPlaceholder,
     setSceneMaterialPointerDragHandlers
 } from '@/utils/sceneMaterialDrag'
-import { EZ_TREE_PRESETS, createEzTree } from '@/utils/ezTree';
+import { createEzTree } from '@/utils/ezTree'
+import {
+    setScenePlantPointerDragHandlers,
+    type ScenePlantDragItem
+} from '@/utils/scenePlantDrag'
+import {
+    normalizeSceneCanvasDocument
+} from '@/utils/sceneCanvas';
 // @ts-ignore - 缺少类型定义
 import InfiniteGridHelper from '@plackyfantacky/three.infinitegridhelper';
 
@@ -98,22 +108,11 @@ const roleControllers = ref<CharacterTypeController[]>([])
 /** 左侧独立「动画」面板展开（与右侧列表块一致，与功能栏分离） */
 const roleAnimationListExpanded = ref(false)
 const showRoleAnimation = () => {
-    exitVoxelBlockBuild()
     exitWallDraw()
     closeSceneStepGroupingIfOpen()
     const wasExpanded = roleAnimationListExpanded.value
-    materialListExpanded.value = false
-    clothingListExpanded.value = false
-    sceneListExpanded.value = false
-    effectListExpanded.value = false
-    templateListExpanded.value = false
-    customListExpanded.value = false
-    textureListExpanded.value = false
-    if (!wasExpanded) {
-        roleAnimationListExpanded.value = true
-    } else {
-        roleAnimationListExpanded.value = false
-    }
+    collapseOtherSideLists()
+    roleAnimationListExpanded.value = !wasExpanded
 }
 type SceneRoleAnimationEntry = {
     key: string
@@ -440,6 +439,9 @@ const canTexture = computed(() => {
 
 const MaterialRef = ref<InstanceType<typeof SceneMaterial> | null>(null)
 const SceneTextureEditorRef = ref<InstanceType<typeof SceneTextureEditor> | null>(null)
+const SceneCanvasEditorRef = ref<InstanceType<typeof SceneCanvasEditor> | null>(null)
+/** 正在二次编辑的画布网格；新建时为 null */
+const canvasEditTarget = ref<THREE.Mesh | null>(null)
 
 /** 页面 DOM 背景（响应式；threeCore 为 shallowRef，直接改其 background 不会触发视图更新） */
 const scenePageBackground = ref<string | null>(null)
@@ -494,7 +496,62 @@ const target: Ref<THREE.Mesh | null> = ref(null)
 const animationTarget: Ref<THREE.Object3D | null> = ref(null)
 const SceneAnimationEditorRef = ref<InstanceType<typeof SceneAnimationEditor> | null>(null)
 const transformType = ref('translate')
-const showToolbar = ref(Boolean(route.query?.edit || route.query?.add)) // 非编辑模式默认收起
+const showToolbar = ref(false) // 工具列表默认收起；保存按钮独立于工具栏
+
+const resourceMonitorEnabled = computed(() => edit_mode.value || add_mode.value)
+const {
+    snapshot: resourceSnapshot,
+    visible: resourceHudVisible,
+    contextLost: resourceContextLost,
+    refresh: refreshResourceSnapshot
+} = useSceneResourceMonitor({
+    threeCore,
+    enabled: resourceMonitorEnabled,
+    intervalMs: 1200
+})
+
+function openResourceHud() {
+    resourceHudVisible.value = true
+    refreshResourceSnapshot()
+}
+
+function closeResourceHud() {
+    resourceHudVisible.value = false
+}
+
+function toggleResourceHud() {
+    if (resourceHudVisible.value) closeResourceHud()
+    else openResourceHud()
+}
+
+watch(resourceContextLost, (lost) => {
+    if (!lost || !process.client) return
+    toast.add({
+        title: 'WebGL 上下文丢失',
+        description: '显存可能已溢出，请降低画质或减少点云/植物后刷新页面',
+        color: 'red',
+        icon: 'i-heroicons-exclamation-triangle',
+        timeout: 12000
+    })
+})
+
+let lastResourceRisk: string | null = null
+watch(
+    () => resourceSnapshot.value.risk,
+    (risk) => {
+        if (!process.client) return
+        if (risk === 'danger' && lastResourceRisk !== 'danger') {
+            toast.add({
+                title: '资源占用过高',
+                description: resourceSnapshot.value.riskHints[0] || '建议少加点云/植物，或调低画质',
+                color: 'amber',
+                icon: 'i-heroicons-exclamation-triangle'
+            })
+        }
+        lastResourceRisk = risk
+    }
+)
+
 watch([edit_mode, add_mode], ([edit, add]) => {
     if (!edit && !add) {
         showToolbar.value = false
@@ -528,15 +585,33 @@ const showRoleAnimationPanel = computed(
 )
 // 六个独立的悬浮列表展开状态，互不联动，但同时只展开一个
 const materialListExpanded = ref(false)
-const clothingListExpanded = ref(false)
-const sceneListExpanded = ref(false)
+/** 合并面板内筛选：素材 / 服饰 / 场景 */
+type AssetLibraryTab = 'material' | 'clothing' | 'scene'
+const assetLibraryTab = ref<AssetLibraryTab>('material')
+const assetLibraryTabs: { id: AssetLibraryTab; label: string }[] = [
+    { id: 'material', label: '素材' },
+    { id: 'clothing', label: '服饰' },
+    { id: 'scene', label: '场景' }
+]
 const effectListExpanded = ref(false)
 const templateListExpanded = ref(false)
 const customListExpanded = ref(false)
+const plantListExpanded = ref(false)
 /** 左侧「贴图」面板（动画下方）：列出所有名称含 replace 的可替换 Mesh */
 const textureListExpanded = ref(false)
 /** 左侧「分组」面板：多场景 step 编辑 */
 const sceneStepListExpanded = ref(false)
+
+/** 展开某一侧栏前收起其它列表 */
+const collapseOtherSideLists = () => {
+    materialListExpanded.value = false
+    effectListExpanded.value = false
+    templateListExpanded.value = false
+    customListExpanded.value = false
+    plantListExpanded.value = false
+    textureListExpanded.value = false
+    roleAnimationListExpanded.value = false
+}
 /** 分组模式：不隐藏物体，点击场景物体加入当前激活分组 */
 const sceneStepGroupingMode = ref(false)
 /** 分组编辑时临时隐藏的分组索引（同时仅允许一个） */
@@ -620,11 +695,11 @@ type GuidePanelsSnapshot = {
     textureListExpanded: boolean
     sceneStepListExpanded: boolean
     materialListExpanded: boolean
-    clothingListExpanded: boolean
-    sceneListExpanded: boolean
+    assetLibraryTab: AssetLibraryTab
     effectListExpanded: boolean
     templateListExpanded: boolean
     customListExpanded: boolean
+    plantListExpanded: boolean
 }
 
 let guidePanelsSnapshot: GuidePanelsSnapshot | null = null
@@ -634,11 +709,10 @@ function collapseAllGuideSideLists() {
     textureListExpanded.value = false
     sceneStepListExpanded.value = false
     materialListExpanded.value = false
-    clothingListExpanded.value = false
-    sceneListExpanded.value = false
     effectListExpanded.value = false
     templateListExpanded.value = false
     customListExpanded.value = false
+    plantListExpanded.value = false
 }
 
 function expandGuidePanel(panel: SceneEditGuidePanelKey) {
@@ -652,12 +726,15 @@ function expandGuidePanel(panel: SceneEditGuidePanelKey) {
             break
         case 'material':
             materialListExpanded.value = true
+            assetLibraryTab.value = 'material'
             break
         case 'clothing':
-            clothingListExpanded.value = true
+            materialListExpanded.value = true
+            assetLibraryTab.value = 'clothing'
             break
         case 'scene':
-            sceneListExpanded.value = true
+            materialListExpanded.value = true
+            assetLibraryTab.value = 'scene'
             break
         case 'effect':
             effectListExpanded.value = true
@@ -678,11 +755,11 @@ function captureGuidePanelsSnapshot() {
         textureListExpanded: textureListExpanded.value,
         sceneStepListExpanded: sceneStepListExpanded.value,
         materialListExpanded: materialListExpanded.value,
-        clothingListExpanded: clothingListExpanded.value,
-        sceneListExpanded: sceneListExpanded.value,
+        assetLibraryTab: assetLibraryTab.value,
         effectListExpanded: effectListExpanded.value,
         templateListExpanded: templateListExpanded.value,
-        customListExpanded: customListExpanded.value
+        customListExpanded: customListExpanded.value,
+        plantListExpanded: plantListExpanded.value
     }
 }
 
@@ -694,11 +771,11 @@ function restoreGuidePanelsSnapshot() {
     textureListExpanded.value = snap.textureListExpanded
     sceneStepListExpanded.value = snap.sceneStepListExpanded
     materialListExpanded.value = snap.materialListExpanded
-    clothingListExpanded.value = snap.clothingListExpanded
-    sceneListExpanded.value = snap.sceneListExpanded
+    assetLibraryTab.value = snap.assetLibraryTab
     effectListExpanded.value = snap.effectListExpanded
     templateListExpanded.value = snap.templateListExpanded
     customListExpanded.value = snap.customListExpanded
+    plantListExpanded.value = snap.plantListExpanded
     guidePanelsSnapshot = null
 }
 
@@ -915,6 +992,22 @@ const copySceneObject = async () => {
     if (!clickObject.value?.length) return
     const source = clickObject.value[0]
     const t = source.userData.type
+
+    if (t === 'canvas') {
+        const mesh = await threeCore.value.loadCanvasMesh(
+            (source.userData.options?.canvas as Record<string, unknown>) || null
+        )
+        if (source.userData.follow) {
+            mesh.userData.follow = true
+        }
+        mesh.position.copy(source.position)
+        mesh.rotation.copy(source.rotation)
+        mesh.scale.copy(source.scale)
+        stampAndAddSceneObject(mesh)
+        bumpTextureReplaceableScan()
+        return
+    }
+
     if (!source.userData.url) return
 
     if (t === 'image' || t === 'video') {
@@ -1168,161 +1261,82 @@ const handleShare = async () => {
 const deleteCamera = (index: number) => {
     if (!threeCore.value) return
     threeCore.value.cameraList.splice(index, 1)
+    bumpSceneObjectRevision()
 }
 const resetCamera = (index: number) => {
     if (!threeCore.value) return
     threeCore.value.cameraList[index] = threeCore.value.recordCamera(false)
+    bumpSceneObjectRevision()
 }
 
 // 每个按钮独立控制其列表：点击展开时收起其它，点击已展开的则收起
 const showMaterial = () => {
-    exitVoxelBlockBuild()
     exitWallDraw()
     closeSceneStepGroupingIfOpen()
     const wasExpanded = materialListExpanded.value
-    materialListExpanded.value = false
-    clothingListExpanded.value = false
-    sceneListExpanded.value = false
-    effectListExpanded.value = false
-    templateListExpanded.value = false
-    customListExpanded.value = false
-    textureListExpanded.value = false
-    roleAnimationListExpanded.value = false
+    collapseOtherSideLists()
     if (!wasExpanded) materialListExpanded.value = true
 }
-const showClothing = () => {
-    exitVoxelBlockBuild()
-    exitWallDraw()
-    closeSceneStepGroupingIfOpen()
-    const wasExpanded = clothingListExpanded.value
-    materialListExpanded.value = false
-    clothingListExpanded.value = false
-    sceneListExpanded.value = false
-    effectListExpanded.value = false
-    templateListExpanded.value = false
-    customListExpanded.value = false
-    textureListExpanded.value = false
-    roleAnimationListExpanded.value = false
-    if (!wasExpanded) clothingListExpanded.value = true
-}
-const showScene = () => {
-    exitVoxelBlockBuild()
-    exitWallDraw()
-    closeSceneStepGroupingIfOpen()
-    const wasExpanded = sceneListExpanded.value
-    materialListExpanded.value = false
-    clothingListExpanded.value = false
-    sceneListExpanded.value = false
-    effectListExpanded.value = false
-    templateListExpanded.value = false
-    customListExpanded.value = false
-    textureListExpanded.value = false
-    roleAnimationListExpanded.value = false
-    if (!wasExpanded) sceneListExpanded.value = true
-}
 const showEffect = () => {
-    exitVoxelBlockBuild()
     exitWallDraw()
     closeSceneStepGroupingIfOpen()
     const wasExpanded = effectListExpanded.value
-    materialListExpanded.value = false
-    clothingListExpanded.value = false
-    sceneListExpanded.value = false
-    effectListExpanded.value = false
-    templateListExpanded.value = false
-    customListExpanded.value = false
-    textureListExpanded.value = false
-    roleAnimationListExpanded.value = false
+    collapseOtherSideLists()
     if (!wasExpanded) effectListExpanded.value = true
 }
 const showTemplate = () => {
-    exitVoxelBlockBuild()
     exitWallDraw()
     closeSceneStepGroupingIfOpen()
     const wasExpanded = templateListExpanded.value
-    materialListExpanded.value = false
-    clothingListExpanded.value = false
-    sceneListExpanded.value = false
-    effectListExpanded.value = false
-    templateListExpanded.value = false
-    customListExpanded.value = false
-    textureListExpanded.value = false
-    roleAnimationListExpanded.value = false
+    collapseOtherSideLists()
     if (!wasExpanded) templateListExpanded.value = true
 }
 const showCustom = () => {
-    exitVoxelBlockBuild()
     exitWallDraw()
     closeSceneStepGroupingIfOpen()
     const wasExpanded = customListExpanded.value
-    materialListExpanded.value = false
-    clothingListExpanded.value = false
-    sceneListExpanded.value = false
-    effectListExpanded.value = false
-    templateListExpanded.value = false
-    customListExpanded.value = false
-    textureListExpanded.value = false
-    roleAnimationListExpanded.value = false
+    collapseOtherSideLists()
     if (!wasExpanded) customListExpanded.value = true
 }
+const showPlant = () => {
+    // 有点云时不允许展开植物面板
+    if (threeCore.value?.sceneHasSplats()) {
+        plantListExpanded.value = false
+        if (process.client) {
+            toast.add({
+                title: '与点云冲突',
+                description: '场景内已有点云，无法打开植物面板。请先删除点云。',
+                color: 'amber',
+                icon: 'i-heroicons-exclamation-triangle'
+            })
+        }
+        return
+    }
+    exitWallDraw()
+    closeSceneStepGroupingIfOpen()
+    const wasExpanded = plantListExpanded.value
+    collapseOtherSideLists()
+    if (!wasExpanded) plantListExpanded.value = true
+}
 const showTextureList = () => {
-    exitVoxelBlockBuild()
     exitWallDraw()
     closeSceneStepGroupingIfOpen()
     const wasExpanded = textureListExpanded.value
-    materialListExpanded.value = false
-    clothingListExpanded.value = false
-    sceneListExpanded.value = false
-    effectListExpanded.value = false
-    templateListExpanded.value = false
-    customListExpanded.value = false
-    textureListExpanded.value = false
-    roleAnimationListExpanded.value = false
+    collapseOtherSideLists()
     if (!wasExpanded) textureListExpanded.value = true
-}
-
-const showVoxelBlock = () => {
-    exitWalkthrough()
-    exitWallDraw()
-    closeSceneStepGroupingIfOpen()
-    materialListExpanded.value = false
-    clothingListExpanded.value = false
-    sceneListExpanded.value = false
-    effectListExpanded.value = false
-    templateListExpanded.value = false
-    customListExpanded.value = false
-    textureListExpanded.value = false
-    roleAnimationListExpanded.value = false
-    showVoxelBlockPanel()
 }
 
 const showWallDraw = () => {
     exitWalkthrough()
-    exitVoxelBlockBuild()
     closeSceneStepGroupingIfOpen()
-    materialListExpanded.value = false
-    clothingListExpanded.value = false
-    sceneListExpanded.value = false
-    effectListExpanded.value = false
-    templateListExpanded.value = false
-    customListExpanded.value = false
-    textureListExpanded.value = false
-    roleAnimationListExpanded.value = false
+    collapseOtherSideLists()
     showWallDrawPanel()
 }
 
 const showSceneStepList = () => {
-    exitVoxelBlockBuild()
     exitWallDraw()
     const wasExpanded = sceneStepListExpanded.value
-    materialListExpanded.value = false
-    clothingListExpanded.value = false
-    sceneListExpanded.value = false
-    effectListExpanded.value = false
-    templateListExpanded.value = false
-    customListExpanded.value = false
-    textureListExpanded.value = false
-    roleAnimationListExpanded.value = false
+    collapseOtherSideLists()
     if (!wasExpanded) {
         sceneStepListExpanded.value = true
         enterSceneStepGroupingMode()
@@ -1565,20 +1579,34 @@ const imageMenuPosition = ref({ x: 0, y: 0 })
 
 const showColorPicker = ref(false)
 const colorPickerRef = ref<InstanceType<typeof QhxColorPicker> | null>(null)
-type ColorPickerTarget = 'background' | 'voxelSolid'
+type ColorPickerTarget = 'background'
 const colorPickerTarget = ref<ColorPickerTarget>('background')
 
 const showLightMenu = ref(false)
 const lightMenuPosition = ref({ x: 0, y: 0 })
 const currentLightPreset = ref('default')
 
-const showPlantMenu = ref(false)
-const plantMenuPosition = ref({ x: 0, y: 0 })
 const plantCreating = ref(false)
 
 const showPostModal = ref(false)
 const showMoreMenu = ref(false)
 const moreMenuPosition = ref({ x: 0, y: 0 })
+const showArTargetModal = ref(false)
+const sceneArTarget = ref<SceneArTargetJSON | null>(null)
+const clearingArTarget = ref(false)
+
+watch(
+    () => detail.value?.json_data?.arTarget,
+    v => {
+        sceneArTarget.value = hasSceneArTarget(v) ? { ...v } : null
+        if (threeCore.value) {
+            threeCore.value.arTarget = sceneArTarget.value
+        }
+    },
+    { immediate: true, deep: true }
+)
+
+const showSceneArButton = computed(() => hasSceneArTarget(sceneArTarget.value))
 
 const openMoreMenu = (e: MouseEvent) => {
     moreMenuPosition.value = {
@@ -1601,6 +1629,67 @@ const handleSceneShareFromMenu = async () => {
 const replaySceneEditGuideFromMenu = () => {
     showMoreMenu.value = false
     replaySceneEditGuide()
+}
+
+const openArTargetFromMenu = () => {
+    showMoreMenu.value = false
+    showArTargetModal.value = true
+}
+
+const onArTargetSaved = (target: SceneArTargetJSON) => {
+    sceneArTarget.value = target
+    if (threeCore.value) threeCore.value.arTarget = target
+    if (detail.value?.json_data) {
+        detail.value.json_data.arTarget = target
+    }
+    // 清掉场景缓存，避免进 AR 页读到旧 json（无 arTarget）
+    clearNuxtData('studyDeatil')
+    clearNuxtData(`studyDeatil-${id}`)
+    toast.add({
+        title: '识别图已就绪',
+        description: '已写入场景，可点击右上角「AR」体验',
+        icon: 'i-heroicons-check-circle',
+        color: 'green'
+    })
+}
+
+const onArTargetCleared = async () => {
+    if (!threeCore.value || clearingArTarget.value) return
+    const sid = Number.parseInt(id, 10)
+    if (!Number.isFinite(sid) || sid <= 0) return
+
+    clearingArTarget.value = true
+    try {
+        threeCore.value.arTarget = null
+        const json_data = threeCore.value.saveSceneToJSON()
+        json_data.walls = exportSceneWalls()
+        json_data.arTarget = null
+        await updateScene({ sence_id: sid, json_data })
+        sceneArTarget.value = null
+        if (detail.value?.json_data) {
+            detail.value.json_data.arTarget = null
+        }
+        showArTargetModal.value = false
+        toast.add({
+            title: '已清除识别图',
+            icon: 'i-heroicons-check-circle',
+            color: 'green'
+        })
+    } catch (error) {
+        console.error('清除识别图失败:', error)
+        toast.add({
+            title: '清除失败',
+            icon: 'i-heroicons-exclamation-circle',
+            color: 'red'
+        })
+    } finally {
+        clearingArTarget.value = false
+    }
+}
+
+const goSceneAr = () => {
+    if (!showSceneArButton.value) return
+    navigateTo(`/scene/detail/ar/${id}`)
 }
 
 const showSceneSettings = ref(false)
@@ -1666,6 +1755,13 @@ const sceneAllowCopyEnabled = computed(() => isSceneAllowCopyEnabled(detail.valu
 
 const isSceneOwner = computed(
     () => detail.value != null && userStore.user?.user_id === detail.value.user_id
+)
+
+const canManageArTarget = computed(
+    () =>
+        id !== '0' &&
+        isSceneOwner.value &&
+        !isFromIframeEmbed.value
 )
 
 const canCloneScene = computed(() => {
@@ -1793,7 +1889,7 @@ const openObjectSettings = () => {
             }
             showObjectSettings.value = true
         }
-        if (obj.userData.type === 'image' || obj.userData.type === 'video') {
+        if (obj.userData.type === 'image' || obj.userData.type === 'video' || obj.userData.type === 'canvas') {
             if (obj.userData.follow === undefined) {
                 obj.userData.follow = false
             }
@@ -1809,7 +1905,11 @@ const openObjectSettings = () => {
 
 const onImageFollowChange = (v: boolean) => {
     const obj = clickObject.value?.[0]
-    if (obj?.userData?.type === 'image' || obj?.userData?.type === 'video') {
+    if (
+        obj?.userData?.type === 'image' ||
+        obj?.userData?.type === 'video' ||
+        obj?.userData?.type === 'canvas'
+    ) {
         obj.userData.follow = v
     }
 }
@@ -1934,6 +2034,44 @@ const addImage = () => {
     }
 }
 
+const openCreateCanvas = () => {
+    canvasEditTarget.value = null
+    SceneCanvasEditorRef.value?.openEditor(null)
+}
+
+const openEditCanvas = () => {
+    const obj = clickObject.value?.[0]
+    if (!obj || obj.userData.type !== 'canvas' || !(obj instanceof THREE.Mesh)) return
+    const raw = obj.userData.options?.canvas
+    const doc = normalizeSceneCanvasDocument(raw)
+    canvasEditTarget.value = obj
+    SceneCanvasEditorRef.value?.openEditor(doc)
+}
+
+const onCanvasApply = async (payload: SceneCanvasApplyPayload) => {
+    if (!threeCore.value) return
+    const target = canvasEditTarget.value
+    const canvasDoc = payload.document as unknown as Record<string, unknown>
+    try {
+        if (target && target.parent) {
+            await threeCore.value.updateCanvasMeshTexture(target, canvasDoc)
+        } else {
+            const mesh = await threeCore.value.loadCanvasMesh(canvasDoc)
+            stampAndAddSceneObject(mesh)
+        }
+    } catch (err) {
+        console.error('画布应用到场景失败:', err)
+        toast.add({
+            title: '应用失败',
+            description: err instanceof Error ? err.message : '请稍后重试',
+            icon: 'i-heroicons-x-circle',
+            color: 'red'
+        })
+    } finally {
+        canvasEditTarget.value = null
+    }
+}
+
 // 添加视频
 const addVideo = () => {
     if (MaterialRef.value) {
@@ -1981,10 +2119,6 @@ const selectSolidColorBackground = () => {
 }
 
 const onColorPickerChoose = (color: string) => {
-    if (colorPickerTarget.value === 'voxelSolid') {
-        selectVoxelSolidColor(color)
-        return
-    }
     setSolidColorBackground(color)
 }
 
@@ -2055,42 +2189,71 @@ const openLightMenu = (e: MouseEvent) => {
     showLightMenu.value = true
 }
 
-const openPlantMenu = (e: MouseEvent) => {
-    plantMenuPosition.value = {
-        x: e.clientX + 50,
-        y: e.clientY
-    }
-    showPlantMenu.value = true
-}
-
-/** 用 ez-tree 预设快速创建植物 */
-const addPlantFromPreset = async (presetId: string) => {
+/** 用 ez-tree 预设创建植物；position 缺省时落到视野中心地面 */
+const choosePlant = async (presetId: string, position?: THREE.Vector3) => {
     if (!threeCore.value || plantCreating.value) return
-    showPlantMenu.value = false
+    if (threeCore.value.sceneHasSplats()) {
+        if (process.client) {
+            toast.add({
+                title: '与点云冲突',
+                description: '场景内已有点云，无法加载植物。请先删除点云后再添加。',
+                color: 'amber',
+                icon: 'i-heroicons-exclamation-triangle'
+            })
+        }
+        return
+    }
     plantCreating.value = true
     sceneStore.setLoading(true)
-    const placeAt = getDefaultMaterialPlacement()
+    const placeAt = position?.clone() ?? getDefaultMaterialPlacement()
     const placeholder = createMaterialLoadPlaceholder(placeAt)
     threeCore.value.scene.add(placeholder)
     try {
-        const tree = await createEzTree({ preset: presetId })
-        tree.position.copy(placeAt)
-        removeMaterialLoadPlaceholder(placeholder, threeCore.value?.scene)
-        stampAndAddSceneObject(tree)
-        if (process.client) {
-            toast.add({
-                title: '植物',
-                description: '已添加到场景',
-                color: 'green'
-            })
+        await nextTick()
+        await new Promise<void>((r) => requestAnimationFrame(() => r()))
+        try {
+            await threeCore.value.warmEzTreeAssets()
+        } catch (warmErr) {
+            console.warn('ez-tree 预热失败，继续尝试生成:', warmErr)
         }
+        if (threeCore.value.sceneHasSplats()) {
+            removeMaterialLoadPlaceholder(placeholder, threeCore.value.scene)
+            if (process.client) {
+                toast.add({
+                    title: '与点云冲突',
+                    description: '场景内已有点云，无法加载植物。请先删除点云后再添加。',
+                    color: 'amber',
+                    icon: 'i-heroicons-exclamation-triangle'
+                })
+            }
+            return
+        }
+        const tree = await createEzTree({
+            preset: presetId
+        })
+        if (!threeCore.value) {
+            tree.traverse((obj) => {
+                const mesh = obj as THREE.Mesh
+                mesh.geometry?.dispose()
+                const mat = mesh.material
+                if (Array.isArray(mat)) mat.forEach((m) => m.dispose())
+                else mat?.dispose()
+            })
+            return
+        }
+        tree.position.copy(placeAt)
+        removeMaterialLoadPlaceholder(placeholder, threeCore.value.scene)
+        await new Promise<void>((r) => requestAnimationFrame(() => r()))
+        if (!threeCore.value) return
+        stampAndAddSceneObject(tree)
+        refreshResourceSnapshot()
     } catch (err) {
         console.error('创建植物失败:', err)
         removeMaterialLoadPlaceholder(placeholder, threeCore.value?.scene)
         if (process.client) {
             toast.add({
                 title: '创建失败',
-                description: '植物生成失败，请重试',
+                description: err instanceof Error ? err.message : '植物生成失败，请重试',
                 color: 'red'
             })
         }
@@ -2290,6 +2453,7 @@ const clearTemplate = () => {
 const recordCamera = () => {
     if (!threeCore.value) return
     threeCore.value.recordCamera()
+    bumpSceneObjectRevision()
 }
 const chooseEffect = async (item: Effect) => {
     if (!threeCore.value) return
@@ -2338,6 +2502,10 @@ const resolveMaterialDropPoint = (clientX: number, clientY: number) => {
 const materialDragging = ref(false)
 const materialDragGhost = ref<{ cover: string; x: number; y: number } | null>(null)
 
+/** 指针拖拽植物预览 */
+const plantDragging = ref(false)
+const plantDragGhost = ref<{ label: string; kind: string; x: number; y: number } | null>(null)
+
 /** 写入稳定 userData.id 后加入场景；savedId 用于恢复已保存对象（如编辑长文本） */
 const stampAndAddSceneObject = (obj: THREE.Object3D, savedId?: string) => {
     if (!threeCore.value) return
@@ -2358,32 +2526,16 @@ function bumpSceneObjectRevision() {
     sceneObjectRevision.value += 1
 }
 
-const {
-    active: voxelBuildActive,
-    listExpanded: voxelBlockListExpanded,
-    selectedSpec: voxelBlockSpec,
-    buildAction: voxelBuildAction,
-    buildTool: voxelBuildTool,
-    planePhase: voxelPlanePhase,
-    toolHint: voxelBuildToolHint,
-    canPlace: voxelCanPlace,
-    selectionLabel: voxelSelectionLabel,
-    textureBlocks: voxelTextureBlocks,
-    colorPresets: voxelColorPresets,
-    buildTools: voxelBuildTools,
-    selectSolidColor: selectVoxelSolidColor,
-    selectTextureBlock: selectVoxelTextureBlock,
-    showBlockPanel: showVoxelBlockPanel,
-    exit: exitVoxelBlockBuild,
-    bindContainer: bindVoxelBlockContainer
-} = useVoxelBlockBuild({
-    threeCore,
-    editMode: edit_mode,
-    addMode: add_mode,
-    onPlaced: () => bumpSceneObjectRevision(),
-    onRemoved: () => bumpSceneObjectRevision(),
-    onPlaceRejected: (message) => {
-        toast.add({ title: message, color: 'amber' })
+/** 场景内已有点云时禁止打开植物面板 / 加载植物 */
+const plantBlockedBySplat = computed(() => {
+    void resourceSnapshot.value.splats
+    void sceneObjectRevision.value
+    return Boolean(threeCore.value?.sceneHasSplats())
+})
+
+watch(plantBlockedBySplat, (blocked) => {
+    if (blocked && plantListExpanded.value) {
+        plantListExpanded.value = false
     }
 })
 
@@ -2418,7 +2570,6 @@ const {
     isMobile,
     onEnter: () => {
         clickObject.value = null
-        exitVoxelBlockBuild()
         exitWallDraw()
         closeSceneStepGroupingIfOpen()
         threeCore.value?.transformControls.detach()
@@ -2427,7 +2578,6 @@ const {
 
 function toggleSceneWalkthrough() {
     if (!walkthroughActive.value) {
-        exitVoxelBlockBuild()
         exitWallDraw()
         closeSceneStepGroupingIfOpen()
     }
@@ -2440,32 +2590,12 @@ watch(walkthroughActive, (on) => {
     clickObject.value = null
 })
 
-watch(voxelBuildActive, (on) => {
-    if (!on || !threeCore.value) return
-    threeCore.value.transformControls.detach()
-    clickObject.value = null
-    closeSceneStepGroupingIfOpen()
-})
-
 watch(wallDrawActive, (on) => {
     if (!on || !threeCore.value) return
     threeCore.value.transformControls.detach()
     clickObject.value = null
     closeSceneStepGroupingIfOpen()
 })
-
-const isVoxelCustomSolidSelected = computed(() => {
-    const spec = voxelBlockSpec.value
-    if (spec?.variant !== 'solid' || !spec.color) return false
-    return !voxelColorPresets.includes(spec.color as typeof voxelColorPresets[number])
-})
-
-function openVoxelSolidColorPicker(e: MouseEvent) {
-    colorPickerTarget.value = 'voxelSolid'
-    const initial =
-        voxelBlockSpec.value?.variant === 'solid' ? voxelBlockSpec.value.color : undefined
-    colorPickerRef.value?.showModel(e, initial)
-}
 
 function shouldShowSceneStepHighlights(): boolean {
     if (!threeCore.value?.hasSceneSteps()) return false
@@ -2715,6 +2845,49 @@ const unbindSceneMaterialDrop = () => {
     materialDragGhost.value = null
 }
 
+/** 指针拖拽植物到场景地面 */
+const bindScenePlantDrop = () => {
+    setScenePlantPointerDragHandlers({
+        onActiveChange(active, item) {
+            plantDragging.value = active
+            if (!active || !item) {
+                plantDragGhost.value = null
+                return
+            }
+            plantDragGhost.value = {
+                label: item.label,
+                kind: item.kind,
+                x: 0,
+                y: 0
+            }
+        },
+        onMove(clientX, clientY) {
+            if (!plantDragGhost.value) return
+            plantDragGhost.value = {
+                ...plantDragGhost.value,
+                x: clientX,
+                y: clientY
+            }
+        },
+        onDrop(item: ScenePlantDragItem, clientX, clientY) {
+            plantDragging.value = false
+            plantDragGhost.value = null
+            if (!(edit_mode.value || add_mode.value)) return
+            void choosePlant(item.presetId, resolveMaterialDropPoint(clientX, clientY))
+        },
+        onCancel() {
+            plantDragging.value = false
+            plantDragGhost.value = null
+        }
+    })
+}
+
+const unbindScenePlantDrop = () => {
+    setScenePlantPointerDragHandlers(null)
+    plantDragging.value = false
+    plantDragGhost.value = null
+}
+
 /** 选择模版后先展示确认弹窗，确认后再写入场景 */
 const showTemplateConfirmModal = ref(false)
 const pendingTemplateItem = ref<TemplateInterface | null>(null)
@@ -2961,8 +3134,14 @@ const captureSceneImage = async (sence_id: number): Promise<string | null> => {
 
 const saveScene = async () => {
     if (!threeCore.value) return
+    threeCore.value.arTarget = sceneArTarget.value
     const json_data = threeCore.value.saveSceneToJSON()
     json_data.walls = exportSceneWalls()
+    if (sceneArTarget.value) {
+        json_data.arTarget = sceneArTarget.value
+    } else {
+        json_data.arTarget = null
+    }
     // 灯光配置已经在 saveSceneToJSON 中自动保存了
     const params: {
         json_data: typeof json_data
@@ -3150,6 +3329,7 @@ onUnmounted(() => {
     detachLinkBadgeAnimCb()
     linkBadgeMarkers.value = []
     unbindSceneMaterialDrop()
+    unbindScenePlantDrop()
     disposeScene(document.getElementById('scene') || undefined)
 
     // 恢复 body 样式
@@ -3240,7 +3420,7 @@ const initThreejs = async () => {
             },
             onSceneStepGroupingPick: (obj) => handleGroupingScenePick(obj),
             shouldIgnoreScenePick: () =>
-                voxelBuildActive.value || wallDrawActive.value || walkthroughActive.value
+                wallDrawActive.value || walkthroughActive.value
         })
         loadSceneWalls(detail.value?.json_data?.walls)
         // 兼容旧数据：纯色曾写在 scene.background，迁到 DOM（background: color:#…）
@@ -3328,15 +3508,16 @@ const initThreejs = async () => {
                 threeCore.value.syncSatelliteOrbitHelpers()
             }
         }
-        bindVoxelBlockContainer(sceneElement)
         bindWallDrawContainer(sceneElement)
         bindSceneMaterialDrop(sceneElement)
+        bindScenePlantDrop()
     }
 }
 
 onMounted(async () => {
     // 尽早注册拖拽落点，不等 Three 初始化完成
     bindSceneMaterialDrop()
+    bindScenePlantDrop()
     // 设置 body 样式
     if (process.client) {
         document.body.style.width = '100vw'
@@ -3377,12 +3558,6 @@ onMounted(async () => {
             exitWallDraw()
             return
         }
-        if (e.key === 'Escape' && voxelBuildActive.value) {
-            if (isInput) return
-            e.preventDefault()
-            exitVoxelBlockBuild()
-            return
-        }
         // R 旋转、G 移动、S 缩放（编辑/新建模式、已选物体、非输入态）
         if (
             !isTypingInForm(e.target)
@@ -3407,6 +3582,19 @@ const sceneOwnerActionTop = computed(() => {
 const sceneStepSwitcherTop = computed(() => {
     const bar = configStore.statusBarHeight || 0
     return `calc(2.75rem + max(env(safe-area-inset-top, 0px), ${bar}px))`
+})
+
+/** 顶部条：有场景分组时优先显示分组；否则显示镜头列表（二者互斥） */
+const showTopSceneStepBar = computed(() => {
+    void sceneObjectRevision.value
+    return Boolean(threeCore.value?.hasSceneSteps()) && !sceneStepGroupingMode.value
+})
+const showTopCameraBar = computed(() => {
+    void sceneObjectRevision.value
+    return (
+        !showTopSceneStepBar.value
+        && Boolean(threeCore.value?.cameraList?.length)
+    )
 })
 useHead({
     title: '3D手账',
@@ -3439,11 +3627,61 @@ useHead({
                 松手放到地面
             </div>
         </div>
+        <!-- 植物拖拽跟随预览 -->
         <div
-            v-if="showSceneCloneAction || showSceneOwnerActions"
+            v-if="plantDragging && plantDragGhost"
+            class="pointer-events-none fixed z-[200] -translate-x-1/2 -translate-y-1/2"
+            :style="{ left: `${plantDragGhost.x}px`, top: `${plantDragGhost.y}px` }"
+        >
+            <div
+                class="flex h-14 w-14 items-center justify-center rounded-lg border-2 border-emerald-400 bg-gradient-to-br from-emerald-400 to-emerald-700 shadow-xl opacity-95"
+            >
+                <UIcon name="material-symbols:park-rounded" class="text-3xl text-white" />
+            </div>
+            <div class="mt-1 whitespace-nowrap rounded-full bg-black/60 px-2 py-0.5 text-center text-[10px] text-white">
+                {{ plantDragGhost.label }} · 松手放置
+            </div>
+        </div>
+
+        <!-- 编辑模式：资源占用 HUD -->
+        <SceneResourceHud
+            v-if="(edit_mode || add_mode) && resourceHudVisible && threeCore"
+            :snapshot="resourceSnapshot"
+            :context-lost="resourceContextLost"
+            @close="closeResourceHud"
+        />
+        <button
+            v-else-if="(edit_mode || add_mode) && threeCore && !resourceHudVisible"
+            type="button"
+            class="pointer-events-auto fixed z-[45] right-3 bottom-[max(0.75rem,env(safe-area-inset-bottom))] sm:bottom-3 flex items-center gap-1.5 rounded-xl border border-white/15 bg-black/55 px-3 py-2 text-white backdrop-blur-md shadow-xl hover:bg-black/70 transition"
+            title="显示资源占用"
+            @click="openResourceHud"
+        >
+            <UIcon name="material-symbols:memory-alt-rounded" class="text-base opacity-90" />
+            <span class="text-[11px] font-semibold tracking-wide">资源占用</span>
+        </button>
+        <div
+            v-if="showSceneCloneAction || showSceneOwnerActions || showSceneArButton"
             class="fixed right-3 z-50 flex items-center gap-1.5"
             :style="{ top: sceneOwnerActionTop }"
         >
+            <button
+                v-if="showSceneArButton"
+                type="button"
+                title="AR 识别图体验"
+                class="scene-neu-action-btn scene-neu-action-btn--compact group scene-neu-action-btn--violet"
+                @click="goSceneAr"
+            >
+                <div
+                    class="scene-neu-action-icon scene-neu-action-icon--compact bg-gradient-to-br from-violet-400/90 to-fuchsia-500/80"
+                >
+                    <UIcon
+                        name="material-symbols:view-in-ar-rounded"
+                        class="text-sm text-white"
+                    />
+                </div>
+                <span class="scene-neu-action-label scene-neu-action-label--compact">AR</span>
+            </button>
             <button
                 v-if="showSceneCloneAction"
                 type="button"
@@ -3538,6 +3776,11 @@ useHead({
 
         <SceneTextureEditor ref="SceneTextureEditorRef" v-if="target" :target="target"
             :image-url="textureEditorDefaultImageUrl" :three-core="threeCore" @close="target = null" />
+        <SceneCanvasEditor
+            ref="SceneCanvasEditorRef"
+            @apply="onCanvasApply"
+            @close="canvasEditTarget = null"
+        />
         <SceneAnimationEditor
             v-if="animationTarget && threeCore"
             ref="SceneAnimationEditorRef"
@@ -3565,7 +3808,41 @@ useHead({
             :harmony-port="port"
         />
 
-        <!-- 左侧功能栏：仅编辑工具；「动画」见下方独立块，交互与右侧素材/特效等一致 -->
+        <!-- 保存：独立于左侧工具列表，始终置顶可点 -->
+        <div
+            v-if="edit_mode || add_mode"
+            class="fixed left-0 z-[30] flex flex-col rounded-r-xl scene-neu-panel backdrop-blur-md overflow-hidden top-[calc(50%-92px)] -translate-y-1/2 h-[40px] w-[36px] sm:w-[38px] scene-neu-panel--collapsed"
+        >
+            <button
+                type="button"
+                class="scene-neu-panel-toggle scene-neu-panel-toggle--blue scene-neu-panel-toggle--collapsed items-center justify-center text-blue-600 dark:text-blue-400"
+                title="保存场景"
+                @click="saveScene"
+            >
+                <UIcon name="material-symbols:save-rounded" class="text-base" />
+                <span class="scene-neu-collapsed-label font-medium">保存</span>
+            </button>
+        </div>
+
+        <!-- 漫游：独立放在保存下方 -->
+        <div
+            class="fixed left-0 z-[30] flex flex-col rounded-r-xl scene-neu-panel backdrop-blur-md overflow-hidden top-[calc(50%-46px)] -translate-y-1/2 h-[40px] w-[36px] sm:w-[38px] scene-neu-panel--collapsed"
+        >
+            <button
+                type="button"
+                class="scene-neu-panel-toggle scene-neu-panel-toggle--indigo scene-neu-panel-toggle--collapsed items-center justify-center text-indigo-600 dark:text-indigo-400"
+                :class="walkthroughActive ? 'ring-2 ring-violet-400/80' : ''"
+                :title="walkthroughActive ? '退出漫游' : '漫游模式'"
+                @click="toggleSceneWalkthrough"
+            >
+                <UIcon name="material-symbols:directions-walk-rounded" class="text-base" />
+                <span class="scene-neu-collapsed-label font-medium">
+                    {{ walkthroughActive ? '退出' : '漫游' }}
+                </span>
+            </button>
+        </div>
+
+        <!-- 左侧功能栏：编辑工具列表（默认收起） -->
         <div
             id="scene-guide-left-toolbar"
             class="fixed left-0 z-[20] flex flex-col overflow-hidden rounded-r-xl scene-neu-panel backdrop-blur-md transition-all duration-300 ease-out top-1/2 z-[30] max-h-[75vh] -translate-y-1/2"
@@ -3589,6 +3866,12 @@ useHead({
                 >
                     收起
                 </span>
+                <span
+                    v-else
+                    class="text-center text-[8px] font-medium leading-none text-gray-600 dark:text-gray-300"
+                >
+                    工具
+                </span>
             </button>
             <!-- 内容区用 max-h 过渡实现流畅收起，不使用 v-show 避免瞬间消失 -->
             <div
@@ -3596,16 +3879,6 @@ useHead({
                 :class="showToolbar ? 'max-h-[calc(75vh-52px)]' : 'max-h-0'"
             >
                 <div class="overflow-y-auto overscroll-contain p-1.5 space-y-1.5 scrollbar-hide">
-                    <!-- 保存 -->
-                    <button v-if="edit_mode || add_mode" @click="saveScene"
-                        class="scene-neu-tool-btn group"
-                        title="保存">
-                        <div class="scene-neu-icon-orb scene-neu-icon-orb--blue">
-                            <UIcon name="material-symbols:save-rounded" class="text-sm text-white" />
-                        </div>
-                        <span class="scene-neu-tool-label">保存</span>
-                    </button>
-
                     <!-- 撤销 -->
                     <button v-if="edit_mode || add_mode" @click="handleUndo"
                         :class="[canUndo ? '' : 'opacity-50 cursor-not-allowed', 'scene-neu-tool-btn group']"
@@ -3631,6 +3904,16 @@ useHead({
                             <UIcon name="material-symbols:add-photo-alternate-rounded" class="text-sm text-white" />
                         </div>
                         <span class="scene-neu-tool-label">图片</span>
+                    </button>
+
+                    <!-- 画布 -->
+                    <button v-if="edit_mode || add_mode" type="button" @click="openCreateCanvas"
+                        class="scene-neu-tool-btn group"
+                        title="画布">
+                        <div class="scene-neu-icon-orb scene-neu-icon-orb--emerald">
+                            <UIcon name="material-symbols:wallpaper-rounded" class="text-sm text-white" />
+                        </div>
+                        <span class="scene-neu-tool-label">画布</span>
                     </button>
 
                     <!-- 点位 -->
@@ -3724,18 +4007,28 @@ useHead({
                         <span class="scene-neu-tool-label">设置</span>
                     </button>
 
-                    <!-- 漫游（展馆同款操作） -->
+                    <!-- 资源占用 HUD -->
                     <button
+                        v-if="edit_mode || add_mode"
                         type="button"
                         class="scene-neu-tool-btn group"
-                        :class="walkthroughActive ? 'ring-2 ring-violet-400/80 rounded-xl' : ''"
-                        :title="walkthroughActive ? '退出漫游' : '漫游模式'"
-                        @click="toggleSceneWalkthrough"
+                        :class="resourceHudVisible ? 'ring-2 ring-emerald-400/70 rounded-xl' : ''"
+                        :title="resourceHudVisible ? '隐藏资源占用' : '显示资源占用'"
+                        @click="toggleResourceHud"
                     >
-                        <div class="scene-neu-icon-orb scene-neu-icon-orb--indigo">
-                            <UIcon name="material-symbols:directions-walk-rounded" class="text-sm text-white" />
+                        <div
+                            class="scene-neu-icon-orb"
+                            :class="
+                                resourceContextLost || resourceSnapshot.risk === 'danger'
+                                    ? 'scene-neu-icon-orb--rose'
+                                    : resourceSnapshot.risk === 'warn'
+                                        ? 'scene-neu-icon-orb--amber'
+                                        : 'scene-neu-icon-orb--emerald'
+                            "
+                        >
+                            <UIcon name="material-symbols:memory-alt-rounded" class="text-sm text-white" />
                         </div>
-                        <span class="scene-neu-tool-label">{{ walkthroughActive ? '退出漫游' : '漫游' }}</span>
+                        <span class="scene-neu-tool-label">资源</span>
                     </button>
 
                     <!-- 灯光 -->
@@ -3746,22 +4039,6 @@ useHead({
                             <UIcon name="material-symbols:lightbulb-rounded" class="text-sm text-white" />
                         </div>
                         <span class="scene-neu-tool-label">灯光</span>
-                    </button>
-
-                    <!-- 植物（ez-tree） -->
-                    <button
-                        v-if="edit_mode || add_mode"
-                        type="button"
-                        class="scene-neu-tool-btn group"
-                        :class="plantCreating ? 'opacity-60 cursor-wait' : ''"
-                        :disabled="plantCreating"
-                        title="快速创建植物"
-                        @click="openPlantMenu"
-                    >
-                        <div class="scene-neu-icon-orb scene-neu-icon-orb--emerald">
-                            <UIcon name="material-symbols:park-rounded" class="text-sm text-white" />
-                        </div>
-                        <span class="scene-neu-tool-label">植物</span>
                     </button>
                 </div>
             </div>
@@ -3891,9 +4168,9 @@ useHead({
             </div>
         </div>
 
-        <!-- 分组：左侧贴图下方，多场景 step 编辑 -->
+        <!-- 分组：左侧贴图下方，多场景 step 编辑（暂时隐藏入口） -->
         <div
-            v-if="edit_mode || add_mode"
+            v-if="false && (edit_mode || add_mode)"
             id="scene-guide-step-panel"
             class="fixed left-0 z-[20] flex flex-col rounded-r-xl scene-neu-panel backdrop-blur-md overflow-hidden transition-all duration-300 ease-out top-[calc(50%+138px)] -translate-y-1/2 h-[40px] w-[36px] sm:w-[38px] scene-neu-panel--collapsed"
             :data-grouping-active="sceneStepGroupingMode ? '1' : undefined"
@@ -3964,21 +4241,21 @@ useHead({
             </QhxBottomDrawer>
         </Transition>
 
-        <!-- 五个独立的悬浮列表，展开后居中、固定高度，互不联动，同时只展开一个 -->
-        <!-- 素材 -->
+        <!-- 右侧悬浮列表：素材/服饰/场景已合并，展开后可筛选 -->
+        <!-- 素材库（素材 · 服饰 · 场景） -->
         <div
             v-if="edit_mode || add_mode"
             id="scene-guide-right-material"
             class="fixed right-0 z-[20] flex flex-col rounded-l-xl scene-neu-panel backdrop-blur-md overflow-hidden transition-all duration-300 ease-out"
             :class="materialListExpanded
                 ? 'top-1/2 -translate-y-1/2 h-[62vh] w-[100px] min-[756px]:w-[170px] min-[756px]:sm:w-[190px] md:w-[210px] z-[30]'
-                : 'top-[calc(50%-92px)] -translate-y-1/2 h-[40px] w-[36px] sm:w-[38px] scene-neu-panel--collapsed'"
+                : 'top-[calc(50%-46px)] -translate-y-1/2 h-[40px] w-[36px] sm:w-[38px] scene-neu-panel--collapsed'"
         >
             <button
                 type="button"
                 class="scene-neu-panel-toggle scene-neu-panel-toggle--purple items-center justify-center gap-1.5 py-2 px-2 shrink-0 text-purple-600 dark:text-purple-400"
                 :class="materialListExpanded ? 'scene-neu-panel-toggle--expanded flex gap-1.5 py-2 px-2' : 'scene-neu-panel-toggle--collapsed'"
-                :title="materialListExpanded ? '收起列表' : '展开列表'"
+                :title="materialListExpanded ? '收起列表' : '展开素材库'"
                 @click="showMaterial()"
             >
                 <UIcon
@@ -3990,88 +4267,32 @@ useHead({
             </button>
             <div
                 v-show="materialListExpanded"
-                class="flex-1 overflow-y-auto overscroll-contain p-2 space-y-2 min-h-0 h-0"
+                class="flex flex-col flex-1 min-h-0 h-0"
             >
-                <SceneMaterial
-                    panel-type="material"
-                    :load-template="false"
-                    @choose-material="chooseMaterial"
-                    @choose-template="chooseTemplate"
-                    @choose-effect="chooseEffect"
-                    @clear-template="clearTemplate"
-                />
-            </div>
-        </div>
-        <!-- 服饰 -->
-        <div
-            v-if="edit_mode || add_mode"
-            class="fixed right-0 z-[20] flex flex-col rounded-l-xl scene-neu-panel backdrop-blur-md overflow-hidden transition-all duration-300 ease-out"
-            :class="clothingListExpanded
-                ? 'top-1/2 -translate-y-1/2 h-[62vh] w-[100px] min-[756px]:w-[170px] min-[756px]:sm:w-[190px] md:w-[210px] z-[30]'
-                : 'top-[calc(50%-46px)] -translate-y-1/2 h-[40px] w-[36px] sm:w-[38px] scene-neu-panel--collapsed'"
-        >
-            <button
-                type="button"
-                class="scene-neu-panel-toggle scene-neu-panel-toggle--pink items-center justify-center gap-1.5 py-2 px-2 shrink-0 text-pink-600 dark:text-pink-400"
-                :class="clothingListExpanded ? 'scene-neu-panel-toggle--expanded flex gap-1.5 py-2 px-2' : 'scene-neu-panel-toggle--collapsed'"
-                :title="clothingListExpanded ? '收起列表' : '展开列表'"
-                @click="showClothing()"
-            >
-                <UIcon
-                    :name="clothingListExpanded ? 'material-symbols:chevron-right' : 'material-symbols:checkroom-rounded'"
-                    :class="clothingListExpanded ? 'text-xl sm:text-2xl' : 'text-base'"
-                    class="transition-transform"
-                />
-                <span class="scene-neu-collapsed-label font-medium">服饰</span>
-            </button>
-            <div
-                v-show="clothingListExpanded"
-                class="flex-1 overflow-y-auto overscroll-contain p-2 space-y-2 min-h-0 h-0"
-            >
-                <SceneMaterial
-                    panel-type="clothing"
-                    :load-template="false"
-                    @choose-material="chooseMaterial"
-                    @choose-template="chooseTemplate"
-                    @choose-effect="chooseEffect"
-                    @clear-template="clearTemplate"
-                />
-            </div>
-        </div>
-        <!-- 场景 -->
-        <div
-            v-if="edit_mode || add_mode"
-            class="fixed right-0 z-[20] flex flex-col rounded-l-xl scene-neu-panel backdrop-blur-md overflow-hidden transition-all duration-300 ease-out"
-            :class="sceneListExpanded
-                ? 'top-1/2 -translate-y-1/2 h-[62vh] w-[100px] min-[756px]:w-[170px] min-[756px]:sm:w-[190px] md:w-[210px] z-[30]'
-                : 'top-1/2 -translate-y-1/2 h-[40px] w-[36px] sm:w-[38px] scene-neu-panel--collapsed'"
-        >
-            <button
-                type="button"
-                class="scene-neu-panel-toggle scene-neu-panel-toggle--teal items-center justify-center gap-1.5 py-2 px-2 shrink-0 text-teal-600 dark:text-teal-400"
-                :class="sceneListExpanded ? 'scene-neu-panel-toggle--expanded flex gap-1.5 py-2 px-2' : 'scene-neu-panel-toggle--collapsed'"
-                :title="sceneListExpanded ? '收起列表' : '展开列表'"
-                @click="showScene()"
-            >
-                <UIcon
-                    :name="sceneListExpanded ? 'material-symbols:chevron-right' : 'material-symbols:landscape-rounded'"
-                    :class="sceneListExpanded ? 'text-xl sm:text-2xl' : 'text-base'"
-                    class="transition-transform"
-                />
-                <span class="scene-neu-collapsed-label font-medium">场景</span>
-            </button>
-            <div
-                v-show="sceneListExpanded"
-                class="flex-1 overflow-y-auto overscroll-contain p-2 space-y-2 min-h-0 h-0"
-            >
-                <SceneMaterial
-                    panel-type="scene"
-                    :load-template="false"
-                    @choose-material="chooseMaterial"
-                    @choose-template="chooseTemplate"
-                    @choose-effect="chooseEffect"
-                    @clear-template="clearTemplate"
-                />
+                <div class="shrink-0 grid grid-cols-3 gap-0.5 p-1.5 pb-0">
+                    <button
+                        v-for="tab in assetLibraryTabs"
+                        :key="tab.id"
+                        type="button"
+                        class="rounded-md py-1.5 text-[10px] font-medium transition-colors"
+                        :class="assetLibraryTab === tab.id
+                            ? 'bg-purple-500 text-white shadow-sm'
+                            : 'bg-gray-100/90 text-gray-600 dark:bg-gray-800/70 dark:text-gray-300'"
+                        @click="assetLibraryTab = tab.id"
+                    >
+                        {{ tab.label }}
+                    </button>
+                </div>
+                <div class="flex-1 overflow-y-auto overscroll-contain p-2 space-y-2 min-h-0">
+                    <SceneMaterial
+                        :panel-type="assetLibraryTab"
+                        :load-template="false"
+                        @choose-material="chooseMaterial"
+                        @choose-template="chooseTemplate"
+                        @choose-effect="chooseEffect"
+                        @clear-template="clearTemplate"
+                    />
+                </div>
             </div>
         </div>
         <!-- 特效 -->
@@ -4080,7 +4301,7 @@ useHead({
             class="fixed right-0 z-[20] flex flex-col rounded-l-xl scene-neu-panel backdrop-blur-md overflow-hidden transition-all duration-300 ease-out"
             :class="effectListExpanded
                 ? 'top-1/2 -translate-y-1/2 h-[62vh] w-[100px] min-[756px]:w-[170px] min-[756px]:sm:w-[190px] md:w-[210px] z-[30]'
-                : 'top-[calc(50%+46px)] -translate-y-1/2 h-[40px] w-[36px] sm:w-[38px] scene-neu-panel--collapsed'"
+                : 'top-1/2 -translate-y-1/2 h-[40px] w-[36px] sm:w-[38px] scene-neu-panel--collapsed'"
         >
             <button
                 type="button"
@@ -4116,7 +4337,7 @@ useHead({
             class="fixed right-0 z-[20] flex flex-col rounded-l-xl scene-neu-panel backdrop-blur-md overflow-hidden transition-all duration-300 ease-out"
             :class="templateListExpanded
                 ? 'top-1/2 -translate-y-1/2 h-[62vh] w-[100px] min-[756px]:w-[170px] min-[756px]:sm:w-[190px] md:w-[210px] z-[30]'
-                : 'top-[calc(50%+92px)] -translate-y-1/2 h-[40px] w-[36px] sm:w-[38px] scene-neu-panel--collapsed'"
+                : 'top-[calc(50%+46px)] -translate-y-1/2 h-[40px] w-[36px] sm:w-[38px] scene-neu-panel--collapsed'"
         >
             <button
                 type="button"
@@ -4152,7 +4373,7 @@ useHead({
             class="fixed right-0 z-[20] flex flex-col rounded-l-xl scene-neu-panel backdrop-blur-md overflow-hidden transition-all duration-300 ease-out"
             :class="customListExpanded
                 ? 'top-1/2 -translate-y-1/2 h-[62vh] w-[100px] min-[756px]:w-[170px] min-[756px]:sm:w-[190px] md:w-[210px] z-[30]'
-                : 'top-[calc(50%+138px)] -translate-y-1/2 h-[40px] w-[36px] sm:w-[38px] scene-neu-panel--collapsed'"
+                : 'top-[calc(50%+92px)] -translate-y-1/2 h-[40px] w-[36px] sm:w-[38px] scene-neu-panel--collapsed'"
         >
             <button
                 type="button"
@@ -4182,138 +4403,44 @@ useHead({
                 />
             </div>
         </div>
-        <!-- 方块搭建 -->
+        <!-- 植物（ez-tree） -->
         <div
             v-if="edit_mode || add_mode"
             class="fixed right-0 z-[20] flex flex-col rounded-l-xl scene-neu-panel backdrop-blur-md overflow-hidden transition-all duration-300 ease-out"
-            :class="voxelBlockListExpanded
-                ? 'top-1/2 -translate-y-1/2 h-[62vh] w-[100px] min-[756px]:w-[170px] min-[756px]:sm:w-[190px] md:w-[210px] z-[30]'
-                : 'top-[calc(50%+184px)] -translate-y-1/2 h-[40px] w-[36px] sm:w-[38px] scene-neu-panel--collapsed'"
+            :class="[
+                plantListExpanded && !plantBlockedBySplat
+                    ? 'top-1/2 -translate-y-1/2 h-[62vh] w-[100px] min-[756px]:w-[170px] min-[756px]:sm:w-[190px] md:w-[210px] z-[30]'
+                    : 'top-[calc(50%+138px)] -translate-y-1/2 h-[40px] w-[36px] sm:w-[38px] scene-neu-panel--collapsed',
+                plantBlockedBySplat ? 'opacity-45' : ''
+            ]"
         >
             <button
                 type="button"
                 class="scene-neu-panel-toggle scene-neu-panel-toggle--emerald items-center justify-center gap-1.5 py-2 px-2 shrink-0 text-emerald-600 dark:text-emerald-400"
-                :class="voxelBlockListExpanded ? 'scene-neu-panel-toggle--expanded flex gap-1.5 py-2 px-2' : 'scene-neu-panel-toggle--collapsed'"
-                :title="voxelBlockListExpanded ? '收起列表' : '展开方块类型'"
-                @click="showVoxelBlock()"
+                :class="[
+                    plantListExpanded && !plantBlockedBySplat
+                        ? 'scene-neu-panel-toggle--expanded flex gap-1.5 py-2 px-2'
+                        : 'scene-neu-panel-toggle--collapsed',
+                    plantBlockedBySplat ? 'cursor-not-allowed' : ''
+                ]"
+                :title="plantBlockedBySplat
+                    ? '场景内已有点云，无法打开植物'
+                    : (plantListExpanded ? '收起列表' : '展开植物')"
+                :aria-disabled="plantBlockedBySplat"
+                @click="showPlant()"
             >
                 <UIcon
-                    :name="voxelBlockListExpanded ? 'material-symbols:chevron-right' : 'material-symbols:grid-on-rounded'"
-                    :class="voxelBlockListExpanded ? 'text-xl sm:text-2xl' : 'text-base'"
+                    :name="plantListExpanded && !plantBlockedBySplat ? 'material-symbols:chevron-right' : 'material-symbols:park-rounded'"
+                    :class="plantListExpanded && !plantBlockedBySplat ? 'text-xl sm:text-2xl' : 'text-base'"
                     class="transition-transform"
                 />
-                <span class="scene-neu-collapsed-label font-medium">方块</span>
+                <span class="scene-neu-collapsed-label font-medium">植物</span>
             </button>
             <div
-                v-show="voxelBlockListExpanded"
-                class="flex-1 overflow-y-auto overscroll-contain p-2 space-y-3 min-h-0 h-0"
+                v-show="plantListExpanded && !plantBlockedBySplat"
+                class="flex-1 overflow-y-auto overscroll-contain p-2 space-y-2 min-h-0 h-0"
             >
-                <div class="flex gap-1 rounded-lg bg-gray-100/80 dark:bg-gray-800/60 p-1">
-                    <button
-                        type="button"
-                        class="flex-1 rounded-md py-1.5 text-[11px] font-medium transition-colors"
-                        :class="voxelBuildAction === 'place'
-                            ? 'bg-emerald-500 text-white shadow-sm'
-                            : 'text-gray-600 dark:text-gray-300'"
-                        @click="voxelBuildAction = 'place'"
-                    >
-                        放置
-                    </button>
-                    <button
-                        type="button"
-                        class="flex-1 rounded-md py-1.5 text-[11px] font-medium transition-colors"
-                        :class="voxelBuildAction === 'remove'
-                            ? 'bg-rose-500 text-white shadow-sm'
-                            : 'text-gray-600 dark:text-gray-300'"
-                        @click="voxelBuildAction = 'remove'"
-                    >
-                        拆除
-                    </button>
-                </div>
-                <div v-if="voxelBuildAction === 'place'" class="grid grid-cols-3 gap-1 rounded-lg bg-gray-100/80 dark:bg-gray-800/60 p-1">
-                    <button
-                        v-for="tool in voxelBuildTools"
-                        :key="tool.id"
-                        type="button"
-                        class="rounded-md py-1.5 text-[10px] font-medium transition-colors"
-                        :class="voxelBuildTool === tool.id
-                            ? 'bg-sky-500 text-white shadow-sm'
-                            : 'text-gray-600 dark:text-gray-300'"
-                        @click="voxelBuildTool = tool.id"
-                    >
-                        {{ tool.label }}
-                    </button>
-                </div>
-                <p class="text-[10px] leading-snug text-gray-500 dark:text-gray-400 px-0.5">
-                    {{ voxelBuildToolHint }} · Esc 退出
-                </p>
-                <div>
-                    <p class="text-[10px] font-medium text-gray-600 dark:text-gray-300 mb-1.5">纯色方块</p>
-                    <div class="grid grid-cols-5 gap-1.5">
-                        <button
-                            v-for="color in voxelColorPresets"
-                            :key="color"
-                            type="button"
-                            class="aspect-square rounded-md border-2 transition-all active:scale-95"
-                            :class="voxelBlockSpec?.variant === 'solid' && voxelBlockSpec?.color === color
-                                ? 'border-emerald-500 ring-1 ring-emerald-400/60'
-                                : 'border-black/10 dark:border-white/10'"
-                            :style="{ backgroundColor: color }"
-                            :title="color"
-                            @click="selectVoxelSolidColor(color)"
-                        />
-                    </div>
-                    <button
-                        type="button"
-                        class="mt-2 flex w-full items-center gap-2 rounded-xl border px-2.5 py-2 transition-all active:scale-[0.98]"
-                        :class="isVoxelCustomSolidSelected
-                            ? 'border-emerald-500 bg-emerald-50/80 dark:bg-emerald-900/25 ring-1 ring-emerald-400/60'
-                            : 'border-gray-200/80 dark:border-gray-700/80 bg-white/50 dark:bg-gray-800/40 hover:bg-white/80 dark:hover:bg-gray-800/70'"
-                        @click="openVoxelSolidColorPicker($event)"
-                    >
-                        <span
-                            class="size-7 shrink-0 rounded-md border border-black/10 shadow-inner"
-                            :style="{
-                                backgroundColor: voxelBlockSpec?.variant === 'solid' && isVoxelCustomSolidSelected
-                                    ? voxelBlockSpec.color
-                                    : '#e5e7eb'
-                            }"
-                        />
-                        <span class="flex-1 text-left text-[10px] font-medium text-gray-700 dark:text-gray-200 leading-tight">
-                            自定义颜色
-                            <span
-                                v-if="isVoxelCustomSolidSelected && voxelBlockSpec?.color"
-                                class="block text-[9px] font-normal text-gray-500 dark:text-gray-400 uppercase"
-                            >
-                                {{ voxelBlockSpec.color }}
-                            </span>
-                        </span>
-                        <UIcon name="material-symbols:palette-outline" class="text-base text-gray-500 dark:text-gray-400 shrink-0" />
-                    </button>
-                </div>
-                <div>
-                    <p class="text-[10px] font-medium text-gray-600 dark:text-gray-300 mb-1.5">贴图方块</p>
-                    <div class="grid grid-cols-2 gap-2">
-                        <button
-                            v-for="block in voxelTextureBlocks"
-                            :key="block.id"
-                            type="button"
-                            class="flex flex-col items-center gap-1.5 rounded-xl border p-2 transition-all active:scale-95"
-                            :class="voxelBlockSpec?.variant === block.id
-                                ? 'border-emerald-500 bg-emerald-50/80 dark:bg-emerald-900/25 ring-1 ring-emerald-400/60'
-                                : 'border-transparent bg-white/50 dark:bg-gray-800/40 hover:bg-white/80 dark:hover:bg-gray-800/70'"
-                            @click="selectVoxelTextureBlock(block.id)"
-                        >
-                            <span
-                                class="h-8 w-8 rounded-md border border-black/10 shadow-inner bg-cover bg-center"
-                                :style="{ backgroundColor: block.previewColor }"
-                            />
-                            <span class="text-[10px] font-medium text-gray-700 dark:text-gray-200 text-center leading-tight">
-                                {{ block.label }}
-                            </span>
-                        </button>
-                    </div>
-                </div>
+                <ScenePlantList @choose="choosePlant" />
             </div>
         </div>
         <!-- 墙体绘制 -->
@@ -4322,7 +4449,7 @@ useHead({
             class="fixed right-0 z-[20] flex flex-col rounded-l-xl scene-neu-panel backdrop-blur-md overflow-hidden transition-all duration-300 ease-out"
             :class="wallDrawListExpanded
                 ? 'top-1/2 -translate-y-1/2 h-[38vh] w-[100px] min-[756px]:w-[170px] min-[756px]:sm:w-[190px] md:w-[210px] z-[30]'
-                : 'top-[calc(50%+240px)] -translate-y-1/2 h-[40px] w-[36px] sm:w-[38px] scene-neu-panel--collapsed'"
+                : 'top-[calc(50%+184px)] -translate-y-1/2 h-[40px] w-[36px] sm:w-[38px] scene-neu-panel--collapsed'"
         >
             <button
                 type="button"
@@ -4388,12 +4515,6 @@ useHead({
 
         <div style="height: 100vh; width: 100vw; overflow: hidden; " id="scene"></div>
         <div
-            v-if="voxelBuildActive"
-            class="pointer-events-none fixed bottom-6 left-1/2 z-[25] -translate-x-1/2 rounded-full bg-black/55 px-4 py-2 text-xs text-white backdrop-blur-sm"
-        >
-            方块模式 · {{ voxelBuildAction === 'place' ? '放置' : '拆除' }}<template v-if="voxelBuildAction === 'place'"> · {{ voxelBuildTool === 'line' ? '直线' : voxelBuildTool === 'plane' ? (voxelPlanePhase === 'expand' ? '平面②' : '平面①') : '单块' }}</template> · {{ voxelSelectionLabel }}
-        </div>
-        <div
             v-if="wallDrawActive"
             class="pointer-events-none fixed bottom-6 left-1/2 z-[25] -translate-x-1/2 rounded-full bg-black/55 px-4 py-2 text-xs text-white backdrop-blur-sm"
         >
@@ -4443,12 +4564,12 @@ useHead({
             </button>
         </div>
         <div
-            v-if="threeCore?.hasSceneSteps() && !sceneStepGroupingMode"
+            v-if="showTopSceneStepBar"
             class="scene-step-switcher fixed left-1/2 z-[25] flex max-w-[min(100vw-24px,42rem)] -translate-x-1/2 pointer-events-auto"
             :style="{ top: sceneStepSwitcherTop }"
         >
             <div
-                class="scene-neu-opera-bar flex w-full items-center gap-1 overflow-x-auto rounded-full p-1.5 backdrop-blur-md scrollbar-hide"
+                class="scene-neu-opera-bar flex w-full items-center gap-1 overflow-x-auto rounded-full p-1.5 backdrop-blur-md"
             >
                 <button
                     v-if="edit_mode || add_mode"
@@ -4478,9 +4599,42 @@ useHead({
                 </button>
             </div>
         </div>
+        <div
+            v-else-if="showTopCameraBar"
+            id="scene-guide-camera-list"
+            class="scene-step-switcher fixed left-1/2 z-[25] flex max-w-[min(100vw-24px,42rem)] -translate-x-1/2 pointer-events-auto"
+            :style="{ top: sceneStepSwitcherTop }"
+        >
+            <div
+                class="scene-neu-opera-bar flex w-full items-center gap-1 overflow-x-auto rounded-full p-1.5 backdrop-blur-md"
+            >
+                <button
+                    v-for="(camera_list, index) in threeCore.cameraList"
+                    :key="`scene-camera-${index}`"
+                    type="button"
+                    class="scene-neu-opera-chip max-w-[10rem] flex-shrink-0 inline-flex items-center gap-0.5 truncate"
+                    :title="`镜头 ${index + 1}`"
+                    @click="lookAtCameraState(camera_list)"
+                >
+                    <UIcon
+                        name="material-symbols:video-camera-back"
+                        class="shrink-0 text-[11px] opacity-80"
+                    />
+                    <span class="truncate">镜头 {{ index + 1 }}</span>
+                    <span
+                        v-if="edit_mode || add_mode"
+                        class="ml-0.5 inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[10px] opacity-70 hover:bg-black/10 hover:opacity-100 dark:hover:bg-white/10"
+                        title="删除镜头"
+                        @click.stop="deleteCamera(index)"
+                    >
+                        ×
+                    </span>
+                </button>
+            </div>
+        </div>
         <SceneViewCube :core="threeCore" :enabled="edit_mode && !walkthroughActive" />
-        <div class="opera fixed z-20 md:flex items-center whitespace-nowrap"
-            v-show="clickObject && edit_mode && !sceneStepGroupingMode && !target && !animationTarget && !voxelBuildActive" :class="[
+        <div class="opera fixed z-[50] md:flex items-center whitespace-nowrap"
+            v-show="clickObject && edit_mode && !sceneStepGroupingMode && !target && !animationTarget" :class="[
                 'md:absolute md:top-auto md:bottom-auto md:left-auto md:right-auto',
                 'fixed bottom-4 left-1/2 -translate-x-1/2 w-[calc(100%-32px)] md:w-auto md:translate-x-0 md:static'
             ]"
@@ -4489,7 +4643,7 @@ useHead({
                 
             </QhxJellyButton> -->
             <div
-                class="scene-neu-opera-bar opera p-1.5 backdrop-blur-md rounded-full z-20 flex items-center whitespace-nowrap overflow-x-auto scrollbar-hide w-full md:w-auto gap-0.5">
+                class="scene-neu-opera-bar opera p-1.5 backdrop-blur-md rounded-full z-[50] flex items-center whitespace-nowrap overflow-x-auto scrollbar-hide w-full md:w-auto gap-0.5">
                 <div class="scene-neu-opera-chip flex-shrink-0" @click="setMode('translate')"
                     v-show="transformType !== 'translate'">移动</div>
                 <div class="scene-neu-opera-chip flex-shrink-0" @click="setMode('rotate')"
@@ -4505,17 +4659,24 @@ useHead({
                     精确
                 </div>
                 <div class="scene-neu-opera-chip flex-shrink-0" @click.stop="openObjectSettings"
-                    v-if="clickObject && (clickObject[0].userData.type === 'image' || clickObject[0].userData.type === 'video' || clickObject[0].userData.type === '3Dtext' || clickObject[0].userData.type === 'longtext')">
+                    v-if="clickObject && (clickObject[0].userData.type === 'image' || clickObject[0].userData.type === 'video' || clickObject[0].userData.type === 'canvas' || clickObject[0].userData.type === '3Dtext' || clickObject[0].userData.type === 'longtext')">
                     设置
                 </div>
                 <div class="scene-neu-opera-chip flex-shrink-0" @click.stop="copySceneObject()"
-                    v-if="clickObject && (clickObject[0].userData.type === 'model' || clickObject[0].userData.type === 'character' || clickObject[0].userData.type === 'image' || clickObject[0].userData.type === 'video')">复制</div>
+                    v-if="clickObject && (clickObject[0].userData.type === 'model' || clickObject[0].userData.type === 'character' || clickObject[0].userData.type === 'image' || clickObject[0].userData.type === 'video' || clickObject[0].userData.type === 'canvas')">复制</div>
                 <div
                     class="scene-neu-opera-chip scene-neu-opera-chip--violet flex-shrink-0"
                     v-if="canEditObjectLinks"
                     @click.stop="openObjectLinkEditor"
                 >
                     关联
+                </div>
+                <div
+                    class="scene-neu-opera-chip scene-neu-opera-chip--violet flex-shrink-0"
+                    v-if="clickObject && clickObject[0].userData.type === 'canvas'"
+                    @click.stop="openEditCanvas"
+                >
+                    编辑画布
                 </div>
                 <div class="scene-neu-opera-chip flex-shrink-0" @click.stop="showTexture()" v-if="canTexture">贴图/视频</div>
                 <div
@@ -4526,36 +4687,6 @@ useHead({
                     动效
                 </div>
                 <div class="scene-neu-opera-chip scene-neu-opera-chip--danger flex-shrink-0" @click.stop="deleteModel()">删除</div>
-            </div>
-        </div>
-        <div id="scene-guide-camera-list" class="camera-list fixed z-10 right-[10px] bottom-0 w-[40px] h-auto max-h-full" v-if="threeCore">
-            <div class=" relative flex justify-center" v-for="(camera_list, index) in threeCore.cameraList">
-                <QhxJellyButton>
-                    <div class="text-center cursor-pointer" @click="lookAtCameraState(camera_list)">
-                        <div class="scene-neu-camera-orb relative m-[5px] mx-auto text-white rounded-[50%] h-[30px] w-[30px] flex items-center justify-center">
-                            <div
-                                class="text-[#000] absolute left-0 top-0 h-[30px] w-[30px] flex items-center justify-center z-[1] text-[10px]">
-                                {{ index + 1 }}</div>
-                            <UIcon name="material-symbols:video-camera-back" class="text-[22px] text-[#ffffff]"></UIcon>
-                        </div>
-                    </div>
-                </QhxJellyButton>
-                <div v-if="edit_mode" class=" absolute right-[50px] top-0 flex">
-                    <QhxJellyButton>
-                        <div class="text-center cursor-pointer mr-2" @click="deleteCamera(index)">
-                            <div class="scene-neu-camera-orb m-[5px] mx-auto text-white rounded-[50%] h-[30px] w-[30px] flex items-center justify-center">
-                                <UIcon name="ant-design:close-outlined" class="text-[22px] text-[#ffffff]" />
-                            </div>
-                        </div>
-                    </QhxJellyButton>
-                    <QhxJellyButton>
-                        <div class="text-center cursor-pointer" @click="resetCamera(index)">
-                            <div class="scene-neu-camera-orb m-[5px] mx-auto text-white rounded-[50%] h-[30px] w-[30px] flex items-center justify-center">
-                                <UIcon name="ri:reset-right-line" class="text-[22px] text-[#ffffff]" />
-                            </div>
-                        </div>
-                    </QhxJellyButton>
-                </div>
             </div>
         </div>
         <div @click.stop="(e) => {
@@ -4793,6 +4924,20 @@ useHead({
                             @update:model-value="onGraphicsPresetChange"
                         />
                     </div>
+
+                    <div v-if="edit_mode || add_mode" class="pt-1">
+                        <button
+                            type="button"
+                            class="w-full flex items-center justify-between rounded-xl border border-gray-200 dark:border-gray-600 bg-white/70 dark:bg-gray-900/40 px-3 py-2.5 text-left hover:bg-white dark:hover:bg-gray-900/70 transition"
+                            @click="toggleResourceHud"
+                        >
+                            <span class="text-sm text-gray-800 dark:text-gray-200">资源占用面板</span>
+                            <span class="text-xs text-gray-500">{{ resourceHudVisible ? '显示中' : '已隐藏' }}</span>
+                        </button>
+                        <p class="mt-1.5 text-[11px] text-gray-500 dark:text-gray-400 leading-snug">
+                            显示贴图/几何/点云/植物与风险提示（非精确显存，作溢出预警）
+                        </p>
+                    </div>
                 </section>
 
                 <section v-if="edit_mode || add_mode" class="space-y-4 rounded-2xl border border-gray-200/90 bg-gray-50/50 p-4 dark:border-gray-600/80 dark:bg-gray-800/40 md:p-5">
@@ -4875,8 +5020,8 @@ useHead({
                     </div>
                 </template>
 
-                <!-- 图片/视频设置 -->
-                <template v-if="clickObject && clickObject[0] && (clickObject[0].userData.type === 'image' || clickObject[0].userData.type === 'video')">
+                <!-- 图片/视频/画布设置 -->
+                <template v-if="clickObject && clickObject[0] && (clickObject[0].userData.type === 'image' || clickObject[0].userData.type === 'video' || clickObject[0].userData.type === 'canvas')">
                     <div class="mb-2">
                         <div class="flex items-center justify-between gap-3 mb-2">
                             <span class="text-sm text-gray-700 dark:text-gray-300">面向相机</span>
@@ -4891,7 +5036,7 @@ useHead({
                             </div>
                         </div>
                         <p class="text-xs text-gray-500">
-                            开启后{{ clickObject[0].userData.type === 'video' ? '视频' : '图片' }}会随视角旋转，始终面向相机（Billboard）
+                            开启后{{ clickObject[0].userData.type === 'video' ? '视频' : clickObject[0].userData.type === 'canvas' ? '画布' : '图片' }}会随视角旋转，始终面向相机（Billboard）
                         </p>
                     </div>
                 </template>
@@ -5206,34 +5351,6 @@ useHead({
             </div>
         </QhxModal>
 
-        <QhxModal v-model="showPlantMenu" :trigger-position="plantMenuPosition">
-            <div class="p-4 w-[280px] max-h-[70vh] overflow-y-auto bg-white dark:bg-gray-800 rounded-[10px] shadow-lg scrollbar-hide">
-                <h3 class="text-sm font-bold mb-1 text-gray-800 dark:text-gray-200">快速创建植物</h3>
-                <p class="text-xs text-gray-500 dark:text-gray-400 mb-3">基于 ez-tree 程序化生成，保存后可还原</p>
-
-                <button
-                    v-for="preset in EZ_TREE_PRESETS"
-                    :key="preset.id"
-                    type="button"
-                    class="w-full flex items-center gap-3 p-2.5 rounded-lg hover:bg-emerald-50 dark:hover:bg-emerald-900/20 transition-colors text-left group mt-1 first:mt-0"
-                    :disabled="plantCreating"
-                    @click="addPlantFromPreset(preset.id)"
-                >
-                    <div
-                        class="w-8 h-8 bg-emerald-500 dark:bg-emerald-600 rounded-lg flex items-center justify-center group-hover:scale-110 transition-transform shrink-0">
-                        <UIcon
-                            :name="preset.kind === 'bush' ? 'material-symbols:grass' : 'material-symbols:park-rounded'"
-                            class="text-base text-white"
-                        />
-                    </div>
-                    <div class="flex-1 min-w-0">
-                        <div class="text-sm font-medium text-gray-800 dark:text-gray-200">{{ preset.label }}</div>
-                        <div class="text-xs text-gray-500 dark:text-gray-400 truncate">{{ preset.id }}</div>
-                    </div>
-                </button>
-            </div>
-        </QhxModal>
-
         <QhxModal v-model="showMoreMenu" :trigger-position="moreMenuPosition">
             <div class="p-4 w-[200px] bg-white dark:bg-gray-800 rounded-[10px] shadow-lg">
                 <h3 class="text-sm font-bold mb-3 text-gray-800 dark:text-gray-200">更多选项</h3>
@@ -5289,6 +5406,27 @@ useHead({
                 </button>
 
                 <button
+                    v-if="canManageArTarget"
+                    type="button"
+                    class="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors text-left group mt-2"
+                    @click="openArTargetFromMenu"
+                >
+                    <div
+                        class="w-8 h-8 rounded-lg flex items-center justify-center bg-gradient-to-br from-violet-500 to-fuchsia-500 group-hover:scale-110 transition-transform"
+                    >
+                        <UIcon name="material-symbols:view-in-ar-rounded" class="text-base text-white" />
+                    </div>
+                    <div class="flex-1">
+                        <div class="text-sm font-medium text-gray-800 dark:text-gray-200">
+                            {{ showSceneArButton ? '管理识别图' : '添加识别图' }}
+                        </div>
+                        <div class="text-xs text-gray-500 dark:text-gray-400">
+                            MindAR 图像追踪 · 服务端编译
+                        </div>
+                    </div>
+                </button>
+
+                <button
                     v-if="id !== '0'"
                     type="button"
                     class="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors text-left group mt-2"
@@ -5306,6 +5444,16 @@ useHead({
                 </button>
             </div>
         </QhxModal>
+
+        <SceneArTargetModal
+            v-model="showArTargetModal"
+            :ar-target="sceneArTarget"
+            :scene-id="id"
+            :trigger-position="moreMenuPosition"
+            :editable="canManageArTarget"
+            @saved="onArTargetSaved"
+            @cleared="onArTargetCleared"
+        />
 
         <QhxModal v-model="showSceneSettings" :trigger-position="moreMenuPosition">
             <div class="p-6 w-[min(92vw,420px)] bg-white dark:bg-gray-800 rounded-2xl shadow-xl border border-gray-200/80 dark:border-gray-700/80">

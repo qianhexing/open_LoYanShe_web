@@ -251,6 +251,11 @@ export const useSceneCore = () => {
         baseUrl: string,
         sceneData?: Scene | null,
         enableAR?: boolean,
+        /**
+         * `mindar`：完整场景挂 arContentGroup，位姿由外部 MindAR 注入；
+         * 默认 `webxr`（含 Webcam 降级）。
+         */
+        arMode?: 'webxr' | 'mindar',
         enableRaycaster?: boolean
         /** 初始相机位置（OrbitControls target 默认 0,0,0） */
         cameraPosition?: { x: number; y: number; z: number }
@@ -284,29 +289,44 @@ export const useSceneCore = () => {
         onLinkedObjectPick = options.onLinkedObjectPick ?? null
         onSceneStepGroupingPick = options.onSceneStepGroupingPick ?? null
         shouldIgnoreScenePick = options.shouldIgnoreScenePick ?? null
+        const isMindAr = options.enableAR && options.arMode === 'mindar'
         try {
             const gfx = options.graphicsSettings
             const core = new qhxCore({
-                enableCSS3DRenderer: true,
+                enableCSS3DRenderer: !isMindAr,
                 alpha: true,
                 editMode: options.editMode,
                 enableAR: options.enableAR,
+                arMode: options.arMode,
                 enableRaycaster: options.enableRaycaster,
                 preferWebGPU: options.preferWebGPU ?? false,
                 colorStyle: options.colorStyle ?? 'pbr',
                 antialias: gfx?.antialias ?? true,
                 pixelRatio: gfx?.pixelRatio,
                 mobilePerfCap: gfx?.mobilePerfCap ?? true,
-                ...(options.cameraPosition ? { cameraPosition: options.cameraPosition } : {})
+                enableOrbitControls: !isMindAr,
+                ...(isMindAr
+                    ? { cameraPosition: { x: 0, y: 0, z: 0 } }
+                    : options.cameraPosition
+                      ? { cameraPosition: options.cameraPosition }
+                      : {})
             })
             threeCore.value = core
 
             await core.whenRendererReady()
             await core.mount(container)
+
+            // 必须在加载点云 / 创建 Spark 之前预热 ez-tree
+            try {
+                await core.warmEzTreeAssets()
+            } catch (e) {
+                console.warn('[scene] ez-tree 预热跳过:', e)
+            }
             
             if (options.enableAR) {
                 await core.initAR()
                 isWebcamAR.value = core.isWebcamAR
+                isMindArMode.value = core.isMindArMode
             }
 
             const onProgress = (current: number, total: number) => {
@@ -340,9 +360,17 @@ export const useSceneCore = () => {
                 }
             }
 
-            core.controls.enabled = true
-            if (core.cameraList && core.cameraList.length > 0) {
-                core.lookAtCameraState(core.cameraList[0])
+            if (isMindAr) {
+                // 识别图锚点：相机固定在原点，内容缩放到 marker 单位
+                if (core.controls && 'enabled' in core.controls) {
+                    core.controls.enabled = false
+                }
+                core.prepareMindArContentFit()
+            } else {
+                core.controls.enabled = true
+                if (core.cameraList && core.cameraList.length > 0) {
+                    core.lookAtCameraState(core.cameraList[0])
+                }
             }
 
             container.addEventListener('pointerdown', _onPointerDown)
@@ -383,7 +411,7 @@ export const useSceneCore = () => {
             container.removeEventListener('pointerup', _onPointerUp)
         }
         if (threeCore.value) {
-            if (controlsChangeHandler) {
+            if (controlsChangeHandler && threeCore.value.controls) {
                 threeCore.value.controls.removeEventListener('change', controlsChangeHandler)
                 controlsChangeHandler = null
             }
@@ -391,9 +419,12 @@ export const useSceneCore = () => {
             threeCore.value.dispose?.()
             threeCore.value = null
         }
+        isWebcamAR.value = false
+        isMindArMode.value = false
     }
 
     const isWebcamAR = ref(false)
+    const isMindArMode = ref(false)
 
     // ... existing code ...
 
@@ -425,6 +456,7 @@ export const useSceneCore = () => {
         disposeScene,
         updateDiaryAndLibraryLists,
         isWebcamAR,
+        isMindArMode,
         requestPermission,
         placeScene,
         toggleQRScan

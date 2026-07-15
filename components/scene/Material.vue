@@ -451,22 +451,22 @@ defineExpose({
   <!-- 新版右侧面板模式 -->
   <div v-else class="w-full">
     <!-- 素材列表 -->
-    <div v-if="panelType === 'material'" class="w-full">
+    <div v-if="visitedTypes.has('material')" v-show="panelType === 'material'" class="w-full">
       <MateriaList @choose="chooseMaterial" :compact="true" enable-drag :pk-type="[0, 1, 2]"></MateriaList>
     </div>
     
     <!-- 服饰列表 -->
-    <div v-if="panelType === 'clothing'" class="w-full">
+    <div v-if="visitedTypes.has('clothing')" v-show="panelType === 'clothing'" class="w-full">
       <MateriaList @choose="chooseMaterial" :compact="true" enable-drag :pk-type="3"></MateriaList>
     </div>
 
     <!-- 场景列表 -->
-    <div v-if="panelType === 'scene'" class="w-full">
+    <div v-if="visitedTypes.has('scene')" v-show="panelType === 'scene'" class="w-full">
       <MateriaList @choose="chooseMaterial" :compact="true" enable-drag :pk-type="4"></MateriaList>
     </div>
 
     <!-- 自定义素材（pk_type 与后端约定为 5） -->
-    <div v-if="panelType === 'custom'" class="w-full">
+    <div v-if="visitedTypes.has('custom')" v-show="panelType === 'custom'" class="w-full">
       <div class="mb-1.5 px-0.5 shrink-0">
         <button
           type="button"
@@ -496,7 +496,7 @@ defineExpose({
     </div>
     
     <!-- 模版列表 -->
-    <div v-if="panelType === 'template'" class="w-full">
+    <div v-if="visitedTypes.has('template')" v-show="panelType === 'template'" class="w-full">
       <div v-if="loadTemplate" class="mb-1 px-1 pt-1">
         <button 
           @click="clearTemplate()"
@@ -510,7 +510,7 @@ defineExpose({
     </div>
     
     <!-- 特效列表 -->
-    <div v-if="panelType === 'effect'" class="w-full">
+    <div v-if="visitedTypes.has('effect')" v-show="panelType === 'effect'" class="w-full">
       <EffectList @choose="chooseEffect" :compact="true"></EffectList>
     </div>
   </div>

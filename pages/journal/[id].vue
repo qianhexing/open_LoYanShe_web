@@ -17,7 +17,24 @@
       :style="{ height: `${configStore.statusBarHeight}px` }"
       aria-hidden="true"
     />
-    <div class="container journal-sheet mx-auto px-3 py-2 pb-20 max-w-4xl">
+    <!-- 关联场景含 AR 识别图：右上角入口（与场景详情一致） -->
+    <button
+      v-if="layoutReady && showJournalArButton"
+      type="button"
+      title="AR 识别图体验"
+      class="journal-ar-fab fixed right-3 z-50 group"
+      :style="{ top: journalArButtonTop }"
+      @click="goJournalSceneAr"
+    >
+      <div class="journal-ar-fab-icon bg-gradient-to-br from-violet-400/90 to-fuchsia-500/80">
+        <UIcon name="material-symbols:view-in-ar-rounded" class="text-sm text-white" />
+      </div>
+      <span class="journal-ar-fab-label">AR</span>
+    </button>
+    <div
+      class="container journal-sheet mx-auto px-3 py-2 pb-20 max-w-4xl"
+      :class="{ 'pr-16': showJournalArButton }"
+    >
     <!-- 功能栏：登录用户显示；自己手账可关联 / 写新帖 -->
     <div
       v-if="layoutReady && userStore.user"
@@ -1113,6 +1130,10 @@ import { getLibraryDetail } from '@/api/library'
 import { getSceneId } from '@/api/scene'
 import type { MatchingListItem } from '@/api/matching_list'
 import { BASE_IMG } from '@/utils/ipConfig'
+import {
+  hasSceneArTarget,
+  pickArTargetFromSceneJson
+} from '@/utils/ar/sceneArTarget'
 import { useConfigStore } from '@/stores/config'
 import {
   openLibraryWebPath,
@@ -1436,6 +1457,111 @@ const displayJournalGroups = computed(() => {
   }
   return journalGroupsByDay.value
 })
+
+/** 手账关联场景是否含 AR 识别图（右上角入口） */
+const sceneArStatusMap = ref<Record<number, boolean>>({})
+let sceneArProbeToken = 0
+
+function resolveSceneIdFromJournal(j: Journal): number | null {
+  if (j.pk_type !== 6) return null
+  const sid = j.sence?.sence_id ?? j.pk_id
+  return sid > 0 ? sid : null
+}
+
+function collectLoadedSceneJournals(): Journal[] {
+  const list: Journal[] = []
+  for (const dayList of Object.values(journalMapByDay.value)) {
+    for (const j of dayList) {
+      if (resolveSceneIdFromJournal(j)) list.push(j)
+    }
+  }
+  for (const j of listModeJournals.value) {
+    if (resolveSceneIdFromJournal(j)) list.push(j)
+  }
+  for (const monthList of Object.values(monthJournalsByMonth.value)) {
+    for (const j of monthList) {
+      if (resolveSceneIdFromJournal(j)) list.push(j)
+    }
+  }
+  return list
+}
+
+function readArFromSceneJson(json: unknown): boolean | null {
+  if (json == null) return null
+  return hasSceneArTarget(pickArTargetFromSceneJson(json))
+}
+
+async function probeLinkedSceneArTargets() {
+  const token = ++sceneArProbeToken
+  const journals = collectLoadedSceneJournals()
+  const pendingIds = new Set<number>()
+
+  for (const j of journals) {
+    const sid = resolveSceneIdFromJournal(j)
+    if (!sid) continue
+    if (sid in sceneArStatusMap.value) continue
+    const fromNested = readArFromSceneJson(j.sence?.json_data)
+    if (fromNested != null) {
+      sceneArStatusMap.value = { ...sceneArStatusMap.value, [sid]: fromNested }
+      continue
+    }
+    pendingIds.add(sid)
+  }
+
+  if (pendingIds.size === 0) return
+
+  await Promise.all(
+    [...pendingIds].map(async (sid) => {
+      try {
+        const scene = await getSceneId({ sence_id: sid })
+        if (token !== sceneArProbeToken) return
+        const hasAr = hasSceneArTarget(pickArTargetFromSceneJson(scene.json_data))
+        sceneArStatusMap.value = { ...sceneArStatusMap.value, [sid]: hasAr }
+      } catch {
+        if (token !== sceneArProbeToken) return
+        sceneArStatusMap.value = { ...sceneArStatusMap.value, [sid]: false }
+      }
+    })
+  )
+}
+
+watch(
+  [journalMapByDay, listModeJournals, monthJournalsByMonth],
+  () => {
+    void probeLinkedSceneArTargets()
+  },
+  { deep: true, immediate: true }
+)
+
+const journalArSceneId = computed(() => {
+  const status = sceneArStatusMap.value
+  const preferLists: Journal[][] = [
+    ...displayJournalGroups.value.map((g) => g.items),
+    ...Object.values(journalMapByDay.value),
+    listModeJournals.value,
+    ...Object.values(monthJournalsByMonth.value)
+  ]
+  for (const items of preferLists) {
+    for (const j of items) {
+      const sid = resolveSceneIdFromJournal(j)
+      if (sid && status[sid]) return sid
+    }
+  }
+  return null
+})
+
+const showJournalArButton = computed(() => journalArSceneId.value != null)
+
+const journalArButtonTop = computed(() => {
+  const bar = configStore.statusBarHeight || 0
+  return `calc(0.75rem + max(env(safe-area-inset-top, 0px), ${bar}px))`
+})
+
+function goJournalSceneAr() {
+  const sid = journalArSceneId.value
+  if (!sid) return
+  openLibraryWebPath(`/scene/detail/ar/${sid}`)
+}
 
 /** 按月视图：12个月块，无数据补 0（受标签筛选影响） */
 const all12Months = computed(() => {
@@ -2790,5 +2916,60 @@ useHead({
 .journal-neu-type-row:hover {
   border-color: var(--border-paper);
   background: var(--paper-sheet);
+}
+
+.journal-ar-fab {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  border-radius: 9999px;
+  padding: 0.35rem 0.7rem 0.35rem 0.35rem;
+  border: 1px solid rgba(120, 95, 70, 0.18);
+  background: color-mix(in srgb, #fefcf9 88%, transparent);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  box-shadow:
+    4px 4px 12px rgba(110, 88, 62, 0.12),
+    -2px -2px 8px rgba(255, 255, 255, 0.7),
+    inset 0 1px 0 rgba(255, 255, 255, 0.55);
+  transition: transform 0.18s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+.dark .journal-ar-fab {
+  border-color: rgba(200, 180, 150, 0.14);
+  background: color-mix(in srgb, #221e19 82%, transparent);
+  box-shadow:
+    4px 4px 14px rgba(0, 0, 0, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+.journal-ar-fab:hover {
+  transform: translateY(-1px);
+  border-color: color-mix(in srgb, #8b5cf6 35%, rgba(120, 95, 70, 0.18));
+}
+
+.journal-ar-fab:active {
+  transform: scale(0.98);
+}
+
+.journal-ar-fab-icon {
+  display: flex;
+  height: 1.75rem;
+  width: 1.75rem;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+}
+
+.journal-ar-fab-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: #6d28d9;
+}
+
+.dark .journal-ar-fab-label {
+  color: #c4b5fd;
 }
 </style>

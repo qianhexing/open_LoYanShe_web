@@ -106,7 +106,7 @@ export const SCENE_EDIT_GUIDE_STEPS: SceneEditGuideStep[] = [
     targetId: 'scene-guide-right-material',
     placement: 'left',
     description:
-      '素材、服饰、场景、特效、模版、自定义六类资源。点击标签展开列表，同时只会展开一个面板；点选条目即可加入场景。',
+      '右侧「素材」已合并素材、服饰与场景，展开后可筛选类型；另有特效、模版、自定义等。点选条目即可加入场景。',
     layout: { collapseAllLists: true }
   },
   {
@@ -124,7 +124,7 @@ export const SCENE_EDIT_GUIDE_STEPS: SceneEditGuideStep[] = [
     targetId: 'scene-guide-camera-list',
     placement: 'left',
     description:
-      '工具栏「记录镜头」可保存当前视角；右下角数字按钮可切换已保存镜头。编辑模式下还可使用视图方块快速调整观察角度。',
+      '顶部切换条：有场景分组时优先显示分组；无分组且有已保存镜头时显示镜头列表（样式相同，超出可横向滚动）。工具栏「记录镜头」可保存当前视角。',
     layout: { collapseAllLists: true }
   }
 ]

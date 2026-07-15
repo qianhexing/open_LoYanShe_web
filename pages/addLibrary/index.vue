@@ -364,7 +364,7 @@
         <UFormGroup :label="t('addLibrary.library_pattern')" v-if="shouldShowField('library_pattern')"
           :class="getHighlightClass('library_pattern')">
           <div class="flex flex-col gap-2 m-1" v-if="library.library_pattern_list.length > 0">
-            <div v-for="(item, index) in library.library_pattern_list" :key="item.library_pattern.wiki_id"
+            <div v-for="(item, index) in library.library_pattern_list" :key="`pattern-${index}-${item.library_pattern.wiki_id}`"
               class="flex items-center gap-2 flex-wrap">
               <div
                 class="relative w-16 h-16 shrink-0 rounded-lg overflow-hidden border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-800"
@@ -429,8 +429,8 @@
             </p>
             <div v-if="originalPatternListForReview.length > 0" class="flex flex-col gap-2">
               <div
-                v-for="item in originalPatternListForReview"
-                :key="item.library_pattern.wiki_id"
+                v-for="(item, index) in originalPatternListForReview"
+                :key="`original-pattern-${index}-${item.library_pattern.wiki_id}`"
                 class="flex items-center gap-2 flex-wrap"
               >
                 <div
@@ -1190,24 +1190,27 @@ const parseLibraryPatternList = (
   libraryPattern?: string | null,
   jsonData?: unknown
 ): LibraryPatternPriceItem[] => {
-  const priceMap = new Map<string, number | undefined>()
-  const coverMap = new Map<string, string | undefined>()
-  for (const record of extractSkuListFromJsonData(jsonData)) {
-    priceMap.set(
-      record.library_pattern,
-      record.library_price != null ? Number(record.library_price) : undefined
-    )
-    if (record.cover) {
-      coverMap.set(record.library_pattern, record.cover)
-    }
+  const skuList = extractSkuListFromJsonData(jsonData)
+  if (!libraryPattern) {
+    return skuList.map((record) => ({
+      library_pattern: {
+        wiki_name: record.library_pattern,
+        wiki_id: record.library_pattern
+      },
+      library_price: record.library_price != null ? Number(record.library_price) : undefined,
+      cover: record.cover || undefined
+    }))
   }
-  if (!libraryPattern) return []
-  return libraryPattern.split(',').filter(Boolean).map((name: string) => {
-    const trimmed = name.trim()
+  const names = libraryPattern.split(',').filter(Boolean).map((name: string) => name.trim())
+  // 按名称顺序消费 sku，支持同名版型各自保留价格/封面
+  const remaining = [...skuList]
+  return names.map((trimmed) => {
+    const skuIndex = remaining.findIndex((record) => record.library_pattern === trimmed)
+    const record = skuIndex !== -1 ? remaining.splice(skuIndex, 1)[0] : undefined
     return {
       library_pattern: { wiki_name: trimmed, wiki_id: trimmed },
-      library_price: priceMap.get(trimmed),
-      cover: coverMap.get(trimmed)
+      library_price: record?.library_price != null ? Number(record.library_price) : undefined,
+      cover: record?.cover || undefined
     }
   })
 }
@@ -2080,15 +2083,11 @@ const chooseWiki = (wiki_list: Wiki[]) => {
         library.value.theme.push(item)
       }
     } else if (wiki_type.value === 'library_pattern') {
-      const index = library.value.library_pattern_list.findIndex((child) => {
-        return child.library_pattern.wiki_name === item.wiki_name
+      // 版型允许重复选择（同名可多次添加，各自维护价格/封面）
+      library.value.library_pattern_list.push({
+        library_pattern: item,
+        library_price: library.value.library_price
       })
-      if (index === -1) {
-        library.value.library_pattern_list.push({
-          library_pattern: item,
-          library_price: library.value.library_price
-        })
-      }
     } else if (wiki_type.value === 'color') {
       const index = library.value.color.findIndex((child: Wiki) => {
         return child.wiki_name === item.wiki_name
