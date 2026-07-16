@@ -239,32 +239,30 @@ const librarySkuList = computed((): LibrarySkuItem[] => {
   if (!lib) return []
 
   const skuItems = resolveSkuRawList(parseLibraryJsonData(lib.json_data))
-  const metaByPattern = new Map<string, { library_price?: number; cover?: string }>()
-  for (const item of skuItems) {
-    const cover = item.cover != null && String(item.cover).trim() !== ''
-      ? String(item.cover).trim()
+  const toSkuItem = (name: string, record?: LibrarySkuRaw): LibrarySkuItem => {
+    const cover = record?.cover != null && String(record.cover).trim() !== ''
+      ? String(record.cover).trim()
       : undefined
-    metaByPattern.set(item.library_pattern, {
-      library_price: item.library_price != null ? Number(item.library_price) : undefined,
+    return {
+      library_pattern: name,
+      library_price: record?.library_price != null ? Number(record.library_price) : undefined,
       cover
+    }
+  }
+
+  // 按名称顺序消费 sku，支持同名版型各自保留价格/封面
+  if (lib.library_pattern) {
+    const patternNames = lib.library_pattern.split(',').map((s) => s.trim()).filter(Boolean)
+    if (!patternNames.length) return []
+    const remaining = [...skuItems]
+    return patternNames.map((name) => {
+      const skuIndex = remaining.findIndex((record) => record.library_pattern === name)
+      const record = skuIndex !== -1 ? remaining.splice(skuIndex, 1)[0] : undefined
+      return toSkuItem(name, record)
     })
   }
 
-  const patternNames = (lib.library_pattern
-    ? lib.library_pattern.split(',').map((s) => s.trim()).filter(Boolean)
-    : skuItems.map((item) => item.library_pattern)
-  ).filter((name, index, arr) => arr.indexOf(name) === index)
-
-  if (!patternNames.length) return []
-
-  return patternNames.map((name) => {
-    const meta = metaByPattern.get(name)
-    return {
-      library_pattern: name,
-      library_price: meta?.library_price,
-      cover: meta?.cover
-    }
-  })
+  return skuItems.map((item) => toSkuItem(item.library_pattern, item))
 })
 
 const hasSku = computed(() => librarySkuList.value.length > 0)

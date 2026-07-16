@@ -65,8 +65,6 @@ import { ARButton } from 'three/examples/jsm/webxr/ARButton.js'
 import { DeviceOrientationControls } from './DeviceOrientationControls'
 import jsQR from 'jsqr'
 import { createGrid, updateGrid } from './Grid'
-// @ts-ignore - 高斯泼溅库缺少类型定义
-import * as GaussianSplats3D from '@mkkellogg/gaussian-splats-3d'
 import {
 	SplatMesh,
 	SplatFileType,
@@ -733,9 +731,6 @@ class ThreeCore {
 	public pluginCache = new Map<string, any>()
 	public raycaster?: THREE.Raycaster // 射线检测器
 	private raycasterClickHandler?: (event: MouseEvent) => void // 射线点击事件处理器
-
-	// 高斯泼溅
-	public splatViewer?: GaussianSplats3D.Viewer
 
 	/** 懒加载且切换时保留：避免每次切换 reinstantiate Spark Wasm */
 	private sparkRenderer?: SparkRenderer
@@ -2445,350 +2440,6 @@ class ThreeCore {
 		return group
 	}
 
-	public fitGaussianSplatCamera(
-		viewer: GaussianSplats3D.Viewer,
-		camera: THREE.PerspectiveCamera,
-		options: GaussianSplats3D.FitOptions = {}
-	) {
-		const { padding = 1.2, minDistance = 0.01, maxDistance = 10000 } = options
-
-		// 1️⃣ 获取 splat 场景 bounds
-		const scene = viewer.getScene?.(0)
-		if (!scene || !scene.boundingBox) {
-			console.warn('[fitGaussianSplatCamera] boundingBox not ready')
-			return
-		}
-
-		const bounds = scene.boundingBox
-		// bounds: { min: [x,y,z], max: [x,y,z] }
-
-		const min = new THREE.Vector3(...bounds.min)
-		const max = new THREE.Vector3(...bounds.max)
-
-		// 2️⃣ 计算 center & size
-		const center = new THREE.Vector3()
-		const size = new THREE.Vector3()
-		center.addVectors(min, max).multiplyScalar(0.5)
-		size.subVectors(max, min)
-
-		// 3️⃣ 计算半径（取最大轴）
-		const radius = Math.max(size.x, size.y, size.z) * 0.5
-
-		// 4️⃣ 根据 FOV 算距离
-		const fovRad = THREE.MathUtils.degToRad(camera.fov)
-		let distance = (radius / Math.tan(fovRad / 2)) * padding
-
-		distance = THREE.MathUtils.clamp(distance, minDistance, maxDistance)
-
-		// 5️⃣ 设置相机
-		const dir = new THREE.Vector3(0, 0, 1) // 正前方
-		camera.position.copy(center.clone().add(dir.multiplyScalar(distance)))
-		camera.lookAt(center)
-		camera.updateProjectionMatrix()
-	}
-	public syncCamera(viewer: GaussianSplats3D.Viewer) {
-		const cam = this.camera
-		const splatCam = viewer.camera
-
-		splatCam.position.copy(cam.position)
-		splatCam.quaternion.copy(cam.quaternion)
-
-		if (cam instanceof THREE.PerspectiveCamera) {
-			splatCam.fov = cam.fov
-			splatCam.aspect = cam.aspect
-			splatCam.near = cam.near
-			splatCam.far = cam.far
-		} else if (cam instanceof THREE.OrthographicCamera) {
-			// 泼溅内部仍为透视相机，用近似 FOV / 宽高比保持可见范围接近
-			splatCam.fov = 50
-			const aspect = (cam.right - cam.left) / (cam.top - cam.bottom)
-			splatCam.aspect = Number.isFinite(aspect) ? aspect : 1
-			splatCam.near = cam.near
-			splatCam.far = cam.far
-		}
-
-		splatCam.updateProjectionMatrix()
-		// 2️⃣ 关键：同步 controls target（平移的本体）
-		if (this.controls && viewer.controls) {
-			viewer.controls.target.copy(this.controls.target)
-			viewer.controls.update()
-		}
-	}
-
-	async loadCompressedGaussian(
-		viewer: GaussianSplats3D.Viewer,
-		url: string,
-		options?: {
-			scale?: [number, number, number]
-			position?: [number, number, number]
-			rotation?: [number, number, number, number]
-		}
-	) {
-		// 默认 transform
-		const {
-			scale = [1, 1, 1],
-			position = [0, 0, 0],
-			rotation = [1, 0, 0, 0]
-		} = options || {}
-
-		// 1️⃣ 下载二进制文件
-		const buffer = await fetch(url).then(r => r.arrayBuffer())
-		const dv = new DataView(buffer)
-		let offset = 0
-
-		// 2️⃣ 读取点数
-		const count = dv.getUint32(offset, true)
-		offset += 4
-
-		// 3️⃣ 读取 position float16 → Float32
-		function float16ToFloat32(
-			buffer: ArrayBuffer,
-			offset: number,
-			length: number
-		) {
-			const uint16Arr = new Uint16Array(buffer, offset, length)
-			const float32Arr = new Float32Array(length)
-			for (let i = 0; i < length; i++) {
-				const x = uint16Arr[i]
-				const t1 = (x & 0x7fff) << 13
-				const t2 = (x & 0x8000) << 16
-				const t3 = (x & 0x7c00) === 0x7c00 ? 0x7f800000 : 0
-				const f = new DataView(
-					new Uint32Array([t1 | t2 | t3]).buffer
-				).getFloat32(0, false)
-				float32Arr[i] = f
-			}
-			return float32Arr
-		}
-
-		const pos = float16ToFloat32(buffer, offset, count * 3)
-		offset += count * 3 * 2
-
-		const scaleArr = float16ToFloat32(buffer, offset, count * 3)
-		offset += count * 3 * 2
-
-		const rot = new Int16Array(buffer, offset, count * 4)
-		offset += count * 4 * 2
-
-		const color = new Uint8Array(buffer, offset, count * 3)
-		offset += count * 3
-
-		const opacity = new Uint8Array(buffer, offset, count)
-
-		// 4️⃣ 调用 addSplatScene
-		await viewer.addSplatScene(
-			{
-				count,
-				pos,
-				scale: scaleArr,
-				rot,
-				color,
-				opacity
-			},
-			{
-				scale,
-				position,
-				rotation
-			}
-		)
-	}
-
-	public removeGaussianSplatUIRoot() {
-		const progressBar = document.querySelector('.progressBarOuterContainer')
-		if (!progressBar) return false
-
-		let root: HTMLElement | null = progressBar as HTMLElement
-
-		// 一直向上找，直到父级是 body
-		while (root.parentElement && root.parentElement !== document.body) {
-			root = root.parentElement as HTMLElement
-		}
-
-		// 确认是直接挂在 body 下的，才删
-		if (root.parentElement === document.body) {
-			root.remove()
-			return true
-		}
-
-		return false
-	}
-	/**
-	 * 初始化高斯泼溅查看器
-	 */
-
-	public async initSplatViewer2() {
-		// 如果你有旧的 GaussianSplats3D UI，可以先移除
-		// this.removeGaussianSplatUIRoot();
-
-		this.ensureSparkRenderer()
-		// 创建 Spark SplatMesh（Spark 2.0：构造函数同步返回实例，加载完成需 await initialized）
-		const demoSplatUrl = '/model/1.compressed.ply' // ⭐ 改成你的点云文件（.ply / .spz / .rad 等）
-		const demoFileType = inferSplatFileTypeFromUrl(demoSplatUrl)
-		const splatMesh = new SplatMesh({
-			url: demoSplatUrl,
-			...(demoFileType !== undefined ? { fileType: demoFileType } : {}),
-			maxSplats: 50000 // ⭐ 每块最大 5 万点
-		})
-		await splatMesh.initialized
-		splatMesh.maxSh = 0
-		// 选择180度
-		splatMesh.userData.type = 'splat'
-		splatMesh.userData.url = '/model/test.ply'
-		splatMesh.userData.ignorePick = true
-		splatMesh.quaternion.set(1, 0, 0, 0)
-		splatMesh.castShadow = false
-		splatMesh.receiveShadow = false
-		splatMesh.updateGenerator()
-		// 添加到 Three.js 场景
-		this.scene.add(splatMesh)
-
-		// 将 Spark 渲染的 Canvas 插入你的容器
-		// const splatCanvas = this.renderer.domElement;
-		// splatCanvas.style.position = 'absolute';
-		// splatCanvas.style.top = '0';
-		// splatCanvas.style.left = '0';
-		// splatCanvas.style.pointerEvents = 'none';
-		// splatCanvas.style.zIndex = '1';
-		// this.container?.appendChild(splatCanvas);
-
-		// 渲染循环
-		// this.renderer.setAnimationLoop(() => {
-		//   // Spark SplatMesh 内部会自动更新渐进加载
-		//   this.renderer.render(this.scene, this.camera);
-		// });
-
-		// 摄像机同步
-		// this.syncCameraWithSplat();
-
-		console.log('Spark SplatMesh initialized:', splatMesh)
-	}
-	public async initSplatViewer() {
-		const viewer = new GaussianSplats3D.Viewer({
-			selfDrivenMode: true,
-			progressiveLoad: true,
-			enableSharedMemory: false,
-			showLoadingUI: false, // ⭐ 关掉进度条 / spinner
-			showInfoPanel: false, // ⭐ 关掉调试面板
-
-			threeScene: this.scene,
-			threeCamera: this.camera,
-			threeRenderer: this.getWebGLRenderer()
-		})
-
-		// await loadCompressedGaussian(viewer, '/model/gaussian.bin', {
-		// 	scale: [1, 1, 1],
-		// 	position: [0, 0, 0],
-		// 	rotation: [1, 0, 0, 0],
-		// });
-		await viewer.addSplatScene(
-			// '/model/point_cloud_29999_clean.compressed.ply',
-			BASE_IMG + '/sence/point_cloud/1.ply',
-
-			{
-				scale: [1, 1, 1],
-				position: [0, 0, 0],
-				rotation: [1, 0, 0, 0]
-			}
-		)
-
-		// await viewer.addSplatScene(
-		// 	'/model/point_cloud_29999_clean.compressed.ply',
-		// 	{
-		// 		scale: [10, 10, 10],
-		// 		position:[0, 0, 0],
-		// 		rotation:[1, 0, 0, 0]
-		// 	}
-		// )
-		viewer.start()
-		const splatCanvas = viewer.renderer.domElement
-		// 然后再按你自己的方式插入
-		splatCanvas.style.position = 'absolute'
-		splatCanvas.style.top = '0'
-		splatCanvas.style.left = '0'
-		splatCanvas.style.pointerEvents = 'none'
-		splatCanvas.style.zIndex = '1'
-
-		this.container?.appendChild(splatCanvas)
-
-		console.log('splat scenes', viewer.splatScenes)
-		console.log('splat count', viewer.splatScenes?.[0]?.splatCount)
-		console.log('viewer running', viewer.isRunning)
-		this.syncCamera(viewer)
-		this.controls.addEventListener('change', () => {
-			this.syncCamera(viewer)
-		})
-	}
-
-	/**
-	 * 添加高斯泼溅模型
-	 * @param url 泼溅模型文件路径 (.splat)
-	 * @param options 可选配置
-	 * @returns Promise<THREE.Object3D | null> 返回创建的包装组对象
-	 */
-	public async addSplatScene(
-		url: string,
-		options?: {
-			position?: [number, number, number]
-			rotation?: [number, number, number]
-			scale?: [number, number, number]
-		}
-	): Promise<THREE.Object3D | null> {
-		// 确保 viewer 已初始化
-		const viewer = new GaussianSplats3D.Viewer({
-			selfDrivenMode: true,
-			progressiveLoad: true,
-			enableSharedMemory: false,
-			showLoadingUI: false, // ⭐ 关掉进度条 / spinner
-			showInfoPanel: false, // ⭐ 关掉调试面板
-
-			threeScene: this.scene,
-			threeCamera: this.camera,
-			threeRenderer: this.getWebGLRenderer()
-		})
-
-		// await loadCompressedGaussian(viewer, '/model/gaussian.bin', {
-		// 	scale: [1, 1, 1],
-		// 	position: [0, 0, 0],
-		// 	rotation: [1, 0, 0, 0],
-		// });
-		await viewer.addSplatScene(
-			// '/model/point_cloud_29999_clean.compressed.ply',
-			url,
-			{
-				scale: [1, 1, 1],
-				position: [0, 0, 0],
-				rotation: [1, 0, 0, 0]
-			}
-		)
-
-		// await viewer.addSplatScene(
-		// 	'/model/point_cloud_29999_clean.compressed.ply',
-		// 	{
-		// 		scale: [10, 10, 10],
-		// 		position:[0, 0, 0],
-		// 		rotation:[1, 0, 0, 0]
-		// 	}
-		// )
-		viewer.start()
-		const splatCanvas = viewer.renderer.domElement
-		// 然后再按你自己的方式插入
-		splatCanvas.style.position = 'absolute'
-		splatCanvas.style.top = '0'
-		splatCanvas.style.left = '0'
-		splatCanvas.style.pointerEvents = 'none'
-		splatCanvas.style.zIndex = '1'
-
-		this.container?.appendChild(splatCanvas)
-
-		console.log('splat scenes', viewer.splatScenes)
-		console.log('splat count', viewer.splatScenes?.[0]?.splatCount)
-		console.log('viewer running', viewer.isRunning)
-		this.syncCamera(viewer)
-		this.controls.addEventListener('change', () => {
-			this.syncCamera(viewer)
-		})
-		return viewer
-	}
 	public async loadImageMesh(url: string, baseWidth = 5): Promise<THREE.Mesh> {
 		return new Promise((resolve, reject) => {
 			if (this.loadedModelURLs.has(url)) {
@@ -5527,10 +5178,6 @@ class ThreeCore {
 		cam.near = near
 		cam.far = far
 		cam.updateProjectionMatrix()
-
-		if (this.splatViewer) {
-			this.syncCamera(this.splatViewer)
-		}
 	}
 
 	// 新增方法：初始化CSS3D渲染器
@@ -5580,7 +5227,6 @@ class ThreeCore {
 		// 更新渲染器
 		this.renderer.setSize(width, height)
 		this.webglAux?.setSize(width, height)
-		this.splatViewer?.renderer.setSize(width, height)
 
 		// 更新CSS3D渲染器
 		if (this.css3DRenderer) {
@@ -6485,11 +6131,6 @@ class ThreeCore {
 				this.updateMindArPoseSmooth(delta)
 			}
 
-			// 更新高斯泼溅查看器
-			if (this.splatViewer) {
-				this.splatViewer.update()
-			}
-
 			// 更新 DeviceOrientationControls
 			if (
 				this.deviceOrientationControls &&
@@ -6628,12 +6269,6 @@ class ThreeCore {
 			if (this.options.enableRaycaster) {
 				this.initRaycaster()
 			}
-
-			// 初始化场景后默认加载测试点云模型
-			// this.loadDefaultTestPointCloud()
-			// setTimeout(() => {
-			// this.initSplatViewer()
-			// });
 		} else {
 			// 如果没有指定容器，添加到body
 			document.body.appendChild(this.renderer.domElement)
@@ -6649,27 +6284,6 @@ class ThreeCore {
 			if (this.options.enableRaycaster) {
 				this.initRaycaster()
 			}
-
-			// 初始化场景后默认加载测试点云模型
-			// this.loadDefaultTestPointCloud()
-		}
-	}
-
-	/**
-	 * 加载默认测试点云模型
-	 */
-	private async loadDefaultTestPointCloud() {
-		try {
-			// 加载测试点云模型
-			console.log('加载默认测试点云模型')
-			await this.addSplatScene('/model/point_cloud_29999.ply', {
-				position: [0, 0, 0],
-				rotation: [0, 0, 0],
-				scale: [1, 1, 1]
-			})
-			console.log('默认测试点云模型加载成功')
-		} catch (error) {
-			console.warn('默认测试点云模型加载失败:', error)
 		}
 	}
 
@@ -9636,15 +9250,6 @@ class ThreeCore {
 			this.css3DRenderer.domElement.parentNode.removeChild(
 				this.css3DRenderer.domElement
 			)
-		}
-
-		// 清理高斯泼溅查看器
-		if (this.splatViewer) {
-			// 如果 viewer 有 dispose 方法，调用它
-			if (typeof (this.splatViewer as any).dispose === 'function') {
-				;(this.splatViewer as any).dispose()
-			}
-			this.splatViewer = undefined
 		}
 
 		if (this.sparkRenderer) {

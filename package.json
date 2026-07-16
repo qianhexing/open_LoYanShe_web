@@ -14,7 +14,6 @@
   "dependencies": {
     "@dcloudio/uni-webview-js": "^0.0.3",
     "@dgreenheck/ez-tree": "^1.1.0",
-    "@mkkellogg/gaussian-splats-3d": "^0.4.7",
     "@msgpack/msgpack": "2.8.0",
     "@nuxt/image": "1.9.0",
     "@nuxt/ui": "2.21.0",
