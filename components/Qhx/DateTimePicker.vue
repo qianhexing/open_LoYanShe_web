@@ -19,11 +19,55 @@
       <div
         class="datetime-modal w-[95vw] max-w-sm max-h-[min(85vh,calc(100vh-2rem))] flex flex-col bg-white dark:bg-gray-800 rounded-2xl shadow-xl overflow-hidden border border-gray-200/50 dark:border-gray-700/50"
       >
-        <!-- 头部 -->
+        <!-- 头部：快速输入，与下方滚轮/日历联动 -->
         <div class="shrink-0 px-4 py-3 border-b border-gray-200/60 dark:border-gray-700 flex items-center justify-between gap-2">
-          <h3 class="text-base font-semibold text-gray-800 dark:text-gray-100">
-            选择日期时间
-          </h3>
+          <div class="quick-inputs flex items-center gap-1 min-w-0 flex-1">
+            <label class="quick-field">
+              <input
+                ref="yearInputRef"
+                v-model="yearInput"
+                class="quick-input year"
+                type="text"
+                inputmode="numeric"
+                maxlength="4"
+                placeholder="年"
+                @focus="focusedField = 'year'"
+                @blur="onYearBlur"
+                @keydown.enter.prevent="onYearEnter"
+              />
+              <span class="quick-unit">年</span>
+            </label>
+            <label class="quick-field">
+              <input
+                ref="monthInputRef"
+                v-model="monthInput"
+                class="quick-input month"
+                type="text"
+                inputmode="numeric"
+                maxlength="2"
+                placeholder="月"
+                @focus="focusedField = 'month'"
+                @blur="onMonthBlur"
+                @keydown.enter.prevent="onMonthEnter"
+              />
+              <span class="quick-unit">月</span>
+            </label>
+            <label v-if="props.mode === 'date'" class="quick-field">
+              <input
+                ref="dayInputRef"
+                v-model="dayInput"
+                class="quick-input day"
+                type="text"
+                inputmode="numeric"
+                maxlength="2"
+                placeholder="日"
+                @focus="focusedField = 'day'"
+                @blur="onDayBlur"
+                @keydown.enter.prevent="commitDay"
+              />
+              <span class="quick-unit">日</span>
+            </label>
+          </div>
           <UButton
             v-if="props.mode === 'date'"
             size="xs"
@@ -165,7 +209,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, nextTick } from 'vue'
 import dayjs from 'dayjs'
 
 interface PickerItem {
@@ -219,50 +263,170 @@ const currentYear = ref(innerDate.value.year())
 const currentMonth = ref(innerDate.value.month())
 const selectedDay = ref(innerDate.value.date())
 
-// 年月模式索引
-const yearOptions = computed((): PickerItem[] => {
-  const base = currentYear.value
-  return Array.from({ length: 50 }, (_, i) => {
-    const y = base - 25 + i
+// 年份列表固定范围，避免随 currentYear 重建导致索引被拉回中间、滚动跳变
+const YEAR_START = 1970
+const YEAR_END = 2100
+const yearOptions: PickerItem[] = Array.from(
+  { length: YEAR_END - YEAR_START + 1 },
+  (_, i) => {
+    const y = YEAR_START + i
     return { label: `${y}年`, value: y }
-  })
-})
-
-const monthOptions = computed((): PickerItem[] =>
-  Array.from({ length: 12 }, (_, i) => ({
-    label: `${i + 1}月`,
-    value: i
-  }))
+  }
 )
 
-const yearIndex = ref(25)
+const monthOptions: PickerItem[] = Array.from({ length: 12 }, (_, i) => ({
+  label: `${i + 1}月`,
+  value: i
+}))
+
+function yearToIndex(y: number) {
+  return Math.min(YEAR_END - YEAR_START, Math.max(0, y - YEAR_START))
+}
+
+const yearIndex = ref(yearToIndex(innerDate.value.year()))
 const monthIndex = ref(innerDate.value.month())
+
+watch(yearIndex, (i) => {
+  const opt = yearOptions[i]
+  if (opt && currentYear.value !== opt.value) currentYear.value = opt.value
+})
 
 watch(
   () => currentYear.value,
   (y) => {
-    const idx = yearOptions.value.findIndex((o) => o.value === y)
-    if (idx >= 0) yearIndex.value = idx
-  },
-  { immediate: true }
+    const idx = yearToIndex(y)
+    if (yearIndex.value !== idx) yearIndex.value = idx
+  }
 )
 
-watch(yearIndex, (i) => {
-  const opt = yearOptions.value[i]
-  if (opt) currentYear.value = opt.value
-})
-
 watch(monthIndex, (i) => {
-  currentMonth.value = i
+  if (currentMonth.value !== i) currentMonth.value = i
 })
 
 watch(
   () => currentMonth.value,
   (m) => {
     if (monthIndex.value !== m) monthIndex.value = m
-  },
-  { immediate: true }
+  }
 )
+
+// 头部快速输入（字符串草稿，便于边输边改；失焦/回车后写回并联动滚轮）
+const yearInput = ref(String(currentYear.value))
+const monthInput = ref(String(currentMonth.value + 1))
+const dayInput = ref(String(selectedDay.value))
+const focusedField = ref<'year' | 'month' | 'day' | null>(null)
+const yearInputRef = ref<HTMLInputElement>()
+const monthInputRef = ref<HTMLInputElement>()
+const dayInputRef = ref<HTMLInputElement>()
+
+function daysInCurrentMonth() {
+  return dayjs().year(currentYear.value).month(currentMonth.value).daysInMonth()
+}
+
+function clampSelectedDay() {
+  const max = daysInCurrentMonth()
+  if (selectedDay.value > max) selectedDay.value = max
+}
+
+function syncQuickInputsFromState() {
+  if (focusedField.value !== 'year') yearInput.value = String(currentYear.value)
+  if (focusedField.value !== 'month') monthInput.value = String(currentMonth.value + 1)
+  if (focusedField.value !== 'day') dayInput.value = String(selectedDay.value)
+}
+
+watch([currentYear, currentMonth, selectedDay], () => {
+  clampSelectedDay()
+  syncQuickInputsFromState()
+})
+
+function commitYear() {
+  let y = Number.parseInt(yearInput.value.replace(/\D/g, ''), 10)
+  if (Number.isNaN(y)) y = currentYear.value
+  y = Math.min(YEAR_END, Math.max(YEAR_START, y))
+  if (currentYear.value !== y) currentYear.value = y
+  yearInput.value = String(y)
+  clampSelectedDay()
+  focusedField.value = null
+}
+
+function commitMonth() {
+  let m = Number.parseInt(monthInput.value.replace(/\D/g, ''), 10)
+  if (Number.isNaN(m)) m = currentMonth.value + 1
+  m = Math.min(12, Math.max(1, m))
+  if (currentMonth.value !== m - 1) currentMonth.value = m - 1
+  monthInput.value = String(m)
+  clampSelectedDay()
+  focusedField.value = null
+}
+
+function commitDay() {
+  let d = Number.parseInt(dayInput.value.replace(/\D/g, ''), 10)
+  const max = daysInCurrentMonth()
+  if (Number.isNaN(d)) d = selectedDay.value
+  d = Math.min(max, Math.max(1, d))
+  if (selectedDay.value !== d) selectedDay.value = d
+  dayInput.value = String(d)
+  focusedField.value = null
+}
+
+function onYearBlur() {
+  commitYear()
+}
+
+function onMonthBlur() {
+  commitMonth()
+}
+
+function onDayBlur() {
+  commitDay()
+}
+
+async function onYearEnter() {
+  commitYear()
+  await nextTick()
+  monthInputRef.value?.focus()
+  monthInputRef.value?.select()
+}
+
+async function onMonthEnter() {
+  commitMonth()
+  await nextTick()
+  if (props.mode === 'date') {
+    dayInputRef.value?.focus()
+    dayInputRef.value?.select()
+  } else {
+    monthInputRef.value?.blur()
+  }
+}
+
+watch(yearInput, (v) => {
+  if (focusedField.value !== 'year') return
+  const digits = v.replace(/\D/g, '').slice(0, 4)
+  if (digits !== v) yearInput.value = digits
+  if (digits.length === 4) {
+    void onYearEnter()
+  }
+})
+
+watch(monthInput, (v) => {
+  if (focusedField.value !== 'month') return
+  const digits = v.replace(/\D/g, '').slice(0, 2)
+  if (digits !== v) monthInput.value = digits
+  // 首字为 2–9，或已满两位时自动跳下一项
+  if (digits.length === 2 || (digits.length === 1 && Number(digits) > 1)) {
+    void onMonthEnter()
+  }
+})
+
+watch(dayInput, (v) => {
+  if (focusedField.value !== 'day') return
+  const digits = v.replace(/\D/g, '').slice(0, 2)
+  if (digits !== v) dayInput.value = digits
+  if (digits.length === 2 || (digits.length === 1 && Number(digits) > 3)) {
+    commitDay()
+    dayInputRef.value?.blur()
+  }
+})
 
 // 时分秒
 const hourOptions: PickerItem[] = Array.from({ length: 24 }, (_, i) => ({
@@ -422,8 +586,9 @@ function openPicker(e?: MouseEvent) {
   minuteIndex.value = innerDate.value.minute()
   secondIndex.value = innerDate.value.second()
   monthIndex.value = innerDate.value.month()
-  const yIdx = yearOptions.value.findIndex((o) => o.value === currentYear.value)
-  if (yIdx >= 0) yearIndex.value = yIdx
+  yearIndex.value = yearToIndex(currentYear.value)
+  focusedField.value = null
+  syncQuickInputsFromState()
   show.value = true
 }
 
@@ -456,8 +621,7 @@ watch(
     minuteIndex.value = innerDate.value.minute()
     secondIndex.value = innerDate.value.second()
     monthIndex.value = innerDate.value.month()
-    const yIdx = yearOptions.value.findIndex((o) => o.value === currentYear.value)
-    if (yIdx >= 0) yearIndex.value = yIdx
+    yearIndex.value = yearToIndex(currentYear.value)
   }
 )
 </script>
@@ -523,5 +687,58 @@ watch(
 
 .day-cell {
   min-height: 32px;
+}
+
+.quick-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+}
+
+.quick-input {
+  width: 2.75rem;
+  height: 32px;
+  padding: 0 4px;
+  border-radius: 8px;
+  border: 1px solid rgb(209 213 219);
+  background: rgb(249 250 251);
+  text-align: center;
+  font-size: 14px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: rgb(17 24 39);
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.quick-input.year {
+  width: 3.5rem;
+}
+
+.dark .quick-input {
+  border-color: rgb(75 85 99);
+  background: rgb(31 41 55);
+  color: rgb(243 244 246);
+}
+
+.quick-input:focus {
+  border-color: var(--qhx-primary, #3b82f6);
+  box-shadow: 0 0 0 2px rgb(59 130 246 / 0.2);
+  background: rgb(255 255 255);
+}
+
+.dark .quick-input:focus {
+  background: rgb(17 24 39);
+}
+
+.quick-unit {
+  font-size: 12px;
+  color: rgb(107 114 128);
+  flex-shrink: 0;
+}
+
+.dark .quick-unit {
+  color: rgb(156 163 175);
 }
 </style>

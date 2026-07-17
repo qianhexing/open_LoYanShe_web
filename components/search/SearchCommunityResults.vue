@@ -1,5 +1,9 @@
 <script setup lang="ts">
 import type { Community } from '@/types/api'
+import {
+  openCommunityDetailTab,
+  openUserSpaceTab,
+} from '@/composables/useLibraryDetailNavigation'
 import { BASE_IMG } from '@/utils/ipConfig'
 import { formatRich } from '@/utils/public'
 
@@ -40,12 +44,11 @@ function contentPreview(item: Community): string {
 }
 
 function openDetail(id: number) {
-  window.open(`/community/detail/${id}`, '_blank')
+  openCommunityDetailTab(id)
 }
 
 function openUser(userId?: number) {
-  if (!userId) return
-  window.open(`/userSpace/${userId}`, '_blank')
+  openUserSpaceTab(userId)
 }
 </script>
 

@@ -98,19 +98,30 @@
           </button>
         </div>
       </div>
-      <button
-        type="button"
-        class="journal-neu-icon-btn flex items-center gap-1 rounded-xl px-2.5 py-1.5 text-xs text-[#6b4f5f] dark:text-[var(--ink-muted)] disabled:opacity-50"
-        :disabled="journalShareGenerating"
-        @click="generateJournalShare()"
-      >
-        <UIcon
-          :name="journalShareGenerating ? 'i-heroicons-arrow-path' : 'i-heroicons-photo-20-solid'"
-          class="w-4 h-4"
-          :class="{ 'animate-spin': journalShareGenerating }"
-        />
-        <span>{{ journalShareGenerating ? '生成中' : '分享图' }}</span>
-      </button>
+      <div class="flex items-center gap-1.5 shrink-0">
+        <button
+          type="button"
+          class="journal-neu-icon-btn flex items-center gap-1 rounded-xl px-2.5 py-1.5 text-xs text-[#6b4f5f] dark:text-[var(--ink-muted)] disabled:opacity-50"
+          :disabled="journalShareGenerating"
+          @click="generateJournalShare()"
+        >
+          <UIcon
+            :name="journalShareGenerating ? 'i-heroicons-arrow-path' : 'i-heroicons-photo-20-solid'"
+            class="w-4 h-4"
+            :class="{ 'animate-spin': journalShareGenerating }"
+          />
+          <span>{{ journalShareGenerating ? '生成中' : '分享图' }}</span>
+        </button>
+        <button
+          type="button"
+          class="journal-neu-icon-btn flex items-center gap-1 rounded-xl px-2.5 py-1.5 text-xs text-[#6b4f5f] dark:text-[var(--ink-muted)]"
+          title="AR 扫图"
+          @click="goJournalArScan()"
+        >
+          <UIcon name="material-symbols:view-in-ar-rounded" class="w-4 h-4" />
+          <span>AR</span>
+        </button>
+      </div>
     </div>
 
     <!-- 按月视图：12个月块，点击进入该月按日视图 -->
@@ -318,7 +329,10 @@
             v-for="d in allDaysInMonth"
             :key="d.day"
             class="journal-neu-tile relative aspect-[1/1] cursor-pointer overflow-hidden rounded-xl text-center min-w-0 min-h-[48px] transition-all active:scale-[0.98]"
-            :class="{ 'journal-neu-tile--active': expandedDay === d.day }"
+            :class="{
+              'journal-neu-tile--active': expandedDay === d.day,
+              'journal-neu-tile--today': d.isToday
+            }"
             @click="toggleDaySelect(d.day)"
           >
             <!-- 图片铺满方格 -->
@@ -329,12 +343,26 @@
               class="absolute inset-0 w-full h-full object-cover"
               loading="lazy"
             />
-            <!-- 日期悬浮叠在图片上（有图时白字+阴影，无图时灰字） -->
+            <!-- 日期悬浮叠在图片上（有图时白字+阴影，无图时灰字；今日加强） -->
             <span
-              class="absolute inset-0 flex items-center justify-center text-xs font-medium"
-              :class="d.firstImage ? 'text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)]' : 'text-gray-500 dark:text-gray-400'"
+              class="journal-day-label absolute inset-0 flex flex-col items-center justify-center text-xs gap-0.5"
+              :class="[
+                d.firstImage
+                  ? 'text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)]'
+                  : d.isToday
+                    ? 'text-[var(--seal-red)]'
+                    : 'text-gray-500 dark:text-gray-400',
+                d.isToday ? 'font-bold' : 'font-medium'
+              ]"
             >
-              {{ d.day }}日
+              <span>{{ d.day }}日</span>
+              <span
+                v-if="d.isToday"
+                class="journal-today-mark"
+                :class="d.firstImage ? 'journal-today-mark--on-image' : ''"
+              >
+                今
+              </span>
             </span>
             <!-- 角标：右上角显示条数 -->
             <span
@@ -1399,6 +1427,10 @@ function getFirstImageFromJournal(j: Journal): string | null {
 
 const allDaysInMonth = computed(() => {
   const map = journalMapByDay.value
+  const today = dayjs()
+  const isCurrentMonth =
+    yearSelect.value === today.year() && monthSelect.value === today.month() + 1
+  const todayDay = today.date()
   return Array.from({ length: daysInCurrentMonth.value }, (_, i) => {
     const day = i + 1
     const list = filterJournalList(map[day] ?? [])
@@ -1407,7 +1439,12 @@ const allDaysInMonth = computed(() => {
       firstImage = getFirstImageFromJournal(j)
       if (firstImage) break
     }
-    return { day, count: list.length, firstImage }
+    return {
+      day,
+      count: list.length,
+      firstImage,
+      isToday: isCurrentMonth && day === todayDay
+    }
   })
 })
 
@@ -1561,6 +1598,10 @@ function goJournalSceneAr() {
   const sid = journalArSceneId.value
   if (!sid) return
   openLibraryWebPath(`/scene/detail/ar/${sid}`)
+}
+
+function goJournalArScan() {
+  openLibraryWebPath('/ar/scan')
 }
 
 /** 按月视图：12个月块，无数据补 0（受标签筛选影响） */
@@ -2789,6 +2830,60 @@ useHead({
 
 .dark .journal-neu-tile--active {
   outline-color: rgba(168, 144, 112, 0.55);
+}
+
+/* 今日：朱印描边 + 轻暖底，与选中态区分 */
+.journal-neu-tile--today {
+  border: 2px solid var(--seal-red);
+  box-shadow:
+    0 0 0 2px rgba(184, 92, 72, 0.22),
+    var(--shadow-soft);
+  z-index: 1;
+  background:
+    linear-gradient(160deg, rgba(184, 92, 72, 0.1) 0%, transparent 55%),
+    var(--paper-sheet);
+}
+
+.dark .journal-neu-tile--today {
+  box-shadow:
+    0 0 0 2px rgba(196, 106, 85, 0.35),
+    var(--shadow-soft);
+  background:
+    linear-gradient(160deg, rgba(196, 106, 85, 0.18) 0%, transparent 55%),
+    var(--paper-sheet);
+}
+
+.journal-neu-tile--today.journal-neu-tile--active {
+  border-color: var(--seal-red);
+  outline-color: rgba(184, 92, 72, 0.45);
+  z-index: 2;
+}
+
+.dark .journal-neu-tile--today.journal-neu-tile--active {
+  outline-color: rgba(196, 106, 85, 0.5);
+}
+
+.journal-today-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1rem;
+  height: 0.875rem;
+  padding: 0 0.2rem;
+  border-radius: 9999px;
+  font-size: 0.5625rem;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0.04em;
+  color: #fff;
+  background: var(--seal-red);
+  box-shadow: 0 1px 2px rgba(110, 88, 62, 0.22);
+}
+
+.journal-today-mark--on-image {
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.45),
+    0 0 0 1px rgba(255, 255, 255, 0.35);
 }
 
 .journal-neu-badge {

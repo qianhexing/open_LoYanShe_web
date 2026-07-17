@@ -129,6 +129,52 @@ export function openCommunityDetailTab(
   openLibraryWebPath(`/community/detail/${idNum}`)
 }
 
+/**
+ * 打开用户空间：UniApp 原生页 / 鸿蒙 UserSpace / 浏览器新标签。
+ * 与 `UserRankingList`、`DanmakuComment` 跳转行为对齐。
+ */
+export function openUserSpaceTab(
+  userId: number | string | null | undefined
+): void {
+  if (userId == null || userId === '') return
+  const idNum = Number(userId)
+  if (!Number.isFinite(idNum)) return
+  if (!import.meta.client || typeof window === 'undefined') return
+
+  const configStore = useConfigStore()
+  const uniApi = configStore.uniWebviewJs
+
+  if (isHtml5PlusWebview() && uniApi?.navigateTo) {
+    uniApi.navigateTo({
+      url: `/pages/userSpace/userSpace?id=${idNum}`,
+      fail: () => {
+        uniApi.navigateTo?.({
+          url: `/pages/common/outerLink2?url=${SITE_ORIGIN}/userSpace/${idNum}`
+        })
+      }
+    })
+    return
+  }
+
+  const port = configStore.getPort()
+  if (port) {
+    try {
+      port.postMessage(
+        JSON.stringify({
+          type: 'jump',
+          path: 'UserSpace',
+          params: { id: idNum }
+        })
+      )
+    } catch {
+      openLibraryWebPath(`/userSpace/${idNum}`)
+    }
+    return
+  }
+
+  openLibraryWebPath(`/userSpace/${idNum}`)
+}
+
 /** 打开服饰详情：UniApp outerLink2 / 鸿蒙 Outlink / 浏览器新标签。 */
 export function openClothesDetailTab(
   clothesId: number | string | null | undefined

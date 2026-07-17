@@ -4,6 +4,8 @@ import type {
   GalleryConfig,
   GalleryConfigFile,
   GalleryExhibit,
+  GalleryMessageMarker,
+  GalleryPresenceUser,
   GallerySceneObject,
   GalleryShopMarker
 } from '@/types/gallery'
@@ -21,6 +23,11 @@ import {
 } from '@/utils/gallerySceneObject'
 import { resolveShopLogoUrl } from '@/utils/galleryShopMarker'
 import {
+  createGallerySoapstoneMarker,
+  disposeGallerySoapstoneTextures,
+  updateGallerySoapstoneMarker
+} from '@/utils/galleryMessageMarker'
+import {
   createMapBoundaryAABB,
   createRotatedAABB,
   tryMoveCircle,
@@ -28,10 +35,19 @@ import {
 } from '@/utils/galleryCollision'
 import { defaultGalleryConfig } from '@/utils/galleryConfig'
 import { GalleryPlayerController } from '@/utils/galleryPlayer'
+import { GalleryRemotePlayer } from '@/utils/galleryRemotePlayer'
+import {
+  applyGalleryAaaRender,
+  configureGalleryWoodFloorRepeat,
+  createExhibitSpot,
+  createGalleryWoodFloorTextures,
+  disposeGalleryRenderHandles,
+  enableGalleryObjectShadows,
+  polishGalleryMaterials,
+  type GalleryRenderHandles
+} from '@/utils/galleryRenderQuality'
 
-/** 相机俯视角度（弧度） */
-const CAMERA_PITCH = Math.PI / 4
-/** 相机与玩家默认水平距离 */
+/** 第三人称跟随：水平距离与俯仰可调，相机限制在地面以上（对齐场景漫游） */
 const CAMERA_DISTANCE_DEFAULT = 8
 const CAMERA_DISTANCE_MIN = 3
 const CAMERA_DISTANCE_MAX = 18
@@ -39,13 +55,13 @@ const CAMERA_DISTANCE_MAX = 18
 const WHEEL_ZOOM_SPEED = 0.008
 /** 双指捏合缩放灵敏度 */
 const PINCH_ZOOM_SPEED = 0.025
-/** 展馆环境光 / 主光（压暗整体场景） */
-const GALLERY_AMBIENT = 0.6
-const GALLERY_DIRECTIONAL = 0.8
-/** 无点云时的曝光；略低于 1.0 配合压暗灯光 */
-const GALLERY_EXPOSURE = 0.92
-/** 有点云时的曝光：轻微补偿即可，避免 threeCore splat 自动 1.2x 导致偏灰 */
-const GALLERY_EXPOSURE_SPLAT = 1.05
+/** 注视点高度（角色胸口附近） */
+const LOOK_AT_Y = 0.8
+/** 相机最低离地高度 */
+const MIN_CAMERA_Y = 0.2
+/** 接近竖直俯视的上限（略小于 π/2，避免万向锁） */
+const MAX_PITCH = Math.PI / 2 - 0.08
+const DEFAULT_PITCH = Math.PI / 6
 
 export interface GalleryWalkthroughState {
   loading: boolean
@@ -71,6 +87,7 @@ export function useGalleryWalkthrough() {
   const playerX = ref(0)
   const playerZ = ref(0)
   const cameraYaw = ref(0)
+  const cameraPitch = ref(DEFAULT_PITCH)
   const cameraDistance = ref(CAMERA_DISTANCE_DEFAULT)
   const nearbyExhibit = ref<GalleryExhibit | null>(null)
   const selectedExhibit = ref<GalleryExhibit | null>(null)
@@ -85,17 +102,24 @@ export function useGalleryWalkthrough() {
   const libraryLoading = ref(false)
   const shopVideosLoading = ref(false)
   const isMobile = ref(false)
+  const nearbyMessage = ref<GalleryMessageMarker | null>(null)
+  const selectedMessage = ref<GalleryMessageMarker | null>(null)
+  const messagePanelOpen = ref(false)
 
   // --- 内部状态 ---
   let playerController: GalleryPlayerController | null = null
+  const remotePlayers = new Map<string, GalleryRemotePlayer>()
   let exhibitGroups: THREE.Group[] = []
   let shopGroups: THREE.Group[] = []
+  let messageGroups: THREE.Group[] = []
+  let messageMarkers: GalleryMessageMarker[] = []
   let colliders: AABB2D[] = []
   let boundary: AABB2D
   const keys = { w: false, a: false, s: false, d: false }
   const joystickInput = { x: 0, y: 0 }
   let isRotating = false
   let lastPointerX = 0
+  let lastPointerY = 0
   let pointerDownX = 0
   let pointerDownY = 0
   let pointerHasMoved = false
@@ -106,27 +130,28 @@ export function useGalleryWalkthrough() {
   let clock: THREE.Clock
   let exhibitClickables: THREE.Object3D[] = []
   let shopClickables: THREE.Object3D[] = []
+  let messageClickables: THREE.Object3D[] = []
   let videoClickables: THREE.Object3D[] = []
   let shopVideoGroup: THREE.Group | null = null
   let loadedShopKey: string | null = null
   const textureLoader = new THREE.TextureLoader()
   let disposed = false
+  let messageBobPhase = 0
+  const renderHandles: GalleryRenderHandles = { envRT: null }
+  let floorTextures: { map: THREE.CanvasTexture; roughnessMap: THREE.CanvasTexture } | null =
+    null
 
   let config: GalleryConfig = defaultGalleryConfig
   let moveSpeed = 5
 
-  /** 展馆专用色彩：压暗场景，点云用 Reinhard + 低曝光补偿（不用 anime 避免偏灰） */
+  /** 3A 渲染：IBL / 电影光 / 阴影 / ACES·Bloom；不改背景色 */
   const applyGalleryRenderSettings = (core: ThreeCore, withSplats: boolean) => {
-    if (core.lights) {
-      core.lights.ambient.intensity = GALLERY_AMBIENT
-      core.lights.directional.intensity = GALLERY_DIRECTIONAL
-      core.lights.directional.position.set(5, 10, 5)
-    }
-    core.syncSceneColorSpaces()
-    core.setToneMapping(
-      withSplats ? GALLERY_EXPOSURE_SPLAT : GALLERY_EXPOSURE,
-      THREE.ReinhardToneMapping
-    )
+    applyGalleryAaaRender(core, {
+      map: config.mapSize,
+      withSplats,
+      mobile: isMobile.value,
+      handles: renderHandles
+    })
   }
   let playerRadius = 0.4
   let interactDistance = 2
@@ -141,6 +166,7 @@ export function useGalleryWalkthrough() {
     playerX.value = next.playerStart?.[0] ?? 0
     playerZ.value = next.playerStart?.[1] ?? 0
     cameraYaw.value = 0
+    cameraPitch.value = DEFAULT_PITCH
     cameraDistance.value = CAMERA_DISTANCE_DEFAULT
   }
 
@@ -185,31 +211,29 @@ export function useGalleryWalkthrough() {
     )
   }
 
-  /** 创建地面与网格 */
+  /** 创建木质地面（程序化木纹） */
   const createFloor = (scene: THREE.Scene) => {
     const { width, depth } = config.mapSize
 
+    floorTextures?.map.dispose()
+    floorTextures?.roughnessMap.dispose()
+    floorTextures = createGalleryWoodFloorTextures(isMobile.value ? 384 : 512)
+    configureGalleryWoodFloorRepeat(floorTextures, width, depth)
+
     const floorGeo = new THREE.PlaneGeometry(width, depth)
     const floorMat = new THREE.MeshStandardMaterial({
-      color: 0xf5eef2,
-      roughness: 0.85,
-      metalness: 0.05
+      map: floorTextures.map,
+      roughnessMap: floorTextures.roughnessMap,
+      color: 0xffffff,
+      roughness: 0.55,
+      metalness: 0.04,
+      envMapIntensity: 0.45
     })
     const floor = new THREE.Mesh(floorGeo, floorMat)
     floor.rotation.x = -Math.PI / 2
     floor.receiveShadow = true
     floor.userData.isGalleryFloor = true
     scene.add(floor)
-
-    const grid = new THREE.GridHelper(
-      Math.max(width, depth),
-      Math.max(width, depth),
-      0xd48898,
-      0xe8d0d8
-    )
-    grid.position.y = 0.01
-    grid.userData.isGalleryGrid = true
-    scene.add(grid)
   }
 
   /** 创建墙体 */
@@ -222,7 +246,7 @@ export function useGalleryWalkthrough() {
     })
 
     for (const wall of config.walls) {
-      const h = wall.height ?? 3
+      const h = wall.height ?? 1.2
       const geo = new THREE.BoxGeometry(wall.size[0], h, wall.size[1])
       const mesh = new THREE.Mesh(geo, wallMat)
       mesh.position.set(wall.position[0], h / 2, wall.position[1])
@@ -289,10 +313,16 @@ export function useGalleryWalkthrough() {
       group.add(label)
     }
 
-    // 点光源（展品局部照明）
-    const light = new THREE.PointLight(0xfff0f5, 0.8, 6)
-    light.position.set(0, pedH + 1.2, 0.5)
-    group.add(light)
+    // 点光 / 射灯：手机用轻量点光，桌面用博物馆 Spot
+    if (isMobile.value) {
+      const fill = new THREE.PointLight(0xfff0f5, 0.85, 5, 2)
+      fill.position.set(0, pedH + 1.35, 0.4)
+      group.add(fill)
+    } else {
+      const { light: spot, target: spotTarget } = createExhibitSpot(pedH)
+      group.add(spotTarget)
+      group.add(spot)
+    }
 
     group.position.set(ex, 0, ez)
     group.rotation.y = exhibit.rotation ?? 0
@@ -320,6 +350,8 @@ export function useGalleryWalkthrough() {
         const center = box.getCenter(new THREE.Vector3())
         model.position.sub(center)
         model.position.y += pedH + (size.y * targetScale) / 2
+        enableGalleryObjectShadows(model)
+        polishGalleryMaterials(model, isMobile.value ? 0.45 : 0.7)
         group.add(model)
       } catch (e) {
         console.warn(`展品模型加载失败: ${exhibit.name}`, e)
@@ -330,6 +362,8 @@ export function useGalleryWalkthrough() {
         })
         const placeholder = new THREE.Mesh(placeholderGeo, placeholderMat)
         placeholder.position.y = pedH + sw * 0.3
+        placeholder.castShadow = true
+        placeholder.receiveShadow = true
         group.add(placeholder)
       }
     } else {
@@ -337,6 +371,8 @@ export function useGalleryWalkthrough() {
       const placeholderMat = new THREE.MeshStandardMaterial({ color: 0xd48898 })
       const placeholder = new THREE.Mesh(placeholderGeo, placeholderMat)
       placeholder.position.y = pedH + sw * 0.25
+      placeholder.castShadow = true
+      placeholder.receiveShadow = true
       group.add(placeholder)
     }
 
@@ -489,12 +525,24 @@ export function useGalleryWalkthrough() {
     }
   }
 
+  /** 当前距离下，保证相机在地面以上的最小俯仰角 */
+  const minPitchForDistance = (dist: number) => {
+    const minSin = (MIN_CAMERA_Y - LOOK_AT_Y) / Math.max(dist, 0.01)
+    return Math.asin(Math.max(-1, Math.min(1, minSin)))
+  }
+
+  const clampPitch = (pitch: number, dist = cameraDistance.value) => {
+    const minP = minPitchForDistance(dist)
+    return Math.max(minP, Math.min(MAX_PITCH, pitch))
+  }
+
   /** 限制相机距离 */
   const clampCameraDistance = (distance: number) =>
     Math.max(CAMERA_DISTANCE_MIN, Math.min(CAMERA_DISTANCE_MAX, distance))
 
   const adjustCameraDistance = (delta: number) => {
     cameraDistance.value = clampCameraDistance(cameraDistance.value + delta)
+    cameraPitch.value = clampPitch(cameraPitch.value, cameraDistance.value)
   }
 
   const getPinchDistance = () => {
@@ -507,16 +555,19 @@ export function useGalleryWalkthrough() {
   const updateCamera = (core: ThreeCore) => {
     const cam = core.camera as THREE.PerspectiveCamera
     const yaw = cameraYaw.value
+    const pitch = clampPitch(cameraPitch.value)
+    cameraPitch.value = pitch
     const px = playerX.value
     const pz = playerZ.value
     const dist = cameraDistance.value
-    const height = dist * Math.tan(CAMERA_PITCH)
 
-    const offsetX = Math.sin(yaw) * dist
-    const offsetZ = Math.cos(yaw) * dist
+    const horiz = dist * Math.cos(pitch)
+    const offsetX = Math.sin(yaw) * horiz
+    const offsetZ = Math.cos(yaw) * horiz
+    const camY = Math.max(MIN_CAMERA_Y, LOOK_AT_Y + dist * Math.sin(pitch))
 
-    cam.position.set(px - offsetX, height, pz - offsetZ)
-    cam.lookAt(px, 0.8, pz)
+    cam.position.set(px - offsetX, camY, pz - offsetZ)
+    cam.lookAt(px, LOOK_AT_Y, pz)
 
     if (playerController) {
       playerController.setTransform(px, pz, yaw)
@@ -555,6 +606,166 @@ export function useGalleryWalkthrough() {
       }
     }
     nearbyShop.value = closest
+  }
+
+  /** 创建单个留言标点（黑魂橙皂石风格） */
+  const createMessageMarker = (msg: GalleryMessageMarker): THREE.Group =>
+    createGallerySoapstoneMarker(msg)
+
+  const clearMessageMarkers = () => {
+    const core = threeCore.value
+    for (const group of messageGroups) {
+      core?.scene.remove(group)
+      group.traverse(obj => {
+        if (obj instanceof THREE.Mesh) {
+          obj.geometry?.dispose()
+          const mat = obj.material
+          // 贴图由 disposeGallerySoapstoneTextures 统一释放，此处只释放材质
+          if (Array.isArray(mat)) {
+            for (const m of mat) {
+              m.map = null
+              m.dispose()
+            }
+          } else if (mat) {
+            mat.map = null
+            mat.dispose()
+          }
+        }
+      })
+    }
+    messageGroups = []
+    messageClickables = []
+    messageMarkers = []
+    nearbyMessage.value = null
+  }
+
+  /** 批量设置留言标点（覆盖旧标点） */
+  const setMessageMarkers = (list: GalleryMessageMarker[]) => {
+    clearMessageMarkers()
+    const core = threeCore.value
+    if (!core?.scene || disposed) {
+      if (import.meta.dev && list.length > 0) {
+        console.warn('[gallery] setMessageMarkers 跳过：场景未就绪', {
+          hasCore: !!core,
+          disposed,
+          count: list.length
+        })
+      }
+      return
+    }
+
+    messageMarkers = list.slice()
+    for (const msg of messageMarkers) {
+      const group = createMessageMarker(msg)
+      core.scene.add(group)
+      messageGroups.push(group)
+      messageClickables.push(group)
+    }
+
+    if (import.meta.dev) {
+      console.info('[gallery] 已写入场景讯息点位', messageGroups.length, messageMarkers.map(m => m.position))
+    }
+  }
+
+  /** 追加单条留言标点（发送成功后） */
+  const addMessageMarker = (msg: GalleryMessageMarker) => {
+    const core = threeCore.value
+    if (!core || disposed) return
+
+    const existingIdx = messageMarkers.findIndex(m => m.comment_id === msg.comment_id)
+    if (existingIdx >= 0) {
+      const old = messageGroups[existingIdx]
+      if (old) {
+        core.scene.remove(old)
+        messageGroups.splice(existingIdx, 1)
+        messageClickables.splice(existingIdx, 1)
+      }
+      messageMarkers.splice(existingIdx, 1)
+    }
+
+    const group = createMessageMarker(msg)
+    core.scene.add(group)
+    messageMarkers.unshift(msg)
+    messageGroups.unshift(group)
+    messageClickables.unshift(group)
+  }
+
+  /** 按 comment_id 移除场景中的留言标点 */
+  const removeMessageMarkers = (commentIds: number[]) => {
+    if (!commentIds.length) return
+    const core = threeCore.value
+    const idSet = new Set(commentIds)
+
+    for (let i = messageMarkers.length - 1; i >= 0; i--) {
+      if (!idSet.has(messageMarkers[i].comment_id)) continue
+      const group = messageGroups[i]
+      if (group) {
+        core?.scene.remove(group)
+        group.traverse(obj => {
+          if (obj instanceof THREE.Mesh) {
+            obj.geometry?.dispose()
+            const mat = obj.material
+            if (Array.isArray(mat)) {
+              for (const m of mat) {
+                m.map = null
+                m.dispose()
+              }
+            } else if (mat) {
+              mat.map = null
+              mat.dispose()
+            }
+          }
+        })
+      }
+      messageGroups.splice(i, 1)
+      messageClickables.splice(i, 1)
+      messageMarkers.splice(i, 1)
+    }
+
+    if (selectedMessage.value && idSet.has(selectedMessage.value.comment_id)) {
+      selectedMessage.value = null
+      messagePanelOpen.value = false
+    }
+    if (nearbyMessage.value && idSet.has(nearbyMessage.value.comment_id)) {
+      nearbyMessage.value = null
+    }
+  }
+
+  /** 检测附近留言标点 */
+  const updateNearbyMessage = () => {
+    let closest: GalleryMessageMarker | null = null
+    let minDist = interactDistance
+    let closestIdx = -1
+
+    for (let i = 0; i < messageMarkers.length; i++) {
+      const msg = messageMarkers[i]
+      const dx = playerX.value - msg.position[0]
+      const dz = playerZ.value - msg.position[2]
+      const dist = Math.sqrt(dx * dx + dz * dz)
+      if (dist < minDist) {
+        minDist = dist
+        closest = msg
+        closestIdx = i
+      }
+    }
+    nearbyMessage.value = closest
+
+    for (let i = 0; i < messageGroups.length; i++) {
+      updateGallerySoapstoneMarker(
+        messageGroups[i],
+        messageBobPhase,
+        i === closestIdx
+      )
+    }
+  }
+
+  const activateMessage = (msg: GalleryMessageMarker) => {
+    selectedMessage.value = msg
+    messagePanelOpen.value = true
+  }
+
+  const closeMessagePanel = () => {
+    messagePanelOpen.value = false
   }
 
   /** 每帧更新：移动 + 相机 */
@@ -604,10 +815,45 @@ export function useGalleryWalkthrough() {
 
     playerController?.update(delta, isMoving)
 
+    for (const remote of remotePlayers.values()) {
+      remote.update(delta)
+    }
+
+    messageBobPhase += delta
+
     updateCamera(core)
     updateShopBillboards(core)
     updateNearbyExhibit()
     updateNearbyShop()
+    updateNearbyMessage()
+  }
+
+  const clearRemotePlayers = () => {
+    for (const remote of remotePlayers.values()) remote.dispose()
+    remotePlayers.clear()
+  }
+
+  /** 同步其他在线用户到场景（按 connectionId） */
+  const syncRemotePlayers = (list: readonly GalleryPresenceUser[]) => {
+    const scene = threeCore.value?.scene
+    if (!scene || disposed) return
+
+    const nextKeys = new Set(list.map(u => u.connectionId))
+    for (const [key, remote] of remotePlayers) {
+      if (!nextKeys.has(key)) {
+        remote.dispose()
+        remotePlayers.delete(key)
+      }
+    }
+
+    for (const user of list) {
+      const existing = remotePlayers.get(user.connectionId)
+      if (existing) {
+        existing.setTarget(user)
+      } else {
+        remotePlayers.set(user.connectionId, new GalleryRemotePlayer(user, scene))
+      }
+    }
   }
 
   /** 键盘事件 */
@@ -620,6 +866,7 @@ export function useGalleryWalkthrough() {
     if (k === 'escape') {
       selectedExhibit.value = null
       shopPanelOpen.value = false
+      messagePanelOpen.value = false
       selectedLibrary.value = null
       selectedLibraryTitle.value = ''
     }
@@ -647,6 +894,7 @@ export function useGalleryWalkthrough() {
     if (e.button !== 0) return
     isRotating = true
     lastPointerX = e.clientX
+    lastPointerY = e.clientY
     pointerDownX = e.clientX
     pointerDownY = e.clientY
     pointerHasMoved = false
@@ -669,8 +917,12 @@ export function useGalleryWalkthrough() {
 
     if (!isRotating) return
     const dx = e.clientX - lastPointerX
+    const dy = e.clientY - lastPointerY
     lastPointerX = e.clientX
+    lastPointerY = e.clientY
     cameraYaw.value -= dx * 0.005
+    // 上拖抬头（俯仰减小），下拖俯视（俯仰增大）；并钳制在地面以上
+    cameraPitch.value = clampPitch(cameraPitch.value + dy * 0.005)
     if (
       Math.hypot(e.clientX - pointerDownX, e.clientY - pointerDownY)
       > POINTER_MOVE_THRESHOLD
@@ -768,6 +1020,8 @@ export function useGalleryWalkthrough() {
             videoClickables.push(hitBox)
 
             container.add(asset)
+            enableGalleryObjectShadows(asset)
+            polishGalleryMaterials(asset, isMobile.value ? 0.4 : 0.65)
             animateGalleryAssetScaleIn(asset, targetScale, {
               isSplat,
               delay: index * 0.08
@@ -888,6 +1142,7 @@ export function useGalleryWalkthrough() {
 
     const clickTargets = [
       ...videoClickables,
+      ...messageClickables,
       ...shopClickables,
       ...exhibitClickables
     ]
@@ -900,6 +1155,7 @@ export function useGalleryWalkthrough() {
         && !obj.userData.galleryObjectData
         && !obj.userData.shopData
         && !obj.userData.exhibitData
+        && !obj.userData.messageData
       ) {
         obj = obj.parent
       }
@@ -907,6 +1163,12 @@ export function useGalleryWalkthrough() {
         void openLibraryFromObject(
           obj.userData.galleryObjectData as GallerySceneObject
         )
+        return
+      }
+      if (obj?.userData.messageData) {
+        activateMessage(obj.userData.messageData as GalleryMessageMarker)
+        selectedExhibit.value = null
+        selectedLibrary.value = null
         return
       }
       if (obj?.userData.shopData) {
@@ -989,14 +1251,21 @@ export function useGalleryWalkthrough() {
         clearColor: 0x1a1520,
         cameraPosition: {
           x: 0,
-          y: CAMERA_DISTANCE_DEFAULT * Math.tan(CAMERA_PITCH),
-          z: CAMERA_DISTANCE_DEFAULT
+          y: LOOK_AT_Y + CAMERA_DISTANCE_DEFAULT * Math.sin(DEFAULT_PITCH),
+          z: CAMERA_DISTANCE_DEFAULT * Math.cos(DEFAULT_PITCH)
         },
         mobilePerfCap: isMobile.value,
         antialias: !isMobile.value
       })
 
       threeCore.value = core
+      // 新场景：清空留言标点缓存，避免指向旧 scene 的残留引用
+      messageGroups = []
+      messageClickables = []
+      messageMarkers = []
+      nearbyMessage.value = null
+      selectedMessage.value = null
+      messagePanelOpen.value = false
       await core.whenRendererReady()
       await core.mount(container)
 
@@ -1005,10 +1274,7 @@ export function useGalleryWalkthrough() {
         core.controls.enabled = false
       }
 
-      // 点云与 Bloom 不兼容；关闭后避免加载 splat 时整场景突然变暗
-      core.toggleBloom(false)
-
-      core.scene.background = new THREE.Color(0x1a1520)
+      core.scene.background = new THREE.Color(0x0c0a10)
 
       createFloor(core.scene)
       createWalls(core.scene)
@@ -1088,8 +1354,20 @@ export function useGalleryWalkthrough() {
     isPinching = false
     lastPinchDistance = 0
     clearShopLibraryVideos()
+    clearMessageMarkers()
+    clearRemotePlayers()
+    disposeGallerySoapstoneTextures()
+    disposeGalleryRenderHandles(renderHandles)
+    floorTextures?.map.dispose()
+    floorTextures?.roughnessMap.dispose()
+    floorTextures = null
+    selectedMessage.value = null
+    messagePanelOpen.value = false
 
     if (threeCore.value) {
+      if (threeCore.value.scene) {
+        threeCore.value.scene.environment = null
+      }
       threeCore.value.dispose()
       threeCore.value = null
     }
@@ -1123,6 +1401,9 @@ export function useGalleryWalkthrough() {
     selectedLibraryTitle,
     libraryLoading,
     shopVideosLoading,
+    nearbyMessage,
+    selectedMessage,
+    messagePanelOpen,
     isMobile,
     galleryName,
     init,
@@ -1131,6 +1412,13 @@ export function useGalleryWalkthrough() {
     clearJoystickInput,
     teleportToExhibit,
     closeShopPanel,
+    setMessageMarkers,
+    addMessageMarker,
+    removeMessageMarkers,
+    activateMessage,
+    closeMessagePanel,
+    syncRemotePlayers,
+    clearRemotePlayers,
     config: galleryConfig
   }
 }

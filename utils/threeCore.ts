@@ -4144,16 +4144,24 @@ class ThreeCore {
 		renderer: THREE.WebGLRenderer | WebGPURenderer
 	): void {
 		const anime = this.options.colorStyle === 'anime'
-		const hasSplats = this.sceneHasSplats()
-		// 点云与 PBR 网格共用色调映射时略提高曝光，补偿 Reinhard/Neutral 对 splat 的压暗
-		const baseExposure = anime ? 1.15 : 1.0
-		const splatExposureBoost = hasSplats ? (anime ? 1.1 : 1.2) : 1
 
 		renderer.outputColorSpace = THREE.SRGBColorSpace
-		renderer.toneMapping = anime
-			? THREE.NeutralToneMapping
-			: THREE.ReinhardToneMapping
-		renderer.toneMappingExposure = baseExposure * splatExposureBoost
+
+		if (anime) {
+			renderer.toneMapping = THREE.NeutralToneMapping
+			// 点云不再额外乘曝光，避免 humanPlatform 等页面整体过亮
+			renderer.toneMappingExposure = 1.15
+		} else {
+			const keepAces =
+				renderer.toneMapping === THREE.ACESFilmicToneMapping
+			if (keepAces) {
+				// 展馆等已 setToneMapping：只保证输出色域，不改曝光
+			} else {
+				renderer.toneMapping = THREE.ReinhardToneMapping
+				// 有/无点云同一曝光，亮度一致；业务层可再 setToneMapping 微调
+				renderer.toneMappingExposure = 1.0
+			}
+		}
 
 		const canvas = renderer.domElement
 		if (canvas && import.meta.client) {
@@ -5483,18 +5491,42 @@ class ThreeCore {
 	/**
 	 * 将已加载到 arContentGroup 的场景内容居中并缩放到约 1 个 marker 单位，
 	 * 并做直立校正（编辑器 Y-up → 识别图法向）+ 底面贴识别图平面。
+	 * 切换场景时始终重建 fit，避免残留 mindArContentFit 导致新内容未包裹。
 	 */
 	prepareMindArContentFit() {
 		if (!this.arContentGroup) return
 		const anchor = this.arContentGroup
-		if (anchor.getObjectByName('mindArContentFit')) {
-			anchor.visible = false
-			return
+
+		// 拆掉旧的 orient/fit，把真实内容放回 anchor 下再重建
+		const leftover: THREE.Object3D[] = []
+		for (const child of [...anchor.children]) {
+			if (child.name === 'mindArOrient' || child.name === 'mindArContentFit') {
+				for (const nested of [...child.children]) {
+					if (
+						nested.name === 'mindArOrient' ||
+						nested.name === 'mindArContentFit'
+					) {
+						leftover.push(...nested.children)
+						nested.clear()
+					} else {
+						leftover.push(nested)
+					}
+				}
+				child.clear()
+				anchor.remove(child)
+			} else {
+				leftover.push(child)
+			}
+		}
+		for (const obj of leftover) {
+			anchor.add(obj)
 		}
 
 		const children = [...anchor.children]
 		if (children.length === 0) {
 			anchor.visible = false
+			this.isMindArPoseLocked = false
+			this.resetMindArPoseSmooth()
 			return
 		}
 
@@ -5535,9 +5567,52 @@ class ThreeCore {
 			orient.position.z -= this.mindArFitBox.min.z
 		}
 
+		this.resetMindArViewForTracking()
 		anchor.visible = false
+	}
+
+	/**
+	 * MindAR：相机固定原点、禁用 Orbit、清镜头动画、锚点矩阵归零。
+	 * 切换场景后必须调用，否则 step 镜头动画会把相移走导致「物体已加载但看不见」。
+	 */
+	resetMindArViewForTracking() {
+		TWEEN.removeAll()
 		this.isMindArPoseLocked = false
 		this.resetMindArPoseSmooth()
+
+		if (this.camera) {
+			this.camera.position.set(0, 0, 0)
+			this.camera.quaternion.identity()
+			this.camera.up.set(0, 1, 0)
+			if (this.camera instanceof THREE.PerspectiveCamera) {
+				this.camera.near = 0.01
+				this.camera.far = 2000
+				this.camera.updateProjectionMatrix()
+			}
+		}
+
+		if (this.controls && 'enabled' in this.controls) {
+			this.controls.enabled = false
+			if ('target' in this.controls && this.controls.target) {
+				;(this.controls.target as THREE.Vector3).set(0, 0, 0)
+			}
+			if (typeof this.controls.update === 'function') {
+				try {
+					this.controls.update()
+				} catch {
+					/* OrbitControls update 在无 delta 时可能无参 */
+				}
+			}
+		}
+
+		if (this.arContentGroup) {
+			this.arContentGroup.matrixAutoUpdate = false
+			this.arContentGroup.matrix.identity()
+			this.arContentGroup.position.set(0, 0, 0)
+			this.arContentGroup.quaternion.identity()
+			this.arContentGroup.scale.set(1, 1, 1)
+			this.arContentGroup.updateMatrixWorld(true)
+		}
 	}
 
 	/**
@@ -6362,7 +6437,10 @@ class ThreeCore {
 					this.controls.update()
 				})
 				.onComplete(() => {
-					this.controls.enabled = true
+					// MindAR 必须保持相机固定、控制器关闭
+					if (!this.isMindArMode) {
+						this.controls.enabled = true
+					}
 					if (onComplete) onComplete()
 				})
 				.start()
@@ -8778,7 +8856,17 @@ class ThreeCore {
 
 		// 主场景加载收尾：应用第一组 step 可见性/机位，同步色彩空间
 		if (this.sceneSteps.length > 0) {
-			this.applySceneStep(0)
+			if (this.isMindArMode) {
+				// MindAR 禁止 step 镜头动画（会把相机移离原点，识别后物体「看不见」）
+				this.currentStepIndex = applySceneStepVisibility(
+					this.getStepManagedRoots(),
+					this.sceneSteps,
+					0
+				)
+				this.syncStepBaseScalesForVisible()
+			} else {
+				this.applySceneStep(0)
+			}
 		}
 
 		this.syncSceneColorSpaces()

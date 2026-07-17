@@ -88,10 +88,10 @@ import { ref, computed, watch } from 'vue'
 // biome-ignore lint/style/useImportType: Vue SFC 供 template 与 InstanceType
 import QhxRichTextEditor, { type RichTextToolbarItem } from '@/components/Qhx/RichTextEditor.vue'
 
-import { insertComment } from '@/api/comment'
+import { deleteComment, insertComment } from '@/api/comment'
 import { useUserStore } from '@/stores/user'
 import { useConfigStore } from '@/stores/config'
-import type { Comment, User } from '@/types/api'
+import type { Comment, CommentJsonData, User } from '@/types/api'
 import type QhxImagePicker from '@/components/Qhx/ImagePicker.vue'
 import { uploadImageOSS } from '@/utils/ossUpload'
 
@@ -109,6 +109,10 @@ interface ShowModalParams {
   reply_to_user?: User
   /** 回复子评时：拉子列表用的主楼 comment_id（与 id 被回复条目可能不同） */
   threadRootCommentId?: number
+  /** 附加写入评论的 json_data（如展馆坐标） */
+  json_data?: CommentJsonData | Record<string, unknown>
+  /** 提交前先删除的评论 id（如展馆覆盖旧留言） */
+  replaceCommentIds?: number[]
 }
 
 const props = defineProps<Props>()
@@ -120,6 +124,8 @@ const emit = defineEmits<{
   'update:modelValue': [value: boolean]
   /** 二级回复成功时带 parentCommentId，便于只刷新该楼子评论 */
   'success': [value: Comment, meta?: { parentCommentId: number }]
+  /** 提交前已删除的旧评论 id（覆盖留言） */
+  'replaced': [commentIds: number[]]
 }>()
 
 const toast = useToast()
@@ -137,6 +143,10 @@ const replyTo = ref<number | undefined>(undefined)
 const replyToName = ref<string>('')
 /** 成功回调里刷新子列表用：主楼 id */
 const threadRootCommentId = ref<number | undefined>(undefined)
+/** 插入时附加的 json_data */
+const commentJsonData = ref<CommentJsonData | Record<string, unknown> | undefined>(undefined)
+/** 提交前需删除的旧评论 id */
+const replaceCommentIds = ref<number[]>([])
 
 // 编辑器内容
 const editorContent = ref('')
@@ -186,7 +196,11 @@ const showModel = async (e: ShowModalParams) => {
   replyTo.value = e.reply_to
   replyToName.value = e.reply_to_name || ''
   threadRootCommentId.value = e.threadRootCommentId
-  
+  commentJsonData.value = e.json_data
+  replaceCommentIds.value = (e.replaceCommentIds ?? []).filter(
+    id => Number.isFinite(id) && id > 0
+  )
+
   console.log(replyTo.value, '回复对象')
 
   // 恢复缓存内容
@@ -284,6 +298,7 @@ const handleSubmit = async () => {
       comment_content: string
       mount_img?: string
       reply_to?: number
+      json_data?: CommentJsonData | Record<string, unknown>
     } = {
       page: 1,
       pageSize: 1,
@@ -300,7 +315,25 @@ const handleSubmit = async () => {
       params.reply_to = replyTo.value
     }
 
+    if (commentJsonData.value) {
+      params.json_data = commentJsonData.value
+    }
+
+    // 覆盖旧留言：先删未删除的旧评论，再插入新评
+    const idsToReplace = replaceCommentIds.value.slice()
+    if (idsToReplace.length > 0) {
+      await Promise.all(idsToReplace.map(comment_id => deleteComment({ comment_id })))
+      replaceCommentIds.value = []
+      emit('replaced', idsToReplace)
+    }
+
     const comment = await insertComment(params)
+
+    // 接口未必回写 json_data，把本次提交的附加数据补到 success 载荷
+    if (commentJsonData.value && !comment.json_data) {
+      comment.json_data = commentJsonData.value
+    }
+    commentJsonData.value = undefined
 
     // toast.add({
     //   title: '评论成功',

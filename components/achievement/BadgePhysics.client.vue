@@ -28,8 +28,14 @@ const props = withDefaults(
   defineProps<{
     badges: UserDeco[]
     motionPreset?: BadgePhysicsMotionPreset
+    /** 模型/球体相对默认尺寸的倍率 */
+    scale?: number
+    /** 地板相对视口底边上移量（世界单位），仅抬高承托面，不改容器裁切 */
+    floorInset?: number
+    /** 左右墙相对视口侧边内缩量（世界单位），避免贴边被裁切 */
+    sideInset?: number
   }>(),
-  { motionPreset: "wallBounce" }
+  { motionPreset: "wallBounce", scale: 1, floorInset: 0, sideInset: 0 }
 )
 
 function getModelUrl(cover: string): string {
@@ -409,7 +415,8 @@ function clearBounds(){
 
 function computeBoundsFromView(width: number, height: number){
   const vw = viewHeight * (width / height)
-  boundX = vw / 2
+  const sideLift = props.sideInset > 0 ? props.sideInset : 0
+  boundX = Math.max(vw / 2 - sideLift, 0.5)
   boundZ = (vw / 2) * BOUND_SCALE
 }
 
@@ -418,8 +425,9 @@ function createBounds(){
   const wall=0.5
   const viewBottomY = viewCenterY - viewHeight / 2
   const viewTopY = viewCenterY + viewHeight / 2
+  const floorLift = props.floorInset > 0 ? props.floorInset : 0
   const floorTopY =
-    viewBottomY + FLOOR_CONTACT_EPSILON + BOUNDARY_VISUAL_MARGIN
+    viewBottomY + FLOOR_CONTACT_EPSILON + BOUNDARY_VISUAL_MARGIN + floorLift
   const playTopY =
     viewTopY - FLOOR_CONTACT_EPSILON - BOUNDARY_VISUAL_MARGIN
   const height = Math.max(playTopY - floorTopY, 1)
@@ -877,7 +885,9 @@ async function createBadge(deco: UserDeco, badgeKey?: string) {
   let isSplat = false
 
   const el = containerRef.value
-  const modelScale = el ? getAspectScale(el.clientWidth, el.clientHeight) : 1
+  const scaleMul = props.scale > 0 ? props.scale : 1
+  const modelScale =
+    (el ? getAspectScale(el.clientWidth, el.clientHeight) : 1) * scaleMul
 
   if (coverKind === "model" || coverKind === "splat") {
     const url =
@@ -949,7 +959,7 @@ async function createBadge(deco: UserDeco, badgeKey?: string) {
       texture.dispose()
       return
     }
-    const radius = BADGE_SIZE / 2
+    const radius = (BADGE_SIZE * scaleMul) / 2
     const geo = new THREE.SphereGeometry(radius, 32, 32)
     const material = new THREE.MeshBasicMaterial({ map: texture, color: "#ffffff" })
     mesh = new THREE.Mesh(geo, material)
@@ -959,7 +969,9 @@ async function createBadge(deco: UserDeco, badgeKey?: string) {
     meshes.push(mesh)
     meshCenterOffsets.push(new THREE.Vector3(0, 0, 0))
     meshIsSplat.push(false)
-    createRigidBody(mesh, undefined, spawnCenter.clone())
+    createRigidBody(mesh, undefined, spawnCenter.clone(), {
+      sphereRadius: radius,
+    })
     syncBodyRotationFromMesh(bodies[bodies.length - 1], mesh)
   }
 

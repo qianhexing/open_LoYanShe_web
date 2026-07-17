@@ -271,6 +271,20 @@ const loadModels = async () => {
 
         if (loadGen !== viewerLoadGeneration) return
 
+        // 点云查看（humanPlatform 等）：压低默认棚灯 + 固定曝光，避免白底过亮
+        // sceneJson 若自带有效 lighting 配置则尊重，不覆盖
+        const hasCustomLighting = Array.isArray(sceneJSON.lighting) && sceneJSON.lighting.length > 0
+        if (threeCore.value.sceneHasSplats() && !hasCustomLighting) {
+            const lights = threeCore.value.lights
+            if (lights?.ambient) lights.ambient.intensity = 0.55
+            if (lights?.hemisphere) lights.hemisphere.intensity = 0.28
+            if (lights?.directional) lights.directional.intensity = 0.75
+            if (lights?.fill) lights.fill.intensity = 0.22
+            if (threeCore.value.lensLight) threeCore.value.lensLight.intensity = 0.12
+            threeCore.value.setToneMapping(1.0, THREE.ReinhardToneMapping)
+            threeCore.value.toggleBloom(false)
+        }
+
         if (threeCore.value && (hasScene || props.modelList.length > 0 || (props.laxianList?.length ?? 0) > 0)) {
             if (!applyInitialCameraIfAny(false)) {
                 const box = new THREE.Box3()

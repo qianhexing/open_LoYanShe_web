@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { Library, LibrarySimilarItem } from '@/types/api'
+import { openLibraryDetailTab } from '@/composables/useLibraryDetailNavigation'
 import { BASE_IMG } from '@/utils/ipConfig'
 import { formatLabel } from '@/utils/public'
 import { formatSimilarityScore } from '@/utils/aiChatFormat'
@@ -51,7 +52,7 @@ function coverUrl(item: Library): string {
 }
 
 function openDetail(id: number) {
-  window.open(`/library/detail/${id}`, '_blank')
+  openLibraryDetailTab(id)
 }
 </script>
 

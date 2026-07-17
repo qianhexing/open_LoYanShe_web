@@ -16,6 +16,8 @@ import QhxTabPanel from '@/components/Qhx/TabPanel.vue'
 
 import type QhxImagePicker from '@/components/Qhx/ImagePicker.vue'
 
+import { openUserSpaceTab } from '@/composables/useLibraryDetailNavigation'
+
 import { BASE_IMG } from '@/utils/ipConfig'
 
 import { uploadImageOSS } from '@/utils/ossUpload'
@@ -566,9 +568,7 @@ async function loadMore(pkType: SearchPkType) {
 
 function openUser(userId?: number) {
 
-  if (!userId) return
-
-  window.open(`/userSpace/${userId}`, '_blank')
+  openUserSpaceTab(userId)
 
 }
 

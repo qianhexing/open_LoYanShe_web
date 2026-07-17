@@ -45,6 +45,8 @@ export interface MindArPoseStartOptions {
 	mindUrl: MaybeRefOrGetter<string>
 	/** .mind 内多 target 时使用，默认 0 */
 	targetIndex?: MaybeRefOrGetter<number>
+	/** 已有摄像头流时复用，不重新 getUserMedia（扫图页切换识别图用） */
+	reuseCamera?: boolean
 	onMatrix?: (payload: {
 		targetIndex: number
 		worldMatrix: number[] | null
@@ -57,6 +59,11 @@ export interface MindArPoseStartOptions {
 		inputHeight: number
 	}) => void
 	onStatus?: (status: MindArPoseStatus, message?: string) => void
+}
+
+export interface MindArStopOptions {
+	/** 仅停 Controller，保留摄像头流（扫图页重新识别 / 切换场景） */
+	keepCamera?: boolean
 }
 
 const MAX_LOG = 40
@@ -156,7 +163,30 @@ export function useMindArPose() {
 
 	let optionsRef: MindArPoseStartOptions | null = null
 
+	function hasLiveCamera(video?: HTMLVideoElement | null): boolean {
+		if (!stream) return false
+		const live = stream.getTracks().some(t => t.readyState === 'live')
+		if (!live) return false
+		if (video && video.srcObject !== stream) return false
+		return true
+	}
+
 	async function openCamera(video: HTMLVideoElement): Promise<void> {
+		if (hasLiveCamera(video)) {
+			const sync = syncMindArVideoIntrinsicSize(video)
+			videoSizeText.value = `${sync.videoWidth}×${sync.videoHeight}`
+			pushLog(
+				`复用摄像头 video=${sync.videoWidth}×${sync.videoHeight}`
+			)
+			await video.play().catch(() => undefined)
+			return
+		}
+
+		if (stream) {
+			for (const track of stream.getTracks()) track.stop()
+			stream = null
+		}
+
 		stream = await navigator.mediaDevices.getUserMedia({
 			audio: false,
 			video: {
@@ -218,22 +248,47 @@ export function useMindArPose() {
 		}
 	}
 
+	/** 仅开摄像头（扫图匹配阶段，尚无 .mind） */
+	async function startCameraOnly(video: HTMLVideoElement) {
+		errorMsg.value = ''
+		setStatus('starting', '启动摄像头...')
+		await openCamera(video)
+		setStatus('scanning', '请对准识别图，正在匹配场景…')
+		pushLog('摄像头已开（匹配模式，未启动 MindAR Controller）')
+	}
+
+	async function disposeControllerOnly() {
+		isRunning.value = false
+		isTracking.value = false
+		try {
+			controller?.stopProcessVideo?.()
+			controller?.dispose?.()
+		} catch (e) {
+			pushLog(`disposeController 异常: ${e instanceof Error ? e.message : String(e)}`)
+		}
+		controller = null
+		postMatrices.value = []
+	}
+
 	async function start(options: MindArPoseStartOptions) {
-		if (isRunning.value) await stop()
+		const reuseCamera = Boolean(options.reuseCamera && hasLiveCamera(options.video))
+		if (isRunning.value || controller) {
+			await stop({ keepCamera: reuseCamera || options.reuseCamera })
+		}
 		optionsRef = options
 		errorMsg.value = ''
 		isTracking.value = false
 		resetDebugCounters()
 		mindUrlText.value = toValue(options.mindUrl)
 		targetIndexVal.value = toValue(options.targetIndex ?? 0)
-		setStatus('starting', '启动摄像头...')
+		setStatus('starting', reuseCamera ? '切换识别图...' : '启动摄像头...')
 
 		const video = options.video
 		const mindUrl = mindUrlText.value
 		const targetIndex = targetIndexVal.value
 
 		try {
-			pushLog(`加载 MindAR Controller…`)
+			pushLog('加载 MindAR Controller…')
 			const ControllerClass = await ensureControllerClass()
 			if (!ControllerClass) throw new Error('MindAR Controller 加载失败')
 			pushLog('Controller 已加载')
@@ -301,8 +356,9 @@ export function useMindArPose() {
 
 					matrixUpdateCount.value += 1
 					const idx = event.targetIndex ?? 0
-					if (idx !== targetIndex) {
-						pushLog(`忽略 targetIndex=${idx}（期望 ${targetIndex}）`)
+					const expectIdx = toValue(optionsRef?.targetIndex ?? targetIndex)
+					if (idx !== expectIdx) {
+						pushLog(`忽略 targetIndex=${idx}（期望 ${expectIdx}）`)
 						return
 					}
 
@@ -326,7 +382,7 @@ export function useMindArPose() {
 						}
 					}
 
-					options.onMatrix?.({
+					optionsRef?.onMatrix?.({
 						targetIndex: idx,
 						worldMatrix,
 						postMatrix: post
@@ -338,7 +394,7 @@ export function useMindArPose() {
 			inputSizeText.value = `${controller.inputWidth}×${controller.inputHeight}`
 			pushLog(`Controller 输入尺寸 ${inputSizeText.value}`)
 
-			setStatus('starting', `加载识别图…`)
+			setStatus('starting', '加载识别图…')
 			const mindUrlToLoad = withMindCacheBust(mindUrl, Date.now())
 			pushLog(`mindUrl: ${mindUrlToLoad}`)
 
@@ -408,35 +464,42 @@ export function useMindArPose() {
 			errorMsg.value = msg + stack
 			setStatus('error', msg)
 			pushLog(`ERROR: ${msg}`)
-			await stop()
+			await stop({ keepCamera: options.reuseCamera })
 			throw e
 		}
 	}
 
-	async function stop() {
-		isRunning.value = false
-		isTracking.value = false
-		try {
-			controller?.stopProcessVideo?.()
-			controller?.dispose?.()
-		} catch (e) {
-			pushLog(`stop 异常: ${e instanceof Error ? e.message : String(e)}`)
-		}
-		controller = null
-		postMatrices.value = []
+	/**
+	 * 切换 .mind 识别图：销毁 Controller 后重建，默认保留摄像头。
+	 * WebGL / video 流不销毁。
+	 */
+	async function switchImageTarget(options: MindArPoseStartOptions) {
+		await start({ ...options, reuseCamera: true })
+	}
 
-		if (stream) {
-			for (const track of stream.getTracks()) {
-				track.stop()
+	async function stop(options?: MindArStopOptions) {
+		const keepCamera = Boolean(options?.keepCamera)
+		const video = optionsRef?.video
+		await disposeControllerOnly()
+
+		if (!keepCamera) {
+			if (stream) {
+				for (const track of stream.getTracks()) {
+					track.stop()
+				}
+				stream = null
 			}
-			stream = null
+			if (video) {
+				video.srcObject = null
+			}
+			optionsRef = null
 		}
-		if (optionsRef?.video) {
-			optionsRef.video.srcObject = null
-		}
-		optionsRef = null
+
 		if (status.value !== 'error') {
-			setStatus('idle', '')
+			setStatus(
+				keepCamera ? 'scanning' : 'idle',
+				keepCamera ? '请对准识别图，正在匹配场景…' : ''
+			)
 		}
 	}
 
@@ -490,7 +553,10 @@ export function useMindArPose() {
 		approxFps: readonly(approxFps),
 		logLines: readonly(logLines),
 		getDebugSnapshot,
+		hasLiveCamera,
+		startCameraOnly,
 		start,
+		switchImageTarget,
 		stop
 	}
 }

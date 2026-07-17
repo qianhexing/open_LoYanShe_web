@@ -3,8 +3,8 @@ import type ThreeCore from '@/utils/threeCore'
 import { BASE_IMG } from '@/utils/ipConfig'
 
 export const GALLERY_PLAYER_MODEL_PATH = 'sence/role/role.glb'
-export const GALLERY_PLAYER_IDLE_CLIP = 'root|Girl_Idle'
-export const GALLERY_PLAYER_WALK_CLIP = 'root|Girl_walk'
+export const GALLERY_PLAYER_IDLE_CLIP = 'Idle'
+export const GALLERY_PLAYER_RUN_CLIP = 'Run'
 
 const TARGET_HEIGHT = 1.65
 const BLEND_SPEED = 10
@@ -21,25 +21,25 @@ function findClip(clips: THREE.AnimationClip[], name: string) {
   return clips.find(clip => clip.name === name) ?? null
 }
 
-/** 云看展玩家角色：Girl_Idle / Girl_walk 权重混合 */
+/** 云看展玩家角色：Idle / Run 权重混合 */
 export class GalleryPlayerController {
   readonly root: THREE.Group
 
   private readonly mixer: THREE.AnimationMixer
   private readonly idleAction: THREE.AnimationAction
-  private readonly walkAction: THREE.AnimationAction
-  private walkBlend = 0
+  private readonly runAction: THREE.AnimationAction
+  private runBlend = 0
 
   private constructor(
     root: THREE.Group,
     mixer: THREE.AnimationMixer,
     idleAction: THREE.AnimationAction,
-    walkAction: THREE.AnimationAction
+    runAction: THREE.AnimationAction
   ) {
     this.root = root
     this.mixer = mixer
     this.idleAction = idleAction
-    this.walkAction = walkAction
+    this.runAction = runAction
   }
 
   static async create(
@@ -55,10 +55,10 @@ export class GalleryPlayerController {
 
     const clips = core.getLoadedAnimationClips(modelUrl) ?? []
     const idleClip = findClip(clips, GALLERY_PLAYER_IDLE_CLIP)
-    const walkClip = findClip(clips, GALLERY_PLAYER_WALK_CLIP)
-    if (!idleClip || !walkClip) {
+    const runClip = findClip(clips, GALLERY_PLAYER_RUN_CLIP)
+    if (!idleClip || !runClip) {
       throw new Error(
-        `角色动画缺失，需要 ${GALLERY_PLAYER_IDLE_CLIP} 与 ${GALLERY_PLAYER_WALK_CLIP}`
+        `角色动画缺失，需要 ${GALLERY_PLAYER_IDLE_CLIP} 与 ${GALLERY_PLAYER_RUN_CLIP}`
       )
     }
 
@@ -73,18 +73,33 @@ export class GalleryPlayerController {
     box.setFromObject(model)
     model.position.y -= box.min.y
     group.add(model)
+    group.traverse(child => {
+      if (!(child instanceof THREE.Mesh)) return
+      child.castShadow = true
+      child.receiveShadow = true
+      const mats = Array.isArray(child.material) ? child.material : [child.material]
+      for (const mat of mats) {
+        if (
+          mat instanceof THREE.MeshStandardMaterial
+          || mat instanceof THREE.MeshPhysicalMaterial
+        ) {
+          mat.envMapIntensity = 0.65
+          mat.needsUpdate = true
+        }
+      }
+    })
     scene.add(group)
 
     const mixer = new THREE.AnimationMixer(model)
     const idleAction = mixer.clipAction(idleClip)
-    const walkAction = mixer.clipAction(walkClip)
+    const runAction = mixer.clipAction(runClip)
 
     idleAction.setLoop(THREE.LoopRepeat, Number.POSITIVE_INFINITY).play()
-    walkAction.setLoop(THREE.LoopRepeat, Number.POSITIVE_INFINITY).play()
+    runAction.setLoop(THREE.LoopRepeat, Number.POSITIVE_INFINITY).play()
     idleAction.setEffectiveWeight(1)
-    walkAction.setEffectiveWeight(0)
+    runAction.setEffectiveWeight(0)
 
-    return new GalleryPlayerController(group, mixer, idleAction, walkAction)
+    return new GalleryPlayerController(group, mixer, idleAction, runAction)
   }
 
   setTransform(x: number, z: number, yaw: number) {
@@ -92,12 +107,12 @@ export class GalleryPlayerController {
     this.root.rotation.y = yaw
   }
 
-  /** 按移动状态更新 Idle / Walk 权重并推进 mixer */
+  /** 按移动状态更新 Idle / Run 权重并推进 mixer */
   update(delta: number, isMoving: boolean) {
     const target = isMoving ? 1 : 0
-    this.walkBlend += (target - this.walkBlend) * Math.min(1, BLEND_SPEED * delta)
-    this.idleAction.setEffectiveWeight(1 - this.walkBlend)
-    this.walkAction.setEffectiveWeight(this.walkBlend)
+    this.runBlend += (target - this.runBlend) * Math.min(1, BLEND_SPEED * delta)
+    this.idleAction.setEffectiveWeight(1 - this.runBlend)
+    this.runAction.setEffectiveWeight(this.runBlend)
     this.mixer.update(delta)
   }
 

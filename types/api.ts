@@ -512,6 +512,8 @@ export type CommunityDetailForeignItem = Partial<Library> & {
 /** 评论 json_data 扩展字段 */
 export interface CommentJsonData {
   flower_types?: string
+  /** 展馆留言世界坐标 [x, y, z] */
+  position?: [number, number, number] | number[]
 }
 
 export interface Comment {
@@ -527,7 +529,7 @@ export interface Comment {
   library_list?: Library[]
   mount_img?: string
   mount_library?: Library[]
-  json_data?: CommentJsonData | Record<string, unknown>
+  json_data?: CommentJsonData | Record<string, unknown> | string
   notice?: number
   r_count?: number
   reply_to?: number

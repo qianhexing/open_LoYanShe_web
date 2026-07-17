@@ -280,6 +280,8 @@ export const useSceneCore = () => {
         ) => boolean
         /** 为 true 时跳过 GPU 拾取（如方块搭建模式） */
         shouldIgnoreScenePick?: () => boolean
+        /** 仅初始化 WebGL / AR 锚点，不加载场景内容（扫图页匹配后再清内容切换） */
+        skipSceneLoad?: boolean
     }) => {
         console.log('initScene', options.editMode)
         sceneLoading.value = true
@@ -333,44 +335,48 @@ export const useSceneCore = () => {
                 sceneLoadProgress.value = { current, total }
             }
 
-            let detail = options.sceneData
-            
-            // 如果没有传入 sceneData，则尝试获取
-            if (!detail) {
-                // 这里假设 getSceneId 可以直接调用，或者需要外部传入获取数据的逻辑
-                 const { data } = await useAsyncData('studyDeatil-' + id, () => {
-                     return getSceneId({ sence_id: Number.parseInt(id) })
-                 }, {})
-                 detail = data.value
-            }
+            if (!options.skipSceneLoad) {
+                let detail = options.sceneData
+                
+                // 如果没有传入 sceneData，则尝试获取
+                if (!detail) {
+                    // 这里假设 getSceneId 可以直接调用，或者需要外部传入获取数据的逻辑
+                     const { data } = await useAsyncData('studyDeatil-' + id, () => {
+                         return getSceneId({ sence_id: Number.parseInt(id) })
+                     }, {})
+                     detail = data.value
+                }
 
-            if (detail?.json_data) {
-                const total = detail.json_data?.objects?.length || 0
-                sceneLoadProgress.value = { current: 0, total }
-                await core.loadSceneFromJSON(detail.json_data, false, onProgress)
-            } else {
-                 try {
-                    const res = await use$Get(`/sence/json/${id}.json`, undefined, { baseURL: options.baseUrl })
-                    const total = res?.objects?.length || 0
+                if (detail?.json_data) {
+                    const total = detail.json_data?.objects?.length || 0
                     sceneLoadProgress.value = { current: 0, total }
-                    await core.loadSceneFromJSON(res, false, onProgress)
-                } catch (error) {
-                    console.error('加载场景JSON失败:', error)
-                    throw new Error(error instanceof Error ? error.message : '加载场景数据失败，请稍后重试')
+                    await core.loadSceneFromJSON(detail.json_data, false, onProgress)
+                } else {
+                     try {
+                        const res = await use$Get(`/sence/json/${id}.json`, undefined, { baseURL: options.baseUrl })
+                        const total = res?.objects?.length || 0
+                        sceneLoadProgress.value = { current: 0, total }
+                        await core.loadSceneFromJSON(res, false, onProgress)
+                    } catch (error) {
+                        console.error('加载场景JSON失败:', error)
+                        throw new Error(error instanceof Error ? error.message : '加载场景数据失败，请稍后重试')
+                    }
                 }
-            }
 
-            if (isMindAr) {
-                // 识别图锚点：相机固定在原点，内容缩放到 marker 单位
-                if (core.controls && 'enabled' in core.controls) {
-                    core.controls.enabled = false
+                if (isMindAr) {
+                    // 识别图锚点：相机固定在原点，内容缩放到 marker 单位
+                    if (core.controls && 'enabled' in core.controls) {
+                        core.controls.enabled = false
+                    }
+                    core.prepareMindArContentFit()
+                } else {
+                    core.controls.enabled = true
+                    if (core.cameraList && core.cameraList.length > 0) {
+                        core.lookAtCameraState(core.cameraList[0])
+                    }
                 }
-                core.prepareMindArContentFit()
-            } else {
-                core.controls.enabled = true
-                if (core.cameraList && core.cameraList.length > 0) {
-                    core.lookAtCameraState(core.cameraList[0])
-                }
+            } else if (isMindAr && core.controls && 'enabled' in core.controls) {
+                core.controls.enabled = false
             }
 
             container.addEventListener('pointerdown', _onPointerDown)
@@ -400,6 +406,73 @@ export const useSceneCore = () => {
                     console.error('清理资源失败:', e)
                 }
             }
+            throw error
+        }
+    }
+
+    /**
+     * 切换场景内容：clearSceneContent 后重新 load，不 dispose WebGL / Spark Wasm。
+     * 供扫图匹配页等「保留渲染器、只换内容」场景使用。
+     */
+    const reloadSceneKeepWebGL = async (
+        id: string,
+        options: {
+            sceneData?: Scene | null
+            baseUrl?: string
+        } = {}
+    ) => {
+        const core = threeCore.value
+        if (!core) {
+            throw new Error('WebGL 场景尚未初始化')
+        }
+        sceneLoading.value = true
+        sceneLoadError.value = null
+        try {
+            core.clearSceneContent()
+            await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
+
+            let detail = options.sceneData
+            if (!detail) {
+                detail = await getSceneId({ sence_id: Number.parseInt(id, 10) })
+            }
+
+            const onProgress = (current: number, total: number) => {
+                sceneLoadProgress.value = { current, total }
+            }
+
+            if (detail?.json_data) {
+                const total = detail.json_data?.objects?.length || 0
+                sceneLoadProgress.value = { current: 0, total }
+                await core.loadSceneFromJSON(detail.json_data, false, onProgress)
+            } else {
+                const baseUrl = options.baseUrl || config.baseUrl
+                const res = await use$Get(`/sence/json/${id}.json`, undefined, {
+                    baseURL: baseUrl
+                })
+                const total = res?.objects?.length || 0
+                sceneLoadProgress.value = { current: 0, total }
+                await core.loadSceneFromJSON(res, false, onProgress)
+            }
+
+            if (core.isMindArMode) {
+                if (core.controls && 'enabled' in core.controls) {
+                    core.controls.enabled = false
+                }
+                // 先复位相机/锚点，再包 fit（内部也会再 reset 一次）
+                core.resetMindArViewForTracking()
+                core.prepareMindArContentFit()
+                core.hideMindArContent()
+            }
+
+            updateDiaryAndLibraryLists()
+            sceneLoading.value = false
+            sceneLoadError.value = null
+            return detail
+        } catch (error) {
+            console.error('切换场景失败:', error)
+            sceneLoadError.value =
+                error instanceof Error ? error.message : '切换场景失败，请稍后重试'
+            sceneLoading.value = false
             throw error
         }
     }
@@ -453,6 +526,7 @@ export const useSceneCore = () => {
         clickObject,
         operaPosition,
         initScene,
+        reloadSceneKeepWebGL,
         disposeScene,
         updateDiaryAndLibraryLists,
         isWebcamAR,

@@ -83,15 +83,28 @@ const handlePointerUp = (e: PointerEvent) => {
   height: 120px;
   touch-action: none;
   user-select: none;
+  filter: drop-shadow(0 8px 20px rgba(0, 0, 0, 0.4));
 }
 
 .gallery-joystick__base {
   position: absolute;
   inset: 0;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.12);
-  border: 2px solid rgba(255, 255, 255, 0.25);
-  backdrop-filter: blur(8px);
+  background:
+    radial-gradient(circle at 50% 42%, rgba(40, 28, 38, 0.55), rgba(8, 6, 12, 0.72)),
+    rgba(255, 255, 255, 0.06);
+  border: 1.5px solid rgba(232, 164, 180, 0.35);
+  box-shadow: inset 0 0 24px rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(10px);
+}
+
+.gallery-joystick__base::before {
+  content: '';
+  position: absolute;
+  inset: 14px;
+  border-radius: 50%;
+  border: 1px dashed rgba(255, 255, 255, 0.12);
+  pointer-events: none;
 }
 
 .gallery-joystick__knob {
@@ -101,14 +114,19 @@ const handlePointerUp = (e: PointerEvent) => {
   width: 44px;
   height: 44px;
   border-radius: 50%;
-  background: rgba(216, 136, 152, 0.85);
-  border: 2px solid rgba(255, 255, 255, 0.5);
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.25);
+  background:
+    radial-gradient(circle at 35% 30%, #f0c8d4, #c87890 55%, #8a4a5c);
+  border: 1.5px solid rgba(255, 255, 255, 0.55);
+  box-shadow:
+    0 2px 12px rgba(0, 0, 0, 0.35),
+    0 0 14px rgba(232, 164, 180, 0.35);
   pointer-events: none;
-  transition: background 0.15s;
+  transition: box-shadow 0.15s, transform 0.15s;
 }
 
 .gallery-joystick:active .gallery-joystick__knob {
-  background: rgba(216, 136, 152, 1);
+  box-shadow:
+    0 2px 14px rgba(0, 0, 0, 0.4),
+    0 0 20px rgba(232, 164, 180, 0.55);
 }
 </style>

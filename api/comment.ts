@@ -70,3 +70,15 @@ export async function deleteComment(params: { comment_id: number }): Promise<boo
   );
   return response.data ?? false;
 }
+
+/** 当前用户在该目标下未删除评论的 id 列表；未评论过则为 [] */
+export async function isComment(params: {
+  type: string
+  id: number
+}): Promise<number[]> {
+  const response = await use$Post<BaseResponse<number[]>>(
+    '/comment/is',
+    params
+  )
+  return Array.isArray(response.data) ? response.data : []
+}

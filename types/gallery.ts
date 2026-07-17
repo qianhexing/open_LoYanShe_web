@@ -74,6 +74,37 @@ export interface GalleryConfigFile extends GalleryConfig {
   name?: string
 }
 
+/** 展馆留言标点（由评论 json_data.position 生成） */
+export interface GalleryMessageMarker {
+  comment_id: number
+  /** 评论富文本 HTML（comment_content） */
+  content: string
+  /** 评论挂载图（逗号分隔相对路径） */
+  mountImg?: string
+  /** 世界坐标 [x, y, z] */
+  position: [number, number, number]
+  userName?: string
+  userFace?: string
+  date?: string | Date
+}
+
+/** 展馆内其他在线用户（WS presence / user_position） */
+export interface GalleryPresenceUser {
+  /** 连接 ID，同用户多端时以 connectionId 区分 */
+  connectionId: string
+  userId: number
+  userName?: string
+  userFace?: string
+  /** 世界坐标 X */
+  x: number
+  /** 高度 Y，默认 0 */
+  y: number
+  /** 世界坐标 Z（水平面） */
+  z: number
+  /** 朝向，弧度（与本地 cameraYaw 一致） */
+  rotation: number
+}
+
 export interface GalleryExhibitRuntime extends GalleryExhibit {
   meshGroup?: import('three').Group
 }
