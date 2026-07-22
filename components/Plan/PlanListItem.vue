@@ -2,7 +2,7 @@
   <!-- compact：按月/按日列表紧凑项 -->
   <div
     v-if="variant === 'compact'"
-    class="relative px-2 py-1.5 bg-gray-50 dark:bg-gray-900 rounded text-xs space-y-1"
+    class="relative px-2 py-1.5 bg-[#fff8f9] rounded-xl border border-qhx-primary/20 text-xs space-y-1"
     :class="{ 'opacity-80': item.is_complete === 1 }"
   >
     <img
@@ -32,7 +32,7 @@
         <div class="flex items-center gap-2 mt-0.5">
           <template v-if="!isChildPlan">
             <span class="text-gray-500">{{ Math.ceil(getProgress()) }}%</span>
-            <div class="flex-1 bg-gray-200 dark:bg-gray-700 rounded-full h-1 max-w-12">
+            <div class="flex-1 bg-qhx-primary/15 rounded-full h-1 max-w-12">
               <div class="bg-qhx-primary h-1 rounded-full" :style="{ width: `${getProgress()}%` }"></div>
             </div>
           </template>
@@ -59,7 +59,7 @@
     <div v-if="item.parent_plan" class="pl-8 space-y-1">
       <div class="flex items-center gap-1.5">
         <span class="text-[10px] text-gray-400 flex-shrink-0">{{ Math.ceil(getParentProgress()) }}%</span>
-        <div class="flex-1 bg-gray-200 dark:bg-gray-700 rounded-full h-1 min-w-0">
+        <div class="flex-1 bg-qhx-primary/15 rounded-full h-1 min-w-0">
           <div class="bg-qhx-primary h-1 rounded-full transition-all" :style="{ width: `${getParentProgress()}%` }"></div>
         </div>
       </div>
@@ -87,7 +87,7 @@
   <!-- full：全部视图完整卡片 -->
   <div
     v-else
-    class="bg-white dark:bg-gray-800 rounded-md shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden hover:shadow transition-shadow relative"
+    class="bg-gradient-to-b from-[#fffbfc] to-[#fff7f8] rounded-2xl shadow-[0_6px_16px_rgba(255,158,181,0.10)] border border-qhx-primary/25 overflow-hidden hover:shadow-[0_8px_20px_rgba(255,158,181,0.14)] transition-shadow relative"
     :class="{ 'opacity-85': item.is_complete === 1 }"
   >
     <img
@@ -118,7 +118,7 @@
             </h3>
           </div>
           <div class="flex items-center gap-1 flex-shrink-0 relative z-6">
-            <button v-if="item.is_complete !== 1" @click.stop="$emit('edit', item)" class="w-6 h-6 rounded-full bg-qhx-primary hover:bg-qhx-primary/80 flex items-center justify-center text-white" title="编辑">
+            <button v-if="item.is_complete !== 1" @click.stop="$emit('edit', item)" class="w-6 h-6 rounded-full bg-qhx-primary hover:bg-qhx-primaryHover flex items-center justify-center text-white" title="编辑">
               <UIcon name="i-heroicons-pencil" class="w-3 h-3" />
             </button>
             <button @click.stop="$emit('delete', item.list_id)" class="w-6 h-6 rounded-full bg-red-500 hover:bg-red-600 flex items-center justify-center text-white" title="删除">
@@ -128,16 +128,16 @@
         </div>
         <div class="flex items-center gap-2 text-xs">
           <span class="text-gray-500">{{ Math.ceil(getProgress()) }}%</span>
-          <div class="flex-1 bg-gray-200 dark:bg-gray-700 rounded-full h-1.5 max-w-16">
+          <div class="flex-1 bg-qhx-primary/15 rounded-full h-1.5 max-w-16">
             <div class="bg-qhx-primary h-1.5 rounded-full transition-all" :style="{ width: `${getProgress()}%` }"></div>
           </div>
           <span class="text-gray-700 dark:text-gray-300 font-medium">￥{{ formatMoney(item.have_money || 0) }}/{{ formatMoney(item.need_money || 0) }}</span>
         </div>
         <div class="flex items-center gap-2 my-1">
-          <button v-if="item.is_complete !== 1 && (!item.plan_list || item.plan_list.length === 0)" @click="openAddModal($event)" class="flex items-center gap-0.5 px-2 py-0.5 bg-qhx-primary hover:bg-qhx-primary/80 text-white text-xs rounded">
+          <button v-if="item.is_complete !== 1 && (!item.plan_list || item.plan_list.length === 0)" @click="openAddModal($event)" class="flex items-center gap-0.5 px-2 py-0.5 bg-qhx-primary hover:bg-qhx-primaryHover text-white text-xs rounded">
             <UIcon name="i-heroicons-plus" class="w-3 h-3" />添加
           </button>
-          <button v-if="item.is_complete !== 1" @click="$emit('complete', item.list_id)" class="px-2 py-0.5 text-xs bg-qhx-primary hover:bg-qhx-primary/80 text-white rounded">完成</button>
+          <button v-if="item.is_complete !== 1" @click="$emit('complete', item.list_id)" class="px-2 py-0.5 text-xs bg-qhx-primary hover:bg-qhx-primaryHover text-white rounded">完成</button>
           <button
             v-if="item.is_complete !== 1 && !hasLinkedClothes"
             @click.stop="$emit('link-clothes')"

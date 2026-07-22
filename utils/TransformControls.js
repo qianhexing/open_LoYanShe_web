@@ -1,6 +1,7 @@
 import {
 	BoxGeometry,
 	BufferGeometry,
+	CanvasTexture,
 	Controls,
 	CylinderGeometry,
 	DoubleSide,
@@ -16,7 +17,9 @@ import {
 	PlaneGeometry,
 	Quaternion,
 	Raycaster,
+	RingGeometry,
 	SphereGeometry,
+	SRGBColorSpace,
 	TorusGeometry,
 	Vector3,
 	Color
@@ -351,6 +354,9 @@ class TransformControls extends Controls {
 		this._positionStart = new Vector3();
 		this._quaternionStart = new Quaternion();
 		this._scaleStart = new Vector3();
+		/** 缩放模式按下时的指针 NDC，用于按拖动距离等比缩放 */
+		this._scalePointerStartX = 0;
+		this._scalePointerStartY = 0;
 
 		this._getPointer = getPointer.bind( this );
 		this._onPointerDown = onPointerDown.bind( this );
@@ -410,16 +416,49 @@ class TransformControls extends Controls {
 
 		if ( pointer !== null ) _raycaster.setFromCamera( pointer, this.camera );
 
-		const intersect = intersectObjectWithRay( this._gizmo.picker[ this.mode ], _raycaster );
+		// 拾取层常为不可见，必须 includeInvisible；旋转弧优先于平移轴，避免夹角处被轴杆抢走
+		const pickerRoot = this._gizmo.picker[ this.mode ];
+		const hits = _raycaster.intersectObject( pickerRoot, true );
+		let picked = null;
+		let rotateHit = null;
+		let otherHit = null;
 
-		if ( intersect ) {
-			this.axis = intersect.object.name;
+		for ( let i = 0; i < hits.length; i ++ ) {
 
-		} else {
+			const name = hits[ i ].object.name;
+			if ( name === 'RX' || name === 'RY' || name === 'RZ' ) {
 
-			this.axis = null;
+				if ( ! rotateHit ) rotateHit = hits[ i ];
+
+			} else if ( ! otherHit ) {
+
+				otherHit = hits[ i ];
+
+			}
 
 		}
+
+		picked = rotateHit || otherHit;
+
+		// 回退：直接打可见旋转弧面（触控/斜视时厚拾取体仍可能偏差）
+		if ( ! picked && this.mode === 'translate' ) {
+
+			const gizmoHits = _raycaster.intersectObject( this._gizmo.gizmo.translate, true );
+			for ( let i = 0; i < gizmoHits.length; i ++ ) {
+
+				const name = gizmoHits[ i ].object.name;
+				if ( name === 'RX' || name === 'RY' || name === 'RZ' ) {
+
+					picked = gizmoHits[ i ];
+					break;
+
+				}
+
+			}
+
+		}
+
+		this.axis = picked ? picked.object.name : null;
 
 	}
 
@@ -456,6 +495,24 @@ class TransformControls extends Controls {
 
 		if ( this.axis !== null ) {
 
+			this._positionStart.copy( this.object.position );
+			this._quaternionStart.copy( this.object.quaternion );
+			this._scaleStart.copy( this.object.scale );
+
+			this.object.matrixWorld.decompose( this.worldPositionStart, this.worldQuaternionStart, this._worldScaleStart );
+
+			// 缩放：记录屏幕起点，按拖动距离整体等比（不依赖拖拽平面）
+			if ( this.mode === 'scale' ) {
+
+				this._scalePointerStartX = pointer.x;
+				this._scalePointerStartY = pointer.y;
+				this.dragging = true;
+				_mouseDownEvent.mode = this.mode;
+				this.dispatchEvent( _mouseDownEvent );
+				return;
+
+			}
+
 			this._updateDragMatrices();
 
 			if ( pointer !== null ) _raycaster.setFromCamera( pointer, this.camera );
@@ -467,12 +524,6 @@ class TransformControls extends Controls {
 				return;
 
 			}
-
-			this._positionStart.copy( this.object.position );
-			this._quaternionStart.copy( this.object.quaternion );
-			this._scaleStart.copy( this.object.scale );
-
-			this.object.matrixWorld.decompose( this.worldPositionStart, this.worldQuaternionStart, this._worldScaleStart );
 
 			this.pointStart.copy( planeIntersect.point ).sub( this.worldPositionStart );
 			// 首帧位移为零，避免 pointStart 未就绪或与 pointEnd 不一致时瞬移
@@ -493,6 +544,11 @@ class TransformControls extends Controls {
 		const object = this.object;
 		let space = this.space;
 
+		// 合并模式：RX/RY/RZ 为旋转轴；E/XYZE 为自由旋转
+		const rotateAxis =
+			axis === 'E' || axis === 'XYZE' ? axis
+				: ( axis && axis.length === 2 && axis.charAt( 0 ) === 'R' ? axis.charAt( 1 ) : null );
+
 		if ( mode === 'scale' ) {
 
 			space = 'local';
@@ -505,6 +561,30 @@ class TransformControls extends Controls {
 
 		if ( object === undefined || axis === null || this.dragging === false || ( pointer !== null && pointer.button !== - 1 ) ) return;
 
+		// 缩放：屏幕拖动距离 → 整体等比（右下放大 / 左上缩小）
+		if ( mode === 'scale' ) {
+
+			const dx = pointer.x - this._scalePointerStartX;
+			const dy = pointer.y - this._scalePointerStartY;
+			const drag = dx - dy;
+			const d = Math.max( 0.05, 1 + drag * 1.15 );
+
+			object.scale.copy( this._scaleStart ).multiplyScalar( d );
+
+			if ( this.scaleSnap ) {
+
+				object.scale.x = Math.round( object.scale.x / this.scaleSnap ) * this.scaleSnap || this.scaleSnap;
+				object.scale.y = Math.round( object.scale.y / this.scaleSnap ) * this.scaleSnap || this.scaleSnap;
+				object.scale.z = Math.round( object.scale.z / this.scaleSnap ) * this.scaleSnap || this.scaleSnap;
+
+			}
+
+			this.dispatchEvent( _changeEvent );
+			this.dispatchEvent( _objectChangeEvent );
+			return;
+
+		}
+
 		this._updateDragMatrices();
 
 		if ( pointer !== null ) _raycaster.setFromCamera( pointer, this.camera );
@@ -515,7 +595,75 @@ class TransformControls extends Controls {
 
 		this.pointEnd.copy( planeIntersect.point ).sub( this.worldPositionStart );
 
-		if ( mode === 'translate' ) {
+		if ( rotateAxis || mode === 'rotate' ) {
+
+			const rotKey = rotateAxis || axis;
+
+			this._offset.copy( this.pointEnd ).sub( this.pointStart );
+
+			const ROTATION_SPEED = 20 / this.worldPosition.distanceTo( _tempVector.setFromMatrixPosition( this.camera.matrixWorld ) );
+
+			let _inPlaneRotation = false;
+
+			if ( rotKey === 'XYZE' ) {
+
+				this.rotationAxis.copy( this._offset ).cross( this.eye ).normalize();
+				this.rotationAngle = this._offset.dot( _tempVector.copy( this.rotationAxis ).cross( this.eye ) ) * ROTATION_SPEED;
+
+			} else if ( rotKey === 'X' || rotKey === 'Y' || rotKey === 'Z' ) {
+
+				this.rotationAxis.copy( _unit[ rotKey ] );
+
+				_tempVector.copy( _unit[ rotKey ] );
+
+				if ( space === 'local' ) {
+
+					_tempVector.applyQuaternion( this.worldQuaternion );
+
+				}
+
+				_tempVector.cross( this.eye );
+
+				if ( _tempVector.length() === 0 ) {
+
+					_inPlaneRotation = true;
+
+				} else {
+
+					this.rotationAngle = this._offset.dot( _tempVector.normalize() ) * ROTATION_SPEED;
+
+				}
+
+			}
+
+			if ( rotKey === 'E' || _inPlaneRotation ) {
+
+				this.rotationAxis.copy( this.eye );
+				this.rotationAngle = this.pointEnd.angleTo( this.pointStart );
+
+				this._startNorm.copy( this.pointStart ).normalize();
+				this._endNorm.copy( this.pointEnd ).normalize();
+
+				this.rotationAngle *= ( this._endNorm.cross( this._startNorm ).dot( this.eye ) < 0 ? 1 : - 1 );
+
+			}
+
+			if ( this.rotationSnap ) this.rotationAngle = Math.round( this.rotationAngle / this.rotationSnap ) * this.rotationSnap;
+
+			if ( space === 'local' && rotKey !== 'E' && rotKey !== 'XYZE' ) {
+
+				object.quaternion.copy( this._quaternionStart );
+				object.quaternion.multiply( _tempQuaternion.setFromAxisAngle( this.rotationAxis, this.rotationAngle ) ).normalize();
+
+			} else {
+
+				this.rotationAxis.applyQuaternion( this._parentQuaternionInv );
+				object.quaternion.copy( _tempQuaternion.setFromAxisAngle( this.rotationAxis, this.rotationAngle ) );
+				object.quaternion.multiply( this._quaternionStart ).normalize();
+
+			}
+
+		} else if ( mode === 'translate' ) {
 
 			// Apply translate
 
@@ -609,145 +757,6 @@ class TransformControls extends Controls {
 			object.position.x = Math.max( this.minX, Math.min( this.maxX, object.position.x ) );
 			object.position.y = Math.max( this.minY, Math.min( this.maxY, object.position.y ) );
 			object.position.z = Math.max( this.minZ, Math.min( this.maxZ, object.position.z ) );
-
-		} else if ( mode === 'scale' ) {
-			// 修改只走等比缩放。
-			if ( true ) {
-			// if ( axis.search( 'XYZ' ) !== - 1 ) {
-
-				const startLen = Math.max( this.pointStart.length(), 1e-6 );
-				let d = this.pointEnd.length() / startLen;
-
-				if ( this.pointEnd.dot( this.pointStart ) < 0 ) d *= - 1;
-
-				_tempVector2.set( d, d, d );
-
-			} else {
-
-				_tempVector.copy( this.pointStart );
-				_tempVector2.copy( this.pointEnd );
-
-				_tempVector.applyQuaternion( this._worldQuaternionInv );
-				_tempVector2.applyQuaternion( this._worldQuaternionInv );
-
-				_tempVector2.divide( _tempVector );
-
-				if ( axis.search( 'X' ) === - 1 ) {
-
-					_tempVector2.x = 1;
-
-				}
-
-				if ( axis.search( 'Y' ) === - 1 ) {
-
-					_tempVector2.y = 1;
-
-				}
-
-				if ( axis.search( 'Z' ) === - 1 ) {
-
-					_tempVector2.z = 1;
-
-				}
-
-			}
-
-			// Apply scale
-
-			object.scale.copy( this._scaleStart ).multiply( _tempVector2 );
-
-			if ( this.scaleSnap ) {
-
-				if ( axis.search( 'X' ) !== - 1 ) {
-
-					object.scale.x = Math.round( object.scale.x / this.scaleSnap ) * this.scaleSnap || this.scaleSnap;
-
-				}
-
-				if ( axis.search( 'Y' ) !== - 1 ) {
-
-					object.scale.y = Math.round( object.scale.y / this.scaleSnap ) * this.scaleSnap || this.scaleSnap;
-
-				}
-
-				if ( axis.search( 'Z' ) !== - 1 ) {
-
-					object.scale.z = Math.round( object.scale.z / this.scaleSnap ) * this.scaleSnap || this.scaleSnap;
-
-				}
-
-			}
-
-		} else if ( mode === 'rotate' ) {
-
-			this._offset.copy( this.pointEnd ).sub( this.pointStart );
-
-			const ROTATION_SPEED = 20 / this.worldPosition.distanceTo( _tempVector.setFromMatrixPosition( this.camera.matrixWorld ) );
-
-			let _inPlaneRotation = false;
-
-			if ( axis === 'XYZE' ) {
-
-				this.rotationAxis.copy( this._offset ).cross( this.eye ).normalize();
-				this.rotationAngle = this._offset.dot( _tempVector.copy( this.rotationAxis ).cross( this.eye ) ) * ROTATION_SPEED;
-
-			} else if ( axis === 'X' || axis === 'Y' || axis === 'Z' ) {
-
-				this.rotationAxis.copy( _unit[ axis ] );
-
-				_tempVector.copy( _unit[ axis ] );
-
-				if ( space === 'local' ) {
-
-					_tempVector.applyQuaternion( this.worldQuaternion );
-
-				}
-
-				_tempVector.cross( this.eye );
-
-				// When _tempVector is 0 after cross with this.eye the vectors are parallel and should use in-plane rotation logic.
-				if ( _tempVector.length() === 0 ) {
-
-					_inPlaneRotation = true;
-
-				} else {
-
-					this.rotationAngle = this._offset.dot( _tempVector.normalize() ) * ROTATION_SPEED;
-
-				}
-
-
-			}
-
-			if ( axis === 'E' || _inPlaneRotation ) {
-
-				this.rotationAxis.copy( this.eye );
-				this.rotationAngle = this.pointEnd.angleTo( this.pointStart );
-
-				this._startNorm.copy( this.pointStart ).normalize();
-				this._endNorm.copy( this.pointEnd ).normalize();
-
-				this.rotationAngle *= ( this._endNorm.cross( this._startNorm ).dot( this.eye ) < 0 ? 1 : - 1 );
-
-			}
-
-			// Apply rotation snap
-
-			if ( this.rotationSnap ) this.rotationAngle = Math.round( this.rotationAngle / this.rotationSnap ) * this.rotationSnap;
-
-			// Apply rotate
-			if ( space === 'local' && axis !== 'E' && axis !== 'XYZE' ) {
-
-				object.quaternion.copy( this._quaternionStart );
-				object.quaternion.multiply( _tempQuaternion.setFromAxisAngle( this.rotationAxis, this.rotationAngle ) ).normalize();
-
-			} else {
-
-				this.rotationAxis.applyQuaternion( this._parentQuaternionInv );
-				object.quaternion.copy( _tempQuaternion.setFromAxisAngle( this.rotationAxis, this.rotationAngle ) );
-				object.quaternion.multiply( this._quaternionStart ).normalize();
-
-			}
 
 		}
 
@@ -863,7 +872,8 @@ class TransformControls extends Controls {
 	 */
 	setMode( mode ) {
 
-		this.mode = mode;
+		// 移动与旋转合并为 translate（含轴向箭头 + 旋转圆弧）
+		this.mode = mode === 'rotate' ? 'translate' : mode;
 
 	}
 
@@ -1200,6 +1210,7 @@ class TransformControlsGizmo extends Object3D {
 
 		const matInvisible = gizmoMaterial.clone();
 		matInvisible.opacity = 0.12;
+		matInvisible.side = DoubleSide;
 
 		const matHelper = gizmoLineMaterial.clone();
 		matHelper.opacity = 0.45;
@@ -1216,14 +1227,34 @@ class TransformControlsGizmo extends Object3D {
 		const matRedTransparent = gizmoMaterial.clone();
 		matRedTransparent.color.setHex( 0xff4d4d );
 		matRedTransparent.opacity = GIZMO_OPACITY_PLANE;
+		matRedTransparent.side = DoubleSide;
 
 		const matGreenTransparent = gizmoMaterial.clone();
 		matGreenTransparent.color.setHex( 0x4de680 );
 		matGreenTransparent.opacity = GIZMO_OPACITY_PLANE;
+		matGreenTransparent.side = DoubleSide;
 
 		const matBlueTransparent = gizmoMaterial.clone();
 		matBlueTransparent.color.setHex( 0x4d9fff );
 		matBlueTransparent.opacity = GIZMO_OPACITY_PLANE;
+		matBlueTransparent.side = DoubleSide;
+
+		// 旋转夹角弧：提高不透明度，更易辨认
+		const GIZMO_OPACITY_ROTATE_ARC = 0.88;
+		const matRotateX = gizmoMaterial.clone();
+		matRotateX.color.setHex( 0xff4d4d );
+		matRotateX.opacity = GIZMO_OPACITY_ROTATE_ARC;
+		matRotateX.side = DoubleSide;
+
+		const matRotateY = gizmoMaterial.clone();
+		matRotateY.color.setHex( 0x4de680 );
+		matRotateY.opacity = GIZMO_OPACITY_ROTATE_ARC;
+		matRotateY.side = DoubleSide;
+
+		const matRotateZ = gizmoMaterial.clone();
+		matRotateZ.color.setHex( 0x4d9fff );
+		matRotateZ.opacity = GIZMO_OPACITY_ROTATE_ARC;
+		matRotateZ.side = DoubleSide;
 
 		const matWhiteTransparent = gizmoMaterial.clone();
 		matWhiteTransparent.color.setHex( 0xffffff );
@@ -1232,6 +1263,7 @@ class TransformControlsGizmo extends Object3D {
 		const matYellowTransparent = gizmoMaterial.clone();
 		matYellowTransparent.color.setHex( 0xffffff );
 		matYellowTransparent.opacity = GIZMO_OPACITY_VIEW;
+		matYellowTransparent.side = DoubleSide;
 
 		const matYellow = gizmoMaterial.clone();
 		matYellow.color.setHex( 0xffffff );
@@ -1239,6 +1271,109 @@ class TransformControlsGizmo extends Object3D {
 		const matGray = gizmoMaterial.clone();
 		matGray.color.setHex( 0x8b95a8 );
 		matGray.opacity = GIZMO_OPACITY_VIEW;
+		matGray.side = DoubleSide;
+
+		// 缩放 gizmo：对齐场景编辑主色 violet（scene-neu / threeCore 0x8b5cf6）
+		const SCALE_VIOLET = 0x8b5cf6;
+		const SCALE_VIOLET_SOFT = 0xa78bfa;
+
+		const matScaleFrame = gizmoMaterial.clone();
+		matScaleFrame.color.setHex( SCALE_VIOLET_SOFT );
+		matScaleFrame.opacity = 0.9;
+
+		const matScaleFill = gizmoMaterial.clone();
+		matScaleFill.color.setHex( SCALE_VIOLET );
+		matScaleFill.opacity = 0.12;
+		matScaleFill.side = DoubleSide;
+
+		/** 缩放按钮：圆形底 + 粗壮左上/右下对角双向箭头 */
+		function createScaleIconTexture() {
+
+			const size = 128;
+			const canvas = document.createElement( 'canvas' );
+			canvas.width = size;
+			canvas.height = size;
+			const ctx = canvas.getContext( '2d' );
+			const cx = size / 2;
+			const cy = size / 2;
+			const r = size * 0.46;
+
+			ctx.clearRect( 0, 0, size, size );
+
+			// 圆形底（violet）
+			ctx.beginPath();
+			ctx.arc( cx, cy, r, 0, Math.PI * 2 );
+			ctx.fillStyle = '#8b5cf6';
+			ctx.fill();
+			ctx.lineWidth = size * 0.04;
+			ctx.strokeStyle = '#7c3aed';
+			ctx.stroke();
+
+			ctx.strokeStyle = '#ffffff';
+			ctx.fillStyle = '#ffffff';
+			ctx.lineWidth = size * 0.08;
+			ctx.lineCap = 'butt';
+			ctx.lineJoin = 'miter';
+
+			// 对角双向箭头：中间连线缩短，三角箭头更醒目
+			const tipReach = r * 0.58;
+			const headLen = r * 0.32;
+			const headHalf = r * 0.26;
+			const inv = 1 / Math.SQRT2;
+			// 单位对角方向
+			const dLx = - inv;
+			const dLy = - inv;
+			const dRx = inv;
+			const dRy = inv;
+
+			const xTipL = cx + dLx * tipReach;
+			const yTipL = cy + dLy * tipReach;
+			const xTipR = cx + dRx * tipReach;
+			const yTipR = cy + dRy * tipReach;
+			// 箭杆接到三角底边中点，避免圆角头
+			const xBaseL = cx + dLx * ( tipReach - headLen );
+			const yBaseL = cy + dLy * ( tipReach - headLen );
+			const xBaseR = cx + dRx * ( tipReach - headLen );
+			const yBaseR = cy + dRy * ( tipReach - headLen );
+
+			ctx.beginPath();
+			ctx.moveTo( xBaseL, yBaseL );
+			ctx.lineTo( xBaseR, yBaseR );
+			ctx.stroke();
+
+			function drawTriangleHead( tipX, tipY, dirX, dirY ) {
+
+				const bx = tipX - dirX * headLen;
+				const by = tipY - dirY * headLen;
+				const px = - dirY;
+				const py = dirX;
+				ctx.beginPath();
+				ctx.moveTo( tipX, tipY );
+				ctx.lineTo( bx + px * headHalf, by + py * headHalf );
+				ctx.lineTo( bx - px * headHalf, by - py * headHalf );
+				ctx.closePath();
+				ctx.fill();
+
+			}
+
+			drawTriangleHead( xTipL, yTipL, dLx, dLy );
+			drawTriangleHead( xTipR, yTipR, dRx, dRy );
+
+			const tex = new CanvasTexture( canvas );
+			if ( 'colorSpace' in tex ) tex.colorSpace = SRGBColorSpace;
+			tex.needsUpdate = true;
+			return tex;
+
+		}
+
+		const scaleIconTexture = createScaleIconTexture();
+		const matScaleCorner = gizmoMaterial.clone();
+		matScaleCorner.color.setHex( 0xffffff );
+		matScaleCorner.opacity = 1;
+		matScaleCorner.map = scaleIconTexture;
+		matScaleCorner.transparent = true;
+		matScaleCorner.alphaTest = 0.05;
+		matScaleCorner.side = DoubleSide;
 
 		// materials in the below property are configurable via setColors()
 
@@ -1250,35 +1385,74 @@ class TransformControlsGizmo extends Object3D {
 			xAxisTransparent: matRedTransparent,
 			yAxisTransparent: matGreenTransparent,
 			zAxisTransparent: matBlueTransparent,
-			activeTransparent: matYellowTransparent
+			activeTransparent: matYellowTransparent,
+			scaleFrame: matScaleFrame,
+			scaleFill: matScaleFill,
+			scaleCorner: matScaleCorner
 		};
 
-		// reusable geometry — 细杆 + 锥头/球头，更接近现代 DCC 工具
+		// reusable geometry — 平移：轴杆+箭头；旋转：仅在两轴夹角处的短弧面
 
-		const AXIS_LEN = 0.44;
+		const AXIS_LEN = 0.52;
 
-		const arrowHeadGeometry = new CylinderGeometry( 0, 0.05, 0.11, 16 );
+		const arrowHeadGeometry = new CylinderGeometry( 0, 0.055, 0.12, 16 );
 		arrowHeadGeometry.translate( 0, AXIS_LEN, 0 );
 
-		const axisShaftGeometry = new CylinderGeometry( 0.011, 0.011, AXIS_LEN, 12 );
-		axisShaftGeometry.translate( 0, AXIS_LEN * 0.5, 0 );
-
-		const scaleHandleGeometry = new SphereGeometry( 0.052, 16, 12 );
-		scaleHandleGeometry.translate( 0, AXIS_LEN, 0 );
-
-		const scaleShaftGeometry = new CylinderGeometry( 0.009, 0.009, AXIS_LEN, 10 );
-		scaleShaftGeometry.translate( 0, AXIS_LEN * 0.5, 0 );
-
-		const centerHandleGeometry = new BoxGeometry( 0.09, 0.09, 0.09, 2, 2, 2 );
+		const axisShaftGeometry = new CylinderGeometry( 0.012, 0.012, AXIS_LEN * 0.88, 12 );
+		axisShaftGeometry.translate( 0, AXIS_LEN * 0.44, 0 );
 
 		const centerTranslateGeometry = new SphereGeometry( 0.055, 16, 12 );
+
+		// 缩放：屏幕空间固定框 + 右下角整体缩放按钮（无各轴拉杆）
+		const SCALE_FRAME_SIZE = 0.72;
+		const SCALE_CORNER = SCALE_FRAME_SIZE / 2;
+		const SCALE_FRAME_THICK = 0.022;
+		const SCALE_FRAME_HALF = SCALE_FRAME_SIZE / 2;
 
 		const lineGeometry = new BufferGeometry();
 		lineGeometry.setAttribute( 'position', new Float32BufferAttribute( [ 0, 0, 0,	1, 0, 0 ], 3 ) );
 
-		function CircleGeometry( radius, arc ) {
+		const ROTATE_R = 0.44;
+		/** 夹角内短弧：从轴1留白到轴2留白，落在两平移轴之间的 90° 象限 */
+		const ROTATE_SEG_INSET = Math.PI * 0.14;
+		const ROTATE_SEG_SPAN = Math.PI / 2 - ROTATE_SEG_INSET * 2;
 
-			const geometry = new TorusGeometry( radius, 0.012, 8, 56, arc * Math.PI * 2 );
+		/** 连续圆弧（旧旋转模式备用） */
+		function CircleGeometry( radius, arc, bandWidth = 0.07 ) {
+
+			const inner = Math.max( 0.01, radius - bandWidth * 0.5 );
+			const outer = radius + bandWidth * 0.5;
+			const geometry = new RingGeometry( inner, outer, 64, 1, 0, arc * Math.PI * 2 );
+			geometry.rotateY( Math.PI / 2 );
+			geometry.rotateX( Math.PI / 2 );
+			return geometry;
+
+		}
+
+		/**
+		 * 旋转操作面：落在两轴夹角内的短环面。
+		 * 基础朝向同 RX（YZ 平面）：θ=0 → +Y，θ=π/2 → +Z，故默认段在 +Y/+Z 夹角。
+		 */
+		function RotateCornerSegGeometry( radius = ROTATE_R, bandWidth = 0.11 ) {
+
+			const inner = Math.max( 0.01, radius - bandWidth * 0.5 );
+			const outer = radius + bandWidth * 0.5;
+			const geometry = new RingGeometry(
+				inner, outer, 24, 1,
+				ROTATE_SEG_INSET,
+				ROTATE_SEG_SPAN
+			);
+			geometry.rotateY( Math.PI / 2 );
+			geometry.rotateX( Math.PI / 2 );
+			return geometry;
+
+		}
+
+		/** 旋转弧厚拾取体（管状扇区，便于鼠标/手指命中） */
+		function RotateCornerPickerGeometry( radius = ROTATE_R, tube = 0.14 ) {
+
+			const geometry = new TorusGeometry( radius, tube, 10, 28, ROTATE_SEG_SPAN );
+			geometry.rotateZ( ROTATE_SEG_INSET );
 			geometry.rotateY( Math.PI / 2 );
 			geometry.rotateX( Math.PI / 2 );
 			return geometry;
@@ -1315,41 +1489,43 @@ class TransformControlsGizmo extends Object3D {
 			XYZ: [
 				[ new Mesh( centerTranslateGeometry, matWhiteTransparent ), [ 0, 0, 0 ]]
 			],
-			XY: [
-				[ new Mesh( new BoxGeometry( 0.12, 0.12, 0.008 ), matBlueTransparent ), [ 0.12, 0.12, 0 ]]
+			// 旋转：只在两平移轴夹角处放一段弧面（RX→Y/Z，RY→X/Z，RZ→X/Y）
+			RX: [
+				[ new Mesh( RotateCornerSegGeometry(), matRotateX ) ]
 			],
-			YZ: [
-				[ new Mesh( new BoxGeometry( 0.12, 0.12, 0.008 ), matRedTransparent ), [ 0, 0.12, 0.12 ], [ 0, Math.PI / 2, 0 ]]
+			RY: [
+				[ new Mesh( RotateCornerSegGeometry(), matRotateY ), null, [ 0, 0, - Math.PI / 2 ]]
 			],
-			XZ: [
-				[ new Mesh( new BoxGeometry( 0.12, 0.12, 0.008 ), matGreenTransparent ), [ 0.12, 0, 0.12 ], [ - Math.PI / 2, 0, 0 ]]
+			RZ: [
+				[ new Mesh( RotateCornerSegGeometry(), matRotateZ ), null, [ 0, Math.PI / 2, 0 ]]
 			]
 		};
 
+		// 拾取：轴杆/箭头 + 夹角弧厚扇区（覆盖整段可见弧）
 		const pickerTranslate = {
 			X: [
-				[ new Mesh( new CylinderGeometry( 0.2, 0, 0.6, 4 ), matInvisible ), [ 0.3, 0, 0 ], [ 0, 0, - Math.PI / 2 ]],
-				[ new Mesh( new CylinderGeometry( 0.2, 0, 0.6, 4 ), matInvisible ), [ - 0.3, 0, 0 ], [ 0, 0, Math.PI / 2 ]]
+				[ new Mesh( new CylinderGeometry( 0.1, 0, 0.5, 4 ), matInvisible ), [ 0.26, 0, 0 ], [ 0, 0, - Math.PI / 2 ]],
+				[ new Mesh( new SphereGeometry( 0.13, 12, 10 ), matInvisible ), [ AXIS_LEN, 0, 0 ]]
 			],
 			Y: [
-				[ new Mesh( new CylinderGeometry( 0.2, 0, 0.6, 4 ), matInvisible ), [ 0, 0.3, 0 ]],
-				[ new Mesh( new CylinderGeometry( 0.2, 0, 0.6, 4 ), matInvisible ), [ 0, - 0.3, 0 ], [ 0, 0, Math.PI ]]
+				[ new Mesh( new CylinderGeometry( 0.1, 0, 0.5, 4 ), matInvisible ), [ 0, 0.26, 0 ]],
+				[ new Mesh( new SphereGeometry( 0.13, 12, 10 ), matInvisible ), [ 0, AXIS_LEN, 0 ]]
 			],
 			Z: [
-				[ new Mesh( new CylinderGeometry( 0.2, 0, 0.6, 4 ), matInvisible ), [ 0, 0, 0.3 ], [ Math.PI / 2, 0, 0 ]],
-				[ new Mesh( new CylinderGeometry( 0.2, 0, 0.6, 4 ), matInvisible ), [ 0, 0, - 0.3 ], [ - Math.PI / 2, 0, 0 ]]
+				[ new Mesh( new CylinderGeometry( 0.1, 0, 0.5, 4 ), matInvisible ), [ 0, 0, 0.26 ], [ Math.PI / 2, 0, 0 ]],
+				[ new Mesh( new SphereGeometry( 0.13, 12, 10 ), matInvisible ), [ 0, 0, AXIS_LEN ]]
 			],
 			XYZ: [
-				[ new Mesh( new OctahedronGeometry( 0.2, 0 ), matInvisible ) ]
+				[ new Mesh( new OctahedronGeometry( 0.18, 0 ), matInvisible ) ]
 			],
-			XY: [
-				[ new Mesh( new BoxGeometry( 0.2, 0.2, 0.01 ), matInvisible ), [ 0.15, 0.15, 0 ]]
+			RX: [
+				[ new Mesh( RotateCornerPickerGeometry(), matInvisible ) ]
 			],
-			YZ: [
-				[ new Mesh( new BoxGeometry( 0.2, 0.2, 0.01 ), matInvisible ), [ 0, 0.15, 0.15 ], [ 0, Math.PI / 2, 0 ]]
+			RY: [
+				[ new Mesh( RotateCornerPickerGeometry(), matInvisible ), null, [ 0, 0, - Math.PI / 2 ]]
 			],
-			XZ: [
-				[ new Mesh( new BoxGeometry( 0.2, 0.2, 0.01 ), matInvisible ), [ 0.15, 0, 0.15 ], [ - Math.PI / 2, 0, 0 ]]
+			RZ: [
+				[ new Mesh( RotateCornerPickerGeometry(), matInvisible ), null, [ 0, Math.PI / 2, 0 ]]
 			]
 		};
 
@@ -1379,13 +1555,13 @@ class TransformControlsGizmo extends Object3D {
 				[ new Mesh( CircleGeometry( 0.5, 1 ), matGray ), null, [ 0, Math.PI / 2, 0 ]]
 			],
 			X: [
-				[ new Mesh( CircleGeometry( 0.5, 0.5 ), matRed ) ]
+				[ new Mesh( CircleGeometry( 0.5, 0.5 ), matRedTransparent ) ]
 			],
 			Y: [
-				[ new Mesh( CircleGeometry( 0.5, 0.5 ), matGreen ), null, [ 0, 0, - Math.PI / 2 ]]
+				[ new Mesh( CircleGeometry( 0.5, 0.5 ), matGreenTransparent ), null, [ 0, 0, - Math.PI / 2 ]]
 			],
 			Z: [
-				[ new Mesh( CircleGeometry( 0.5, 0.5 ), matBlue ), null, [ 0, Math.PI / 2, 0 ]]
+				[ new Mesh( CircleGeometry( 0.5, 0.5 ), matBlueTransparent ), null, [ 0, Math.PI / 2, 0 ]]
 			],
 			E: [
 				[ new Mesh( CircleGeometry( 0.75, 1 ), matYellowTransparent ), null, [ 0, Math.PI / 2, 0 ]]
@@ -1417,61 +1593,30 @@ class TransformControlsGizmo extends Object3D {
 		};
 
 		const gizmoScale = {
-			X: [
-				[ new Mesh( scaleHandleGeometry, matRed ), null, [ 0, 0, - Math.PI / 2 ]],
-				[ new Mesh( scaleShaftGeometry, matRed ), null, [ 0, 0, - Math.PI / 2 ]],
+			// 正对镜头的加粗方框（四边方条，WebGL 下比 Line 线宽可靠）
+			FRAME: [
+				[ new Mesh( new BoxGeometry( SCALE_FRAME_SIZE, SCALE_FRAME_THICK, SCALE_FRAME_THICK ), matScaleFrame ), [ 0, SCALE_FRAME_HALF, 0 ]],
+				[ new Mesh( new BoxGeometry( SCALE_FRAME_SIZE, SCALE_FRAME_THICK, SCALE_FRAME_THICK ), matScaleFrame ), [ 0, - SCALE_FRAME_HALF, 0 ]],
+				[ new Mesh( new BoxGeometry( SCALE_FRAME_THICK, SCALE_FRAME_SIZE, SCALE_FRAME_THICK ), matScaleFrame ), [ - SCALE_FRAME_HALF, 0, 0 ]],
+				[ new Mesh( new BoxGeometry( SCALE_FRAME_THICK, SCALE_FRAME_SIZE, SCALE_FRAME_THICK ), matScaleFrame ), [ SCALE_FRAME_HALF, 0, 0 ]]
 			],
-			Y: [
-				[ new Mesh( scaleHandleGeometry, matGreen ) ],
-				[ new Mesh( scaleShaftGeometry, matGreen ) ],
+			// 半透明底板：独立命名，避免激活时被刷成不透明白块
+			PANEL: [
+				[ new Mesh( new PlaneGeometry( SCALE_FRAME_SIZE * 0.96, SCALE_FRAME_SIZE * 0.96 ), matScaleFill ), [ 0, 0, - 0.01 ]]
 			],
-			Z: [
-				[ new Mesh( scaleHandleGeometry, matBlue ), null, [ Math.PI / 2, 0, 0 ]],
-				[ new Mesh( scaleShaftGeometry, matBlue ), null, [ Math.PI / 2, 0, 0 ]],
-			],
+			// 右下角缩放按钮
 			XYZ: [
-				[ new Mesh( centerHandleGeometry, matWhiteTransparent ), [ 0, 0, 0 ]]
+				[ new Mesh( new PlaneGeometry( 0.105, 0.105 ), matScaleCorner ), [ SCALE_CORNER, - SCALE_CORNER, 0.03 ]]
 			],
 		};
 
 		const pickerScale = {
-			X: [
-				[ new Mesh( new CylinderGeometry( 0.2, 0, 0.6, 4 ), matInvisible ), [ 0.3, 0, 0 ], [ 0, 0, - Math.PI / 2 ]],
-				[ new Mesh( new CylinderGeometry( 0.2, 0, 0.6, 4 ), matInvisible ), [ - 0.3, 0, 0 ], [ 0, 0, Math.PI / 2 ]]
-			],
-			Y: [
-				[ new Mesh( new CylinderGeometry( 0.2, 0, 0.6, 4 ), matInvisible ), [ 0, 0.3, 0 ]],
-				[ new Mesh( new CylinderGeometry( 0.2, 0, 0.6, 4 ), matInvisible ), [ 0, - 0.3, 0 ], [ 0, 0, Math.PI ]]
-			],
-			Z: [
-				[ new Mesh( new CylinderGeometry( 0.2, 0, 0.6, 4 ), matInvisible ), [ 0, 0, 0.3 ], [ Math.PI / 2, 0, 0 ]],
-				[ new Mesh( new CylinderGeometry( 0.2, 0, 0.6, 4 ), matInvisible ), [ 0, 0, - 0.3 ], [ - Math.PI / 2, 0, 0 ]]
-			],
-			XY: [
-				[ new Mesh( new BoxGeometry( 0.2, 0.2, 0.01 ), matInvisible ), [ 0.15, 0.15, 0 ]],
-			],
-			YZ: [
-				[ new Mesh( new BoxGeometry( 0.2, 0.2, 0.01 ), matInvisible ), [ 0, 0.15, 0.15 ], [ 0, Math.PI / 2, 0 ]],
-			],
-			XZ: [
-				[ new Mesh( new BoxGeometry( 0.2, 0.2, 0.01 ), matInvisible ), [ 0.15, 0, 0.15 ], [ - Math.PI / 2, 0, 0 ]],
-			],
 			XYZ: [
-				[ new Mesh( new BoxGeometry( 0.2, 0.2, 0.2 ), matInvisible ), [ 0, 0, 0 ]],
+				[ new Mesh( new SphereGeometry( 0.12, 10, 8 ), matInvisible ), [ SCALE_CORNER, - SCALE_CORNER, 0 ]]
 			]
 		};
 
-		const helperScale = {
-			X: [
-				[ new Line( lineGeometry, matHelper ), [ - 1e3, 0, 0 ], null, [ 1e6, 1, 1 ], 'helper' ]
-			],
-			Y: [
-				[ new Line( lineGeometry, matHelper ), [ 0, - 1e3, 0 ], [ 0, 0, Math.PI / 2 ], [ 1e6, 1, 1 ], 'helper' ]
-			],
-			Z: [
-				[ new Line( lineGeometry, matHelper ), [ 0, 0, - 1e3 ], [ 0, - Math.PI / 2, 0 ], [ 1e6, 1, 1 ], 'helper' ]
-			]
-		};
+		const helperScale = {};
 
 		// Creates an Object3D with gizmos described in custom hierarchy definition.
 
@@ -1602,7 +1747,9 @@ class TransformControlsGizmo extends Object3D {
 
 			}
 
-			handle.scale.set( 1, 1, 1 ).multiplyScalar( factor * this.size / 4 );
+			// 缩放框保持屏幕近似恒定大小，略放大便于操作
+			const sizeMul = this.mode === 'scale' ? 1.3 : 1;
+			handle.scale.set( 1, 1, 1 ).multiplyScalar( factor * this.size / 4 * sizeMul );
 
 			// TODO: simplify helpers and consider decoupling from gizmo
 
@@ -1718,14 +1865,60 @@ class TransformControlsGizmo extends Object3D {
 
 			// Align handles to current local or world rotation
 
-			handle.quaternion.copy( quaternion );
+			if ( this.mode === 'scale' && ( handle.name === 'FRAME' || handle.name === 'PANEL' || handle.name === 'XYZ' ) ) {
 
-			if ( this.mode === 'translate' || this.mode === 'scale' ) {
+				// 与相机对齐：屏幕右下 = 局部 (+X, -Y)
+				handle.quaternion.copy( this.cameraQuaternion );
 
-				// Hide translate and scale axis facing the camera
+			} else {
 
-				const AXIS_HIDE_THRESHOLD = 0.99;
-				const PLANE_HIDE_THRESHOLD = 0.2;
+				handle.quaternion.copy( quaternion );
+
+			}
+
+			// 夹角弧段跟随物体轴向，不做镜头对齐（避免离开 X/Y/Z 夹角）
+			const isLegacyRotateArc =
+				handle.name === 'E' || handle.name === 'XYZE' ||
+				( this.mode === 'rotate' && ( handle.name === 'X' || handle.name === 'Y' || handle.name === 'Z' ) );
+
+			if ( this.mode === 'translate' ) {
+
+				// 视线在物体局部空间中的方向 → 决定显示哪一侧象限的轴/旋转弧
+				_tempVector.copy( this.eye ).applyQuaternion( _tempQuaternion.copy( quaternion ).invert() );
+				const flipX = _tempVector.x < 0;
+				const flipY = _tempVector.y < 0;
+				const flipZ = _tempVector.z < 0;
+
+				// 轴向操作杆：翻转到朝向镜头的一侧
+				if ( handle.name === 'X' && flipX ) handle.scale.x *= - 1;
+				if ( handle.name === 'Y' && flipY ) handle.scale.y *= - 1;
+				if ( handle.name === 'Z' && flipZ ) handle.scale.z *= - 1;
+
+				// 旋转弧：翻转到镜头所对的轴夹角象限
+				// RX 在 YZ：随 Y/Z 符号翻；RY 在 XZ；RZ 在 XY
+				if ( handle.name === 'RX' ) {
+
+					if ( flipY ) handle.scale.y *= - 1;
+					if ( flipZ ) handle.scale.z *= - 1;
+
+				}
+
+				if ( handle.name === 'RY' ) {
+
+					if ( flipX ) handle.scale.x *= - 1;
+					if ( flipZ ) handle.scale.z *= - 1;
+
+				}
+
+				if ( handle.name === 'RZ' ) {
+
+					if ( flipX ) handle.scale.x *= - 1;
+					if ( flipY ) handle.scale.y *= - 1;
+
+				}
+
+				// 几乎正对镜头的轴隐藏（翻转到镜头侧后仍贴视线则无意义）
+				const AXIS_HIDE_THRESHOLD = 0.98;
 
 				if ( handle.name === 'X' ) {
 
@@ -1760,20 +1953,12 @@ class TransformControlsGizmo extends Object3D {
 
 				}
 
-				if ( handle.name === 'XY' ) {
+				// 旋转弧所在平面几乎侧对镜头时隐藏
+				const ARC_HIDE_THRESHOLD = 0.95;
 
-					if ( Math.abs( _alignVector.copy( _unitZ ).applyQuaternion( quaternion ).dot( this.eye ) ) < PLANE_HIDE_THRESHOLD ) {
+				if ( handle.name === 'RX' ) {
 
-						handle.scale.set( 1e-10, 1e-10, 1e-10 );
-						handle.visible = false;
-
-					}
-
-				}
-
-				if ( handle.name === 'YZ' ) {
-
-					if ( Math.abs( _alignVector.copy( _unitX ).applyQuaternion( quaternion ).dot( this.eye ) ) < PLANE_HIDE_THRESHOLD ) {
+					if ( Math.abs( _alignVector.copy( _unitX ).applyQuaternion( quaternion ).dot( this.eye ) ) > ARC_HIDE_THRESHOLD ) {
 
 						handle.scale.set( 1e-10, 1e-10, 1e-10 );
 						handle.visible = false;
@@ -1782,9 +1967,9 @@ class TransformControlsGizmo extends Object3D {
 
 				}
 
-				if ( handle.name === 'XZ' ) {
+				if ( handle.name === 'RY' ) {
 
-					if ( Math.abs( _alignVector.copy( _unitY ).applyQuaternion( quaternion ).dot( this.eye ) ) < PLANE_HIDE_THRESHOLD ) {
+					if ( Math.abs( _alignVector.copy( _unitY ).applyQuaternion( quaternion ).dot( this.eye ) ) > ARC_HIDE_THRESHOLD ) {
 
 						handle.scale.set( 1e-10, 1e-10, 1e-10 );
 						handle.visible = false;
@@ -1793,9 +1978,18 @@ class TransformControlsGizmo extends Object3D {
 
 				}
 
-			} else if ( this.mode === 'rotate' ) {
+				if ( handle.name === 'RZ' ) {
 
-				// Align handles to current local or world rotation
+					if ( Math.abs( _alignVector.copy( _unitZ ).applyQuaternion( quaternion ).dot( this.eye ) ) > ARC_HIDE_THRESHOLD ) {
+
+						handle.scale.set( 1e-10, 1e-10, 1e-10 );
+						handle.visible = false;
+
+					}
+
+				}
+
+			} else if ( isLegacyRotateArc ) {
 
 				_tempQuaternion2.copy( quaternion );
 				_alignVector.copy( this.eye ).applyQuaternion( _tempQuaternion.copy( quaternion ).invert() );
@@ -1847,18 +2041,35 @@ class TransformControlsGizmo extends Object3D {
 
 			if ( this.enabled && this.axis ) {
 
+				const isScaleHandle =
+					this.mode === 'scale' &&
+					this.axis === 'XYZ' &&
+					( handle.name === 'FRAME' || handle.name === 'XYZ' );
+
+				// RX 激活时不要连带高亮平移箭头 X
 				const isActive =
 					handle.name === this.axis ||
-					this.axis.split( '' ).some( function ( a ) {
+					isScaleHandle ||
+					( this.axis.charAt( 0 ) !== 'R' && this.axis.split( '' ).some( function ( a ) {
 
 						return handle.name === a;
 
-					} );
+					} ) );
 
 				if ( isActive ) {
 
-					handle.material.color.copy( this.materialLib.active.color );
-					handle.material.opacity = 1.0;
+					// 缩放手柄激活：提亮为更浅的 violet，而非刺眼纯白
+					if ( this.mode === 'scale' ) {
+
+						handle.material.color.setHex( 0xc4b5fd );
+						handle.material.opacity = Math.min( 1, ( handle.material._opacity || handle.material.opacity ) + 0.25 );
+
+					} else {
+
+						handle.material.color.copy( this.materialLib.active.color );
+						handle.material.opacity = 1.0;
+
+					}
 
 				}
 
@@ -1933,8 +2144,12 @@ class TransformControlsPlane extends Mesh {
 						_alignVector.copy( _v3 );
 						_dirVector.copy( _v2 );
 						break;
+					case 'RX':
+					case 'RY':
+					case 'RZ':
 					case 'XYZ':
 					case 'E':
+					case 'XYZE':
 						_dirVector.set( 0, 0, 0 );
 						break;
 

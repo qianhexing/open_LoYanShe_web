@@ -259,7 +259,7 @@ const loadClothesForWardrobe = async (wid: number) => {
         const rows = await getClothesListAllFallback({
             wardrobe_id: wid,
             password: password.value || undefined,
-            attributes: ['clothes_id', 'wardrobe_id', 'clothes_note', 'clothes_img']
+            attributes: ['clothes_img', 'clothes_note', 'clothes_part']
         })
         clothesRows.value = rows.filter((c) => c.is_enable !== 1)
     } catch (err) {

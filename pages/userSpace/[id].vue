@@ -214,6 +214,16 @@
                     <UIcon name="i-heroicons-home-modern" class="w-5 h-5 text-pink-500 dark:text-pink-300 flex-shrink-0" />
                     <span class="text-sm font-medium text-pink-600 dark:text-pink-300 whitespace-nowrap">参观小窝</span>
                   </button>
+                  <button
+                    v-if="isCurrentUser && spaceUserId"
+                    type="button"
+                    data-hero-action="wardrobe-qr"
+                    class="hero-action-bar__item hero-action-bar__action flex-shrink-0 inline-flex items-center gap-2 rounded-2xl py-2 px-4 border border-pink-200/70 dark:border-pink-700/50 bg-gradient-to-br from-pink-50/90 to-purple-50/90 dark:from-pink-900/35 dark:to-purple-900/35 hover:from-pink-100 dark:hover:from-pink-900/50 hover:to-purple-100 dark:hover:to-purple-900/50 transition-colors active:scale-[0.98]"
+                    @click="showWardrobeAddressQrcode"
+                  >
+                    <UIcon name="material-symbols:qr-code-2" class="w-5 h-5 text-pink-500 dark:text-pink-300 flex-shrink-0" />
+                    <span class="text-sm font-medium text-pink-600 dark:text-pink-300 whitespace-nowrap">衣柜二维码</span>
+                  </button>
                 </div>
               </div>
             </div>
@@ -689,11 +699,14 @@
     </QhxModal>
 
     <SceneChoose ref="sceneChooseRef" @choose="onNestSceneChosen" />
+
+    <!-- 衣柜地址二维码（pk_type=1 无限制网页 → /wardrobe/detail/{userId}） -->
+    <QrcodeList ref="qrcodeListRef" />
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted, onUnmounted, computed, watch, inject, nextTick, type Ref } from 'vue'
+import { ref, reactive, onMounted, onUnmounted, computed, watch, inject, nextTick, defineAsyncComponent, type Ref } from 'vue'
 import {
   getUserSpace,
   getUserDecoBadges,
@@ -712,6 +725,7 @@ import { getWardrobeList, checkWadrobePassword } from '@/api/wardrobe'
 import { parseRichText } from '@/utils/public'
 import SafeRichText from '@/components/SafeRichText.vue'
 import QhxModal from '@/components/Qhx/Modal.vue'
+import type QrcodeListType from '@/components/qrcode/QrcodeList.vue'
 import { BASE_IMG } from '@/utils/ipConfig'
 import { useUserStore } from '@/stores/user'
 import type { User, Community, UserDeco, Wardrobe, Album, Scene } from '@/types/api'
@@ -723,6 +737,8 @@ import {
   openLibraryWebPath,
   openWardrobeDetail,
 } from '@/composables/useLibraryDetailNavigation'
+
+const QrcodeList = defineAsyncComponent(() => import('@/components/qrcode/QrcodeList.vue'))
 
 /** 收藏/关注用户：与后端 collect 表 pk_type 约定为 0 */
 const PK_TYPE_USER_COLLECT = 0
@@ -1066,6 +1082,7 @@ const confirmWardrobePassword = async () => {
 const loadUserInfo = async () => {
   try {
     loading.value = true
+    heroIntroPlayed = false
 
     const userId = route.params.id ? Number.parseInt(route.params.id as string) : null
 
@@ -1078,6 +1095,15 @@ const loadUserInfo = async () => {
       })
       loading.value = false
       return
+    }
+
+    // 入场动画前尽量就绪登录态，避免「衣柜二维码」等 v-if 按钮晚挂载错过 stagger
+    if (userStore.token && !userStore.user) {
+      try {
+        await userStore.fetchUserInfo()
+      } catch {
+        // 未登录或拉取失败时仍继续展示空间
+      }
     }
 
     const data = await getUserSpace({ user_id: userId })
@@ -1094,6 +1120,7 @@ const loadUserInfo = async () => {
   } finally {
     loading.value = false
     if (userInfo.value) {
+      await nextTick()
       await nextTick()
       playHeroIntro()
     }
@@ -1141,6 +1168,40 @@ const fetchWardrobeCount = async () => {
     console.error('获取衣柜数量失败:', e)
     wardrobeCount.value = 0
   }
+}
+
+/** 衣柜地址二维码：pk_type=1 无限制网页；code_content 为衣柜详情链接；分享图取前三个衣柜封面+名称 */
+const WARDROBE_ADDRESS_QR_PK_TYPE = 1 as const
+const WARDROBE_ADDRESS_SITE_ORIGIN = 'https://lolitalibrary.com'
+const qrcodeListRef = ref<InstanceType<typeof QrcodeListType> | null>(null)
+
+const showWardrobeAddressQrcode = async () => {
+  const uid = spaceUserId.value
+  if (!uid || !isCurrentUser.value) return
+
+  let wardrobes: Wardrobe[] = []
+  try {
+    const res = await getWardrobeList({ user_id: uid, page: 1, pageSize: 3 })
+    wardrobes = res.rows ?? []
+  } catch {
+    // 分享图衣柜信息可选，失败时仍可打开二维码列表
+  }
+
+  // 与衣柜页一致：主信息用首个衣柜；预览格放入前三个衣柜封面 + 名称
+  const previewItems = wardrobes.slice(0, 3).map((w) => ({
+    image: w.wardrobe_cover?.trim() || 'static/plan_cover/default.jpg',
+    label: w.wardrobe_name?.trim() || '衣柜',
+  }))
+
+  qrcodeListRef.value?.open({
+    pk_id: uid,
+    pk_type: WARDROBE_ADDRESS_QR_PK_TYPE,
+    code_content: `${WARDROBE_ADDRESS_SITE_ORIGIN}/wardrobe/detail/${uid}`,
+    wardrobe: wardrobes[0] ?? null,
+    userName: userInfo.value?.user_name,
+    userFace: userInfo.value?.user_face ?? null,
+    previewItems,
+  })
 }
 
 const achievementStats = ref<AlbumAchievementStats | null>(null)
@@ -1575,10 +1636,36 @@ watch(
   { deep: true },
 )
 
+/** 标记并播放功能栏按钮入场（与 Hero stagger 参数一致；晚挂载按钮可补播） */
+const animateHeroActionItems = (els: Element[]) => {
+  const items = els.filter((el) => !el.hasAttribute('data-hero-action-animated')) as HTMLElement[]
+  if (!items.length) return
+  for (const el of items) el.setAttribute('data-hero-action-animated', '1')
+  if (!$gsap) return
+  if (prefersReducedMotion()) {
+    $gsap.set(items, { autoAlpha: 1, y: 0 })
+    return
+  }
+  $gsap.from(items, {
+    y: 10,
+    autoAlpha: 0,
+    stagger: 0.04,
+    duration: 0.35,
+    ease: 'power3.out',
+  })
+}
+
+const collectHeroActionItems = () => {
+  if (!heroRef.value) return [] as HTMLElement[]
+  return Array.from(heroRef.value.querySelectorAll('.hero-action-bar__item')) as HTMLElement[]
+}
+
 // Hero 入场动画（仅首屏播放一次）
 const playHeroIntro = () => {
   if (heroIntroPlayed) {
     setupParallax()
+    // 首屏已播过时，补播晚出现的功能栏按钮（如衣柜二维码）
+    animateHeroActionItems(collectHeroActionItems())
     return
   }
   if (!$gsap || !heroRef.value) {
@@ -1588,9 +1675,13 @@ const playHeroIntro = () => {
   heroIntroPlayed = true
 
   if (prefersReducedMotion()) {
+    animateHeroActionItems(collectHeroActionItems())
     setupParallax()
     return
   }
+
+  const actionItems = collectHeroActionItems()
+  for (const el of actionItems) el.setAttribute('data-hero-action-animated', '1')
 
   const scope = pageRoot.value || undefined
   $gsap.context(() => {
@@ -1601,13 +1692,23 @@ const playHeroIntro = () => {
       .from('.hero-headline > *', { y: 14, autoAlpha: 0, stagger: 0.05, duration: 0.42 }, '-=0.38')
       .from('.hero-tag', { y: 10, autoAlpha: 0, stagger: 0.04, duration: 0.35 }, '-=0.32')
       .from('.stat-item', { y: 12, autoAlpha: 0, stagger: 0.05, duration: 0.38 }, '-=0.36')
-      .from('.hero-action-bar__item', { y: 10, autoAlpha: 0, stagger: 0.04, duration: 0.35 }, '-=0.38')
+      .from(actionItems, { y: 10, autoAlpha: 0, stagger: 0.04, duration: 0.35 }, '-=0.38')
       .from('.space-tabs', { y: 12, autoAlpha: 0, duration: 0.4 }, '-=0.38')
       .from('.space-tab-panel', { y: 10, autoAlpha: 0, duration: 0.38 }, '-=0.4')
   }, scope)
 
   setupParallax()
 }
+
+// 登录态 / 小窝等条件晚就绪时，补播功能栏入场动画
+watch(
+  [isCurrentUser, spaceSenceId],
+  async () => {
+    if (!heroIntroPlayed || !heroRef.value) return
+    await nextTick()
+    animateHeroActionItems(collectHeroActionItems())
+  },
+)
 
 // 背景视差（仅桌面端且未开启减弱动效时）
 const setupParallax = () => {

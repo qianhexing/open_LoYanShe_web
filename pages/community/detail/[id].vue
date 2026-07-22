@@ -21,7 +21,11 @@ import { useCommunityDetailTheme } from '@/composables/useCommunityDetailTheme'
 import { useCopyCurrentUrl } from '@/composables/useCopyCurrentUrl'
 import { useLayoutStyle } from '@/composables/useLayoutStyle'
 import { useCommentUiStore } from '@/stores/commentUi'
-import { BASE_IMG } from '@/utils/ipConfig'
+import {
+  parseCommunityImgList,
+  toAbsoluteMediaUrl,
+} from '@/utils/communityLiveMedia'
+import CommunityLiveThumb from '@/components/community/CommunityLiveThumb.vue'
 
 const CommentSection = defineAsyncComponent(
   () => import('@/components/comment/CommentSection.vue'),
@@ -362,14 +366,14 @@ watch(
 )
 
 const communityCarouselItems = computed(() => {
-  const raw = detail.value?.img_list
-  if (!raw?.trim()) return []
   const alt = detail.value?.title || 'Lo研社'
-  return raw
-    .split(',')
-    .map((s) => s.trim())
-    .filter(Boolean)
-    .map((path) => ({ src: BASE_IMG + path, alt }))
+  return parseCommunityImgList(detail.value?.img_list).map((m) => ({
+    /** Lightbox / 封面：Live 为同名 jpg */
+    src: toAbsoluteMediaUrl(m.displayPath),
+    alt,
+    /** Live mp4；普通图无此字段 */
+    videoSrc: m.videoPath ? toAbsoluteMediaUrl(m.videoPath) : undefined,
+  }))
 })
 
 /** 轮播当前索引，与 QhxCarousel v-model 同步 */
@@ -769,24 +773,28 @@ useHead({
               root-class="!shadow-none rounded-[18px] h-full max-h-full [&_.qhx-carousel-track]:h-full [&_.qhx-carousel-slide]:h-full"
             >
               <template #item="{ item, index }">
-                <img
-                  :src="item.src"
-                  :alt="item.alt"
-                  class="h-full w-full max-h-full cursor-pointer object-contain left-cover"
-                  :loading="index === 0 ? 'eager' : 'lazy'"
-                  decoding="async"
-                  draggable="false"
+                <div
+                  class="h-full w-full"
                   role="button"
                   tabindex="0"
                   aria-label="查看大图"
-                  @click="openCommunityCarouselLightbox"
-                  @keydown.enter.prevent="openCommunityCarouselLightbox"
-                  @keydown.space.prevent="openCommunityCarouselLightbox"
                   @mousedown="onCommunityCarouselPressStart"
                   @mousemove="onCommunityCarouselPressMove"
                   @touchstart.passive="onCommunityCarouselPressStart"
                   @touchmove.passive="onCommunityCarouselPressMove"
-                />
+                  @keydown.enter.prevent="openCommunityCarouselLightbox"
+                  @keydown.space.prevent="openCommunityCarouselLightbox"
+                >
+                  <CommunityLiveThumb
+                    :poster-src="item.src"
+                    :video-src="item.videoSrc"
+                    :active="index === communityCarouselIndex"
+                    :alt="item.alt"
+                    :show-badge="Boolean(item.videoSrc)"
+                    media-class="h-full w-full max-h-full cursor-pointer object-contain left-cover"
+                    @click="openCommunityCarouselLightbox"
+                  />
+                </div>
               </template>
             </QhxCarousel>
             <div

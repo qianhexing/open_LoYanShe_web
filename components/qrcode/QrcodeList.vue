@@ -15,6 +15,7 @@ import {
   buildWardrobeQrcodeSharePayload,
   drawWardrobeQrcodeShareCanvas,
   prepareWardrobeQrcodeShareImages,
+  type WardrobeQrcodeSharePreviewItem,
 } from '@/utils/wardrobeQrcodeShareCanvas'
 import dayjs from 'dayjs'
 
@@ -31,10 +32,12 @@ const total = ref(0)
 const list = ref<QrCode[]>([])
 const pkType = ref<number | null>(null)
 const pkId = ref<number | null>(null)
+const codeContent = ref<string | null>(null)
 const shareWardrobe = ref<Wardrobe | null>(null)
 const shareUserName = ref('')
 const shareUserFace = ref<string | null>(null)
 const sharePreviewClothes = ref<WardrobeClothes[]>([])
+const sharePreviewItems = ref<WardrobeQrcodeSharePreviewItem[]>([])
 
 const generatingShareId = ref<number | null>(null)
 const showSharePreviewModal = ref(false)
@@ -103,17 +106,29 @@ const fetchList = async () => {
 const open = (params: {
   pk_type: number
   pk_id: number
+  /** 写入二维码的跳转链接（如无限制网页地址） */
+  code_content?: string
   wardrobe?: Wardrobe | null
   userName?: string
   userFace?: string | null
   previewClothes?: WardrobeClothes[]
+  /** 分享图预览格（优先于服饰）：封面 + 名称，如用户空间前三个衣柜 */
+  previewItems?: WardrobeQrcodeSharePreviewItem[]
 }) => {
   pkType.value = params.pk_type
   pkId.value = params.pk_id
+  codeContent.value = params.code_content?.trim() || null
   shareWardrobe.value = params.wardrobe ?? null
   shareUserName.value = params.userName?.trim() || 'Lo娘'
   shareUserFace.value = params.userFace ?? null
   sharePreviewClothes.value = params.previewClothes ?? []
+  sharePreviewItems.value = (params.previewItems ?? [])
+    .map((item) => ({
+      image: item.image?.trim() || '',
+      label: item.label?.trim() || '',
+    }))
+    .filter((item) => !!item.image)
+    .slice(0, 3)
   showModal.value = true
   page.value = 0
   list.value = []
@@ -127,10 +142,12 @@ const close = () => {
   showModal.value = false
   pkType.value = null
   pkId.value = null
+  codeContent.value = null
   shareWardrobe.value = null
   shareUserName.value = ''
   shareUserFace.value = null
   sharePreviewClothes.value = []
+  sharePreviewItems.value = []
   page.value = 0
   list.value = []
   total.value = 0
@@ -141,7 +158,11 @@ const handleInsert = async () => {
   if (inserting.value || pkType.value == null || pkId.value == null) return
   inserting.value = true
   try {
-    await insertQrCode({ pk_id: pkId.value, pk_type: pkType.value })
+    await insertQrCode({
+      pk_id: pkId.value,
+      pk_type: pkType.value,
+      ...(codeContent.value ? { code_content: codeContent.value } : {}),
+    })
     toast.add({ title: '生成成功', icon: 'i-heroicons-check-circle', color: 'green' })
     reload()
   } catch {
@@ -221,6 +242,7 @@ async function generateSharePoster(item: QrCode) {
     shareUserName.value,
     shareUserFace.value,
     sharePreviewClothes.value,
+    sharePreviewItems.value,
   )
   if (!payload) {
     toast.add({ title: '缺少二维码图片', color: 'amber', icon: 'i-heroicons-exclamation-triangle' })
@@ -236,7 +258,7 @@ async function generateSharePoster(item: QrCode) {
     const bundle = await prepareWardrobeQrcodeShareImages(payload)
     const canvas = drawWardrobeQrcodeShareCanvas(payload, bundle)
     const blob = await new Promise<Blob | null>((resolve) =>
-      canvas.toBlob((b) => resolve(b), 'image/jpeg', 0.92),
+      canvas.toBlob((b) => resolve(b), 'image/jpeg', 0.95),
     )
     if (!blob) {
       shareErrorMsg.value = '生成图片失败'
@@ -296,7 +318,11 @@ defineExpose({ open })
               二维码列表
             </h3>
             <p class="mt-0.5 text-[11px] leading-snug text-[#8a6f7d] dark:text-pink-300/80 sm:text-xs">
-              生成后可扫码访问本衣柜
+              {{
+                pkType === 1
+                  ? '无限制网页 · 扫码打开衣柜地址页'
+                  : '生成后可扫码访问本衣柜'
+              }}
             </p>
           </div>
         </div>
@@ -341,7 +367,11 @@ defineExpose({ open })
           </div>
           <p class="text-sm font-medium text-[#5e3a4b] dark:text-pink-100">暂无二维码</p>
           <p class="max-w-[240px] text-xs leading-relaxed text-[#8a6f7d] dark:text-pink-300/75">
-            点击上方按钮生成，扫码即可访问本衣柜
+            {{
+              pkType === 1
+                ? '点击上方按钮生成，扫码打开衣柜地址页'
+                : '点击上方按钮生成，扫码即可访问本衣柜'
+            }}
           </p>
         </div>
 
@@ -462,7 +492,7 @@ defineExpose({ open })
       <div class="flex min-h-0 flex-1 flex-col overflow-hidden">
         <div class="share-preview-modal__body min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 pb-3 pt-1">
           <p class="mb-2 text-center text-[11px] text-[#8a6f7d] dark:text-pink-300/85">
-            固定比例 3:4 · 含衣柜信息与二维码
+            4K · 固定比例 3:4 · 含衣柜信息与二维码
           </p>
           <div class="overflow-hidden rounded-xl">
             <img

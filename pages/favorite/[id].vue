@@ -5,6 +5,7 @@ import relativeTime from 'dayjs/plugin/relativeTime'
 import 'dayjs/locale/zh-cn'
 import { BASE_IMG } from '@/utils/ipConfig'
 import { formatRich } from '@/utils/public'
+import { firstCommunityDisplayPath, toAbsoluteMediaUrl } from '@/utils/communityLiveMedia'
 import {
   deleteFavoriteFolder,
   getCollectListVisitor,
@@ -71,29 +72,14 @@ const formatCollectedAgo = (d?: string) => {
 const libraryCover = (lib: CollectLibraryInfo) =>
   `${BASE_IMG}${lib.square_cover || lib.cover || ''}`
 
-/** 帖子首图 URL：优先 small/img 列表，再从正文 HTML 中取第一张 */
+/** 帖子首图 URL：优先 small/img 列表（Live → jpg），再从正文 HTML 中取第一张 */
 function communityFirstImage(info: CollectCommunityInfo): string | null {
-  const firstFromList = (raw: string | null | undefined): string | undefined => {
-    if (raw == null || !String(raw).trim()) return undefined
-    const first = String(raw)
-      .split(',')
-      .map((s) => s.trim())
-      .find(Boolean)
-    return first
-  }
-  const rel =
-    firstFromList(info.small_img_list) ?? firstFromList(info.img_list)
-  if (rel) {
-    if (/^https?:\/\//i.test(rel)) return rel
-    return `${BASE_IMG}${rel.replace(/^\//, '')}`
-  }
+  const rel = firstCommunityDisplayPath(info.small_img_list, info.img_list)
+  if (rel) return toAbsoluteMediaUrl(rel)
   if (info.content) {
     const { image } = formatRich(info.content)
     const src = image[0]
-    if (src) {
-      if (/^https?:\/\//i.test(src)) return src
-      return `${BASE_IMG}${src.replace(/^\//, '')}`
-    }
+    if (src) return toAbsoluteMediaUrl(src)
   }
   return null
 }

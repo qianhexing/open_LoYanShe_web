@@ -4,18 +4,32 @@ import {
   isHtml5PlusWebView,
   useSaveNetworkImageToAlbum,
 } from '@/composables/useSaveNetworkImageToAlbum'
+import {
+  isCommunityLivePath,
+  normalizeCommunityMediaPath,
+  normalizeRawImgPath,
+  toAbsoluteMediaUrl,
+  toCommunityLivePosterPath,
+} from '@/utils/communityLiveMedia'
+import { BASE_IMG } from '@/utils/ipConfig'
 
 interface Image {
-  src: string, alt?: string, title?: string
+  src: string
+  alt?: string
+  title?: string
+  /** Live 视频相对或绝对路径；有则缩略图显示 LIVE 角标，Lightbox 可播 */
+  videoSrc?: string
 }
 
 interface LightboxImage {
   src: string
   title?: string
   alt?: string
+  videoSrc?: string
 }
+
 interface Props {
-  className?: string,
+  className?: string
   list: Array<Image>
   preview?: Array<string> | Image[]
   /** 2D 人台图标点，大图预览时叠加显示 */
@@ -84,12 +98,34 @@ const menuStyle = computed(() => {
   return { left: `${x}px`, top: `${y}px` }
 })
 
+function resolveThumbSrc(image: Image): string {
+  const raw = normalizeRawImgPath(image.src)
+  if (image.videoSrc || isCommunityLivePath(raw)) {
+    return toCommunityLivePosterPath(raw)
+  }
+  return raw
+}
+
+function isLiveThumb(image: Image): boolean {
+  if (image.videoSrc?.trim()) return true
+  return isCommunityLivePath(image.src)
+}
+
 function toLightboxSrc(item: string | Image): LightboxImage {
   if (typeof item === 'string') {
-    return { src: `${BASE_IMG}${item}` }
+    const media = normalizeCommunityMediaPath(item)
+    return {
+      src: toAbsoluteMediaUrl(media.displayPath),
+      videoSrc: media.videoPath ? toAbsoluteMediaUrl(media.videoPath) : undefined,
+    }
   }
+  const media = normalizeCommunityMediaPath(item.src)
+  const videoRel = item.videoSrc
+    ? normalizeRawImgPath(item.videoSrc)
+    : media.videoPath
   return {
-    src: `${BASE_IMG}${item.src}`,
+    src: toAbsoluteMediaUrl(media.kind === 'live' ? media.displayPath : normalizeRawImgPath(item.src)),
+    videoSrc: videoRel ? toAbsoluteMediaUrl(videoRel.replace(/\?.*$/, '')) : undefined,
     title: item.title,
     alt: item.alt,
   }
@@ -240,27 +276,38 @@ watch(menuVisible, (open) => {
 })
 </script>
 <template>
-  <img
+  <div
     v-for="(image, i) in list"
     :key="`${image.src}-${i}`"
-    :src="`${BASE_IMG}${image.src}`"
-    :alt="image.alt || 'Lo研社 嘎嘎'"
+    class="preview-image-cell relative inline-block align-top"
     :class="props.className ? `${props.className}` : ''"
-    class="preview-image-thumb"
-    loading="lazy"
-    draggable="false"
-    @click="handleClick(i)"
-    @load="load"
-    @mousedown="onImgPressStart($event, i)"
-    @mousemove="onImgPressMove"
-    @mouseup="onImgPressEnd"
-    @mouseleave="onImgPressEnd"
-    @touchstart.passive="onImgPressStart($event, i)"
-    @touchmove.passive="onImgPressMove"
-    @touchend="onImgPressEnd"
-    @touchcancel="onImgPressEnd"
-    @contextmenu="onImgContextMenu($event, i)"
-  />
+  >
+    <img
+      :src="`${BASE_IMG}${resolveThumbSrc(image)}`"
+      :alt="image.alt || 'Lo研社 嘎嘎'"
+      class="preview-image-thumb h-full w-full object-cover"
+      loading="lazy"
+      draggable="false"
+      @click="handleClick(i)"
+      @load="load"
+      @mousedown="onImgPressStart($event, i)"
+      @mousemove="onImgPressMove"
+      @mouseup="onImgPressEnd"
+      @mouseleave="onImgPressEnd"
+      @touchstart.passive="onImgPressStart($event, i)"
+      @touchmove.passive="onImgPressMove"
+      @touchend="onImgPressEnd"
+      @touchcancel="onImgPressEnd"
+      @contextmenu="onImgContextMenu($event, i)"
+    />
+    <span
+      v-if="isLiveThumb(image)"
+      class="preview-image-live-badge pointer-events-none absolute left-1 top-1 z-[2] rounded px-1 py-0.5 text-[9px] font-bold uppercase tracking-wide text-white"
+      aria-hidden="true"
+    >
+      LIVE
+    </span>
+  </div>
   <slot />
 
   <ClientOnly>
@@ -311,6 +358,12 @@ watch(menuVisible, (open) => {
   -webkit-touch-callout: none;
   -webkit-user-select: none;
   user-select: none;
+}
+
+.preview-image-live-badge {
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(4px);
+  letter-spacing: 0.04em;
 }
 
 .preview-image-menu-backdrop {

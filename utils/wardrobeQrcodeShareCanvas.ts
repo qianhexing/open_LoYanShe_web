@@ -7,10 +7,18 @@ import {
 } from '@/utils/communityCustomStyle'
 import dayjs from 'dayjs'
 
+/** 分享图预览格：封面 + 名称（如用户空间前三个衣柜） */
+export interface WardrobeQrcodeSharePreviewItem {
+  image: string
+  label?: string
+}
+
 export interface WardrobeQrcodeSharePayload {
   wardrobeName: string
   wardrobeDesc?: string
   wardrobeCover?: string | null
+  /** 主题背景图（衣柜 custom_style.background / wardrobe.background），非封面 */
+  themeBackground?: string | null
   totalCount?: number
   totalTimes?: number
   totalPrice?: number | string
@@ -20,6 +28,8 @@ export interface WardrobeQrcodeSharePayload {
   qrCodeUrl: string
   expiresLabel: string
   clothesImages: string[]
+  /** 与 clothesImages 一一对应的名称（衣柜封面场景） */
+  previewLabels: string[]
   theme: WardrobeQrcodeShareTheme
 }
 
@@ -44,6 +54,8 @@ export interface WardrobeQrcodeShareTheme {
   pillText: string
   ribbonText: string
   hasCustomTheme: boolean
+  /** 是否配置了 custom_style.fontColor */
+  hasCustomFontColor: boolean
 }
 
 export interface WardrobeQrcodeShareImageBundle {
@@ -53,12 +65,20 @@ export interface WardrobeQrcodeShareImageBundle {
   clothes: (HTMLImageElement | null)[]
 }
 
-/** 固定 3:4 竖版海报 */
-export const WARDROBE_QRCODE_SHARE_WIDTH = 750
+/** 设计稿宽度 750，输出 4K（3840px），与衣柜长图分享一致 */
+export const WARDROBE_QRCODE_SHARE_DESIGN_WIDTH = 750
+export const WARDROBE_QRCODE_SHARE_4K_WIDTH = 3840
+export const WARDROBE_QRCODE_SHARE_SCALE =
+  WARDROBE_QRCODE_SHARE_4K_WIDTH / WARDROBE_QRCODE_SHARE_DESIGN_WIDTH
+
+/** 导出尺寸（4K 宽，3:4 竖版） */
+export const WARDROBE_QRCODE_SHARE_WIDTH = WARDROBE_QRCODE_SHARE_4K_WIDTH
 export const WARDROBE_QRCODE_SHARE_HEIGHT = Math.round((WARDROBE_QRCODE_SHARE_WIDTH * 4) / 3)
 
+const DESIGN_W = WARDROBE_QRCODE_SHARE_DESIGN_WIDTH
+const DESIGN_H = Math.round((DESIGN_W * 4) / 3)
 const P = 36
-const CONTENT_W = WARDROBE_QRCODE_SHARE_WIDTH - P * 2
+const CONTENT_W = DESIGN_W - P * 2
 const DEFAULT_AVATAR = 'static/plan_cover/default.jpg'
 const DEFAULT_PRIMARY = '#ff9eb5'
 const DEFAULT_TEXT = '#4b5563'
@@ -164,31 +184,39 @@ function drawImageCoverFull(
   ctx.drawImage(img, sx, sy, sw, sh, x, y, w, h)
 }
 
-/** 与 WardrobeClothesLongShare.buildShareTheme 一致 */
+/**
+ * 与衣柜详情长图分享 `buildShareTheme` 一致：
+ * - 默认跟项目主题 CSS 变量
+ * - 衣柜有 custom_style 时优先用衣柜主题色
+ */
 export function buildWardrobeQrcodeShareTheme(wardrobe: Wardrobe | null | undefined): WardrobeQrcodeShareTheme {
   const parsed = parseEntityCustomStyle(wardrobe ?? undefined)
   const hasCustomTheme = hasCommunityCustomStyle(parsed)
 
+  const hasCustomFontColor = !!parsed.fontColor
   const fontColor = parsed.fontColor || getCssVar('--text-color', DEFAULT_TEXT)
   const primary = parsed.btnColor || getCssVar('--primary-color', DEFAULT_PRIMARY)
+  const defaultBg = getCssVar('--background-color', BOOK_PAGE_BG)
+  const cardFromTheme = getCssVar('--card-color', '')
   const fontHex = fontColor.startsWith('#') ? fontColor : DEFAULT_TEXT
   const primaryHex = primary.startsWith('#') ? primary : DEFAULT_PRIMARY
 
-  let bg = hasCustomTheme && parsed.backColor
-    ? hexToRgba(parsed.backColor, parsed.back_opacity ?? 1)
-    : BOOK_PAGE_BG
+  let bg = defaultBg
   let bgOverlay: string | null = null
+  const themeBgImg = !!(wardrobe?.background || parsed.background)
 
+  // 衣柜主题：有自定义背景图时 backColor 作遮罩，否则作底色
   if (parsed.backColor) {
     const rgba = hexToRgba(parsed.backColor, parsed.back_opacity ?? 1)
-    if (wardrobe?.wardrobe_cover || wardrobe?.background || parsed.background) {
+    if (themeBgImg) {
       bgOverlay = rgba
     } else {
       bg = rgba
     }
   }
 
-  const cardSolid = hasCustomTheme ? 'rgba(254, 252, 249, 0.96)' : BOOK_PAGE_BG
+  const cardSolid = cardFromTheme
+    || (hasCustomTheme ? 'rgba(254, 252, 249, 0.96)' : BOOK_PAGE_BG)
   const ribbonText = parsed.btnFontColor || '#ffffff'
 
   return {
@@ -199,34 +227,33 @@ export function buildWardrobeQrcodeShareTheme(wardrobe: Wardrobe | null | undefi
     textMuted: hexToRgba(fontHex, 0.72),
     title: fontColor,
     primary,
-    card: 'rgba(254, 252, 249, 0.94)',
+    card: cardFromTheme ? colorToRgba(cardFromTheme.startsWith('#') ? cardFromTheme : BOOK_PAGE_BG, 0.94) : 'rgba(254, 252, 249, 0.94)',
     cardSolid,
     border: hexToRgba(primaryHex, 0.22),
     photoBorder: 'rgba(209, 213, 219, 0.95)',
     footer: hexToRgba(fontHex, 0.55),
-    photoBg: '#f9fafb',
-    pillFill: parsed.btnFontColor ? cardSolid : '#ffffff',
+    photoBg: getCssVar('--card-color', '#f9fafb') || '#f9fafb',
+    pillFill: parsed.btnFontColor ? cardSolid : (cardFromTheme || '#ffffff'),
     pillStroke: primaryHex,
     pillText: primaryHex,
     ribbonText,
     hasCustomTheme,
+    hasCustomFontColor,
   }
 }
 
+/** 与衣柜长图分享一致：主题色底 / 可选主题背景图+遮罩，不用衣柜封面铺底 */
 function drawPageBackground(
   ctx: CanvasRenderingContext2D,
   w: number,
   h: number,
-  bgCover: HTMLImageElement | null,
+  bgImg: HTMLImageElement | null,
   theme: WardrobeQrcodeShareTheme,
 ) {
-  if (bgCover) {
-    drawImageCoverFull(ctx, bgCover, 0, 0, w, h)
+  if (bgImg) {
+    drawImageCoverFull(ctx, bgImg, 0, 0, w, h)
     if (theme.bgOverlay) {
       ctx.fillStyle = theme.bgOverlay
-      ctx.fillRect(0, 0, w, h)
-    } else {
-      ctx.fillStyle = 'rgba(40, 24, 32, 0.48)'
       ctx.fillRect(0, 0, w, h)
     }
   } else {
@@ -308,7 +335,9 @@ function measureLayout(
   if (clothesCount > 0) {
     const gap = 8
     const cellW = (CONTENT_W - gap * (clothesCount - 1)) / clothesCount
-    clothesH = Math.round(cellW * 1.08) + GAP
+    const hasLabels = payload.previewLabels.some((l) => !!l?.trim())
+    const labelH = hasLabels ? 28 : 0
+    clothesH = Math.round(cellW * 1.08) + labelH + GAP
   }
 
   let wardrobeInfoH = 0
@@ -408,6 +437,8 @@ function drawClothesThumb(
   w: number,
   h: number,
   theme: WardrobeQrcodeShareTheme,
+  label?: string,
+  labelColor?: string,
 ) {
   roundRect(ctx, x, y, w, h, 10)
   ctx.fillStyle = theme.photoBg
@@ -421,6 +452,16 @@ function drawClothesThumb(
   ctx.lineWidth = 1
   roundRect(ctx, x + 0.5, y + 0.5, w - 1, h - 1, 10)
   ctx.stroke()
+
+  const text = label?.trim()
+  if (!text) return
+  ctx.save()
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  ctx.fillStyle = labelColor || theme.title
+  ctx.font = `bold 13px ${FONT}`
+  ctx.fillText(truncate(text, 10), x + w / 2, y + h + 16)
+  ctx.restore()
 }
 
 /** 对齐 QhxTag：白底 + 主题色描边/字色 */
@@ -481,20 +522,37 @@ export function buildWardrobeQrcodeSharePayload(
   userName: string,
   userFace?: string | null,
   previewClothes?: WardrobeClothes[],
+  /** 优先于服饰图：封面 + 名称（如用户空间前三个衣柜） */
+  previewItems?: WardrobeQrcodeSharePreviewItem[],
 ): WardrobeQrcodeSharePayload | null {
   if (!qr.code_url) return null
-  const clothesImages = (previewClothes ?? [])
+  const fromPreviewItems = (previewItems ?? [])
+    .map((item) => ({
+      image: item.image?.trim() || '',
+      label: item.label?.trim() || '',
+    }))
+    .filter((item) => !!item.image)
     .slice(0, 3)
-    .map((c) => c.clothes_img)
-    .filter((img): img is string => !!img)
+  const clothesImages = fromPreviewItems.length
+    ? fromPreviewItems.map((item) => item.image)
+    : (previewClothes ?? [])
+        .slice(0, 3)
+        .map((c) => c.clothes_img)
+        .filter((img): img is string => !!img)
+  const previewLabels = fromPreviewItems.length
+    ? fromPreviewItems.map((item) => item.label)
+    : []
   const expiresLabel =
     qr.expires_time == null
       ? '永久有效'
       : `有效期至 ${dayjs(qr.expires_time).format('YYYY-MM-DD HH:mm')}`
+  const parsedStyle = parseEntityCustomStyle(wardrobe ?? undefined)
+  const themeBackground = parsedStyle.background?.trim() || wardrobe?.background?.trim() || null
   return {
     wardrobeName: wardrobe?.wardrobe_name?.trim() || '我的衣柜',
     wardrobeDesc: wardrobe?.wardrobe_desc?.trim() || '',
     wardrobeCover: wardrobe?.wardrobe_cover,
+    themeBackground,
     totalCount: wardrobe?.total_count,
     totalTimes: wardrobe?.total_times,
     totalPrice: wardrobe?.total_price,
@@ -504,6 +562,7 @@ export function buildWardrobeQrcodeSharePayload(
     qrCodeUrl: qr.code_url,
     expiresLabel,
     clothesImages,
+    previewLabels,
     theme: buildWardrobeQrcodeShareTheme(wardrobe),
   }
 }
@@ -511,12 +570,13 @@ export function buildWardrobeQrcodeSharePayload(
 export async function prepareWardrobeQrcodeShareImages(
   payload: WardrobeQrcodeSharePayload,
 ): Promise<WardrobeQrcodeShareImageBundle> {
-  const coverPath = payload.wardrobeCover?.trim()
+  // 背景图仅用衣柜主题背景，与长图分享一致；封面只出现在预览格；4K 导出加载更高清素材
+  const themeBgPath = payload.themeBackground?.trim()
   const [bgCover, avatar, qr, ...clothes] = await Promise.all([
-    coverPath ? loadImageCors(resolveImgUrl(coverPath, 900)) : Promise.resolve(null),
-    loadImageCors(resolveImgUrl(payload.userFace || DEFAULT_AVATAR, 200)),
-    loadImageCors(resolveImgUrl(payload.qrCodeUrl, 480)),
-    ...payload.clothesImages.map((img) => loadImageCors(resolveImgUrl(img, 360))),
+    themeBgPath ? loadImageCors(resolveImgUrl(themeBgPath, 3840)) : Promise.resolve(null),
+    loadImageCors(resolveImgUrl(payload.userFace || DEFAULT_AVATAR, 800)),
+    loadImageCors(resolveImgUrl(payload.qrCodeUrl, 1200)),
+    ...payload.clothesImages.map((img) => loadImageCors(resolveImgUrl(img, 1200))),
   ])
   return { bgCover, avatar, qr, clothes: clothes.slice(0, 3) }
 }
@@ -525,25 +585,35 @@ export function drawWardrobeQrcodeShareCanvas(
   payload: WardrobeQrcodeSharePayload,
   bundle: WardrobeQrcodeShareImageBundle,
 ): HTMLCanvasElement {
-  const W = WARDROBE_QRCODE_SHARE_WIDTH
-  const H = WARDROBE_QRCODE_SHARE_HEIGHT
+  const W = DESIGN_W
+  const H = DESIGN_H
+  const scale = WARDROBE_QRCODE_SHARE_SCALE
   const theme = payload.theme
   const canvas = document.createElement('canvas')
-  canvas.width = W
-  canvas.height = H
+  canvas.width = Math.round(W * scale)
+  canvas.height = Math.round(H * scale)
   const ctx = canvas.getContext('2d')
   if (!ctx) throw new Error('canvas')
+  ctx.scale(scale, scale)
+  // 4K 放大后线条更清晰
+  ctx.imageSmoothingEnabled = true
+  ctx.imageSmoothingQuality = 'high'
 
+  // 有自定义字体颜色时始终用 fontColor；否则仅在主题背景图上用浅色字保证可读
   const onDarkBg = !!bundle.bgCover
-  const heroTitle = onDarkBg ? '#fefcf9' : theme.title
-  const heroSub = onDarkBg ? 'rgba(254, 252, 249, 0.88)' : theme.text
+  const useThemeFont = theme.hasCustomFontColor
+  const heroTitle = useThemeFont || !onDarkBg ? theme.title : '#fefcf9'
+  const heroSub = useThemeFont || !onDarkBg ? theme.text : 'rgba(254, 252, 249, 0.88)'
+  const infoTitle = useThemeFont || !onDarkBg ? theme.title : '#fefcf9'
+  const infoSub = useThemeFont || !onDarkBg ? theme.textMuted : 'rgba(254, 252, 249, 0.88)'
+  const brandColor = useThemeFont ? theme.title : (onDarkBg ? 'rgba(254, 252, 249, 0.85)' : theme.primary)
 
   drawPageBackground(ctx, W, H, bundle.bgCover, theme)
 
   const layout = measureLayout(ctx, payload, bundle)
   let y = Math.max(28, Math.round((H - layout.totalH) / 2))
 
-  drawRibbon(ctx, W / 2, y, onDarkBg, theme)
+  drawRibbon(ctx, W / 2, y, onDarkBg && !useThemeFont, theme)
   y += layout.ribbonH + GAP
 
   const avatarR = 28
@@ -561,19 +631,30 @@ export function drawWardrobeQrcodeShareCanvas(
 
   if (layout.clothesCount > 0) {
     const gap = 8
+    const hasLabels = payload.previewLabels.some((l) => !!l?.trim())
+    const labelH = hasLabels ? 28 : 0
     const cellW = (CONTENT_W - gap * (layout.clothesCount - 1)) / layout.clothesCount
-    const cellH = layout.clothesH - GAP
+    const cellH = layout.clothesH - GAP - labelH
+    const labelColor = useThemeFont || !onDarkBg ? theme.title : '#fefcf9'
     let cx = P
     for (let i = 0; i < layout.clothesCount; i++) {
-      drawClothesThumb(ctx, bundle.clothes[i] ?? null, cx, y, cellW, cellH, theme)
+      drawClothesThumb(
+        ctx,
+        bundle.clothes[i] ?? null,
+        cx,
+        y,
+        cellW,
+        cellH,
+        theme,
+        payload.previewLabels[i],
+        labelColor,
+      )
       cx += cellW + gap
     }
     y += layout.clothesH + GAP
   }
 
   const innerW = CONTENT_W
-  const infoTitle = onDarkBg ? '#fefcf9' : theme.title
-  const infoSub = onDarkBg ? 'rgba(254, 252, 249, 0.88)' : theme.textMuted
 
   ctx.textAlign = 'center'
   ctx.fillStyle = infoTitle
@@ -641,7 +722,7 @@ export function drawWardrobeQrcodeShareCanvas(
   ctx.textBaseline = 'alphabetic'
   y += layout.qrCardH + GAP
 
-  ctx.fillStyle = onDarkBg ? 'rgba(254, 252, 249, 0.85)' : theme.primary
+  ctx.fillStyle = brandColor
   ctx.font = `bold 11px ${SERIF}`
   ctx.textAlign = 'center'
   ctx.fillText('Lo研社 · lolitalibrary.com', W / 2, y + 12)

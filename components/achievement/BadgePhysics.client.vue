@@ -28,14 +28,22 @@ const props = withDefaults(
   defineProps<{
     badges: UserDeco[]
     motionPreset?: BadgePhysicsMotionPreset
-    /** 模型/球体相对默认尺寸的倍率 */
+    /** 模型/球体视觉相对默认尺寸的倍率 */
     scale?: number
+    /** 碰撞体相对视觉尺寸的额外倍率（>1 碰撞盒更大） */
+    colliderScale?: number
     /** 地板相对视口底边上移量（世界单位），仅抬高承托面，不改容器裁切 */
     floorInset?: number
     /** 左右墙相对视口侧边内缩量（世界单位），避免贴边被裁切 */
     sideInset?: number
   }>(),
-  { motionPreset: "wallBounce", scale: 1, floorInset: 0, sideInset: 0 }
+  {
+    motionPreset: "wallBounce",
+    scale: 1,
+    colliderScale: 1,
+    floorInset: 0,
+    sideInset: 0,
+  }
 )
 
 function getModelUrl(cover: string): string {
@@ -133,7 +141,8 @@ const WALL_BOUNCE_SPAWN_IMPULSE_MAX = 12
 /** 碰壁模式：水平速度模长下限，避免阻尼把运动完全磨没 */
 const WALL_BOUNCE_MIN_LINEAR_SPEED = 0.32
 /** 点云徽章：球形碰撞 + 更高阻尼，运动更慢、更易停下 */
-const SPLAT_COLLIDER_SCALE = 0.92
+/** 点云包围盒不可靠，碰撞球用固定世界半径（与普通徽章球同量级） */
+const SPLAT_COLLIDER_RADIUS = 0.6
 const SPLAT_MASS = 1.85
 const SPLAT_LINEAR_DAMPING_MUL = 2.4
 const SPLAT_ANGULAR_DAMPING_MUL = 2.5
@@ -886,6 +895,7 @@ async function createBadge(deco: UserDeco, badgeKey?: string) {
 
   const el = containerRef.value
   const scaleMul = props.scale > 0 ? props.scale : 1
+  const colliderMul = props.colliderScale > 0 ? props.colliderScale : 1
   const modelScale =
     (el ? getAspectScale(el.clientWidth, el.clientHeight) : 1) * scaleMul
 
@@ -931,11 +941,8 @@ async function createBadge(deco: UserDeco, badgeKey?: string) {
     meshIsSplat.push(isSplat)
     if (isSplat) {
       const cfg = motionCfg()
-      const sphereRadius =
-        Math.max(loaded.size.x, loaded.size.y, loaded.size.z) *
-        0.5 *
-        modelScale *
-        SPLAT_COLLIDER_SCALE
+      // 点云拿不到可靠包围盒，碰撞球用固定半径
+      const sphereRadius = SPLAT_COLLIDER_RADIUS
       const wallBounce = props.motionPreset === "wallBounce"
       createRigidBody(mesh, undefined, bodyPos, {
         sphereRadius,
@@ -949,7 +956,11 @@ async function createBadge(deco: UserDeco, badgeKey?: string) {
       applySplatYawSpin(bodies[bodies.length - 1])
       refreshBadgeSplatMesh(mesh)
     } else {
-      const halfExt = loaded.size.clone().multiplyScalar(0.5).multiplyScalar(modelScale)
+      const halfExt = loaded.size
+        .clone()
+        .multiplyScalar(0.5)
+        .multiplyScalar(modelScale)
+        .multiplyScalar(colliderMul)
       createRigidBody(mesh, halfExt, bodyPos)
       syncBodyRotationFromMesh(bodies[bodies.length - 1], mesh)
     }
@@ -970,7 +981,7 @@ async function createBadge(deco: UserDeco, badgeKey?: string) {
     meshCenterOffsets.push(new THREE.Vector3(0, 0, 0))
     meshIsSplat.push(false)
     createRigidBody(mesh, undefined, spawnCenter.clone(), {
-      sphereRadius: radius,
+      sphereRadius: radius * colliderMul,
     })
     syncBodyRotationFromMesh(bodies[bodies.length - 1], mesh)
   }
@@ -1026,6 +1037,39 @@ function getWorldPointFromPointer(clientX: number, clientY: number): THREE.Vecto
   return raycaster.ray.intersectPlane(intersectPlane, intersectPoint) ? intersectPoint.clone() : null
 }
 
+/** 从点击点把徽章推开（沿 刚体中心 ← 点击 的反方向，即远离点击） */
+function applyBodyTapImpulse(index: number, fromX: number, fromY: number) {
+  const body = bodies[index]
+  if (!body || !AmmoLib) return
+
+  const origin = body.getWorldTransform().getOrigin()
+  let dx = origin.x() - fromX
+  let dy = origin.y() - fromY
+  let len = Math.hypot(dx, dy)
+  // 点在中心附近：给随机水平方向，避免零向量导致方向抖动
+  if (len < 0.05) {
+    const a = Math.random() * Math.PI * 2
+    dx = Math.cos(a)
+    dy = Math.sin(a)
+    len = 1
+  }
+
+  const splat = meshIsSplat[index]
+  const pushForce = PUSH_FORCE * (splat ? SPLAT_PUSH_FORCE_SCALE : 1)
+  const upBoost = 3 * (splat ? SPLAT_PUSH_FORCE_SCALE : 1)
+
+  body.activate()
+  if (splat) wakeSplatBadge(index)
+
+  const imp = new AmmoLib.btVector3(
+    (dx / len) * pushForce,
+    (dy / len) * pushForce + upBoost,
+    0
+  )
+  body.applyCentralImpulse(imp)
+  AmmoLib.destroy(imp)
+}
+
 function applyTapImpulseAtScreen(clientX: number, clientY: number) {
   if (!AmmoLib || !camera || !renderer || !tempVec3) return
   if (!isPointOverContainer(clientX, clientY)) return
@@ -1033,38 +1077,29 @@ function applyTapImpulseAtScreen(clientX: number, clientY: number) {
   const worldPt = getWorldPointFromPointer(clientX, clientY)
   if (!worldPt) return
 
+  const affected = new Set<number>()
+
   raycaster.setFromCamera(mouse, camera)
   const intersects = raycaster.intersectObjects(meshes, true)
   for (const hit of intersects) {
     const idx = getBadgeIndexFromHit(hit.object as THREE.Object3D)
-    if (idx >= 0) {
-      const body = bodies[idx]
-      const pushForce = PUSH_FORCE * (meshIsSplat[idx] ? SPLAT_PUSH_FORCE_SCALE : 1)
-      const dx = hit.point.x - worldPt.x
-      const dy = hit.point.y - worldPt.y
-      const len = Math.sqrt(dx * dx + dy * dy) || 1
-      body.activate()
-      if (meshIsSplat[idx]) wakeSplatBadge(idx)
-      const imp = new AmmoLib.btVector3((dx / len) * pushForce, (dy / len) * pushForce + 3 * (meshIsSplat[idx] ? SPLAT_PUSH_FORCE_SCALE : 1), 0)
-      body.applyCentralImpulse(imp)
-      AmmoLib.destroy(imp)
+    if (idx >= 0) affected.add(idx)
+  }
+
+  // 未直接点中时，对点击附近的徽章做范围推开
+  if (affected.size === 0) {
+    const radius = Math.max(boundX * 0.55, 1.2)
+    const r2 = radius * radius
+    for (let i = 0; i < bodies.length; i++) {
+      const o = bodies[i].getWorldTransform().getOrigin()
+      const dx = o.x() - worldPt.x
+      const dy = o.y() - worldPt.y
+      if (dx * dx + dy * dy < r2) affected.add(i)
     }
   }
-  if (intersects.length === 0) {
-    const radius = boundX * 0.5
-    for (let i = 0; i < bodies.length; i++) {
-      const trans = bodies[i].getWorldTransform()
-      const dx = trans.getOrigin().x() - worldPt.x
-      const dy = trans.getOrigin().y() - worldPt.y
-      if (dx * dx + dy * dy < radius * radius) {
-        bodies[i].activate()
-        if (meshIsSplat[i]) wakeSplatBadge(i)
-        const pushForce = PUSH_FORCE * (meshIsSplat[i] ? SPLAT_PUSH_FORCE_SCALE : 1)
-        const imp = new AmmoLib.btVector3((Math.random() - 0.5) * pushForce, pushForce * 0.5, 0)
-        bodies[i].applyCentralImpulse(imp)
-        AmmoLib.destroy(imp)
-      }
-    }
+
+  for (const idx of affected) {
+    applyBodyTapImpulse(idx, worldPt.x, worldPt.y)
   }
 }
 

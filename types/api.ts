@@ -439,7 +439,7 @@ export interface CollectCommunityInfo {
   user?: User
   collect_count?: number
   is_collect?: number
-  /** 帖子图列表，逗号分隔路径，与 Community 一致 */
+  /** 帖子图列表，逗号分隔路径；`.mp4` 表示 Live（展示同名 `.jpg`） */
   img_list?: string | null
   small_img_list?: string | null
 }
@@ -547,7 +547,7 @@ export interface Community {
   is_enable?: number
   boutique?: number
   sort?: number
-  img_list?: string | null   // JSON 字符串，可能是 string[]
+  img_list?: string | null   // 逗号分隔路径；`.mp4` = Live（封面同名 `.jpg`）
   small_img_list?: string | null
   community_type?: number
   library_list?: string | null

@@ -6,9 +6,9 @@ definePageMeta({
 import type { Wardrobe, WardrobeClothes, UserDeco } from '@/types/api';
 import { getUserDecoBadges, getUserSpace } from '@/api/user'
 import type { UserDecoBadgeItem } from '@/api/user'
-import { getWardrobeList, getClothesList, sortClothee, changeWardrobeClothes, changeWardrobeClothesBatch, deleteClothesByIds, updateClothesIds, batchUpdateClothesTags, sortClothesTags, deleteClothesTag, checkWadrobePassword, sortWardrobe, updateWardrobe, deleteWardrobe, insertWardrobe } from '@/api/wardrobe'
+import { getWardrobeList, getClothesList, getClothesListAllFallback, sortClothee, changeWardrobeClothes, changeWardrobeClothesBatch, deleteClothesByIds, updateClothesIds, batchUpdateClothesTags, sortClothesTags, deleteClothesTag, checkWadrobePassword, sortWardrobe, updateWardrobe, deleteWardrobe, insertWardrobe } from '@/api/wardrobe'
 import { getPlanListWardrobe, planComplete } from '@/api/plan'
-import type { ClothesParams } from '@/api/wardrobe'
+import type { ClothesAllParams, ClothesParams } from '@/api/wardrobe'
 import { useCopyCurrentUrl } from '~/composables/useCopyCurrentUrl';
 import { useCommunityDetailTheme } from '@/composables/useCommunityDetailTheme'
 import type QhxSelect from '@/components/Qhx/Select.vue'
@@ -121,6 +121,11 @@ async function loadWardrobePageOwner() {
       user_name: user.user.user_name,
       user_face: user.user.user_face,
     }
+    return
+  }
+  // 未登录不请求，避免 /userSpace/id 401 触发强制跳登录
+  if (!user.token) {
+    wardrobePageOwner.value = null
     return
   }
   try {
@@ -918,20 +923,21 @@ function computeVirtualColumns(): number {
 
 /** 仅浏览态 + 网格布局启用虚拟滚动 */
 const CLOTHES_LIST_LAYOUT_KEY = 'wardrobe-detail-clothes-list-layout'
-type ClothesListLayout = 'grid' | 'waterfall' | 'list'
+type ClothesListLayout = 'grid' | 'waterfall' | 'list' | 'part'
+const CLOTHES_PART_UNGROUPED = '未分类'
 
 function readClothesListLayoutPref(): ClothesListLayout {
   if (!import.meta.client || typeof localStorage === 'undefined') return 'grid'
   try {
     const v = localStorage.getItem(CLOTHES_LIST_LAYOUT_KEY)
-    if (v === 'waterfall' || v === 'list') return v
+    if (v === 'waterfall' || v === 'list' || v === 'part') return v
     return 'grid'
   } catch {
     return 'grid'
   }
 }
 
-/** 服饰列表布局：网格 / 瀑布流 / 列表（localStorage 持久化，默认网格） */
+/** 服饰列表布局：网格 / 瀑布流 / 列表 / 按部位（localStorage 持久化，默认网格） */
 const clothesListLayout = ref<ClothesListLayout>(readClothesListLayoutPref())
 /** 瀑布流列表 ref（QhxWaterList 仅负责布局，数据来自 list） */
 const waterListRef = ref<InstanceType<typeof QhxWaterList> | null>(null)
@@ -941,9 +947,49 @@ const isListLayout = computed(
 const isWaterfallLayout = computed(
   () => clothesListLayout.value === 'waterfall' && !sortMode.value && !timelineMode.value,
 )
+/** 按 clothes_part 分组的网格布局（全量拉取） */
+const isPartLayout = computed(
+  () => clothesListLayout.value === 'part' && !sortMode.value && !timelineMode.value,
+)
 const virtualEnabled = computed(
   () => !sortMode.value && !timelineMode.value && clothesListLayout.value === 'grid',
 )
+
+function parseClothesPartLabels(raw: string | null | undefined): string[] {
+  if (!raw?.trim()) return []
+  return raw.split(',').map((s) => s.trim()).filter(Boolean)
+}
+
+/** 按部位分组；逗号多部位会重复出现在各组；无部位归入「未分类」 */
+const clothesPartGroups = computed(() => {
+  const groups = new Map<string, WardrobeClothes[]>()
+  const firstSeen: string[] = []
+  for (const item of list.value) {
+    const parts = parseClothesPartLabels(item.clothes_part)
+    const labels = parts.length > 0 ? parts : [CLOTHES_PART_UNGROUPED]
+    for (const label of labels) {
+      let bucket = groups.get(label)
+      if (!bucket) {
+        bucket = []
+        groups.set(label, bucket)
+        firstSeen.push(label)
+      }
+      bucket.push(item)
+    }
+  }
+  const configOrder = wardrobeStore.config?.clothes_part ?? []
+  const keys = [...groups.keys()].sort((a, b) => {
+    if (a === CLOTHES_PART_UNGROUPED) return 1
+    if (b === CLOTHES_PART_UNGROUPED) return -1
+    const ia = configOrder.indexOf(a)
+    const ib = configOrder.indexOf(b)
+    if (ia !== -1 && ib !== -1) return ia - ib
+    if (ia !== -1) return -1
+    if (ib !== -1) return 1
+    return firstSeen.indexOf(a) - firstSeen.indexOf(b)
+  })
+  return keys.map((part) => ({ part, items: groups.get(part) ?? [] }))
+})
 
 const formatClothesListDate = (item: WardrobeClothes) => {
   const raw = item.add_time ?? item.date
@@ -1397,28 +1443,79 @@ const fetchClothesList = async (Ipage: number | null = null, IpageSize: number |
 
   const seq = ++clothesListFetchSeq
   isLoading.value = true
-  const resolvedPageSize =
-    IpageSize != null && IpageSize > 0
-      ? IpageSize
-      : timelineMode.value
-        ? TIMELINE_PAGE_SIZE
-        : pageSize
-  const params: ClothesParams = {
-    page: Ipage || page.value,
-    pageSize: resolvedPageSize,
-    wardrobe_id: currentWardrobe.value.wardrobe_id,
-    filter_list: filter_list.value
-  }
-  if (timelineMode.value) {
-    params.sort_list = 'add_time_asc'
-  }
-  if (password.value) {
-    params.password = password.value
-  }
-  if (qrcode.value) {
-    params.qrcode = qrcode.value
-  }
+  const wardrobeId = currentWardrobe.value.wardrobe_id
+  const usePartAllApi = clothesListLayout.value === 'part' && !timelineMode.value
+
   try {
+    if (usePartAllApi) {
+      const allParams: ClothesAllParams = {
+        wardrobe_id: wardrobeId,
+        filter_list: filter_list.value as Record<string, unknown>,
+        // /clothes/all 字段白名单（封面、备注、部位、状态、颜色、价格）
+        attributes: [
+          'clothes_img',
+          'clothes_note',
+          'clothes_part',
+          'wardrobe_status',
+          'color',
+          'price',
+        ],
+        ...(password.value ? { password: password.value } : {}),
+        ...(qrcode.value ? { qrcode: qrcode.value } : {}),
+      }
+      // 全量服饰走 /clothes/all；并行拉一页 list 仅用于 tags / info / size_list
+      const [rows, meta] = await Promise.all([
+        getClothesListAllFallback(allParams),
+        getClothesList({
+          wardrobe_id: wardrobeId,
+          page: 1,
+          pageSize: 1,
+          filter_list: filter_list.value,
+          ...(password.value ? { password: password.value } : {}),
+          ...(qrcode.value ? { qrcode: qrcode.value } : {}),
+        }).catch(() => null),
+      ])
+      if (seq !== clothesListFetchSeq) return
+      list.value = Array.isArray(rows) ? rows : []
+      total.value = list.value.length
+      page.value = 1
+      if (meta) {
+        tagList.value = meta.tags_list ? filterEmptyTags(meta.tags_list) : []
+        if (meta.size_list?.length) {
+          sizeList.value = meta.size_list
+        } else {
+          mergeSizeOptionsFromRows(list.value)
+        }
+        if (meta.info) info.value = meta.info
+      } else {
+        mergeSizeOptionsFromRows(list.value)
+        if (currentWardrobe.value) info.value = currentWardrobe.value
+      }
+      console.log({ rows: list.value.length, meta }, '衣柜按部位全量返回值')
+      return
+    }
+
+    const resolvedPageSize =
+      IpageSize != null && IpageSize > 0
+        ? IpageSize
+        : timelineMode.value
+          ? TIMELINE_PAGE_SIZE
+          : pageSize
+    const params: ClothesParams = {
+      page: Ipage || page.value,
+      pageSize: resolvedPageSize,
+      wardrobe_id: wardrobeId,
+      filter_list: filter_list.value
+    }
+    if (timelineMode.value) {
+      params.sort_list = 'add_time_asc'
+    }
+    if (password.value) {
+      params.password = password.value
+    }
+    if (qrcode.value) {
+      params.qrcode = qrcode.value
+    }
     const response = await getClothesList(params)
     if (seq !== clothesListFetchSeq) return
 
@@ -1590,7 +1687,7 @@ const onDragEnd = async (payload?: { clientX?: number; clientY?: number }) => {
   }
 };
 const loadMore = () => {
-  if (timelineMode.value || isLoading.value) return
+  if (timelineMode.value || isLoading.value || clothesListLayout.value === 'part') return
   void handlePageChange(page.value + 1)
 }
 // 页码改变处理函数
@@ -2829,7 +2926,9 @@ function restoreLayoutPrefs() {
     const favorite = localStorage.getItem(SHOW_CLOTHES_FAVORITE_KEY)
     if (favorite !== null) showClothesFavorite.value = favorite === '1'
     const layout = localStorage.getItem(CLOTHES_LIST_LAYOUT_KEY)
-    if (layout === 'grid' || layout === 'waterfall' || layout === 'list') clothesListLayout.value = layout
+    if (layout === 'grid' || layout === 'waterfall' || layout === 'list' || layout === 'part') {
+      clothesListLayout.value = layout
+    }
     restoreToolbarPrefs()
   } catch {
     /* 忽略读取失败 */
@@ -2945,7 +3044,12 @@ watch(showClothesNote, persistShowClothesNote)
 watch(showClothesPrice, persistShowClothesPrice)
 watch(showClothesStatus, persistShowClothesStatus)
 watch(showClothesFavorite, persistShowClothesFavorite)
-watch(clothesListLayout, persistClothesListLayout)
+watch(clothesListLayout, (layout, prev) => {
+  persistClothesListLayout(layout)
+  if (layout === prev || timelineMode.value) return
+  page.value = 1
+  void fetchClothesList(1, layout === 'part' ? undefined : pageSize)
+})
 
 watch(
   () => [
@@ -4457,8 +4561,10 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
           <div class="h-px bg-gray-200 dark:bg-gray-700" />
           <div>
             <div class="text-sm font-medium text-gray-800 dark:text-gray-200 mb-1">服饰列表布局</div>
-            <div class="text-xs text-gray-500 dark:text-gray-400 mb-2">网格等宽排列，瀑布流按图片高度错落，列表一行一件展示更多信息</div>
-            <div class="grid grid-cols-3 gap-2">
+            <div class="text-xs text-gray-500 dark:text-gray-400 mb-2">
+              网格等宽排列；瀑布流按图片高度错落；列表一行一件；按部位分组展示（加载全部服饰）
+            </div>
+            <div class="grid grid-cols-2 gap-2">
               <button
                 type="button"
                 class="flex flex-col items-center gap-1.5 rounded-lg border px-2 py-2.5 transition-colors"
@@ -4491,6 +4597,17 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
               >
                 <UIcon name="i-heroicons-list-bullet" class="text-xl" />
                 <span class="text-xs font-medium">列表</span>
+              </button>
+              <button
+                type="button"
+                class="flex flex-col items-center gap-1.5 rounded-lg border px-2 py-2.5 transition-colors"
+                :class="clothesListLayout === 'part'
+                  ? 'border-qhx-primary bg-qhx-primary/10 text-qhx-primary'
+                  : 'border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:border-gray-300 dark:hover:border-gray-500'"
+                @click="clothesListLayout = 'part'"
+              >
+                <UIcon name="i-heroicons-rectangle-group" class="text-xl" />
+                <span class="text-xs font-medium">按部位</span>
               </button>
             </div>
           </div>
@@ -5699,6 +5816,38 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
               :element="element"
             />
           </div>
+          <!-- 浏览态：按部位分组（同网格单元，多部位可重复出现） -->
+          <div v-else-if="isPartLayout" class="wardrobe-clothes-part-groups flex w-full flex-col gap-0">
+            <section
+              v-for="group in clothesPartGroups"
+              :key="`part-group-${group.part}`"
+              class="wardrobe-clothes-part-group min-w-0"
+            >
+              <div class="mt-1 flex items-baseline gap-2 px-1.5 max-md:px-1">
+                <h4 class="text-sm font-semibold text-gray-800 dark:text-gray-100">
+                  {{ group.part }}
+                </h4>
+                <span class="text-xs tabular-nums text-gray-400 dark:text-gray-500">
+                  {{ group.items.length }}
+                </span>
+              </div>
+              <div class="flex flex-wrap">
+                <div
+                  v-for="element in group.items"
+                  :key="`part-${group.part}-${element.clothes_id ?? element.clothes_img}`"
+                  class="wardrobe-clothes-cell [@media(min-width:1920px)]:w-[calc(100%/10)] xl:w-1/6 md:w-1/4 max-md:w-1/3"
+                >
+                  <ReuseClothesCard :element="element" />
+                </div>
+              </div>
+            </section>
+            <div
+              v-if="!isLoading && clothesPartGroups.length === 0"
+              class="py-16 text-center text-sm text-gray-400 dark:text-gray-500"
+            >
+              暂无服饰
+            </div>
+          </div>
           <!-- 浏览态：瀑布流（QhxWaterList 布局 + 外部 list 数据） -->
           <QhxWaterList
             v-else-if="isWaterfallLayout"
@@ -5734,7 +5883,14 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
             </template>
           </QhxSortableList>
         </div>
-        <QhxLoading v-if="!timelineMode" :loading="isLoading" :page="page" :total="total" :page-size="pageSize" @load-more="loadMore">
+        <QhxLoading
+          v-if="!timelineMode"
+          :loading="isLoading"
+          :page="page"
+          :total="total"
+          :page-size="isPartLayout ? Math.max(total, 1) : pageSize"
+          @load-more="loadMore"
+        >
         </QhxLoading>
         <div class="pb-[40px]"></div>
       </div>

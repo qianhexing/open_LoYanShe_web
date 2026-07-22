@@ -44,7 +44,8 @@ const hasBadges = computed(() => props.badges.length > 0)
             v-if="hasBadges"
             :key="badgesKey"
             :badges="badges"
-            :scale="2"
+            :scale="2.4"
+            :collider-scale="1.4"
             :floor-inset="1"
             :side-inset="0.7"
             :motion-preset="motionPreset"
@@ -223,7 +224,7 @@ const hasBadges = computed(() => props.badges.length > 0)
 }
 
 .wish-bottle {
-  --bottle-w: min(72vw, 280px);
+  --bottle-w: min(85vw, 420px);
   position: relative;
   width: var(--bottle-w);
   aspect-ratio: 200 / 360;

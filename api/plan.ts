@@ -140,10 +140,14 @@ export async function planComplete(
   return response.data;
 }
 
-/** 按月查询计划列表（不包含有子计划的父计划） */
+/**
+ * 按月/年查询计划列表（不包含有子计划的父计划）
+ * - 传 year + month：返回该月计划
+ * - 仅传 year：返回该年全部计划（前端按 end_time 分月）
+ */
 export async function getPlanListByMonth(params: {
   year: number;
-  month: number;
+  month?: number;
 }): Promise<PlanList[]> {
   const response = await use$Get<BaseResponse<PlanList[]>>(
     '/plan/list/byMonth',
@@ -152,8 +156,9 @@ export async function getPlanListByMonth(params: {
   return response.data;
 }
 
-/** 计划周期金额汇总（月/日） */
+/** 计划周期金额汇总（年/月/日） */
 export interface PlanPeriodMoneyTotal {
+  year?: number;
   month?: number;
   day?: number;
   total_money: number;
@@ -169,6 +174,22 @@ export async function getPlanTotalByYear(params: {
 }): Promise<PlanPeriodMoneyTotal[]> {
   const response = await use$Get<BaseResponse<PlanPeriodMoneyTotal[]>>(
     '/plan/list/totalByYear',
+    params
+  );
+  return response.data;
+}
+
+/**
+ * 多年金额汇总（按年聚合，不统计有子计划的父计划）
+ * 约定：GET /plan/list/totalByYears?start_year=&end_year=
+ * 返回每条含 year / total_money / have_money / unpaid_money
+ */
+export async function getPlanTotalByYears(params: {
+  start_year: number;
+  end_year: number;
+}): Promise<PlanPeriodMoneyTotal[]> {
+  const response = await use$Get<BaseResponse<PlanPeriodMoneyTotal[]>>(
+    '/plan/list/totalByYears',
     params
   );
   return response.data;

@@ -112,7 +112,7 @@ watch(
 </script>
 
 <template>
-  <div class="wish-page min-h-screen relative overflow-hidden">
+  <div class="wish-page relative flex min-h-[100dvh] flex-col overflow-hidden">
     <!-- 氛围背景 -->
     <div class="wish-page__bg pointer-events-none fixed inset-0 z-0">
       <div class="wish-page__bg-wash" />
@@ -124,14 +124,14 @@ watch(
 
     <div
       v-if="configStore.statusBarHeight > 0"
-      class="relative z-10"
+      class="relative z-10 shrink-0"
       :style="{ height: `${configStore.statusBarHeight}px` }"
     />
 
     <!-- 未登录 -->
     <div
       v-if="!isLoggedIn"
-      class="relative z-10 flex min-h-[70vh] flex-col items-center justify-center px-6 text-center"
+      class="relative z-10 flex flex-1 flex-col items-center justify-center px-6 text-center"
     >
       <h1 class="wish-page__brand">许愿瓶</h1>
       <p class="mt-3 max-w-xs text-sm leading-relaxed text-rose-400/90">
@@ -149,7 +149,7 @@ watch(
     <!-- 已登录 -->
     <div
       v-else
-      class="relative z-10 flex min-h-[100dvh] flex-col items-center justify-center px-4 py-6"
+      class="relative z-10 flex flex-1 flex-col items-center justify-center px-4 py-6"
     >
       <header class="wish-page__header mb-6 text-center">
         <h1 class="wish-page__brand">许愿瓶</h1>

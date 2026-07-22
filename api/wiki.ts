@@ -2,7 +2,7 @@
 // 没改好
 import type { BaseResponse, PaginationResponse, Wiki, WikiType, FilterList } from '@/types/api';
 interface WikiSearchParams {
-  type_id?: number
+  type_id?: number | number[]
   wiki_name?: string
   parent_id?: number | null
   where?: Record<string, any>

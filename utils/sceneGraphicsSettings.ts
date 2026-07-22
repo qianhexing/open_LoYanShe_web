@@ -12,7 +12,8 @@ export interface SceneGraphicsSettings {
 	mobilePerfCap: boolean
 }
 
-export const DEFAULT_SCENE_GRAPHICS_PRESET: SceneGraphicsPreset = 'balanced'
+/** 默认按 3A 级画质（抗锯齿 + 原生 DPR，手机不强制降质） */
+export const DEFAULT_SCENE_GRAPHICS_PRESET: SceneGraphicsPreset = 'high'
 
 const PRESET_VALUES: Record<
 	SceneGraphicsPreset,

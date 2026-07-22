@@ -1,5 +1,5 @@
 <template>
-  <div class="relative min-h-screen w-full overflow-x-hidden">
+  <div class="plan-page relative min-h-screen w-full overflow-x-hidden">
     <div
       v-if="configStore.statusBarHeight > 0"
       class="shrink-0"
@@ -17,18 +17,18 @@
         <QhxJellyButton>
           <!-- h-[40px] -->
           <div class=" text-center px-1 cursor-pointer" @click="(e: MouseEvent) => openAddPlan(e)">
-            <div class="m-[5px] text-white rounded-[50%] h-[30px] w-[30px] flex items-center justify-center bg-qhx-primary">
+            <div class="m-[5px] text-white rounded-[50%] h-[30px] w-[30px] flex items-center justify-center bg-qhx-primary shadow-[0_4px_10px_rgba(255,158,181,0.35)]">
               <UIcon name="material-symbols:add-2" class="text-[22px] text-[#ffffff]" />
             </div>
             <!-- <div class="text-sm text-qhx-text">新建</div> -->
           </div>
         </QhxJellyButton>
         <!-- 按月/按日/统计切换 -->
-        <div class="flex rounded-lg border border-gray-300 dark:border-gray-600 overflow-hidden">
+        <div class="flex rounded-lg border border-qhx-primary/20 overflow-hidden bg-[#fffbfc]">
           <button
             type="button"
             class="px-2.5 py-1.5 text-xs font-medium transition-colors"
-            :class="viewMode === 'month' ? 'bg-qhx-primary text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600'"
+            :class="viewMode === 'month' ? 'bg-qhx-primary text-white' : 'bg-transparent text-[#9a858a] hover:bg-qhx-primary/10'"
             @click="switchViewMode('month')"
           >
             按月
@@ -36,7 +36,7 @@
           <button
             type="button"
             class="px-2.5 py-1.5 text-xs font-medium transition-colors"
-            :class="viewMode === 'day' ? 'bg-qhx-primary text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600'"
+            :class="viewMode === 'day' ? 'bg-qhx-primary text-white' : 'bg-transparent text-[#9a858a] hover:bg-qhx-primary/10'"
             @click="switchViewMode('day')"
           >
             按日
@@ -44,7 +44,7 @@
           <button
             type="button"
             class="px-2.5 py-1.5 text-xs font-medium transition-colors"
-            :class="viewMode === 'all' ? 'bg-qhx-primary text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600'"
+            :class="viewMode === 'all' ? 'bg-qhx-primary text-white' : 'bg-transparent text-[#9a858a] hover:bg-qhx-primary/10'"
             @click="switchViewMode('all')"
           >
             统计
@@ -57,7 +57,7 @@
           color="primary"
           @update:model-value="handleEmailNoticeChange"
         />
-        <span class="text-xs text-gray-600 dark:text-gray-400">订阅邮件通知</span>
+        <span class="text-xs text-[#9a858a]">订阅邮件通知</span>
       </div>
       <!-- <div class="flex flex-wrap">
         <QhxJellyButton>
@@ -72,44 +72,89 @@
     </div>
 
     <!-- 统计卡片区域 -->
-    <div ref="statisticsRef" v-if="layoutReady && statistics && viewMode === 'all'" class="mb-4">
-      <div class="bg-gray-900 dark:bg-gray-800 rounded-lg p-2.5 border border-gray-800 dark:border-gray-700">
-        <div class="grid grid-cols-2 sm:grid-cols-4 gap-x-3 gap-y-1.5">
-          <div class="flex items-center gap-1.5">
-            <UIcon name="i-heroicons-document-text" class="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
-            <div class="min-w-0">
-              <div class="text-sm font-semibold text-white">{{ statistics.total_plan || 0 }}</div>
-              <div class="text-[10px] text-gray-500">总计划</div>
-            </div>
+    <div ref="statisticsRef" v-if="layoutReady && statistics && viewMode === 'all'" class="mb-4 space-y-3">
+      <h2 class="plan-stats-section-title px-1">概览</h2>
+      <div class="grid grid-cols-2 gap-2.5">
+        <div class="plan-stats-metric">
+          <div class="plan-stats-metric-icon">
+            <UIcon name="i-heroicons-heart" class="w-4 h-4" />
           </div>
-          <div class="flex items-center gap-1.5">
-            <UIcon name="i-heroicons-check-circle" class="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
-            <div class="min-w-0">
-              <div class="text-sm font-semibold text-white">{{ statistics.is_complete || 0 }}</div>
-              <div class="text-[10px] text-gray-500">已完成</div>
-            </div>
+          <div class="plan-stats-metric-title">完成</div>
+          <div class="plan-stats-metric-sub">计划进度</div>
+          <div class="plan-stats-metric-value">{{ statistics.is_complete || 0 }} / {{ statistics.total_plan || 0 }}</div>
+        </div>
+        <div class="plan-stats-metric">
+          <div class="plan-stats-metric-icon">
+            <UIcon name="i-heroicons-moon" class="w-4 h-4" />
           </div>
-          <div class="flex items-center gap-1.5">
-            <UIcon name="i-heroicons-currency-dollar" class="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
-            <div class="min-w-0">
-              <div class="text-sm font-semibold text-white truncate">￥{{ formatMoney(statistics.have_money || 0) }}</div>
-              <div class="text-[10px] text-gray-500">已攒</div>
-            </div>
+          <div class="plan-stats-metric-title">攒钱</div>
+          <div class="plan-stats-metric-sub">资金进度</div>
+          <div class="plan-stats-metric-value">￥{{ formatMoney(statistics.have_money || 0) }}</div>
+        </div>
+      </div>
+
+      <div class="plan-stats-pulse">
+        <div class="flex items-start gap-3 mb-4">
+          <div class="plan-stats-metric-icon">
+            <UIcon name="material-symbols:ecg-heart" class="w-4 h-4" />
           </div>
-          <div class="flex items-center gap-1.5">
-            <UIcon name="i-heroicons-exclamation-triangle" class="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
-            <div class="min-w-0">
-              <div class="text-sm font-semibold text-white truncate">￥{{ formatMoney((statistics.need_money || 0) - (statistics.have_money || 0)) }}</div>
-              <div class="text-[10px] text-gray-500">还需</div>
-            </div>
+          <div>
+            <div class="plan-stats-metric-title leading-none">Pulse</div>
+            <div class="plan-stats-metric-sub mt-1">攒钱状态</div>
           </div>
         </div>
-        <div
-          v-if="(statistics.need_money || 0) - (statistics.have_money || 0) > 0"
-          class="mt-2 pt-2 flex items-center gap-1.5 border-t border-gray-700"
-        >
-          <span class="text-sm">⚠️</span>
-          <span class="text-xs text-amber-400">注意尾款！</span>
+        <div class="space-y-3.5">
+          <div v-for="row in pulseRows" :key="row.label" class="plan-stats-pulse-row">
+            <div class="plan-stats-pulse-label">{{ row.label }}</div>
+            <div class="plan-stats-pulse-track">
+              <div class="plan-stats-pulse-fill" :style="{ width: `${row.percent}%` }" />
+            </div>
+            <div class="plan-stats-pulse-value">{{ row.display }}</div>
+          </div>
+        </div>
+        <div v-if="remainMoney > 0" class="plan-stats-pulse-foot">
+          <span class="plan-stats-pulse-cross" aria-hidden="true">+</span>
+          <span>注意尾款 · 还需 ￥{{ formatMoney(remainMoney) }}</span>
+          <span class="plan-stats-pulse-cross" aria-hidden="true">+</span>
+        </div>
+      </div>
+
+      <!-- 年统计 -->
+      <div class="plan-stats-years">
+        <div class="flex items-center justify-between gap-2 mb-3 px-0.5">
+          <div>
+            <div class="plan-stats-metric-title leading-none">年统计</div>
+            <div class="plan-stats-metric-sub mt-1">Year archive</div>
+          </div>
+          <div class="flex items-center gap-1">
+            <button
+              type="button"
+              class="w-7 h-7 flex items-center justify-center rounded-md bg-white/80 border border-qhx-primary/20 hover:bg-qhx-primary/10"
+              @click="yearRangeStart = yearRangeStart - 6; fetchYearsTotal()"
+            >
+              <UIcon name="i-heroicons-chevron-left" class="w-3.5 h-3.5 text-[#9a858a]" />
+            </button>
+            <span class="text-[11px] font-semibold text-[#4f3f43] min-w-[72px] text-center">{{ yearRangeStart }}-{{ yearRangeStart + 5 }}</span>
+            <button
+              type="button"
+              class="w-7 h-7 flex items-center justify-center rounded-md bg-white/80 border border-qhx-primary/20 hover:bg-qhx-primary/10"
+              @click="yearRangeStart = yearRangeStart + 6; fetchYearsTotal()"
+            >
+              <UIcon name="i-heroicons-chevron-right" class="w-3.5 h-3.5 text-[#9a858a]" />
+            </button>
+          </div>
+        </div>
+        <div v-if="yearsTotalLoading" class="text-center py-6 text-[#9a858a] text-xs">加载中...</div>
+        <div v-else class="grid grid-cols-3 gap-2">
+          <div
+            v-for="y in yearRangeBlocks"
+            :key="y.year"
+            class="plan-stats-year-cell"
+          >
+            <span class="text-xs text-[#9a858a]">{{ y.year }}</span>
+            <span class="plan-stats-year-have" :class="{ 'has-value': y.have_money > 0 }">已补￥{{ formatMoney(y.have_money) }}</span>
+            <span class="plan-stats-year-unpaid" :class="{ 'has-value': y.unpaid_money > 0 }">未补￥{{ formatMoney(y.unpaid_money) }}</span>
+          </div>
         </div>
       </div>
     </div>
@@ -120,22 +165,22 @@
       <div class="flex items-center gap-1.5 mb-1.5 px-1">
         <button
           type="button"
-          class="w-7 h-7 flex items-center justify-center rounded-md bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600"
+          class="w-7 h-7 flex items-center justify-center rounded-md bg-[#fffbfc] border border-qhx-primary/20 hover:bg-qhx-primary/10"
           @click="yearSelect = yearSelect - 1; fetchYearTotal()"
         >
-          <UIcon name="i-heroicons-chevron-left" class="w-3.5 h-3.5 text-gray-600 dark:text-gray-400" />
+          <UIcon name="i-heroicons-chevron-left" class="w-3.5 h-3.5 text-[#9a858a]" />
         </button>
-        <span class="text-xs font-semibold text-gray-800 dark:text-gray-200 min-w-[52px] text-center">{{ yearSelect }}年</span>
+        <span class="text-xs font-semibold text-[#4f3f43] min-w-[52px] text-center">{{ yearSelect }}年</span>
         <button
           type="button"
-          class="w-7 h-7 flex items-center justify-center rounded-md bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600"
+          class="w-7 h-7 flex items-center justify-center rounded-md bg-[#fffbfc] border border-qhx-primary/20 hover:bg-qhx-primary/10"
           @click="yearSelect = yearSelect + 1; fetchYearTotal()"
         >
-          <UIcon name="i-heroicons-chevron-right" class="w-3.5 h-3.5 text-gray-600 dark:text-gray-400" />
+          <UIcon name="i-heroicons-chevron-right" class="w-3.5 h-3.5 text-[#9a858a]" />
         </button>
       </div>
       <!-- 月度汇总：12个月按块分布，无数据补0 -->
-      <div v-if="monthTotalLoading" class="text-center py-6 text-gray-400 dark:text-gray-500 text-xs">加载中...</div>
+      <div v-if="monthTotalLoading" class="text-center py-6 text-[#9a858a] text-xs">加载中...</div>
       <div v-else class="space-y-1">
         <div
           v-for="(row, rowIndex) in monthRowChunks"
@@ -146,13 +191,13 @@
             v-for="m in row"
             :key="m.month"
             type="button"
-            class="px-1.5 py-1.5 flex flex-col items-center gap-0.5 rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700/50 active:scale-[0.98] transition-all text-center min-w-0"
+            class="px-1.5 py-1.5 flex flex-col items-center gap-0.5 rounded-md border border-qhx-primary/20 bg-[#fffbfc] hover:bg-qhx-primary/5 active:scale-[0.98] transition-all text-center min-w-0"
             :class="{ 'ring-1 ring-qhx-primary border-qhx-primary': expandedMonth === m.month }"
             @click="toggleMonthExpand(m.month)"
           >
-            <span class="text-xs leading-tight text-gray-500 dark:text-gray-400">{{ m.month }}月</span>
-            <span class="text-[10px] leading-tight tabular-nums truncate w-full" :class="m.have_money > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-gray-400 dark:text-gray-500'">已补￥{{ formatMoney(m.have_money) }}</span>
-            <span class="text-[10px] leading-tight tabular-nums truncate w-full" :class="m.unpaid_money > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-gray-400 dark:text-gray-500'">未补￥{{ formatMoney(m.unpaid_money) }}</span>
+            <span class="text-xs leading-tight text-[#9a858a]">{{ m.month }}月</span>
+            <span class="text-[10px] leading-tight tabular-nums truncate w-full" :class="m.have_money > 0 ? 'text-[#6f9474]' : 'text-[#c4b4b7]'">已补￥{{ formatMoney(m.have_money) }}</span>
+            <span class="text-[10px] leading-tight tabular-nums truncate w-full" :class="m.unpaid_money > 0 ? 'text-[#e05353]' : 'text-[#c4b4b7]'">未补￥{{ formatMoney(m.unpaid_money) }}</span>
           </button>
         </div>
       </div>
@@ -163,39 +208,39 @@
       <!-- 年月切换 -->
       <div class="flex items-center gap-1.5 mb-1.5 px-1 flex-wrap">
         <div class="flex items-center gap-0.5">
-          <button type="button" class="w-7 h-7 flex items-center justify-center rounded-md bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600" @click="yearSelect = yearSelect - 1; fetchDayTotal()">
-            <UIcon name="i-heroicons-chevron-left" class="w-3.5 h-3.5 text-gray-600 dark:text-gray-400" />
+          <button type="button" class="w-7 h-7 flex items-center justify-center rounded-md bg-[#fffbfc] border border-qhx-primary/20 hover:bg-qhx-primary/10" @click="yearSelect = yearSelect - 1; fetchDayTotal()">
+            <UIcon name="i-heroicons-chevron-left" class="w-3.5 h-3.5 text-[#9a858a]" />
           </button>
-          <span class="text-xs font-semibold text-gray-800 dark:text-gray-200 min-w-[44px] text-center">{{ yearSelect }}年</span>
-          <button type="button" class="w-7 h-7 flex items-center justify-center rounded-md bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600" @click="yearSelect = yearSelect + 1; fetchDayTotal()">
-            <UIcon name="i-heroicons-chevron-right" class="w-3.5 h-3.5 text-gray-600 dark:text-gray-400" />
+          <span class="text-xs font-semibold text-[#4f3f43] min-w-[44px] text-center">{{ yearSelect }}年</span>
+          <button type="button" class="w-7 h-7 flex items-center justify-center rounded-md bg-[#fffbfc] border border-qhx-primary/20 hover:bg-qhx-primary/10" @click="yearSelect = yearSelect + 1; fetchDayTotal()">
+            <UIcon name="i-heroicons-chevron-right" class="w-3.5 h-3.5 text-[#9a858a]" />
           </button>
         </div>
         <div class="flex items-center gap-0.5">
-          <button type="button" class="w-7 h-7 flex items-center justify-center rounded-md bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600" @click="dayMonthSelect = Math.max(1, dayMonthSelect - 1); fetchDayTotal()">
-            <UIcon name="i-heroicons-chevron-left" class="w-3.5 h-3.5 text-gray-600 dark:text-gray-400" />
+          <button type="button" class="w-7 h-7 flex items-center justify-center rounded-md bg-[#fffbfc] border border-qhx-primary/20 hover:bg-qhx-primary/10" @click="dayMonthSelect = Math.max(1, dayMonthSelect - 1); fetchDayTotal()">
+            <UIcon name="i-heroicons-chevron-left" class="w-3.5 h-3.5 text-[#9a858a]" />
           </button>
-          <span class="text-xs font-semibold text-gray-800 dark:text-gray-200 min-w-[32px] text-center">{{ dayMonthSelect }}月</span>
-          <button type="button" class="w-7 h-7 flex items-center justify-center rounded-md bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600" @click="dayMonthSelect = Math.min(12, dayMonthSelect + 1); fetchDayTotal()">
-            <UIcon name="i-heroicons-chevron-right" class="w-3.5 h-3.5 text-gray-600 dark:text-gray-400" />
+          <span class="text-xs font-semibold text-[#4f3f43] min-w-[32px] text-center">{{ dayMonthSelect }}月</span>
+          <button type="button" class="w-7 h-7 flex items-center justify-center rounded-md bg-[#fffbfc] border border-qhx-primary/20 hover:bg-qhx-primary/10" @click="dayMonthSelect = Math.min(12, dayMonthSelect + 1); fetchDayTotal()">
+            <UIcon name="i-heroicons-chevron-right" class="w-3.5 h-3.5 text-[#9a858a]" />
           </button>
         </div>
       </div>
       <!-- 日块：7 列网格 -->
-      <div v-if="dayTotalLoading" class="text-center py-6 text-gray-400 dark:text-gray-500 text-xs">加载中...</div>
+      <div v-if="dayTotalLoading" class="text-center py-6 text-[#9a858a] text-xs">加载中...</div>
       <div v-else>
         <div class="grid grid-cols-7 gap-0.5">
           <button
             v-for="d in allDaysInMonth"
             :key="d.day"
             type="button"
-            class="px-1 py-1.5 flex flex-col items-center gap-0.5 rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700/50 active:scale-[0.98] transition-all text-center min-w-0"
+            class="px-1 py-1.5 flex flex-col items-center gap-0.5 rounded-md border border-qhx-primary/20 bg-[#fffbfc] hover:bg-qhx-primary/5 active:scale-[0.98] transition-all text-center min-w-0"
             :class="{ 'ring-1 ring-qhx-primary border-qhx-primary': expandedDay === d.day }"
             @click="toggleDayExpand(d.day)"
           >
-            <span class="text-[10px] leading-tight text-gray-500 dark:text-gray-400">{{ d.day }}日</span>
-            <span class="text-[9px] leading-tight tabular-nums truncate w-full" :class="d.have_money > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-gray-400 dark:text-gray-500'">已补￥{{ formatMoney(d.have_money) }}</span>
-            <span class="text-[9px] leading-tight tabular-nums truncate w-full" :class="d.unpaid_money > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-gray-400 dark:text-gray-500'">未补￥{{ formatMoney(d.unpaid_money) }}</span>
+            <span class="text-[10px] leading-tight text-[#9a858a]">{{ d.day }}日</span>
+            <span class="text-[9px] leading-tight tabular-nums truncate w-full" :class="d.have_money > 0 ? 'text-[#6f9474]' : 'text-[#c4b4b7]'">已补￥{{ formatMoney(d.have_money) }}</span>
+            <span class="text-[9px] leading-tight tabular-nums truncate w-full" :class="d.unpaid_money > 0 ? 'text-[#e05353]' : 'text-[#c4b4b7]'">未补￥{{ formatMoney(d.unpaid_money) }}</span>
           </button>
         </div>
       </div>
@@ -206,29 +251,29 @@
       v-if="layoutReady && viewMode !== 'all'"
       class="mt-4"
       :class="hasCalendarSelection
-        ? 'bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700'
+        ? 'bg-[#fffbfc] rounded-lg border border-qhx-primary/20'
         : 'space-y-2'"
     >
       <div
         v-if="hasCalendarSelection"
-        class="px-3 py-2 border-b border-gray-200 dark:border-gray-700"
+        class="px-3 py-2 border-b border-qhx-primary/20"
       >
-        <div class="text-xs font-medium text-gray-800 dark:text-gray-200">{{ filteredListTitle }}</div>
+        <div class="text-xs font-medium text-[#4f3f43]">{{ filteredListTitle }}</div>
         <div
           v-if="selectedPeriodMoneySummary"
           class="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs tabular-nums"
         >
-          <span :class="selectedPeriodMoneySummary.have_money > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-gray-500 dark:text-gray-400'">
+          <span :class="selectedPeriodMoneySummary.have_money > 0 ? 'text-[#6f9474]' : 'text-[#9a858a]'">
             已补总数 ￥{{ formatMoney(selectedPeriodMoneySummary.have_money) }}
           </span>
-          <span :class="selectedPeriodMoneySummary.unpaid_money > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-gray-500 dark:text-gray-400'">
+          <span :class="selectedPeriodMoneySummary.unpaid_money > 0 ? 'text-[#e05353]' : 'text-[#9a858a]'">
             需补总数 ￥{{ formatMoney(selectedPeriodMoneySummary.unpaid_money) }}
           </span>
         </div>
       </div>
       <div :class="hasCalendarSelection ? 'px-2 py-2' : ''">
-        <div v-if="isListLoading" class="text-center py-6 text-gray-400 dark:text-gray-500 text-xs">加载中...</div>
-        <div v-else-if="activeDisplayPlans.length === 0" class="text-center py-12 text-gray-400 dark:text-gray-500 text-xs">暂无计划</div>
+        <div v-if="isListLoading" class="text-center py-6 text-[#9a858a] text-xs">加载中...</div>
+        <div v-else-if="activeDisplayPlans.length === 0" class="text-center py-12 text-[#9a858a] text-xs">暂无计划</div>
         <div v-else class="space-y-2">
           <div v-for="item in activeDisplayPlans" :key="item.list_id" class="px-1">
             <PlanListItem
@@ -267,7 +312,7 @@
 
     <!-- 空状态 -->
     <div v-if="!layoutReady" class="text-center py-12">
-      <div class="text-gray-400 dark:text-gray-500">加载中...</div>
+      <div class="text-[#9a858a]">加载中...</div>
     </div>
   </div>
 
@@ -338,7 +383,7 @@
 
 <script setup lang="ts">
 import { ref, inject, computed, onMounted, watch, nextTick } from 'vue'
-import { getPlanList, getPlanListByMonth, getPlanTotalByYear, getPlanTotalByDay, deletePlanList, updatePlanMoney, planComplete, planListRelate, type PlanPeriodMoneyTotal } from '@/api/plan'
+import { getPlanList, getPlanListByMonth, getPlanTotalByYear, getPlanTotalByYears, getPlanTotalByDay, deletePlanList, updatePlanMoney, planComplete, planListRelate, type PlanPeriodMoneyTotal } from '@/api/plan'
 import type { PlanList, PaginationResponse, WardrobeClothes, ParentPlanSummary } from '@/types/api'
 import type PlanAddEdit from '@/components/Plan/PlanAddEdit.vue'
 import { BASE_IMG } from '@/utils/ipConfig'
@@ -366,18 +411,40 @@ const toast = useToast()
 // 视图模式：统计 | 按月 | 按日
 const viewMode = ref<'all' | 'month' | 'day'>('month')
 
-// 按月视图相关
-const yearSelect = ref(new Date().getFullYear())
 type PeriodMoneySummary = Required<Pick<PlanPeriodMoneyTotal, 'total_money' | 'have_money' | 'unpaid_money'>> & {
   month?: number
   day?: number
+  year?: number
 }
+
+// 统计页年汇总
+const currentYear = new Date().getFullYear()
+const yearRangeStart = ref(currentYear - 2)
+const yearsTotalsMap = ref<Record<number, PeriodMoneySummary>>({})
+const yearsTotalLoading = ref(false)
+
+const yearRangeBlocks = computed(() => {
+  return Array.from({ length: 6 }, (_, i) => {
+    const year = yearRangeStart.value + i
+    const item = yearsTotalsMap.value[year]
+    return {
+      year,
+      total_money: item?.total_money ?? 0,
+      have_money: item?.have_money ?? 0,
+      unpaid_money: item?.unpaid_money ?? 0
+    }
+  })
+})
+
+// 按月视图相关
+const yearSelect = ref(new Date().getFullYear())
 
 const monthTotals = ref<PeriodMoneySummary[]>([])
 const monthTotalLoading = ref(false)
 const expandedMonth = ref<number | null>(null)
 const monthPlanList = ref<Record<number, PlanList[]>>({})
 const monthPlanLoading = ref<Record<number, boolean>>({})
+
 // 12个月块分布，无数据补0
 const all12Months = computed(() => {
   const map = Object.fromEntries(monthTotals.value.map((m) => [m.month, m]))
@@ -492,6 +559,33 @@ const statistics = ref<{
   have_money?: number
   need_money?: number
 } | null>(null)
+
+const remainMoney = computed(() => {
+  const need = statistics.value?.need_money || 0
+  const have = statistics.value?.have_money || 0
+  return Math.max(0, need - have)
+})
+
+const pulseRows = computed(() => {
+  const totalPlan = statistics.value?.total_plan || 0
+  const complete = statistics.value?.is_complete || 0
+  const have = statistics.value?.have_money || 0
+  const need = statistics.value?.need_money || 0
+  const remain = Math.max(0, need - have)
+  const completeRate = totalPlan > 0 ? Math.min(100, Math.round((complete / totalPlan) * 100)) : 0
+  const moneyRate = need > 0 ? Math.min(100, Math.round((have / need) * 100)) : 0
+  const remainRate = need > 0 ? Math.min(100, Math.round((remain / need) * 100)) : 0
+  const pending = Math.max(0, totalPlan - complete)
+  const pendingRate = totalPlan > 0 ? Math.min(100, Math.round((pending / totalPlan) * 100)) : 0
+  const toDec = (n: number) => `.${String(Math.min(99, Math.round(n))).padStart(2, '0')}`
+
+  return [
+    { label: '完成率', percent: completeRate, display: toDec(completeRate) },
+    { label: '攒钱进度', percent: moneyRate, display: toDec(moneyRate) },
+    { label: '待完成', percent: pendingRate, display: toDec(pendingRate) },
+    { label: '剩余占比', percent: remainRate, display: toDec(remainRate) }
+  ]
+})
 
 // 编辑相关
 const editPlanData = ref<PlanList | null>(null)
@@ -829,9 +923,102 @@ const buildDayTotals = (
   })
 }
 
+/** 将全年计划按 end_time 月份分组（缺月补空数组） */
+const groupPlansByMonth = (list: PlanList[], year: number): Record<number, PlanList[]> => {
+  const grouped: Record<number, PlanList[]> = {}
+  for (let month = 1; month <= 12; month++) {
+    grouped[month] = []
+  }
+  for (const plan of list) {
+    if (!plan.end_time) continue
+    const end = dayjs(plan.end_time)
+    if (end.year() !== year) continue
+    const month = end.month() + 1
+    if (month < 1 || month > 12) continue
+    grouped[month].push(plan)
+  }
+  return grouped
+}
+
+/** 一次按年拉取 12 个月计划，避免 byMonth 打 12 次 */
 const ensureYearMonthPlansLoaded = async (force = false) => {
   const months = Array.from({ length: 12 }, (_, index) => index + 1)
-  await Promise.all(months.map((month) => loadMonthPlans(month, force)))
+  const allLoaded = months.every((month) => !!monthPlanList.value[month])
+  if (!force && allLoaded) return
+
+  for (const month of months) {
+    if (force || !monthPlanList.value[month]) {
+      monthPlanLoading.value[month] = true
+    }
+  }
+
+  try {
+    const list = await getPlanListByMonth({ year: yearSelect.value })
+    const grouped = groupPlansByMonth(list, yearSelect.value)
+    for (const month of months) {
+      if (force || !monthPlanList.value[month]) {
+        monthPlanList.value[month] = grouped[month] || []
+      }
+    }
+  } catch (error) {
+    console.error('获取年度计划失败:', error)
+    for (const month of months) {
+      if (force || !monthPlanList.value[month]) {
+        monthPlanList.value[month] = []
+      }
+    }
+    toast.add({ title: '获取年度计划失败', icon: 'i-heroicons-exclamation-circle', color: 'red' })
+  } finally {
+    for (const month of months) {
+      monthPlanLoading.value[month] = false
+    }
+  }
+}
+
+// 按年汇总（多年度，统一接口 totalByYears）
+const fetchYearsTotal = async () => {
+  yearsTotalLoading.value = true
+  try {
+    const startYear = yearRangeStart.value
+    const endYear = yearRangeStart.value + 5
+    const apiTotals = await getPlanTotalByYears({
+      start_year: startYear,
+      end_year: endYear
+    })
+    const map: Record<number, PeriodMoneySummary> = {}
+    for (let year = startYear; year <= endYear; year++) {
+      map[year] = emptyPeriodMoney()
+    }
+    for (const item of apiTotals || []) {
+      const year = Number(item.year)
+      if (!Number.isFinite(year)) continue
+      map[year] = {
+        year,
+        total_money: Number(item.total_money) || 0,
+        have_money: Number(item.have_money) || 0,
+        unpaid_money: Number(item.unpaid_money) || 0
+      }
+      if (
+        map[year].total_money > 0
+        && map[year].have_money === 0
+        && map[year].unpaid_money === 0
+      ) {
+        map[year].unpaid_money = map[year].total_money
+      }
+    }
+    yearsTotalsMap.value = map
+  } catch (error) {
+    console.error('获取年统计失败:', error)
+    toast.add({
+      title: '获取年统计失败',
+      description: '请确认后端已提供 /plan/list/totalByYears 接口',
+      icon: 'i-heroicons-exclamation-circle',
+      color: 'red'
+    })
+    yearsTotalsMap.value = {}
+  } finally {
+    yearsTotalLoading.value = false
+  }
 }
 
 // 按年汇总（月度）
@@ -857,7 +1044,7 @@ const fetchYearTotal = async (options?: { preserveSelection?: boolean; forcePlan
   }
 }
 
-// 加载某月计划列表
+// 加载某月计划列表（日视图 / 展开单月仍按月请求）
 const loadMonthPlans = async (month: number, force = false) => {
   if (!force && monthPlanList.value[month]) return
   monthPlanLoading.value[month] = true
@@ -1206,13 +1393,21 @@ const bumpStatistics = (patch: Partial<{ total_plan: number; is_complete: number
 const refreshAfterMutation = async () => {
   const preserveSelection = hasCalendarSelection.value
 
+  if (viewMode.value === 'all') {
+    await Promise.all([
+      fetchPlanList(false, true),
+      fetchYearsTotal()
+    ])
+    return
+  }
+
   if (viewMode.value === 'month') {
     await fetchYearTotal({ preserveSelection, forcePlans: true })
   } else if (viewMode.value === 'day') {
     await fetchDayTotal({ preserveSelection, forcePlans: true })
   }
 
-  if (viewMode.value === 'all' || !hasCalendarSelection.value) {
+  if (!hasCalendarSelection.value) {
     await fetchPlanList(false, true)
   } else {
     await refreshFilteredPlans()
@@ -1235,8 +1430,11 @@ const switchViewMode = (mode: 'all' | 'month' | 'day') => {
     if (!hasCalendarSelection.value && planList.value.length === 0) {
       tasks.push(fetchPlanList())
     }
-  } else if (!statistics.value) {
-    tasks.push(fetchPlanList())
+  } else {
+    tasks.push(fetchYearsTotal())
+    if (!statistics.value) {
+      tasks.push(fetchPlanList())
+    }
   }
 
   if (tasks.length) void Promise.all(tasks)
@@ -1580,6 +1778,12 @@ onMounted(() => {
 // SEO 配置
 useHead({
   title: '我的计划',
+  link: [
+    {
+      rel: 'stylesheet',
+      href: 'https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,500;0,600;0,700;1,400&display=swap'
+    }
+  ],
   meta: [
     {
       name: 'keywords',
@@ -1594,6 +1798,164 @@ useHead({
 </script>
 
 <style scoped>
+.plan-page {
+  color: #4f3f43;
+  background:
+    radial-gradient(ellipse 80% 50% at 10% -10%, color-mix(in srgb, var(--primary-color) 28%, transparent), transparent 55%),
+    radial-gradient(ellipse 70% 40% at 100% 0%, color-mix(in srgb, var(--primary-color) 18%, transparent), transparent 50%),
+    linear-gradient(180deg, #fff9fb 0%, #fff5f8 45%, #fff2f6 100%);
+}
+
+.plan-stats-section-title {
+  font-family: 'Cormorant Garamond', 'Songti SC', Georgia, serif;
+  font-size: 1.55rem;
+  font-weight: 600;
+  color: #4f3f43;
+  letter-spacing: 0.02em;
+}
+
+.plan-stats-metric,
+.plan-stats-pulse,
+.plan-stats-years {
+  background: linear-gradient(165deg, #fffbfc 0%, #fff7f9 100%);
+  border: 1px solid color-mix(in srgb, var(--primary-color) 22%, transparent);
+  border-radius: 1.35rem;
+  box-shadow: 0 8px 22px color-mix(in srgb, var(--primary-color) 10%, transparent);
+}
+
+.plan-stats-metric {
+  padding: 1rem 0.95rem 1.05rem;
+  min-height: 8.2rem;
+  display: flex;
+  flex-direction: column;
+}
+
+.plan-stats-metric-icon {
+  width: 1.85rem;
+  height: 1.85rem;
+  border-radius: 0.65rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--primary-color);
+  background: color-mix(in srgb, var(--primary-color) 16%, white);
+  margin-bottom: 0.65rem;
+}
+
+.plan-stats-metric-title {
+  font-family: 'Cormorant Garamond', 'Songti SC', Georgia, serif;
+  font-size: 1.2rem;
+  font-weight: 600;
+  color: #4f3f43;
+}
+
+.plan-stats-metric-sub {
+  font-size: 11px;
+  color: #9a858a;
+  margin-top: 0.15rem;
+}
+
+.plan-stats-metric-value {
+  margin-top: auto;
+  padding-top: 0.7rem;
+  font-family: 'Cormorant Garamond', Georgia, serif;
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: var(--primary-color);
+}
+
+.plan-stats-pulse {
+  padding: 1.1rem 1.15rem 1rem;
+}
+
+.plan-stats-pulse-row {
+  display: grid;
+  grid-template-columns: 4.5rem 1fr 2rem;
+  align-items: center;
+  gap: 0.65rem;
+}
+
+.plan-stats-pulse-label {
+  font-size: 12px;
+  color: #9a858a;
+}
+
+.plan-stats-pulse-track {
+  height: 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--primary-color) 14%, transparent);
+  overflow: hidden;
+}
+
+.plan-stats-pulse-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--primary-color);
+  transition: width 0.35s ease;
+}
+
+.plan-stats-pulse-value {
+  font-family: 'Cormorant Garamond', Georgia, serif;
+  font-size: 13px;
+  text-align: right;
+  color: #4f3f43;
+}
+
+.plan-stats-pulse-foot {
+  margin-top: 1.05rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid color-mix(in srgb, var(--primary-color) 16%, transparent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.65rem;
+  font-size: 11px;
+  color: #9a858a;
+}
+
+.plan-stats-pulse-cross {
+  font-size: 10px;
+  opacity: 0.55;
+  transform: rotate(45deg);
+}
+
+.plan-stats-years {
+  padding: 1.05rem 1rem 1rem;
+}
+
+.plan-stats-year-cell {
+  padding: 0.55rem 0.35rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.15rem;
+  text-align: center;
+  min-width: 0;
+  border-radius: 0.95rem;
+  border: 1px solid color-mix(in srgb, var(--primary-color) 18%, transparent);
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.plan-stats-year-have,
+.plan-stats-year-unpaid {
+  font-size: 9px;
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+  width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #c4b4b7;
+}
+
+.plan-stats-year-have.has-value {
+  color: #6f9474;
+}
+
+.plan-stats-year-unpaid.has-value {
+  color: #e05353;
+}
+
 .line-clamp-2 {
   display: -webkit-box;
   -webkit-line-clamp: 2;

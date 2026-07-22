@@ -53,7 +53,14 @@ import {
     saveSceneGraphicsSettings,
     settingsFromPreset,
     type SceneGraphicsPreset
-} from '@/utils/sceneGraphicsSettings';
+} from '@/utils/sceneGraphicsSettings'
+import {
+    applySceneAaaRender,
+    disposeSceneRenderHandles,
+    SCENE_AAA_LIGHT,
+    syncObjectEnvIntensity,
+    type SceneRenderHandles
+} from '@/utils/sceneRenderQuality'
 import { isGltfGlbModelMaterial, isRadLodSplatUrl, isSplatMaterial, isSplatUrl } from '@/utils/materiaModelKind'
 import {
     createMaterialLoadPlaceholder,
@@ -1397,8 +1404,11 @@ const sceneGraphicsPreset = ref<SceneGraphicsPreset>(
 const graphicsPresetOptions = [
     { label: '省电', value: 'performance' },
     { label: '均衡', value: 'balanced' },
-    { label: '高清', value: 'high' }
+    { label: '3A', value: 'high' }
 ]
+
+/** 3A 渲染句柄（IBL RT），卸载时释放 */
+const sceneRenderHandles: SceneRenderHandles = { envRT: null }
 
 const onGraphicsPresetChange = (preset: string) => {
     const next = settingsFromPreset(preset as SceneGraphicsPreset)
@@ -2147,36 +2157,36 @@ interface LightPreset {
 const lightPresets: Record<string, LightPreset> = {
     default: {
         name: '默认',
-        description: '默认灯光配置',
-        ambientIntensity: 2.8,
-        directionalIntensity: 2,
+        description: '3A 电影光（低环境光 + 主光塑形）',
+        ambientIntensity: SCENE_AAA_LIGHT.ambient,
+        directionalIntensity: SCENE_AAA_LIGHT.key,
         directionalAzimuth: 45,
-        directionalElevation: 45,
-        hemisphereIntensity: 0.4,
-        fillIntensity: 0.4,
-        lensIntensity: 0.5
+        directionalElevation: 55,
+        hemisphereIntensity: SCENE_AAA_LIGHT.hemi,
+        fillIntensity: SCENE_AAA_LIGHT.fill,
+        lensIntensity: SCENE_AAA_LIGHT.lens
     },
     warm: {
         name: '温暖',
         description: '温暖的暖色调灯光',
-        ambientIntensity: 1.5,
-        directionalIntensity: 2.5,
+        ambientIntensity: 0.1,
+        directionalIntensity: 0.72,
         directionalAzimuth: 60,
         directionalElevation: 50,
-        hemisphereIntensity: 0.6,
-        fillIntensity: 0.5,
-        lensIntensity: 0.8
+        hemisphereIntensity: 0.24,
+        fillIntensity: 0.14,
+        lensIntensity: 0.06
     },
     cool: {
         name: '冷调',
         description: '冷色调灯光效果',
-        ambientIntensity: 1.2,
-        directionalIntensity: 1.8,
+        ambientIntensity: 0.06,
+        directionalIntensity: 0.5,
         directionalAzimuth: 30,
         directionalElevation: 60,
-        hemisphereIntensity: 0.5,
-        fillIntensity: 0.3,
-        lensIntensity: 0.6
+        hemisphereIntensity: 0.22,
+        fillIntensity: 0.1,
+        lensIntensity: 0.03
     }
 }
 
@@ -2290,6 +2300,20 @@ const applyLightPreset = (presetKey: string, silent = false) => {
         }
         if (preset.fillIntensity !== undefined && threeCore.value.lights.fill) {
             threeCore.value.lights.fill.intensity = preset.fillIntensity
+        }
+        // 默认预设：同步云展馆电影光色
+        if (presetKey === 'default') {
+            const { ambient, hemisphere, directional, fill } = threeCore.value.lights
+            ambient.color.setHex(0xfff5f8)
+            if (hemisphere) {
+                hemisphere.color.setHex(0xffdce8)
+                hemisphere.groundColor.setHex(0x3a2830)
+            }
+            directional.color.setHex(0xfff2e6)
+            if (fill) fill.color.setHex(0xa8b8e0)
+            if (threeCore.value.lensLight) {
+                threeCore.value.lensLight.color.setHex(0xfff8f5)
+            }
         }
     }
     
@@ -2508,6 +2532,10 @@ const plantDragGhost = ref<{ label: string; kind: string; x: number; y: number }
 
 /** 写入稳定 userData.id 后加入场景；savedId 用于恢复已保存对象（如编辑长文本） */
 const stampAndAddSceneObject = (obj: THREE.Object3D, savedId?: string) => {
+    const envI = threeCore.value?.envMapIntensity
+    if (typeof envI === 'number' && envI > 0) {
+        syncObjectEnvIntensity(obj, envI)
+    }
     if (!threeCore.value) return
     threeCore.value.assignSceneObjectId(obj, savedId)
     threeCore.value.scene.add(obj)
@@ -3330,12 +3358,12 @@ onUnmounted(() => {
     linkBadgeMarkers.value = []
     unbindSceneMaterialDrop()
     unbindScenePlantDrop()
+    disposeSceneRenderHandles(sceneRenderHandles)
     disposeScene(document.getElementById('scene') || undefined)
 
-    // 恢复 body 样式
+    // 恢复视口锁定
     if (process.client) {
-        document.body.style.width = ''
-        document.body.style.height = ''
+        document.documentElement.style.overflow = ''
         document.body.style.overflow = ''
     }
 })
@@ -3347,8 +3375,10 @@ const setMode = (type: 'translate' | 'scale' | 'rotate') => {
     if (selected && tc.object !== selected) {
         tc.attach(selected)
     }
-    transformType.value = type
-    tc.setMode(type)
+    // 移动与旋转已合并为 translate（箭头平移 + 圆弧旋转）
+    const resolved = type === 'rotate' ? 'translate' : type
+    transformType.value = resolved
+    tc.setMode(resolved)
 }
 
 function isTypingInForm(target: EventTarget | null): boolean {
@@ -3364,8 +3394,7 @@ function tryTransformHotkey(key: string): boolean {
     if (!clickObject.value?.length) return false
     if (target.value || animationTarget.value || showSceneEditGuide.value) return false
     const mode =
-        key === 'g' ? 'translate'
-        : key === 'r' ? 'rotate'
+        key === 'g' || key === 'r' ? 'translate'
         : key === 's' ? 'scale'
         : null
     if (!mode) return false
@@ -3406,7 +3435,8 @@ const initThreejs = async () => {
             sceneData: detail.value,
             enableRaycaster: hasSplatObject,
             preferWebGPU: false,
-            colorStyle: 'anime',
+            // 3A / PBR：ACES 电影色调；anime 为二次元高饱和
+            colorStyle: 'pbr',
             graphicsSettings: {
                 antialias: gfx.antialias,
                 pixelRatio: resolveRendererPixelRatio(gfx),
@@ -3442,8 +3472,19 @@ const initThreejs = async () => {
 
         // 场景加载完成后，灯光配置已经在 loadSceneFromJSON 中自动应用了
         // 如果没有保存的灯光配置，使用默认预设
-        if (threeCore.value && !detail.value?.json_data?.lighting) {
+        const hasSavedLighting = Boolean(detail.value?.json_data?.lighting)
+        if (threeCore.value && !hasSavedLighting) {
             applyLightPreset('default', true)
+        }
+
+        // 3A 渲染：IBL / ACES / Bloom / 阴影；无存档灯光时同步写入电影光色
+        if (threeCore.value) {
+            applySceneAaaRender(threeCore.value, {
+                withSplats: threeCore.value.sceneHasSplats() || hasSplatObject,
+                mobile: isMobile.value,
+                tuneLights: !hasSavedLighting,
+                handles: sceneRenderHandles
+            })
         }
 
 		// 编辑/新增模式下：监听变换控件拖拽，记录撤销状态
@@ -3518,10 +3559,9 @@ onMounted(async () => {
     // 尽早注册拖拽落点，不等 Three 初始化完成
     bindSceneMaterialDrop()
     bindScenePlantDrop()
-    // 设置 body 样式
+    // 锁定页面滚动（避免工具栏/操作条展开撑出滚动条）
     if (process.client) {
-        document.body.style.width = '100vw'
-        document.body.style.height = '100vh'
+        document.documentElement.style.overflow = 'hidden'
         document.body.style.overflow = 'hidden'
     }
     
@@ -3558,7 +3598,7 @@ onMounted(async () => {
             exitWallDraw()
             return
         }
-        // R 旋转、G 移动、S 缩放（编辑/新建模式、已选物体、非输入态）
+        // G/R 移动+旋转、S 缩放（编辑/新建模式、已选物体、非输入态）
         if (
             !isTypingInForm(e.target)
             && !(e.ctrlKey || e.metaKey || e.altKey)
@@ -3611,7 +3651,7 @@ useHead({
 })
 </script>
 <template>
-    <div class="select-none touch-callout-none scene-page-neu" :style="scenePageBackgroundStyle">
+    <div class="scene-page-neu fixed inset-0 overflow-hidden select-none touch-callout-none" :style="scenePageBackgroundStyle">
         <!-- 素材拖拽跟随预览 -->
         <div
             v-if="materialDragging && materialDragGhost"
@@ -3845,8 +3885,10 @@ useHead({
         <!-- 左侧功能栏：编辑工具列表（默认收起） -->
         <div
             id="scene-guide-left-toolbar"
-            class="fixed left-0 z-[20] flex flex-col overflow-hidden rounded-r-xl scene-neu-panel backdrop-blur-md transition-all duration-300 ease-out top-1/2 z-[30] max-h-[75vh] -translate-y-1/2"
-            :class="showToolbar ? 'w-[52px] sm:w-[56px]' : 'w-[36px] sm:w-[38px] scene-neu-panel--collapsed'"
+            class="fixed left-0 z-[30] flex flex-col overflow-hidden rounded-r-xl scene-neu-panel backdrop-blur-md transition-all duration-300 ease-out top-1/2 -translate-y-1/2"
+            :class="showToolbar
+                ? 'max-h-[75vh] w-[52px] sm:w-[56px]'
+                : 'h-[40px] w-[36px] sm:w-[38px] scene-neu-panel--collapsed'"
         >
             <button
                 type="button"
@@ -3873,12 +3915,12 @@ useHead({
                     工具
                 </span>
             </button>
-            <!-- 内容区用 max-h 过渡实现流畅收起，不使用 v-show 避免瞬间消失 -->
+            <!-- 内容区用 max-h 过渡收起；滚动仅发生在面板内部 -->
             <div
-                class="overflow-hidden transition-[max-height] duration-300 ease-in-out"
+                class="min-h-0 overflow-hidden transition-[max-height] duration-300 ease-in-out"
                 :class="showToolbar ? 'max-h-[calc(75vh-52px)]' : 'max-h-0'"
             >
-                <div class="overflow-y-auto overscroll-contain p-1.5 space-y-1.5 scrollbar-hide">
+                <div class="max-h-[inherit] overflow-y-auto overscroll-contain p-1.5 space-y-1.5 scrollbar-hide">
                     <!-- 撤销 -->
                     <button v-if="edit_mode || add_mode" @click="handleUndo"
                         :class="[canUndo ? '' : 'opacity-50 cursor-not-allowed', 'scene-neu-tool-btn group']"
@@ -4513,7 +4555,7 @@ useHead({
             </div>
         </div>
 
-        <div style="height: 100vh; width: 100vw; overflow: hidden; " id="scene"></div>
+        <div id="scene" class="absolute inset-0 overflow-hidden"></div>
         <div
             v-if="wallDrawActive"
             class="pointer-events-none fixed bottom-6 left-1/2 z-[25] -translate-x-1/2 rounded-full bg-black/55 px-4 py-2 text-xs text-white backdrop-blur-sm"
@@ -4633,22 +4675,23 @@ useHead({
             </div>
         </div>
         <SceneViewCube :core="threeCore" :enabled="edit_mode && !walkthroughActive" />
-        <div class="opera fixed z-[50] md:flex items-center whitespace-nowrap"
-            v-show="clickObject && edit_mode && !sceneStepGroupingMode && !target && !animationTarget" :class="[
-                'md:absolute md:top-auto md:bottom-auto md:left-auto md:right-auto',
-                'fixed bottom-4 left-1/2 -translate-x-1/2 w-[calc(100%-32px)] md:w-auto md:translate-x-0 md:static'
-            ]"
-            :style="!isMobile && operaPosition ? { left: operaPosition.x + 40 + 'px', top: operaPosition.y - 100 + 'px' } : {}">
+        <div
+            class="opera fixed z-[50] flex items-center whitespace-nowrap"
+            v-show="clickObject && edit_mode && !sceneStepGroupingMode && !target && !animationTarget"
+            :class="isMobile
+                ? 'bottom-4 left-1/2 w-[calc(100%-32px)] -translate-x-1/2'
+                : 'w-auto'"
+            :style="!isMobile && operaPosition
+                ? { left: `${operaPosition.x + 40}px`, top: `${operaPosition.y - 100}px` }
+                : undefined"
+        >
             <!-- <QhxJellyButton>
                 
             </QhxJellyButton> -->
             <div
                 class="scene-neu-opera-bar opera p-1.5 backdrop-blur-md rounded-full z-[50] flex items-center whitespace-nowrap overflow-x-auto scrollbar-hide w-full md:w-auto gap-0.5">
                 <div class="scene-neu-opera-chip flex-shrink-0" @click="setMode('translate')"
-                    v-show="transformType !== 'translate'">移动</div>
-                <div class="scene-neu-opera-chip flex-shrink-0" @click="setMode('rotate')"
-                    v-show="transformType !== 'rotate'">
-                    旋转</div>
+                    v-show="transformType !== 'translate'">移动/旋转</div>
                 <div class="scene-neu-opera-chip flex-shrink-0" @click="setMode('scale')"
                     v-show="transformType !== 'scale'">缩放
                 </div>
@@ -4910,7 +4953,7 @@ useHead({
                 <section class="space-y-4 rounded-2xl border border-gray-200/90 bg-gray-50/50 p-4 dark:border-gray-600/80 dark:bg-gray-800/40 md:p-5">
                     <div>
                         <h4 class="text-sm font-semibold text-gray-800 dark:text-gray-200">画质设置</h4>
-                        <p class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">切换后将刷新页面并保存到本机</p>
+                        <p class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">默认 3A；切换后将刷新页面并保存到本机</p>
                     </div>
 
                     <div>
@@ -5537,21 +5580,11 @@ useHead({
 /* 隐藏滚动条但保持滚动功能 */
 .scrollbar-hide {
     -ms-overflow-style: none;
-    /* IE and Edge */
     scrollbar-width: none;
-    /* Firefox */
 }
 
 .scrollbar-hide::-webkit-scrollbar {
     display: none;
-    /* Chrome, Safari and Opera */
-}
-
-/* 手机端优化 */
-@media (max-width: 768px) {
-    .scrollbar-hide {
-        max-height: calc(100vh - 2rem);
-    }
 }
 
 /* 场景页：拟态 + 半透明玻璃（工具栏 / 侧栏 / 操作条 / 顶栏按钮） */

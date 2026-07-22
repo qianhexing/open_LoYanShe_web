@@ -96,7 +96,7 @@
 import { ref, watch, computed } from 'vue'
 import { getCommunityList } from '@/api/community'
 import type { Community } from '@/types/api'
-import { BASE_IMG } from '@/utils/ipConfig'
+import { firstCommunityDisplayPath, toAbsoluteMediaUrl } from '@/utils/communityLiveMedia'
 import { useUserStore } from '@/stores/user'
 
 const props = withDefaults(
@@ -145,15 +145,8 @@ const choose_item = ref<Community | null>(null)
 const clickPosition = ref({ x: 0, y: 0 })
 
 function getFirstImg(item: Community): string {
-  if (item.img_list) {
-    const imgs = item.img_list.split(',').filter(Boolean)
-    if (imgs[0]) return `${BASE_IMG}${imgs[0]}`
-  }
-  if (item.small_img_list) {
-    const imgs = (typeof item.small_img_list === 'string' ? item.small_img_list.split(',') : item.small_img_list).filter(Boolean)
-    if (imgs[0]) return `${BASE_IMG}${imgs[0]}`
-  }
-  return ''
+  const rel = firstCommunityDisplayPath(item.img_list, item.small_img_list)
+  return rel ? toAbsoluteMediaUrl(rel) : ''
 }
 
 function closeModel() {

@@ -72,6 +72,25 @@ export type EzTreePresetDef = {
 
 /** 内置 + 自定义树种（自定义基于内置预设调色/改形） */
 export const EZ_TREE_PRESETS: readonly EzTreePresetDef[] = [
+	// —— 樱花 ——
+	{
+		id: 'Cherry Blossom',
+		label: '樱花 · 粉',
+		kind: 'cherry',
+		base: 'Ash Medium',
+		targetHeight: 4,
+		style: (o) => {
+			o.bark.type = 'oak'
+			o.bark.tint = 0xd2b48c
+			o.leaves.type = 'ash'
+			o.leaves.tint = 0xff8fab
+			o.leaves.count = Math.max(o.leaves.count, 40)
+			o.leaves.size = 2.0
+			o.leaves.sizeVariance = 0.45
+			o.leaves.alphaTest = 0.28
+			o.leaves.billboard = 'double'
+		}
+	},
 	// —— 白蜡 ——
 	{ id: 'Ash Small', label: '白蜡 · 小', kind: 'ash', targetHeight: 2.6 },
 	{ id: 'Ash Medium', label: '白蜡 · 中', kind: 'ash', targetHeight: 4.2 },
@@ -174,23 +193,6 @@ export const EZ_TREE_PRESETS: readonly EzTreePresetDef[] = [
 			o.leaves.type = 'oak'
 			o.leaves.tint = 0xb01030
 			o.leaves.count = Math.max(o.leaves.count, 24)
-		}
-	},
-	{
-		id: 'Cherry Blossom',
-		label: '樱花',
-		kind: 'cherry',
-		base: 'Ash Medium',
-		targetHeight: 4,
-		style: (o) => {
-			o.bark.type = 'oak'
-			o.bark.tint = 0xd2b48c
-			o.leaves.type = 'ash'
-			o.leaves.tint = 0xffc0cb
-			o.leaves.count = Math.max(o.leaves.count, 36)
-			o.leaves.size = 2.1
-			o.leaves.alphaTest = 0.28
-			o.leaves.billboard = 'double'
 		}
 	},
 	{
@@ -527,6 +529,81 @@ function cloneTexture(tex: THREE.Texture | null | undefined): THREE.Texture | nu
 	return cloned
 }
 
+/**
+ * 叶贴图多为绿色 RGB；MeshStandardMaterial 会做 map×color。
+ * 绿叶 × 粉色 tint → 棕色。把 RGB 提亮近白并保留 alpha，tint 才能还原真实色相。
+ * （发白绿通常是贴图过灰 + tint 被降饱和；贴图需偏白、tint 保持原色。）
+ */
+function makeTintableLeafMap(
+	src: THREE.Texture | null | undefined
+): THREE.Texture | null {
+	const cloned = cloneTexture(src)
+	if (!cloned) return null
+
+	const img = cloned.image as
+		| (CanvasImageSource & { width?: number; height?: number })
+		| undefined
+	if (
+		typeof document === 'undefined'
+		|| !img
+		|| typeof img.width !== 'number'
+		|| typeof img.height !== 'number'
+		|| img.width <= 0
+		|| img.height <= 0
+	) {
+		return cloned
+	}
+
+	try {
+		const canvas = document.createElement('canvas')
+		canvas.width = img.width
+		canvas.height = img.height
+		const ctx = canvas.getContext('2d', { willReadFrequently: true })
+		if (!ctx) return cloned
+
+		ctx.drawImage(img as CanvasImageSource, 0, 0)
+		const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height)
+		const d = imageData.data
+		for (let i = 0; i < d.length; i += 4) {
+			const lum = 0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2]
+			// 偏白以保住 tint 饱和度，仍留一点明暗
+			const v = Math.min(255, Math.round(200 + lum * 0.22))
+			d[i] = v
+			d[i + 1] = v
+			d[i + 2] = v
+			if (d[i + 3] >= 250 && lum < 8) d[i + 3] = 0
+		}
+		ctx.putImageData(imageData, 0, 0)
+
+		const tex = new THREE.CanvasTexture(canvas)
+		tex.flipY = cloned.flipY
+		tex.wrapS = cloned.wrapS
+		tex.wrapT = cloned.wrapT
+		tex.magFilter = cloned.magFilter
+		tex.minFilter = cloned.minFilter
+		tex.generateMipmaps = cloned.generateMipmaps
+		tex.needsUpdate = true
+		if ('colorSpace' in tex) {
+			;(tex as THREE.Texture & { colorSpace: string }).colorSpace =
+				THREE.SRGBColorSpace
+		}
+		cloned.dispose()
+		return tex
+	} catch {
+		return cloned
+	}
+}
+
+/** 粉/白/紫花类（樱花等），其余按绿叶处理环境反射 */
+function isFloralLeafTint(tint: number): boolean {
+	const c = new THREE.Color(tint)
+	const max = Math.max(c.r, c.g, c.b)
+	const min = Math.min(c.r, c.g, c.b)
+	const sat = max > 1e-4 ? (max - min) / max : 0
+	const floralHue = c.r >= c.g * 0.85 && c.b >= c.g * 0.55
+	return max > 0.72 && (sat < 0.45 || floralHue)
+}
+
 function disposeObjectGpu(root: THREE.Object3D) {
 	root.traverse((obj) => {
 		const mesh = obj as THREE.Mesh
@@ -569,6 +646,7 @@ type PhongLike = THREE.MeshPhongMaterial & {
 /**
  * 烘焙为高质量 MeshStandardMaterial Group。
  * 保留树皮/叶片贴图；去掉库内风动 onBeforeCompile（与现行 Three 更稳）。
+ * 叶片 tint 保持原色（避免发白绿）；仅用粗糙度/低 IBL 控制高光。
  */
 function bakeEzTreeToSafeGroup(tree: EzTreeInstance): THREE.Group {
 	const group = new THREE.Group()
@@ -586,16 +664,16 @@ function bakeEzTreeToSafeGroup(tree: EzTreeInstance): THREE.Group {
 			normalMap: cloneTexture(srcMat?.normalMap),
 			roughnessMap: cloneTexture(srcMat?.roughnessMap),
 			color: new THREE.Color(barkTint),
-			roughness: 0.9,
-			metalness: 0.02,
+			roughness: 0.94,
+			metalness: 0,
 			aoMapIntensity: 1,
-			envMapIntensity: 0.35,
+			envMapIntensity: 0.12,
 			flatShading: false
 		})
+		branchMat.userData.ezTreePart = 'bark'
 		if (branchMat.normalMap) {
-			branchMat.normalScale = new THREE.Vector2(0.85, 0.85)
+			branchMat.normalScale = new THREE.Vector2(0.7, 0.7)
 		}
-		// aoMap 需要 uv2；无则复用 uv
 		if (branchMat.aoMap && branchGeo.getAttribute('uv') && !branchGeo.getAttribute('uv2')) {
 			branchGeo.setAttribute('uv2', branchGeo.getAttribute('uv'))
 		}
@@ -615,8 +693,9 @@ function bakeEzTreeToSafeGroup(tree: EzTreeInstance): THREE.Group {
 			typeof tree.options.leaves.tint === 'number'
 				? tree.options.leaves.tint
 				: 0x5a8f3c
+		const floral = isFloralLeafTint(leafTint)
 		const leafMat = new THREE.MeshStandardMaterial({
-			map: cloneTexture(srcMat?.map),
+			map: makeTintableLeafMap(srcMat?.map),
 			color: new THREE.Color(leafTint),
 			side: THREE.DoubleSide,
 			alphaTest:
@@ -625,11 +704,12 @@ function bakeEzTreeToSafeGroup(tree: EzTreeInstance): THREE.Group {
 					: 0.4,
 			transparent: false,
 			depthWrite: true,
-			roughness: 0.78,
+			roughness: floral ? 0.86 : 0.95,
 			metalness: 0,
-			envMapIntensity: 0.45,
+			envMapIntensity: floral ? 0.18 : 0.08,
 			dithering: true
 		})
+		leafMat.userData.ezTreePart = 'leaves'
 		const leafMesh = new THREE.Mesh(leafGeo, leafMat)
 		leafMesh.name = 'eztree-leaves'
 		leafMesh.castShadow = true

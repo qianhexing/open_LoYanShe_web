@@ -2,6 +2,7 @@
 import type { Study } from '@/types/api';
 import { getStudyId, getStudyForeignList } from '@/api/study'
 import { BASE_IMG } from '@/utils/ipConfig'
+import { firstCommunityDisplayPath } from '@/utils/communityLiveMedia'
 
 const route = useRoute()
 const router = useRouter()
@@ -61,11 +62,9 @@ const waterfallFetch = async (page: number, pageSize: number) => {
       let username = ''
 
       if (item.pk_type === 0 && item.community) {
-        // 帖子处理
-        if (item.community.img_list) {
-          const imgs = item.community.img_list.split(',')
-          if (imgs.length > 0) cover = imgs[0]
-        }
+        // 帖子处理（Live → 同名 jpg 封面）
+        const poster = firstCommunityDisplayPath(item.community.img_list)
+        if (poster) cover = poster
         if (!title && item.community.content) {
           title = stripHtml(item.community.content)
         }

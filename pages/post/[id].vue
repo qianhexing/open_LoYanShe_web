@@ -2,11 +2,17 @@
   
   import { BASE_IMG } from '@/utils/ipConfig'
   import CommentItem from '@/components/Xl/CommentItem.vue'
-  import SimpleCarousel from '@/components/Xl/SimpleCarousel.vue'
+  import SimpleCarousel, {
+    type SimpleCarouselImage,
+  } from '@/components/Xl/SimpleCarousel.vue'
   import { getCommunityDetail } from '@/api/community'
   import { getCommentList } from '@/api/comment'
   import { formatRich, parseRichText, type RichNode } from '@/utils/public'
   import SafeRichText from '@/components/SafeRichText.vue'
+  import {
+    parseCommunityImgList,
+    toAbsoluteMediaUrl,
+  } from '@/utils/communityLiveMedia'
   import dayjs from 'dayjs'
   
   // ---引入 Pinia 相关 ---
@@ -42,7 +48,7 @@
     richContent?: RichNode[]
     date: string
     location?: string
-    images: string[]
+    images: SimpleCarouselImage[]
     user: {
       nickname: string
       avatar: string
@@ -82,13 +88,13 @@
     try {
       const communityData = await getCommunityDetail({ community_id: Number(id) })
       
-      // --- 图片处理 ---
-      let images: string[] = []
+      // --- 图片处理（Live：封面 jpg + videoSrc）---
+      let images: SimpleCarouselImage[] = []
       if (communityData.img_list) {
-        images = communityData.img_list
-          .split(',')
-          .filter(i => i && i.trim())
-          .map(i => joinUrl(BASE_IMG, i.trim()))
+        images = parseCommunityImgList(communityData.img_list).map((m) => ({
+          src: toAbsoluteMediaUrl(m.displayPath),
+          videoSrc: m.videoPath ? toAbsoluteMediaUrl(m.videoPath) : undefined,
+        }))
       }
   
       // --- 内容处理 ---

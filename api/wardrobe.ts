@@ -49,13 +49,22 @@ export async function getClothesList(
   return response.data;
 }
 
+/** `/clothes/all` 的 attributes：与后端白名单一致 */
+export type ClothesAllAttribute =
+  | 'clothes_img'
+  | 'clothes_note'
+  | 'clothes_part'
+  | 'wardrobe_status'
+  | 'color'
+  | 'price'
+
 /** 单次拉取某衣柜下全部服饰（与列表排序一致由后端保证） */
 export interface ClothesAllParams {
   wardrobe_id: number
   password?: string
   qrcode?: string
   filter_list?: Record<string, unknown>
-  attributes?: string[] | undefined
+  attributes?: ClothesAllAttribute[]
 }
 
 /** `/clothes/all` 可能返回仅含 clothes_id / wardrobe_id 的精简项，或 clothes_id 为字符串 */
@@ -108,7 +117,6 @@ export async function getClothesListAllFallback(params: ClothesAllParams ): Prom
         password: params.password,
         qrcode: params.qrcode,
         filter_list: params.filter_list as Record<string, unknown> | undefined,
-        attributes: params.attributes as Record<string, unknown> | undefined
       })
       const chunk = res.rows ?? []
       out.push(...chunk)

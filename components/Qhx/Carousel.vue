@@ -3,12 +3,15 @@
 -->
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import CommunityLiveThumb from '@/components/community/CommunityLiveThumb.vue'
 
 export interface QhxCarouselItem {
   src: string
   alt?: string
   /** 点击整页跳转（可选） */
   href?: string
+  /** Live 动图 mp4（社区等场景） */
+  videoSrc?: string
 }
 
 const props = withDefaults(
@@ -159,7 +162,13 @@ function onDragEnd() {
   swipeOffset.value = 0
 }
 
+function isLiveBadgeTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof Element)) return false
+  return Boolean(target.closest('[data-live-badge], .community-live-thumb__badge'))
+}
+
 function handleTouchStart(e: TouchEvent) {
+  if (isLiveBadgeTarget(e.target)) return
   onDragStart(e.touches[0].clientX)
 }
 
@@ -174,6 +183,7 @@ function handleTouchEnd() {
 
 function handleMouseDown(e: MouseEvent) {
   if (e.button !== 0) return
+  if (isLiveBadgeTarget(e.target)) return
   onDragStart(e.clientX)
   const onMove = (ev: MouseEvent) => onDragMove(ev.clientX)
   const onUp = () => {
@@ -280,8 +290,17 @@ defineExpose({
           :index="i"
           :active="i === currentIndex"
         >
+          <CommunityLiveThumb
+            v-if="item.videoSrc"
+            :poster-src="item.src"
+            :video-src="item.videoSrc"
+            :active="i === currentIndex"
+            :alt="item.alt ?? ''"
+            media-class="h-full w-full object-cover"
+          />
           <component
             :is="item.href ? 'a' : 'div'"
+            v-else
             v-bind="item.href ? { href: item.href } : {}"
             class="block h-full w-full outline-none"
           >

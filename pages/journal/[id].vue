@@ -1158,6 +1158,7 @@ import { getLibraryDetail } from '@/api/library'
 import { getSceneId } from '@/api/scene'
 import type { MatchingListItem } from '@/api/matching_list'
 import { BASE_IMG } from '@/utils/ipConfig'
+import { firstCommunityDisplayPath } from '@/utils/communityLiveMedia'
 import {
   hasSceneArTarget,
   pickArTargetFromSceneJson
@@ -1394,11 +1395,10 @@ const daysInCurrentMonth = computed(
   () => new Date(yearSelect.value, monthSelect.value, 0).getDate()
 )
 
-/** 从单条手账中提取第一张图片路径：community=img_list(逗号分割)，comment=mount_img，wardrobe_clothes=clothes_img */
+/** 从单条手账中提取第一张图片路径：community=img_list(逗号分割，Live→jpg)，comment=mount_img，wardrobe_clothes=clothes_img */
 function getFirstImageFromJournal(j: Journal): string | null {
   if (j.pk_type === 1 && j.community?.img_list) {
-    const first = j.community.img_list.split(',')[0]?.trim()
-    return first || null
+    return firstCommunityDisplayPath(j.community.img_list)
   }
   if (j.pk_type === 0 && j.comment?.mount_img) {
     const first = j.comment.mount_img.split(',')[0]?.trim()

@@ -338,18 +338,7 @@
           <div v-if="!isReviewMode" class="flex gap-2">
             <UButton color="primary" size="sm" @click="showChooseWiki('theme')">{{
               t('addLibrary.select_theme') }}</UButton>
-            <customInput @insert="(tag) => { 
-              if (!library.theme) {
-                library.theme = []
-              }
-              const index = library.theme.findIndex((child: Wiki) => { return child.wiki_name === tag })
-              if (index === -1) {
-                library.theme.push({
-                  wiki_name: tag,
-                  wiki_id: tag
-                })
-              }
-            }" ref="themeCustomInputRef"></customInput>
+            <customInput @insert="addThemeTag" ref="themeCustomInputRef"></customInput>
             <UButton color="primary" size="sm" @click="(e: MouseEvent) => { openThemeCustomInput(e) }">
               添加自定义标签
             </UButton>
@@ -1116,6 +1105,25 @@ const ANALYZE_TAG_FIELD_LABELS: Record<AnalyzeTagFieldKey, string> = {
   color: '颜色',
 }
 
+/** 主题禁止占用的 wiki 类型：2 设计元素、4 主风格 */
+const THEME_FORBIDDEN_WIKI_TYPE_IDS = [2, 4]
+
+/** 一次查询 type_id [2,4]，若 wiki_name 已存在则不可作为主题 */
+const findThemeForbiddenWiki = async (tag: string): Promise<Wiki | null> => {
+  const name = tag.trim()
+  if (!name) return null
+  try {
+    const list = await getWikiOptionsByKeywords({
+      type_id: THEME_FORBIDDEN_WIKI_TYPE_IDS,
+      wiki_name: name,
+    })
+    return (list || []).find((w) => w.wiki_name === name) ?? null
+  } catch (error) {
+    console.error('校验主题禁止词失败:', error)
+  }
+  return null
+}
+
 const WIKI_NAME_ANALYZE_FIELDS = [
   'library_pattern',
   'pattern_elements',
@@ -1399,11 +1407,12 @@ const wikiFromCandidate = (item: AnalyzeTagCandidate): Wiki => ({
   wiki_name: item.wikiName,
 })
 
-const mergeWikiCandidates = (
+const mergeWikiCandidates = async (
   field: 'pattern_elements' | 'design_elements' | 'cloth_elements' | 'secondary_cloth' | 'theme' | 'color',
   items: AnalyzeTagCandidate[]
 ) => {
   for (const item of items) {
+    if (field === 'theme' && (await findThemeForbiddenWiki(item.wikiName))) continue
     const wiki = wikiFromCandidate(item)
     const exists = library.value[field].some((child) => child.wiki_name === wiki.wiki_name)
     if (!exists) library.value[field].push(wiki)
@@ -1425,7 +1434,7 @@ const mergePatternCandidates = (items: AnalyzeTagCandidate[]) => {
   }
 }
 
-const applySelectedAnalyzeTags = () => {
+const applySelectedAnalyzeTags = async () => {
   const selected = analyzeTagsPreviewGroups.value.flatMap((group) =>
     group.items.filter((item) => item.selected)
   )
@@ -1457,7 +1466,7 @@ const applySelectedAnalyzeTags = () => {
 
   for (const [field, formField] of Object.entries(wikiFieldMap)) {
     const items = byField.get(field as AnalyzeTagFieldKey)
-    if (items?.length) mergeWikiCandidates(formField, items)
+    if (items?.length) await mergeWikiCandidates(formField, items)
   }
 
   const mainStyleItems = byField.get('main_style')
@@ -1957,6 +1966,33 @@ const openPatternElementsCustomInput = (e: MouseEvent) => {
 const route = useRoute()
 const toast = useToast()
 
+/** 添加自定义主题标签（若命中 type_id 2/4 的 wiki 则拦截） */
+const addThemeTag = async (tag: string) => {
+  const name = tag.trim()
+  if (!name) return
+
+  const forbidden = await findThemeForbiddenWiki(name)
+  if (forbidden) {
+    toast.add({
+      title: '无法添加',
+      description: `「${forbidden.wiki_name}」已存在于风格/设计元素百科，不能作为主题`,
+      color: 'red',
+    })
+    return
+  }
+
+  if (!library.value.theme) {
+    library.value.theme = []
+  }
+  const index = library.value.theme.findIndex((child: Wiki) => child.wiki_name === name)
+  if (index === -1) {
+    library.value.theme.push({
+      wiki_name: name,
+      wiki_id: name,
+    })
+  }
+}
+
 /** 提交成功后放行路由/关闭页，无需再次 confirm */
 const bypassLeaveGuard = ref(false)
 
@@ -2072,10 +2108,18 @@ const showChooseWiki = (type: string) => {
   params.type_id = type_id
   wikiOptionsChooseRef.value?.showModel(params)
 }
-const chooseWiki = (wiki_list: Wiki[]) => {
-  // biome-ignore lint/complexity/noForEach: <explanation>
-  wiki_list.forEach((item: Wiki) => {
+const chooseWiki = async (wiki_list: Wiki[]) => {
+  for (const item of wiki_list) {
     if (wiki_type.value === 'theme') {
+      const forbidden = await findThemeForbiddenWiki(item.wiki_name)
+      if (forbidden) {
+        toast.add({
+          title: '无法添加',
+          description: `「${forbidden.wiki_name}」已存在于风格/设计元素百科，不能作为主题`,
+          color: 'red',
+        })
+        continue
+      }
       const index = library.value.theme.findIndex((child: Wiki) => {
         return child.wiki_name === item.wiki_name
       })
@@ -2142,7 +2186,7 @@ const chooseWiki = (wiki_list: Wiki[]) => {
       console.log(item, 'item', library.value.main_style, index)
 
     }
-  })
+  }
 }
 const shop_options_loading = ref(false)
 const unnamedLibraryList = ref<Library[]>([])

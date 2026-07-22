@@ -6,6 +6,11 @@ import {
 } from '@/composables/useLibraryDetailNavigation'
 import { BASE_IMG } from '@/utils/ipConfig'
 import { formatRich } from '@/utils/public'
+import {
+  normalizeRawImgPath,
+  parseCommunityImgList,
+  withOssImageProcess,
+} from '@/utils/communityLiveMedia'
 
 const props = defineProps<{
   items: Community[]
@@ -27,15 +32,23 @@ function highlightText(raw: string): string {
   return html
 }
 
-function normalizeImages(item: Community): string[] {
-  const images: string[] = []
-  if (item.content) {
-    images.push(...formatRich(item.content).image)
-  }
-  if (item.img_list) {
-    images.push(...item.img_list.split(',').filter(Boolean))
-  }
-  return images.map((img) => img.replace('https://www.lolitalibrary.com/ali/', ''))
+function normalizeImages(item: Community): Array<{
+  src: string
+  videoSrc?: string
+  isLive: boolean
+}> {
+  const fromContent = item.content
+    ? formatRich(item.content).image.map((img) => {
+        const path = normalizeRawImgPath(img)
+        return { src: path, isLive: false as const }
+      })
+    : []
+  const fromImgList = parseCommunityImgList(item.img_list).map((m) => ({
+    src: m.displayPath,
+    videoSrc: m.videoPath,
+    isLive: m.kind === 'live',
+  }))
+  return [...fromContent, ...fromImgList]
 }
 
 function contentPreview(item: Community): string {
@@ -136,11 +149,19 @@ function openUser(userId?: number) {
           @click="openDetail(item.community_id)"
         >
           <img
-            :src="`${BASE_IMG}${img}?x-oss-process=image/quality,q_80/resize,w_200,h_200`"
+            :src="`${BASE_IMG}${withOssImageProcess(img.src, 'image/quality,q_80/resize,w_200,h_200')}`"
             alt=""
             class="h-full w-full cursor-pointer object-cover"
             loading="lazy"
           />
+          <span
+            v-if="img.isLive"
+            class="pointer-events-none absolute left-1 top-1 z-[1] rounded px-1 py-0.5 text-[9px] font-bold uppercase tracking-wide text-white"
+            style="background: rgba(0, 0, 0, 0.55)"
+            aria-hidden="true"
+          >
+            LIVE
+          </span>
           <div
             v-if="index === 8 && normalizeImages(item).length > 9"
             class="absolute inset-0 flex items-center justify-center bg-black/45 text-sm font-semibold text-white"

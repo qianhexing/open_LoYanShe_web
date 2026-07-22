@@ -768,7 +768,7 @@ class ThreeCore {
 
 	/** 动态裁剪面计算复用对象 */
 	private readonly clipBoundsBox = new THREE.Box3()
-	private readonly clipBoundsSize = new THREE.Vector3()
+	private readonly clipBoundsSphere = new THREE.Sphere()
 	private readonly clipTargetFallback = new THREE.Vector3()
 
 	// bloom
@@ -1366,16 +1366,23 @@ class ThreeCore {
 	 * 更新单个材质的环境贴图
 	 */
 	private updateMaterialEnvMap(material: THREE.Material): void {
+		// ez-tree 叶片/树皮自带防过曝 envMapIntensity
+		const keepEzTreeIntensity = Boolean(material.userData?.ezTreePart)
+
 		if (material instanceof THREE.MeshStandardMaterial) {
 			material.envMap = this.envMap || null
-			material.envMapIntensity = this.envMapIntensity
+			if (!keepEzTreeIntensity) {
+				material.envMapIntensity = this.envMapIntensity
+			}
 			material.needsUpdate = true
 			if (material.map && material.map.colorSpace !== THREE.SRGBColorSpace) {
 				material.map.colorSpace = THREE.SRGBColorSpace
 			}
 		} else if (material instanceof THREE.MeshPhysicalMaterial) {
 			material.envMap = this.envMap || null
-			material.envMapIntensity = this.envMapIntensity
+			if (!keepEzTreeIntensity) {
+				material.envMapIntensity = this.envMapIntensity
+			}
 			material.needsUpdate = true
 			if (material.map && material.map.colorSpace !== THREE.SRGBColorSpace) {
 				material.map.colorSpace = THREE.SRGBColorSpace
@@ -5145,7 +5152,8 @@ class ThreeCore {
 	}
 
 	/**
-	 * 按相机与场景距离收紧 near/far，降低 far/near 比例，缓解近距离 z-fighting（破碎闪烁）。
+	 * 按相机与场景包围体收紧 near/far，缓解近距离 z-fighting。
+	 * 远处可见性优先：比例过大时抬高 near，绝不把 far 压到场景覆盖范围以下。
 	 */
 	updateCameraClipPlanes() {
 		const cam = this.camera
@@ -5160,7 +5168,6 @@ class ThreeCore {
 
 		const distance = Math.max(cam.position.distanceTo(target), 0.001)
 
-		let sceneRadius = 5
 		this.clipBoundsBox.makeEmpty()
 		if (this.allObjects?.length) {
 			for (const obj of this.allObjects) {
@@ -5169,15 +5176,40 @@ class ThreeCore {
 		} else if (this.scene) {
 			this.clipBoundsBox.setFromObject(this.scene)
 		}
+
+		let near = THREE.MathUtils.clamp(distance * 0.01, 0.001, 5)
+		let far: number
+
 		if (!this.clipBoundsBox.isEmpty()) {
-			this.clipBoundsBox.getSize(this.clipBoundsSize)
-			sceneRadius = Math.max(this.clipBoundsSize.length() * 0.5, 0.5)
+			this.clipBoundsBox.getBoundingSphere(this.clipBoundsSphere)
+			const radius = Math.max(this.clipBoundsSphere.radius, 0.5)
+			const distToCenter = cam.position.distanceTo(
+				this.clipBoundsSphere.center
+			)
+			// 覆盖相机到场景最远端；留余量避免边缘被裁
+			far = distToCenter + radius + Math.max(radius * 0.25, 10)
+			const front = distToCenter - radius
+			if (front > 0.002) {
+				near = THREE.MathUtils.clamp(
+					Math.min(near, front * 0.8),
+					0.001,
+					5
+				)
+			}
+		} else {
+			far = distance + 100
 		}
 
-		const near = THREE.MathUtils.clamp(distance * 0.01, 0.001, 5)
-		let far = Math.max(distance + sceneRadius * 2 + 10, near * 50)
-		const maxDepthRatio = 4000
-		far = Math.min(far, near * maxDepthRatio)
+		far = Math.max(far, distance + 10, near * 50, 100)
+
+		// 深度比过大时优先抬 near，保证远处不被裁掉
+		const maxDepthRatio = 10000
+		if (far / near > maxDepthRatio) {
+			const raisedNear = far / maxDepthRatio
+			if (raisedNear < distance * 0.5) {
+				near = Math.max(near, raisedNear)
+			}
+		}
 
 		const nearChanged = Math.abs(cam.near - near) > near * 0.05
 		const farChanged = Math.abs(cam.far - far) > far * 0.05

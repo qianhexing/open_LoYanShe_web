@@ -233,6 +233,7 @@ defineExpose({ reload })
               :enable-emoji="true"
               :enable-mention="true"
               :enable-internal-link="true"
+              :enable-image-upload="true"
             />
           </ClientOnly>
         </div>

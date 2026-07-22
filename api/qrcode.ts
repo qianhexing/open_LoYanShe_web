@@ -13,6 +13,8 @@ export async function getQrCodeList(params: {
 export async function insertQrCode(params: {
   pk_id: number
   pk_type: number
+  /** 无限制网页等场景：二维码跳转目标链接 */
+  code_content?: string
 }): Promise<QrCode> {
   const response = await use$Post<BaseResponse<QrCode>>('/qrcode/insert', params)
   return response.data

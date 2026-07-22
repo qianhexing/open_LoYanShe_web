@@ -1,5 +1,10 @@
 <script setup lang="ts">
 import type { Community } from '@/types/api';
+import {
+  normalizeRawImgPath,
+  parseCommunityImgList,
+  withOssImageProcess,
+} from '@/utils/communityLiveMedia'
 interface Props {
   item: Community,
   className?: string,
@@ -30,6 +35,36 @@ if (item?.content) {
 if (item?.img_list) {
   image.value = [...image.value, ...item.img_list.split(',')]
 }
+
+/** 列表缩略：封面 jpg + LIVE；preview 带 videoSrc 供 Lightbox 播放 */
+const previewMediaList = computed(() => {
+  const alt = item.title || 'Lo研社'
+  const fromContent = (item?.content ? formatRich(item.content).image : []).map((img) => ({
+    src: withOssImageProcess(normalizeRawImgPath(img), 'image/quality,q_100/resize,w_200,h_200'),
+    alt,
+  }))
+  const fromImgList = parseCommunityImgList(item?.img_list).map((m) => ({
+    src: withOssImageProcess(m.displayPath, 'image/quality,q_100/resize,w_200,h_200'),
+    alt,
+    videoSrc: m.videoPath,
+  }))
+  return [...fromContent, ...fromImgList]
+})
+
+const previewLightboxList = computed(() => {
+  const alt = item.title || 'Lo研社'
+  const fromContent = (item?.content ? formatRich(item.content).image : []).map((img) => ({
+    src: normalizeRawImgPath(img),
+    alt,
+  }))
+  const fromImgList = parseCommunityImgList(item?.img_list).map((m) => ({
+    src: m.displayPath,
+    videoSrc: m.videoPath,
+    alt,
+  }))
+  return [...fromContent, ...fromImgList]
+})
+
 const handleJump = (id: number) => {
   if (!needJump) {
     return
@@ -38,9 +73,7 @@ const handleJump = (id: number) => {
 		typeof window !== 'undefined' &&
 		navigator.userAgent.includes('Html5Plus');
 	if (isInUniApp && typeof uni !== 'undefined' && uni.navigateTo) {
-		// UniApp WebView 环境
 		uni.navigateTo({
-			// url: `/pages/community/detail/${id}`,
       url: `/pages/common/outerLink2?url=https://lolitalibrary.com/community/detail/${id}`,
 			fail: () => {
 				console.log('跳转错误')
@@ -59,7 +92,6 @@ const handleJump = (id: number) => {
       window.open(`/community/detail/${id}`, '_blank')
     }
   }
-  // navigateTo(`/compilations/detail/${id}`)
 }
 const emit = defineEmits(['load'])
 
@@ -71,7 +103,6 @@ const load = () => {
 function filterIframePlaceholder(html: string): string {
   if (!html) return ''
   const placeholder = '<span class="community-iframe-placeholder inline-block px-2 py-1 rounded bg-pink-100 dark:bg-gray-700 text-pink-600 dark:text-pink-400 text-sm cursor-pointer my-1">进入详情页查看</span>'
-  // 匹配 <iframe>...</iframe> 或自闭合 <iframe ... />
   return html
     .replace(/<iframe[\s\S]*?<\/iframe>/gi, placeholder)
     .replace(/<iframe[^>]*\/?>/gi, placeholder)
@@ -88,10 +119,12 @@ function filterIframePlaceholder(html: string): string {
         </h3>
         <div v-html="filterIframePlaceholder(text)" class="community-content m-1" @click="handleJump(item.community_id)"></div>
         <div class="flex flex-wrap w-full">
-          <QhxPreviewImage @load="load" :list="image.map((img) => { return { src: img.replace('https://www.lolitalibrary.com/ali/', '') + '?x-oss-process=image/quality,q_100/resize,w_200,h_200', alt: item.title || 'Lo研社' }})"
-            :preview="image.map((img) => { return img.replace('https://www.lolitalibrary.com/ali/', '') })"
-            :className="'w-[calc(100%/3-8px)] shadow-lg m-1 object-cover aspect-[1/1] rounded-[10px]'">
-          </QhxPreviewImage>
+          <QhxPreviewImage
+            @load="load"
+            :list="previewMediaList"
+            :preview="previewLightboxList"
+            :className="'w-[calc(100%/3-8px)] shadow-lg m-1 object-cover aspect-[1/1] rounded-[10px] overflow-hidden'"
+          />
         </div>
       </div>
     </div>

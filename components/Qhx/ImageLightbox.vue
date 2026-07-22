@@ -8,6 +8,7 @@ import { computed, nextTick, onBeforeUnmount, onUnmounted, ref, shallowRef, watc
 import type { LaxianItem } from '@/types/api'
 import SafeRichText from '@/components/SafeRichText.vue'
 import { parseRichText } from '@/utils/public'
+import { useCommunityLivePlayback } from '@/composables/useCommunityLivePlayback'
 import {
   computeImageContentRect,
   drawLaxian2dMarkers,
@@ -20,9 +21,12 @@ import {
 } from '@/utils/libraryVideoLaxian2d'
 
 export interface QhxLightboxImage {
+  /** 封面 / 普通图 URL（Live 为同名 jpg） */
   src: string
   title?: string
   alt?: string
+  /** Live：mp4 绝对 URL；有值时在封面加载后静音循环播放 */
+  videoSrc?: string
 }
 
 const props = withDefaults(
@@ -69,6 +73,7 @@ const viewportRef = ref<HTMLElement | null>(null)
 const lightboxRootRef = ref<HTMLElement | null>(null)
 const imageWrapRef = ref<HTMLElement | null>(null)
 const imageRef = ref<HTMLImageElement | null>(null)
+const videoRef = ref<HTMLVideoElement | null>(null)
 const mediaRef = ref<HTMLElement | null>(null)
 const canvasRef = ref<HTMLCanvasElement | null>(null)
 const imageLoading = ref(true)
@@ -182,7 +187,44 @@ function unbindRootScrollLock(el: HTMLElement | null) {
 
 const slideCount = computed(() => props.imgs.length)
 const currentImage = computed(() => props.imgs[currentIndex.value])
+const currentLiveVideoSrc = computed(() => currentImage.value?.videoSrc?.trim() || '')
+const isCurrentLive = computed(() => Boolean(currentLiveVideoSrc.value))
 const hasMultiple = computed(() => slideCount.value > 1)
+
+const toast = useToast()
+const {
+  loopEnabled: liveLoopEnabled,
+  videoVisible: liveVideoPlaying,
+  playFromStart: playLiveVideoIfNeeded,
+  stop: stopLiveVideoRaw,
+  onEnded: onLiveEnded,
+  onBadgePointerDown: onLiveBadgePointerDown,
+  onBadgePointerMove: onLiveBadgePointerMove,
+  onBadgePointerUp: onLiveBadgePointerUp,
+  onBadgePointerCancel: onLiveBadgePointerCancel,
+  onBadgeClick: onLiveBadgeClick,
+} = useCommunityLivePlayback({
+  videoRef,
+  getSrc: () => (props.visible ? currentLiveVideoSrc.value : undefined),
+  shouldPlay: () =>
+    Boolean(
+      props.visible
+      && currentLiveVideoSrc.value
+      && !imageLoading.value
+      && !imageError.value,
+    ),
+  onLoopChange: (enabled) => {
+    toast.add({
+      title: enabled ? '已开启循环播放' : '已关闭循环，仅播放一次',
+      icon: enabled ? 'i-heroicons-arrow-path' : 'i-heroicons-stop',
+      color: 'gray',
+    })
+  },
+})
+
+function stopLiveVideo() {
+  stopLiveVideoRaw(true)
+}
 const canGoPrev = computed(() => currentIndex.value > 0)
 const canGoNext = computed(() => currentIndex.value < slideCount.value - 1)
 const hasTransform = computed(
@@ -250,6 +292,7 @@ function syncImageLoadingState() {
       updateFittedImageSize()
       applyMediaTransform()
       syncLaxianOverlay()
+      void playLiveVideoIfNeeded()
     })
     return
   }
@@ -264,12 +307,14 @@ function onImageLoad() {
     updateFittedImageSize()
     applyMediaTransform()
     syncLaxianOverlay()
+    void playLiveVideoIfNeeded()
   })
 }
 
 function onImageError() {
   imageLoading.value = false
   imageError.value = true
+  stopLiveVideo()
 }
 
 const getLaxianLabelBgClass = (type?: number) =>
@@ -677,18 +722,20 @@ watch(
       cancelLaxianRedraw()
       clearLaxianDetailCache()
       teardownLayoutResizeObserver()
+      stopLiveVideo()
     }
   },
   { immediate: true }
 )
 
 watch(
-  () => currentImage.value?.src,
+  () => [currentImage.value?.src, currentImage.value?.videoSrc] as const,
   () => {
     imageLoading.value = true
     imageError.value = false
     expandedLaxianId.value = null
     clearLaxianDetailCache()
+    stopLiveVideo()
     nextTick(syncImageLoadingState)
   }
 )
@@ -735,11 +782,18 @@ watch(imageRef, () => {
   nextTick(syncImageLoadingState)
 })
 
+watch(videoRef, (el) => {
+  if (el && props.visible && !imageLoading.value && !imageError.value) {
+    void playLiveVideoIfNeeded()
+  }
+})
+
 watch(fittedImageSize, () => {
   nextTick(syncContentRect)
 })
 
 onBeforeUnmount(() => {
+  stopLiveVideo()
   cancelLaxianRedraw()
   teardownLayoutResizeObserver()
   clearLaxianDetailCache()
@@ -856,11 +910,48 @@ onUnmounted(() => {
                     class="qhx-lightbox__img h-full w-full"
                     :class="[
                       isDragging ? 'cursor-grabbing' : 'cursor-grab',
+                      isCurrentLive && liveVideoPlaying ? 'opacity-0' : 'opacity-100',
                     ]"
                     draggable="false"
                     @load="onImageLoad"
                     @error="onImageError"
                   />
+                  <video
+                    v-if="isCurrentLive"
+                    ref="videoRef"
+                    :key="`live-${currentLiveVideoSrc}`"
+                    class="qhx-lightbox__live-video absolute inset-0 h-full w-full object-contain"
+                    :class="liveVideoPlaying ? 'opacity-100' : 'opacity-0'"
+                    muted
+                    playsinline
+                    webkit-playsinline
+                    preload="auto"
+                    disablepictureinpicture
+                    @ended="onLiveEnded"
+                  />
+                  <button
+                    v-if="isCurrentLive"
+                    type="button"
+                    class="qhx-lightbox__live-badge absolute left-2 top-2 z-[5] rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white"
+                    :class="{ 'qhx-lightbox__live-badge--loop': liveLoopEnabled }"
+                    data-live-badge
+                    :aria-label="liveLoopEnabled ? '重播；长按关闭循环' : '重播；长按开启循环'"
+                    :title="liveLoopEnabled ? '点击重播 · 长按关闭循环' : '点击重播 · 长按开启循环'"
+                    @click.stop="onLiveBadgeClick"
+                    @mousedown.stop="onLiveBadgePointerDown"
+                    @mousemove.stop="onLiveBadgePointerMove"
+                    @mouseup.stop="onLiveBadgePointerUp"
+                    @mouseleave="onLiveBadgePointerCancel"
+                    @touchstart.stop.prevent="onLiveBadgePointerDown"
+                    @touchmove.stop.prevent="onLiveBadgePointerMove"
+                    @touchend.stop.prevent="onLiveBadgePointerUp"
+                    @touchcancel.stop="onLiveBadgePointerCancel"
+                    @contextmenu.prevent
+                    @pointerdown.stop
+                  >
+                    LIVE
+                    <span v-if="liveLoopEnabled" class="ml-0.5 opacity-90" aria-hidden="true">∞</span>
+                  </button>
                   <canvas
                     v-if="hasLaxianOnCurrent"
                     ref="canvasRef"
@@ -1130,6 +1221,27 @@ onUnmounted(() => {
   display: block;
   object-fit: contain;
   transform-origin: center center;
+  transition: opacity 0.15s ease;
+}
+
+.qhx-lightbox__live-video {
+  transition: opacity 0.15s ease;
+  pointer-events: none;
+}
+
+.qhx-lightbox__live-badge {
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(4px);
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  border: 1px solid transparent;
+  line-height: 1.2;
+  pointer-events: auto;
+}
+
+.qhx-lightbox__live-badge--loop {
+  background: rgba(199, 107, 152, 0.85);
+  border-color: rgba(255, 255, 255, 0.35);
 }
 
 .qhx-lightbox__media {
