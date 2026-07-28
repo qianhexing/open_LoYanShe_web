@@ -21,11 +21,14 @@ interface ModelItem {
     options?: Record<string, unknown>
 }
 import { getLibraryVideoById, getLibraryVideo, updateLibraryVideoJson, getLibrarySimilar } from '@/api/library'
-import type { LibraryVideo, LaxianItem, LaxianInitialCamera, LaxianHighlightFrame, LaxianFrameShape, LibrarySimilarItem } from '@/types/api'
+import type { LibraryVideo, LibraryVideoUser, LaxianItem, LaxianInitialCamera, LaxianHighlightFrame, LaxianFrameShape, LibrarySimilarItem } from '@/types/api'
 import { useConfigStore } from '@/stores/config'
 import { BASE_IMG } from '@/utils/ipConfig'
 import { useLayoutStyle } from '@/composables/useLayoutStyle'
 import { useCopyCurrentUrl } from '@/composables/useCopyCurrentUrl'
+import { refreshGallerySplatMesh } from '@/utils/gallerySceneObject'
+import { buildHumanPlatformNav, libraryVideoAddrIsRad } from '@/utils/humanPlatformNav'
+import gsap from 'gsap'
 import * as THREE from 'three'
 
 // 设置页面标题
@@ -57,20 +60,33 @@ const isHideUi = computed(() => {
   return (Array.isArray(v) ? v[0] : v) === 'true'
 })
 
+/** Ctrl+B 展示动画播放中：隐藏操作 UI，仅保留贡献者 */
+const isShowcasePlaying = ref(false)
+/** 普通页面 chrome（工具栏、侧栏、拉线 overlay 等） */
+const showChromeUi = computed(() => !isHideUi.value && !isShowcasePlaying.value)
+
 const isEmbedMinimal = computed(() => isHideUi.value || isFromIframeEmbed.value)
 
-/** 站内跳转时保留 embed 相关 query（如 hide_ui、from_iframe） */
-const buildHumanPlatformPath = (videoId: number | string, libraryId?: number | null) => {
-    const q = new URLSearchParams()
-    const lid = libraryId ?? queryLibraryId.value
-    if (lid != null) q.set('library_id', String(lid))
+/** 站内跳转时保留 embed 相关 query（如 hide_ui、from_iframe）；非 rad 走旧版 */
+const buildHumanPlatformPath = (videoId: number | string, libraryId?: number | null, addr?: string | null) => {
+    const query: Record<string, string> = {}
     for (const key of ['from_iframe', 'hide_ui', 'edit'] as const) {
         const raw = route.query[key]
         const val = Array.isArray(raw) ? raw[0] : raw
-        if (val != null && val !== '') q.set(key, String(val))
+        if (val != null && val !== '') query[key] = String(val)
     }
-    const qs = q.toString()
-    return qs ? `/humanPlatform/${videoId}?${qs}` : `/humanPlatform/${videoId}`
+    return buildHumanPlatformNav({
+        videoId,
+        libraryId: libraryId ?? queryLibraryId.value,
+        addr,
+        query,
+    })
+}
+
+const redirectToLegacyHumanPlatform = (videoId: number | string, addr?: string | null) => {
+    if (!import.meta.client) return
+    const { fullUrl } = buildHumanPlatformNav({ videoId, addr })
+    window.location.replace(fullUrl)
 }
 
 // 编辑模式：通过地址栏 edit=1 开启
@@ -189,7 +205,12 @@ const loadLibraryVideoList = async () => {
 const handleVideoSelect = (item: LibraryVideo) => {
     const vid = item.video_id
     if (vid == null) return
-    router.push(buildHumanPlatformPath(vid))
+    const nav = buildHumanPlatformPath(vid, undefined, item.addr)
+    if (nav.isLegacy) {
+        redirectToLegacyHumanPlatform(vid, item.addr)
+        return
+    }
+    router.push(nav.path)
 }
 
 const initVideoAndList = async () => {
@@ -200,8 +221,13 @@ const initVideoAndList = async () => {
         await loadLibraryVideoList()
         const first = libraryVideoList.value[0]
         if (first?.video_id != null) {
+            const nav = buildHumanPlatformPath(first.video_id, lid, first.addr)
+            if (nav.isLegacy) {
+                redirectToLegacyHumanPlatform(first.video_id, first.addr)
+                return
+            }
             // 仅 replace 路由，由 id watch 统一 loadVideoData，避免 iframe 入口双次解码点云
-            await router.replace(buildHumanPlatformPath(first.video_id, lid))
+            await router.replace(nav.path)
         } else {
             loading.value = false
             error.value = '该图鉴暂无点云人台图'
@@ -326,6 +352,11 @@ const loadVideoData = async (videoIdOverride?: number) => {
         
         // 检查是否是点云类型
         if (libraryVideo.value.pk_type === 2 && libraryVideo.value.addr) {
+            // 非 rad：跳转旧版人台页
+            if (!libraryVideoAddrIsRad(libraryVideo.value.addr)) {
+                redirectToLegacyHumanPlatform(vid, libraryVideo.value.addr)
+                return
+            }
             // 从 json_data 加载拉线（先设置拉线，再设置模型，确保 watch 时数据完整）
             const list = libraryVideo.value.json_data?.laxian_list
             laxianListFromVideo.value = Array.isArray(list) ? list : []
@@ -372,6 +403,23 @@ const loadVideoData = async (videoIdOverride?: number) => {
         loading.value = false
         videoLoading.value = false
     }
+}
+
+/** 贡献者：直接用详情接口 user_list，不再拆 user_id */
+const contributorList = computed<LibraryVideoUser[]>(() => {
+    const list = libraryVideo.value?.user_list
+    return Array.isArray(list) ? list : []
+})
+
+const resolveUserFaceUrl = (face?: string | null) => {
+    if (!face) return ''
+    if (/^https?:\/\//i.test(face)) return face
+    return `${BASE_IMG}${face}`
+}
+
+const goUser = (userId?: number | null) => {
+    if (userId == null) return
+    navigateTo(`/userSpace/${userId}`)
 }
 
 // 关闭查看器
@@ -925,7 +973,14 @@ const isTypingTarget = (target: EventTarget | null) => {
 const onLaxianShortcutKeyDown = (e: KeyboardEvent) => {
     if (isTypingTarget(e.target)) return
 
-    if (!isEditMode.value && !isHideUi.value && !showLaxianModal.value) {
+    // Ctrl+B：人台展示动画
+    if (e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'b') {
+        e.preventDefault()
+        playShowcaseAnimation()
+        return
+    }
+
+    if (!isEditMode.value && !isHideUi.value && !showLaxianModal.value && !isShowcasePlaying.value) {
         if (!e.ctrlKey && !e.metaKey && !e.altKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
             if (getNavigableLaxianList().length === 0) return
             e.preventDefault()
@@ -934,11 +989,259 @@ const onLaxianShortcutKeyDown = (e: KeyboardEvent) => {
         }
     }
 
-    if (isHideUi.value || laxianListForViewer.value.length === 0) return
+    if (isHideUi.value || isShowcasePlaying.value || laxianListForViewer.value.length === 0) return
     if (!e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return
     if (e.key.toLowerCase() !== 'h') return
     e.preventDefault()
     toggleAllLaxianMarkers()
+}
+
+// ===== Ctrl+B 人台展示动画 =====
+const SHOWCASE_BACK_Y = Math.PI
+const SHOWCASE_FRONT_NEG_Y = THREE.MathUtils.degToRad(-10)
+const SHOWCASE_FRONT_POS_Y = THREE.MathUtils.degToRad(10)
+/** 避免 scale=0 导致点云矩阵退化闪一下 */
+const SHOWCASE_SCALE_EPS = 0.001
+
+type ShowcaseSnapshot = {
+    object: THREE.Object3D
+    position: THREE.Vector3
+    rotation: THREE.Euler
+    scale: THREE.Vector3
+    visible: boolean
+}
+
+let showcaseTl: gsap.core.Timeline | null = null
+let showcaseSnapshots: ShowcaseSnapshot[] = []
+let showcaseSavedAutoRotate = false
+let showcaseControlsEnabled = true
+let showcaseRestoreRaf = 0
+
+const getShowcaseModels = (): THREE.Object3D[] => {
+    const core = viewerRef.value?.getThreeCore?.()
+    if (!core?.allObjects?.length) return []
+    return core.allObjects.filter(
+        (obj) => obj.userData?.type === 'splat' || obj.userData?.type === 'model'
+    )
+}
+
+const syncShowcaseModelMatrix = (obj: THREE.Object3D, refreshSplat = false) => {
+    obj.updateMatrixWorld(true)
+    if (refreshSplat) refreshGallerySplatMesh(obj)
+}
+
+const waitAnimationFrames = (count = 2) =>
+    new Promise<void>((resolve) => {
+        const step = (left: number) => {
+            if (left <= 0) {
+                resolve()
+                return
+            }
+            showcaseRestoreRaf = requestAnimationFrame(() => step(left - 1))
+        }
+        step(count)
+    })
+
+const restoreShowcaseState = () => {
+    if (showcaseRestoreRaf) {
+        cancelAnimationFrame(showcaseRestoreRaf)
+        showcaseRestoreRaf = 0
+    }
+
+    const snaps = showcaseSnapshots
+    showcaseSnapshots = []
+
+    for (const snap of snaps) {
+        gsap.killTweensOf(snap.object.scale)
+        gsap.killTweensOf(snap.object.rotation)
+        gsap.killTweensOf(snap.object.position)
+        // 先藏起来再改变换，避免还原时整模闪现
+        snap.object.visible = false
+        snap.object.position.copy(snap.position)
+        snap.object.rotation.copy(snap.rotation)
+        snap.object.scale.copy(snap.scale)
+        syncShowcaseModelMatrix(snap.object, true)
+    }
+
+    const core = viewerRef.value?.getThreeCore?.()
+    if (core?.controls) core.controls.enabled = showcaseControlsEnabled
+    autoRotateEnabled.value = showcaseSavedAutoRotate
+    isShowcasePlaying.value = false
+
+    if (viewerRef.value && viewerLaxianList.value.length > 0 && !isHideUi.value) {
+        startLaxianOverlayLoop()
+    }
+
+    // 等 UI 与点云生成器稳定后再显示，消除还原闪烁
+    void waitAnimationFrames(2).then(() => {
+        for (const snap of snaps) {
+            snap.object.visible = snap.visible
+            syncShowcaseModelMatrix(snap.object, true)
+        }
+    })
+}
+
+const stopShowcaseAnimation = (restore = true) => {
+    if (showcaseRestoreRaf) {
+        cancelAnimationFrame(showcaseRestoreRaf)
+        showcaseRestoreRaf = 0
+    }
+    if (showcaseTl) {
+        showcaseTl.kill()
+        showcaseTl = null
+    }
+    if (restore && (showcaseSnapshots.length > 0 || isShowcasePlaying.value)) {
+        restoreShowcaseState()
+    }
+}
+
+const playShowcaseAnimation = () => {
+    if (isShowcasePlaying.value || isHideUi.value || !hasLoadedOnce.value) return
+
+    const core = viewerRef.value?.getThreeCore?.()
+    const models = getShowcaseModels()
+    if (!core || models.length === 0) return
+
+    stopShowcaseAnimation(false)
+
+    showcaseSnapshots = models.map((object) => ({
+        object,
+        position: object.position.clone(),
+        rotation: object.rotation.clone(),
+        scale: object.scale.clone(),
+        visible: object.visible,
+    }))
+
+    showcaseSavedAutoRotate = autoRotateEnabled.value
+    autoRotateEnabled.value = false
+    showcaseControlsEnabled = core.controls?.enabled ?? true
+    if (core.controls) core.controls.enabled = false
+
+    showLaxianModal.value = false
+    showLaxianDetailEdit.value = false
+    similarExpanded.value = false
+    isShowcasePlaying.value = true
+    stopLaxianOverlayLoop()
+
+    // 先隐藏再改姿态，避免开场一帧全尺寸闪现
+    for (const snap of showcaseSnapshots) {
+        const obj = snap.object
+        gsap.killTweensOf(obj.scale)
+        gsap.killTweensOf(obj.rotation)
+        gsap.killTweensOf(obj.position)
+        obj.visible = false
+        obj.position.copy(snap.position)
+        obj.scale.set(SHOWCASE_SCALE_EPS, SHOWCASE_SCALE_EPS, SHOWCASE_SCALE_EPS)
+        obj.rotation.set(snap.rotation.x, SHOWCASE_BACK_Y, snap.rotation.z)
+        syncShowcaseModelMatrix(obj, true)
+    }
+
+    const enterDur = 0.6
+    const swayDur = 1
+    const exitDur = 0.65
+    const endPause = 1
+    const exitAt = enterDur + swayDur
+    const endAt = exitAt + exitDur
+
+    const startTimeline = () => {
+        for (const snap of showcaseSnapshots) {
+            snap.object.visible = true
+            syncShowcaseModelMatrix(snap.object)
+        }
+
+        const tl = gsap.timeline({
+            onComplete: () => {
+                showcaseTl = null
+                restoreShowcaseState()
+            },
+        })
+        showcaseTl = tl
+
+        for (const snap of showcaseSnapshots) {
+            const obj = snap.object
+            const base = snap.scale
+            // 缩放与转到 +10° 同时长；旋转整段连续，避免中段刹停
+            tl.to(
+                obj.scale,
+                {
+                    x: base.x,
+                    y: base.y,
+                    z: base.z,
+                    duration: enterDur,
+                    ease: 'power2.out',
+                    onUpdate: () => syncShowcaseModelMatrix(obj),
+                    onComplete: () => syncShowcaseModelMatrix(obj, true),
+                },
+                0
+            )
+            tl.to(
+                obj.rotation,
+                {
+                    keyframes: [
+                        {
+                            y: SHOWCASE_FRONT_POS_Y,
+                            duration: enterDur,
+                            ease: 'sine.in',
+                        },
+                        {
+                            y: SHOWCASE_FRONT_NEG_Y,
+                            duration: swayDur,
+                            ease: 'sine.out',
+                        },
+                    ],
+                },
+                0
+            )
+        }
+
+        // 缓动结束后立刻离场
+        for (const snap of showcaseSnapshots) {
+            const obj = snap.object
+            const leftOffset = Math.max(1.8, Math.abs(snap.scale.x || 1) * 2.2)
+            tl.to(
+                obj.scale,
+                {
+                    x: SHOWCASE_SCALE_EPS,
+                    y: SHOWCASE_SCALE_EPS,
+                    z: SHOWCASE_SCALE_EPS,
+                    duration: exitDur,
+                    ease: 'power2.in',
+                    onUpdate: () => syncShowcaseModelMatrix(obj),
+                    onComplete: () => {
+                        obj.visible = false
+                        syncShowcaseModelMatrix(obj, true)
+                    },
+                },
+                exitAt
+            )
+            tl.to(
+                obj.position,
+                {
+                    x: snap.position.x - leftOffset,
+                    duration: exitDur,
+                    ease: 'power2.in',
+                },
+                exitAt
+            )
+            tl.to(
+                obj.rotation,
+                {
+                    y: -SHOWCASE_BACK_Y,
+                    duration: exitDur,
+                    ease: 'power2.in',
+                },
+                exitAt
+            )
+        }
+
+        tl.to({}, { duration: endPause }, endAt)
+    }
+
+    // 等隐藏与 splat 刷新生效后再开播
+    void waitAnimationFrames(2).then(() => {
+        if (!isShowcasePlaying.value || showcaseSnapshots.length === 0) return
+        startTimeline()
+    })
 }
 
 const showLaxianModal = ref(false)
@@ -1140,10 +1443,10 @@ const stopLaxianOverlayLoop = () => {
 }
 
 const startLaxianOverlayLoop = () => {
-    if (laxianOverlayActive || isHideUi.value) return
+    if (laxianOverlayActive || isHideUi.value || isShowcasePlaying.value) return
     laxianOverlayActive = true
     const tick = () => {
-        if (!laxianOverlayActive || document.hidden || isHideUi.value) {
+        if (!laxianOverlayActive || document.hidden || isHideUi.value || isShowcasePlaying.value) {
             stopLaxianOverlayLoop()
             return
         }
@@ -1154,13 +1457,13 @@ const startLaxianOverlayLoop = () => {
 }
 
 watch(
-    () => [viewerRef.value, viewerLaxianList.value.length, isHideUi.value] as const,
-    ([viewer, count, hideUi]) => {
-        if (viewer && count > 0 && !hideUi) {
+    () => [viewerRef.value, viewerLaxianList.value.length, isHideUi.value, isShowcasePlaying.value] as const,
+    ([viewer, count, hideUi, showcase]) => {
+        if (viewer && count > 0 && !hideUi && !showcase) {
             startLaxianOverlayLoop()
         } else {
             stopLaxianOverlayLoop()
-            laxianList.value = []
+            if (!showcase) laxianList.value = []
         }
     },
     { immediate: true },
@@ -1168,7 +1471,7 @@ watch(
 
 watch([expandedLaxianId, soloLaxianId, showType0, showType1], () => {
     syncLaxianOverlayFrame()
-    if (viewerRef.value && viewerLaxianList.value.length > 0 && !isHideUi.value) {
+    if (viewerRef.value && viewerLaxianList.value.length > 0 && !isHideUi.value && !isShowcasePlaying.value) {
         startLaxianOverlayLoop()
     }
 })
@@ -1176,7 +1479,7 @@ watch([expandedLaxianId, soloLaxianId, showType0, showType1], () => {
 const onVisibilityChange = () => {
     if (document.hidden) {
         stopLaxianOverlayLoop()
-    } else if (viewerRef.value && viewerLaxianList.value.length > 0 && !isHideUi.value) {
+    } else if (viewerRef.value && viewerLaxianList.value.length > 0 && !isHideUi.value && !isShowcasePlaying.value) {
         startLaxianOverlayLoop()
     }
 }
@@ -1193,6 +1496,7 @@ onUnmounted(() => {
     window.removeEventListener('keydown', onLaxianShortcutKeyDown)
     if (resizeTimer) clearTimeout(resizeTimer)
     stopLaxianOverlayLoop()
+    stopShowcaseAnimation(true)
 })
 </script>
 
@@ -1255,55 +1559,95 @@ onUnmounted(() => {
             />
             <!-- 功能栏 -->
             <div
-                v-if="!isHideUi"
-                class="fixed left-3 z-30 flex items-center gap-2 rounded-lg bg-white/90 dark:bg-gray-800/90 shadow-md backdrop-blur-sm border border-gray-200/50 dark:border-gray-600/50 p-1"
+                v-if="showChromeUi || (isShowcasePlaying && contributorList.length > 0)"
+                class="fixed left-3 z-30 flex flex-col gap-2"
                 :style="{ top: `${12 + configStore.statusBarHeight}px` }"
             >
-                <button
-                    v-if="laxianListForViewer.length > 0"
-                    type="button"
-                    class="flex flex-col items-center gap-0.5 py-1.5 px-2 rounded-md hover:shadow-lg transition-all duration-200 hover:scale-105 active:scale-95 text-purple-600 dark:text-purple-400"
-                    title="标点设置"
-                    @click="openLaxianModal"
+                <div
+                    v-if="showChromeUi"
+                    class="flex items-center gap-2 rounded-lg bg-white/90 dark:bg-gray-800/90 shadow-md backdrop-blur-sm border border-gray-200/50 dark:border-gray-600/50 p-1 w-fit"
                 >
-                    <UIcon name="material-symbols:pin-drop" class="text-lg" />
-                    <span class="text-[10px] font-medium leading-tight">标点</span>
-                </button>
-                <button
-                    type="button"
-                    class="flex flex-col items-center gap-0.5 py-1.5 px-2 rounded-md hover:shadow-lg transition-all duration-200 hover:scale-105 active:scale-95"
-                    :class="autoRotateEnabled ? 'text-purple-600 dark:text-purple-400' : 'text-gray-400 dark:text-gray-500'"
-                    :title="autoRotateEnabled ? '关闭自动旋转' : '开启自动旋转'"
-                    @click="autoRotateEnabled = !autoRotateEnabled"
+                    <button
+                        v-if="laxianListForViewer.length > 0"
+                        type="button"
+                        class="flex flex-col items-center gap-0.5 py-1.5 px-2 rounded-md hover:shadow-lg transition-all duration-200 hover:scale-105 active:scale-95 text-purple-600 dark:text-purple-400"
+                        title="标点设置"
+                        @click="openLaxianModal"
+                    >
+                        <UIcon name="material-symbols:pin-drop" class="text-lg" />
+                        <span class="text-[10px] font-medium leading-tight">标点</span>
+                    </button>
+                    <button
+                        type="button"
+                        class="flex flex-col items-center gap-0.5 py-1.5 px-2 rounded-md hover:shadow-lg transition-all duration-200 hover:scale-105 active:scale-95"
+                        :class="autoRotateEnabled ? 'text-purple-600 dark:text-purple-400' : 'text-gray-400 dark:text-gray-500'"
+                        :title="autoRotateEnabled ? '关闭自动旋转' : '开启自动旋转'"
+                        @click="autoRotateEnabled = !autoRotateEnabled"
+                    >
+                        <UIcon name="material-symbols:rotate-right" class="text-lg" />
+                        <span class="text-[10px] font-medium leading-tight">自动旋转</span>
+                    </button>
+                    <button
+                        type="button"
+                        class="flex flex-col items-center gap-0.5 py-1.5 px-2 rounded-md hover:shadow-lg transition-all duration-200 hover:scale-105 active:scale-95 text-gray-600 dark:text-gray-400"
+                        title="分享"
+                        aria-label="分享：复制当前页链接"
+                        @click="handleShareLink"
+                    >
+                        <UIcon name="ic:round-share" class="text-lg" />
+                        <span class="text-[10px] font-medium leading-tight">分享</span>
+                    </button>
+                    <!-- 吐槽
+                    <button
+                        type="button"
+                        class="flex flex-col items-center gap-0.5 py-1.5 px-2 rounded-md hover:shadow-lg transition-all duration-200 hover:scale-105 active:scale-95 text-gray-600 dark:text-gray-400"
+                        title="吐槽"
+                        @click="handleFeedback"
+                    >
+                        <UIcon name="material-symbols:chat-bubble-outline" class="text-lg" />
+                        <span class="text-[10px] font-medium leading-tight">吐槽</span>
+                    </button>
+                    -->
+                </div>
+                <!-- 贡献者：直接 v-for user_list；展示动画期间保留 -->
+                <div
+                    v-if="hasLoadedOnce && contributorList.length > 0"
+                    class="max-w-[min(calc(100vw-7rem),280px)] rounded-lg bg-white/90 dark:bg-gray-800/90 shadow-md backdrop-blur-sm border border-gray-200/50 dark:border-gray-600/50 px-2.5 py-2"
                 >
-                    <UIcon name="material-symbols:rotate-right" class="text-lg" />
-                    <span class="text-[10px] font-medium leading-tight">自动旋转</span>
-                </button>
-                <button
-                    type="button"
-                    class="flex flex-col items-center gap-0.5 py-1.5 px-2 rounded-md hover:shadow-lg transition-all duration-200 hover:scale-105 active:scale-95 text-gray-600 dark:text-gray-400"
-                    title="分享"
-                    aria-label="分享：复制当前页链接"
-                    @click="handleShareLink"
-                >
-                    <UIcon name="ic:round-share" class="text-lg" />
-                    <span class="text-[10px] font-medium leading-tight">分享</span>
-                </button>
-                <!-- 吐槽
-                <button
-                    type="button"
-                    class="flex flex-col items-center gap-0.5 py-1.5 px-2 rounded-md hover:shadow-lg transition-all duration-200 hover:scale-105 active:scale-95 text-gray-600 dark:text-gray-400"
-                    title="吐槽"
-                    @click="handleFeedback"
-                >
-                    <UIcon name="material-symbols:chat-bubble-outline" class="text-lg" />
-                    <span class="text-[10px] font-medium leading-tight">吐槽</span>
-                </button>
-                -->
+                    <p class="text-[10px] font-medium text-gray-500 dark:text-gray-400 mb-1.5">贡献者</p>
+                    <div class="flex flex-wrap items-center gap-x-2 gap-y-1.5">
+                        <button
+                            v-for="user in contributorList"
+                            :key="user.user_id"
+                            type="button"
+                            class="inline-flex items-center gap-1.5 max-w-full rounded-full pr-2 hover:bg-purple-50 dark:hover:bg-gray-700/60 transition-colors active:scale-95"
+                            :title="user.user_name || `用户${user.user_id}`"
+                            @click="goUser(user.user_id)"
+                        >
+                            <img
+                                v-if="user.user_face"
+                                :src="resolveUserFaceUrl(user.user_face)"
+                                :alt="user.user_name || ''"
+                                class="w-6 h-6 rounded-full object-cover bg-gray-100 dark:bg-gray-700 shrink-0 ring-1 ring-white dark:ring-gray-700"
+                                loading="lazy"
+                                decoding="async"
+                            />
+                            <span
+                                v-else
+                                class="w-6 h-6 rounded-full bg-purple-100 dark:bg-purple-900/40 text-purple-600 dark:text-purple-300 text-[10px] font-semibold flex items-center justify-center shrink-0"
+                            >
+                                {{ (user.user_name || '?').slice(0, 1) }}
+                            </span>
+                            <span class="text-xs text-gray-800 dark:text-gray-100 truncate max-w-[7rem]">
+                                {{ user.user_name || `用户${user.user_id}` }}
+                            </span>
+                        </button>
+                    </div>
+                </div>
             </div>
             <!-- 悬浮人台图列表：有 library_id 时显示，可收缩展开 -->
             <div
-                v-if="effectiveLibraryId && hasLoadedOnce && !isHideUi"
+                v-if="effectiveLibraryId && hasLoadedOnce && showChromeUi"
                 class="fixed right-0 z-30 flex flex-col rounded-l-xl bg-white/95 dark:bg-gray-800/95 shadow-lg backdrop-blur-sm border border-gray-200/50 dark:border-gray-600/50 overflow-hidden transition-all duration-300 ease-out"
                 :class="libraryListExpanded
                     ? 'top-1/2 -translate-y-1/2 max-h-[58vh] sm:max-h-[70vh] w-[108px] sm:w-[200px] md:w-[220px]'
@@ -1364,7 +1708,7 @@ onUnmounted(() => {
             </div>
             <!-- 右下角：相似推荐角标（默认收起，点击展开横向滚动列表） -->
             <div
-                v-if="effectiveLibraryId && hasLoadedOnce && !isHideUi"
+                v-if="effectiveLibraryId && hasLoadedOnce && showChromeUi"
                 class="fixed right-3 z-40 flex flex-col items-end pointer-events-none"
                 :style="{ bottom: `${similarPanelBottom}px` }"
             >
@@ -1450,7 +1794,7 @@ onUnmounted(() => {
                 </button>
             </div>
             <!-- 拉线点 overlay：Canvas 层（定位点圆环，忽略点击触摸） -->
-            <div class="fixed inset-0 pointer-events-none z-10" v-show="laxianWithLayout.length > 0 && !isHideUi">
+            <div class="fixed inset-0 pointer-events-none z-10" v-show="laxianWithLayout.length > 0 && showChromeUi">
                 <canvas
                     ref="canvasRef"
                     class="absolute inset-0 w-full h-full block"
@@ -1460,7 +1804,7 @@ onUnmounted(() => {
             <div
                 ref="labelLayerRef"
                 class="fixed inset-0 pointer-events-none z-20"
-                v-show="laxianWithLayout.length > 0 && !isHideUi"
+                v-show="laxianWithLayout.length > 0 && showChromeUi"
             >
                 <div
                     v-for="(item, i) in laxianWithLayout"
@@ -1534,7 +1878,7 @@ onUnmounted(() => {
             <!-- 拉线设置弹窗 -->
             <!-- 编辑模式：拉线数据制作面板 -->
             <button
-                v-if="isEditMode && hasLoadedOnce && !laxianEditPanelExpanded"
+                v-if="isEditMode && hasLoadedOnce && !laxianEditPanelExpanded && showChromeUi"
                 type="button"
                 class="fixed bottom-4 left-1/2 -translate-x-1/2 z-40 flex items-center justify-center w-11 h-11 rounded-full bg-white/95 dark:bg-gray-800/95 shadow-lg backdrop-blur-sm border border-gray-200/50 dark:border-gray-600/50 text-purple-600 dark:text-purple-400 hover:shadow-xl hover:scale-105 active:scale-95 transition-all"
                 title="展开拉线编辑"
@@ -1549,7 +1893,7 @@ onUnmounted(() => {
                 </span>
             </button>
             <div
-                v-if="isEditMode && hasLoadedOnce && laxianEditPanelExpanded"
+                v-if="isEditMode && hasLoadedOnce && laxianEditPanelExpanded && showChromeUi"
                 class="fixed bottom-4 left-1/2 -translate-x-1/2 z-40 max-w-lg w-[calc(100vw-2rem)] rounded-2xl bg-white/95 dark:bg-gray-800/95 shadow-xl border border-gray-200/50 dark:border-gray-600/50 p-4 backdrop-blur-sm"
             >
                 <div class="flex items-center justify-between gap-2 mb-3">
@@ -1813,7 +2157,7 @@ onUnmounted(() => {
                     </div>
                 </div>
             </div>
-            <QhxModal v-if="!isHideUi" v-model="showLaxianModal" :trigger-position="laxianModalPosition" @close="showLaxianModal = false">
+            <QhxModal v-if="showChromeUi" v-model="showLaxianModal" :trigger-position="laxianModalPosition" @close="showLaxianModal = false">
                 <div class="p-6 w-[240px] bg-white dark:bg-gray-800 rounded-2xl shadow-xl border border-gray-200/50 dark:border-gray-700/50">
                     <h3 class="text-sm font-semibold text-gray-800 dark:text-gray-100 mb-4">标点显示</h3>
                     <div class="space-y-3">
@@ -1830,7 +2174,7 @@ onUnmounted(() => {
             </QhxModal>
             <!-- 拉线点详情编辑（仅编辑模式） -->
             <QhxModal
-                v-if="!isHideUi"
+                v-if="showChromeUi"
                 v-model="showLaxianDetailEdit"
                 :trigger-position="detailModalPosition"
                 @close="showLaxianDetailEdit = false"

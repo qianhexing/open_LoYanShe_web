@@ -4,6 +4,8 @@ import OSS from 'ali-oss'
 import SparkMD5 from 'spark-md5'
 import { checkFileAndGetUploadInfo, insertFile } from '@/api'
 import type { FileInterface } from '@/types/api'
+import { ensureJpegForUpload } from '@/utils/heicUploadGate'
+import { BASE_IMG } from '@/utils/ipConfig'
 
 /**
  * 计算文件的 MD5 值
@@ -82,6 +84,15 @@ export async function uploadImageOSS(file: { file?: File; url?: string; }): Prom
   }
   return url
 }
+
+async function gateImageFileForOss(file: File): Promise<File> {
+  const isLikelyImage =
+    file.type.startsWith('image/') ||
+    /\.(jpe?g|png|gif|webp|heic|heif|bmp|avif)$/i.test(file.name)
+  if (!isLikelyImage) return file
+  return ensureJpegForUpload(file)
+}
+
 /**
  * temp 目录 OSS 直传：不查重、不写文件记录（分享图等临时场景）
  */
@@ -89,6 +100,7 @@ export async function uploadTempFileToOSS(
   file: File,
   onProgress?: (progress: number) => void
 ): Promise<{ file_url: string }> {
+  const uploadFile = await gateImageFileForOss(file)
   const checkResult = await checkFileAndGetUploadInfo({
     file_md5: `temp_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`,
     path: 'temp',
@@ -99,7 +111,7 @@ export async function uploadTempFileToOSS(
   }
 
   const ossInfo = checkResult.oss
-  const objectName = `${ossInfo.path}/${file.name}`
+  const objectName = `${ossInfo.path}/${uploadFile.name}`
 
   const client = new OSS({
     region: ossInfo.region,
@@ -114,7 +126,7 @@ export async function uploadTempFileToOSS(
     progress?: (p: number) => void
   } = {
     headers: {
-      'Content-Type': file.type || 'application/octet-stream',
+      'Content-Type': uploadFile.type || 'application/octet-stream',
     },
   }
 
@@ -122,7 +134,7 @@ export async function uploadTempFileToOSS(
     uploadOptions.progress = (p: number) => onProgress(p)
   }
 
-  const uploadResult = await client.put(objectName, file, uploadOptions)
+  const uploadResult = await client.put(objectName, uploadFile, uploadOptions)
   return { file_url: uploadResult.name }
 }
 
@@ -140,9 +152,10 @@ export async function uploadFileToOSS(
   customName: string | undefined = undefined,
   onProgress?: (progress: number) => void
 ): Promise<FileInterface> {
+  const uploadFile = await gateImageFileForOss(file)
   try {
     // 1. 计算文件 MD5
-    const fileMD5 = await calculateFileMD5(file)
+    const fileMD5 = await calculateFileMD5(uploadFile)
     
     // 2. 检查文件是否存在
     const checkResult = await checkFileAndGetUploadInfo({
@@ -167,7 +180,7 @@ export async function uploadFileToOSS(
     }
     
     const ossInfo = checkResult.oss
-    const fileExtension = getFileExtension(file.name)
+    const fileExtension = getFileExtension(uploadFile.name)
     const objectName = `${ossInfo.path}/${customName || fileMD5}${fileExtension}`
     
     // 5. 初始化 OSS 客户端
@@ -185,7 +198,7 @@ export async function uploadFileToOSS(
       progress?: (p: number, cpt: number, res: unknown) => void
     } = {
       headers: {
-        'Content-Type': file.type || 'application/octet-stream'
+        'Content-Type': uploadFile.type || 'application/octet-stream'
       }
     }
     
@@ -197,7 +210,7 @@ export async function uploadFileToOSS(
       }
     }
     
-    const uploadResult = await client.put(objectName, file, uploadOptions)
+    const uploadResult = await client.put(objectName, uploadFile, uploadOptions)
     console.log('上传结果', uploadResult)
     // 7. 构建文件 URL
     // OSS 返回的 URL 格式通常是: https://bucket.region.aliyuncs.com/path/file
@@ -226,7 +239,7 @@ export async function uploadFileToOSS(
         file_url: fileUrl,
         file_md5: fileMD5,
         file_type: 0, // 默认类型，可根据需要调整
-        file_size: file.size // 文件大小（字节）
+        file_size: uploadFile.size // 文件大小（字节）
       })
       return fileRecord
     }

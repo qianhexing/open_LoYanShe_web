@@ -379,6 +379,13 @@ const communityCarouselItems = computed(() => {
 /** 轮播当前索引，与 QhxCarousel v-model 同步 */
 const communityCarouselIndex = ref(0)
 
+/** 自定义主题时去掉轮播白底，露出页面背景 */
+const communityCarouselRootClass = computed(() => {
+  const base =
+    '!shadow-none rounded-[18px] h-full max-h-full [&_.qhx-carousel-track]:h-full [&_.qhx-carousel-slide]:h-full'
+  return customStyle.value ? `${base} !bg-transparent` : base
+})
+
 const communityLightboxVisible = ref(false)
 
 let communityCarouselPressX = 0
@@ -636,8 +643,11 @@ useHead({
 </script>
 <template>
   <div
-    class="community-detail-page bg-qhx-bg-card relative mx-auto px-4 pb-4 max-md:px-0 max-md:pb-2 text-qhx-text"
-    :class="detail ? 'pb-[calc(5.5rem+env(safe-area-inset-bottom,0px))]' : ''"
+    class="community-detail-page relative mx-auto px-4 pb-4 max-md:px-0 max-md:pb-2 text-qhx-text"
+    :class="[
+      detail ? 'pb-[calc(5.5rem+env(safe-area-inset-bottom,0px))]' : '',
+      customStyle ? 'bg-transparent' : 'bg-qhx-bg-card',
+    ]"
     :style="pageContentStyle"
   >
     <div
@@ -759,9 +769,14 @@ useHead({
       </template>
 
       <template v-else>
-        <div v-if="detail" class="rounded-lg shadow-lg flex max-md:block" :key="detail.community_id">
+        <div
+          v-if="detail"
+          class="rounded-lg flex max-md:block gap-3 max-md:gap-0"
+          :class="customStyle ? '' : 'shadow-lg'"
+          :key="detail.community_id"
+        >
           <div
-            class="relative w-[700px] max-md:w-full p-3 aspect-[3/4] min-h-0"
+            class="community-detail-carousel relative z-0 w-[700px] max-md:w-full p-3 aspect-[3/4] min-h-0 overflow-hidden"
             v-if="communityCarouselItems.length"
           >
             <QhxCarousel
@@ -770,7 +785,7 @@ useHead({
               :autoplay="0"
               :arrows="false"
               indicators
-              root-class="!shadow-none rounded-[18px] h-full max-h-full [&_.qhx-carousel-track]:h-full [&_.qhx-carousel-slide]:h-full"
+              :root-class="communityCarouselRootClass"
             >
               <template #item="{ item, index }">
                 <div
@@ -791,7 +806,7 @@ useHead({
                     :active="index === communityCarouselIndex"
                     :alt="item.alt"
                     :show-badge="Boolean(item.videoSrc)"
-                    media-class="h-full w-full max-h-full cursor-pointer object-contain left-cover"
+                    media-class="h-full w-full max-h-full cursor-pointer object-contain"
                     @click="openCommunityCarouselLightbox"
                   />
                 </div>
@@ -811,12 +826,12 @@ useHead({
               {{ communityCarouselIndex + 1 }} / {{ communityCarouselItems.length }}
             </div>
           </div>
-          <div class="flex-1">
+          <div class="relative z-[1] flex-1 min-w-0">
             <div
               v-if="detail.user"
-              class="mx-3 max-md:mx-1 mb-1"
+              class="mx-3 max-md:mx-1 mb-1 max-md:mt-1"
             >
-              <div class="flex items-center justify-between gap-3 p-2">
+              <div class="flex items-center justify-between gap-3 p-2 pt-3">
                 <UserInfo
                   class="min-w-0 flex-1"
                   :need-jump="true"
@@ -861,7 +876,11 @@ useHead({
           </div>
         </div>
 
-        <div v-if="detail" class="rounded-lg shadow-lg mt-3">
+        <div
+          v-if="detail"
+          class="mt-3 rounded-lg"
+          :class="customStyle ? '' : 'shadow-lg'"
+        >
           <div>
             <CommentSection
               v-if="commentSectionReady"

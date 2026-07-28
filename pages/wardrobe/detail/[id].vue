@@ -3558,7 +3558,8 @@ function tryOpenSelectGuide() {
 }
 
 function onSortGuideStepChange(index: number) {
-  if (index === 0 && sidebarCollapsed.value) {
+  // 第 1、3 步高亮左侧衣柜列表；侧栏收起时先展开再刷新蒙层位置
+  if ((index === 0 || index === 2) && sidebarCollapsed.value) {
     sidebarCollapsed.value = false
     nextTick(() => {
       requestAnimationFrame(() => sortGuideRef.value?.refreshLayout())

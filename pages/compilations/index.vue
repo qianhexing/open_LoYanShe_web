@@ -6,6 +6,7 @@ import CompilationsAdd from '@/components/compilations/CompilationsAdd.vue'
 const router = useRouter()
 const route = useRoute()
 const user = useUserStore()
+const configStore = useConfigStore()
 // 分页参数
 const pageSize = 20
 // const total = ref(0)
@@ -143,7 +144,16 @@ const confirmDelete = async () => {
 }
 </script>
 <template>
-  <div class="container mx-auto p-4 pb-20">
+  <div class="min-h-screen">
+    <!-- WebView 状态栏占位：layouts/default 中 ?statusbar= -->
+    <div
+      v-if="configStore.statusBarHeight > 0"
+      class="shrink-0"
+      aria-hidden="true"
+      :style="{ height: `${configStore.statusBarHeight}px` }"
+    />
+
+    <div class="container mx-auto p-4 pb-20">
     <div class="grid grid-cols-2 md:grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4 px-4  pb-3">
       <div class="w-full flex items-center">
         <UInput
@@ -272,6 +282,7 @@ const confirmDelete = async () => {
         </template>
       </UCard>
     </UModal>
+    </div>
   </div>
 </template>
 

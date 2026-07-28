@@ -2,7 +2,7 @@ import type { StepGuideItem } from '@/components/Qhx/StepGuide.vue'
 import { WARDROBE_GUIDE_FIRST_CLOTHES_ID } from '@/utils/wardrobeGuideTargets'
 
 /** 衣柜详情页排序模式步骤引导：仅「不再提示」时写入 localStorage */
-export const WARDROBE_SORT_GUIDE_STORAGE_KEY = 'loyanshe-wardrobe-sort-guide-v1'
+export const WARDROBE_SORT_GUIDE_STORAGE_KEY = 'loyanshe-wardrobe-sort-guide-v2'
 
 export function hasCompletedWardrobeSortGuide(): boolean {
   if (!import.meta.client) return true
@@ -31,5 +31,14 @@ export const WARDROBE_SORT_GUIDE_STEPS: StepGuideItem[] = [
     targetId: WARDROBE_GUIDE_FIRST_CLOTHES_ID,
     placement: 'top',
     padding: 8,
+  },
+  {
+    id: 'move-to-wardrobe',
+    title: '拖拽服饰可切换衣柜',
+    description:
+      '排序模式下，将服饰拖到左侧其他衣柜名称上松手，即可把该服饰切换到目标衣柜。',
+    targetId: 'wardrobe-guide-sidebar-list',
+    placement: 'right',
+    padding: 6,
   },
 ]

@@ -8,6 +8,7 @@ import CommunityForeignList from '@/components/community/CommunityForeignList.vu
 import QhxPreviewImage from '@/components/Qhx/PreviewImage.vue'
 import QhxTabs from '@/components/Qhx/Tabs.vue'
 import QhxTabPanel from '@/components/Qhx/TabPanel.vue'
+import QhxModal from '@/components/Qhx/Modal.vue'
 import UserInfo from '@/components/user/UserInfo.vue'
 import UserGoodBtn from '@/components/user/GoodBtn.vue'
 import UserCollectBtn from '@/components/user/CollectBtn.vue'
@@ -375,7 +376,7 @@ useHead({
 </script>
 
 <template>
-  <div class="matching-detail neu-page relative min-h-screen w-full overflow-x-hidden pb-28 md:pb-32">
+  <div class="matching-detail relative min-h-screen w-full overflow-x-hidden pb-28 md:pb-32">
     <div
       v-if="configStore.statusBarHeight > 0"
       class="shrink-0"
@@ -384,21 +385,21 @@ useHead({
     />
 
     <!-- 加载状态 -->
-    <div v-if="isLoading" class="mx-auto max-w-5xl px-4 pt-8 sm:pt-10">
-      <div class="neu-well-in flex min-h-[400px] flex-col items-center justify-center gap-4 rounded-3xl py-16">
-        <span class="neu-spin-icon flex h-14 w-14 items-center justify-center rounded-full">
-          <UIcon name="i-heroicons-arrow-path" class="h-7 w-7 animate-spin text-[#9d6080] dark:text-pink-300" />
+    <div v-if="isLoading" class="mx-auto max-w-4xl px-3 pt-8 sm:px-4 sm:pt-10">
+      <div class="matching-empty flex min-h-[400px] flex-col items-center justify-center gap-4 rounded-[1.35rem] py-16">
+        <span class="matching-empty-icon flex h-14 w-14 items-center justify-center rounded-full">
+          <UIcon name="i-heroicons-arrow-path" class="h-7 w-7 animate-spin text-qhx-primary" />
         </span>
-        <p class="text-sm text-[#7a5f6f] dark:text-pink-300/85">
+        <p class="text-sm text-[#9a858a]">
           加载中…
         </p>
       </div>
     </div>
 
     <!-- 详情内容 -->
-    <main v-else-if="detail" class="mx-auto max-w-5xl px-4 pt-6 sm:pt-8">
+    <main v-else-if="detail" class="mx-auto max-w-4xl px-3 pt-5 sm:px-4 sm:pt-8">
       <!-- 搭配主卡片 -->
-      <article class="neu-main-card overflow-hidden rounded-3xl">
+      <article class="matching-main-card overflow-hidden rounded-[1.35rem]">
         <div id="matchingBox" class="p-3 sm:p-4">
           <!-- 主图区域：与服饰一致 — float 排布；文案一律放在下方「搭配信息」 -->
           <div
@@ -414,7 +415,7 @@ useHead({
               <div class="float-left w-2/3 aspect-[2/3] p-1">
                 <div
                   v-if="detail.cover"
-                  class="relative h-full cursor-pointer overflow-hidden rounded-xl neu-photo-well ring-1 ring-black/10 transition-all duration-200 hover:ring-qhx-primary/25 dark:ring-white/10"
+                  class="matching-photo relative h-full cursor-pointer overflow-hidden rounded-xl transition-all duration-200 hover:ring-2 hover:ring-qhx-primary/30"
                   @click="previewImage([BASE_IMG + detail.cover], 0)"
                 >
                   <img
@@ -425,7 +426,7 @@ useHead({
                 </div>
                 <div
                   v-else-if="detail.main_clothes_item"
-                  class="relative h-full cursor-pointer overflow-hidden rounded-xl neu-photo-well ring-1 ring-black/10 transition-all duration-200 hover:ring-qhx-primary/25 dark:ring-white/10"
+                  class="matching-photo relative h-full cursor-pointer overflow-hidden rounded-xl transition-all duration-200 hover:ring-2 hover:ring-qhx-primary/30"
                   @click="previewImage([BASE_IMG + detail.main_clothes_item.clothes_img], 0)"
                 >
                   <div
@@ -453,11 +454,11 @@ useHead({
                 class="float-left w-1/3 aspect-[1/1] p-1"
               >
                 <div
-                  class="relative h-full w-full overflow-hidden rounded-xl neu-thumb ring-1 ring-black/10 transition-all duration-200 hover:ring-2 hover:ring-qhx-primary/35 dark:ring-white/10"
+                  class="matching-photo relative h-full w-full overflow-hidden rounded-xl transition-all duration-200 hover:ring-2 hover:ring-qhx-primary/35"
                 >
                   <div
                     v-if="item.library"
-                    class="absolute right-1 top-1 z-10 rounded-md bg-[#c45a6e] px-1.5 py-0.5 text-[10px] font-medium text-white shadow-sm dark:bg-pink-700"
+                    class="absolute right-1 top-1 z-10 rounded-md bg-qhx-primary px-1.5 py-0.5 text-[10px] font-medium text-white shadow-sm"
                   >
                     {{ item.library.state }}
                   </div>
@@ -522,11 +523,11 @@ useHead({
                 class="float-left w-1/3 aspect-[1/1] p-1"
               >
                 <div
-                  class="relative h-full w-full overflow-hidden rounded-xl neu-thumb ring-1 ring-black/10 dark:ring-white/10"
+                  class="matching-photo relative h-full w-full overflow-hidden rounded-xl"
                 >
                   <div
                     v-if="item.library"
-                    class="absolute right-1 top-1 z-10 rounded-md bg-[#c45a6e] px-1.5 py-0.5 text-[10px] font-medium text-white shadow-sm dark:bg-pink-700"
+                    class="absolute right-1 top-1 z-10 rounded-md bg-qhx-primary px-1.5 py-0.5 text-[10px] font-medium text-white shadow-sm"
                   >
                     {{ item.library.state }}
                   </div>
@@ -562,39 +563,39 @@ useHead({
           </div>
 
           <!-- 搭配信息：整段排在图区下方（与服饰页信息区同属「图下」逻辑） -->
-          <div class="neu-meta-well clear-both mt-4 w-full rounded-2xl p-3 sm:p-4">
-            <div class="mb-3 border-b border-pink-200/35 pb-3 dark:border-pink-900/35">
-              <p class="text-[11px] font-medium uppercase tracking-wider text-[#8a6f7d] dark:text-pink-300/80">
+          <div class="matching-meta clear-both mt-4 w-full rounded-2xl p-3 sm:p-4">
+            <div class="mb-3 border-b border-qhx-primary/15 pb-3">
+              <p class="text-[11px] font-medium uppercase tracking-wider text-[#9a858a]">
                 搭配信息
               </p>
-              <h2 class="mt-1 text-xl font-bold leading-snug text-[#4a2f3d] dark:text-pink-50">
+              <h2 class="matching-detail-title mt-1 leading-snug">
                 {{ detail.note || `搭配 #${detail.matching_id}` }}
               </h2>
               <div
                 v-if="detail.main_clothes_item && (detail.main_clothes_item.price || detail.main_clothes_item.library || detail.main_clothes_item.origin_shop || detail.main_clothes_item.origin)"
-                class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-[#4a2f3d] dark:text-pink-100"
+                class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-[#4f3f43]"
               >
                 <span
                   v-if="detail.main_clothes_item.price"
-                  class="font-semibold text-[#b84a6a] dark:text-pink-300"
+                  class="font-semibold text-qhx-primary"
                 >
                   主单品 ￥{{ detail.main_clothes_item.price }}
                 </span>
                 <a
                   v-if="detail.main_clothes_item.library"
-                  class="text-[#7a4f8a] underline-offset-2 hover:underline dark:text-pink-200"
+                  class="text-qhx-primary underline-offset-2 hover:underline"
                   @click.stop="jumpToLibraryDetail(detail.main_clothes_item.library.library_id)"
                 >
                   {{ detail.main_clothes_item.library.name }}
                 </a>
                 <a
                   v-else-if="detail.main_clothes_item.origin_shop"
-                  class="text-[#7a4f8a] underline-offset-2 hover:underline dark:text-pink-200"
+                  class="text-qhx-primary underline-offset-2 hover:underline"
                   @click.stop="jumpToShopDetail(detail.main_clothes_item.origin_shop.shop_id)"
                 >
                   {{ detail.main_clothes_item.origin_shop.shop_name }}
                 </a>
-                <span v-else-if="detail.main_clothes_item.origin" class="text-[#8a6f7d]">
+                <span v-else-if="detail.main_clothes_item.origin" class="text-[#9a858a]">
                   {{ detail.main_clothes_item.origin }}
                 </span>
               </div>
@@ -604,7 +605,7 @@ useHead({
               <span
                 v-for="tag in detail.tags_list"
                 :key="tag.tags_id"
-                class="rounded-full bg-[var(--neu-raised)] px-2.5 py-1 text-xs font-medium text-[#6b4f5f] shadow-[3px_3px_8px_var(--neu-shadow-d),-2px_-2px_8px_var(--neu-shadow-l),inset_0_1px_0_rgba(255,255,255,0.45)] dark:text-pink-200"
+                class="matching-chip rounded-full px-2.5 py-1 text-xs font-medium text-[#4f3f43]"
               >
                 #{{ tag.tags_name }}
               </span>
@@ -614,18 +615,18 @@ useHead({
               <span
                 v-for="(style, index) in detail.main_style.split(',')"
                 :key="index"
-                class="text-sm font-medium text-[#b84a6a] dark:text-pink-300"
+                class="text-sm font-medium text-qhx-primary"
               >
                 ★{{ style }}
               </span>
             </div>
 
             <div v-if="detail.season" class="mt-3 flex flex-wrap items-center gap-2">
-              <span class="text-sm text-[#8a6f7d] dark:text-pink-300/85">季节：</span>
+              <span class="text-sm text-[#9a858a]">季节：</span>
               <span
                 v-for="(seasonItem, index) in detail.season.split(',')"
                 :key="index"
-                class="rounded-full bg-[var(--neu-raised)] px-2.5 py-1 text-xs font-medium text-[#6b4f5f] shadow-[3px_3px_8px_var(--neu-shadow-d),-2px_-2px_8px_var(--neu-shadow-l),inset_0_1px_0_rgba(255,255,255,0.45)] dark:text-pink-200"
+                class="matching-chip rounded-full px-2.5 py-1 text-xs font-medium text-[#4f3f43]"
               >
                 {{ seasonItem }}
               </span>
@@ -636,17 +637,17 @@ useHead({
 
         <!-- 预定时间和隐私设置 -->
         <div
-          class="neu-footer-strip flex flex-wrap items-center justify-between gap-2 border-t border-pink-200/25 px-3 py-3 text-sm dark:border-pink-900/30 sm:px-4"
+          class="matching-footer-strip flex flex-wrap items-center justify-between gap-2 border-t border-qhx-primary/12 px-3 py-3 text-sm sm:px-4"
         >
-          <span v-if="detail.appointment_time" class="text-[#6b4f5f] dark:text-pink-200/90">
+          <span v-if="detail.appointment_time" class="text-[#4f3f43]">
             预定时间：{{ dayjs(detail.appointment_time).format('YYYY-MM-DD') }}
           </span>
           <span
             class="rounded-lg px-2 py-0.5 text-xs font-medium"
             :class="
               detail.is_private === 0
-                ? 'bg-emerald-500/15 text-emerald-800 dark:text-emerald-200'
-                : 'bg-amber-500/15 text-amber-900 dark:text-amber-100'
+                ? 'bg-emerald-500/15 text-emerald-800'
+                : 'bg-amber-500/15 text-amber-900'
             "
           >
             {{ detail.is_private === 0 ? '公开' : '私有' }}
@@ -656,7 +657,7 @@ useHead({
         <!-- 用户信息 -->
         <div
           v-if="detail.user"
-          class="neu-user-row mx-3 mb-3 flex cursor-pointer items-center gap-3 rounded-2xl p-3 transition active:scale-[0.99] sm:mx-4"
+          class="matching-user-row mx-3 mb-3 flex cursor-pointer items-center gap-3 rounded-2xl p-3 transition active:scale-[0.99] sm:mx-4"
           @click="goMatchingAuthorSpace"
         >
           <UserInfo :user="detail.user" />
@@ -665,7 +666,7 @@ useHead({
         <!-- 活动列表 -->
         <div
           v-if="detail.activity_list && detail.activity_list.length > 0"
-          class="compare-wardrobe-btn mx-3 mb-4 cursor-pointer rounded-xl px-4 py-3 text-center text-sm font-medium text-[#5e4980] outline-none transition active:scale-[0.99] dark:text-pink-100 sm:mx-4"
+          class="matching-action-btn mx-3 mb-4 cursor-pointer rounded-xl px-4 py-3 text-center text-sm font-medium text-[#4f3f43] outline-none transition active:scale-[0.99] sm:mx-4"
           role="button"
           tabindex="0"
           @click="showActivityModal = true"
@@ -679,9 +680,9 @@ useHead({
     <!-- 底部操作栏 -->
     <div
       v-if="detail"
-      class="neu-bottom-bar fixed bottom-0 left-0 right-0 z-50"
+      class="matching-bottom-bar fixed bottom-0 left-0 right-0 z-50"
     >
-      <div class="mx-auto flex max-w-5xl justify-center gap-4 px-4 py-3 sm:gap-8 md:py-4">
+      <div class="mx-auto flex max-w-4xl justify-center gap-4 px-4 py-3 sm:gap-8 md:py-4">
         <div class="flex-1 text-center">
           <UserGoodBtn 
             :pk_type="4" 
@@ -708,9 +709,9 @@ useHead({
           >
             <UIcon
               name="i-heroicons-photo-20-solid"
-              class="text-[26px] text-gray-500 dark:text-gray-400"
+              class="text-[26px] text-[#9a858a]"
             />
-            <span class="text-base text-gray-600 dark:text-gray-300">生成</span>
+            <span class="text-base text-[#4f3f43]">生成</span>
           </button>
         </div>
       </div>
@@ -718,15 +719,15 @@ useHead({
 
     <QhxModal v-model="showMatchingShareModal">
       <div
-        class="flex max-h-[90vh] w-[min(94vw,440px)] flex-col overflow-hidden rounded-2xl bg-[#ebe3e8] shadow-2xl dark:bg-[#241d26]"
+        class="matching-share-modal flex max-h-[90vh] w-[min(94vw,440px)] flex-col overflow-hidden rounded-2xl shadow-2xl"
       >
         <div
-          class="flex shrink-0 items-center justify-between gap-2 border-b border-pink-200/40 px-4 py-3 dark:border-pink-900/35"
+          class="flex shrink-0 items-center justify-between gap-2 border-b border-qhx-primary/15 px-4 py-3"
         >
-          <span class="text-sm font-semibold text-[#4a2f3d] dark:text-pink-50">搭配分享图</span>
+          <span class="text-sm font-semibold text-[#4f3f43]">搭配分享图</span>
           <button
             type="button"
-            class="flex h-9 w-9 items-center justify-center rounded-xl text-[#8a6f7d] outline-none transition hover:bg-black/5 dark:text-pink-300/85 dark:hover:bg-white/10"
+            class="flex h-9 w-9 items-center justify-center rounded-xl text-[#9a858a] outline-none transition hover:bg-qhx-primary/10"
             aria-label="关闭"
             @click="showMatchingShareModal = false"
           >
@@ -803,126 +804,98 @@ useHead({
 </template>
 
 <style scoped>
-/* 与 pages/wardrobe/statistics/[id].vue 同系拟态底色与阴影 */
-.matching-detail.neu-page {
-  --neu-base: #e5dce2;
-  --neu-raised: #ebe3e8;
-  --neu-dent: #e0d6dc;
-  --neu-shadow-d: rgba(150, 110, 130, 0.24);
-  --neu-shadow-l: rgba(255, 252, 254, 0.94);
-  --neu-inset-hi: rgba(255, 255, 255, 0.62);
-  background: var(--neu-base);
+.matching-detail {
+  color: #4f3f43;
+  background:
+    radial-gradient(ellipse 80% 50% at 10% -10%, color-mix(in srgb, var(--primary-color) 28%, transparent), transparent 55%),
+    radial-gradient(ellipse 70% 40% at 100% 0%, color-mix(in srgb, var(--primary-color) 18%, transparent), transparent 50%),
+    linear-gradient(180deg, #fff9fb 0%, #fff5f8 45%, #fff2f6 100%);
 }
 
-.dark .matching-detail.neu-page {
-  --neu-base: #19141a;
-  --neu-raised: #241d26;
-  --neu-dent: #18141a;
-  --neu-shadow-d: rgba(0, 0, 0, 0.5);
-  --neu-shadow-l: rgba(100, 70, 90, 0.1);
-  --neu-inset-hi: rgba(255, 210, 230, 0.05);
+.matching-main-card {
+  background: linear-gradient(165deg, #fffbfc 0%, #fff7f9 100%);
+  border: 1px solid color-mix(in srgb, var(--primary-color) 22%, transparent);
+  box-shadow: 0 8px 22px color-mix(in srgb, var(--primary-color) 10%, transparent);
 }
 
-.neu-main-card {
-  background: var(--neu-raised);
-  box-shadow:
-    10px 10px 22px var(--neu-shadow-d),
-    -10px -10px 22px var(--neu-shadow-l),
-    inset 1px 1px 1px rgba(255, 255, 255, 0.55);
+.matching-photo {
+  background: color-mix(in srgb, var(--primary-color) 8%, white);
+  border: 1px solid color-mix(in srgb, var(--primary-color) 14%, transparent);
 }
 
-.dark .neu-main-card {
-  box-shadow:
-    8px 8px 20px var(--neu-shadow-d),
-    -6px -6px 18px var(--neu-shadow-l),
-    inset 1px 1px 0 var(--neu-inset-hi);
+.matching-meta {
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid color-mix(in srgb, var(--primary-color) 16%, transparent);
 }
 
-.neu-photo-well,
-.neu-thumb {
-  background: var(--neu-dent);
-  box-shadow:
-    inset 4px 4px 10px var(--neu-shadow-d),
-    inset -3px -3px 9px var(--neu-inset-hi);
+.matching-detail-title {
+  font-family: 'Cormorant Garamond', 'Songti SC', Georgia, serif;
+  font-size: 1.45rem;
+  font-weight: 600;
+  color: #4f3f43;
+  letter-spacing: 0.02em;
 }
 
-.neu-meta-well {
-  background: var(--neu-dent);
-  box-shadow:
-    inset 5px 5px 12px var(--neu-shadow-d),
-    inset -4px -4px 10px var(--neu-inset-hi);
+.matching-chip {
+  background: #fffbfc;
+  border: 1px solid color-mix(in srgb, var(--primary-color) 20%, transparent);
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--primary-color) 8%, transparent);
 }
 
-.neu-footer-strip {
-  background: var(--neu-raised);
-  box-shadow: inset 0 3px 6px var(--neu-inset-hi);
+.matching-footer-strip {
+  background: transparent;
 }
 
-.dark .neu-footer-strip {
-  box-shadow: inset 0 1px 0 var(--neu-inset-hi);
+.matching-user-row {
+  background: #fffbfc;
+  border: 1px solid color-mix(in srgb, var(--primary-color) 18%, transparent);
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--primary-color) 8%, transparent);
 }
 
-.neu-user-row {
-  background: var(--neu-raised);
-  box-shadow:
-    4px 4px 10px var(--neu-shadow-d),
-    -3px -3px 10px var(--neu-shadow-l),
-    inset 0 1px 0 rgba(255, 255, 255, 0.5);
+.matching-user-row:hover {
+  border-color: color-mix(in srgb, var(--primary-color) 32%, transparent);
+  box-shadow: 0 6px 16px color-mix(in srgb, var(--primary-color) 12%, transparent);
 }
 
-.neu-user-row:hover {
-  box-shadow:
-    5px 5px 12px var(--neu-shadow-d),
-    -4px -4px 12px var(--neu-shadow-l),
-    inset 0 1px 0 rgba(255, 255, 255, 0.55);
+.matching-action-btn {
+  background: #fffbfc;
+  border: 1px solid color-mix(in srgb, var(--primary-color) 20%, transparent);
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--primary-color) 8%, transparent);
 }
 
-.dark .neu-user-row {
-  box-shadow:
-    4px 4px 12px rgba(0, 0, 0, 0.45),
-    -2px -2px 8px var(--neu-shadow-l),
-    inset 0 1px 0 var(--neu-inset-hi);
+.matching-action-btn:hover {
+  background: color-mix(in srgb, var(--primary-color) 8%, white);
 }
 
-.compare-wardrobe-btn {
-  background: var(--neu-raised);
-  box-shadow:
-    4px 4px 10px var(--neu-shadow-d),
-    -3px -3px 10px var(--neu-shadow-l),
-    inset 0 1px 0 rgba(255, 255, 255, 0.55);
+.matching-bottom-bar {
+  background: color-mix(in srgb, #fff9fb 92%, transparent);
+  backdrop-filter: blur(10px);
+  border-top: 1px solid color-mix(in srgb, var(--primary-color) 15%, transparent);
+  padding-bottom: max(0.25rem, env(safe-area-inset-bottom, 0px));
 }
 
-.dark .compare-wardrobe-btn {
-  box-shadow:
-    4px 4px 12px rgba(0, 0, 0, 0.45),
-    -2px -2px 8px var(--neu-shadow-l),
-    inset 0 1px 0 var(--neu-inset-hi);
+.matching-empty {
+  background: linear-gradient(165deg, #fffbfc 0%, #fff7f9 100%);
+  border: 1px solid color-mix(in srgb, var(--primary-color) 22%, transparent);
+  box-shadow: 0 8px 22px color-mix(in srgb, var(--primary-color) 10%, transparent);
 }
 
-.compare-wardrobe-btn:active {
-  box-shadow:
-    inset 3px 3px 8px var(--neu-shadow-d),
-    inset -2px -2px 6px var(--neu-shadow-l);
+.matching-empty-icon {
+  background: color-mix(in srgb, var(--primary-color) 14%, white);
+  border: 1px solid color-mix(in srgb, var(--primary-color) 18%, transparent);
 }
 
-.neu-bottom-bar {
-  background: var(--neu-base);
-  box-shadow:
-    0 -10px 24px -8px var(--neu-shadow-d),
-    inset 0 1px 0 var(--neu-inset-hi);
+.matching-share-modal {
+  background: linear-gradient(165deg, #fffbfc 0%, #fff7f9 100%);
+  border: 1px solid color-mix(in srgb, var(--primary-color) 18%, transparent);
+  color: #4f3f43;
 }
 
-.neu-well-in {
-  background: var(--neu-dent);
-  box-shadow:
-    inset 6px 6px 14px var(--neu-shadow-d),
-    inset -4px -4px 12px var(--neu-inset-hi);
-}
-
-.neu-spin-icon {
-  background: var(--neu-raised);
-  box-shadow:
-    5px 5px 12px var(--neu-shadow-d),
-    -4px -4px 12px var(--neu-shadow-l);
+.line-clamp-2 {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 </style>

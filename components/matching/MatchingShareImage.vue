@@ -1,13 +1,20 @@
 <template>
   <ClientOnly>
-    <div class="matching-share select-none rounded-2xl p-4 shadow-inner">
-      <p class="mb-3 text-center text-xs font-medium text-[#6b4f5f] dark:text-pink-200/90">
-        分享图：上为全宽主图（4:3），下为服饰 3 列方格，含悬浮信息、色号圆点（与详情小图一致）
+    <div class="matching-share select-none">
+      <div class="matching-share__icon mb-3 flex justify-center">
+        <span class="matching-share__icon-well inline-flex h-11 w-11 items-center justify-center rounded-[0.7rem]">
+          <UIcon name="i-heroicons-photo-20-solid" class="h-5 w-5 text-qhx-primary" />
+        </span>
+      </div>
+      <p class="matching-share__title text-center">生成搭配分享图</p>
+      <p class="mt-1.5 text-center text-[11px] leading-relaxed text-[#9a858a]">
+        主图 4:3 · 服饰三列方格 · 含备注与风格信息
       </p>
-      <div class="flex flex-col items-stretch gap-2 sm:flex-row sm:flex-wrap sm:justify-center sm:gap-3">
+
+      <div class="mt-4 flex flex-col items-stretch gap-2 sm:flex-row sm:flex-wrap sm:justify-center sm:gap-2.5">
         <button
           type="button"
-          class="neu-share-btn rounded-xl px-4 py-2.5 text-sm font-medium text-[#5e3a4b] outline-none transition active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-55 dark:text-pink-100"
+          class="matching-share-btn matching-share-btn--primary rounded-xl px-4 py-2.5 text-sm font-medium outline-none transition active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-55"
           :disabled="!payload || generating"
           @click="generateAndUpload"
         >
@@ -15,12 +22,15 @@
             <UIcon name="i-heroicons-arrow-path" class="h-4 w-4 animate-spin" />
             生成并上传中…
           </span>
-          <span v-else>生成分享图并上传</span>
+          <span v-else class="inline-flex items-center justify-center gap-1.5">
+            <UIcon name="i-heroicons-sparkles-20-solid" class="h-4 w-4" />
+            生成分享图并上传
+          </span>
         </button>
         <button
           v-if="previewSrc && !generating"
           type="button"
-          class="rounded-xl px-4 py-2.5 text-sm font-medium text-[#7a5f6f] outline-none ring-1 ring-pink-300/50 transition hover:bg-pink-50/80 active:scale-[0.99] dark:text-pink-200/90 dark:ring-pink-800/60 dark:hover:bg-pink-950/40"
+          class="matching-share-btn rounded-xl px-4 py-2.5 text-sm font-medium text-[#4f3f43] outline-none transition active:scale-[0.99]"
           @click="showSharePreviewModal = true"
         >
           查看分享图
@@ -28,29 +38,34 @@
       </div>
       <p
         v-if="previewSrc && !generating"
-        class="mt-2 text-center text-[11px] text-[#8a6f7d] dark:text-pink-300/80"
+        class="mt-2.5 text-center text-[11px] leading-relaxed text-[#9a858a]"
       >
         <template v-if="isAppWebView">
-          已上传，点「查看分享图」后可用<strong class="font-semibold text-[#9d6080] dark:text-pink-300">保存到相册</strong>按钮，或长按图片保存
+          已上传，点「查看分享图」后可用
+          <strong class="font-semibold text-qhx-primary">保存到相册</strong>
+          ，或长按图片保存
         </template>
         <template v-else>已上传，可在弹窗中预览或右键另存</template>
       </p>
-      <div v-if="errorMsg" class="mt-2 text-center text-xs text-red-600 dark:text-red-400">
+      <div v-if="errorMsg" class="mt-2 text-center text-xs text-[#e05353]">
         {{ errorMsg }}
       </div>
     </div>
 
     <QhxModal v-model="showSharePreviewModal">
       <div
-        class="share-preview-modal flex max-h-[88vh] w-[min(92vw,960px)] flex-col overflow-hidden rounded-2xl shadow-2xl"
+        class="share-preview-modal flex max-h-[88vh] w-[min(92vw,960px)] flex-col overflow-hidden rounded-[1.35rem]"
       >
         <div
           class="share-preview-modal__head flex shrink-0 select-none items-center justify-between gap-2 px-4 py-3"
         >
-          <span class="text-sm font-semibold text-[#4a2f3d] dark:text-pink-50">分享图预览</span>
+          <div>
+            <p class="share-preview-modal__title">分享图预览</p>
+            <p class="mt-0.5 text-[11px] text-[#9a858a]">Share poster</p>
+          </div>
           <button
             type="button"
-            class="flex h-9 w-9 items-center justify-center rounded-xl text-[#8a6f7d] outline-none transition hover:bg-black/5 dark:text-pink-300/85 dark:hover:bg-white/10"
+            class="flex h-9 w-9 items-center justify-center rounded-xl text-[#9a858a] outline-none transition hover:bg-qhx-primary/10"
             aria-label="关闭"
             @click="showSharePreviewModal = false"
           >
@@ -61,30 +76,30 @@
           <div
             class="share-preview-modal__body min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 pb-3 pt-1"
           >
-          <p
-            v-if="isAppWebView"
-            class="share-preview-app-hint mb-3 rounded-xl px-3 py-2 text-center text-xs font-medium text-[#6b3548] dark:text-pink-200"
-          >
-            uni-app：可长按图片保存，或使用底部「保存到相册」
-          </p>
-          <div class="overflow-hidden rounded-xl bg-black/5">
-            <img
-              v-if="previewSrc"
-              :src="previewSrc"
-              alt="搭配分享图"
-              class="share-preview-modal__img mx-auto h-auto w-full max-w-full object-contain"
-              loading="lazy"
-              draggable="true"
-            />
-          </div>
+            <p
+              v-if="isAppWebView"
+              class="share-preview-app-hint mb-3 rounded-xl px-3 py-2 text-center text-xs font-medium text-[#4f3f43]"
+            >
+              uni-app：可长按图片保存，或使用底部「保存到相册」
+            </p>
+            <div class="share-preview-frame overflow-hidden rounded-2xl">
+              <img
+                v-if="previewSrc"
+                :src="previewSrc"
+                alt="搭配分享图"
+                class="share-preview-modal__img mx-auto h-auto w-full max-w-full object-contain"
+                loading="lazy"
+                draggable="true"
+              />
+            </div>
           </div>
           <div
             v-if="isAppWebView && previewSrc"
-            class="share-preview-modal__footer shrink-0 border-t border-[#dfc9d4] px-3 py-3 dark:border-[#3d2f38]"
+            class="share-preview-modal__footer shrink-0 px-3 py-3"
           >
             <button
               type="button"
-              class="share-save-album-btn mx-auto flex w-full max-w-[320px] justify-center rounded-xl px-4 py-2.5 text-sm font-medium outline-none transition active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-55"
+              class="matching-share-btn matching-share-btn--primary mx-auto flex w-full max-w-[320px] justify-center rounded-xl px-4 py-2.5 text-sm font-medium outline-none transition active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-55"
               :disabled="savingToAlbum"
               @click="savePreviewToAlbum"
             >
@@ -95,7 +110,10 @@
                 <UIcon name="i-heroicons-arrow-path" class="h-4 w-4 animate-spin" />
                 保存中…
               </span>
-              <span v-else>保存到相册</span>
+              <span v-else class="inline-flex items-center justify-center gap-1.5">
+                <UIcon name="i-heroicons-arrow-down-tray-20-solid" class="h-4 w-4" />
+                保存到相册
+              </span>
             </button>
           </div>
         </div>
@@ -182,14 +200,39 @@ async function savePreviewToAlbum() {
 
 /** 与页面内容区同宽导出基准 */
 const CANVAS_W = 1080
-/** 图块间距（约 Tailwind p-1 双边） */
-const BLOCK_GAP = 8
-/** 圆角 rounded-xl */
-const PHOTO_RADIUS = 12
+/** 画布外边距 */
+const OUTER_PAD = 36
+/** 图块间距 */
+const BLOCK_GAP = 10
+/** 圆角 */
+const PHOTO_RADIUS = 18
+const CARD_RADIUS = 28
 const IMG_PROC = '?x-oss-process=image/quality,q_85/resize,w_1200'
 
-const LOGO_MARGIN = 24
-const CELL_FALLBACK = '#e0d6dc'
+const COLOR = {
+  text: '#4f3f43',
+  muted: '#9a858a',
+  primary: '#ff9eb5',
+  primaryDeep: '#e8899f',
+  cardTop: '#fffbfc',
+  cardBottom: '#fff7f9',
+  fallback: '#f3e8ec',
+  pageTop: '#fff9fb',
+  pageMid: '#fff5f8',
+  pageBottom: '#fff2f6',
+  border: 'rgba(255, 158, 181, 0.28)',
+  badge: '#ff9eb5',
+}
+
+function resolvePrimaryColor(): string {
+  if (!import.meta.client) return COLOR.primary
+  try {
+    const v = getComputedStyle(document.documentElement).getPropertyValue('--primary-color').trim()
+    return v || COLOR.primary
+  } catch {
+    return COLOR.primary
+  }
+}
 
 function resolveImgUrl(path: string | null | undefined): string {
   if (!path?.trim()) return ''
@@ -258,7 +301,7 @@ function divideEvenly(total: number, n: number): number[] {
   return Array.from({ length: n }, (_, i) => q + (i < r ? 1 : 0))
 }
 
-/** 上：全宽主图 aspect 4:3；下：3 列方格（与详情无主图区栅格一致） */
+/** 上：全宽主图 aspect 4:3；下：3 列方格 */
 function buildBottomThumbGrid(width: number, count: number, y0: number): { rects: CollageRect[]; blockHeight: number } {
   if (count <= 0) return { rects: [], blockHeight: 0 }
   const cols = 3
@@ -272,12 +315,32 @@ function buildBottomThumbGrid(width: number, count: number, y0: number): { rects
     for (let c = 0; c < cols && idx < count; c++) {
       const cw = colWs[c] ?? cellH
       rects.push({ x, y: y0 + r * (cellH + BLOCK_GAP), w: cw, h: cellH })
-      x += cw
+      x += cw + (c < cols - 1 ? 0 : 0)
+      // restore gap between columns
+      if (c < cols - 1) {
+        // colWs already partition full width without gaps; keep contiguous like before
+      }
       idx++
     }
   }
-  const blockHeight = rows * cellH + Math.max(0, rows - 1) * BLOCK_GAP
-  return { rects, blockHeight }
+  // Re-build with gaps between cells for a softer look
+  const gap = BLOCK_GAP
+  const innerW = width - gap * (cols - 1)
+  const colWsGapped = divideEvenly(innerW, cols)
+  const cellHG = Math.min(...colWsGapped)
+  const rectsG: CollageRect[] = []
+  let gi = 0
+  for (let r = 0; r < rows; r++) {
+    let x = 0
+    for (let c = 0; c < cols && gi < count; c++) {
+      const cw = colWsGapped[c] ?? cellHG
+      rectsG.push({ x, y: y0 + r * (cellHG + gap), w: cw, h: cellHG })
+      x += cw + gap
+      gi++
+    }
+  }
+  const blockHeight = rows * cellHG + Math.max(0, rows - 1) * gap
+  return { rects: rectsG, blockHeight }
 }
 
 function buildMainTopClothesBottom(width: number, thumbCount: number): {
@@ -338,20 +401,35 @@ function drawColorDots(ctx: CanvasRenderingContext2D, x: number, y: number, colo
     ctx.arc(cx + dotR, cy, dotR, 0, Math.PI * 2)
     ctx.fillStyle = c
     ctx.fill()
-    ctx.strokeStyle = 'rgba(255,255,255,0.5)'
-    ctx.lineWidth = 1
+    ctx.strokeStyle = 'rgba(255,255,255,0.65)'
+    ctx.lineWidth = 1.5
     ctx.stroke()
     cx += dotR * 2 + gap
   }
 }
 
-/** 主图区：cover + 可选左上角色号（主单品） */
+function drawSoftPhotoBorder(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  radius: number,
+) {
+  ctx.strokeStyle = 'rgba(255, 158, 181, 0.32)'
+  ctx.lineWidth = 1.5
+  roundRectPath(ctx, x + 0.75, y + 0.75, w - 1.5, h - 1.5, radius)
+  ctx.stroke()
+}
+
+/** 主图区：cover + 可选左上角色号 */
 function drawMainHeroCell(
   ctx: CanvasRenderingContext2D,
   img: HTMLImageElement | null,
   r: CollageRect,
   radius: number,
-  mainColors?: string,
+  mainColors: string | undefined,
+  primary: string,
 ) {
   const { x, y, w, h } = r
   if (w <= 0 || h <= 0) return
@@ -361,24 +439,21 @@ function drawMainHeroCell(
   if (img?.naturalWidth && img.naturalHeight) {
     drawImageCover(ctx, img, x, y, w, h)
   } else {
-    ctx.fillStyle = CELL_FALLBACK
+    ctx.fillStyle = COLOR.fallback
     ctx.fillRect(x, y, w, h)
-    ctx.fillStyle = '#6b4f5f'
-    ctx.font = `${Math.max(14, Math.floor(Math.min(w, h) * 0.07))}px system-ui, "Microsoft YaHei", sans-serif`
+    ctx.fillStyle = COLOR.muted
+    ctx.font = `${Math.max(14, Math.floor(Math.min(w, h) * 0.07))}px "Songti SC", "Microsoft YaHei", serif`
     ctx.textAlign = 'center'
     ctx.textBaseline = 'middle'
     ctx.fillText('加载失败', x + w / 2, y + h / 2)
   }
   ctx.restore()
 
-  ctx.strokeStyle = 'rgba(0,0,0,0.1)'
-  ctx.lineWidth = 1
-  roundRectPath(ctx, x + 0.5, y + 0.5, w - 1, h - 1, radius)
-  ctx.stroke()
+  drawSoftPhotoBorder(ctx, x, y, w, h, radius)
 
   const colors = parseColorList(mainColors)
   if (colors.length) {
-    const pad = Math.max(8, Math.floor(w * 0.02))
+    const pad = Math.max(10, Math.floor(w * 0.02))
     drawColorDots(ctx, x + pad, y + pad, colors, Math.min(w, h))
   }
 }
@@ -387,6 +462,7 @@ function drawClothesThumbOverlay(
   ctx: CanvasRenderingContext2D,
   r: CollageRect,
   item: MatchingShareSideItem,
+  primary: string,
 ) {
   const { x, y, w, h } = r
   if (w <= 0 || h <= 0) return
@@ -399,33 +475,33 @@ function drawClothesThumbOverlay(
   const badgeFs = Math.max(10, Math.floor(h * 0.052))
   const state = strTrim(item.libraryState)
   if (state) {
-    ctx.font = `500 ${badgeFs}px system-ui, "Microsoft YaHei", sans-serif`
+    ctx.font = `500 ${badgeFs}px system-ui, "Microsoft YaHei", "PingFang SC", sans-serif`
     const tw = ctx.measureText(state).width
     const bh = Math.max(18, Math.floor(h * 0.11))
     const bw = tw + pad * 1.4
     const bx = x + w - pad - bw
     const by = y + pad
-    ctx.fillStyle = '#c45a6e'
-    roundRectPath(ctx, bx, by, bw, bh, 5)
+    ctx.fillStyle = primary
+    roundRectPath(ctx, bx, by, bw, bh, 6)
     ctx.fill()
     ctx.fillStyle = '#fff'
     ctx.textAlign = 'center'
     ctx.textBaseline = 'middle'
-    ctx.fillText(state, bx + bw / 2, by + bh / 2)
+    ctx.fillText(state, bx + bw / 2, by + bh / 2 + 0.5)
     ctx.textAlign = 'left'
   }
 
-  const gradH = Math.min(h * 0.42, Math.max(72, h * 0.36))
+  const gradH = Math.min(h * 0.44, Math.max(76, h * 0.38))
   const gy = y + h - gradH
   const g = ctx.createLinearGradient(x, gy, x, y + h)
-  g.addColorStop(0, 'rgba(0,0,0,0)')
-  g.addColorStop(0.35, 'rgba(0,0,0,0.5)')
-  g.addColorStop(1, 'rgba(0,0,0,0.88)')
+  g.addColorStop(0, 'rgba(79, 63, 67, 0)')
+  g.addColorStop(0.4, 'rgba(79, 63, 67, 0.45)')
+  g.addColorStop(1, 'rgba(79, 63, 67, 0.88)')
   ctx.fillStyle = g
   ctx.fillRect(x, gy, w, gradH)
 
   const fs = Math.max(11, Math.floor(Math.min(w, h) * 0.062))
-  ctx.font = `500 ${fs}px system-ui, "Microsoft YaHei", sans-serif`
+  ctx.font = `500 ${fs}px system-ui, "Microsoft YaHei", "PingFang SC", sans-serif`
   const priceRaw = strTrim(item.price)
   const priceStr = priceRaw ? `￥${priceRaw} ` : ''
   const cap = strTrim(item.caption)
@@ -438,13 +514,13 @@ function drawClothesThumbOverlay(
   ctx.textBaseline = 'bottom'
   ctx.textAlign = 'left'
   for (let li = lines.length - 1; li >= 0; li--) {
-    ctx.fillStyle = '#fff'
+    ctx.fillStyle = '#fffbfc'
     ctx.fillText(lines[li]!, x + pad, ty)
     ty -= fs * 1.1
   }
   if (shopLine) {
-    ctx.font = `${shopFs}px system-ui, "Microsoft YaHei", sans-serif`
-    ctx.fillStyle = 'rgba(255,245,250,0.9)'
+    ctx.font = `${shopFs}px system-ui, "Microsoft YaHei", "PingFang SC", sans-serif`
+    ctx.fillStyle = 'rgba(255, 249, 251, 0.88)'
     const short = shopLine.length > 28 ? `${shopLine.slice(0, 27)}…` : shopLine
     ctx.fillText(short, x + pad, y + h - pad)
   }
@@ -457,6 +533,7 @@ function drawClothesCell(
   r: CollageRect,
   item: MatchingShareSideItem,
   radius: number,
+  primary: string,
 ) {
   const { x, y, w, h } = r
   if (w <= 0 || h <= 0) return
@@ -466,9 +543,9 @@ function drawClothesCell(
   if (img?.naturalWidth && img.naturalHeight) {
     drawImageCover(ctx, img, x, y, w, h)
   } else {
-    ctx.fillStyle = CELL_FALLBACK
+    ctx.fillStyle = COLOR.fallback
     ctx.fillRect(x, y, w, h)
-    ctx.fillStyle = '#6b4f5f'
+    ctx.fillStyle = COLOR.muted
     ctx.font = `${Math.max(12, Math.floor(Math.min(w, h) * 0.06))}px system-ui, sans-serif`
     ctx.textAlign = 'center'
     ctx.textBaseline = 'middle'
@@ -476,59 +553,304 @@ function drawClothesCell(
   }
   ctx.restore()
 
-  ctx.strokeStyle = 'rgba(0,0,0,0.1)'
-  ctx.lineWidth = 1
-  roundRectPath(ctx, x + 0.5, y + 0.5, w - 1, h - 1, radius)
-  ctx.stroke()
-
-  drawClothesThumbOverlay(ctx, r, item)
+  drawSoftPhotoBorder(ctx, x, y, w, h, radius)
+  drawClothesThumbOverlay(ctx, r, item, primary)
 }
 
-/** 搭配分享图用略大字号；风格同衣橱头部品牌字；置于画布左上角 */
-function drawBrandMarkTopLeft(ctx: CanvasRenderingContext2D) {
-  const lx = LOGO_MARGIN
-  const ty = LOGO_MARGIN
-  ctx.save()
+function drawPageBackground(ctx: CanvasRenderingContext2D, w: number, h: number, primary: string) {
+  const g = ctx.createLinearGradient(0, 0, 0, h)
+  g.addColorStop(0, COLOR.pageTop)
+  g.addColorStop(0.45, COLOR.pageMid)
+  g.addColorStop(1, COLOR.pageBottom)
+  ctx.fillStyle = g
+  ctx.fillRect(0, 0, w, h)
+
+  // soft radial accents（近似计划页氛围）
+  const r1 = ctx.createRadialGradient(w * 0.1, 0, 0, w * 0.1, 0, w * 0.55)
+  r1.addColorStop(0, hexToRgba(primary, 0.22))
+  r1.addColorStop(1, 'rgba(255,255,255,0)')
+  ctx.fillStyle = r1
+  ctx.fillRect(0, 0, w, h)
+
+  const r2 = ctx.createRadialGradient(w, 0, 0, w, 0, w * 0.45)
+  r2.addColorStop(0, hexToRgba(primary, 0.14))
+  r2.addColorStop(1, 'rgba(255,255,255,0)')
+  ctx.fillStyle = r2
+  ctx.fillRect(0, 0, w, h)
+}
+
+function hexToRgba(color: string, alpha: number): string {
+  const c = color.trim()
+  if (c.startsWith('rgb')) {
+    const m = c.match(/[\d.]+/g)
+    if (m && m.length >= 3) return `rgba(${m[0]}, ${m[1]}, ${m[2]}, ${alpha})`
+  }
+  let hex = c.replace('#', '')
+  if (hex.length === 3) hex = hex.split('').map((ch) => ch + ch).join('')
+  if (hex.length !== 6) return `rgba(255, 158, 181, ${alpha})`
+  const n = Number.parseInt(hex, 16)
+  const r = (n >> 16) & 255
+  const g = (n >> 8) & 255
+  const b = n & 255
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`
+}
+
+function drawCardShell(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  radius: number,
+) {
+  const g = ctx.createLinearGradient(x, y, x, y + h)
+  g.addColorStop(0, COLOR.cardTop)
+  g.addColorStop(1, COLOR.cardBottom)
+  ctx.fillStyle = g
+  roundRectPath(ctx, x, y, w, h, radius)
+  ctx.fill()
+  ctx.strokeStyle = COLOR.border
+  ctx.lineWidth = 1.5
+  roundRectPath(ctx, x + 0.75, y + 0.75, w - 1.5, h - 1.5, radius)
+  ctx.stroke()
+}
+
+function measureInfoBlock(
+  ctx: CanvasRenderingContext2D,
+  payload: MatchingSharePayload,
+  contentW: number,
+): number {
+  const padY = 28
+  const titleFs = 36
+  const metaFs = 22
+  const tagFs = 18
+  let h = padY
+
+  ctx.font = `600 ${titleFs}px "Cormorant Garamond", "Songti SC", Georgia, serif`
+  const title = payload.note?.trim() || `搭配 #${payload.matchingId}`
+  const titleLines = wrapLines(ctx, title, contentW - 48).slice(0, 2)
+  h += titleLines.length * (titleFs * 1.25) + 10
+
+  const metaParts: string[] = []
+  if (payload.userName?.trim()) metaParts.push(payload.userName.trim())
+  if (payload.mainStyle?.trim()) metaParts.push(`★ ${payload.mainStyle.trim()}`)
+  if (metaParts.length) h += metaFs + 14
+
+  const tags = (payload.tags ?? []).map((t) => strTrim(t)).filter(Boolean).slice(0, 8)
+  if (tags.length) h += tagFs + 22
+
+  h += 18 // footer brand line
+  h += padY
+  return Math.max(120, h)
+}
+
+function drawInfoBlock(
+  ctx: CanvasRenderingContext2D,
+  payload: MatchingSharePayload,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  primary: string,
+) {
+  drawCardShell(ctx, x, y, w, h, 22)
+
+  const padX = 28
+  const padY = 26
+  let cy = y + padY
+
+  const title = payload.note?.trim() || `搭配 #${payload.matchingId}`
+  const titleFs = 36
+  ctx.fillStyle = COLOR.text
+  ctx.font = `600 ${titleFs}px "Cormorant Garamond", "Songti SC", Georgia, serif`
   ctx.textAlign = 'left'
   ctx.textBaseline = 'top'
-  ctx.fillStyle = 'rgba(122, 72, 95, 0.38)'
-  ctx.font = 'bold 24px system-ui, "Microsoft YaHei", "PingFang SC", sans-serif'
-  ctx.fillText('Lo研社', lx, ty)
-  ctx.fillStyle = 'rgba(122, 72, 95, 0.28)'
-  ctx.font = '600 15px system-ui, "Microsoft YaHei", sans-serif'
-  ctx.fillText('Lolita图书馆', lx, ty + 30)
-  ctx.restore()
+  const titleLines = wrapLines(ctx, title, w - padX * 2).slice(0, 2)
+  for (const line of titleLines) {
+    ctx.fillText(line, x + padX, cy)
+    cy += titleFs * 1.25
+  }
+  cy += 8
+
+  const metaFs = 22
+  ctx.font = `500 ${metaFs}px system-ui, "Microsoft YaHei", "PingFang SC", sans-serif`
+  ctx.fillStyle = COLOR.muted
+  const metaParts: string[] = []
+  if (payload.userName?.trim()) metaParts.push(payload.userName.trim())
+  if (payload.mainStyle?.trim()) metaParts.push(`★ ${payload.mainStyle.trim()}`)
+  if (metaParts.length) {
+    ctx.fillText(metaParts.join('  ·  '), x + padX, cy)
+    cy += metaFs + 14
+  }
+
+  const tags = (payload.tags ?? []).map((t) => strTrim(t)).filter(Boolean).slice(0, 8)
+  if (tags.length) {
+    const tagFs = 18
+    ctx.font = `500 ${tagFs}px system-ui, "Microsoft YaHei", "PingFang SC", sans-serif`
+    let tx = x + padX
+    const ty = cy
+    const tagH = tagFs + 14
+    for (const tag of tags) {
+      const label = tag.startsWith('#') ? tag : `#${tag}`
+      const tw = ctx.measureText(label).width + 20
+      if (tx + tw > x + w - padX) break
+      ctx.fillStyle = hexToRgba(primary, 0.14)
+      roundRectPath(ctx, tx, ty, tw, tagH, 999)
+      ctx.fill()
+      ctx.strokeStyle = hexToRgba(primary, 0.28)
+      ctx.lineWidth = 1
+      roundRectPath(ctx, tx + 0.5, ty + 0.5, tw - 1, tagH - 1, 999)
+      ctx.stroke()
+      ctx.fillStyle = COLOR.text
+      ctx.textBaseline = 'middle'
+      ctx.fillText(label, tx + 10, ty + tagH / 2)
+      ctx.textBaseline = 'top'
+      tx += tw + 8
+    }
+    cy += tagH + 16
+  }
+
+  // 底部分隔 + 品牌行
+  const footY = y + h - 36
+  ctx.strokeStyle = hexToRgba(primary, 0.18)
+  ctx.lineWidth = 1
+  ctx.beginPath()
+  ctx.moveTo(x + padX, footY - 8)
+  ctx.lineTo(x + w - padX, footY - 8)
+  ctx.stroke()
+
+  ctx.fillStyle = COLOR.muted
+  ctx.font = `500 16px system-ui, "Microsoft YaHei", "PingFang SC", sans-serif`
+  ctx.textBaseline = 'middle'
+  ctx.fillText('Lo研社 · Lolita 搭配', x + padX, footY + 6)
+  ctx.textAlign = 'right'
+  ctx.fillText(`#${payload.matchingId}`, x + w - padX, footY + 6)
+  ctx.textAlign = 'left'
+}
+
+function drawHeaderBrand(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  w: number,
+  primary: string,
+): number {
+  const titleFs = 42
+  ctx.fillStyle = COLOR.text
+  ctx.font = `600 ${titleFs}px "Cormorant Garamond", "Songti SC", Georgia, serif`
+  ctx.textAlign = 'left'
+  ctx.textBaseline = 'top'
+  ctx.fillText('Lo研社', x, y)
+
+  ctx.fillStyle = COLOR.muted
+  ctx.font = `500 18px system-ui, "Microsoft YaHei", "PingFang SC", sans-serif`
+  ctx.fillText('Matching Share', x, y + titleFs + 4)
+
+  // 右侧小胶囊
+  const pillLabel = '搭配'
+  ctx.font = `600 16px system-ui, "Microsoft YaHei", "PingFang SC", sans-serif`
+  const pw = ctx.measureText(pillLabel).width + 28
+  const ph = 32
+  const px = x + w - pw
+  const py = y + 8
+  ctx.fillStyle = hexToRgba(primary, 0.16)
+  roundRectPath(ctx, px, py, pw, ph, 999)
+  ctx.fill()
+  ctx.strokeStyle = hexToRgba(primary, 0.3)
+  ctx.lineWidth = 1
+  roundRectPath(ctx, px + 0.5, py + 0.5, pw - 1, ph - 1, 999)
+  ctx.stroke()
+  ctx.fillStyle = primary
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  ctx.fillText(pillLabel, px + pw / 2, py + ph / 2 + 0.5)
+  ctx.textAlign = 'left'
+  ctx.textBaseline = 'top'
+
+  return titleFs + 28
 }
 
 /**
- * 上：全宽主图 4:3；下：服饰 3 列方格 + 悬浮信息 / 色号 / 馆状态角标。
+ * 粉白氛围海报：顶栏品牌 + 主图/方格 + 信息卡
  */
 async function drawMatchingShareCanvas(payload: MatchingSharePayload): Promise<HTMLCanvasElement> {
+  const primary = resolvePrimaryColor()
   const pathsOrdered = [payload.mainImagePath, ...payload.sideItems.map((s) => s.clothes_img)]
   const urls = pathsOrdered.map((p) => resolveImgUrl(p) + IMG_PROC)
   const images = await Promise.all(urls.map(loadImageCors))
 
+  const contentW = CANVAS_W - OUTER_PAD * 2
   const sideCount = payload.sideItems.length
-  const { mainRect, thumbRects, height: canvasH } = buildMainTopClothesBottom(CANVAS_W, sideCount)
+  const { mainRect, thumbRects, height: collageH } = buildMainTopClothesBottom(contentW, sideCount)
+
+  // 临时测量信息区高度
+  const measureCanvas = document.createElement('canvas')
+  measureCanvas.width = 10
+  measureCanvas.height = 10
+  const mctx = measureCanvas.getContext('2d')
+  if (!mctx) throw new Error('canvas')
+  const infoH = measureInfoBlock(mctx, payload, contentW)
+
+  const headerH = 78
+  const sectionGap = 22
+  const canvasH =
+    OUTER_PAD +
+    headerH +
+    sectionGap +
+    collageH +
+    sectionGap +
+    infoH +
+    OUTER_PAD
 
   const canvas = document.createElement('canvas')
   canvas.width = CANVAS_W
-  canvas.height = Math.max(1, canvasH)
+  canvas.height = Math.max(1, Math.ceil(canvasH))
   const ctx = canvas.getContext('2d')
   if (!ctx) throw new Error('canvas')
 
-  ctx.fillStyle = '#e5dce2'
-  ctx.fillRect(0, 0, CANVAS_W, canvas.height)
+  drawPageBackground(ctx, CANVAS_W, canvas.height, primary)
 
-  drawMainHeroCell(ctx, images[0] ?? null, mainRect, PHOTO_RADIUS, payload.mainItemColors)
+  // 外层主卡片
+  const cardX = OUTER_PAD - 8
+  const cardY = OUTER_PAD - 8
+  const cardW = CANVAS_W - (OUTER_PAD - 8) * 2
+  const cardH = canvas.height - (OUTER_PAD - 8) * 2
+  drawCardShell(ctx, cardX, cardY, cardW, cardH, CARD_RADIUS)
+
+  let cursorY = OUTER_PAD + 8
+  const contentX = OUTER_PAD
+
+  const usedHeader = drawHeaderBrand(ctx, contentX, cursorY, contentW, primary)
+  cursorY += usedHeader + sectionGap
+
+  // 拼贴相对偏移
+  const ox = contentX
+  const oy = cursorY
+  drawMainHeroCell(
+    ctx,
+    images[0] ?? null,
+    { ...mainRect, x: mainRect.x + ox, y: mainRect.y + oy },
+    PHOTO_RADIUS,
+    payload.mainItemColors,
+    primary,
+  )
 
   for (let i = 0; i < thumbRects.length; i++) {
     const item = payload.sideItems[i]
-    if (!item) continue
-    drawClothesCell(ctx, images[i + 1] ?? null, thumbRects[i]!, item, PHOTO_RADIUS)
+    const rect = thumbRects[i]
+    if (!item || !rect) continue
+    drawClothesCell(
+      ctx,
+      images[i + 1] ?? null,
+      { ...rect, x: rect.x + ox, y: rect.y + oy },
+      item,
+      PHOTO_RADIUS,
+      primary,
+    )
   }
 
-  drawBrandMarkTopLeft(ctx)
+  cursorY += collageH + sectionGap
+  drawInfoBlock(ctx, payload, contentX, cursorY, contentW, infoH, primary)
 
   return canvas
 }
@@ -575,78 +897,77 @@ async function generateAndUpload() {
 
 <style scoped>
 .matching-share {
-  background: var(--neu-dent, #e4d9e0);
+  color: #4f3f43;
+  padding: 1.1rem 1rem 1.15rem;
+  border-radius: 1.15rem;
+  background: linear-gradient(165deg, #fffbfc 0%, #fff7f9 100%);
+  border: 1px solid color-mix(in srgb, var(--primary-color) 22%, transparent);
+  box-shadow: 0 6px 18px color-mix(in srgb, var(--primary-color) 9%, transparent);
 }
 
-.neu-share-btn {
-  background: var(--neu-raised, #ebe3e8);
-  box-shadow:
-    4px 4px 10px rgba(150, 110, 130, 0.22),
-    -3px -3px 10px rgba(255, 252, 254, 0.9),
-    inset 0 1px 0 rgba(255, 255, 255, 0.55);
+.matching-share__title {
+  font-family: 'Cormorant Garamond', 'Songti SC', Georgia, serif;
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: #4f3f43;
+  letter-spacing: 0.02em;
 }
 
-.dark .neu-share-btn {
-  --neu-raised: #2e252c;
-  box-shadow:
-    4px 4px 12px rgba(0, 0, 0, 0.4),
-    -2px -2px 8px rgba(130, 90, 110, 0.06),
-    inset 0 1px 0 rgba(255, 210, 230, 0.05);
+.matching-share__icon-well {
+  color: var(--primary-color);
+  background: color-mix(in srgb, var(--primary-color) 14%, white);
+  border: 1px solid color-mix(in srgb, var(--primary-color) 18%, transparent);
+}
+
+.matching-share-btn {
+  background: #fffbfc;
+  border: 1px solid color-mix(in srgb, var(--primary-color) 20%, transparent);
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--primary-color) 8%, transparent);
+}
+
+.matching-share-btn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--primary-color) 8%, white);
+}
+
+.matching-share-btn--primary {
+  color: #fff;
+  background: var(--primary-color);
+  border-color: color-mix(in srgb, var(--primary-color) 55%, transparent);
+  box-shadow: 0 6px 16px color-mix(in srgb, var(--primary-color) 28%, transparent);
+}
+
+.matching-share-btn--primary:hover:not(:disabled) {
+  filter: brightness(1.03);
+  background: var(--primary-color);
 }
 
 .share-preview-modal {
-  background-color: #ebe3e8;
-  box-shadow:
-    10px 10px 26px rgba(150, 110, 130, 0.24),
-    -8px -8px 22px rgba(255, 252, 254, 0.94),
-    inset 1px 1px 0 rgba(255, 255, 255, 0.55);
-}
-
-.dark .share-preview-modal {
-  background-color: #241d26;
-  box-shadow:
-    8px 8px 22px rgba(0, 0, 0, 0.5),
-    -6px -6px 18px rgba(100, 70, 90, 0.1),
-    inset 1px 1px 0 rgba(255, 210, 230, 0.05);
+  color: #4f3f43;
+  background: linear-gradient(165deg, #fffbfc 0%, #fff7f9 100%);
+  border: 1px solid color-mix(in srgb, var(--primary-color) 18%, transparent);
+  box-shadow: 0 16px 40px color-mix(in srgb, var(--primary-color) 16%, transparent);
 }
 
 .share-preview-modal__head {
-  background-color: var(--neu-raised, #ebe3e8);
-  border-bottom: 1px solid #dfc9d4;
+  border-bottom: 1px solid color-mix(in srgb, var(--primary-color) 14%, transparent);
 }
 
-.dark .share-preview-modal__head {
-  border-bottom-color: #3d2f38;
-}
-
-.share-preview-modal__body {
-  background-color: var(--neu-raised, #ebe3e8);
+.share-preview-modal__title {
+  font-family: 'Cormorant Garamond', 'Songti SC', Georgia, serif;
+  font-size: 1.15rem;
+  font-weight: 600;
+  color: #4f3f43;
 }
 
 .share-preview-modal__footer {
-  background-color: var(--neu-raised, #ebe3e8);
+  border-top: 1px solid color-mix(in srgb, var(--primary-color) 14%, transparent);
+  background: color-mix(in srgb, #fff9fb 88%, transparent);
 }
 
-.dark .share-preview-modal__footer {
-  background-color: #241d26;
-}
-
-.share-save-album-btn {
-  color: #5e3a4b;
-  background: var(--neu-raised, #ebe3e8);
-  box-shadow:
-    3px 3px 8px rgba(150, 110, 130, 0.2),
-    -2px -2px 8px rgba(255, 252, 254, 0.85);
-  border: 1px solid rgba(180, 120, 145, 0.35);
-}
-
-.dark .share-save-album-btn {
-  color: #fad6e8;
-  --neu-raised: #2e252c;
-  border-color: rgba(200, 140, 165, 0.25);
-  box-shadow:
-    3px 3px 10px rgba(0, 0, 0, 0.35),
-    -1px -1px 6px rgba(130, 90, 110, 0.05);
+.share-preview-frame {
+  background: color-mix(in srgb, var(--primary-color) 6%, white);
+  border: 1px solid color-mix(in srgb, var(--primary-color) 16%, transparent);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
 }
 
 .share-preview-modal__img {
@@ -656,12 +977,7 @@ async function generateAndUpload() {
 }
 
 .share-preview-app-hint {
-  background: rgba(214, 170, 190, 0.35);
-  border: 1px solid rgba(180, 120, 145, 0.35);
-}
-
-.dark .share-preview-app-hint {
-  background: rgba(80, 45, 60, 0.45);
-  border-color: rgba(200, 140, 165, 0.25);
+  background: color-mix(in srgb, var(--primary-color) 12%, white);
+  border: 1px solid color-mix(in srgb, var(--primary-color) 22%, transparent);
 }
 </style>

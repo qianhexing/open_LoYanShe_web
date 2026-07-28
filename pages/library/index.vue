@@ -1123,7 +1123,16 @@ onMounted(async () => {
 
 </script>
 <template>
-  <div class="container mx-auto pt-4 pb-20 overflow-hidden">
+  <div class="min-h-screen overflow-hidden">
+    <!-- WebView 状态栏占位：layouts/default 中 ?statusbar= -->
+    <div
+      v-if="configStore.statusBarHeight > 0"
+      class="shrink-0"
+      aria-hidden="true"
+      :style="{ height: `${configStore.statusBarHeight}px` }"
+    />
+
+    <div class="container mx-auto pt-4 pb-20">
     <!-- 搜索头部 -->
     <div class="grid grid-cols-1 md:grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4 px-4 pb-3">
       <div class="w-full flex items-center gap-2">
@@ -1578,6 +1587,7 @@ onMounted(async () => {
 
     <!-- 收藏夹选择组件 -->
     <FavoriteOptionsModal ref="favoriteOptionsModalRef" @change="handleCollectChange" />
+    </div>
   </div>
 </template>
 

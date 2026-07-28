@@ -202,14 +202,122 @@ async function applyMatchedScene(item: MatchSceneItem) {
 	}
 }
 
+/** 取景器边长，与模板 w-64/h-64 一致 */
+const SCAN_BOX_SIZE = 256
+/** 长时间未 hit / 未匹配成功后显示「重新识别」 */
+const NO_HIT_TIMEOUT_MS = 10_000
+
 const {
 	statusText: matchStatusText,
 	errorMsg: matchErrorMsg,
 	lastMatchHint,
 	start: startSceneMatch,
+	pause: pauseSceneMatch,
 	stop: stopSceneMatch
 } = useArSceneMatch({
+	getViewfinder: () => {
+		const root = rootRef.value
+		if (!root) return null
+		const { w, h } = getViewportSize(root)
+		if (w <= 0 || h <= 0) return null
+		return {
+			containerWidth: w,
+			containerHeight: h,
+			boxSize: SCAN_BOX_SIZE
+		}
+	},
 	onLocked: item => applyMatchedScene(item)
+})
+
+const matchPaused = ref(false)
+const noHitTimedOut = ref(false)
+let noHitTimer: ReturnType<typeof setTimeout> | null = null
+
+function clearNoHitTimer() {
+	if (noHitTimer) {
+		clearTimeout(noHitTimer)
+		noHitTimer = null
+	}
+}
+
+function armNoHitTimer() {
+	clearNoHitTimer()
+	noHitTimedOut.value = false
+	noHitTimer = setTimeout(() => {
+		noHitTimedOut.value = true
+	}, NO_HIT_TIMEOUT_MS)
+}
+
+function pauseRecognize() {
+	if (switchingScene.value || arPhase.value !== 'matching') return
+	pauseSceneMatch()
+	matchPaused.value = true
+	noHitTimedOut.value = true
+	clearNoHitTimer()
+}
+
+const showPauseBtn = computed(
+	() =>
+		arPhase.value === 'matching' &&
+		!matchPaused.value &&
+		!switchingScene.value &&
+		!sceneLoadError.value
+)
+
+const showReRecognizeBtn = computed(() => {
+	if (arPhase.value === 'booting' || sceneLoadError.value) return false
+	if (switchingScene.value || arPhase.value === 'loading') return false
+	return matchPaused.value || noHitTimedOut.value
+})
+
+watch(arPhase, phase => {
+	if (phase === 'matching') {
+		matchPaused.value = false
+		armNoHitTimer()
+	} else if (phase === 'tracking') {
+		matchPaused.value = false
+		// 已锁定过则等丢失再显示；尚未命中则启动超时
+		if (isTracking.value || status.value === 'tracking') {
+			clearNoHitTimer()
+			noHitTimedOut.value = false
+		} else {
+			armNoHitTimer()
+		}
+	} else {
+		clearNoHitTimer()
+		noHitTimedOut.value = false
+		matchPaused.value = false
+	}
+})
+
+watch(isTracking, hit => {
+	if (arPhase.value !== 'tracking') return
+	if (hit) {
+		clearNoHitTimer()
+		noHitTimedOut.value = false
+	} else {
+		armNoHitTimer()
+	}
+})
+
+/** MindAR 丢失目标后立刻显示「重新识别」 */
+watch(status, s => {
+	if (arPhase.value !== 'tracking') return
+	if (s === 'lost') {
+		clearNoHitTimer()
+		noHitTimedOut.value = true
+	} else if (s === 'tracking') {
+		clearNoHitTimer()
+		noHitTimedOut.value = false
+	}
+})
+
+/** 匹配到候选场景时重置超时（有进展不算「长时间未 hit」） */
+watch(lastMatchHint, hint => {
+	if (arPhase.value !== 'matching' || matchPaused.value) return
+	if (hint && !hint.includes('未匹配')) {
+		armNoHitTimer()
+	}
 })
 
 const debugRows = computed(() => [
@@ -399,6 +507,8 @@ async function reRecognize() {
 	poseLockedFlag.value = false
 	lastProjection = null
 	mindArBootError.value = ''
+	matchPaused.value = false
+	noHitTimedOut.value = false
 	threeCore.value?.hideMindArContent()
 	arPhase.value = 'matching'
 
@@ -475,6 +585,7 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
+	clearNoHitTimer()
 	if (resizeHandler) {
 		window.removeEventListener('resize', resizeHandler)
 		window.visualViewport?.removeEventListener('resize', resizeHandler)
@@ -526,6 +637,9 @@ const overlayHint = computed(() => {
 	if (sceneLoading.value || switchingScene.value || arPhase.value === 'loading') {
 		return '正在切换场景…'
 	}
+	if (matchPaused.value) {
+		return '已暂停识别，可点击重新识别'
+	}
 	if (arPhase.value === 'matching') {
 		return matchStatusText.value || statusText.value || '请对准识别图，正在匹配场景…'
 	}
@@ -556,10 +670,6 @@ const showScanFrame = computed(
 		!sceneLoadError.value &&
 		!isTracking.value &&
 		(arPhase.value === 'matching' || arPhase.value === 'tracking')
-)
-
-const showReRecognizeBtn = computed(
-	() => arPhase.value !== 'booting' && !sceneLoadError.value
 )
 
 useHead({
@@ -683,18 +793,8 @@ definePageMeta({
 			</div>
 		</QhxModal>
 
-		<button
-			v-if="showReRecognizeBtn"
-			type="button"
-			class="pointer-events-auto fixed right-3 top-3 z-[10000] rounded-full border border-white/30 bg-black/65 px-3 py-2 text-xs font-medium text-white shadow-lg backdrop-blur-md hover:bg-black/80 disabled:opacity-50"
-			:disabled="switchingScene || arPhase === 'loading'"
-			@click="reRecognize"
-		>
-			重新识别
-		</button>
-
 		<div
-			class="pointer-events-auto fixed left-2 right-16 top-3 z-[9999] max-h-[48vh] overflow-hidden rounded-xl border border-white/25 bg-black/80 text-left text-white shadow-2xl backdrop-blur-md sm:left-3 sm:right-auto sm:w-[min(420px,92vw)]"
+			class="pointer-events-auto fixed left-2 right-2 top-3 z-[9999] max-h-[48vh] overflow-hidden rounded-xl border border-white/25 bg-black/80 text-left text-white shadow-2xl backdrop-blur-md sm:left-3 sm:right-auto sm:w-[min(420px,92vw)]"
 		>
 			<div class="flex items-center justify-between gap-2 border-b border-white/15 px-3 py-2">
 				<div class="min-w-0">
@@ -771,10 +871,38 @@ definePageMeta({
 
 			<p
 				v-if="arPhase === 'matching'"
-				class="mt-72 max-w-[80vw] text-center text-sm font-medium text-white drop-shadow"
+				class="mt-4 max-w-[80vw] text-center text-sm font-medium text-white drop-shadow"
 			>
-				{{ matchStatusText || '请对准识别图，正在匹配场景…' }}
+				{{
+					matchPaused
+						? '已暂停识别'
+						: matchStatusText || '请对准识别图，正在匹配场景…'
+				}}
 			</p>
+
+			<div
+				v-if="showPauseBtn || showReRecognizeBtn"
+				class="pointer-events-auto mt-4 flex flex-col items-center gap-2"
+			>
+				<button
+					v-if="showPauseBtn"
+					type="button"
+					class="rounded-full border border-white/30 bg-black/65 px-5 py-2.5 text-sm font-medium text-white shadow-lg backdrop-blur-md hover:bg-black/80 disabled:opacity-50"
+					:disabled="switchingScene"
+					@click="pauseRecognize"
+				>
+					暂停识别
+				</button>
+				<button
+					v-if="showReRecognizeBtn"
+					type="button"
+					class="rounded-full border border-white/30 bg-black/65 px-5 py-2.5 text-sm font-medium text-white shadow-lg backdrop-blur-md hover:bg-black/80 disabled:opacity-50"
+					:disabled="switchingScene || arPhase === 'loading'"
+					@click="reRecognize"
+				>
+					重新识别
+				</button>
+			</div>
 
 			<a
 				v-if="showScanFrame && previewImageUrl && arPhase === 'tracking'"

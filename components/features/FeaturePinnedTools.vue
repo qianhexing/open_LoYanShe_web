@@ -111,24 +111,24 @@ async function saveDraft() {
 <template>
   <section
     v-if="user?.user_id != null"
-    class="fp-neo-vars mb-10"
+    class="fp-panel mb-8"
   >
     <div
-      class="mb-4 flex flex-wrap items-center justify-between gap-x-3 gap-y-2"
+      class="mb-3 flex flex-wrap items-center justify-between gap-x-3 gap-y-2 px-1"
     >
-      <h2
-        class="fp-neo-section-title min-w-0 gap-2 py-2 pl-3 pr-3 font-semibold text-gray-800 dark:text-gray-100"
-      >
-        <FeatureNavIcon
-          name="bookmark"
-          icon-class="text-qhx-primary"
-          class="!h-5 !w-5 shrink-0"
-        />
+      <h2 class="fp-section-title min-w-0 flex items-center gap-2">
+        <span class="fp-section-icon">
+          <FeatureNavIcon
+            name="bookmark"
+            icon-class="text-qhx-primary"
+            class="!h-4 !w-4 shrink-0"
+          />
+        </span>
         顶置工具
       </h2>
       <button
         type="button"
-        class="fp-neo-aux-btn shrink-0 rounded-xl px-3 py-1.5 text-sm font-medium text-gray-700 outline-none transition-[box-shadow,transform] duration-200 focus-visible:ring-2 focus-visible:ring-qhx-primary/40 focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--neo-page)] active:scale-[0.98] dark:text-gray-200"
+        class="fp-chip-btn shrink-0 rounded-lg px-3 py-1.5 text-xs font-medium text-[#4f3f43] outline-none transition-all duration-200 hover:bg-qhx-primary/10 focus-visible:ring-2 focus-visible:ring-qhx-primary/40 active:scale-[0.98]"
         @click="manageOpen = true"
       >
         管理顶置
@@ -137,24 +137,24 @@ async function saveDraft() {
 
     <p
       v-if="visiblePinnedItems.length === 0"
-      class="text-sm text-gray-600 dark:text-gray-400"
+      class="px-1 text-xs text-[#9a858a]"
     >
       暂未设置常用入口，点击「管理顶置」从功能列表中添加（已下架的入口不会显示）。
     </p>
 
     <div
       v-else
-      class="grid grid-cols-4 gap-3 md:flex md:flex-wrap md:gap-4"
+      class="grid grid-cols-4 gap-2.5 md:flex md:flex-wrap md:gap-3"
     >
       <button
         v-for="(item, pinIdx) in visiblePinnedItems"
         :key="`pin-${pinIdx}-${item.id}-${item.path}`"
         type="button"
-        class="fp-neo-tile group flex min-w-0 w-full shrink-0 flex-col items-center gap-2 rounded-2xl p-2.5 text-center outline-none transition-[box-shadow,transform] duration-200 focus-visible:ring-2 focus-visible:ring-qhx-primary/40 focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--neo-page)] active:scale-[0.99] md:w-[5.75rem]"
+        class="fp-tile group flex min-w-0 w-full shrink-0 flex-col items-center gap-2 p-2.5 text-center outline-none transition-all duration-200 focus-visible:ring-2 focus-visible:ring-qhx-primary/40 active:scale-[0.99] md:w-[5.75rem]"
         @click="go(item)"
       >
         <div
-          class="fp-neo-icon-well flex h-10 w-10 shrink-0 items-center justify-center rounded-xl transition-[box-shadow,transform] duration-200 group-hover:scale-[1.02] md:h-11 md:w-11"
+          class="fp-icon-well flex h-10 w-10 shrink-0 items-center justify-center transition-transform duration-200 group-hover:scale-[1.03] md:h-11 md:w-11"
         >
           <FeatureNavIcon
             :key="`${item.icon}-${item.id}-${item.path}`"
@@ -164,7 +164,7 @@ async function saveDraft() {
           />
         </div>
         <span
-          class="line-clamp-2 w-full break-words text-center text-[11px] font-medium leading-tight text-gray-800 dark:text-gray-100 md:text-xs"
+          class="line-clamp-2 w-full break-words text-center text-[11px] font-medium leading-tight text-[#4f3f43] md:text-xs"
         >
           {{ item.title }}
         </span>
@@ -173,17 +173,17 @@ async function saveDraft() {
 
     <QhxModal v-model="manageOpen">
       <div
-        class="fp-neo-vars fp-neo-modal-shell flex h-[min(620px,calc(100dvh-8rem))] w-[95vw] max-w-2xl flex-col overflow-hidden rounded-2xl"
+        class="fp-modal-shell flex h-[min(620px,calc(100dvh-8rem))] w-[95vw] max-w-2xl flex-col overflow-hidden rounded-2xl"
       >
         <div
-          class="fp-neo-modal-header flex shrink-0 items-center justify-between px-4 py-3"
+          class="fp-modal-header flex shrink-0 items-center justify-between px-4 py-3"
         >
-          <h3 class="text-lg font-semibold text-gray-900 dark:text-gray-100">
+          <h3 class="fp-modal-title">
             管理顶置工具
           </h3>
           <button
             type="button"
-            class="fp-neo-icon-btn flex size-9 items-center justify-center rounded-xl text-gray-600 outline-none transition-[box-shadow,transform] duration-200 focus-visible:ring-2 focus-visible:ring-qhx-primary/40 dark:text-gray-300"
+            class="fp-icon-btn flex size-8 items-center justify-center rounded-lg text-[#9a858a] outline-none transition-all duration-200 hover:bg-qhx-primary/10 hover:text-[#4f3f43] focus-visible:ring-2 focus-visible:ring-qhx-primary/40"
             aria-label="关闭"
             @click="manageOpen = false"
           >
@@ -196,21 +196,20 @@ async function saveDraft() {
 
         <!-- 上部：仅占剩余高度，超出纵向滚动 -->
         <div class="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-3">
-          <!-- 上方：已选，可拖拽排序（与衣橱页同款 vuedraggable 参数） -->
-          <div class="fp-neo-inset rounded-2xl p-3">
-            <div class="mb-1 text-sm font-medium text-gray-800 dark:text-gray-200">
+          <div class="fp-inset rounded-2xl p-3">
+            <div class="mb-1 text-sm font-medium text-[#4f3f43]">
               已选顶置
             </div>
             <div
-              class="fp-neo-hint-amber mb-3 flex items-start gap-1.5 rounded-xl px-2 py-1.5 text-xs leading-relaxed text-amber-900/95 dark:text-amber-100/95"
+              class="fp-hint mb-3 flex items-start gap-1.5 rounded-xl px-2 py-1.5 text-xs leading-relaxed text-[#9a858a]"
             >
               <UIcon
                 name="i-heroicons-arrows-up-down-16-solid"
-                class="mt-0.5 size-4 shrink-0 text-amber-600 dark:text-amber-400"
+                class="mt-0.5 size-4 shrink-0 text-qhx-primary"
               />
               <span>
-                <span class="font-medium">排序提示：</span>
-                长按卡片约 150ms后拖动即可调整顶置顺序；保存后即在首页生效。
+                <span class="font-medium text-[#4f3f43]">排序提示：</span>
+                长按卡片约 150ms 后拖动即可调整顶置顺序；保存后即在首页生效。
               </span>
             </div>
 
@@ -220,7 +219,7 @@ async function saveDraft() {
                   v-if="draftPinnedRows.length > 0"
                   v-model="draftPinnedRows"
                   item-key="id"
-                  class="pinned-drag-strip grid grid-cols-4 gap-3 md:flex md:flex-wrap md:gap-3"
+                  class="pinned-drag-strip grid grid-cols-4 gap-2.5 md:flex md:flex-wrap md:gap-3"
                   :forceFallback="true"
                   :delay="150"
                   :animation="250"
@@ -231,11 +230,11 @@ async function saveDraft() {
                   <template #item="{ element }">
                     <div
                       v-if="catalogItem(element.id)"
-                      class="drag-handle fp-neo-tile fp-neo-drag-card relative flex min-w-0 w-full shrink-0 cursor-grab select-none flex-col items-center gap-1 rounded-2xl px-1.5 py-2 text-center active:cursor-grabbing md:w-[4.75rem]"
+                      class="drag-handle fp-tile fp-drag-card relative flex min-w-0 w-full shrink-0 cursor-grab select-none flex-col items-center gap-1 px-1.5 py-2 text-center active:cursor-grabbing md:w-[4.75rem]"
                     >
                       <button
                         type="button"
-                        class="fp-neo-remove absolute -right-1 -top-1 z-10 flex size-5 items-center justify-center rounded-full text-red-600 outline-none transition-[box-shadow,transform] duration-200 focus-visible:ring-2 focus-visible:ring-red-400/50 dark:text-red-400"
+                        class="fp-remove absolute -right-1 -top-1 z-10 flex size-5 items-center justify-center rounded-full text-red-500 outline-none transition-all duration-200 focus-visible:ring-2 focus-visible:ring-red-400/50"
                         aria-label="移出顶置"
                         @pointerdown.stop
                         @mousedown.stop
@@ -248,7 +247,7 @@ async function saveDraft() {
                         />
                       </button>
                       <div
-                        class="fp-neo-icon-well flex h-10 w-10 shrink-0 items-center justify-center rounded-xl"
+                        class="fp-icon-well flex h-10 w-10 shrink-0 items-center justify-center"
                       >
                         <FeatureNavIcon
                           class="pointer-events-none scale-90"
@@ -257,7 +256,7 @@ async function saveDraft() {
                         />
                       </div>
                       <span
-                        class="pointer-events-none line-clamp-2 w-full break-words text-[10px] leading-tight text-gray-800 dark:text-gray-100"
+                        class="pointer-events-none line-clamp-2 w-full break-words text-[10px] leading-tight text-[#4f3f43]"
                       >
                         {{ catalogItem(element.id)?.title }}
                       </span>
@@ -266,13 +265,13 @@ async function saveDraft() {
                 </Draggable>
                 <div
                   v-else
-                  class="fp-neo-dashed flex min-h-[5.25rem] items-center justify-center px-3 py-6 text-center text-xs text-gray-600 dark:text-gray-400"
+                  class="fp-dashed flex min-h-[5.25rem] items-center justify-center px-3 py-6 text-center text-xs text-[#9a858a]"
                 >
                   暂无已选，请从下方横向列表中点击添加
                 </div>
               </div>
               <template #fallback>
-                <div class="flex min-h-[5.25rem] items-center justify-center text-xs text-gray-500 dark:text-gray-400">
+                <div class="flex min-h-[5.25rem] items-center justify-center text-xs text-[#9a858a]">
                   加载排序组件中…
                 </div>
               </template>
@@ -282,26 +281,26 @@ async function saveDraft() {
 
         <!-- 底部：选择区固定高度条，始终在「保存」按钮栏上方 -->
         <div
-          class="fp-neo-modal-panel shrink-0 overflow-hidden px-4 py-3"
+          class="fp-modal-panel shrink-0 overflow-hidden px-4 py-3"
         >
-          <div class="mb-1 text-sm font-medium text-gray-800 dark:text-gray-200">
+          <div class="mb-1 text-sm font-medium text-[#4f3f43]">
             选择要顶置的功能
           </div>
-          <p class="mb-2 text-xs text-gray-600 dark:text-gray-400">
+          <p class="mb-2 text-xs text-[#9a858a]">
             横向滑动浏览；点击卡片加入上方「已选顶置」。
           </p>
           <div
-            class="feature-pinned-pool-scroll -mx-1 flex h-[124px] shrink-0 content-start items-start gap-3 overflow-x-auto overflow-y-hidden scroll-smooth px-1 pb-1 pt-0.5"
+            class="feature-pinned-pool-scroll -mx-1 flex h-[124px] shrink-0 content-start items-start gap-2.5 overflow-x-auto overflow-y-hidden scroll-smooth px-1 pb-1 pt-0.5"
           >
             <button
               v-for="row in poolItems"
               :key="row.id"
               type="button"
-              class="fp-neo-tile fp-neo-pool flex w-[4.75rem] shrink-0 flex-col items-center gap-1 rounded-2xl px-1.5 py-2 text-center outline-none transition-[box-shadow,transform] duration-200 focus-visible:ring-2 focus-visible:ring-qhx-primary/40 active:scale-[0.98]"
+              class="fp-tile fp-pool flex w-[4.75rem] shrink-0 flex-col items-center gap-1 px-1.5 py-2 text-center outline-none transition-all duration-200 focus-visible:ring-2 focus-visible:ring-qhx-primary/40 active:scale-[0.98]"
               @click="addPinned(row.id)"
             >
               <div
-                class="fp-neo-icon-well flex h-10 w-10 shrink-0 items-center justify-center rounded-xl"
+                class="fp-icon-well flex h-10 w-10 shrink-0 items-center justify-center"
               >
                 <FeatureNavIcon
                   class="scale-90"
@@ -313,7 +312,7 @@ async function saveDraft() {
                 />
               </div>
               <span
-                class="line-clamp-2 w-full break-words text-[10px] leading-tight text-gray-800 dark:text-gray-100"
+                class="line-clamp-2 w-full break-words text-[10px] leading-tight text-[#4f3f43]"
               >
                 {{ row.title }}
               </span>
@@ -321,25 +320,25 @@ async function saveDraft() {
           </div>
           <p
             v-if="poolItems.length === 0 && draftPinnedRows.length > 0"
-            class="mt-1.5 truncate text-xs text-gray-600 dark:text-gray-400"
+            class="mt-1.5 truncate text-xs text-[#9a858a]"
           >
             已全部加入顶置
           </p>
         </div>
 
         <div
-          class="fp-neo-modal-footer flex shrink-0 justify-end gap-3 px-4 py-3"
+          class="fp-modal-footer flex shrink-0 justify-end gap-3 px-4 py-3"
         >
           <button
             type="button"
-            class="fp-neo-aux-btn rounded-xl px-4 py-2 text-sm font-medium text-gray-700 outline-none transition-[box-shadow,transform] duration-200 focus-visible:ring-2 focus-visible:ring-qhx-primary/40 active:scale-[0.98] dark:text-gray-200"
+            class="fp-chip-btn rounded-lg px-4 py-2 text-sm font-medium text-[#4f3f43] outline-none transition-all duration-200 hover:bg-qhx-primary/10 focus-visible:ring-2 focus-visible:ring-qhx-primary/40 active:scale-[0.98]"
             @click="manageOpen = false"
           >
             取消
           </button>
           <button
             type="button"
-            class="fp-neo-save-btn inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold text-qhx-inverted outline-none transition-[box-shadow,transform] duration-200 focus-visible:ring-2 focus-visible:ring-qhx-primary/50 disabled:cursor-not-allowed disabled:opacity-60"
+            class="fp-save-btn inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold text-white outline-none transition-all duration-200 focus-visible:ring-2 focus-visible:ring-qhx-primary/50 disabled:cursor-not-allowed disabled:opacity-60"
             :disabled="saving"
             @click="saveDraft"
           >
@@ -357,224 +356,118 @@ async function saveDraft() {
 </template>
 
 <style scoped>
-/* 与功能导航页一致的拟态变量（弹窗 Teleport 到 body，需在 .fp-neo-modal-shell 上重复定义） */
-.fp-neo-vars {
-  --neo-page: #e8ecf3;
-  --neo-tile: #e8ecf3;
-  --neo-shadow-dark: rgba(130, 145, 166, 0.38);
-  --neo-shadow-light: rgba(255, 255, 255, 0.92);
-  --neo-inset-dark: rgba(130, 145, 166, 0.28);
-  --neo-inset-light: rgba(255, 255, 255, 0.85);
+.fp-section-title {
+  font-family: 'Cormorant Garamond', 'Songti SC', Georgia, serif;
+  font-size: 1.35rem;
+  font-weight: 600;
+  color: #4f3f43;
+  letter-spacing: 0.02em;
 }
 
-:global(.dark) .fp-neo-vars {
-  --neo-page: #2a2d34;
-  --neo-tile: #2a2d34;
-  --neo-shadow-dark: rgba(0, 0, 0, 0.48);
-  --neo-shadow-light: rgba(255, 255, 255, 0.07);
-  --neo-inset-dark: rgba(0, 0, 0, 0.45);
-  --neo-inset-light: rgba(255, 255, 255, 0.06);
-}
-
-.fp-neo-section-title {
-  display: flex;
+.fp-section-icon {
+  width: 1.65rem;
+  height: 1.65rem;
+  border-radius: 0.55rem;
+  display: inline-flex;
   align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--primary-color) 14%, white);
+}
+
+.fp-chip-btn {
+  background: #fffbfc;
+  border: 1px solid color-mix(in srgb, var(--primary-color) 20%, transparent);
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--primary-color) 8%, transparent);
+}
+
+.fp-tile {
+  background: linear-gradient(165deg, #fffbfc 0%, #fff7f9 100%);
+  border: 1px solid color-mix(in srgb, var(--primary-color) 22%, transparent);
+  border-radius: 1.15rem;
+  box-shadow: 0 6px 18px color-mix(in srgb, var(--primary-color) 9%, transparent);
+}
+
+.fp-tile:hover {
+  border-color: color-mix(in srgb, var(--primary-color) 36%, transparent);
+  box-shadow: 0 10px 24px color-mix(in srgb, var(--primary-color) 14%, transparent);
+  background: linear-gradient(165deg, #ffffff 0%, #fff8fa 100%);
+}
+
+.fp-icon-well {
+  border-radius: 0.7rem;
+  color: var(--primary-color);
+  background: color-mix(in srgb, var(--primary-color) 14%, white);
+}
+
+.fp-modal-shell {
+  color: #4f3f43;
+  background:
+    radial-gradient(ellipse 70% 40% at 0% 0%, color-mix(in srgb, var(--primary-color) 18%, transparent), transparent 55%),
+    linear-gradient(180deg, #fffbfc 0%, #fff5f8 100%);
+  border: 1px solid color-mix(in srgb, var(--primary-color) 20%, transparent);
+  box-shadow: 0 16px 40px color-mix(in srgb, var(--primary-color) 16%, transparent);
+}
+
+.fp-modal-header {
+  border-bottom: 1px solid color-mix(in srgb, var(--primary-color) 14%, transparent);
+}
+
+.fp-modal-title {
+  font-family: 'Cormorant Garamond', 'Songti SC', Georgia, serif;
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: #4f3f43;
+}
+
+.fp-modal-panel {
+  border-top: 1px solid color-mix(in srgb, var(--primary-color) 14%, transparent);
+  background: color-mix(in srgb, var(--primary-color) 5%, #fffbfc);
+}
+
+.fp-modal-footer {
+  border-top: 1px solid color-mix(in srgb, var(--primary-color) 14%, transparent);
+  background: #fffbfc;
+}
+
+.fp-inset {
+  background: color-mix(in srgb, var(--primary-color) 4%, #fffbfc);
+  border: 1px solid color-mix(in srgb, var(--primary-color) 16%, transparent);
+}
+
+.fp-hint {
+  background: color-mix(in srgb, var(--primary-color) 8%, white);
+  border: 1px solid color-mix(in srgb, var(--primary-color) 14%, transparent);
+}
+
+.fp-dashed {
   border-radius: 0.875rem;
-  background: var(--neo-tile);
-  box-shadow:
-    6px 6px 14px var(--neo-shadow-dark),
-    -6px -6px 14px var(--neo-shadow-light);
+  border: 1px dashed color-mix(in srgb, var(--primary-color) 28%, transparent);
+  background: rgba(255, 255, 255, 0.55);
 }
 
-.fp-neo-tile {
-  background: var(--neo-tile);
-  box-shadow:
-    8px 8px 18px var(--neo-shadow-dark),
-    -8px -8px 18px var(--neo-shadow-light);
+.fp-remove {
+  background: #fffbfc;
+  border: 1px solid color-mix(in srgb, #e05353 35%, transparent);
+  box-shadow: 0 2px 8px color-mix(in srgb, #e05353 12%, transparent);
 }
 
-.fp-neo-tile:hover {
-  box-shadow:
-    10px 10px 22px var(--neo-shadow-dark),
-    -10px -10px 22px var(--neo-shadow-light);
+.fp-remove:hover {
+  background: color-mix(in srgb, #e05353 8%, white);
 }
 
-.fp-neo-tile:active {
-  box-shadow:
-    inset 6px 6px 12px var(--neo-inset-dark),
-    inset -6px -6px 12px var(--neo-inset-light);
-}
-
-.fp-neo-icon-well {
-  background: var(--neo-tile);
-  box-shadow:
-    inset 4px 4px 8px var(--neo-inset-dark),
-    inset -4px -4px 8px var(--neo-inset-light);
-}
-
-.fp-neo-tile:hover .fp-neo-icon-well,
-.fp-neo-pool:hover .fp-neo-icon-well {
-  box-shadow:
-    inset 3px 3px 7px var(--neo-inset-dark),
-    inset -3px -3px 7px var(--neo-inset-light);
-}
-
-.fp-neo-aux-btn {
-  background: var(--neo-tile);
-  box-shadow:
-    5px 5px 12px var(--neo-shadow-dark),
-    -5px -5px 12px var(--neo-shadow-light);
-}
-
-.fp-neo-aux-btn:hover {
-  box-shadow:
-    6px 6px 14px var(--neo-shadow-dark),
-    -6px -6px 14px var(--neo-shadow-light);
-}
-
-.fp-neo-aux-btn:active {
-  box-shadow:
-    inset 4px 4px 8px var(--neo-inset-dark),
-    inset -4px -4px 8px var(--neo-inset-light);
-}
-
-.fp-neo-icon-btn {
-  background: var(--neo-tile);
-  box-shadow:
-    5px 5px 11px var(--neo-shadow-dark),
-    -4px -4px 11px var(--neo-shadow-light);
-}
-
-.fp-neo-icon-btn:hover {
-  box-shadow:
-    6px 6px 13px var(--neo-shadow-dark),
-    -5px -5px 13px var(--neo-shadow-light);
-}
-
-.fp-neo-icon-btn:active {
-  box-shadow:
-    inset 3px 3px 8px var(--neo-inset-dark),
-    inset -3px -3px 8px var(--neo-inset-light);
-}
-
-.fp-neo-modal-shell {
-  background: var(--neo-page);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.55),
-    inset 0 0 0 1px rgba(130, 145, 166, 0.06);
-}
-
-:global(.dark) .fp-neo-modal-shell {
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.05),
-    inset 0 0 0 1px rgba(0, 0, 0, 0.25);
-}
-
-.fp-neo-modal-header {
-  box-shadow:
-    inset 0 -1px 0 rgba(130, 145, 166, 0.12),
-    0 6px 14px rgba(130, 145, 166, 0.06);
-}
-
-:global(.dark) .fp-neo-modal-header {
-  box-shadow:
-    inset 0 -1px 0 rgba(255, 255, 255, 0.05),
-    0 8px 18px rgba(0, 0, 0, 0.25);
-}
-
-.fp-neo-modal-panel {
-  background: var(--neo-page);
-  box-shadow:
-    inset 0 2px 6px var(--neo-inset-dark),
-    inset 0 -1px 0 rgba(255, 255, 255, 0.04);
-}
-
-.fp-neo-modal-footer {
-  background: var(--neo-tile);
-  box-shadow:
-    inset 0 2px 8px var(--neo-inset-dark),
-    0 -4px 14px rgba(130, 145, 166, 0.08);
-}
-
-:global(.dark) .fp-neo-modal-footer {
-  box-shadow:
-    inset 0 2px 10px var(--neo-inset-dark),
-    0 -4px 18px rgba(0, 0, 0, 0.3);
-}
-
-.fp-neo-inset {
-  background: var(--neo-tile);
-  box-shadow:
-    inset 5px 5px 14px var(--neo-inset-dark),
-    inset -5px -5px 14px var(--neo-inset-light);
-}
-
-.fp-neo-hint-amber {
-  background: rgba(251, 191, 36, 0.12);
-  box-shadow:
-    inset 3px 3px 8px rgba(180, 120, 20, 0.12),
-    inset -2px -2px 6px rgba(255, 255, 255, 0.45);
-}
-
-:global(.dark) .fp-neo-hint-amber {
-  background: rgba(180, 83, 9, 0.22);
-  box-shadow:
-    inset 3px 3px 10px rgba(0, 0, 0, 0.35),
-    inset -2px -2px 6px rgba(255, 200, 120, 0.06);
-}
-
-.fp-neo-dashed {
-  border-radius: 0.875rem;
-  background: var(--neo-tile);
-  box-shadow:
-    inset 4px 4px 10px var(--neo-inset-dark),
-    inset -4px -4px 10px var(--neo-inset-light);
-}
-
-.fp-neo-remove {
-  background: var(--neo-tile);
-  box-shadow:
-    3px 3px 8px var(--neo-shadow-dark),
-    -2px -2px 6px var(--neo-shadow-light);
-}
-
-.fp-neo-remove:hover {
-  box-shadow:
-    4px 4px 10px var(--neo-shadow-dark),
-    -3px -3px 8px var(--neo-shadow-light);
-}
-
-.fp-neo-remove:active {
-  box-shadow:
-    inset 2px 2px 5px var(--neo-inset-dark),
-    inset -2px -2px 5px var(--neo-inset-light);
-}
-
-.fp-neo-save-btn {
+.fp-save-btn {
   background: var(--primary-color);
-  box-shadow:
-    4px 4px 14px color-mix(in srgb, var(--primary-color) 42%, rgba(0, 0, 0, 0.28)),
-    -3px -3px 10px rgba(255, 255, 255, 0.35);
+  box-shadow: 0 6px 16px color-mix(in srgb, var(--primary-color) 35%, transparent);
 }
 
-:global(.dark) .fp-neo-save-btn {
-  box-shadow:
-    5px 5px 16px color-mix(in srgb, var(--primary-color) 22%, rgba(0, 0, 0, 0.65)),
-    -2px -2px 8px color-mix(in srgb, var(--primary-color) 18%, rgba(255, 255, 255, 0.08));
+.fp-save-btn:hover:not(:disabled) {
+  filter: brightness(1.05);
 }
 
-.fp-neo-save-btn:hover:not(:disabled) {
-  filter: brightness(1.06);
-}
-
-.fp-neo-save-btn:active:not(:disabled) {
-  box-shadow:
-    inset 3px 3px 8px color-mix(in srgb, var(--primary-color) 55%, rgba(0, 0, 0, 0.45)),
-    inset -2px -2px 6px color-mix(in srgb, var(--primary-color) 25%, rgba(255, 255, 255, 0.15));
+.fp-save-btn:active:not(:disabled) {
   filter: brightness(0.97);
 }
 
-/* 与衣橱页 vuedraggable 视觉一致 */
 .drag-ghost {
   opacity: 0.45;
   transform: scale(0.95);
@@ -584,9 +477,7 @@ async function saveDraft() {
 }
 .dragging {
   transform: scale(1.04);
-  box-shadow:
-    12px 14px 28px var(--neo-shadow-dark),
-    -8px -8px 22px var(--neo-shadow-light);
+  box-shadow: 0 14px 28px color-mix(in srgb, var(--primary-color) 22%, transparent);
 }
 .feature-pinned-pool-scroll {
   scrollbar-width: thin;
@@ -596,11 +487,6 @@ async function saveDraft() {
 }
 .feature-pinned-pool-scroll::-webkit-scrollbar-thumb {
   border-radius: 9999px;
-  background: rgba(130, 145, 166, 0.45);
-  box-shadow: inset 1px 1px 2px rgba(255, 255, 255, 0.35);
-}
-:global(.dark) .feature-pinned-pool-scroll::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.12);
-  box-shadow: inset 1px 1px 2px rgba(0, 0, 0, 0.35);
+  background: color-mix(in srgb, var(--primary-color) 35%, transparent);
 }
 </style>

@@ -50,6 +50,8 @@ export interface InsertShopParams {
   shop_state?: number | null
   main_type?: string | null
   shop_logo?: string | null
+  /** 是否使用过 AI：0 否 / 1 是，未传默认 0 */
+  use_ai?: number | null
 }
 
 export interface UpdateShopParams extends InsertShopParams {

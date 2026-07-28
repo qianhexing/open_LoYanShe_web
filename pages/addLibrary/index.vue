@@ -3,13 +3,26 @@
     <!-- 新增图鉴 -->
     <div class="head-seat"></div>
     <div class="add-library">
+      <UAlert
+        color="yellow"
+        variant="soft"
+        icon="i-heroicons-exclamation-triangle"
+        class="mb-6"
+      >
+        <template #title>
+          {{ t('addLibrary.notice_title') }}
+        </template>
+        <template #description>
+          {{ t('addLibrary.notice_desc') }}
+        </template>
+      </UAlert>
       <div class="mb-6 flex justify-center gap-3 flex-wrap">
         <UButton color="primary" size="lg" icon="i-heroicons-chat-bubble-left-right" @click="joinQQGroup"
           class="rounded-full">
           加入交流QQ群
         </UButton>
         <UButton
-          v-if="isAddMode"
+          v-if="false && isAddMode"
           color="primary"
           size="lg"
           icon="i-heroicons-sparkles"
@@ -796,6 +809,28 @@
           </UCard>
         </UModal>
 
+        <!-- 是否使用 AI -->
+        <UFormGroup
+          :label="t('addLibrary.use_ai')"
+          name="use_ai"
+          v-if="shouldShowField('use_ai')"
+          :class="getHighlightClass('use_ai')"
+        >
+          <div class="flex items-center gap-2">
+            <UToggle
+              v-model="library.use_ai"
+              :disabled="isReviewMode"
+              color="primary"
+            />
+            <span class="text-sm text-gray-600 dark:text-gray-400">
+              {{ library.use_ai ? t('addLibrary.use_ai_yes') : t('addLibrary.use_ai_no') }}
+            </span>
+          </div>
+          <div v-if="isReviewMode && isFieldChanged('use_ai')" class="mt-2 text-sm text-gray-600 dark:text-gray-400">
+            <span class="font-semibold">{{ t('addLibrary.original_value') }}</span>{{ getOriginalValueText('use_ai') }}
+          </div>
+        </UFormGroup>
+
         <!-- 是否完成 -->
         <UFormGroup :label="t('addLibrary.complete')" name="complete" v-if="!isReviewMode">
           <div class="flex items-center gap-2">
@@ -1192,6 +1227,11 @@ const serializeSkuForCompare = (jsonData: unknown) => {
       }))
       .sort((a, b) => a.library_pattern.localeCompare(b.library_pattern))
   )
+}
+
+/** 从 json_data.use_ai 解析是否使用 AI（0/1） */
+const resolveUseAi = (jsonData: unknown): boolean => {
+  return Number(parseLibraryJsonData(jsonData).use_ai) === 1
 }
 
 const parseLibraryPatternList = (
@@ -1752,6 +1792,8 @@ const getOriginalValueText = (fieldName: string): string => {
       return original.fabric_composition || ''
     case 'main_style':
       return original.style_list ? original.style_list.map((item: Wiki) => item.wiki_name).join(', ') : ''
+    case 'use_ai':
+      return resolveUseAi(original.json_data) ? t('addLibrary.use_ai_yes') : t('addLibrary.use_ai_no')
     default:
       return ''
   }
@@ -1805,7 +1847,8 @@ const library = ref({
   theme: [] as Wiki[],
   library_pattern_list: [] as LibraryPatternPriceItem[],
   fabric_composition: [] as FabricComposition[], // 成分
-  complete: true as boolean // 是否完成，1完成0未完成；新增默认已完成
+  complete: true as boolean, // 是否完成，1完成0未完成；新增默认已完成
+  use_ai: false as boolean // 是否使用 AI，存于 json_data.use_ai（0/1）
 })
 
 // 检查图鉴名称是否可能已收录
@@ -2330,7 +2373,8 @@ const fetchLibraryById = async () => {
     }
     library.value.parent_id = parent
     library.value.library_price = library_price
-    existingJsonData.value = json_data ? { ...json_data } : {}
+    existingJsonData.value = json_data ? { ...parseLibraryJsonData(json_data) } : {}
+    library.value.use_ai = resolveUseAi(json_data)
     library.value.library_pattern_list = parseLibraryPatternList(library_pattern, json_data)
     if (color) {
       library.value.color = color.split(',').map((item: string) => {
@@ -2514,6 +2558,9 @@ const compareData = async () => {
   if (serializeSkuForCompare(original.json_data) !== serializeSkuForCompare(review.json_data)) {
     changedFields.value.add('json_data')
   }
+  if (resolveUseAi(original.json_data) !== resolveUseAi(review.json_data)) {
+    changedFields.value.add('use_ai')
+  }
   if (compareStringArray(original.fabric_composition, review.fabric_composition)) changedFields.value.add('fabric_composition')
 
   // 对比main_style（需要从style_list中提取）
@@ -2521,9 +2568,48 @@ const compareData = async () => {
   const reviewMainStyle = review.main_style ? review.main_style.split(',').sort().join(',') : ''
   if (originalMainStyle !== reviewMainStyle) changedFields.value.add('main_style')
 
+  // 重新赋值 Set，确保仅改图片等字段时也能触发应显示字段的挂载
+  changedFields.value = new Set(changedFields.value)
+
   // 应用修改后的数据到library
   if (reviewData.value) {
     await applyReviewData()
+  }
+}
+
+/** 将审核新值写入 ImagePicker（须在字段区块已挂载后调用） */
+const applyReviewImages = (review: Library) => {
+  const reviewExt = review as Library & { square_cover?: string | null }
+  const toPreviewList = (paths: string | null | undefined, idPrefix: string) => {
+    if (!paths || !String(paths).trim()) return []
+    return String(paths)
+      .split(',')
+      .map((item) => item.trim())
+      .filter(Boolean)
+      .map((item, i) => ({
+        id: `${idPrefix}_${i}`,
+        file: undefined as File | undefined,
+        url: libraryImageFullUrl(item)
+      }))
+  }
+
+  if ((changedFields.value.has('cover') || changedFields.value.has('square_cover')) && coverRef.value) {
+    const path = (review.cover && String(review.cover).trim())
+      || (reviewExt.square_cover && String(reviewExt.square_cover).trim())
+      || ''
+    const full = libraryImageFullUrl(path)
+    coverRef.value.previewImages = full
+      ? [{ id: 'review_cover', file: undefined, url: full }]
+      : []
+  }
+  if (changedFields.value.has('size_image') && sizeImageRef.value) {
+    sizeImageRef.value.previewImages = toPreviewList(review.size_image, 'review_size')
+  }
+  if (changedFields.value.has('detail_image') && detailImageRef.value) {
+    detailImageRef.value.previewImages = toPreviewList(review.detail_image, 'review_detail')
+  }
+  if (changedFields.value.has('quality_test') && qualityImageRef.value) {
+    qualityImageRef.value.previewImages = toPreviewList(review.quality_test, 'review_quality')
   }
 }
 
@@ -2613,6 +2699,9 @@ const applyReviewData = async () => {
       wiki_id: item
     }))
   }
+  if (changedFields.value.has('use_ai')) {
+    library.value.use_ai = resolveUseAi(review.json_data)
+  }
   if (changedFields.value.has('library_pattern') || changedFields.value.has('json_data')) {
     if (review.json_data) {
       existingJsonData.value = { ...parseLibraryJsonData(review.json_data) }
@@ -2646,37 +2735,10 @@ const applyReviewData = async () => {
   if (changedFields.value.has('main_style') && review.main_style) {
     library.value.main_style = review.main_style.split(',').map((item: string) => Number(item))
   }
-  const reviewExt = review as Library & { square_cover?: string | null }
-  if ((changedFields.value.has('cover') || changedFields.value.has('square_cover')) && coverRef.value) {
-    const path = (review.cover && String(review.cover).trim())
-      || (reviewExt.square_cover && String(reviewExt.square_cover).trim())
-      || ''
-    const full = libraryImageFullUrl(path)
-    if (full) {
-      coverRef.value.previewImages = [{ id: 'review_cover', file: undefined, url: full }]
-    }
-  }
-  if (changedFields.value.has('size_image') && review.size_image && sizeImageRef.value) {
-    sizeImageRef.value.previewImages = review.size_image.split(',').map((item: string, i: number) => ({
-      id: `review_size_${i}`,
-      file: undefined,
-      url: libraryImageFullUrl(item)
-    }))
-  }
-  if (changedFields.value.has('detail_image') && review.detail_image && detailImageRef.value) {
-    detailImageRef.value.previewImages = review.detail_image.split(',').map((item: string, i: number) => ({
-      id: `review_detail_${i}`,
-      file: undefined,
-      url: libraryImageFullUrl(item)
-    }))
-  }
-  if (changedFields.value.has('quality_test') && review.quality_test && qualityImageRef.value) {
-    qualityImageRef.value.previewImages = review.quality_test.split(',').map((item: string, i: number) => ({
-      id: `review_quality_${i}`,
-      file: undefined,
-      url: libraryImageFullUrl(item)
-    }))
-  }
+
+  // 审核模式下图片字段依赖 changedFields 才挂载 ImagePicker，需等 DOM 更新后再写入新值
+  await nextTick()
+  applyReviewImages(review)
 }
 
 const chooseLibrary = (item: Library[]) => {
@@ -2769,6 +2831,7 @@ const applyFieldsFromParentLibrary = (item: Library, opts?: { preserveShop?: boo
   if (item.link) {
     library.value.link = item.link
   }
+  library.value.use_ai = resolveUseAi(item.json_data)
 }
 
 const copyLibraryInfo = () => {
@@ -2819,7 +2882,8 @@ const init = () => {
     theme: [],
     library_pattern_list: [],
     fabric_composition: [],
-    complete: true
+    complete: true,
+    use_ai: false
   }
   existingJsonData.value = {}
 }
@@ -3349,13 +3413,15 @@ const add = async () => {
       params.library_pattern = patternListForSubmit.map((item) => item.library_pattern.wiki_name).join(',')
       params.json_data = {
         ...existingJsonData.value,
-        sku: buildLibraryPatternJsonData(patternListForSubmit)
+        sku: buildLibraryPatternJsonData(patternListForSubmit),
+        use_ai: library.value.use_ai ? 1 : 0
       }
     } else {
       params.library_pattern = null
       params.json_data = {
         ...existingJsonData.value,
-        sku: []
+        sku: [],
+        use_ai: library.value.use_ai ? 1 : 0
       }
     }
     params.complete = library.value.complete ? 1 : 0

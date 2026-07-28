@@ -2,6 +2,7 @@
 import dayjs from 'dayjs'
 import type { ECharts, EChartsOption } from 'echarts'
 import { getWordCloudAll } from '@/api/word_cloud'
+import type QhxColorPicker from '@/components/Qhx/ColorPicker.vue'
 
 definePageMeta({
   ssr: false,
@@ -15,16 +16,24 @@ interface WordCloudDatum {
 /** 9:16 · 4K 竖屏（2160×3840） */
 const EXPORT_WIDTH = 2160
 const EXPORT_HEIGHT = 3840
+const DEFAULT_BG_COLOR = '#ffffff'
 
 const list = ref<WordCloudDatum[]>([])
 const loading = ref(false)
 const isDownloading = ref(false)
+const bgColor = ref(DEFAULT_BG_COLOR)
 const chartHostRef = ref<HTMLElement | null>(null)
 const chartRef = ref<HTMLElement | null>(null)
+const colorPickerRef = ref<InstanceType<typeof QhxColorPicker> | null>(null)
 let chartInstance: ECharts | null = null
 let resizeObserver: ResizeObserver | null = null
 
 const toast = useToast()
+const configStore = useConfigStore()
+/** WebView 经 layouts/default 的 ?statusbar= 注入 */
+const statusBarPx = computed(() =>
+  configStore.statusBarHeight > 0 ? `${configStore.statusBarHeight}px` : '0px'
+)
 const formattedDate = computed(() => dayjs().format('YYYY-MM-DD'))
 const totalCount = computed(() =>
   list.value.reduce((sum, item) => sum + item.value, 0)
@@ -60,7 +69,7 @@ function buildOption(data: WordCloudDatum[], forExport = false): EChartsOption {
   const sizeRange: [number, number] = forExport ? [48, 160] : [10, 30]
 
   return {
-    backgroundColor: '#ffffff',
+    backgroundColor: bgColor.value,
     grid: {
       left: '5%',
       right: '5%',
@@ -89,6 +98,24 @@ function buildOption(data: WordCloudDatum[], forExport = false): EChartsOption {
       },
     ],
   } as EChartsOption
+}
+
+function openBgColorPicker(e?: MouseEvent) {
+  colorPickerRef.value?.showModel(e, bgColor.value)
+}
+
+/** 仅更新背景色，避免整表重绘导致词条配色被重新随机 */
+function applyBgColor(hex: string) {
+  bgColor.value = hex
+  chartInstance?.setOption({ backgroundColor: hex })
+}
+
+function onBgColorChoose(hex: string) {
+  applyBgColor(hex)
+}
+
+function resetBgColor() {
+  applyBgColor(DEFAULT_BG_COLOR)
 }
 
 async function ensureEcharts() {
@@ -170,7 +197,7 @@ async function downloadSnapshot() {
   toast.add({ title: '正在绘制 4K 词云…', color: 'blue' })
 
   const host = document.createElement('div')
-  host.style.cssText = `position:fixed;left:-99999px;top:0;width:${EXPORT_WIDTH}px;height:${EXPORT_HEIGHT}px;pointer-events:none;background:#fff;`
+  host.style.cssText = `position:fixed;left:-99999px;top:0;width:${EXPORT_WIDTH}px;height:${EXPORT_HEIGHT}px;pointer-events:none;background:${bgColor.value};`
   document.body.appendChild(host)
 
   let offscreen: ECharts | null = null
@@ -191,7 +218,7 @@ async function downloadSnapshot() {
     const href = offscreen.getDataURL({
       type: 'jpeg',
       pixelRatio: 1,
-      backgroundColor: '#ffffff',
+      backgroundColor: bgColor.value,
     })
 
     const link = document.createElement('a')
@@ -227,9 +254,19 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="container mx-auto min-h-screen p-4">
+  <div class="min-h-screen">
+    <!-- WebView 状态栏占位：layouts/default 中 ?statusbar= -->
     <div
-      class="flex flex-wrap items-center gap-4 mb-6 sticky top-0 bg-white/90 backdrop-blur z-50 p-4 shadow-sm rounded-lg overflow-x-auto"
+      v-if="configStore.statusBarHeight > 0"
+      class="shrink-0"
+      aria-hidden="true"
+      :style="{ height: statusBarPx }"
+    />
+
+    <div class="container mx-auto p-4">
+    <div
+      class="flex flex-wrap items-center gap-4 mb-6 sticky bg-white/90 backdrop-blur z-50 p-4 shadow-sm rounded-lg overflow-x-auto"
+      :style="{ top: statusBarPx }"
     >
       <div class="text-sm text-gray-600 whitespace-nowrap">
         <span class="font-bold text-gray-800">花语词云截图</span>
@@ -242,6 +279,28 @@ onBeforeUnmount(() => {
       </div>
 
       <div class="flex items-center gap-2 flex-wrap ml-auto">
+        <button
+          type="button"
+          class="inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700 hover:border-primary-300 hover:text-primary-600 transition-colors"
+          @click="openBgColorPicker"
+        >
+          <span
+            class="h-5 w-5 shrink-0 rounded-md border border-gray-300 shadow-sm"
+            :style="{ backgroundColor: bgColor }"
+          />
+          <span>背景色</span>
+          <span class="font-mono text-xs text-gray-400">{{ bgColor }}</span>
+        </button>
+        <UButton
+          v-if="bgColor.toLowerCase() !== DEFAULT_BG_COLOR"
+          color="gray"
+          variant="ghost"
+          size="sm"
+          icon="i-heroicons-arrow-uturn-left"
+          @click="resetBgColor"
+        >
+          重置背景
+        </UButton>
         <UButton
           :loading="loading"
           color="gray"
@@ -263,6 +322,10 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
+    <ClientOnly>
+      <QhxColorPicker ref="colorPickerRef" :color="bgColor" @choose="onBgColorChoose" />
+    </ClientOnly>
+
     <div v-if="loading && list.length === 0" class="flex justify-center py-20">
       <UIcon name="i-heroicons-arrow-path" class="animate-spin text-4xl text-gray-400" />
     </div>
@@ -271,7 +334,7 @@ onBeforeUnmount(() => {
       v-else-if="list.length > 0"
       class="pb-20 max-w-[420px] mx-auto"
     >
-      <div class="bg-white shadow-xl overflow-hidden relative group">
+      <div class="shadow-xl overflow-hidden relative group" :style="{ backgroundColor: bgColor }">
         <div class="absolute top-2 right-2 z-20 opacity-0 group-hover:opacity-100 transition-opacity">
           <UButton
             size="xs"
@@ -287,8 +350,8 @@ onBeforeUnmount(() => {
         <!-- 9:16 预览：固定宽高链，避免 echarts 初始化时高度为 0 -->
         <div
           ref="chartHostRef"
-          class="w-full bg-white relative"
-          style="aspect-ratio: 9 / 16"
+          class="w-full relative"
+          :style="{ aspectRatio: '9 / 16', backgroundColor: bgColor }"
         >
           <div
             ref="chartRef"
@@ -310,6 +373,7 @@ onBeforeUnmount(() => {
 
     <div v-else class="text-center py-20 text-gray-500">
       暂无词云数据
+    </div>
     </div>
   </div>
 </template>

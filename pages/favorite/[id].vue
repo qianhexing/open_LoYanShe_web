@@ -11,6 +11,11 @@ import {
   getCollectListVisitor,
   getFavoriteDetail,
 } from '@/api/collect'
+import {
+  openCommunityDetailTab,
+  openLibraryDetailTab,
+  openLibraryWebPath,
+} from '@/composables/useLibraryDetailNavigation'
 import type FavoriteOptionsModal from '@/components/Favorite/OptionsModal.vue'
 import type QhxWaterList from '@/components/Qhx/WaterList.vue'
 import type {
@@ -24,10 +29,10 @@ dayjs.extend(relativeTime)
 dayjs.locale('zh-cn')
 
 const route = useRoute()
-const router = useRouter()
 const toast = useToast()
 const layoutReady = inject('layoutReady') as Ref<boolean>
 const userStore = useUserStore()
+const configStore = useConfigStore()
 const { user } = storeToRefs(userStore)
 
 const folderId = computed(() => {
@@ -205,10 +210,18 @@ async function confirmDeleteFolder() {
       color: 'green',
     })
     showDeleteFolder.value = false
-    await router.push('/favorite')
+    openLibraryWebPath('/favorite')
   } finally {
     deletingFolder.value = false
   }
+}
+
+function jumpToLibrary(libraryId: number) {
+  openLibraryDetailTab(libraryId)
+}
+
+function jumpToCommunity(communityId: number) {
+  openCommunityDetailTab(communityId)
 }
 
 function triggerLayout(debouncedApplyLayout: () => void) {
@@ -217,7 +230,16 @@ function triggerLayout(debouncedApplyLayout: () => void) {
 </script>
 
 <template>
-  <div class="container mx-auto pt-4 pb-20 px-4 overflow-hidden max-w-[1600px]">
+  <div class="min-h-screen overflow-hidden">
+    <!-- WebView 状态栏占位：layouts/default 中 ?statusbar= -->
+    <div
+      v-if="configStore.statusBarHeight > 0"
+      class="shrink-0"
+      aria-hidden="true"
+      :style="{ height: `${configStore.statusBarHeight}px` }"
+    />
+
+    <div class="container mx-auto pt-4 pb-20 px-4 max-w-[1600px]">
     <div v-if="detailLoading && !info" class="flex justify-center py-20 text-gray-500">
       加载中…
     </div>
@@ -297,9 +319,10 @@ function triggerLayout(debouncedApplyLayout: () => void) {
             <div
               class="polaroid-card overflow-hidden bg-white transition-shadow duration-300 hover:shadow-lg flex flex-col"
             >
-              <NuxtLink
-                :to="`/library/detail/${row.info.library_id}`"
-                class="block flex-1 min-w-0"
+              <button
+                type="button"
+                class="block flex-1 min-w-0 w-full text-left cursor-pointer"
+                @click="jumpToLibrary(row.info.library_id)"
               >
                 <div class="w-full overflow-hidden bg-gray-100 aspect-[3/4] max-h-[420px]">
                   <img
@@ -338,7 +361,7 @@ function triggerLayout(debouncedApplyLayout: () => void) {
                     收藏于 {{ formatCollectedAgo(row.create_time) }}
                   </div>
                 </div>
-              </NuxtLink>
+              </button>
 
               <div
                 v-if="isOwner"
@@ -374,9 +397,10 @@ function triggerLayout(debouncedApplyLayout: () => void) {
             <div
               class="polaroid-card overflow-hidden bg-white transition-shadow duration-300 hover:shadow-lg flex flex-col min-h-[180px]"
             >
-              <NuxtLink
-                :to="`/community/detail/${row.info.community_id}`"
-                class="block flex-1 min-h-0"
+              <button
+                type="button"
+                class="block flex-1 min-h-0 w-full text-left cursor-pointer"
+                @click="jumpToCommunity(row.info.community_id)"
               >
                 <div
                   v-if="communityFirstImage(row.info)"
@@ -398,7 +422,7 @@ function triggerLayout(debouncedApplyLayout: () => void) {
                     {{ stripHtml(row.info.content) }}
                   </p>
                 </div>
-              </NuxtLink>
+              </button>
               <div class="px-3 pb-2 pt-0 mt-auto">
                 <div class="text-[11px] text-gray-400 border-t border-gray-50 dark:border-gray-800 pt-2">
                   收藏于 {{ formatCollectedAgo(row.create_time) }}
@@ -469,5 +493,6 @@ function triggerLayout(debouncedApplyLayout: () => void) {
     </UModal>
 
     <FavoriteOptionsModal ref="favoriteOptionsModalRef" @change="handleCollectChange" />
+    </div>
   </div>
 </template>

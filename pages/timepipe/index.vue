@@ -1,5 +1,12 @@
 <template>
   <div class="container mx-auto min-h-screen timepipe-wrapper">
+    <!-- WebView 状态栏占位：layouts/default 中 ?statusbar= -->
+    <div
+      v-if="configStore.statusBarHeight > 0"
+      class="shrink-0"
+      aria-hidden="true"
+      :style="{ height: `${configStore.statusBarHeight}px` }"
+    />
     <!-- 弹幕组件 - 一直存在，只在"上新日历"标签页时显示 -->
     <!-- Wiki选择组件 -->
     <div class="fixed top-0 left-0 w-full h-full pointer-events-none z-40" style="pointer-events: none;">

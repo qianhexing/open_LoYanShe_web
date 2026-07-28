@@ -38,8 +38,8 @@ if (route.query?.token) {
 }
 if (route.query?.statusbar) {
   const statusBarHeight = Number(route.query.statusbar)
-  if (!Number.isNaN(statusBarHeight) && statusBarHeight > 0) {
-    configStore.setStatusBarHeight(statusBarHeight)
+  if (!Number.isNaN(statusBarHeight) && statusBarHeight >= 0) {
+    configStore.setStatusBarHeight(statusBarHeight <= 5 ? 50 : statusBarHeight)
   }
 }
 console.log(route.path, '初始路由地址')
@@ -154,6 +154,11 @@ const initNotificationSystem = () => {
 // 组件会自动导入
 onMounted(async () => {
   colorMode.value = 'light'
+  /**
+   * 先标记 layoutReady，再异步加载 uni-webview-js。
+   * 否则刷新/手机 WebView 会卡在 await import，页面长时间白屏。
+   */
+  layoutReady.value = true
   const isInUniApp =
     process.client &&
     typeof window !== 'undefined' &&
@@ -183,7 +188,6 @@ onMounted(async () => {
     configStore.getConfig()
   }
   themeStore.setTheme('light')
-  layoutReady.value = true
   document.addEventListener('touchstart', preventZoom, { passive: false });
   document.addEventListener('gesturestart', (e) => e.preventDefault());
 

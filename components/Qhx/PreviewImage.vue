@@ -279,13 +279,13 @@ watch(menuVisible, (open) => {
   <div
     v-for="(image, i) in list"
     :key="`${image.src}-${i}`"
-    class="preview-image-cell relative inline-block align-top"
-    :class="props.className ? `${props.className}` : ''"
+    class="preview-image-cell relative inline-block align-top overflow-hidden"
+    :class="props.className || undefined"
   >
     <img
       :src="`${BASE_IMG}${resolveThumbSrc(image)}`"
       :alt="image.alt || 'Lo研社 嘎嘎'"
-      class="preview-image-thumb h-full w-full object-cover"
+      class="preview-image-thumb block h-full w-full max-h-full max-w-full object-cover object-center"
       loading="lazy"
       draggable="false"
       @click="handleClick(i)"

@@ -220,31 +220,29 @@ useHead({
 </script>
 
 <template>
-  <div
-    class="features-neo-page flex min-h-screen w-full max-w-full min-w-0 flex-col overflow-x-hidden rounded-2xl px-3 md:px-5 pb-28 md:pb-32"
-  >
+  <div class="features-page relative min-h-screen w-full overflow-x-hidden">
     <div
       v-if="configStore.statusBarHeight > 0"
       class="shrink-0"
       :style="{ height: `${configStore.statusBarHeight}px` }"
       aria-hidden="true"
     />
-    <div class="container mx-auto max-w-5xl min-w-0 flex-1 pb-8 pt-6 md:pt-8">
-      <div class="mb-8 flex min-w-0 flex-wrap items-center justify-between gap-3">
+    <div class="container mx-auto max-w-4xl min-w-0 flex-1 p-2 pb-28 md:pb-32">
+      <div class="mb-5 flex min-w-0 flex-wrap items-center justify-between gap-3 pt-2">
         <button
           type="button"
-          class="neo-share-btn inline-flex shrink-0 items-center gap-1.5 rounded-xl px-4 py-2 text-sm font-medium text-gray-700 outline-none transition-[box-shadow,transform] duration-200 focus-visible:ring-2 focus-visible:ring-qhx-primary/40 focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--neo-page)] active:scale-[0.98] dark:text-gray-200"
+          class="features-chip-btn inline-flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-[#4f3f43] outline-none transition-all duration-200 hover:bg-qhx-primary/10 focus-visible:ring-2 focus-visible:ring-qhx-primary/40 active:scale-[0.98]"
           aria-label="分享：复制当前页链接"
           @click="copyShareLink"
         >
           <UIcon
             name="i-heroicons-share"
-            class="size-4 shrink-0"
+            class="size-3.5 shrink-0 text-qhx-primary"
           />
           分享
         </button>
-        <div class="neo-share-btn inline-flex shrink-0 items-center gap-2 rounded-xl px-3 py-2 text-sm text-gray-700 dark:text-gray-200">
-          <span class="whitespace-nowrap text-xs font-medium sm:text-sm">设为首页</span>
+        <div class="features-chip-btn inline-flex shrink-0 items-center gap-2 rounded-lg px-3 py-1.5 text-xs text-[#4f3f43]">
+          <span class="whitespace-nowrap text-[#9a858a]">设为首页</span>
           <UToggle
             v-model="featuresNavAsHomeToggle"
             color="primary"
@@ -253,35 +251,36 @@ useHead({
           />
         </div>
       </div>
+
+      <header class="mb-6 px-1">
+        <h1 class="features-hero-title">{{ featuresNavIntro.title }}</h1>
+        <p class="mt-1.5 text-xs leading-relaxed text-[#9a858a]">
+          常用功能入口一站直达
+        </p>
+      </header>
+
       <FeaturePinnedTools />
+
       <section
         v-for="section in featureNavSections"
         v-show="sectionHasVisibleItem(section)"
         :key="section.id"
-        class="mb-12 min-w-0"
+        class="mb-8 min-w-0"
       >
-        <h2
-          class="neo-section-title min-w-0 font-semibold text-gray-800 dark:text-gray-100 mb-5 break-words pl-4 pr-3 py-2.5"
-        >
-          <span
-            class="mr-2 inline-block h-2 w-2 shrink-0 rounded-full bg-qhx-primary shadow-[0_1px_2px_rgba(0,0,0,0.12)]"
-            aria-hidden="true"
-          />
+        <h2 class="features-section-title mb-3 px-1">
           {{ section.title }}
         </h2>
-        <div class="grid grid-cols-2 gap-3 sm:gap-5">
+        <div class="grid grid-cols-2 gap-2.5">
           <button
             v-for="(item, itemIdx) in section.items"
             v-show="!itemPinnedHidden(item)"
             :key="`${section.id}-${itemIdx}`"
             type="button"
-            class="neo-tile group flex w-full cursor-pointer flex-col gap-2 rounded-2xl p-2.5 text-left outline-none transition-[box-shadow,transform] duration-200 focus-visible:ring-2 focus-visible:ring-qhx-primary/40 focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--neo-page)] active:scale-[0.99] sm:flex-row sm:items-center sm:gap-3 sm:p-4"
+            class="features-tile group flex w-full cursor-pointer flex-col gap-2 p-3 text-left outline-none transition-all duration-200 focus-visible:ring-2 focus-visible:ring-qhx-primary/40 active:scale-[0.99] sm:flex-row sm:items-center sm:gap-3 sm:p-3.5"
             @click="go(item)"
           >
-            <div class="flex min-w-0 w-full items-center gap-2 sm:w-auto sm:shrink-0 sm:items-center sm:gap-3">
-              <div
-                class="neo-icon-well flex h-9 w-9 shrink-0 items-center justify-center rounded-xl transition-[box-shadow,transform] duration-200 group-hover:scale-[1.02] sm:h-11 sm:w-11"
-              >
+            <div class="flex min-w-0 w-full items-center gap-2.5 sm:w-auto sm:shrink-0">
+              <div class="features-icon-well flex h-9 w-9 shrink-0 items-center justify-center transition-transform duration-200 group-hover:scale-[1.03] sm:h-10 sm:w-10">
                 <FeatureNavIcon
                   :key="`${section.id}-${itemIdx}-${item.icon}-${item.path}`"
                   :name="item.icon"
@@ -289,23 +288,23 @@ useHead({
                 />
               </div>
               <div class="min-w-0 flex-1 sm:hidden">
-                <div class="line-clamp-2 text-sm font-medium leading-snug text-gray-800 dark:text-gray-100">
+                <div class="line-clamp-2 text-sm font-medium leading-snug text-[#4f3f43]">
                   {{ item.title }}<span
                     v-if="item.requiresUserId && !user"
-                    class="whitespace-nowrap text-[10px] font-normal text-gray-500 dark:text-gray-400"
+                    class="whitespace-nowrap text-[10px] font-normal text-[#9a858a]"
                   >（需登录）</span>
                 </div>
               </div>
             </div>
             <div class="min-w-0 sm:flex-1 sm:text-left">
-              <div class="mb-0 hidden font-medium text-gray-800 dark:text-gray-100 sm:mb-1 sm:block">
+              <div class="mb-0 hidden font-medium text-[#4f3f43] sm:mb-0.5 sm:block">
                 {{ item.title }}
                 <span
                   v-if="item.requiresUserId && !user"
-                  class="text-xs font-normal text-gray-500 dark:text-gray-400"
+                  class="text-xs font-normal text-[#9a858a]"
                 >（需登录）</span>
               </div>
-              <div class="text-[11px] leading-relaxed text-gray-600 dark:text-gray-400 sm:text-xs">
+              <div class="text-[11px] leading-relaxed text-[#9a858a] sm:text-xs">
                 {{ item.desc }}
               </div>
             </div>
@@ -315,26 +314,24 @@ useHead({
     </div>
 
     <div
-      class="features-page-footer fixed bottom-0 left-0 right-0 z-30 min-w-0 border-t border-gray-200/70 bg-[#e8ecf3]/95 backdrop-blur-sm dark:border-gray-600/50 dark:bg-[#2a2d34]/95"
+      class="features-page-footer fixed bottom-0 left-0 right-0 z-30 min-w-0 border-t border-qhx-primary/15 bg-[#fff9fb]/92 backdrop-blur-sm"
       style="padding-bottom: max(0.625rem, env(safe-area-inset-bottom, 0px))"
     >
-      <div class="mx-auto flex max-w-5xl min-w-0 flex-col items-center gap-2 px-3 py-2.5 md:px-5">
-        <div class="flex items-center justify-center gap-2 text-sm text-gray-500 dark:text-gray-400">
+      <div class="mx-auto flex max-w-4xl min-w-0 flex-col items-center gap-2 px-3 py-2.5">
+        <div class="flex items-center justify-center gap-2 text-sm text-[#9a858a]">
           <UIcon
             name="i-heroicons-eye"
             class="size-4 shrink-0"
           />
           <span>今日访问</span>
-          <span class="tabular-nums text-gray-700 dark:text-gray-300">{{ visitCount }}</span>
+          <span class="tabular-nums text-[#4f3f43]">{{ visitCount }}</span>
         </div>
-        <div
-          class="flex w-full items-center justify-center border-t border-gray-200/90 pt-2 dark:border-gray-700/90"
-        >
+        <div class="flex w-full items-center justify-center border-t border-qhx-primary/12 pt-2">
           <a
             href="https://beian.miit.gov.cn/"
             target="_blank"
             rel="noopener noreferrer"
-            class="inline-flex max-w-full min-w-0 flex-wrap items-center justify-center gap-2 break-words text-gray-600 transition-colors hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200"
+            class="inline-flex max-w-full min-w-0 flex-wrap items-center justify-center gap-2 break-words text-[#9a858a] transition-colors hover:text-[#4f3f43]"
           >
             <img
               src="https://lolitalibrary.com/ali/static/batb.png"
@@ -355,91 +352,53 @@ useHead({
 </template>
 
 <style scoped>
-.features-neo-page {
-  --neo-page: #e8ecf3;
-  --neo-tile: #e8ecf3;
-  --neo-shadow-dark: rgba(130, 145, 166, 0.38);
-  --neo-shadow-light: rgba(255, 255, 255, 0.92);
-  --neo-inset-dark: rgba(130, 145, 166, 0.28);
-  --neo-inset-light: rgba(255, 255, 255, 0.85);
-
-  background-color: var(--neo-page);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.65),
-    0 14px 40px rgba(34, 42, 56, 0.06);
+.features-page {
+  color: #4f3f43;
+  background:
+    radial-gradient(ellipse 80% 50% at 10% -10%, color-mix(in srgb, var(--primary-color) 28%, transparent), transparent 55%),
+    radial-gradient(ellipse 70% 40% at 100% 0%, color-mix(in srgb, var(--primary-color) 18%, transparent), transparent 50%),
+    linear-gradient(180deg, #fff9fb 0%, #fff5f8 45%, #fff2f6 100%);
 }
 
-:global(.dark) .features-neo-page {
-  --neo-page: #2a2d34;
-  --neo-tile: #2a2d34;
-  --neo-shadow-dark: rgba(0, 0, 0, 0.48);
-  --neo-shadow-light: rgba(255, 255, 255, 0.07);
-  --neo-inset-dark: rgba(0, 0, 0, 0.45);
-  --neo-inset-light: rgba(255, 255, 255, 0.06);
-
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.04),
-    0 16px 42px rgba(0, 0, 0, 0.35);
+.features-hero-title {
+  font-family: 'Cormorant Garamond', 'Songti SC', Georgia, serif;
+  font-size: 1.7rem;
+  font-weight: 600;
+  color: #4f3f43;
+  letter-spacing: 0.02em;
+  line-height: 1.2;
 }
 
-.neo-section-title {
-  display: flex;
-  align-items: center;
-  border-radius: 0.875rem;
-  background: var(--neo-tile);
-  box-shadow:
-    6px 6px 14px var(--neo-shadow-dark),
-    -6px -6px 14px var(--neo-shadow-light);
+.features-section-title {
+  font-family: 'Cormorant Garamond', 'Songti SC', Georgia, serif;
+  font-size: 1.35rem;
+  font-weight: 600;
+  color: #4f3f43;
+  letter-spacing: 0.02em;
 }
 
-.neo-tile {
-  background: var(--neo-tile);
-  box-shadow:
-    8px 8px 18px var(--neo-shadow-dark),
-    -8px -8px 18px var(--neo-shadow-light);
+.features-chip-btn {
+  background: #fffbfc;
+  border: 1px solid color-mix(in srgb, var(--primary-color) 20%, transparent);
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--primary-color) 8%, transparent);
 }
 
-.neo-tile:hover {
-  box-shadow:
-    10px 10px 22px var(--neo-shadow-dark),
-    -10px -10px 22px var(--neo-shadow-light);
+.features-tile {
+  background: linear-gradient(165deg, #fffbfc 0%, #fff7f9 100%);
+  border: 1px solid color-mix(in srgb, var(--primary-color) 22%, transparent);
+  border-radius: 1.15rem;
+  box-shadow: 0 6px 18px color-mix(in srgb, var(--primary-color) 9%, transparent);
 }
 
-.neo-tile:active {
-  box-shadow:
-    inset 6px 6px 12px var(--neo-inset-dark),
-    inset -6px -6px 12px var(--neo-inset-light);
+.features-tile:hover {
+  border-color: color-mix(in srgb, var(--primary-color) 36%, transparent);
+  box-shadow: 0 10px 24px color-mix(in srgb, var(--primary-color) 14%, transparent);
+  background: linear-gradient(165deg, #ffffff 0%, #fff8fa 100%);
 }
 
-.neo-icon-well {
-  background: var(--neo-tile);
-  box-shadow:
-    inset 4px 4px 8px var(--neo-inset-dark),
-    inset -4px -4px 8px var(--neo-inset-light);
-}
-
-.group:hover .neo-icon-well {
-  box-shadow:
-    inset 3px 3px 7px var(--neo-inset-dark),
-    inset -3px -3px 7px var(--neo-inset-light);
-}
-
-.neo-share-btn {
-  background: var(--neo-tile);
-  box-shadow:
-    5px 5px 12px var(--neo-shadow-dark),
-    -5px -5px 12px var(--neo-shadow-light);
-}
-
-.neo-share-btn:hover {
-  box-shadow:
-    6px 6px 14px var(--neo-shadow-dark),
-    -6px -6px 14px var(--neo-shadow-light);
-}
-
-.neo-share-btn:active {
-  box-shadow:
-    inset 4px 4px 8px var(--neo-inset-dark),
-    inset -4px -4px 8px var(--neo-inset-light);
+.features-icon-well {
+  border-radius: 0.7rem;
+  color: var(--primary-color);
+  background: color-mix(in srgb, var(--primary-color) 14%, white);
 }
 </style>

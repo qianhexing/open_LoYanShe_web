@@ -321,6 +321,26 @@ export const featureNavFlat = [
     icon: 'bookmark',
     path: '/collectionList',
     ...def()
+  },
+  {
+    sectionTitle: '零碎功能',
+    id: 'wish-bottle',
+    title: '许愿瓶',
+    desc: '把收集的徽章装满许愿瓶',
+    tone: 'pink',
+    icon: 'sparkles',
+    path: '/wishBottle',
+    ...def()
+  },
+  {
+    sectionTitle: '零碎功能',
+    id: 'sign-in-snapshot',
+    title: '签到截图',
+    desc: '花语词云 4K 竖屏截图下载',
+    tone: 'cyan',
+    icon: 'image',
+    path: '/user/signIn/snapshot',
+    ...def()
   }
 ] as const satisfies readonly FeatureNavFlatItem[]
 

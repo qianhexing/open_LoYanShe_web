@@ -267,6 +267,19 @@
             </UButton>
           </UFormGroup>
 
+          <!-- 是否使用过 AI -->
+          <UFormGroup :label="t('addShop.use_ai')" name="use_ai">
+            <div class="flex items-center gap-2">
+              <UToggle
+                v-model="form.use_ai"
+                color="primary"
+              />
+              <span class="text-sm text-gray-600 dark:text-gray-400">
+                {{ form.use_ai ? t('addShop.use_ai_yes') : t('addShop.use_ai_no') }}
+              </span>
+            </div>
+          </UFormGroup>
+
           <!-- 提交按钮 -->
           <div class="flex justify-center pt-4">
             <UButton
@@ -446,7 +459,8 @@ const form = reactive({
   shop_country: null as { label: string; value: number } | null,
   shop_state: null as { label: string; value: number } | null,
   main_type: [] as Array<{ label: string; value: number }>,
-  shop_logo: '' as string
+  shop_logo: '' as string,
+  use_ai: false
 })
 
 // 选项数据
@@ -606,6 +620,8 @@ const fetchShopDetail = async (id: number) => {
       }).filter((item) => item.label)
       form.main_type = mainTypeList
     }
+
+    form.use_ai = Number(res.use_ai) === 1
   } catch (error) {
     console.error('获取店铺详情失败:', error)
     toast.add({
@@ -734,7 +750,8 @@ const handleSubmit = async () => {
       shop_country: form.shop_country ? form.shop_country.value : null,
       shop_state: form.shop_state ? form.shop_state.value : null,
       main_type: form.main_type.length > 0 ? form.main_type.map((item) => item.value).join(',') : null,
-      shop_logo: shopLogo || null
+      shop_logo: shopLogo || null,
+      use_ai: form.use_ai ? 1 : 0
     }
 
     if (shopId.value) {
@@ -769,7 +786,8 @@ const handleSubmit = async () => {
       shop_country: null,
       shop_state: null,
       main_type: [],
-      shop_logo: ''
+      shop_logo: '',
+      use_ai: false
     })
     logoFiles.value = []
     if (logoImagePickerRef.value) {

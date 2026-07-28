@@ -831,7 +831,7 @@ const onRichTextImageSelected = async (e: Event) => {
   const file = input.files?.[0]
   input.value = ''
   if (!file || !editor.value) return
-  if (!file.type.startsWith('image/')) {
+  if (!file.type.startsWith('image/') && !/\.(jpe?g|png|gif|webp|heic|heif|bmp|avif)$/i.test(file.name)) {
     toast.add({ title: '请选择图片文件', color: 'orange', icon: 'i-heroicons-exclamation-circle' })
     return
   }

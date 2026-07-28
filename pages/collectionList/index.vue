@@ -15,6 +15,7 @@ import type LibraryChoose from '@/components/library/LibraryChoose.vue'
 import type { Library } from '@/types/api'
 import { unref } from 'vue'
 import { BASE_IMG } from '@/utils/ipConfig'
+import { openLibraryDetailTab } from '@/composables/useLibraryDetailNavigation'
 
 const layoutReady = inject('layoutReady') as Ref<boolean>
 const waterList = ref<InstanceType<typeof QhxWaterList> | null>(null)
@@ -24,13 +25,6 @@ const user = useUserStore()
 const route = useRoute()
 const toast = useToast()
 const configStore = useConfigStore()
-const port = computed(() => configStore.getPort())
-let uni: any
-onMounted(async () => {
-  uni = await import('@dcloudio/uni-webview-js').catch((err) => {
-    console.error('Failed to load uni-webview-js:', err);
-  });
-})
 const opear_item = ref<CollectionList | null>(null)
 
 // 拒绝收录弹窗
@@ -82,31 +76,7 @@ const jumpToLibrary = (item: CollectionList) => {
 }
 
 const handleJumpToLibrary = (libraryId: number) => {
-  const isInUniApp =
-		typeof window !== 'undefined' &&
-		navigator.userAgent.includes('Html5Plus');
-	if (isInUniApp && typeof uni !== 'undefined' && uni.navigateTo) {
-		// UniApp WebView 环境
-		uni.navigateTo({
-			url: `/pages/library/libraryDetail/libraryDetail?id=${libraryId}`,
-			fail: () => {
-				console.log('跳转错误')
-			}
-		});
-	} else {
-    if (port.value) {
-      // 鸿蒙系统
-      port.value.postMessage(JSON.stringify({
-        type: 'jump',
-        path: 'LibraryDetail',
-        params: {
-          id: libraryId
-        }
-      }));
-    } else {
-      window.open(`/library/detail/${libraryId}`, '_blank')
-    }
-  }
+  openLibraryDetailTab(libraryId)
 }
 
 // 显示图鉴选择弹框
@@ -342,7 +312,16 @@ definePageMeta({
 </script>
 
 <template>
-  <div class="container mx-auto pb-20 overflow-hidden">
+  <div class="min-h-screen overflow-hidden">
+    <!-- WebView 状态栏占位：layouts/default 中 ?statusbar= -->
+    <div
+      v-if="configStore.statusBarHeight > 0"
+      class="shrink-0"
+      aria-hidden="true"
+      :style="{ height: `${configStore.statusBarHeight}px` }"
+    />
+
+    <div class="container mx-auto pb-20">
     <!-- 标签页 -->
     <QhxTabs :tabs="['图鉴采集', '视频投稿']" @change="handleTabChange">
       <!-- 图鉴标签页 -->
@@ -836,6 +815,7 @@ definePageMeta({
         </div>
       </div>
     </QhxModal>
+    </div>
   </div>
 </template>
 

@@ -1,5 +1,13 @@
 <template>
   <div class="min-h-screen bg-[#fff8f8] dark:bg-[#1a1a1a] relative overflow-hidden font-serif">
+    <!-- WebView 状态栏占位：layouts/default 中 ?statusbar= -->
+    <div
+      v-if="configStore.statusBarHeight > 0"
+      class="shrink-0 relative z-10"
+      aria-hidden="true"
+      :style="{ height: `${configStore.statusBarHeight}px` }"
+    />
+
     <!-- 动态背景 -->
     <div class="fixed inset-0 pointer-events-none z-0">
       <div class="absolute top-0 left-0 w-full h-full bg-[url('https://lolitalibrary.com/assets/img/pattern-dot.png')] opacity-[0.03] dark:opacity-[0.05]"></div>
@@ -35,7 +43,11 @@
     <!-- 主要内容 -->
     <div v-else class="relative z-10 pb-32">
       <!-- 顶部操作栏 -->
-      <div v-if="showSettings" class="fixed top-4 right-4 z-50 flex items-center gap-3">
+      <div
+        v-if="showSettings"
+        class="fixed right-4 z-50 flex items-center gap-3"
+        :style="{ top: `${16 + (configStore.statusBarHeight || 0)}px` }"
+      >
         <button
           @click="showPostModal = true"
           class="bg-white/90 dark:bg-gray-800/90 backdrop-blur-md rounded-full px-4 py-2 shadow-lg border border-white/50 dark:border-gray-700 flex items-center gap-2 hover:bg-pink-50 dark:hover:bg-gray-700 transition-colors"
@@ -66,7 +78,11 @@
           <span class="text-sm font-medium text-gray-700 dark:text-gray-200">分享</span>
         </button>
       </div>
-      <div v-else-if="userStore.user?.user_id" class="fixed top-4 right-4 z-50 flex items-center gap-3">
+      <div
+        v-else-if="userStore.user?.user_id"
+        class="fixed right-4 z-50 flex items-center gap-3"
+        :style="{ top: `${16 + (configStore.statusBarHeight || 0)}px` }"
+      >
         <button
           @click="jumpToYearlySummary"
           class="bg-white/90 dark:bg-gray-800/90 backdrop-blur-md rounded-full px-4 py-2 shadow-lg border border-white/50 dark:border-gray-700 flex items-center gap-2 hover:bg-pink-50 dark:hover:bg-gray-700 transition-colors"

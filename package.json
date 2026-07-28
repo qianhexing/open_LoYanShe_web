@@ -39,6 +39,7 @@
     "echarts": "^6.0.0",
     "echarts-wordcloud": "^2.1.0",
     "gsap": "^3.13.0",
+    "heic-to": "^1.5.2",
     "html2canvas": "^1.4.1",
     "jsqr": "^1.4.0",
     "mind-ar": "^1.2.5",

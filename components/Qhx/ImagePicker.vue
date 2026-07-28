@@ -135,7 +135,10 @@
 import Draggable from "vuedraggable"
 import { BASE_IMG } from '@/utils/ipConfig'
 import { useImageUploadStore } from '@/stores/imageUpload'
+import { ensureJpegForUpload, HeicConvertError } from '@/utils/heicUploadGate'
+
 const emit = defineEmits<(e: 'update:files', value: File[]) => void>()
+const toast = useToast()
 
 const props = defineProps<{
   multiple?: boolean
@@ -343,17 +346,36 @@ async function compressIfOverThreshold(f: File): Promise<File> {
   return f
 }
 
-async function processImageFile(f: File, forceCompress: boolean): Promise<File> {
-  const before = f.size
-  const result = forceCompress ? await compressUniform(f) : await compressIfOverThreshold(f)
+async function processImageFile(f: File, forceCompress: boolean): Promise<File | null> {
+  // 上传闸门：HEIC/HEIF → JPEG（压缩前）
+  let file: File
+  try {
+    file = await ensureJpegForUpload(f)
+  } catch (e) {
+    const msg =
+      e instanceof HeicConvertError
+        ? e.message
+        : '无法解析该 HEIC/HEIF 图片，请导出为 JPEG 后再上传'
+    toast.add({
+      title: f.name || 'HEIC 图片',
+      description: msg,
+      color: 'orange',
+      icon: 'i-heroicons-exclamation-triangle',
+    })
+    console.warn('[ImagePicker] HEIC 闸门拦截:', f.name, e)
+    return null
+  }
+
+  const before = file.size
+  const result = forceCompress ? await compressUniform(file) : await compressIfOverThreshold(file)
   const after = result.size
   const mode = forceCompress ? '统一压缩' : '超 2MB 压缩'
   if (before === after) {
-    console.log(`[ImagePicker] ${f.name} | ${mode} | ${formatFileSize(before)} → 未变化`)
+    console.log(`[ImagePicker] ${result.name} | ${mode} | ${formatFileSize(before)} → 未变化`)
   } else {
     const savedPct = before > 0 ? (((before - after) / before) * 100).toFixed(1) : '0'
     console.log(
-      `[ImagePicker] ${f.name} | ${mode} | ${formatFileSize(before)} → ${formatFileSize(after)} (减少 ${formatFileSize(before - after)}, ${savedPct}%)`
+      `[ImagePicker] ${result.name} | ${mode} | ${formatFileSize(before)} → ${formatFileSize(after)} (减少 ${formatFileSize(before - after)}, ${savedPct}%)`
     )
   }
   return result
@@ -362,22 +384,26 @@ async function processImageFile(f: File, forceCompress: boolean): Promise<File> 
 const IMAGE_EXT_RE = /\.(jpe?g|png|gif|webp|heic|heif|bmp|avif)$/i
 
 function isImageFile(f: File) {
-  if (f.type.startsWith('image/')) return true
+  if (f.type?.startsWith('image/')) return true
+  // iOS 选 HEIC 时 type 常为空，靠扩展名放行
   return IMAGE_EXT_RE.test(f.name)
 }
 
 const addFiles = async (newFiles: File[]) => {
   if (props.disabled) return
   imageUploadStore.initFromLocalStorage()
-  const imageFiles = await Promise.all(
+  const processed = await Promise.all(
     newFiles
       .filter(isImageFile)
-      .map((f) => processImageFile(f, imageUploadStore.compressEnabled))
+      .map((f) => processImageFile(f, imageUploadStore.compressEnabled)),
   )
+  const imageFiles = processed.filter((f): f is File => f != null)
+  if (!imageFiles.length) return
+
   const newPreviews = imageFiles.map((file) => ({
     id: generateId(),
     file,
-    url: URL.createObjectURL(file)
+    url: URL.createObjectURL(file),
   }))
   if (props.multiple) {
     // 如果有最大数量限制

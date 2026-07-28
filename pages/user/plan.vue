@@ -9,7 +9,7 @@
     <div class="container mx-auto p-2 pb-20 max-w-4xl">
     <!-- 功能栏 -->
     <div
-      v-if="layoutReady && userStore.user"
+      v-if="pageReady && !authBootstrapping && userStore.user"
       class="flex justify-between items-center sticky z-10 mb-4"
       :style="{ top: `${10 + (configStore.statusBarHeight || 0)}px` }"
     >
@@ -72,8 +72,10 @@
     </div>
 
     <!-- 统计卡片区域 -->
-    <div ref="statisticsRef" v-if="layoutReady && statistics && viewMode === 'all'" class="mb-4 space-y-3">
+    <div ref="statisticsRef" v-if="pageReady && !authBootstrapping && userStore.user && viewMode === 'all'" class="mb-4 space-y-3">
       <h2 class="plan-stats-section-title px-1">概览</h2>
+      <div v-if="isLoading && planList.length === 0" class="text-center py-6 text-[#9a858a] text-xs">加载中...</div>
+      <template v-else>
       <div class="grid grid-cols-2 gap-2.5">
         <div class="plan-stats-metric">
           <div class="plan-stats-metric-icon">
@@ -81,7 +83,7 @@
           </div>
           <div class="plan-stats-metric-title">完成</div>
           <div class="plan-stats-metric-sub">计划进度</div>
-          <div class="plan-stats-metric-value">{{ statistics.is_complete || 0 }} / {{ statistics.total_plan || 0 }}</div>
+          <div class="plan-stats-metric-value">{{ displayStatistics.is_complete || 0 }} / {{ displayStatistics.total_plan || 0 }}</div>
         </div>
         <div class="plan-stats-metric">
           <div class="plan-stats-metric-icon">
@@ -89,7 +91,7 @@
           </div>
           <div class="plan-stats-metric-title">攒钱</div>
           <div class="plan-stats-metric-sub">资金进度</div>
-          <div class="plan-stats-metric-value">￥{{ formatMoney(statistics.have_money || 0) }}</div>
+          <div class="plan-stats-metric-value">￥{{ formatMoney(displayStatistics.have_money || 0) }}</div>
         </div>
       </div>
 
@@ -157,10 +159,11 @@
           </div>
         </div>
       </div>
+      </template>
     </div>
 
     <!-- 按月视图 -->
-    <div v-if="layoutReady && viewMode === 'month'" class="space-y-1">
+    <div v-if="pageReady && !authBootstrapping && userStore.user && viewMode === 'month'" class="space-y-1">
       <!-- 年份切换 -->
       <div class="flex items-center gap-1.5 mb-1.5 px-1">
         <button
@@ -204,7 +207,7 @@
     </div>
 
     <!-- 按日视图 -->
-    <div v-if="layoutReady && viewMode === 'day'" class="space-y-1">
+    <div v-if="pageReady && !authBootstrapping && userStore.user && viewMode === 'day'" class="space-y-1">
       <!-- 年月切换 -->
       <div class="flex items-center gap-1.5 mb-1.5 px-1 flex-wrap">
         <div class="flex items-center gap-0.5">
@@ -248,7 +251,7 @@
 
     <!-- 计划列表（完整列表与筛选列表互斥） -->
     <div
-      v-if="layoutReady && viewMode !== 'all'"
+      v-if="pageReady && !authBootstrapping && userStore.user && viewMode !== 'all'"
       class="mt-4"
       :class="hasCalendarSelection
         ? 'bg-[#fffbfc] rounded-lg border border-qhx-primary/20'
@@ -311,8 +314,11 @@
     </div>
 
     <!-- 空状态 -->
-    <div v-if="!layoutReady" class="text-center py-12">
+    <div v-if="!pageReady || authBootstrapping" class="text-center py-12">
       <div class="text-[#9a858a]">加载中...</div>
+    </div>
+    <div v-else-if="!userStore.user" class="text-center py-12">
+      <div class="text-[#9a858a]">请先登录后查看定尾计划</div>
     </div>
   </div>
 
@@ -382,7 +388,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, inject, computed, onMounted, watch, nextTick } from 'vue'
+import { ref, computed, onMounted, onActivated, watch, nextTick } from 'vue'
 import { getPlanList, getPlanListByMonth, getPlanTotalByYear, getPlanTotalByYears, getPlanTotalByDay, deletePlanList, updatePlanMoney, planComplete, planListRelate, type PlanPeriodMoneyTotal } from '@/api/plan'
 import type { PlanList, PaginationResponse, WardrobeClothes, ParentPlanSummary } from '@/types/api'
 import type PlanAddEdit from '@/components/Plan/PlanAddEdit.vue'
@@ -396,17 +402,22 @@ import EmailBindModal from '@/components/user/EmailBindModal.vue'
 import WardrobeClothesChoose from '@/components/Wardrobe/WardrobeClothesChoose.vue'
 import PlanListItem from '@/components/Plan/PlanListItem.vue'
 
-// 禁用 SSR
-definePageMeta({
-  ssr: false
-})
-
-const layoutReady = inject('layoutReady') as Ref<boolean>
+/**
+ * 本地就绪态，不依赖 layout 的 layoutReady。
+ * 注意：不要再用 ssr:false——刷新时 ClientOnly 空壳 + Nuxt 进度条会一直转，页面完全白屏。
+ */
+const pageReady = ref(true)
+/** 挂载后补登录态期间的过渡，避免闪「请先登录」 */
+const authBootstrapping = ref(true)
 const planAddEditRef = ref<InstanceType<typeof PlanAddEdit> | null>(null)
 const wardrobeClothesChooseRef = ref<InstanceType<typeof WardrobeClothesChoose> | null>(null)
 const userStore = useUserStore()
 const configStore = useConfigStore()
 const toast = useToast()
+const port = computed(() => configStore.getPort())
+
+// biome-ignore lint/suspicious/noExplicitAny: uni-webview-js 类型声明缺失
+let uni: any
 
 // 视图模式：统计 | 按月 | 按日
 const viewMode = ref<'all' | 'month' | 'day'>('month')
@@ -560,17 +571,48 @@ const statistics = ref<{
   need_money?: number
 } | null>(null)
 
+/** 接口未返回 statistics 时用列表汇总兜底，避免切到「统计」白屏 */
+const buildStatisticsFromPlans = (plans: PlanList[]) => {
+  let have_money = 0
+  let need_money = 0
+  let is_complete = 0
+  for (const plan of plans) {
+    have_money += Number(plan.have_money) || 0
+    need_money += Number(plan.need_money) || 0
+    if (Number(plan.is_complete) === 1) is_complete += 1
+  }
+  return {
+    total_plan: total.value || plans.length,
+    is_complete,
+    have_money,
+    need_money
+  }
+}
+
+const displayStatistics = computed(() => {
+  if (statistics.value) return statistics.value
+  if (planList.value.length > 0 || total.value > 0) {
+    return buildStatisticsFromPlans(planList.value)
+  }
+  return {
+    total_plan: 0,
+    is_complete: 0,
+    have_money: 0,
+    need_money: 0
+  }
+})
+
 const remainMoney = computed(() => {
-  const need = statistics.value?.need_money || 0
-  const have = statistics.value?.have_money || 0
+  const need = displayStatistics.value?.need_money || 0
+  const have = displayStatistics.value?.have_money || 0
   return Math.max(0, need - have)
 })
 
 const pulseRows = computed(() => {
-  const totalPlan = statistics.value?.total_plan || 0
-  const complete = statistics.value?.is_complete || 0
-  const have = statistics.value?.have_money || 0
-  const need = statistics.value?.need_money || 0
+  const totalPlan = displayStatistics.value?.total_plan || 0
+  const complete = displayStatistics.value?.is_complete || 0
+  const have = displayStatistics.value?.have_money || 0
+  const need = displayStatistics.value?.need_money || 0
   const remain = Math.max(0, need - have)
   const completeRate = totalPlan > 0 ? Math.min(100, Math.round((complete / totalPlan) * 100)) : 0
   const moneyRate = need > 0 ? Math.min(100, Math.round((have / need) * 100)) : 0
@@ -784,10 +826,12 @@ const fetchPlanList = async (isLoadMore = false, force = false) => {
     total.value = response.count
     page.value += 1
     
-    // 尝试从响应中获取统计数据（如果 API 返回了 statistics 字段）
+    // 尝试从响应中获取统计数据；没有则用列表兜底，保证「统计」tab 可渲染
     const responseWithStats = response as PaginationResponse<PlanList> & { statistics?: typeof statistics.value }
     if (responseWithStats.statistics) {
       statistics.value = responseWithStats.statistics
+    } else if (!isLoadMore) {
+      statistics.value = buildStatisticsFromPlans(topLevelPlans)
     }
   } catch (error) {
     console.error('获取计划列表失败:', error)
@@ -861,12 +905,13 @@ const selectedPeriodMoneySummary = computed((): PeriodMoneySummary | null => {
   return emptyPeriodMoney()
 })
 
-const hasApiMoneyBreakdown = (items: PlanPeriodMoneyTotal[]) =>
-  items.some((item) => item.have_money != null || item.unpaid_money != null)
+const hasApiMoneyBreakdown = (items: PlanPeriodMoneyTotal[] | null | undefined) =>
+  Array.isArray(items) && items.some((item) => item.have_money != null || item.unpaid_money != null)
 
-const buildMonthTotals = (apiTotals: PlanPeriodMoneyTotal[]): PeriodMoneySummary[] => {
-  const apiMap = Object.fromEntries(apiTotals.map((item) => [item.month, item]))
-  const useApiBreakdown = hasApiMoneyBreakdown(apiTotals)
+const buildMonthTotals = (apiTotals: PlanPeriodMoneyTotal[] | null | undefined): PeriodMoneySummary[] => {
+  const safeTotals = Array.isArray(apiTotals) ? apiTotals : []
+  const apiMap = Object.fromEntries(safeTotals.map((item) => [item.month, item]))
+  const useApiBreakdown = hasApiMoneyBreakdown(safeTotals)
 
   return Array.from({ length: 12 }, (_, index) => {
     const month = index + 1
@@ -883,12 +928,13 @@ const buildMonthTotals = (apiTotals: PlanPeriodMoneyTotal[]): PeriodMoneySummary
 }
 
 const buildDayTotals = (
-  apiTotals: PlanPeriodMoneyTotal[],
+  apiTotals: PlanPeriodMoneyTotal[] | null | undefined,
   month: number,
   year: number
 ): PeriodMoneySummary[] => {
-  const apiMap = Object.fromEntries(apiTotals.map((item) => [item.day, item]))
-  const useApiBreakdown = hasApiMoneyBreakdown(apiTotals)
+  const safeTotals = Array.isArray(apiTotals) ? apiTotals : []
+  const apiMap = Object.fromEntries(safeTotals.map((item) => [item.day, item]))
+  const useApiBreakdown = hasApiMoneyBreakdown(safeTotals)
   const dayMap: Record<number, PeriodMoneySummary> = {}
 
   for (const plan of monthPlanList.value[month] || []) {
@@ -1380,12 +1426,12 @@ const syncCalendarTotalsSilently = async () => {
 }
 
 const bumpStatistics = (patch: Partial<{ total_plan: number; is_complete: number; have_money: number; need_money: number }>) => {
-  if (!statistics.value) return
+  const base = statistics.value ?? displayStatistics.value
   statistics.value = {
-    total_plan: patch.total_plan ?? statistics.value.total_plan,
-    is_complete: patch.is_complete ?? statistics.value.is_complete,
-    have_money: patch.have_money ?? statistics.value.have_money,
-    need_money: patch.need_money ?? statistics.value.need_money
+    total_plan: patch.total_plan ?? base.total_plan,
+    is_complete: patch.is_complete ?? base.is_complete,
+    have_money: patch.have_money ?? base.have_money,
+    need_money: patch.need_money ?? base.need_money
   }
 }
 
@@ -1432,9 +1478,8 @@ const switchViewMode = (mode: 'all' | 'month' | 'day') => {
     }
   } else {
     tasks.push(fetchYearsTotal())
-    if (!statistics.value) {
-      tasks.push(fetchPlanList())
-    }
+    // 统计页依赖列表汇总；强制拉一次，避免第一次切入白屏
+    tasks.push(fetchPlanList(false, true))
   }
 
   if (tasks.length) void Promise.all(tasks)
@@ -1599,12 +1644,35 @@ const showCover = (cover: string | undefined) => {
   }
 }
 
-// 跳转到衣物详情
+// 跳转到衣物详情（Uni outerLink2 / 鸿蒙 Outlink / 浏览器新开）
 const jumpToClothes = (clothes: WardrobeClothes | WardrobeClothes[] | undefined) => {
   const clothesItem = Array.isArray(clothes) ? clothes[0] : clothes
-  if (clothesItem?.clothes_id) {
-    navigateTo(`/clothes/detail/${clothesItem.clothes_id}`)
+  if (!clothesItem?.clothes_id) return
+
+  const path = `/clothes/detail/${clothesItem.clothes_id}`
+  const fullUrl = `https://lolitalibrary.com${path}`
+  const isInUniApp =
+    typeof window !== 'undefined' &&
+    navigator.userAgent.includes('Html5Plus')
+
+  if (isInUniApp && typeof uni !== 'undefined' && uni?.navigateTo) {
+    uni.navigateTo({
+      url: `/pages/common/outerLink2?url=${fullUrl}`,
+      fail: () => console.warn('[plan] uni outer 服饰跳转失败', fullUrl),
+    })
+    return
   }
+  if (port.value) {
+    port.value.postMessage(
+      JSON.stringify({
+        type: 'jump',
+        path: 'Outlink',
+        params: { url: fullUrl },
+      })
+    )
+    return
+  }
+  window.open(path, '_blank', 'noopener,noreferrer')
 }
 
 // 获取图片参数
@@ -1756,34 +1824,71 @@ watch(
   { immediate: true, deep: true }
 )
 
-// 组件挂载时并行加载数据
-const initPageData = () => {
-  void Promise.all([fetchYearTotal(), fetchPlanList()])
+// 与收藏夹一致：跟 user_id 拉数；不在 setup 同步阶段打接口，避免刷新卡住进度条
+let initInFlight = false
+let hasMounted = false
+const initPageData = async () => {
+  if (!import.meta.client || initInFlight) return
+  initInFlight = true
+  try {
+    await Promise.all([fetchYearTotal(), fetchPlanList(false, true)])
+  } finally {
+    initInFlight = false
+  }
+}
+
+const tryInitPageData = (force = false) => {
+  if (!import.meta.client || !hasMounted) return
+  if (!userStore.user?.user_id) return
+  const hasData = monthTotals.value.length > 0 || planList.value.length > 0
+  if (!force && hasData) return
+  void initPageData()
 }
 
 onMounted(() => {
-  if (layoutReady) {
-    initPageData()
-  } else {
-    // 等待 layout 准备就绪
-    const unwatch = watch(layoutReady, (ready) => {
-      if (ready) {
-        initPageData()
-        unwatch()
-      }
+  hasMounted = true
+  void (async () => {
+    // @ts-ignore - uni-webview-js 类型声明缺失
+    uni = await import('@dcloudio/uni-webview-js').catch((err: unknown) => {
+      console.error('Failed to load uni-webview-js:', err)
     })
-  }
+
+    // 刷新时 layout 的 useAsyncData 常直接复用 SSR 的 null，不会再走 initialize
+    if (!userStore.user?.user_id) {
+      try {
+        await userStore.initialize()
+        if (userStore.token && !userStore.user?.user_id) {
+          await userStore.fetchUserInfo()
+        }
+      } catch (error) {
+        console.error('计划页初始化用户失败:', error)
+      }
+    }
+    authBootstrapping.value = false
+    await nextTick()
+    tryInitPageData(true)
+  })()
 })
+
+onActivated(() => {
+  tryInitPageData(false)
+})
+
+/**
+ * outerLink 打开时 token/用户信息可能晚于挂载；
+ * 不用 immediate，避免 setup 阶段就发起重请求把刷新进度条卡死。
+ */
+watch(
+  () => userStore.user?.user_id,
+  (uid, prev) => {
+    if (!hasMounted || !uid) return
+    if (uid !== prev) void initPageData()
+  }
+)
 
 // SEO 配置
 useHead({
   title: '我的计划',
-  link: [
-    {
-      rel: 'stylesheet',
-      href: 'https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,500;0,600;0,700;1,400&display=swap'
-    }
-  ],
   meta: [
     {
       name: 'keywords',

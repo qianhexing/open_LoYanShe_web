@@ -30,6 +30,8 @@ import type { ClothesShareSource } from '@/utils/clothesShareCanvas'
 import { BASE_IMG } from '@/utils/ipConfig'
 import PhysicsDrop from '@/components/PhysicsDrop.client.vue'
 import type { MaterialForeign, Material } from '@/types/api'
+import { getLibraryVideo } from '@/api/library'
+import { buildHumanPlatformNav } from '@/utils/humanPlatformNav'
 let uni: any;
 const configStore = useConfigStore()
 const port = computed(() => configStore.getPort())
@@ -85,11 +87,41 @@ const libraryHas3d = computed(() => {
   return v === true || v === 1
 })
 
-const humanPlatformIframeSrc = computed(() => {
+const humanPlatformIframeSrc = ref('')
+
+async function resolveHumanPlatformIframeSrc() {
   const lid = detail.value?.library?.library_id
-  if (lid == null || !libraryHas3d.value) return ''
-  return `https://lolitalibrary.com/humanPlatform/0?library_id=${lid}&from_iframe=true&hide_ui=true`
-})
+  if (lid == null || !libraryHas3d.value) {
+    humanPlatformIframeSrc.value = ''
+    return
+  }
+  try {
+    const list = await getLibraryVideo({ pk_id: lid })
+    const first = list.find((v) => v.pk_type === 2 && v.addr && v.video_id != null)
+    if (first?.video_id == null) {
+      humanPlatformIframeSrc.value = ''
+      return
+    }
+    const { fullUrl } = buildHumanPlatformNav({
+      videoId: first.video_id,
+      libraryId: lid,
+      addr: first.addr,
+      query: { from_iframe: true, hide_ui: true },
+    })
+    humanPlatformIframeSrc.value = fullUrl
+  } catch (err) {
+    console.error('解析人台 iframe 地址失败:', err)
+    humanPlatformIframeSrc.value = ''
+  }
+}
+
+watch(
+  [() => detail.value?.library?.library_id, libraryHas3d],
+  () => {
+    void resolveHumanPlatformIframeSrc()
+  },
+  { immediate: true },
+)
 
 function syncCover3dFromPref() {
   cover3dActive.value = libraryHas3d.value && readCover3dPref()

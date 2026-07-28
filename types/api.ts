@@ -150,7 +150,8 @@ export interface Shop {
   collect_count?: number
   physical_shop?: PhysicalShop[]
   related_shop_list?: Shop[]
-
+  /** 是否使用过 AI：0 否 / 1 是 */
+  use_ai?: number
 }
 export interface PhysicalShop {
 	physical_id?: number
@@ -251,9 +252,12 @@ export interface Library {
   score_number?: number;
   /** 当前用户是否已评分（与 POST /score/one 未评分时 false 一致，常见 0/1） */
   is_score?: number | boolean;
+  /** 扩展字段（含 sku、use_ai 等） */
   json_data?: Record<string, unknown>;
   /** 是否有关联 3D 人台（点云） */
   has_3d?: number | boolean;
+  /** 是否使用过 AI：0 否 / 1 是（列表接口可能顶层返回；亦见于 json_data.use_ai） */
+  use_ai?: number;
 }
 
 /** 相似推荐 / 识图搜索列表项（相似度分越大越相似） */
@@ -635,10 +639,20 @@ export interface CommunityHide {
 }
 
 
+/** libraryVideo 详情贡献者（/libraryVideo/id 的 user_list 项） */
+export interface LibraryVideoUser {
+  user_id: number
+  user_name?: string
+  user_face?: string
+}
+
 export interface LibraryVideo {
   addr?: string
   create_time?: string
-  user_id?: number | null
+  /** 单用户为 number；多贡献者时可能为逗号分隔字符串，展示请用 user_list */
+  user_id?: number | string | null
+  /** 贡献者列表，详情接口直接返回；无贡献者为 [] */
+  user_list?: LibraryVideoUser[]
   is_enable?: number
   is_show?: number
   pk_id?: number

@@ -1,7 +1,18 @@
 <template>
   <div class="min-h-screen bg-gray-50 dark:bg-gray-900">
+    <!-- WebView 状态栏占位：layouts/default 中 ?statusbar= -->
+    <div
+      v-if="configStore.statusBarHeight > 0"
+      class="shrink-0"
+      aria-hidden="true"
+      :style="{ height: `${configStore.statusBarHeight}px` }"
+    />
+
     <!-- 头部操作栏 -->
-    <div class="sticky top-0 z-10 bg-white dark:bg-gray-800 shadow-sm border-b border-gray-200 dark:border-gray-700">
+    <div
+      class="sticky z-10 bg-white dark:bg-gray-800 shadow-sm border-b border-gray-200 dark:border-gray-700"
+      :style="{ top: statusBarPx }"
+    >
       <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
         <button
           @click="insertSence"
@@ -120,7 +131,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { getSenceList, deleteScene, insertScene } from '@/api/scene'
 import type { Scene } from '@/types/api'
 import type { SceneJSON } from '@/utils/threeCore'
@@ -137,6 +148,10 @@ const userStore = useUserStore()
 const configStore = useConfigStore()
 const toast = useToast()
 const port = computed(() => configStore.getPort())
+/** WebView 经 layouts/default 的 ?statusbar= 注入，与 matching/my 一致 */
+const statusBarPx = computed(() =>
+  configStore.statusBarHeight > 0 ? `${configStore.statusBarHeight}px` : '0px'
+)
 
 // 数据状态
 const list = ref<Scene[]>([])
@@ -170,6 +185,8 @@ const formatDate = (date: Date | string | undefined) => {
 
 // 获取场景列表
 const getSceneList = async (pageNum?: number, pageSizeNum?: number) => {
+  const visitorId = userStore.user?.user_id
+  if (!visitorId) return
   if (loading.value) return
   console.log('获取数据', pageNum, pageSizeNum)
   loading.value = true
@@ -177,16 +194,17 @@ const getSceneList = async (pageNum?: number, pageSizeNum?: number) => {
     const params = {
       page: pageNum || page.value,
       pageSize: pageSizeNum || pageSize.value,
-      visitor_id: userStore.user?.user_id || 0
+      visitor_id: visitorId
     }
     
     const response = await getSenceList(params)
-    count.value = response.count
+    count.value = response?.count ?? 0
+    const rows = response?.rows ?? []
     
     if (params.page === 1) {
-      list.value = response.rows
+      list.value = rows
     } else {
-      list.value = [...list.value, ...response.rows]
+      list.value = [...list.value, ...rows]
     }
   } catch (error) {
     console.error('获取场景列表失败:', error)
@@ -366,8 +384,27 @@ onMounted(async () => {
     console.error('Failed to load uni-webview-js:', err)
     return null
   })
-  getSceneList()
 })
+
+/**
+ * outerLink2 打开时 token 由 uniapp 注入，用户信息可能晚于挂载；
+ * visitor_id=0 时接口无数据，需等 user 就绪再拉。
+ */
+watch(
+  () => userStore.user?.user_id,
+  (uid, prev) => {
+    if (!uid) {
+      list.value = []
+      count.value = 0
+      return
+    }
+    if (uid !== prev) {
+      page.value = 1
+      getSceneList(1)
+    }
+  },
+  { immediate: true }
+)
 </script>
 
 <style scoped>

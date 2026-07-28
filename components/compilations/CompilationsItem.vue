@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { Compilations } from '@/types/api';
+import { openLibraryWebPath } from '@/composables/useLibraryDetailNavigation'
 interface Props {
   item: Compilations,
   className?: string,
@@ -18,12 +19,12 @@ const emit = defineEmits<{
 }>()
 const { size, needJump, showEdit } = props
 const item = props.item
+/** Uni outerLink2 / 鸿蒙 Outlink / 浏览器新开 */
 const handleJump = (id: number) => {
   if (!needJump) {
     return
   }
-  window.open(`/compilations/detail/${id}`, '_blank')
-  // navigateTo(`/compilations/detail/${id}`)
+  openLibraryWebPath(`/compilations/detail/${id}`)
 }
 const handleEdit = (event: MouseEvent) => {
   event.stopPropagation()

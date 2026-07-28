@@ -3,15 +3,15 @@ import type { Teaparty, PaginationResponse } from '@/types/api';
 import { getTeapartyList } from '@/api/teapart';
 import { BASE_IMG } from '@/utils/ipConfig';
 import { getTeapartyStateBadgeClass, getTeapartyStateLabel, formatTeapartyPrice } from '@/utils/teaparty';
+import { openLibraryWebPath } from '@/composables/useLibraryDetailNavigation'
 import type QhxWaterList from '@/components/Qhx/WaterList.vue'
 import type TeapartyAdd from '@/components/Teaparty/TeapartyAdd.vue'
 
 const { t } = useI18n()
+const configStore = useConfigStore()
 const layoutReady = inject('layoutReady') as Ref<boolean>
 const waterList = ref<InstanceType<typeof QhxWaterList> | null>(null)
 const teapartyAddRef = ref<InstanceType<typeof TeapartyAdd> | null>(null)
-const router = useRouter()
-const route = useRoute()
 
 // 搜索关键词
 const keyword = ref('')
@@ -58,9 +58,14 @@ const handleTeapartySaved = () => {
   waterList.value?.refresh()
 }
 
-// 跳转到茶会详情
+// 跳转到茶会详情：Uni outerLink2 / 鸿蒙 Outlink / 浏览器新开
 const jumpToDetail = (teaId: number) => {
-  router.push(`/teaparty/detail/${teaId}`)
+  openLibraryWebPath(`/teaparty/detail/${teaId}`)
+}
+
+// 跳转到未开始生图页
+const jumpToSnapshot = () => {
+  openLibraryWebPath('/teaparty/snapshot')
 }
 
 // 格式化日期
@@ -78,7 +83,16 @@ const formatDate = (date: Date | string | undefined) => {
 </script>
 
 <template>
-  <div class="container mx-auto pt-4 pb-20 overflow-hidden">
+  <div class="min-h-screen overflow-hidden">
+    <!-- WebView 状态栏占位：layouts/default 中 ?statusbar= -->
+    <div
+      v-if="configStore.statusBarHeight > 0"
+      class="shrink-0"
+      aria-hidden="true"
+      :style="{ height: `${configStore.statusBarHeight}px` }"
+    />
+
+    <div class="container mx-auto pt-4 pb-20">
     <!-- 搜索栏 -->
     <div class="grid grid-cols-2 md:grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4 px-4 pb-3">
       <div class="w-full flex items-center">
@@ -109,15 +123,14 @@ const formatDate = (date: Date | string | undefined) => {
 
       <!-- 新增茶会 / 生图 -->
       <div class="flex items-center justify-end gap-2">
-        <NuxtLink to="/teaparty/snapshot">
-          <UButton
+        <UButton
             icon="i-heroicons-photo"
             color="gray"
             variant="soft"
+            @click="jumpToSnapshot"
           >
             未开始生图
           </UButton>
-        </NuxtLink>
         <UButton
           icon="i-heroicons-plus"
           class="bg-gradient-to-r from-pink-500 to-purple-500 hover:from-pink-600 hover:to-purple-600 text-white"
@@ -266,6 +279,7 @@ const formatDate = (date: Date | string | undefined) => {
 
     <!-- 新增/编辑弹窗 -->
     <TeapartyAdd ref="teapartyAddRef" :close-on-backdrop="false" @success="handleTeapartySaved" />
+    </div>
   </div>
 </template>
 

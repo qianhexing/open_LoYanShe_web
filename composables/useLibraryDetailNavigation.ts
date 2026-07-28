@@ -1,5 +1,9 @@
 import { useConfigStore } from '@/stores/config'
 import type { AblumForeign } from '@/types/api'
+import {
+  buildHumanPlatformNav,
+  type BuildHumanPlatformNavOptions,
+} from '@/utils/humanPlatformNav'
 
 const SITE_ORIGIN = 'https://lolitalibrary.com'
 
@@ -27,8 +31,7 @@ export function isHtml5PlusWebview(): boolean {
 }
 
 /**
- * 打开图鉴详情：浏览器新标签；Html5Plus 走原生页；鸿蒙等走 port 桥接。
- * 行为与 `components/library/LibraryItem.vue` 的 `handleJump` 对齐。
+ * 打开图鉴详情：UniApp 直接打开 H5 地址；鸿蒙等走 port 桥接；浏览器新标签。
  */
 export function openLibraryDetailTab(
   libraryId: number | string | null | undefined
@@ -38,25 +41,13 @@ export function openLibraryDetailTab(
   if (!Number.isFinite(idNum)) return
   if (!import.meta.client || typeof window === 'undefined') return
 
-  const configStore = useConfigStore()
-  const uniApi = configStore.uniWebviewJs
-
-  if (isHtml5PlusWebview() && uniApi?.navigateTo) {
-    uniApi.navigateTo({
-      url: `/pages/library/libraryDetail/libraryDetail?id=${idNum}`,
-      fail: () => {
-        const abs = new URL(
-          `/library/detail/${idNum}`,
-          window.location.origin
-        ).href
-        uniApi.navigateTo?.({
-          url: `/pages/common/outerLink?url=${encodeURIComponent(abs)}`
-        })
-      }
-    })
+  // UniApp：不再进原生图鉴页，直接外链打开 H5 详情
+  if (isHtml5PlusWebview()) {
+    openLibraryWebPath(`/library/detail/${idNum}`)
     return
   }
 
+  const configStore = useConfigStore()
   const port = configStore.getPort()
   if (port) {
     try {
@@ -336,6 +327,66 @@ export function openAlbumDetail(options: {
   if (albumId == null || albumId === '') return
   const webPath = `/album/detail/${albumId}${buildQueryString({ user_id: userId ?? undefined })}`
   openLibraryWebPath(webPath)
+}
+
+/**
+ * 打开人台页：按 addr 是否 rad 分流。
+ * - rad → 新版 `/humanPlatform/:id`
+ * - 非 rad → 旧版 `/pc/humanPlatform/:id`
+ * UniApp / 鸿蒙走外链；浏览器可站内跳转（inAppNavigate）或新标签。
+ */
+export function openHumanPlatform(
+  options: BuildHumanPlatformNavOptions & {
+    /** 仅新版：站内 navigateTo；默认 false（新标签，与列表入口一致） */
+    inAppNavigate?: boolean
+    /** UniApp outerLink2 是否全屏，默认 true */
+    fullScreen?: boolean
+  },
+): void {
+  if (options.videoId == null || options.videoId === '') return
+  if (!import.meta.client || typeof window === 'undefined') return
+
+  const { inAppNavigate = false, fullScreen = true, ...navOptions } = options
+  const { path, isLegacy, fullUrl } = buildHumanPlatformNav(navOptions)
+  const configStore = useConfigStore()
+  const uniApi = configStore.uniWebviewJs
+  const desktopUrl = isLegacy
+    ? fullUrl
+    : new URL(path, window.location.origin).href
+
+  if (isHtml5PlusWebview() && uniApi?.navigateTo) {
+    const qs = fullScreen ? 'fullScreen=true&' : ''
+    uniApi.navigateTo({
+      url: `/pages/common/outerLink2?${qs}url=${fullUrl}`,
+      fail: () => {
+        console.warn('[libraryNav] uni humanPlatform 跳转失败', fullUrl)
+      },
+    })
+    return
+  }
+
+  const port = configStore.getPort()
+  if (port) {
+    try {
+      port.postMessage(
+        JSON.stringify({
+          type: 'jump',
+          path: 'Outlink',
+          params: { url: fullUrl },
+        }),
+      )
+    } catch {
+      window.open(desktopUrl, '_blank', 'noopener,noreferrer')
+    }
+    return
+  }
+
+  if (!isLegacy && inAppNavigate) {
+    void navigateTo(path)
+    return
+  }
+
+  window.open(desktopUrl, '_blank', 'noopener,noreferrer')
 }
 
 /** 用于 `<a href>` 的绝对地址（仅客户端能带 origin；SSR 回落为路径） */

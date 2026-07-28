@@ -62,6 +62,15 @@
                 loading="lazy"
                 crossorigin="anonymous" 
               />
+
+              <!-- AI 标识（左上角） -->
+              <div
+                v-if="itemUsesAi(item)"
+                class="snapshot-ai-badge"
+                aria-label="疑似使用AI"
+              >
+                AI
+              </div>
               
               <!-- 底部信息浮层 -->
               <div class="absolute bottom-4 left-0 w-full flex flex-col items-center justify-end pointer-events-none px-2">
@@ -157,6 +166,14 @@ const parseLibraryJsonData = (jsonData: unknown): Record<string, unknown> => {
     return jsonData as Record<string, unknown>
   }
   return {}
+}
+
+/** 是否使用过 AI：顶层 use_ai 或 json_data.use_ai === 1 */
+const itemUsesAi = (pipe: LibraryPipe): boolean => {
+  const lib = pipe.item
+  if (!lib) return false
+  if (Number(lib.use_ai) === 1) return true
+  return Number(parseLibraryJsonData(lib.json_data).use_ai) === 1
 }
 
 const extractSkuListFromJsonData = (jsonData: unknown): LibrarySkuRecord[] => {
@@ -386,6 +403,39 @@ const downloadChunk = async (index: number) => {
       // 绘制占位背景
       ctx.fillStyle = '#f3f4f6'
       ctx.fillRect(x, y, cellWidth, cellHeight)
+    }
+
+    // 1.5 绘制 AI 标识（左上角，与 DOM 一致）
+    if (itemUsesAi(item)) {
+      const badgePadX = 10
+      const badgePadY = 7
+      const badgeFont = 'bold 18px sans-serif'
+      const badgeText = 'AI'
+      ctx.font = badgeFont
+      const textW = ctx.measureText(badgeText).width
+      const badgeW = Math.max(textW + badgePadX * 2, 40)
+      const badgeH = 18 + badgePadY * 2
+      const badgeX = x + 14
+      const badgeY = y + 14
+      const radius = 8
+
+      const gradient = ctx.createLinearGradient(badgeX, badgeY, badgeX + badgeW, badgeY + badgeH)
+      gradient.addColorStop(0, '#ef4444')
+      gradient.addColorStop(1, '#f97316')
+      ctx.fillStyle = gradient
+      roundedRect(ctx, badgeX, badgeY, badgeW, badgeH, radius)
+      ctx.fill()
+
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.85)'
+      ctx.lineWidth = 1.5
+      roundedRect(ctx, badgeX, badgeY, badgeW, badgeH, radius)
+      ctx.stroke()
+
+      ctx.fillStyle = '#ffffff'
+      ctx.font = badgeFont
+      ctx.textAlign = 'center'
+      ctx.textBaseline = 'middle'
+      ctx.fillText(badgeText, badgeX + badgeW / 2, badgeY + badgeH / 2 + 0.5)
     }
 
     // 2. 绘制底部文字浮层
@@ -627,5 +677,28 @@ onMounted(() => {
 /* 确保截图时样式一致 */
 .aspect-\[3\/5\] {
   aspect-ratio: 3 / 5;
+}
+
+.snapshot-ai-badge {
+  position: absolute;
+  z-index: 10;
+  left: 8px;
+  top: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 26px;
+  padding: 4px 6px;
+  border-radius: 7px;
+  border: 1px solid rgba(255, 255, 255, 0.85);
+  background: linear-gradient(135deg, #ef4444 0%, #f97316 100%);
+  box-shadow: 0 1px 8px rgba(239, 68, 68, 0.45);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  line-height: 1;
+  pointer-events: none;
+  user-select: none;
 }
 </style>

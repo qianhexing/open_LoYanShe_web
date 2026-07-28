@@ -2,10 +2,16 @@
 import dayjs from 'dayjs'
 import { BASE_IMG } from '@/utils/ipConfig'
 import { getFavoriteListVisitor } from '@/api/collect'
+import { FEATURE_SITE_ORIGIN } from '~/data/featuresNav'
 import type { FavoriteFolder } from '@/types/api'
 
 const userStoreRefs = storeToRefs(useUserStore())
 const { user } = userStoreRefs
+const configStore = useConfigStore()
+const port = computed(() => configStore.getPort())
+
+// biome-ignore lint/suspicious/noExplicitAny: uni-webview-js 类型声明缺失
+let uni: any
 
 const page = ref(1)
 const pageSize = 18
@@ -30,8 +36,8 @@ async function fetchFolders(reset = false) {
       page: page.value,
       pageSize,
     })
-    const rows = data.rows ?? []
-    total.value = data.count ?? 0
+    const rows = data?.rows ?? []
+    total.value = data?.count ?? 0
     if (reset) list.value = rows
     else list.value = [...list.value, ...rows]
   } finally {
@@ -45,13 +51,71 @@ async function loadMore() {
   await fetchFolders(false)
 }
 
-onMounted(() => {
-  if (user.value?.user_id) fetchFolders(true)
+/** Uni outerLink2 / 鸿蒙 Outlink / 浏览器新开，与 matching/my 一致 */
+function jumpToFavoriteDetail(item: FavoriteFolder) {
+  if (item.id == null) return
+  const path = `/favorite/${item.id}`
+  const fullUrl = `${FEATURE_SITE_ORIGIN}${path}`
+  const isInUniApp =
+    typeof window !== 'undefined' &&
+    navigator.userAgent.includes('Html5Plus')
+
+  if (isInUniApp && typeof uni !== 'undefined' && uni?.navigateTo) {
+    uni.navigateTo({
+      url: `/pages/common/outerLink2?url=${fullUrl}`,
+      fail: () => console.warn('[favorite] uni outer 跳转失败', fullUrl),
+    })
+    return
+  }
+  if (port.value) {
+    port.value.postMessage(
+      JSON.stringify({
+        type: 'jump',
+        path: 'Outlink',
+        params: { url: fullUrl },
+      })
+    )
+    return
+  }
+  window.open(path, '_blank', 'noopener,noreferrer')
+}
+
+onMounted(async () => {
+  // @ts-ignore - uni-webview-js 类型声明缺失
+  uni = await import('@dcloudio/uni-webview-js').catch((err: unknown) => {
+    console.error('Failed to load uni-webview-js:', err)
+  })
 })
+
+/**
+ * outerLink2 打开时 token 由 uniapp 注入，用户信息可能晚于挂载；
+ * 仅 onMounted 一次会错过列表请求。
+ */
+watch(
+  () => user.value?.user_id,
+  (uid, prev) => {
+    if (!uid) {
+      list.value = []
+      total.value = 0
+      return
+    }
+    if (uid !== prev) fetchFolders(true)
+  },
+  { immediate: true }
+)
 </script>
 
 <template>
-  <div class="container mx-auto min-h-screen px-4 py-6">
+  <div class="min-h-screen">
+    <!-- WebView 状态栏占位：layouts/default 中 ?statusbar= -->
+    <div
+      v-if="configStore.statusBarHeight > 0"
+      class="shrink-0"
+      aria-hidden="true"
+      :style="{ height: `${configStore.statusBarHeight}px` }"
+    />
+
+    <div class="container mx-auto px-4 py-6">
     <div v-if="!user" class="flex items-center justify-center h-[50vh] text-gray-600">
       请先登录
     </div>
@@ -74,11 +138,12 @@ onMounted(() => {
       <div
         class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4"
       >
-        <NuxtLink
+        <button
           v-for="item in list"
           :key="item.id"
-          :to="`/favorite/${item.id}`"
-          class="group flex gap-4 p-4 rounded-2xl border border-gray-100 bg-white shadow-sm hover:shadow-md hover:border-pink-100 transition-all"
+          type="button"
+          class="group flex gap-4 p-4 rounded-2xl border border-gray-100 bg-white shadow-sm hover:shadow-md hover:border-pink-100 transition-all text-left w-full"
+          @click="jumpToFavoriteDetail(item)"
         >
           <div class="w-[88px] h-[88px] shrink-0 rounded-xl overflow-hidden bg-gray-100">
             <img
@@ -107,7 +172,7 @@ onMounted(() => {
               {{ item.favorite_desc }}
             </p>
           </div>
-        </NuxtLink>
+        </button>
       </div>
 
       <div v-if="loading" class="flex justify-center py-8 text-gray-500">
@@ -119,6 +184,7 @@ onMounted(() => {
           加载更多
         </UButton>
       </div>
+    </div>
     </div>
   </div>
 </template>

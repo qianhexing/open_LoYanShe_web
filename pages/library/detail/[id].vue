@@ -29,7 +29,7 @@ import {
   starFillRatio
 } from '@/utils/libraryScore'
 import type { CommunityPostForeignContext } from '@/utils/communityPost'
-import { isHtml5PlusWebview, openLibraryWebPath, openLibraryDetailTab, libraryDetailPageHref, openMatchingDetailTab } from '@/composables/useLibraryDetailNavigation'
+import { isHtml5PlusWebview, openLibraryWebPath, openLibraryDetailTab, libraryDetailPageHref, openMatchingDetailTab, openHumanPlatform } from '@/composables/useLibraryDetailNavigation'
 import { BASE_IMG } from '@/utils/ipConfig'
 import { deleteSenceForeign, getSenceForeignList, getSceneId, insertScene } from '@/api/scene'
 import type { SceneJSON } from '@/utils/threeCore'
@@ -42,6 +42,7 @@ import {
 import { useCommentUiStore } from '@/stores/commentUi'
 import type { LibrarySharePayload, LibraryRecommendPayload } from '@/utils/libraryShareCanvas'
 import { plainTextFromHtml } from '@/utils/libraryShareCanvas'
+import { libraryVideoAddrIsRad } from '@/utils/humanPlatformNav'
 import CommentSection from '@/components/comment/CommentSection.vue'
 import CommunityCommentModal from '@/components/community/CommentModal.vue'
 import LibraryShareImage from '@/components/library/LibraryShareImage.vue'
@@ -263,6 +264,13 @@ const librarySkuList = computed((): LibrarySkuItem[] => {
   }
 
   return skuItems.map((item) => toSkuItem(item.library_pattern, item))
+})
+
+/** json_data.use_ai === 1 时展示 AI 提示 */
+const libraryUsesAi = computed(() => {
+  const lib = library.value
+  if (!lib) return false
+  return Number(parseLibraryJsonData(lib.json_data).use_ai) === 1
 })
 
 const hasSku = computed(() => librarySkuList.value.length > 0)
@@ -721,48 +729,18 @@ const fetchLibraryVideo = async () => {
 function jumpToHumanPlatform(item: LibraryVideo) {
   const vid = item.video_id
   if (vid == null) return
-  const lid = library.value?.library_id
-  const path =
-    lid != null
-      ? `/humanPlatform/${vid}?library_id=${lid}`
-      : `/humanPlatform/${vid}`
-  const fullUrl = `https://lolitalibrary.com${path}`
-
-  if (isHtml5PlusWebview()) {
-    void ensureUniWebview().then((u) => {
-      if (u?.navigateTo) {
-        u.navigateTo({
-          url: `/pages/common/outerLink2?fullScreen=true&url=${fullUrl}`,
-          fail: () => {
-            console.log('跳转人台图失败')
-          },
-        })
-      } else {
-        void navigateTo(path)
-      }
-    })
-    return
-  }
-
-  const p = config.getPort()
-  if (p) {
-    p.postMessage(
-      JSON.stringify({
-        type: 'jump',
-        path: 'Outlink',
-        params: { url: fullUrl },
-      }),
-    )
-    return
-  }
-
-  void navigateTo(path)
+  openHumanPlatform({
+    videoId: vid,
+    libraryId: library.value?.library_id,
+    addr: item.addr,
+    inAppNavigate: true,
+  })
 }
 
 const handleVideoClick = (item: LibraryVideo) => {
-  // 点云类型：手机端跳转人台图页，桌面端弹窗查看
+  // 点云类型：非 rad 跳转旧版人台；手机端 rad 跳转人台图页；桌面端 rad 弹窗查看
   if (item.pk_type === 2 && item.addr) {
-    if (isMobile.value) {
+    if (!libraryVideoAddrIsRad(item.addr) || isMobile.value) {
       jumpToHumanPlatform(item)
       return
     }
@@ -2341,8 +2319,9 @@ const libraryChildThumbImgClass =
           </div>
         </div>
         <div class="m-2 flex-1">
-          <div class="library-info">
-            <h1 class="mb-3 text-lg font-semibold">{{ library.name }}</h1>
+          <div class="library-info mb-3">
+            <h1 class="text-lg font-semibold">{{ library.name }}</h1>
+            <p v-if="libraryUsesAi" class="mt-1 text-xs text-red-500">该图鉴疑似使用AI</p>
           </div>
           <div class="flex flex-wrap gap-1">
             <QhxTag

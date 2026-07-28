@@ -3,8 +3,13 @@ import type { Community, PaginationResponse } from '@/types/api';
 import { getCommunityList } from '@/api/community';
 import useScrollBottom from '@/composables/useScrollBottom'
 const user = useUserStore()
+const configStore = useConfigStore()
 const router = useRouter()
 const route = useRoute()
+const port = computed(() => configStore.getPort())
+
+// biome-ignore lint/suspicious/noExplicitAny: uni-webview-js 类型声明缺失
+let uni: any
 // 分页参数
 const pageSize = 20
 // const total = ref(0)
@@ -126,21 +131,7 @@ const waterCommunity = () => {
     })
 }
 const debounceWater = debounce(waterCommunity, 100);
-onMounted(() => {
-  if (window.innerWidth < 768) {
-    // column.value = 1
-  } else {
-    waterCommunity()
-  }
-  
-  if (user.token) {
-    console.log('是否服务端渲染', isServer.value)
-    if (isServer.value) {
-      isServer.value = false
-      refreshCommunity()
-    }
-  }
-})
+
 const loadMore = () => {
   if (isLoading.value) {
     return
@@ -176,57 +167,111 @@ const { isFinished, setFinished } = useScrollBottom(
 )
 
 const goToPostPage = () => {
-  router.push('/community/post')
+  const path = '/community/post'
+  const fullUrl = `https://lolitalibrary.com${path}`
+  const isInUniApp =
+    typeof window !== 'undefined' &&
+    navigator.userAgent.includes('Html5Plus')
+
+  if (isInUniApp && typeof uni !== 'undefined' && uni?.navigateTo) {
+    uni.navigateTo({
+      url: `/pages/common/outerLink2?url=${fullUrl}`,
+      fail: () => console.warn('[community] uni outer 发帖跳转失败', fullUrl),
+    })
+    return
+  }
+  if (port.value) {
+    port.value.postMessage(
+      JSON.stringify({
+        type: 'jump',
+        path: 'Outlink',
+        params: { url: fullUrl },
+      })
+    )
+    return
+  }
+  void router.push(path)
 }
+
+onMounted(async () => {
+  // @ts-ignore - uni-webview-js 类型声明缺失
+  uni = await import('@dcloudio/uni-webview-js').catch((err: unknown) => {
+    console.error('Failed to load uni-webview-js:', err)
+  })
+
+  if (window.innerWidth < 768) {
+    // column.value = 1
+  } else {
+    waterCommunity()
+  }
+  
+  if (user.token) {
+    console.log('是否服务端渲染', isServer.value)
+    if (isServer.value) {
+      isServer.value = false
+      refreshCommunity()
+    }
+  }
+})
 </script>
 <template>
-  <div class="container mx-auto pt-4 pb-20 overflow-hidden">
-    <div class="grid grid-cols-2 md:grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4 px-4 pb-3">
-      <div class="w-full flex items-center">
-        <UInput
-          v-model="value"
-          placeholder="搜索 多条件空格分割."
-          class="flex-1 focus:ring-0"
-          :autofocus="false"
-           @keyup.enter="handleSearch"
-          :ui="{
-            base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
-            rounded: 'rounded-full',
-            padding: { xs: 'px-4 py-2' },
-            color: {
-              white: {
-                outline: 'bg-gray-50 dark:bg-gray-800 ring-1 ring-gray-300 dark:ring-gray-600 focus:ring-2 focus:ring-qhx-primary'
-              }
-            }
-          }"
-        />
-        <UButton
-          icon="i-heroicons-magnifying-glass"
-          variant="ghost"
-          color="gray"
-          @click="handleSearch"
-        />
-      </div>
-    </div>
-    <!-- 空状态 -->
-    <div class="relative min-h-[600px]" v-if="total > 0">
-      <div class="community-list absolute w-full md:w-1/3  max-md:static" v-for="community in list" :key="community.community_id">
-        <CommunityItem :item="community" :size="'big'" @load="debounceWater"></CommunityItem>
-      </div>
-    </div>
-    <div v-else class="text-center text-gray-500 py-8">
-      暂无数据
-    </div>
+  <div class="min-h-screen overflow-hidden">
+    <!-- WebView 状态栏占位：layouts/default 中 ?statusbar= -->
+    <div
+      v-if="configStore.statusBarHeight > 0"
+      class="shrink-0"
+      aria-hidden="true"
+      :style="{ height: `${configStore.statusBarHeight}px` }"
+    />
 
-    <!-- 左下角发帖按钮 -->
-    <div class="fixed bottom-8 left-8 z-50 pointer-events-none">
-      <button
-        @click="goToPostPage"
-        class="pointer-events-auto bg-gray-900 dark:bg-white text-white dark:text-gray-900 px-6 py-3 rounded-full shadow-2xl flex items-center gap-2 transform transition-all duration-300 hover:scale-105 active:scale-95 group"
-      >
-        <span class="text-xl group-hover:rotate-12 transition-transform">📝</span>
-        <span class="font-bold tracking-wide">发帖</span>
-      </button>
+    <div class="container mx-auto pt-4 pb-20">
+      <div class="grid grid-cols-2 md:grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4 px-4 pb-3">
+        <div class="w-full flex items-center">
+          <UInput
+            v-model="value"
+            placeholder="搜索 多条件空格分割."
+            class="flex-1 focus:ring-0"
+            :autofocus="false"
+             @keyup.enter="handleSearch"
+            :ui="{
+              base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
+              rounded: 'rounded-full',
+              padding: { xs: 'px-4 py-2' },
+              color: {
+                white: {
+                  outline: 'bg-gray-50 dark:bg-gray-800 ring-1 ring-gray-300 dark:ring-gray-600 focus:ring-2 focus:ring-qhx-primary'
+                }
+              }
+            }"
+          />
+          <UButton
+            icon="i-heroicons-magnifying-glass"
+            variant="ghost"
+            color="gray"
+            @click="handleSearch"
+          />
+        </div>
+      </div>
+      <!-- 空状态 -->
+      <div class="relative min-h-[600px]" v-if="total > 0">
+        <div class="community-list absolute w-full md:w-1/3  max-md:static" v-for="community in list" :key="community.community_id">
+          <CommunityItem :item="community" :size="'big'" @load="debounceWater"></CommunityItem>
+        </div>
+      </div>
+      <div v-else class="text-center text-gray-500 py-8">
+        暂无数据
+      </div>
+
+      <!-- 左下角发帖按钮 -->
+      <div class="fixed bottom-8 left-8 z-50 pointer-events-none">
+        <button
+          @click="goToPostPage"
+          class="pointer-events-auto bg-gray-900 dark:bg-white text-white dark:text-gray-900 px-6 py-3 rounded-full shadow-2xl flex items-center gap-2 transform transition-all duration-300 hover:scale-105 active:scale-95 group"
+        >
+          <span class="text-xl group-hover:rotate-12 transition-transform">📝</span>
+          <span class="font-bold tracking-wide">发帖</span>
+        </button>
+      </div>
     </div>
   </div>
 </template>
@@ -236,5 +281,3 @@ const goToPostPage = () => {
   transition: 0.3s;
 }
 </style>
-
-

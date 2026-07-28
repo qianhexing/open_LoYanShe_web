@@ -3,10 +3,10 @@ import type { Library } from '@/types/api';
 import type LibraryTypeColorChoose from '@/components/library/LibraryTypeColorChoose.vue'
 import type ClothesAdd from '@/components/Clothes/ClothesAdd.vue'
 import { librarySeedFromTypeColorChoose, type LibraryTypeColorChooseResult } from '@/utils/libraryClothesSeed'
-import { isHtml5PlusWebview } from '@/composables/useLibraryDetailNavigation'
+import { openLibraryDetailTab, openHumanPlatform } from '@/composables/useLibraryDetailNavigation'
+import { getLibraryVideo } from '@/api/library'
 import { useToast } from '#imports'
 
-let uni: any;
 interface Props {
   item: Library,
   className?: string,
@@ -27,7 +27,6 @@ const props = withDefaults(defineProps<Props>(), {
   needJump: true,
   showActions: false
 })
-const port = computed(() => configStore.getPort())
 // 响应式变量
 const size = toRef(props, 'size')
 const { needShop, needJump, showActions } = props
@@ -37,6 +36,32 @@ const item = toRef(props, 'item')
 const libraryHas3d = computed(() => {
   const v = item.value?.has_3d
   return v === true || v === 1
+})
+
+const parseLibraryJsonData = (jsonData: unknown): Record<string, unknown> => {
+  if (jsonData == null) return {}
+  if (typeof jsonData === 'string') {
+    try {
+      const parsed = JSON.parse(jsonData)
+      return typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)
+        ? (parsed as Record<string, unknown>)
+        : {}
+    } catch {
+      return {}
+    }
+  }
+  if (typeof jsonData === 'object' && !Array.isArray(jsonData)) {
+    return jsonData as Record<string, unknown>
+  }
+  return {}
+}
+
+/** json_data.use_ai === 1（或列表顶层 use_ai）时展示 AI 标识 */
+const libraryUsesAi = computed(() => {
+  const lib = item.value
+  if (!lib) return false
+  if (Number(lib.use_ai) === 1) return true
+  return Number(parseLibraryJsonData(lib.json_data).use_ai) === 1
 })
 
 // 加衣柜相关
@@ -139,80 +164,30 @@ const imageLoad = () => {
 //     checkWardrobeStatus()
 //   }
 // })
-onMounted(async () => {
-  uni = await import('@dcloudio/uni-webview-js').catch((err) => {
-    console.error('Failed to load uni-webview-js:', err);
-  });
-})
 const handleJump = (id: number) => {
   if (!needJump) {
     return
   }
-  const isInUniApp =
-		typeof window !== 'undefined' &&
-		navigator.userAgent.includes('Html5Plus');
-	if (!item.value.library_id) return
-	if (isInUniApp && typeof uni !== 'undefined' && uni.navigateTo) {
-		// UniApp WebView 环境
-		uni.navigateTo({
-			url: `/pages/library/libraryDetail/libraryDetail?id=${id}`,
-			fail: () => {
-				console.log('跳转错误')
-			}
-		});
-	} else {
-    if (port.value) {
-      // 鸿蒙系统
-      port.value.postMessage(JSON.stringify({
-        type: 'jump',
-        path: 'LibraryDetail',
-        params: {
-          id: item.library_id
-        }
-      }));
-    } else {
-      // 普通网页环境
-      // window.location.href = `https://lolitalibrary.com/library/detail/${item.library_id}`;
-      window.open(`/library/detail/${id}`, '_blank')
-    }
-	}
-  // navigateTo(`/library/detail/${id}`)
-  
+  if (!item.value.library_id) return
+  openLibraryDetailTab(id)
 }
 
-const handleJumpToHumanPlatform = () => {
+const handleJumpToHumanPlatform = async () => {
   const lid = item.value?.library_id
   if (lid == null || !libraryHas3d.value) return
 
-  const path = `/humanPlatform/0?library_id=${lid}`
-  const fullUrl = `https://lolitalibrary.com${path}`
-
-  if (isHtml5PlusWebview() && typeof uni !== 'undefined' && uni?.navigateTo) {
-    uni.navigateTo({
-      url: `/pages/common/outerLink2?fullScreen=true&url=${fullUrl}`,
-      fail: () => {
-        console.log('跳转人台图失败')
-      }
+  try {
+    const list = await getLibraryVideo({ pk_id: lid })
+    const first = list.find((v) => v.pk_type === 2 && v.addr && v.video_id != null)
+    if (first?.video_id == null) return
+    openHumanPlatform({
+      videoId: first.video_id,
+      libraryId: lid,
+      addr: first.addr,
     })
-    return
+  } catch (err) {
+    console.log('跳转人台图失败', err)
   }
-
-  if (port.value) {
-    port.value.postMessage(
-      JSON.stringify({
-        type: 'jump',
-        path: 'Outlink',
-        params: { url: fullUrl }
-      })
-    )
-    return
-  }
-
-  window.open(
-    new URL(path, window.location.origin).href,
-    '_blank',
-    'noopener,noreferrer'
-  )
 }
 </script>
 <template>
@@ -231,6 +206,13 @@ const handleJumpToHumanPlatform = () => {
         >
           <UIcon name="garden:box-3d-fill-12" class="text-[15px]" />
         </button>
+        <div
+          v-if="libraryUsesAi"
+          class="library-ai-badge library-ai-badge--lg"
+          aria-label="疑似使用AI"
+        >
+          AI
+        </div>
       </div>
       <div class="mx-1">
         <h3 class="text-base font-semibold text-gray-900 truncate w-full transition-colors duration-300">
@@ -251,6 +233,13 @@ const handleJumpToHumanPlatform = () => {
         >
           <UIcon name="garden:box-3d-fill-12" class="text-[15px]" />
         </button>
+        <div
+          v-if="libraryUsesAi"
+          class="library-ai-badge library-ai-badge--lg"
+          aria-label="疑似使用AI"
+        >
+          AI
+        </div>
       </div>
       <div class="mx-1 flex-1">
         <h3 class="text-base font-semibold text-gray-900 w-full transition-colors duration-300">
@@ -364,6 +353,13 @@ const handleJumpToHumanPlatform = () => {
         >
           <UIcon name="garden:box-3d-fill-12" class="text-[13px]" />
         </button>
+        <div
+          v-if="libraryUsesAi"
+          class="library-ai-badge library-ai-badge--sm"
+          aria-label="疑似使用AI"
+        >
+          AI
+        </div>
       </div>
       <div class="mx-1">
         <h3 class="text-base truncate w-full transition-colors duration-300">
@@ -373,8 +369,13 @@ const handleJumpToHumanPlatform = () => {
     </div>
     <div v-else-if="size === 'text-only'" :to="`/library/detail/${item.library_id}`" @click="handleJump(item.library_id)">
       <div class="flex-1 overflow-hidden">
-        <h3 class="text-base truncate w-full transition-colors duration-300">
-          {{ item.name }}
+        <h3 class="text-base truncate w-full transition-colors duration-300 flex items-center gap-1.5">
+          <span class="truncate">{{ item.name }}</span>
+          <span
+            v-if="libraryUsesAi"
+            class="library-ai-badge library-ai-badge--inline shrink-0"
+            aria-label="疑似使用AI"
+          >AI</span>
         </h3>
         <!-- <div class="flex flex-wrap">
           <QhxTag v-if="item.library_price" :active="true">参考价￥ {{ item.library_price }} {{ formatLabel(item.shop_country || item.shop?.shop_country || 0, config?.money_type) }}</QhxTag>
@@ -401,6 +402,13 @@ const handleJumpToHumanPlatform = () => {
           >
             <UIcon name="garden:box-3d-fill-12" class="text-[13px]" />
           </button>
+          <div
+            v-if="libraryUsesAi"
+            class="library-ai-badge library-ai-badge--sm"
+            aria-label="疑似使用AI"
+          >
+            AI
+          </div>
         </div>
         <div class="mx-1 flex-1 overflow-hidden">
           <h3 class="text-base truncate w-full transition-colors duration-300">
@@ -441,6 +449,13 @@ const handleJumpToHumanPlatform = () => {
           >
             <UIcon name="garden:box-3d-fill-12" class="text-[11px]" />
           </button>
+          <div
+            v-if="libraryUsesAi"
+            class="library-ai-badge library-ai-badge--xs"
+            aria-label="疑似使用AI"
+          >
+            AI
+          </div>
         </div>
         <div class="min-w-0 flex-1 overflow-hidden pt-0.5">
           <h3 class="text-sm font-medium text-gray-900 dark:text-gray-100 leading-snug line-clamp-2">
@@ -606,5 +621,74 @@ const handleJumpToHumanPlatform = () => {
   top: 4px;
   padding: 3px;
   border-radius: 6px;
+}
+
+.library-ai-badge {
+  position: absolute;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(255, 255, 255, 0.85);
+  background: linear-gradient(135deg, #ef4444 0%, #f97316 100%);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  box-shadow: 0 1px 8px rgba(239, 68, 68, 0.45);
+  color: #fff;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  line-height: 1;
+  pointer-events: none;
+  user-select: none;
+}
+
+.library-ai-badge--lg {
+  left: 10px;
+  top: 10px;
+  min-width: 28px;
+  padding: 5px 7px;
+  border-radius: 8px;
+  font-size: 12px;
+}
+
+.library-ai-badge--sm {
+  left: 6px;
+  top: 6px;
+  min-width: 24px;
+  padding: 4px 5px;
+  border-radius: 7px;
+  font-size: 11px;
+}
+
+.library-ai-badge--xs {
+  left: 4px;
+  top: 4px;
+  min-width: 20px;
+  padding: 2px 4px;
+  border-radius: 6px;
+  font-size: 9px;
+}
+
+/* 与 3D 标识同时出现时，叠在其下方 */
+.library-3d-badge ~ .library-ai-badge--lg {
+  top: 44px;
+}
+
+.library-3d-badge ~ .library-ai-badge--sm {
+  top: 36px;
+}
+
+.library-3d-badge ~ .library-ai-badge--xs {
+  top: 28px;
+}
+
+.library-ai-badge--inline {
+  position: static;
+  display: inline-flex;
+  min-width: 22px;
+  padding: 2px 5px;
+  border-radius: 6px;
+  font-size: 10px;
+  box-shadow: 0 1px 4px rgba(239, 68, 68, 0.35);
 }
 </style>

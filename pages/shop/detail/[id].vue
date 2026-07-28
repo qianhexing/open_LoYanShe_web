@@ -9,7 +9,7 @@ import type LibraryPipeManage from '@/components/library/LibraryPipeManage.vue'
 import type PhysicalShopModal from '@/components/shop/PhysicalShopModal.vue'
 import type { PhysicalShop } from '@/types/api'
 import { BASE_IMG } from '@/utils/ipConfig'
-import { isHtml5PlusWebview, openLibraryWebPath } from '@/composables/useLibraryDetailNavigation'
+import { isHtml5PlusWebview, openLibraryWebPath, openLibraryDetailTab } from '@/composables/useLibraryDetailNavigation'
 
 interface ShopLinkEntry {
   href: string
@@ -40,8 +40,19 @@ import dayjs from 'dayjs'
 detail.value = data.value ?? null
 const router = useRouter()
 const selectLibraryPipe = (item: LibraryPipe) => {
-  console.log(item)
-  // router.push(`/library/detail/${item.library?.library_id}`)
+  const libraryId =
+    item.library?.library_id ??
+    item.item?.library_id ??
+    item.pk_id
+  if (libraryId == null) {
+    toast.add({
+      title: '暂无关联图鉴',
+      icon: 'i-heroicons-exclamation-circle',
+      color: 'orange'
+    })
+    return
+  }
+  openLibraryDetailTab(libraryId)
 }
 const fetchLibraryPipe = () => {
   getLibraryPipeListAll({ shop_id: Number.parseInt(id), end_time: dayjs().format('YYYY-MM-DD'), pk_type: 0 })
@@ -424,13 +435,23 @@ watch(
 )
 </script>
 <template>
+  <div :style="{ '--shop-status-bar': `${configStore.statusBarHeight || 0}px` }">
+    <!-- WebView 状态栏占位：layouts/default 中 ?statusbar= -->
+    <div
+      v-if="configStore.statusBarHeight > 0"
+      class="shrink-0"
+      aria-hidden="true"
+      :style="{ height: `${configStore.statusBarHeight}px` }"
+    />
   <div class="container mx-auto p-4 max-md:p-2">
     <div
       v-if="detail"
-      class="shop-fab-anchor fixed top-20 max-md:top-16 inset-x-0 z-[60] pointer-events-none"
+      class="shop-fab-anchor fixed inset-x-0 z-[60] pointer-events-none"
     >
       <div class="container mx-auto px-4 max-md:px-0">
-        <div class="shop-fab-stack flex flex-col items-end gap-1 pointer-events-auto ml-auto max-md:fixed max-md:top-16 max-md:right-2 max-md:ml-0">
+        <div
+          class="shop-fab-stack flex flex-col items-end gap-1 pointer-events-auto ml-auto max-md:fixed max-md:right-2 max-md:ml-0"
+        >
       <button
         type="button"
         class="shop-fab-btn shop-fab-btn--toggle"
@@ -503,15 +524,26 @@ watch(
     </QhxModal>
 
     <div v-if="detail" class="bg-qhx-bg-card rounded-lg shadow-lg" :key="detail.shop_id">
-      <div class="p-3 flex max-md:block max-md:px-1">
-        <div class="flex my-2 w-[434px] max-md:w-full relative">
-          <QhxPreviewImage :key="detail.shop_id" :list="[{ src: detail.shop_logo, alt: detail.shop_name }]" :className="'cursor-pointer w-full ml-0 h-[430px]  object-cover rounded-[10px] shadow-lg border border-gray-200'">
-          </QhxPreviewImage>
-        </div>
+      <div class="p-3 max-md:px-1">
         <div class="m-2 flex-1">
-          <div>
-            <h1 class="mb-3 text-lg font-semibold">{{ detail?.shop_name }}</h1>
+          <div class="mb-3 flex items-center gap-3">
+            <div class="shrink-0 w-16 h-16 md:w-20 md:h-20">
+              <QhxPreviewImage
+                :key="detail.shop_id"
+                :list="[{ src: detail.shop_logo, alt: detail.shop_name }]"
+                :className="'cursor-pointer w-16 h-16 md:w-20 md:h-20 object-cover rounded-full shadow-md border border-gray-200 dark:border-gray-700'"
+              />
+            </div>
+            <h1 class="min-w-0 text-lg md:text-xl font-semibold">
+              {{ detail?.shop_name }}
+            </h1>
           </div>
+          <p
+            v-if="Number(detail.use_ai) === 1"
+            class="mb-3 mx-1 text-sm font-semibold text-qhx-primary"
+          >
+            本店疑似使用过AI设计柄图
+          </p>
           <h3 class="text-sm m-1" v-html="detail.shop_describe" v-if="detail.shop_describe"></h3>
           <!-- 淘宝/官网 & 微博/小红书入口 -->
           <div
@@ -742,7 +774,7 @@ watch(
             <div v-if="library_pipe.length > 0">
               <div v-for="value in library_pipe" :key="value.pipe_id">
                 <div v-if="value.library">
-                  <LibraryItem :need-jump="false" :item="value.library" size="mini-list" class="w-full">
+                  <LibraryItem :item="value.library" size="mini-list" class="w-full">
                     <template #extra>
                       <div class="p-2 flex items-center">
                         <QhxTag :active="true"> {{ formateState(value.state || 0) }} </QhxTag>
@@ -908,11 +940,26 @@ watch(
       :fallback-logo="detail?.shop_logo"
     />
   </div>
+  </div>
 </template>
 
 <style scoped>
+.shop-fab-anchor {
+  top: calc(5rem + var(--shop-status-bar, 0px));
+}
+
 .shop-fab-stack {
   transform-origin: top right;
+}
+
+@media (max-width: 767px) {
+  .shop-fab-anchor {
+    top: calc(4rem + var(--shop-status-bar, 0px));
+  }
+
+  .shop-fab-stack {
+    top: calc(4rem + var(--shop-status-bar, 0px));
+  }
 }
 
 .shop-fab-btn {
