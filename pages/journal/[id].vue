@@ -1,5 +1,10 @@
 <template>
-  <div class="journal-page journal-book-page relative min-h-screen w-full overflow-x-hidden font-serif">
+  <div
+    class="journal-page journal-book-page relative w-full overflow-x-hidden font-serif"
+    :class="{ 'min-h-screen': viewMode !== 'carousel' }"
+  >
+    <!-- 轮播模式：销毁列表壳层（背景/工具栏/按日按月/FAB/分享等）以释放 DOM 与组件实例 -->
+    <template v-if="viewMode !== 'carousel'">
     <!-- 日式书页背景 -->
     <div class="journal-paper-bg fixed inset-0 pointer-events-none z-0" aria-hidden="true">
       <div class="journal-paper-gradient" />
@@ -70,7 +75,7 @@
             </div>
           </QhxJellyButton>
         </template>
-        <!-- 按月 / 按日切换 -->
+        <!-- 按月 / 按日 / 轮播切换 -->
         <div class="journal-tab-rail flex rounded-xl p-0.5 gap-0.5 flex-wrap">
           <button
             type="button"
@@ -95,6 +100,13 @@
             @click="viewMode = 'month'; fetchYearMonthData()"
           >
             按月
+          </button>
+          <button
+            type="button"
+            class="journal-tab-btn journal-tab-btn--idle active:scale-[0.99] flex-1 min-w-[4.5rem] rounded-lg px-2 py-1.5 text-xs font-medium outline-none transition-all duration-200 focus-visible:ring-2 focus-visible:ring-qhx-primary/45"
+            @click="switchToCarouselView()"
+          >
+            轮播
           </button>
         </div>
       </div>
@@ -425,7 +437,7 @@
                       <span v-if="j.create_time" class="ml-1">{{ formatTime(j.create_time) }}</span>
                     </div>
                     <button
-                      v-if="isOwnJournal && j.pk_type !== 0"
+                      v-if="isOwnJournal"
                       type="button"
                       class="journal-neu-icon-btn w-7 h-7 flex items-center justify-center rounded-lg shrink-0"
                       @click.stop="openJournalEntryMoreMenu(j, $event)"
@@ -501,7 +513,10 @@
                     />
                     <p v-else-if="j.pk_type === 4" class="text-sm text-amber-600 dark:text-amber-400">关联已失效</p>
                     <div v-else-if="j.pk_type === 5 && j.plan" class="flex gap-3">
-                      <div class="journal-neu-thumb w-16 h-16 rounded-xl overflow-hidden flex-shrink-0 bg-[var(--paper-dent)]">
+                      <div
+                        v-if="getPlanCoverSrc(j.plan)"
+                        class="journal-neu-thumb w-16 h-16 rounded-xl overflow-hidden flex-shrink-0 bg-[var(--paper-dent)]"
+                      >
                         <img
                           :src="getPlanCoverSrc(j.plan)"
                           :alt="j.plan.plan_name || '计划'"
@@ -548,7 +563,11 @@
                       {{ tag }}
                     </QhxTag>
                   </div>
-                  <div v-if="j.note && (j.community || j.comment || j.wardrobe_clothes || j.matching_list || j.library || j.plan || j.sence)" class="px-3 pb-3 pt-0">
+                  <!-- 签到(pk_type=0)仅展示 CommentItem，不重复手账笔记 -->
+                  <div
+                    v-if="j.pk_type !== 0 && j.note && (j.community || j.comment || j.wardrobe_clothes || j.matching_list || j.library || j.plan || j.sence)"
+                    class="px-3 pb-3 pt-0"
+                  >
                     <div class="journal-neu-note text-xs text-[#7a5f6a] dark:text-[var(--ink-muted)] rounded-xl px-2 py-1.5">
                       <span class="font-medium text-amber-700 dark:text-amber-400"></span>
                       {{ j.note }}
@@ -571,7 +590,110 @@
         {{ !userStore.user ? '请先登录后使用手账功能' : '无效的手账页' }}
       </div>
     </div>
+    </div><!-- /.journal-sheet -->
 
+    <CommunityPostModal
+      ref="journalPostModalRef"
+      v-model="showJournalPostModal"
+      modal-title="写新手账"
+      :skip-summary-link="true"
+      :success-redirect="false"
+      @success="onJournalPostSuccess"
+    />
+
+    <CommunityCommentModal
+      ref="quickNoteModalRef"
+      v-model="showQuickNoteModal"
+      @success="onQuickNoteSuccess"
+    />
+
+    <QhxFloatingButton
+      v-if="layoutReady && isOwnJournal"
+      initial-position="bottom-left"
+      :bottom-offset="16"
+    >
+      <button
+        type="button"
+        title="随手记"
+        class="journal-quick-note-fab w-12 h-12 rounded-full bg-qhx-primary text-white flex items-center justify-center shadow-lg"
+        @click="openQuickNote"
+      >
+        <UIcon name="i-heroicons-plus" class="text-2xl" />
+      </button>
+    </QhxFloatingButton>
+
+    <JournalCalendarShareImage
+      ref="journalShareRef"
+      :payload="journalSharePayload"
+      panelless
+    />
+
+    <!-- 标签筛选弹窗 -->
+    <QhxModal
+      v-model="filterModalShow"
+      :trigger-position="filterModalPosition"
+      @close="filterModalShow = false"
+    >
+      <div class="journal-neu-type-pop journal-neu-filter-pop p-4 w-[95vw] max-w-sm rounded-2xl max-h-[70vh] overflow-y-auto">
+        <h3 class="text-sm font-bold mb-1 text-[#4a2f3d] dark:text-[var(--ink-primary)]">标签筛选</h3>
+        <p class="text-xs text-[#8a6f7d] dark:text-[var(--ink-muted)] mb-3">
+          选中任一标签即展示匹配记录（可多选）
+        </p>
+        <div v-if="filterTagOptions.length > 0" class="flex flex-wrap gap-2">
+          <QhxJellyButton v-for="tag in filterTagOptions" :key="`filter-modal-${tag}`">
+            <QhxTag
+              :active="filterTags.includes(tag)"
+              class="cursor-pointer"
+              @click="toggleFilterTag(tag)"
+            >
+              {{ tag }}
+            </QhxTag>
+          </QhxJellyButton>
+        </div>
+        <p v-else class="text-xs text-[#9d8090] dark:text-[var(--ink-faint)] py-4 text-center">
+          暂无可筛选标签
+        </p>
+        <div class="flex items-center justify-between gap-2 mt-4 pt-3 border-t border-[var(--border-light)]">
+          <button
+            type="button"
+            class="text-xs text-[#8a7355] dark:text-[var(--accent-warm)] underline underline-offset-2 disabled:opacity-40"
+            :disabled="filterTags.length === 0"
+            @click="clearFilterTags"
+          >
+            清除全部
+          </button>
+          <UButton
+            size="xs"
+            color="primary"
+            @click="filterModalShow = false"
+          >
+            完成
+          </UButton>
+        </div>
+      </div>
+    </QhxModal>
+    </div><!-- /.relative z-[1] -->
+    </template>
+
+    <!-- 轮播模式：仅挂载全屏轮播（列表壳已销毁） -->
+    <JournalCarouselMode
+      v-if="layoutReady && userId && viewMode === 'carousel'"
+      :year="yearSelect"
+      :month="monthSelect"
+      :days="allDaysInMonth"
+      :journals="carouselMonthJournals"
+      :image-params="getImageParams()"
+      :is-own-journal="isOwnJournal"
+      :status-bar-height="configStore.statusBarHeight"
+      :loading="dayCountLoading"
+      @exit="switchToDayView()"
+      @prev-month="prevMonth"
+      @next-month="nextMonth"
+      @item-click="(j) => jumpJournalLinkedDetail(j)"
+      @more="openJournalEntryMoreMenu"
+    />
+
+    <!-- 轮播/列表共用：编辑删除等弹层（按需打开，不随列表 DOM 常驻渲染重内容） -->
     <!-- 添加/编辑手账弹窗（参考 ClothesAdd 使用 QhxModal） -->
     <QhxModal v-model="addEditModal" :trigger-position="addEditClickPosition" @close="addEditModal = false">
       <div class="journal-neu-modal w-[95vw] max-w-md max-h-[90vh] rounded-2xl overflow-hidden flex flex-col">
@@ -760,7 +882,10 @@
             </label>
             <div class="rounded-xl border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700/50 p-3">
               <div class="flex gap-3">
-                <div class="w-16 h-16 rounded-lg overflow-hidden flex-shrink-0 bg-gray-100 dark:bg-gray-600">
+                <div
+                  v-if="getPlanCoverSrc(editingJournal.plan)"
+                  class="w-16 h-16 rounded-lg overflow-hidden flex-shrink-0 bg-gray-100 dark:bg-gray-600"
+                >
                   <img
                     :src="getPlanCoverSrc(editingJournal.plan)"
                     :alt="editingJournal.plan.plan_name || '计划'"
@@ -838,67 +963,6 @@
             @click="handleAddEditSubmit"
           >
             {{ editingJournal ? '保存' : '添加' }}
-          </UButton>
-        </div>
-      </div>
-    </QhxModal>
-
-    <CommunityPostModal
-      ref="journalPostModalRef"
-      v-model="showJournalPostModal"
-      modal-title="写新手账"
-      :skip-summary-link="true"
-      :success-redirect="false"
-      @success="onJournalPostSuccess"
-    />
-
-    <!-- 手账日历分享图（点击后直接生成，成功后弹出预览） -->
-    <JournalCalendarShareImage
-      ref="journalShareRef"
-      :payload="journalSharePayload"
-      panelless
-    />
-
-    <!-- 标签筛选弹窗 -->
-    <QhxModal
-      v-model="filterModalShow"
-      :trigger-position="filterModalPosition"
-      @close="filterModalShow = false"
-    >
-      <div class="journal-neu-type-pop journal-neu-filter-pop p-4 w-[95vw] max-w-sm rounded-2xl max-h-[70vh] overflow-y-auto">
-        <h3 class="text-sm font-bold mb-1 text-[#4a2f3d] dark:text-[var(--ink-primary)]">标签筛选</h3>
-        <p class="text-xs text-[#8a6f7d] dark:text-[var(--ink-muted)] mb-3">
-          选中任一标签即展示匹配记录（可多选）
-        </p>
-        <div v-if="filterTagOptions.length > 0" class="flex flex-wrap gap-2">
-          <QhxJellyButton v-for="tag in filterTagOptions" :key="`filter-modal-${tag}`">
-            <QhxTag
-              :active="filterTags.includes(tag)"
-              class="cursor-pointer"
-              @click="toggleFilterTag(tag)"
-            >
-              {{ tag }}
-            </QhxTag>
-          </QhxJellyButton>
-        </div>
-        <p v-else class="text-xs text-[#9d8090] dark:text-[var(--ink-faint)] py-4 text-center">
-          暂无可筛选标签
-        </p>
-        <div class="flex items-center justify-between gap-2 mt-4 pt-3 border-t border-[var(--border-light)]">
-          <button
-            type="button"
-            class="text-xs text-[#8a7355] dark:text-[var(--accent-warm)] underline underline-offset-2 disabled:opacity-40"
-            :disabled="filterTags.length === 0"
-            @click="clearFilterTags"
-          >
-            清除全部
-          </button>
-          <UButton
-            size="xs"
-            color="primary"
-            @click="filterModalShow = false"
-          >
-            完成
           </UButton>
         </div>
       </div>
@@ -1006,6 +1070,7 @@
         <h3 class="text-sm font-bold mb-3 text-[#4a2f3d] dark:text-[var(--ink-primary)]">更多选项</h3>
 
         <button
+          v-if="pendingMoreJournal?.pk_type !== 0"
           type="button"
           class="journal-neu-type-row w-full flex items-center gap-3 p-3 rounded-xl text-left group transition-transform active:scale-[0.99]"
           @click="onJournalEntryMoreEdit($event)"
@@ -1023,7 +1088,8 @@
 
         <button
           type="button"
-          class="journal-neu-type-row w-full flex items-center gap-3 p-3 rounded-xl text-left group mt-2 transition-transform active:scale-[0.99]"
+          class="journal-neu-type-row w-full flex items-center gap-3 p-3 rounded-xl text-left group transition-transform active:scale-[0.99]"
+          :class="{ 'mt-2': pendingMoreJournal?.pk_type !== 0 }"
           @click="onJournalEntryMoreDelete"
         >
           <div
@@ -1118,8 +1184,6 @@
         </template>
       </UCard>
     </UModal>
-    </div>
-    </div>
   </div>
 </template>
 
@@ -1132,9 +1196,10 @@ import {
   journalUpdate,
   journalDelete
 } from '@/api/journal'
-import type { Journal, User, Scene } from '@/types/api'
+import type { Journal, User, Scene, Comment } from '@/types/api'
 import { getUserSpace } from '@/api/user'
 import JournalCalendarShareImage from '@/components/journal/JournalCalendarShareImage.vue'
+import JournalCarouselMode from '@/components/journal/JournalCarouselMode.vue'
 import type { JournalCalendarSharePayload } from '@/utils/journalShareCanvas'
 import type { Community, Library, PlanList } from '@/types/api'
 import type { WardrobeClothes } from '@/types/api'
@@ -1143,6 +1208,8 @@ import dayjs from 'dayjs'
 import CommunityChoose from '@/components/community/CommunityChoose.vue'
 import CommentItem from '@/components/comment/CommentItem.vue'
 import CommunityItem from '@/components/community/CommunityItem.vue'
+import CommunityCommentModal from '@/components/community/CommentModal.vue'
+import type CommunityCommentModalType from '@/components/community/CommentModal.vue'
 import WardrobeClothesChoose from '@/components/Wardrobe/WardrobeClothesChoose.vue'
 import MatchingChoose from '@/components/matching/MatchingChoose.vue'
 import LibraryChoose from '@/components/library/LibraryChoose.vue'
@@ -1151,6 +1218,7 @@ import SceneChoose from '@/components/scene/SceneChoose.vue'
 import SceneItem from '@/components/scene/SceneItem.vue'
 import customInput from '@/components/Clothes/customInput.vue'
 import CommunityPostModal from '@/components/community/CommunityPostModal.vue'
+import QhxFloatingButton from '@/components/Qhx/FloatingButton.vue'
 import { getCommunityDetail } from '@/api/community'
 import { getClothesDetail } from '@/api/wardrobe'
 import { getMatchingDetail } from '@/api/matching_list'
@@ -1195,11 +1263,11 @@ const port = computed(() => configStore.getPort())
 const SITE_ORIGIN = 'https://lolitalibrary.com'
 
 function canJumpJournalItem(j: Journal): boolean {
+  // 签到/手账(0)、计划(5) 不跳转；其余有关联实体才可进详情
   if (j.pk_type === 1) return !!j.community?.community_id
   if (j.pk_type === 2) return !!j.wardrobe_clothes?.clothes_id
   if (j.pk_type === 3) return !!j.matching_list?.matching_id
   if (j.pk_type === 4) return !!j.library?.library_id
-  if (j.pk_type === 5) return !!j.plan?.list_id
   if (j.pk_type === 6) return !!j.sence?.sence_id
   return false
 }
@@ -1231,10 +1299,9 @@ function openCommunityDetail(communityId: number) {
   openLibraryWebPath(`/community/detail/${communityId}`)
 }
 
-function onJournalItemClick(j: Journal, event: MouseEvent) {
+/** 跳转关联详情（轮播「查看详情」直接调用；列表点击需避开按钮） */
+function jumpJournalLinkedDetail(j: Journal) {
   if (!canJumpJournalItem(j)) return
-  const target = event.target as HTMLElement
-  if (target.closest('button, a, [role="button"]')) return
 
   if (j.pk_type === 1 && j.community?.community_id) {
     openCommunityDetail(j.community.community_id)
@@ -1244,11 +1311,15 @@ function onJournalItemClick(j: Journal, event: MouseEvent) {
     openLibraryWebPath(`/matching/detail/${j.matching_list.matching_id}`)
   } else if (j.pk_type === 4 && j.library?.library_id) {
     openLibraryDetailTab(j.library.library_id)
-  } else if (j.pk_type === 5 && j.plan?.list_id) {
-    openLibraryWebPath('/user/plan')
   } else if (j.pk_type === 6 && j.sence?.sence_id) {
     openLibraryWebPath(`/scene/detail/${j.sence.sence_id}`)
   }
+}
+
+function onJournalItemClick(j: Journal, event: MouseEvent) {
+  const target = event.target as HTMLElement
+  if (target.closest('button, a, [role="button"]')) return
+  jumpJournalLinkedDetail(j)
 }
 
 // [id] 为用户 ID
@@ -1268,8 +1339,8 @@ const monthSelect = ref(now.getMonth() + 1)
 const dayCountLoading = ref(false)
 /** 是否已有日网格缓存（用于静默刷新时不闪白屏） */
 const hasDayGridCache = computed(() => Object.keys(journalMapByDay.value).length > 0)
-/** 视图模式：按月(12月块) | 按日(日网格+下方列表) */
-const viewMode = ref<'month' | 'day'>('day')
+/** 视图模式：按月(12月块) | 按日(日网格+下方列表) | 轮播(全屏长条日历+卡片) */
+const viewMode = ref<'month' | 'day' | 'carousel'>('day')
 const monthViewLoading = ref(false)
 const hasMonthViewCache = computed(() => Object.keys(monthViewData.value).length > 0)
 /** 列表模式：聚合拉取的手账（按 journal_time 分组展示） */
@@ -1448,8 +1519,9 @@ const allDaysInMonth = computed(() => {
   })
 })
 
-/** 列表模式：YYYY-MM-DD → 当日记录（日期降序，日内按创建时间降序） */
+/** 列表模式：YYYY-MM-DD → 当日记录（日期降序，日内按创建时间降序）；轮播模式跳过以免无谓计算 */
 const journalGroupsByDay = computed(() => {
+  if (viewMode.value === 'carousel') return []
   const map = new Map<string, Journal[]>()
   for (const j of filterJournalList(listModeJournals.value)) {
     const key = dateKeyFromJournalTime(j.journal_time)
@@ -1477,6 +1549,7 @@ const journalGroupsByDay = computed(() => {
 const showFullList = computed(() => expandedDay.value === null)
 
 const displayJournalGroups = computed(() => {
+  if (viewMode.value === 'carousel') return []
   if (expandedDay.value !== null) {
     const items = filterJournalList(journalMapByDay.value[expandedDay.value] ?? []).slice().sort((a, b) => {
       const ta = a.create_time ? dayjs(a.create_time).valueOf() : 0
@@ -1636,6 +1709,8 @@ const journalEntryMorePosition = ref({ x: 0, y: 0 })
 const pendingMoreJournal = ref<Journal | null>(null)
 const journalPostModalRef = ref<InstanceType<typeof CommunityPostModal> | null>(null)
 const showJournalPostModal = ref(false)
+const quickNoteModalRef = ref<InstanceType<typeof CommunityCommentModalType> | null>(null)
+const showQuickNoteModal = ref(false)
 
 /** 新增时在「按日」下可选日期；编辑时任意视图均可改日期 */
 const journalDateEditable = computed(
@@ -1908,12 +1983,13 @@ function getPkTypeChooseLabel(pkType: number): string {
   return labels[pkType] ?? '关联项'
 }
 
+/** 无封面时返回空字符串，调用方勿展示封面位 */
 function getPlanCoverSrc(plan: PlanList): string {
   const cover = plan.plan_cover || plan.parent_plan?.plan_cover
-  if (cover) return `${BASE_IMG}${cover}${getImageParams()}`
-  const clothes = plan.wardrobe_clothes
-  if (clothes?.clothes_img) return `${BASE_IMG}${clothes.clothes_img}${getImageParams()}`
-  return `${BASE_IMG}static/plan_cover/default.jpg`
+  if (cover?.trim()) return `${BASE_IMG}${cover.trim()}${getImageParams()}`
+  const clothesImg = plan.wardrobe_clothes?.clothes_img
+  if (clothesImg?.trim()) return `${BASE_IMG}${clothesImg.trim()}${getImageParams()}`
+  return ''
 }
 
 function formatPlanMoney(money: number | undefined): string {
@@ -1931,7 +2007,7 @@ function getPlanProgress(plan: PlanList): number {
 
 function getPkTypeLabel(pkType: number): string {
   const labels: Record<number, string> = {
-    0: '签到',
+    0: '手账',
     1: '帖子',
     2: '服饰',
     3: '搭配',
@@ -2099,11 +2175,29 @@ function switchToDayView() {
   fetchListModeData()
 }
 
+function switchToCarouselView() {
+  viewMode.value = 'carousel'
+  expandedDay.value = null
+  fetchMonthData()
+}
+
+/** 轮播模式：当月筛选后的手账扁平列表（日期正序；子组件再按时间细排） */
+const carouselMonthJournals = computed(() => {
+  const map = journalMapByDay.value
+  const list: Journal[] = []
+  for (const day of Object.keys(map).map(Number).sort((a, b) => a - b)) {
+    list.push(...filterJournalList(map[day] ?? []))
+  }
+  return list
+})
+
 /** 根据当前视图模式刷新数据（增删改后调用） */
 async function refreshCurrentView(options?: { silent?: boolean }) {
   const silent = options?.silent ?? false
   if (viewMode.value === 'month') {
     await fetchYearMonthData({ silent })
+  } else if (viewMode.value === 'carousel') {
+    await fetchMonthData({ silent })
   } else {
     await Promise.all([
       fetchMonthData({ silent }),
@@ -2383,6 +2477,54 @@ function goNewJournalPost(event?: MouseEvent) {
   journalPostModalRef.value?.open(event)
 }
 
+/** 随手记：打开评论弹窗（不可关联），成功后以 pk_type=0 写入手账 */
+function openQuickNote() {
+  if (!userStore.user) {
+    toast.add({
+      title: '请先登录',
+      icon: 'i-heroicons-exclamation-circle',
+      color: 'orange'
+    })
+    return
+  }
+  if (!isOwnJournal.value) return
+  showQuickNoteModal.value = true
+  nextTick(() => {
+    quickNoteModalRef.value?.showModel({
+      id: 0,
+      type: 'journal',
+      title: '随手记'
+    })
+  })
+}
+
+async function onQuickNoteSuccess(comment: Comment) {
+  const commentId = comment.comment_id
+  if (!commentId || !isOwnJournal.value) return
+  try {
+    await journalInsert({
+      journal_time: resolveJournalInsertDate(),
+      pk_type: 0,
+      pk_id: commentId
+    })
+    toast.add({
+      title: '已写入手账',
+      icon: 'i-heroicons-check-circle',
+      color: 'green'
+    })
+    void refreshCurrentView({ silent: true })
+  } catch (error: unknown) {
+    console.error('随手记写入手账失败:', error)
+    const msg = error instanceof Error ? error.message : '请稍后重试'
+    toast.add({
+      title: '内容已发布，但写入手账失败',
+      description: msg,
+      icon: 'i-heroicons-exclamation-triangle',
+      color: 'orange'
+    })
+  }
+}
+
 async function onJournalPostSuccess(community: Community) {
   const communityId = community.community_id
   if (!communityId || !isOwnJournal.value) return
@@ -2411,6 +2553,8 @@ async function onJournalPostSuccess(community: Community) {
 }
 
 async function editJournal(item: Journal, event?: MouseEvent) {
+  // 手账型（评论）不可编辑，仅允许删除
+  if (item.pk_type === 0) return
   setAddEditClickPosition(event)
   editingJournal.value = item
   selectedCommunity.value = null
@@ -3045,6 +3189,22 @@ useHead({
 
 .journal-ar-fab:active {
   transform: scale(0.98);
+}
+
+.journal-quick-note-fab {
+  border: 1px solid rgba(120, 95, 70, 0.18);
+  box-shadow:
+    4px 4px 12px rgba(110, 88, 62, 0.16),
+    -2px -2px 8px rgba(255, 255, 255, 0.65);
+  transition: transform 0.18s ease, box-shadow 0.2s ease;
+}
+
+.journal-quick-note-fab:hover {
+  transform: translateY(-1px);
+}
+
+.journal-quick-note-fab:active {
+  transform: scale(0.96);
 }
 
 .journal-ar-fab-icon {

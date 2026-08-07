@@ -92,6 +92,17 @@ export interface SenceForeignMutationParams {
   pk_id: number
 }
 
+/** 将场景投稿/关联到业务实体（如 pk_type=2 图鉴） */
+export async function insertSenceForeign(
+  params: SenceForeignMutationParams
+): Promise<SenceForeign> {
+  const response = await use$Post<BaseResponse<SenceForeign>>(
+    '/sence/foreign/insert',
+    params
+  );
+  return response.data;
+}
+
 /** 解除场景与业务实体的 foreign 关联（参数与 insert 一致） */
 export async function deleteSenceForeign(
   params: SenceForeignMutationParams

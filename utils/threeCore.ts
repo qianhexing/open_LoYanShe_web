@@ -28,9 +28,11 @@ import { GammaCorrectionShader } from 'three/examples/jsm/shaders/GammaCorrectio
 import gsap from 'gsap'
 import {
 	computeSatelliteOrbitOffset,
+	computeSwingOffset,
 	hasGsapAnimationEffects,
 	normalizeRotationForStorage,
 	resolveAnimationEffect,
+	seekGsapTweensToStartTime,
 	toStoredAnimationEffect
 } from '@/utils/sceneAnimationPresets'
 import { normalizeSceneObjectLinks } from '@/utils/sceneObjectLink'
@@ -193,6 +195,11 @@ export interface SceneEffectJSON {
 	repeat?: number // -1 无限循环
 	yoyo?: boolean // 是否反复
 	repeatDelay?: number
+	/**
+	 * 起始时间（秒）：动画已推进的播放进度，用于错落相位。
+	 * 不是 delay；播放时会 seek 到 delay + startTime。
+	 */
+	startTime?: number
 
 	// timeline
 	children?: SceneEffectJSON[]
@@ -1069,42 +1076,76 @@ class ThreeCore {
 		}
 	}
 
+	/** 丢弃已有 shadow map，切换类型/参数后由渲染器重建 */
+	private disposeLightShadowMaps(): void {
+		const lights: (THREE.Light | undefined | null)[] = [
+			this.lights?.directional,
+			this.lights?.spot,
+			this.lensLight
+		]
+		for (const light of lights) {
+			const shadow = (light as THREE.DirectionalLight | THREE.SpotLight | THREE.PointLight | undefined)
+				?.shadow
+			if (shadow?.map) {
+				shadow.map.dispose()
+				shadow.map = null!
+			}
+		}
+	}
+
+	/**
+	 * 切换阴影贴图算法（VSM 近距易光渗导致阴影消失，场景接触阴影宜用 PCFSoft）
+	 */
+	setShadowMapType(type: THREE.ShadowMapType): void {
+		if (!this.supportsShadowMap()) return
+		const gl = this.renderer as THREE.WebGLRenderer
+		if (gl.shadowMap.type === type) return
+		gl.shadowMap.type = type
+		this.disposeLightShadowMaps()
+	}
+
+	getShadowMapType(): THREE.ShadowMapType | null {
+		if (!this.supportsShadowMap()) return null
+		return (this.renderer as THREE.WebGLRenderer).shadowMap.type
+	}
+
 	/**
 	 * 切换阴影质量
 	 * @param quality 'low' | 'medium' | 'high' | 'ultra'
 	 */
 	setShadowQuality(quality: 'low' | 'medium' | 'high' | 'ultra') {
-		// 定义不同质量等级的配置
+		// VSM 要求 bias≈0，且高 radius 会加重近距光渗；PCFSoft 用小负 bias + 较低 normalBias 保接触阴影
+		const isVsm = this.getShadowMapType() === THREE.VSMShadowMap
 		const qualitySettings = {
 			low: {
 				mapSize: 512,
-				bias: -0.004,
-				normalBias: 0.05,
-				radius: 2,
+				bias: isVsm ? 0 : -0.002,
+				normalBias: isVsm ? 0.03 : 0.02,
+				radius: isVsm ? 1.25 : 1.5,
 				blurSamples: 4,
 				castShadow: { directional: true, lens: false, spot: false }
 			},
 			medium: {
 				mapSize: 1024,
-				bias: -0.002,
-				normalBias: 0.03,
-				radius: 3,
+				bias: isVsm ? 0 : -0.0008,
+				normalBias: isVsm ? 0.02 : 0.012,
+				radius: isVsm ? 1.75 : 2,
 				blurSamples: 8,
 				castShadow: { directional: true, lens: false, spot: true }
 			},
 			high: {
 				mapSize: 2048,
-				bias: -0.0005,
-				normalBias: 0.02,
-				radius: 4,
-				blurSamples: 26,
+				bias: isVsm ? 0 : -0.00035,
+				normalBias: isVsm ? 0.015 : 0.008,
+				radius: isVsm ? 2.25 : 2.5,
+				blurSamples: 16,
 				castShadow: { directional: true, lens: true, spot: true }
 			},
 			ultra: {
 				mapSize: 4096,
-				bias: -0.0001,
-				normalBias: 0.01,
-				radius: 5,
+				bias: isVsm ? 0 : -0.0002,
+				normalBias: isVsm ? 0.01 : 0.005,
+				radius: isVsm ? 2.75 : 3,
 				blurSamples: 20,
 				castShadow: { directional: true, lens: true, spot: true }
 			}
@@ -2586,70 +2627,136 @@ class ThreeCore {
 		this.applySplatMeshDepthCompat(mesh)
 	}
 
+	/**
+	 * 场景独立视频平面：读取视频宽高建 mesh，再挂上与贴图视频同一套播放/暂停逻辑。
+	 */
 	public async loadVideoMesh(url: string, baseWidth = 5): Promise<THREE.Mesh> {
 		return new Promise((resolve, reject) => {
-			const canvas = document.createElement('canvas')
-			canvas.width = 512
-			canvas.height = 512
-			const texture = new THREE.CanvasTexture(canvas)
-			texture.colorSpace = THREE.SRGBColorSpace
-			texture.wrapS = THREE.ClampToEdgeWrapping
-			texture.wrapT = THREE.ClampToEdgeWrapping
-
 			const video = this.createManagedVideoElement()
+			let settled = false
 
-			const params: TextureTransform = {
-				offsetX: 0,
-				offsetY: 0,
-				scale: 1,
-				rotation: 0
-			}
+			const build = () => {
+				if (settled) return
+				settled = true
 
-			video.onloadeddata = () => {
-				const sourceW = video.videoWidth || 1
-				const sourceH = video.videoHeight || 1
+				const sourceW = Math.max(1, video.videoWidth || 1)
+				const sourceH = Math.max(1, video.videoHeight || 1)
 				const aspect = sourceH / sourceW
-				const width = baseWidth
-				const height = baseWidth * aspect
 
-				const geometry = new THREE.PlaneGeometry(width, height)
+				// canvas 比例与视频一致，避免正方形画布 letterbox 后被拉到非正方形平面上变形
+				const maxEdge = 1024
+				const canvas = document.createElement('canvas')
+				if (sourceW >= sourceH) {
+					canvas.width = maxEdge
+					canvas.height = Math.max(1, Math.round(maxEdge * aspect))
+				} else {
+					canvas.height = maxEdge
+					canvas.width = Math.max(1, Math.round(maxEdge / aspect))
+				}
+
+				const texture = new THREE.CanvasTexture(canvas)
+				texture.colorSpace = THREE.SRGBColorSpace
+				texture.wrapS = THREE.ClampToEdgeWrapping
+				texture.wrapT = THREE.ClampToEdgeWrapping
+
+				const geometry = new THREE.PlaneGeometry(baseWidth, baseWidth * aspect)
 				const material = new THREE.MeshBasicMaterial({ map: texture })
 				material.side = THREE.DoubleSide
+				material.transparent = true
+				material.depthWrite = false
 				material.needsUpdate = true
 
 				const mesh = new THREE.Mesh(geometry, material)
 				mesh.userData.url = url
 				mesh.userData.type = 'video'
+				mesh.userData.baseWidth = baseWidth
 				mesh.userData.effect = []
 
-				const meshUuid = mesh.uuid
-				const update = () => {
-					if (!this.sceneVideoPlayers.has(meshUuid)) return
-					const player = this.sceneVideoPlayers.get(meshUuid)
-					if (!player) return
-					this.drawVideoFrameToCanvas(
-						video,
-						canvas,
-						params,
-						!player.isPlaying
-					)
-					texture.needsUpdate = true
+				const params: TextureTransform = {
+					offsetX: 0,
+					offsetY: 0,
+					scale: 1,
+					rotation: 0
 				}
 
-				this.setupSceneVideoPlayer(mesh, video, texture, canvas, params, update)
-				update()
-				this.syncAllVideoPlaybackSlots()
-
+				// 复用贴图视频同一套帧绘制 / 全局单路播放 / 点击暂停
+				this.applyVideoTextureToMesh(mesh, video, texture, canvas, params, {
+					store: 'scene'
+				})
 				resolve(mesh)
 			}
 
+			video.onloadeddata = build
 			video.onerror = () => {
+				if (settled) return
+				settled = true
 				reject(new Error(`加载视频失败: ${url}`))
 			}
 
 			video.src = url
 			video.load()
+			if (video.readyState >= 2) build()
 		})
+	}
+
+	/**
+	 * 将已就绪的 video + canvas 贴图挂到 mesh（场景视频 / 模型 replace 视频共用）。
+	 */
+	private applyVideoTextureToMesh(
+		mesh: THREE.Mesh,
+		video: HTMLVideoElement,
+		texture: THREE.CanvasTexture,
+		canvas: HTMLCanvasElement,
+		params: TextureTransform,
+		options: {
+			store: 'scene' | 'replace'
+			rootUserDataType?: string
+		}
+	) {
+		const meshUuid = mesh.uuid
+		const store = options.store
+		const update = () => {
+			const player =
+				store === 'scene'
+					? this.sceneVideoPlayers.get(meshUuid)
+					: this.replaceVideoPlayers.get(meshUuid)
+			if (!player) return
+			this.drawVideoFrameToCanvas(
+				video,
+				canvas,
+				params,
+				!player.isPlaying
+			)
+			texture.needsUpdate = true
+		}
+
+		if (store === 'scene') {
+			this.setupSceneVideoPlayer(mesh, video, texture, canvas, params, update)
+		} else {
+			this.disposeReplaceVideoPlayer(meshUuid)
+			this.ensureVideoInDomPool(video)
+			this.replaceVideoPlayers.set(meshUuid, {
+				meshUuid,
+				mesh,
+				video,
+				texture,
+				canvas,
+				params,
+				isPlaying: false,
+				pauseIconDrawn: false,
+				update
+			})
+			this.ensureVideoTick()
+			this.applyReplaceTextureToMesh(
+				mesh,
+				texture,
+				options.rootUserDataType
+			)
+			this.applyTransparentRenderSettings(mesh.parent as THREE.Object3D)
+		}
+
+		update()
+		this.syncAllVideoPlaybackSlots()
 	}
 
 	private setupSceneVideoPlayer(
@@ -3386,45 +3493,16 @@ class ThreeCore {
 		canvas: HTMLCanvasElement,
 		rootUserDataType?: string
 	) {
-		const meshUuid = mesh.uuid
-		this.disposeReplaceVideoPlayer(meshUuid)
-		this.ensureVideoInDomPool(video)
-
 		const params: TextureTransform = { ...options }
 		texture.wrapS = THREE.ClampToEdgeWrapping
 		texture.wrapT = THREE.ClampToEdgeWrapping
 		texture.flipY = false
 		texture.colorSpace = THREE.SRGBColorSpace
 
-		const update = () => {
-			if (!this.replaceVideoPlayers.has(meshUuid)) return
-			const player = this.replaceVideoPlayers.get(meshUuid)
-			if (!player) return
-			this.drawVideoFrameToCanvas(
-				video,
-				canvas,
-				params,
-				!player.isPlaying
-			)
-			texture.needsUpdate = true
-		}
-
-		this.replaceVideoPlayers.set(meshUuid, {
-			meshUuid,
-			mesh,
-			video,
-			texture,
-			canvas,
-			params,
-			isPlaying: false,
-			pauseIconDrawn: false,
-			update
+		this.applyVideoTextureToMesh(mesh, video, texture, canvas, params, {
+			store: 'replace',
+			rootUserDataType
 		})
-		this.ensureVideoTick()
-		this.applyReplaceTextureToMesh(mesh, texture, rootUserDataType)
-		this.applyTransparentRenderSettings(mesh.parent as THREE.Object3D)
-		update()
-		this.syncAllVideoPlaybackSlots()
 	}
 
 	/** 当前是否有场景视频或贴图视频处于播放选中态 */
@@ -3488,8 +3566,7 @@ class ThreeCore {
 		options: Record<string, unknown>,
 		rootUserDataType?: string
 	) {
-		const meshUuid = child.uuid
-		this.disposeReplaceVideoPlayer(meshUuid)
+		this.disposeReplaceVideoPlayer(child.uuid)
 
 		const params: TextureTransform = {
 			offsetX: Number(options.offsetX ?? 0),
@@ -3508,42 +3585,20 @@ class ThreeCore {
 		texture.colorSpace = THREE.SRGBColorSpace
 
 		const video = this.createManagedVideoElement()
-
-		const update = () => {
-			if (!this.replaceVideoPlayers.has(meshUuid)) return
-			const player = this.replaceVideoPlayers.get(meshUuid)
-			if (!player) return
-			this.drawVideoFrameToCanvas(
-				video,
-				canvas,
-				params,
-				!player.isPlaying
-			)
-			texture.needsUpdate = true
+		let bound = false
+		const bind = () => {
+			if (bound) return
+			bound = true
+			this.applyVideoTextureToMesh(child, video, texture, canvas, params, {
+				store: 'replace',
+				rootUserDataType
+			})
 		}
 
-		video.onloadeddata = () => {
-			update()
-			this.applyReplaceTextureToMesh(child, texture, rootUserDataType)
-			this.applyTransparentRenderSettings(child.parent as THREE.Object3D)
-			this.syncAllVideoPlaybackSlots()
-		}
-
+		video.onloadeddata = bind
 		video.src = this.resolveMaterialAssetUrl(String(options.url || ''))
 		video.load()
-
-		this.replaceVideoPlayers.set(meshUuid, {
-			meshUuid,
-			mesh: child,
-			video,
-			texture,
-			canvas,
-			params,
-			isPlaying: false,
-			pauseIconDrawn: false,
-			update
-		})
-		this.ensureVideoTick()
+		if (video.readyState >= 2) bind()
 	}
 	disableLighting(object: THREE.Object3D) {
 		object.traverse((child: any) => {
@@ -4751,11 +4806,11 @@ class ThreeCore {
 		dirLight.shadow.camera.top = 20
 		dirLight.shadow.camera.bottom = -20
 
-		// 关键：减少阴影条纹的bias设置
-		dirLight.shadow.bias = -0.001
-		dirLight.shadow.normalBias = 0.02
-		dirLight.shadow.radius = 4
-		dirLight.shadow.blurSamples = 20
+		// VSM 要求 bias=0；过高 radius/normalBias 会在近距物体间产生光渗、接触阴影消失
+		dirLight.shadow.bias = 0
+		dirLight.shadow.normalBias = 0.015
+		dirLight.shadow.radius = 2.25
+		dirLight.shadow.blurSamples = 16
 		this.scene.add(dirLight)
 
 		// 半球光 - 模拟天空散射和地面反射
@@ -7281,6 +7336,9 @@ class ThreeCore {
 			}
 			if (typeGuess === 'image' || typeGuess === 'video') {
 				jsonObj.url = obj.userData.url.replace(BASE_IMG, '')
+				if (typeof obj.userData.baseWidth === 'number') {
+					jsonObj.baseWidth = obj.userData.baseWidth
+				}
 			}
 			if (typeGuess === 'canvas') {
 				if (obj.userData.options) {
@@ -8153,6 +8211,67 @@ class ThreeCore {
 			}
 		})
 	}
+	/**
+	 * 秋千：绕物体正上方支点做正弦钟摆（位置走圆弧 + 姿态随摆角倾斜）
+	 */
+	applySwingAnimation(
+		obj: THREE.Object3D,
+		anim: SceneEffectJSON,
+		opts?: { track?: boolean }
+	): gsap.core.Tween[] {
+		const tweens: gsap.core.Tween[] = []
+		const params = (anim.options ?? {}) as Record<string, number | string | boolean>
+		const readNum = (key: string, fallback: number) => {
+			const v = params[key]
+			const n = typeof v === 'number' ? v : Number(v)
+			return Number.isFinite(n) ? n : fallback
+		}
+		const ampRad = (readNum('angle', 28) * Math.PI) / 180
+		const ropeLength = readNum('ropeLength', 1.2)
+		const axisRaw = String(params.axis ?? 'z')
+		const axis: 'x' | 'z' = axisRaw === 'x' ? 'x' : 'z'
+		const base = obj.userData._animationBaseTransform as
+			| AnimationBaseTransform
+			| undefined
+		const cx = base?.position[0] ?? obj.position.x
+		const cy = base?.position[1] ?? obj.position.y
+		const cz = base?.position[2] ?? obj.position.z
+		const baseRot = base?.rotation ?? [
+			obj.rotation.x,
+			obj.rotation.y,
+			obj.rotation.z
+		]
+		const state = { phase: 0 }
+		const applyPose = (phase: number) => {
+			const theta = Math.sin(phase) * ampRad
+			const offset = computeSwingOffset(theta, ropeLength, axis)
+			obj.position.set(cx + offset.x, cy + offset.y, cz + offset.z)
+			obj.rotation.set(
+				baseRot[0] + offset.rotX,
+				baseRot[1],
+				baseRot[2] + offset.rotZ
+			)
+		}
+		applyPose(0)
+		const tw = gsap.to(state, {
+			phase: Math.PI * 2,
+			duration: anim.duration ?? 2.4,
+			ease: 'none',
+			delay: anim.delay ?? 0,
+			repeat: anim.repeat ?? -1,
+			yoyo: false,
+			repeatDelay: anim.repeatDelay ?? 0,
+			onUpdate: () => applyPose(state.phase)
+		})
+		tweens.push(tw)
+		seekGsapTweensToStartTime(tweens, anim)
+		if (opts?.track !== false) {
+			const prev = (obj.userData._gsapTweens as gsap.core.Tween[] | undefined) ?? []
+			obj.userData._gsapTweens = [...prev, ...tweens]
+		}
+		return tweens
+	}
+
 	/** 卫星轨道：黄道面(XZ)公转 + 倾角偏转；朝向始终锁定轨道中心（同步自转，不改动基准旋转） */
 	applySatelliteAnimation(
 		obj: THREE.Object3D,
@@ -8224,6 +8343,7 @@ class ThreeCore {
 			}
 		})
 		tweens.push(tw)
+		seekGsapTweensToStartTime(tweens, anim)
 		if (opts?.track !== false) {
 			const prev = (obj.userData._gsapTweens as gsap.core.Tween[] | undefined) ?? []
 			obj.userData._gsapTweens = [...prev, ...tweens]
@@ -8269,6 +8389,9 @@ class ThreeCore {
 		if (resolved.preset === 'satellite') {
 			return this.applySatelliteAnimation(obj, resolved, opts)
 		}
+		if (resolved.preset === 'swing') {
+			return this.applySwingAnimation(obj, resolved, opts)
+		}
 		const properties = resolved.properties
 		if (!properties || Object.keys(properties).length === 0) {
 			return tweens
@@ -8304,6 +8427,7 @@ class ThreeCore {
 			})
 			tweens.push(tw)
 		}
+		seekGsapTweensToStartTime(tweens, resolved)
 		if (opts?.track !== false) {
 			const prev = (obj.userData._gsapTweens as gsap.core.Tween[] | undefined) ?? []
 			obj.userData._gsapTweens = [...prev, ...tweens]

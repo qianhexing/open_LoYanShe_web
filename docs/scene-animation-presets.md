@@ -66,7 +66,8 @@ export interface SceneAnimationPreset {
 
 - `duration` 时长（秒）
 - `ease` 缓动（GSAP ease 字符串）
-- `delay` 延迟
+- `delay` 延迟（开始前等待）
+- `startTime` **起始时间 / 已运行秒**：播放时 `seek` 切入该进度，用于多物体错落相位；**不是** `delay`
 - `repeat` 重复次数（**`-1` = 无限循环**）
 - `yoyo` 是否往返
 - `repeatDelay` 重复间隔
@@ -247,6 +248,7 @@ buildEffect(params, obj) {
 | `swayX` | 左右 | X 偏移 0.5，往返无限 |
 | `swayZ` | 前后 | Z 偏移 0.5，往返无限 |
 | `riseOnce` | 升起 | Y 上移 1，播放一次 |
+| `swing` | 秋千 | 绕上方支点正弦钟摆，默认摆角 28°、绳长 1.2、周期 2.4s |
 
 新增预设后请同步更新此表。
 

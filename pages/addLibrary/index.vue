@@ -1,8 +1,30 @@
 <template>
   <div>
+    <!-- 状态栏高度占位（WebView 通过 query statusbar 注入，见 layouts/default） -->
+    <div
+      v-if="configStore.statusBarHeight > 0"
+      class="shrink-0"
+      aria-hidden="true"
+      :style="{ height: `${configStore.statusBarHeight}px` }"
+    />
     <!-- 新增图鉴 -->
-    <div class="head-seat"></div>
     <div class="add-library">
+      <template v-if="noShopEditPermission">
+        <UAlert
+          color="yellow"
+          variant="soft"
+          icon="i-heroicons-exclamation-triangle"
+          class="mb-6"
+        >
+          <template #title>
+            {{ t('addLibrary.no_permission') }}
+          </template>
+          <template #description>
+            {{ t('addLibrary.no_permission_desc') }}
+          </template>
+        </UAlert>
+      </template>
+      <template v-else>
       <UAlert
         color="yellow"
         variant="soft"
@@ -56,8 +78,8 @@
           <UFormGroup :label="t('addLibrary.shop_id')" name="shop_id" required v-if="shouldShowField('shop_id')"
             :class="getHighlightClass('shop_id')">
             <div class="flex items-center">
-              <USelectMenu v-model="library.shop_id" :disabled="isReviewMode" :loading="loading"
-                :searchable="fetchShopOptiosns" :placeholder="t('addLibrary.search_shop_placeholder')"
+              <USelectMenu v-model="library.shop_id" :disabled="isReviewMode || isShopLockedByShopkeeper" :loading="loading"
+                :searchable="isShopLockedByShopkeeper ? false : fetchShopOptiosns" :placeholder="t('addLibrary.search_shop_placeholder')"
                 option-attribute="shop_name" :multiple="false" trailing by="shop_id" name="shop_name" class="flex-1"
                 :ui="{
                   base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
@@ -69,7 +91,7 @@
                     }
                   }
                 }" />
-              <QhxJellyButton v-if="!isReviewMode">
+              <QhxJellyButton v-if="!isReviewMode && !isShopLockedByShopkeeper">
                 <div
                   class=" m-[5px] text-white rounded-[50%] h-[30px] w-[30px] bg-qhx-primary flex items-center justify-center cursor-pointer"
                   @click="library.shop_id = undefined">
@@ -370,7 +392,9 @@
               class="flex items-center gap-2 flex-wrap">
               <div
                 class="relative w-16 h-16 shrink-0 rounded-lg overflow-hidden border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-800"
-                :title="isReviewMode ? '' : '点击上传版型封面（可选）'"
+                :title="isReviewMode ? '' : '点击或拖拽上传版型封面（可选）'"
+                @dragover.prevent="onPatternCoverDragOver"
+                @drop.prevent="onPatternCoverDrop(item, $event)"
               >
                 <img
                   v-if="getPatternCoverPreview(item)"
@@ -390,6 +414,8 @@
                   accept="image/*"
                   class="absolute inset-0 z-[1] opacity-0 cursor-pointer"
                   @change="onPatternCoverFileChange(item, $event)"
+                  @dragover.prevent="onPatternCoverDragOver"
+                  @drop.prevent.stop="onPatternCoverDrop(item, $event)"
                 />
                 <UButton
                   v-if="!isReviewMode && getPatternCoverPreview(item)"
@@ -864,6 +890,7 @@
           </template>
         </div>
       </UForm>
+      </template>
     </div>
     <!-- 确认复制图鉴信息弹窗 -->
     <UModal v-model="showConfirmLibrary" :ui="{ width: 'max-w-4xl' }">
@@ -1045,7 +1072,7 @@ import { insertLibrary, type InsertParams, getLibraryById, type LibraryHistoryNe
 import type QhxImagePicker from '@/components/Qhx/ImagePicker.vue'
 import type QhxSelect from '@/components/Qhx/Select.vue'
 import QhxModal from '@/components/Qhx/Modal.vue'
-import { getShopOptiosns, getShopDetail } from '@/api/shop'
+import { getShopOptiosns, getShopDetail, getShopByShopkeeper } from '@/api/shop'
 import { uploadImageUrl } from '@/api'
 import {
   analyzeLibraryTags,
@@ -1599,15 +1626,32 @@ const getPatternCoverPreview = (item: LibraryPatternPriceItem) => {
   return ''
 }
 
-const onPatternCoverFileChange = (item: LibraryPatternPriceItem, event: Event) => {
-  const input = event.target as HTMLInputElement
-  const file = input.files?.[0]
-  input.value = ''
-  if (!file || !isPatternImageFile(file)) return
+const setPatternCoverFile = (item: LibraryPatternPriceItem, file: File) => {
+  if (!isPatternImageFile(file)) return
   if (item.coverDraft?.file && item.coverDraft.url.startsWith('blob:')) {
     URL.revokeObjectURL(item.coverDraft.url)
   }
   item.coverDraft = { file, url: URL.createObjectURL(file) }
+}
+
+const onPatternCoverFileChange = (item: LibraryPatternPriceItem, event: Event) => {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ''
+  if (!file) return
+  setPatternCoverFile(item, file)
+}
+
+const onPatternCoverDragOver = (event: DragEvent) => {
+  if (isReviewMode.value) return
+  if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy'
+}
+
+const onPatternCoverDrop = (item: LibraryPatternPriceItem, event: DragEvent) => {
+  if (isReviewMode.value) return
+  const file = event.dataTransfer?.files?.[0]
+  if (!file) return
+  setPatternCoverFile(item, file)
 }
 
 const clearPatternCover = (item: LibraryPatternPriceItem) => {
@@ -1662,6 +1706,12 @@ const reviewForm = ref({
   suggestion: ''
 })
 const shop_options = ref<Shop[]>([])
+/** 当前用户为店主时锁定店铺，不允许切换 */
+const isShopLockedByShopkeeper = ref(false)
+/** 店主所属店铺（锁定后用于写死与重置恢复） */
+const shopkeeperShop = ref<Shop | null>(null)
+/** 修改时店主店铺与图鉴店铺不一致，无权限修改 */
+const noShopEditPermission = ref(false)
 const library_type_options = ref<Wiki[]>([])
 const fabric_composition_options = ref<Wiki[]>([])
 const state_options = ['预约中', '现货在售', '完售展示', '上新图透']
@@ -2072,10 +2122,42 @@ onMounted(async () => {
     await fetchLibraryById()
   }
 
-  // 如果有 shop_id 和 shop_name 参数，默认选择该店铺（仅新增时生效）
+  // 店主身份：写死所属店铺，不允许切换
+  try {
+    const shop = await getShopByShopkeeper()
+    if (shop) {
+      shopkeeperShop.value = shop
+      isShopLockedByShopkeeper.value = true
+      if (!library_id.value) {
+        library.value.shop_id = shop
+      }
+    }
+  } catch (error) {
+    console.error('获取店主店铺失败:', error)
+  }
+
+  // 修改时：店主店铺与图鉴所属店铺不一致则无权限修改（审核模式除外）
+  if (library_id.value && !isReviewMode.value && shopkeeperShop.value) {
+    const libShop = library.value.shop_id
+    const libShopId =
+      libShop && typeof libShop === 'object' && 'shop_id' in libShop
+        ? Number((libShop as Shop).shop_id)
+        : null
+    if (libShopId == null || libShopId !== shopkeeperShop.value.shop_id) {
+      noShopEditPermission.value = true
+      toast.add({
+        title: t('addLibrary.no_permission'),
+        description: t('addLibrary.no_permission_desc'),
+        icon: 'i-heroicons-exclamation-triangle',
+        color: 'yellow'
+      })
+    }
+  }
+
+  // 如果有 shop_id 和 shop_name 参数，默认选择该店铺（仅新增且非店主锁定时生效）
   const urlShopId = route.query?.shop_id
   const urlShopName = route.query?.shop_name
-  if (urlShopId && !library_id.value) {
+  if (urlShopId && !library_id.value && !isShopLockedByShopkeeper.value) {
     try {
       const shop = await getShopDetail({ shop_id: Number(urlShopId) })
       library.value.shop_id = shop
@@ -2096,7 +2178,9 @@ onMounted(async () => {
       try {
         const parentLib = await getLibraryById({ library_id: pid })
         library.value.parent_id = parentLib
-        applyFieldsFromParentLibrary(parentLib, { preserveShop: Boolean(urlShopId) })
+        applyFieldsFromParentLibrary(parentLib, {
+          preserveShop: Boolean(urlShopId) || isShopLockedByShopkeeper.value
+        })
       } catch {
         if (urlParentName != null && String(urlParentName).trim() !== '') {
           library.value.parent_id = {
@@ -2750,7 +2834,7 @@ const chooseLibrary = (item: Library[]) => {
 /** 将母级图鉴的可复制字段写入表单（与弹窗「确认复制」逻辑一致） */
 const applyFieldsFromParentLibrary = (item: Library, opts?: { preserveShop?: boolean }) => {
   library.value.name = `${item.name} ${library.value.library_type ? library.value.library_type : ''}`
-  if (item.shop && !opts?.preserveShop) {
+  if (item.shop && !opts?.preserveShop && !isShopLockedByShopkeeper.value) {
     library.value.shop_id = item.shop
   }
   library.value.library_price = item.library_price ?? undefined
@@ -2861,7 +2945,9 @@ const init = () => {
   qualityImageRef.value?.clear()
   library.value = {
     name: '',
-    shop_id: undefined as Shop | undefined,
+    shop_id: (isShopLockedByShopkeeper.value && shopkeeperShop.value
+      ? shopkeeperShop.value
+      : undefined) as Shop | undefined,
     main_style: undefined,
     library_type: undefined,
     size: '',
@@ -3235,6 +3321,16 @@ const uploadAllImages = async () => {
 
 const add = async () => {
   try {
+    if (noShopEditPermission.value) {
+      toast.add({
+        title: t('addLibrary.no_permission'),
+        description: t('addLibrary.no_permission_desc'),
+        icon: 'i-heroicons-exclamation-triangle',
+        color: 'yellow'
+      })
+      return false
+    }
+
     const valid = await libraryForm.value?.validate()
     if (!valid) {
       toast.add({

@@ -2,11 +2,19 @@
   <div class="calendar-container">
     <!-- 顶部导航 -->
     <div class="calendar-header">
-      <button @click="prevMonth" class="nav-btn">‹</button>
+      <button type="button" @click="prevMonth" class="nav-btn" aria-label="上一月">‹</button>
       <div class="calendar-title">
         {{ currentYear }} 年 {{ currentMonth + 1 }} 月
       </div>
-      <button @click="nextMonth" class="nav-btn">›</button>
+      <button type="button" @click="nextMonth" class="nav-btn" aria-label="下一月">›</button>
+      <button
+        type="button"
+        class="today-btn"
+        :class="{ 'today-btn--active': isTodaySelected }"
+        @click="goToday"
+      >
+        今日
+      </button>
     </div>
 
     <!-- 日期滚动区域 -->
@@ -38,7 +46,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, watch, nextTick } from "vue";
+import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from "vue";
 
 interface Props {
   modelValue?: Date | string | number; // 接受 Date 或字符串或时间戳
@@ -90,6 +98,18 @@ function isSelected(date: Date) {
   );
 }
 
+const isTodaySelected = computed(() => {
+  const now = new Date();
+  return isSelected(now);
+});
+
+function goToday() {
+  const now = new Date();
+  currentYear.value = now.getFullYear();
+  currentMonth.value = now.getMonth();
+  selectDate(now);
+}
+
 // 切换月份
 function prevMonth() {
   if (currentMonth.value === 0) {
@@ -114,27 +134,67 @@ function selectDate(date: Date) {
   selectedDate.value = new Date(date);
   emit("update:modelValue", selectedDate.value);
   emit("change", selectedDate.value);
-  nextTick(scrollToSelected);
+  nextTick(() => scrollToSelected(true));
+}
+
+let scrollAnimFrame = 0;
+
+function easeOutCubic(t: number) {
+  return 1 - Math.pow(1 - t, 3);
+}
+
+/** 带动画滚动到目标位置 */
+function animateScrollLeft(container: HTMLElement, targetLeft: number, duration = 420) {
+  if (scrollAnimFrame) {
+    cancelAnimationFrame(scrollAnimFrame);
+    scrollAnimFrame = 0;
+  }
+  const startLeft = container.scrollLeft;
+  const delta = targetLeft - startLeft;
+  if (Math.abs(delta) < 1) {
+    container.scrollLeft = targetLeft;
+    return;
+  }
+  const startTime = performance.now();
+  const step = (now: number) => {
+    const progress = Math.min(1, (now - startTime) / duration);
+    container.scrollLeft = startLeft + delta * easeOutCubic(progress);
+    if (progress < 1) {
+      scrollAnimFrame = requestAnimationFrame(step);
+    } else {
+      scrollAnimFrame = 0;
+    }
+  };
+  scrollAnimFrame = requestAnimationFrame(step);
 }
 
 // 滚动到选中日期居中
-function scrollToSelected() {
+function scrollToSelected(animated = true) {
   const container = scrollContainer.value;
   if (!container) return;
   const items = container.querySelectorAll(".day");
   const index = days.value.findIndex((d) => isSelected(d.date));
-  if (index >= 0) {
-    const item = items[index] as HTMLElement;
-    const offset = item.offsetLeft - container.clientWidth / 2 + item.clientWidth / 2;
-    container.scrollTo({
-      left: offset,
-      behavior: "smooth",
-    });
+  if (index < 0) return;
+  const item = items[index] as HTMLElement | undefined;
+  if (!item) return;
+  const offset = item.offsetLeft - container.clientWidth / 2 + item.clientWidth / 2;
+  if (animated) {
+    animateScrollLeft(container, offset);
+  } else {
+    if (scrollAnimFrame) {
+      cancelAnimationFrame(scrollAnimFrame);
+      scrollAnimFrame = 0;
+    }
+    container.scrollLeft = offset;
   }
 }
 
 // 拖动滚动逻辑
 function startDrag(e: MouseEvent | TouchEvent) {
+  if (scrollAnimFrame) {
+    cancelAnimationFrame(scrollAnimFrame);
+    scrollAnimFrame = 0;
+  }
   isDragging.value = true;
   startX.value = "touches" in e ? e.touches[0].pageX : e.pageX;
   scrollLeft.value = scrollContainer.value!.scrollLeft;
@@ -154,12 +214,12 @@ function endDrag() {
 
 // 初始化滚动位置
 onMounted(() => {
-  nextTick(scrollToSelected);
+  nextTick(() => scrollToSelected(false));
 });
 
 // 监听月份变化 → 自动滚动到选中
 watch([currentMonth, currentYear], () => {
-  nextTick(scrollToSelected);
+  nextTick(() => scrollToSelected(true));
 });
 
 // 监听外部 v-model 变化
@@ -171,10 +231,17 @@ watch(
       selectedDate.value = newDate;
       currentYear.value = newDate.getFullYear();
       currentMonth.value = newDate.getMonth();
-      nextTick(scrollToSelected);
+      nextTick(() => scrollToSelected(true));
     }
   }
 );
+
+onBeforeUnmount(() => {
+  if (scrollAnimFrame) {
+    cancelAnimationFrame(scrollAnimFrame);
+    scrollAnimFrame = 0;
+  }
+});
 </script>
 
 <style scoped>
@@ -188,13 +255,14 @@ watch(
 }
 
 .calendar-header {
+  position: relative;
   display: flex;
   justify-content: center;
   align-items: center;
   gap: 12px;
   font-weight: bold;
   font-size: 16px;
-  padding: 6px 0;
+  padding: 6px 12px;
 }
 
 .nav-btn {
@@ -211,9 +279,48 @@ watch(
   background: rgba(0, 0, 0, 0.05);
 }
 
+.today-btn {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  padding: 0.25rem 0.75rem;
+  border-radius: 9999px;
+  border: 1.5px solid color-mix(in srgb, var(--primary-color, #ff9eb5) 55%, transparent);
+  background: color-mix(in srgb, var(--primary-color, #ff9eb5) 8%, #fff);
+  color: var(--primary-color, #ff9eb5);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  white-space: nowrap;
+  transition:
+    background 0.16s ease,
+    border-color 0.16s ease,
+    transform 0.16s ease;
+}
+
+.today-btn:hover {
+  background: color-mix(in srgb, var(--primary-color, #ff9eb5) 14%, #fff);
+  border-color: color-mix(in srgb, var(--primary-color, #ff9eb5) 70%, transparent);
+}
+
+.today-btn:active {
+  transform: translateY(-50%) scale(0.97);
+}
+
+.today-btn--active,
+.today-btn--active:hover,
+.today-btn--active:active {
+  background: color-mix(in srgb, var(--primary-color, #ff9eb5) 18%, #fff);
+  border-color: var(--primary-color, #ff9eb5);
+  color: var(--primary-color, #ff9eb5);
+}
+
 .calendar-scroll {
   overflow-x: auto;
-  scroll-behavior: smooth;
+  /* 自定义 rAF 缓动，避免与原生 smooth 抢滚动 */
+  scroll-behavior: auto;
   padding: 10px;
   -ms-overflow-style: none;
   scrollbar-width: none;
@@ -236,13 +343,22 @@ watch(
   min-width: 60px;
   padding: 8px 0;
   border-radius: 12px;
-  transition: all 0.2s ease;
+  border: 1.5px solid transparent;
+  color: #374151;
+  transition:
+    background 0.28s ease,
+    border-color 0.28s ease,
+    color 0.28s ease,
+    transform 0.28s ease,
+    box-shadow 0.28s ease;
   background: #f6f6f6;
 }
 .day.active {
-  background: var(--primary-color);
-  color: white;
+  background: color-mix(in srgb, var(--primary-color, #ff9eb5) 18%, #fff);
+  border-color: color-mix(in srgb, var(--primary-color, #ff9eb5) 65%, transparent);
+  color: var(--primary-color, #ff9eb5);
   transform: scale(1.05);
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--primary-color, #ff9eb5) 22%, transparent);
 }
 .day-num {
   font-size: 18px;

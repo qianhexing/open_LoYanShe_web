@@ -9,6 +9,7 @@ export type WardrobeToolbarToolId =
   | 'galaxy'
   | 'matchingList'
   | 'plan'
+  | 'browse'
 
 export interface WardrobeToolbarToolMeta {
   id: WardrobeToolbarToolId
@@ -81,6 +82,14 @@ export const WARDROBE_TOOLBAR_TOOLS: WardrobeToolbarToolMeta[] = [
     defaultPlacement: 'more',
     moreDescription: '查看攒钱计划列表',
     moreIconBgClass: 'from-blue-500 to-cyan-500',
+  },
+  {
+    id: 'browse',
+    label: '逛逛',
+    icon: 'material-symbols:travel-explore',
+    defaultPlacement: 'more',
+    moreDescription: '随机翻看公开衣柜',
+    moreIconBgClass: 'from-sky-500 to-indigo-500',
   },
 ]
 

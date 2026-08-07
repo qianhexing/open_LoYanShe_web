@@ -16,10 +16,10 @@ const props = withDefaults(defineProps<Props>(), {
 })
 
 const port = computed(() => configStore.getPort())
-// 响应式变量
+// 响应式变量（须用 toRef，否则列表复用时 item 不随 props 更新）
 const size = toRef(props, 'size')
-const { needJump } = props
-const item = props.item
+const needJump = toRef(props, 'needJump')
+const item = toRef(props, 'item')
 const imageLoad = () => {
   emit('imageLoad')
 }
@@ -29,13 +29,13 @@ onMounted(async () => {
   });
 })
 const handleJump = (id: number | string) => {
-  if (!needJump) {
+  if (!needJump.value) {
     return
   }
   const isInUniApp =
 		typeof window !== 'undefined' &&
 		navigator.userAgent.includes('Html5Plus');
-	if (!item.wiki_type_id) return
+	if (!item.value.wiki_type_id) return
 	if (isInUniApp && typeof uni !== 'undefined' && uni.navigateTo) {
 		// UniApp WebView 环境
 		uni.navigateTo({
@@ -56,7 +56,7 @@ const handleJump = (id: number | string) => {
       }));
     } else {
       // 普通网页环境
-      window.open(`/lolitaWikiType/detail/${item.wiki_type_id}`, '_blank')
+      window.open(`/lolitaWikiType/detail/${item.value.wiki_type_id}`, '_blank')
     }
 	}
 }

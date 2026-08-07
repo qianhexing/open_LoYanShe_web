@@ -1,75 +1,81 @@
 <template>
-  <div class="container mx-auto p-4 pb-20 max-w-4xl">
-    <!-- 页面标题 -->
-    <div class="mb-6">
-      <h1 class="text-2xl font-bold text-gray-800 dark:text-gray-100 mb-2">我的通知</h1>
-      <p class="text-sm text-gray-500 dark:text-gray-400">查看您收到的所有通知消息</p>
-    </div>
+  <div class="min-h-[100dvh]">
+    <!-- 状态栏高度占位（WebView 通过 query statusbar 注入，见 layouts/default） -->
+    <div
+      v-if="configStore.statusBarHeight > 0"
+      class="shrink-0"
+      aria-hidden="true"
+      :style="{ height: `${configStore.statusBarHeight}px` }"
+    />
 
-    <!-- 通知列表 -->
-    <QhxWaterList
-      v-if="layoutReady"
-      ref="waterList"
-      :fetch-data="async (page, pageSize) => {
-        try {
-          const response = await getNoticeList({
-            page: page,
-            pageSize: pageSize
-          })
-          return {
-            rows: response.rows,
-            count: response.count
+    <div class="container mx-auto p-4 max-w-4xl">
+      <!-- 页面标题 -->
+      <div class="mb-6">
+        <h1 class="text-2xl font-bold text-gray-800 dark:text-gray-100 mb-2">我的通知</h1>
+        <p class="text-sm text-gray-500 dark:text-gray-400">查看您收到的所有通知消息</p>
+      </div>
+
+      <!-- 通知列表 -->
+      <QhxWaterList
+        v-if="layoutReady"
+        ref="waterList"
+        :fetch-data="async (page, pageSize) => {
+          try {
+            const response = await getNoticeList({
+              page: page,
+              pageSize: pageSize
+            })
+            return {
+              rows: response.rows,
+              count: response.count
+            }
+          } catch (error) {
+            console.error('获取通知列表失败:', error)
+            return {
+              rows: [],
+              count: 0
+            }
           }
-        } catch (error) {
-          console.error('获取通知列表失败:', error)
-          return {
-            rows: [],
-            count: 0
-          }
-        }
-      }"
-      :columns="1"
-      :itemKey="0"
-      :columns_768="1"
-      :enableWaterfall="false"
-      :enableLoadMore="true"
-    >
-      <template #default="{ item }">
-        <div class="px-2 pb-4">
-          <div
-            class="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-4 hover:shadow-md transition-shadow"
-          >
-            <div class="flex items-start gap-4">
-              <!-- 通知图标 -->
-              <div class="flex-shrink-0 w-10 h-10 rounded-full bg-pink-100 dark:bg-pink-900/30 flex items-center justify-center">
-                <span class="text-lg">
-                  {{ item.type === 0 ? '📢' : '💬' }}
-                </span>
-              </div>
-              
-              <!-- 通知内容 -->
-              <div class="flex-1 min-w-0">
-                <div class="flex items-center justify-between mb-2">
-                  <span class="text-xs text-gray-500 dark:text-gray-400">
-                    {{ item.type === 0 ? '全体通知' : '个人通知' }}
-                  </span>
-                  <span v-if="item.date" class="text-xs text-gray-400 dark:text-gray-500">
-                    {{ formatDate(item.date) }}
+        }"
+        :columns="1"
+        :itemKey="0"
+        :columns_768="1"
+        :enableWaterfall="false"
+        :enableLoadMore="true"
+      >
+        <template #default="{ item }">
+          <div class="px-2 pb-4">
+            <div
+              class="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-4 hover:shadow-md transition-shadow"
+            >
+              <div class="flex items-start gap-4">
+                <!-- 通知图标 -->
+                <div class="flex-shrink-0 w-10 h-10 rounded-full bg-pink-100 dark:bg-pink-900/30 flex items-center justify-center">
+                  <span class="text-lg">
+                    {{ item.type === 0 ? '📢' : '💬' }}
                   </span>
                 </div>
-                <!-- <p class="leading-relaxed whitespace-pre-wrap">
-                  {{ item.notice_content || '暂无内容' }}
-                </p> -->
-                <p class="">
-                  <SafeRichText :nodes="parseRichText(item.notice_content || '')"></SafeRichText>
-                </p>
 
+                <!-- 通知内容 -->
+                <div class="flex-1 min-w-0">
+                  <div class="flex items-center justify-between mb-2">
+                    <span class="text-xs text-gray-500 dark:text-gray-400">
+                      {{ item.type === 0 ? '全体通知' : '个人通知' }}
+                    </span>
+                    <span v-if="item.date" class="text-xs text-gray-400 dark:text-gray-500">
+                      {{ formatDate(item.date) }}
+                    </span>
+                  </div>
+                  <p class="">
+                    <SafeRichText :nodes="parseRichText(item.notice_content || '')"></SafeRichText>
+                  </p>
+                </div>
               </div>
             </div>
           </div>
-        </div>
-      </template>
-    </QhxWaterList>
+        </template>
+      </QhxWaterList>
+    </div>
   </div>
 </template>
 
@@ -84,6 +90,7 @@ definePageMeta({
   ssr: false
 })
 
+const configStore = useConfigStore()
 const layoutReady = inject('layoutReady') as Ref<boolean>
 const waterList = ref<InstanceType<typeof QhxWaterList> | null>(null)
 
@@ -123,8 +130,3 @@ useHead({
   ]
 })
 </script>
-
-<style scoped>
-/* 可以添加自定义样式 */
-</style>
-

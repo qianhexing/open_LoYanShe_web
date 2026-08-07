@@ -13,7 +13,7 @@
  *
  * 用法（与 vuedraggable 接近，便于替换）：
  *  <QhxSortableList v-model="list" item-key="id" item-class="..." :disabled="!sortMode"
- *     ghost-class="drag-ghost" drag-class="dragging" @start="..." @end="...">
+ *     handle=".drag-handle" ghost-class="drag-ghost" drag-class="dragging" @start="..." @end="...">
  *    <template #item="{ element, index }"> ... </template>
  *  </QhxSortableList>
  */
@@ -60,6 +60,11 @@ const props = withDefaults(
     scrollSpeed?: number
     /** 返回需要自动滚动的容器；不传则向上查找最近可滚动祖先 */
     getScrollContainer?: () => HTMLElement | null | undefined
+    /**
+     * 拖拽手柄选择器（如 `.part-group-drag-handle`）。
+     * 传入后仅从匹配元素起拖；不传则整项可拖。
+     */
+    handle?: string
   }>(),
   {
     tag: 'div',
@@ -162,6 +167,11 @@ function onPointerDown(e: PointerEvent) {
   if (e.pointerType === 'mouse' && e.button !== 0) return
   const el = e.currentTarget as HTMLElement | null
   if (!el) return
+  // 指定手柄时，仅从手柄区域开始拖拽
+  if (props.handle) {
+    const target = e.target as Element | null
+    if (!target?.closest?.(props.handle)) return
+  }
 
   pointerId = e.pointerId
   candidate = true

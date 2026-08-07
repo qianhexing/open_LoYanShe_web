@@ -1,5 +1,5 @@
 <template>
-  <div class="space-y-4">
+  <div class="image-picker space-y-4">
     <!-- 拖拽上传区 -->
     <div v-if="!props.disabled && !isMobile"
       class="w-full border-2 border-dashed border-gray-300 p-4 text-center rounded-lg" @dragover.prevent
@@ -8,7 +8,7 @@
     </div>
 
     <!-- 预览区 -->
-    <div class=" w-full">
+    <div class="picker-list w-full" @selectstart.prevent>
       <!-- <div
         v-for="(img, index) in previewImages"
         :key="index"
@@ -43,6 +43,8 @@
             >
               <div
                 class="picker-square w-full relative shadow-xl rounded-xl border border-gray-200 bg-gray-50/90 overflow-hidden"
+                @dragover.prevent="onPickerDragOver"
+                @drop.prevent="handleDrop"
               >
                 <input
                   ref="fileInput"
@@ -53,12 +55,16 @@
                     ? 'absolute inset-0 z-10 h-full w-full cursor-pointer opacity-0 touch-manipulation'
                     : 'hidden'"
                   @change="handleFiles"
+                  @dragover.prevent="onPickerDragOver"
+                  @drop.prevent.stop="handleDrop"
                 />
                 <button
                   v-if="!isMobile"
                   type="button"
                   class="absolute inset-0 flex flex-col items-center justify-center gap-1.5 text-gray-500 hover:text-qhx-primary hover:bg-qhx-primary/5 hover:border-qhx-primary/35 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-qhx-primary/50 focus-visible:ring-offset-2"
                   @click="triggerInput"
+                  @dragover.prevent="onPickerDragOver"
+                  @drop.prevent="handleDrop"
                 >
                   <UIcon class="size-9 text-qhx-primary/80" name="i-heroicons-photo" />
                   <span class="text-xs font-medium px-1 text-center leading-tight">选择图片</span>
@@ -79,18 +85,17 @@
           <transition-group tag="div"
             class="[@media(min-width:1920px)]:w-[calc(100%/4)] xl:w-1/4 md:w-1/4 max-md:w-1/3" name="list">
             <div
-              class="group drag-handle flex flex-col items-center transition-transform duration-300 ease-out hover:scale-105 py-[10px] px-[15px] max-md:px-[5px]">
+              class="group drag-handle no-long-press flex flex-col items-center transition-transform duration-300 ease-out hover:scale-105 py-[10px] px-[15px] max-md:px-[5px]">
               <div class="picker-square w-full relative shadow-xl">
                 <img :src="element.url" draggable="false"
                   class="absolute inset-0 h-full w-full object-cover rounded-xl border border-gray-200 cursor-grab active:cursor-grabbing"
-                  style="-webkit-touch-callout: none; -webkit-user-select: none; user-select: none;"
                   loading="lazy">
                 </img>
                 <UButton v-if="!props.disabled" icon="i-heroicons-x-mark" color="red" size="2xs" variant="soft"
                   class="absolute top-1 right-1 z-10" @click="removeImage(index)" />
                 <!-- 透明遮罩：避免移动端误触长按；单击打开大图预览 -->
                 <div
-                  class="absolute z-[1] w-full h-full inset-0 rounded-xl cursor-zoom-in"
+                  class="absolute z-[1] w-full h-full inset-0 rounded-xl cursor-zoom-in no-long-press"
                   style="background: transparent;"
                   @click.stop="openLightbox(index)"
                 />
@@ -196,6 +201,11 @@ async function handleFiles(event: Event) {
     await addFiles(Array.from(input.files))
     input.value = '' // 清空 input 避免同图重复上传
   }
+}
+
+function onPickerDragOver(event: DragEvent) {
+  if (props.disabled) return
+  if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy'
 }
 
 async function handleDrop(event: DragEvent) {
@@ -473,14 +483,22 @@ defineExpose({
   padding-bottom: 100%;
 }
 
-/* 禁止手机浏览器的长按事件 */
-.no-long-press {
-  /* -webkit-touch-callout: none;
+/* 预览/排序区禁止选中文本，避免长按拖拽时选中文字 */
+.picker-list,
+.no-long-press,
+.picker-list :deep(.drag-ghost),
+.picker-list :deep(.drag-chosen),
+.picker-list :deep(.dragging) {
+  -webkit-touch-callout: none;
   -webkit-user-select: none;
   -moz-user-select: none;
   -ms-user-select: none;
   user-select: none;
-  pointer-events: none;
-  touch-action: manipulation; */
+}
+
+.picker-list img {
+  -webkit-user-drag: none;
+  user-drag: none;
+  -webkit-touch-callout: none;
 }
 </style>

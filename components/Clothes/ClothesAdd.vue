@@ -78,6 +78,8 @@ const tagRef = ref<InstanceType<typeof customInput>>()
   color: string[]
   tags: string[]
   price: number
+  original_price: number | null
+  offer_price: number | null
   season: string[]
   clothes_part: optionsInterface[]
   note: string
@@ -99,6 +101,8 @@ const tagRef = ref<InstanceType<typeof customInput>>()
   color: [],
   tags: [],
   price: 0,
+  original_price: null,
+  offer_price: null,
   season: [],
   clothes_part: [],
   note: '',
@@ -293,6 +297,8 @@ function fillFormFromSharedDetail(detail: WardrobeClothes) {
   form.value.clothes_note = detail.clothes_note || ''
   form.value.note = detail.note || ''
   form.value.price = detail.price || 0
+  form.value.original_price = detail.original_price ?? null
+  form.value.offer_price = detail.offer_price ?? null
   form.value.size = detail.size || ''
   form.value.position = detail.position || ''
   form.value.times = detail.times || 0
@@ -647,6 +653,8 @@ async function applyShowModelPayload(
     form.value.clothes_note = item.clothes_note || ''
     form.value.note = item.note || ''
     form.value.price = item.price || 0
+    form.value.original_price = item.original_price ?? null
+    form.value.offer_price = item.offer_price ?? null
     form.value.size = item.size || ''
     form.value.position = item.position || ''
     form.value.times = item.times || 0
@@ -1120,6 +1128,8 @@ const initData = () => {
 				wardrobe_status: null,
 				color: [],
 				price: 0,
+				original_price: null,
+				offer_price: null,
 				season: [],
 				clothes_part: [],
 				sum_price: 1,
@@ -1197,7 +1207,7 @@ const insert = async () => {
   }
   loading.value = true
   const { clothes_note, wardrobe_id, clothes_id, add_time, position, size, is_have, wardrobe_status, clothes_part, note, sum_price } = form.value
-	let { color, season, price, times, tags, main_style, plan_id } = form.value
+	let { color, season, price, original_price, offer_price, times, tags, main_style, plan_id } = form.value
   const params: any = {
     wardrobe_id,
     wardrobe_status,
@@ -1268,6 +1278,14 @@ const insert = async () => {
   } else {
     params.price = null
   }
+
+  const toOptionalPrice = (v: number | string | null | undefined): number | null => {
+    if (v === null || v === undefined || v === '') return null
+    const n = Number(v)
+    return Number.isFinite(n) ? n : null
+  }
+  params.original_price = toOptionalPrice(original_price as number | string | null | undefined)
+  params.offer_price = toOptionalPrice(offer_price as number | string | null | undefined)
 
   if (times !== undefined && times !== null) {
     params.times = times
@@ -1735,17 +1753,18 @@ defineExpose({
             </QhxJellyButton>
           </div>
         </UFormGroup>
-        <!-- 价格 -->
-        <UFormGroup label="价格">
-          <UInput
+        <!-- 价格 / 原价 / 出物价 同一行 -->
+        <div class="grid grid-cols-3 gap-2">
+          <UFormGroup label="价格">
+            <UInput
               v-model="form.price"
               type="number"
               placeholder="价格"
-              class="flex-1 focus:ring-0"
+              class="w-full focus:ring-0"
               :ui="{
                 base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
                 rounded: 'rounded-full',
-                padding: { xs: 'px-4 py-2' },
+                padding: { xs: 'px-3 py-2' },
                 color: {
                   white: {
                     outline: 'bg-gray-50 dark:bg-gray-800 ring-1 ring-gray-300 dark:ring-gray-600 focus:ring-2 focus:ring-qhx-primary'
@@ -1753,7 +1772,44 @@ defineExpose({
                 }
               }"
             />
-        </UFormGroup>
+          </UFormGroup>
+          <UFormGroup label="原价">
+            <UInput
+              v-model="form.original_price"
+              type="number"
+              placeholder="选填"
+              class="w-full focus:ring-0"
+              :ui="{
+                base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
+                rounded: 'rounded-full',
+                padding: { xs: 'px-3 py-2' },
+                color: {
+                  white: {
+                    outline: 'bg-gray-50 dark:bg-gray-800 ring-1 ring-gray-300 dark:ring-gray-600 focus:ring-2 focus:ring-qhx-primary'
+                  }
+                }
+              }"
+            />
+          </UFormGroup>
+          <UFormGroup label="出物价">
+            <UInput
+              v-model="form.offer_price"
+              type="number"
+              placeholder="选填"
+              class="w-full focus:ring-0"
+              :ui="{
+                base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
+                rounded: 'rounded-full',
+                padding: { xs: 'px-3 py-2' },
+                color: {
+                  white: {
+                    outline: 'bg-gray-50 dark:bg-gray-800 ring-1 ring-gray-300 dark:ring-gray-600 focus:ring-2 focus:ring-qhx-primary'
+                  }
+                }
+              }"
+            />
+          </UFormGroup>
+        </div>
         <UFormGroup label="尾款计划" class="space-y-3">
           <div v-if="plan" class="space-y-2">
             <div

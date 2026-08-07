@@ -17,6 +17,8 @@ import SceneArTargetModal from '@/components/scene/SceneArTargetModal.vue'
 import { hasSceneArTarget } from '@/utils/ar/sceneArTarget'
 import { isAnimatableSceneObject } from '@/composables/useSceneObjectAnimation'
 import type QhxColorPicker from '@/components/Qhx/ColorPicker.vue'
+import type QhxSelect from '@/components/Qhx/Select.vue'
+import type { optionsInterface as QhxSelectOption } from '@/components/Qhx/Select.vue'
 import { useSceneStore } from '@/stores/sence'
 import { useConfigStore } from '@/stores/config'
 import { createFont } from '~/api';
@@ -44,8 +46,9 @@ import {
     setSceneObjectLinks,
     type SceneObjectLink
 } from '@/utils/sceneObjectLink';
-import { BASE_IMG_MODEL as BASE_IMG } from '@/utils/ipConfig';
-import { CharacterTypeController } from '@/utils/characterTypeController';
+import { BASE_IMG_MODEL as BASE_IMG } from '@/utils/ipConfig'
+import { isSceneLoadContentMessage } from '@/utils/sceneIframeBridge'
+import { CharacterTypeController } from '@/utils/characterTypeController'
 import type { CharacterTypeConfig } from '@/utils/characterTypeController';
 import {
     loadSceneGraphicsSettings,
@@ -58,10 +61,13 @@ import {
     applySceneAaaRender,
     disposeSceneRenderHandles,
     SCENE_AAA_LIGHT,
+    SCENE_AAA_LIGHT_COLORS,
+    sceneLightPositionFromAngles,
     syncObjectEnvIntensity,
+    tuneSceneContactShadows,
     type SceneRenderHandles
 } from '@/utils/sceneRenderQuality'
-import { isGltfGlbModelMaterial, isRadLodSplatUrl, isSplatMaterial, isSplatUrl } from '@/utils/materiaModelKind'
+import { isGltfGlbModelMaterial, isRadLodSplatUrl, isSplatMaterial, isSplatUrl, isVideoMaterial } from '@/utils/materiaModelKind'
 import {
     createMaterialLoadPlaceholder,
     defaultGroundPlacement,
@@ -100,6 +106,7 @@ const {
     clickObject,
     operaPosition,
     initScene,
+    reloadSceneKeepWebGL,
     disposeScene
 } = useSceneCore()
 
@@ -486,11 +493,22 @@ const scenePageBackgroundStyle = computed(() => {
 })
 
 const route = useRoute()
+function queryFlagTrue(q: unknown): boolean {
+  const v = Array.isArray(q) ? q[0] : q
+  return v === 'true' || v === '1'
+}
 /** 从站内 iframe 嵌入打开（如 /scene/detail/x?from_iframe=true）时隐藏发帖/分享浮层 */
-const isFromIframeEmbed = computed(() => {
-  const v = route.query.from_iframe
-  return (Array.isArray(v) ? v[0] : v) === 'true'
-})
+const isFromIframeEmbed = computed(() => queryFlagTrue(route.query.from_iframe))
+/** 手账卡片等：与 from_iframe 同时存在时仅初始化 WebGL/灯光，等内容加载消息再拉模型 */
+const isFromCardEmbed = computed(() => queryFlagTrue(route.query.from_card))
+const deferSceneContent = computed(
+  () => isFromIframeEmbed.value && isFromCardEmbed.value
+)
+/** 卡片 iframe：场景内容是否已加载（避免重复 load） */
+const sceneContentLoaded = ref(false)
+const sceneContentLoading = ref(false)
+/** Three 尚未就绪时收到加载消息则排队 */
+const pendingLoadSceneContent = ref(false)
 const edit_mode = ref(false) // 编辑模式
 const add_mode = ref(false)
 const token = ref<string | null>(null) // 传入的token
@@ -1359,8 +1377,8 @@ const settingsState = reactive({
     shadowQuality: 'high',
     cameraType: 'perspective' as 'perspective' | 'orthographic',
     fov: 45, // 镜头角度（视野角度）
-    lightAzimuth: 45, // 光源水平角度
-    lightElevation: 45, // 光源垂直角度
+    lightAzimuth: SCENE_AAA_LIGHT.azimuth as number, // 光源水平角度（与棚拍默认一致）
+    lightElevation: SCENE_AAA_LIGHT.elevation as number, // 光源垂直角度
     minAzimuthAngle: -180, // 控制器水平旋转最小角度（度）
     maxAzimuthAngle: 180, // 控制器水平旋转最大角度（度）
     minPolarAngle: 0, // 控制器垂直旋转最小角度（度）
@@ -1385,15 +1403,12 @@ const polarRange = computed({
         handlePolarRangeChange(values)
     }
 })
-const shadowQualityOptions = [
+const shadowQualityOptions: QhxSelectOption[] = [
     { label: '关闭', value: 'off' },
-    // { label: '低', value: 'low' },
-    // { label: '中', value: 'medium' },
-    { label: '高', value: 'high' },
-    // { label: '超高', value: 'ultra' }
+    { label: '高', value: 'high' }
 ]
 
-const cameraTypeOptions = [
+const cameraTypeOptions: QhxSelectOption[] = [
     { label: '透视', value: 'perspective' },
     { label: '正交', value: 'orthographic' }
 ]
@@ -1401,11 +1416,50 @@ const cameraTypeOptions = [
 const sceneGraphicsPreset = ref<SceneGraphicsPreset>(
     loadSceneGraphicsSettings().preset
 )
-const graphicsPresetOptions = [
+const graphicsPresetOptions: QhxSelectOption[] = [
     { label: '省电', value: 'performance' },
     { label: '均衡', value: 'balanced' },
     { label: '3A', value: 'high' }
 ]
+
+const cameraTypeSelectRef = ref<InstanceType<typeof QhxSelect> | null>(null)
+const shadowQualitySelectRef = ref<InstanceType<typeof QhxSelect> | null>(null)
+const graphicsPresetSelectRef = ref<InstanceType<typeof QhxSelect> | null>(null)
+
+const cameraTypeLabel = computed(
+    () => cameraTypeOptions.find((o) => o.value === settingsState.cameraType)?.label ?? '透视'
+)
+const shadowQualityLabel = computed(
+    () => shadowQualityOptions.find((o) => o.value === settingsState.shadowQuality)?.label ?? '高'
+)
+const graphicsPresetLabel = computed(
+    () => graphicsPresetOptions.find((o) => o.value === sceneGraphicsPreset.value)?.label ?? '3A'
+)
+
+const cameraTypeSelectDefault = computed(
+    () => cameraTypeOptions.find((o) => o.value === settingsState.cameraType) ?? cameraTypeOptions[0]
+)
+const shadowQualitySelectDefault = computed(
+    () => shadowQualityOptions.find((o) => o.value === settingsState.shadowQuality) ?? shadowQualityOptions[0]
+)
+const graphicsPresetSelectDefault = computed(
+    () => graphicsPresetOptions.find((o) => o.value === sceneGraphicsPreset.value) ?? graphicsPresetOptions[2]
+)
+
+const openCameraTypeSelect = (e: MouseEvent) => cameraTypeSelectRef.value?.showPicker(e)
+const openShadowQualitySelect = (e: MouseEvent) => shadowQualitySelectRef.value?.showPicker(e)
+const openGraphicsPresetSelect = (e: MouseEvent) => graphicsPresetSelectRef.value?.showPicker(e)
+
+const onCameraTypeSelect = (opt: QhxSelectOption) => {
+    changeCameraType(String(opt.value))
+}
+const onShadowQualitySelect = (opt: QhxSelectOption) => {
+    settingsState.shadowQuality = String(opt.value)
+    changeShadowQuality(String(opt.value))
+}
+const onGraphicsPresetSelect = (opt: QhxSelectOption) => {
+    onGraphicsPresetChange(String(opt.value))
+}
 
 /** 3A 渲染句柄（IBL RT），卸载时释放 */
 const sceneRenderHandles: SceneRenderHandles = { envRT: null }
@@ -1521,7 +1575,10 @@ const changeShadowQuality = (val: string) => {
                 }
             })
         }
+        // 场景页固定 PCFSoft，避免 VSM 近距光渗把接触阴影冲掉
+        threeCore.value.setShadowMapType(THREE.PCFSoftShadowMap)
         threeCore.value.setShadowQuality(val as 'low' | 'medium' | 'high' | 'ultra')
+        tuneSceneContactShadows(threeCore.value.lights?.directional, isMobile.value)
     }
 }
 
@@ -2141,52 +2198,197 @@ const setSolidColorBackground = (color: string) => {
     scenePageBackground.value = value
 }
 
-// 灯光预设配置
-interface LightPreset {
-    name: string
-    description: string
+/** 场景加载完成后的灯光快照（「默认」预设与此对齐） */
+interface LightRuntimeSnapshot {
     ambientIntensity: number
     directionalIntensity: number
-    directionalAzimuth: number
-    directionalElevation: number
-    hemisphereIntensity?: number
-    fillIntensity?: number
+    hemisphereIntensity: number
+    fillIntensity: number
     lensIntensity: number
+    directionalPosition: [number, number, number]
+    fillPosition: [number, number, number]
+    colors: {
+        ambient: number
+        hemiSky: number
+        hemiGround: number
+        key: number
+        fill: number
+        lens: number
+    }
 }
 
-const lightPresets: Record<string, LightPreset> = {
+interface LightPresetMeta {
+    name: string
+    description: string
+}
+
+/** 暖/冷：相对初始光提亮，并带色温 */
+interface LightTonePreset {
+    /** 相对初始强度的倍率 */
+    intensityScale: number
+    /** 主光强度下限，避免 AAA 低光场景下仍偏暗 */
+    keyFloor: number
+    ambientFloor: number
+    hemiFloor: number
+    fillFloor: number
+    lensFloor: number
+    directionalAzimuth: number
+    directionalElevation: number
+    colors: LightRuntimeSnapshot['colors']
+}
+
+const lightPresetMeta: Record<string, LightPresetMeta> = {
     default: {
         name: '默认',
-        description: '3A 电影光（低环境光 + 主光塑形）',
-        ambientIntensity: SCENE_AAA_LIGHT.ambient,
-        directionalIntensity: SCENE_AAA_LIGHT.key,
-        directionalAzimuth: 45,
-        directionalElevation: 55,
-        hemisphereIntensity: SCENE_AAA_LIGHT.hemi,
-        fillIntensity: SCENE_AAA_LIGHT.fill,
-        lensIntensity: SCENE_AAA_LIGHT.lens
+        description: '默认灯光配置'
     },
     warm: {
         name: '温暖',
-        description: '温暖的暖色调灯光',
-        ambientIntensity: 0.1,
-        directionalIntensity: 0.72,
-        directionalAzimuth: 60,
-        directionalElevation: 50,
-        hemisphereIntensity: 0.24,
-        fillIntensity: 0.14,
-        lensIntensity: 0.06
+        description: '温暖的暖色调灯光'
     },
     cool: {
         name: '冷调',
-        description: '冷色调灯光效果',
-        ambientIntensity: 0.06,
-        directionalIntensity: 0.5,
-        directionalAzimuth: 30,
-        directionalElevation: 60,
-        hemisphereIntensity: 0.22,
-        fillIntensity: 0.1,
-        lensIntensity: 0.03
+        description: '冷色调灯光效果'
+    }
+}
+
+/** 供模板展示名称/描述 */
+const lightPresets = lightPresetMeta
+
+const initialLightSnapshot = ref<LightRuntimeSnapshot | null>(null)
+
+const lightTonePresets: Record<'warm' | 'cool', LightTonePreset> = {
+    warm: {
+        intensityScale: 1.12,
+        keyFloor: 1.15,
+        ambientFloor: 0.28,
+        hemiFloor: 0.42,
+        fillFloor: 0.3,
+        lensFloor: 0.1,
+        directionalAzimuth: 42,
+        directionalElevation: 46,
+        colors: {
+            ambient: 0xfff1e4,
+            hemiSky: 0xffd8b0,
+            hemiGround: 0x3a2818,
+            key: 0xffd8b0,
+            fill: 0xc8b098,
+            lens: 0xfff6ec
+        }
+    },
+    cool: {
+        intensityScale: 1.08,
+        keyFloor: 1.1,
+        ambientFloor: 0.24,
+        hemiFloor: 0.46,
+        fillFloor: 0.34,
+        lensFloor: 0.09,
+        directionalAzimuth: 58,
+        directionalElevation: 56,
+        colors: {
+            ambient: 0xeef3fa,
+            hemiSky: 0xc2d8f0,
+            hemiGround: 0x1c2836,
+            key: 0xe8f0ff,
+            fill: 0x8498c8,
+            lens: 0xf4f8ff
+        }
+    }
+}
+
+const captureInitialLightSnapshot = () => {
+    const core = threeCore.value
+    if (!core?.lights) return
+    const { ambient, hemisphere, directional, fill } = core.lights
+    initialLightSnapshot.value = {
+        ambientIntensity: ambient?.intensity ?? SCENE_AAA_LIGHT.ambient,
+        directionalIntensity: directional?.intensity ?? SCENE_AAA_LIGHT.key,
+        hemisphereIntensity: hemisphere?.intensity ?? SCENE_AAA_LIGHT.hemi,
+        fillIntensity: fill?.intensity ?? SCENE_AAA_LIGHT.fill,
+        lensIntensity: core.lensLight?.intensity ?? SCENE_AAA_LIGHT.lens,
+        directionalPosition: directional
+            ? [directional.position.x, directional.position.y, directional.position.z]
+            : sceneLightPositionFromAngles(
+                SCENE_AAA_LIGHT.azimuth,
+                SCENE_AAA_LIGHT.elevation,
+                SCENE_AAA_LIGHT.lightRadius
+            ),
+        fillPosition: fill
+            ? [fill.position.x, fill.position.y, fill.position.z]
+            : sceneLightPositionFromAngles(
+                SCENE_AAA_LIGHT.fillAzimuth,
+                SCENE_AAA_LIGHT.fillElevation,
+                SCENE_AAA_LIGHT.fillRadius
+            ),
+        colors: {
+            ambient: ambient ? ambient.color.getHex() : SCENE_AAA_LIGHT_COLORS.ambient,
+            hemiSky: hemisphere ? hemisphere.color.getHex() : SCENE_AAA_LIGHT_COLORS.hemiSky,
+            hemiGround: hemisphere
+                ? hemisphere.groundColor.getHex()
+                : SCENE_AAA_LIGHT_COLORS.hemiGround,
+            key: directional ? directional.color.getHex() : SCENE_AAA_LIGHT_COLORS.key,
+            fill: fill ? fill.color.getHex() : SCENE_AAA_LIGHT_COLORS.fill,
+            lens: core.lensLight
+                ? core.lensLight.color.getHex()
+                : SCENE_AAA_LIGHT_COLORS.lens
+        }
+    }
+}
+
+/** 直接写强度，避免 setter 钳制导致无法还原初始光 */
+const applyLightIntensitiesAndColors = (opts: {
+    ambientIntensity: number
+    directionalIntensity: number
+    hemisphereIntensity: number
+    fillIntensity: number
+    lensIntensity: number
+    colors: LightRuntimeSnapshot['colors']
+    directionalPosition?: [number, number, number]
+    fillPosition?: [number, number, number]
+    directionalAzimuth?: number
+    directionalElevation?: number
+}) => {
+    const core = threeCore.value
+    if (!core?.lights) return
+    const { ambient, hemisphere, directional, fill } = core.lights
+    const { colors } = opts
+
+    if (ambient) {
+        ambient.intensity = opts.ambientIntensity
+        ambient.color.setHex(colors.ambient)
+    }
+    if (hemisphere) {
+        hemisphere.intensity = opts.hemisphereIntensity
+        hemisphere.color.setHex(colors.hemiSky)
+        hemisphere.groundColor.setHex(colors.hemiGround)
+    }
+    if (directional) {
+        directional.intensity = opts.directionalIntensity
+        directional.color.setHex(colors.key)
+        if (opts.directionalPosition) {
+            directional.position.set(...opts.directionalPosition)
+            directional.lookAt(0, 0, 0)
+        } else if (
+            opts.directionalAzimuth !== undefined
+            && opts.directionalElevation !== undefined
+        ) {
+            core.setMainLightPosition(
+                opts.directionalAzimuth,
+                opts.directionalElevation
+            )
+            directional.intensity = opts.directionalIntensity
+        }
+    }
+    if (fill) {
+        fill.intensity = opts.fillIntensity
+        fill.color.setHex(colors.fill)
+        if (opts.fillPosition) {
+            fill.position.set(...opts.fillPosition)
+        }
+    }
+    if (core.lensLight) {
+        core.lensLight.intensity = opts.lensIntensity
+        core.lensLight.color.setHex(colors.lens)
     }
 }
 
@@ -2275,54 +2477,84 @@ const choosePlant = async (presetId: string, position?: THREE.Vector3) => {
 
 // 应用灯光预设
 const applyLightPreset = (presetKey: string, silent = false) => {
-    if (!threeCore.value || !lightPresets[presetKey]) return
-    
-    const preset = lightPresets[presetKey]
+    if (!threeCore.value || !lightPresetMeta[presetKey]) return
+
+    const meta = lightPresetMeta[presetKey]
     currentLightPreset.value = presetKey
-    
-    // 应用环境光
-    threeCore.value.setAmbientLightIntensity(preset.ambientIntensity)
-    
-    // 应用主方向光
-    threeCore.value.setMainLightPosition(
-        preset.directionalAzimuth,
-        preset.directionalElevation
-    )
-    threeCore.value.setMainLightIntensity(preset.directionalIntensity)
-    
-    // 应用镜头光
-    threeCore.value.setLensLightIntensity(preset.lensIntensity)
-    
-    // 应用半球光和补光（如果存在）
-    if (threeCore.value.lights) {
-        if (preset.hemisphereIntensity !== undefined && threeCore.value.lights.hemisphere) {
-            threeCore.value.lights.hemisphere.intensity = preset.hemisphereIntensity
+
+    if (presetKey === 'default') {
+        const snap = initialLightSnapshot.value
+        if (snap) {
+            applyLightIntensitiesAndColors({
+                ambientIntensity: snap.ambientIntensity,
+                directionalIntensity: snap.directionalIntensity,
+                hemisphereIntensity: snap.hemisphereIntensity,
+                fillIntensity: snap.fillIntensity,
+                lensIntensity: snap.lensIntensity,
+                colors: snap.colors,
+                directionalPosition: snap.directionalPosition,
+                fillPosition: snap.fillPosition
+            })
+        } else {
+            // 快照尚未建立时回退到棚拍默认
+            applyLightIntensitiesAndColors({
+                ambientIntensity: SCENE_AAA_LIGHT.ambient,
+                directionalIntensity: SCENE_AAA_LIGHT.key,
+                hemisphereIntensity: SCENE_AAA_LIGHT.hemi,
+                fillIntensity: SCENE_AAA_LIGHT.fill,
+                lensIntensity: SCENE_AAA_LIGHT.lens,
+                colors: { ...SCENE_AAA_LIGHT_COLORS },
+                directionalAzimuth: SCENE_AAA_LIGHT.azimuth,
+                directionalElevation: SCENE_AAA_LIGHT.elevation,
+                fillPosition: sceneLightPositionFromAngles(
+                    SCENE_AAA_LIGHT.fillAzimuth,
+                    SCENE_AAA_LIGHT.fillElevation,
+                    SCENE_AAA_LIGHT.fillRadius
+                )
+            })
+            settingsState.lightAzimuth = SCENE_AAA_LIGHT.azimuth
+            settingsState.lightElevation = SCENE_AAA_LIGHT.elevation
         }
-        if (preset.fillIntensity !== undefined && threeCore.value.lights.fill) {
-            threeCore.value.lights.fill.intensity = preset.fillIntensity
-        }
-        // 默认预设：同步云展馆电影光色
-        if (presetKey === 'default') {
-            const { ambient, hemisphere, directional, fill } = threeCore.value.lights
-            ambient.color.setHex(0xfff5f8)
-            if (hemisphere) {
-                hemisphere.color.setHex(0xffdce8)
-                hemisphere.groundColor.setHex(0x3a2830)
-            }
-            directional.color.setHex(0xfff2e6)
-            if (fill) fill.color.setHex(0xa8b8e0)
-            if (threeCore.value.lensLight) {
-                threeCore.value.lensLight.color.setHex(0xfff8f5)
-            }
-        }
+    } else if (presetKey === 'warm' || presetKey === 'cool') {
+        const tone = lightTonePresets[presetKey]
+        const snap = initialLightSnapshot.value
+        const scale = tone.intensityScale
+        applyLightIntensitiesAndColors({
+            ambientIntensity: Math.max(
+                tone.ambientFloor,
+                (snap?.ambientIntensity ?? SCENE_AAA_LIGHT.ambient) * scale
+            ),
+            directionalIntensity: Math.max(
+                tone.keyFloor,
+                (snap?.directionalIntensity ?? SCENE_AAA_LIGHT.key) * scale
+            ),
+            hemisphereIntensity: Math.max(
+                tone.hemiFloor,
+                (snap?.hemisphereIntensity ?? SCENE_AAA_LIGHT.hemi) * scale
+            ),
+            fillIntensity: Math.max(
+                tone.fillFloor,
+                (snap?.fillIntensity ?? SCENE_AAA_LIGHT.fill) * scale
+            ),
+            lensIntensity: Math.max(
+                tone.lensFloor,
+                (snap?.lensIntensity ?? SCENE_AAA_LIGHT.lens) * scale
+            ),
+            colors: tone.colors,
+            directionalAzimuth: tone.directionalAzimuth,
+            directionalElevation: tone.directionalElevation,
+            fillPosition: snap?.fillPosition
+        })
+        settingsState.lightAzimuth = tone.directionalAzimuth
+        settingsState.lightElevation = tone.directionalElevation
     }
-    
+
     if (!silent) {
         showLightMenu.value = false
-        
+
         toast.add({
             title: '灯光预设已应用',
-            description: `已切换到"${preset.name}"预设`,
+            description: `已切换到"${meta.name}"预设`,
             icon: 'i-heroicons-check-circle',
             color: 'green'
         })
@@ -2705,6 +2937,7 @@ const chooseMaterial = async (item: Material, position?: THREE.Vector3) => {
     const placeAt = position?.clone() ?? getDefaultMaterialPlacement()
     const isModel = isGltfGlbModelMaterial(item)
     const isSplat = isSplatMaterial(item)
+    const isVideo = !isModel && !isSplat && isVideoMaterial(item)
 
     if (isModel) {
         const modelUrl = BASE_IMG + item.materia_url
@@ -2811,6 +3044,10 @@ const chooseMaterial = async (item: Material, position?: THREE.Vector3) => {
                 }
             }
             bumpTextureReplaceableScan()
+        } else if (isVideo) {
+            const mesh = await threeCore.value.loadVideoMesh(BASE_IMG + item.materia_url)
+            mesh.position.copy(placeAt)
+            stampAndAddSceneObject(mesh)
         } else {
             const mesh = await threeCore.value.loadImageMesh(BASE_IMG + item.materia_url)
             mesh.position.copy(placeAt)
@@ -2821,7 +3058,7 @@ const chooseMaterial = async (item: Material, position?: THREE.Vector3) => {
         if (process.client) {
             toast.add({
                 title: '加载失败',
-                description: isSplat ? '点云模型加载失败，请稍后重试' : '素材加载失败，请稍后重试',
+                description: isSplat ? '点云模型加载失败，请稍后重试' : isVideo ? '视频加载失败，请稍后重试' : '素材加载失败，请稍后重试',
                 color: 'red'
             })
         }
@@ -3335,6 +3572,9 @@ const addText = async (resault: string) => {
 }
 
 onUnmounted(() => {
+    if (process.client) {
+        window.removeEventListener('message', onSceneEmbedMessage)
+    }
     if (sceneStepListExpanded.value) {
         sceneStepListExpanded.value = false
         sceneStepGroupingMode.value = false
@@ -3418,15 +3658,105 @@ const lookAtCameraState = (item: CameraState) => {
     threeCore.value.lookAtCameraState(item)
 }
 
+function sceneHasSplatInDetail(): boolean {
+    return (
+        detail.value?.json_data?.objects?.some(
+            (obj: SceneObjectJSON) =>
+                obj.type === 'splat' || Boolean(obj.url && isSplatUrl(obj.url))
+        ) ?? false
+    )
+}
+
+/** 模型/墙体等内容就绪后的页面侧副作用（灯光 AAA、角色、步骤 UI 等） */
+function applyLoadedSceneSideEffects(hasSplatObject: boolean) {
+    loadSceneWalls(detail.value?.json_data?.walls)
+    // 兼容旧数据：纯色曾写在 scene.background，迁到 DOM（background: color:#…）
+    if (threeCore.value?.scene.background instanceof THREE.Color) {
+        const hex = `#${threeCore.value.scene.background.getHexString()}`
+        threeCore.value.background = `color:${hex}`
+        threeCore.value.scene.background = null
+    }
+    syncScenePageBackgroundFromCore()
+
+    rehydrateSceneCharacterControllers()
+    bumpTextureReplaceableScan()
+    syncSceneStepUi()
+    bumpSceneObjectRevision()
+    if (threeCore.value && (edit_mode.value || add_mode.value)) {
+        threeCore.value.showAllStepManagedObjects()
+        sceneStepShowAll.value = true
+    }
+
+    // 场景加载完成后，灯光配置已经在 loadSceneFromJSON 中自动应用了
+    // 无存档灯光时写入棚拍默认光；完成后快照作为「默认」预设基准
+    const hasSavedLighting = Boolean(detail.value?.json_data?.lighting)
+    if (threeCore.value) {
+        applySceneAaaRender(threeCore.value, {
+            withSplats: threeCore.value.sceneHasSplats() || hasSplatObject,
+            mobile: isMobile.value,
+            tuneLights: !hasSavedLighting,
+            handles: sceneRenderHandles
+        })
+        if (!hasSavedLighting) {
+            settingsState.lightAzimuth = SCENE_AAA_LIGHT.azimuth
+            settingsState.lightElevation = SCENE_AAA_LIGHT.elevation
+        }
+        captureInitialLightSnapshot()
+        currentLightPreset.value = 'default'
+    }
+    updateLinkBadgeMarkers()
+}
+
+/** 卡片 iframe：父页 postMessage 后加载场景内容（可重复发，幂等） */
+async function loadDeferredSceneContent() {
+    if (!deferSceneContent.value) return
+    if (sceneContentLoaded.value || sceneContentLoading.value) return
+    if (!threeCore.value) {
+        pendingLoadSceneContent.value = true
+        return
+    }
+    sceneContentLoading.value = true
+    try {
+        await reloadSceneKeepWebGL(id, {
+            sceneData: detail.value,
+            baseUrl: BASE_IMG
+        })
+        const core = threeCore.value
+        if (core?.controls) {
+            core.controls.enabled = true
+        }
+        if (core?.cameraList?.length) {
+            core.lookAtCameraState(core.cameraList[0])
+        }
+        applyLoadedSceneSideEffects(sceneHasSplatInDetail())
+        sceneContentLoaded.value = true
+    } catch (e) {
+        console.error('卡片场景延迟加载失败:', e)
+        toast.add({
+            title: '场景加载失败',
+            description: e instanceof Error ? e.message : '请稍后重试',
+            color: 'red',
+            icon: 'i-heroicons-exclamation-triangle'
+        })
+    } finally {
+        sceneContentLoading.value = false
+    }
+}
+
+function onSceneEmbedMessage(ev: MessageEvent) {
+    if (!deferSceneContent.value) return
+    if (typeof window !== 'undefined' && ev.origin !== window.location.origin) return
+    if (!isSceneLoadContentMessage(ev.data)) return
+    void loadDeferredSceneContent()
+}
+
 const initThreejs = async () => {
     const sceneElement = document.getElementById('scene')
     if (sceneElement) {
         // 判断场景数据中是否有点云（含 .rad / .radc 流式链路的 .rad 头文件）
-        const hasSplatObject = detail.value?.json_data?.objects?.some(
-            (obj: SceneObjectJSON) =>
-                obj.type === 'splat' || Boolean(obj.url && isSplatUrl(obj.url))
-        ) ?? false
-        
+        const hasSplatObject = sceneHasSplatInDetail()
+        const defer = deferSceneContent.value
+
         const gfx = loadSceneGraphicsSettings()
         sceneGraphicsPreset.value = gfx.preset
         await initScene(sceneElement, id, {
@@ -3437,6 +3767,8 @@ const initThreejs = async () => {
             preferWebGPU: false,
             // 3A / PBR：ACES 电影色调；anime 为二次元高饱和
             colorStyle: 'pbr',
+            // 卡片嵌入：只起渲染器与灯光，等 postMessage 再 load 内容
+            skipSceneLoad: defer,
             graphicsSettings: {
                 antialias: gfx.antialias,
                 pixelRatio: resolveRendererPixelRatio(gfx),
@@ -3452,39 +3784,24 @@ const initThreejs = async () => {
             shouldIgnoreScenePick: () =>
                 wallDrawActive.value || walkthroughActive.value
         })
-        loadSceneWalls(detail.value?.json_data?.walls)
-        // 兼容旧数据：纯色曾写在 scene.background，迁到 DOM（background: color:#…）
-        if (threeCore.value?.scene.background instanceof THREE.Color) {
-            const hex = `#${threeCore.value.scene.background.getHexString()}`
-            threeCore.value.background = `color:${hex}`
-            threeCore.value.scene.background = null
-        }
-        syncScenePageBackgroundFromCore()
 
-        rehydrateSceneCharacterControllers()
-        bumpTextureReplaceableScan()
-        syncSceneStepUi()
-        bumpSceneObjectRevision()
-        if (threeCore.value && (edit_mode.value || add_mode.value)) {
-            threeCore.value.showAllStepManagedObjects()
-            sceneStepShowAll.value = true
-        }
-
-        // 场景加载完成后，灯光配置已经在 loadSceneFromJSON 中自动应用了
-        // 如果没有保存的灯光配置，使用默认预设
-        const hasSavedLighting = Boolean(detail.value?.json_data?.lighting)
-        if (threeCore.value && !hasSavedLighting) {
-            applyLightPreset('default', true)
-        }
-
-        // 3A 渲染：IBL / ACES / Bloom / 阴影；无存档灯光时同步写入电影光色
-        if (threeCore.value) {
-            applySceneAaaRender(threeCore.value, {
-                withSplats: threeCore.value.sceneHasSplats() || hasSplatObject,
-                mobile: isMobile.value,
-                tuneLights: !hasSavedLighting,
-                handles: sceneRenderHandles
-            })
+        if (defer) {
+            // 仅初始化：棚拍默认灯光，不拉模型/墙体；快照作为默认预设
+            if (threeCore.value) {
+                applySceneAaaRender(threeCore.value, {
+                    withSplats: false,
+                    mobile: isMobile.value,
+                    tuneLights: true,
+                    handles: sceneRenderHandles
+                })
+                settingsState.lightAzimuth = SCENE_AAA_LIGHT.azimuth
+                settingsState.lightElevation = SCENE_AAA_LIGHT.elevation
+                captureInitialLightSnapshot()
+                currentLightPreset.value = 'default'
+            }
+        } else {
+            applyLoadedSceneSideEffects(hasSplatObject)
+            sceneContentLoaded.value = true
         }
 
 		// 编辑/新增模式下：监听变换控件拖拽，记录撤销状态
@@ -3540,7 +3857,7 @@ const initThreejs = async () => {
 
         detachLinkBadgeAnimCb()
         linkBadgeAnimCb = () => updateLinkBadgeMarkers()
-        threeCore.value.addAnimationCallback(linkBadgeAnimCb)
+        threeCore.value?.addAnimationCallback(linkBadgeAnimCb)
         updateLinkBadgeMarkers()
 
         if (threeCore.value) {
@@ -3563,6 +3880,9 @@ onMounted(async () => {
     if (process.client) {
         document.documentElement.style.overflow = 'hidden'
         document.body.style.overflow = 'hidden'
+        if (deferSceneContent.value) {
+            window.addEventListener('message', onSceneEmbedMessage)
+        }
     }
     
     uni = await import('@dcloudio/uni-webview-js').catch((err) => {
@@ -3575,6 +3895,11 @@ onMounted(async () => {
         // 如果是手机端，默认关闭阴影
         if (configStore.isMobile && threeCore.value?.renderer) {
             changeShadowQuality('off')
+        }
+        // 初始化前父页已发过加载消息则补跑
+        if (pendingLoadSceneContent.value) {
+            pendingLoadSceneContent.value = false
+            await loadDeferredSceneContent()
         }
     })
     // 撤销快捷键 Ctrl+Z / Cmd+Z
@@ -4884,7 +5209,9 @@ useHead({
                         <div
                             class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-500/[0.11] ring-1 ring-inset ring-slate-400/20 dark:bg-slate-400/10 dark:ring-slate-500/25"
                         >
-                            <UIcon name="material-symbols:settings-rounded" class="h-5 w-5 text-slate-600 dark:text-slate-300" />
+                            <svg class="h-5 w-5 text-slate-600 dark:text-slate-300" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                                <path d="M19.14 12.94c.04-.31.06-.63.06-.94s-.02-.63-.06-.94l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.6-.22l-2.39.96a7.03 7.03 0 0 0-1.63-.94l-.36-2.54A.5.5 0 0 0 13.9 2h-3.8a.5.5 0 0 0-.49.42l-.36 2.54c-.6.24-1.15.55-1.63.94l-2.39-.96a.5.5 0 0 0-.6.22L2.71 8.48a.5.5 0 0 0 .12.64l2.03 1.58c-.04.31-.06.63-.06.94s.02.63.06.94l-2.03 1.58a.5.5 0 0 0-.12.64l1.92 3.32c.14.24.43.34.68.22l2.39-.96c.48.39 1.03.7 1.63.94l.36 2.54c.05.24.25.42.49.42h3.8c.24 0 .44-.18.49-.42l.36-2.54c.6-.24 1.15-.55 1.63-.94l2.39.96c.25.12.54.02.68-.22l1.92-3.32a.5.5 0 0 0-.12-.64l-2.03-1.58ZM12 15.5A3.5 3.5 0 1 1 12 8.5a3.5 3.5 0 0 1 0 7Z" />
+                            </svg>
                         </div>
                         <div class="min-w-0">
                             <h3 class="text-base font-semibold text-gray-900 dark:text-gray-100">场景设置</h3>
@@ -4897,7 +5224,9 @@ useHead({
                         class="w-9 h-9 flex items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors group shrink-0"
                         aria-label="关闭设置"
                     >
-                        <UIcon name="i-heroicons-x-mark" class="text-gray-500 dark:text-gray-400 group-hover:text-gray-700 dark:group-hover:text-gray-200 transition-colors" />
+                        <svg class="h-5 w-5 text-gray-500 dark:text-gray-400 group-hover:text-gray-700 dark:group-hover:text-gray-200 transition-colors" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                            <path stroke-linecap="round" d="M6 6l12 12M18 6L6 18" />
+                        </svg>
                     </button>
                 </div>
 
@@ -4905,48 +5234,88 @@ useHead({
                 <section class="space-y-4 rounded-2xl border border-gray-200/90 bg-gray-50/50 p-4 dark:border-gray-600/80 dark:bg-gray-800/40 md:p-5">
                     <h4 class="text-sm font-semibold text-gray-800 dark:text-gray-200">光影设置</h4>
 
-                    <!-- 摄像机类型 -->
                     <div>
                         <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">摄像机类型</label>
-                        <USelect v-model="settingsState.cameraType" :options="cameraTypeOptions"
-                            option-attribute="label" @update:model-value="changeCameraType" color="white" />
-                    </div>
-                    
-                    <!-- 阴影质量 -->
-                    <div>
-                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">阴影质量</label>
-                        <USelect v-model="settingsState.shadowQuality" :options="shadowQualityOptions"
-                            option-attribute="label" @update:model-value="changeShadowQuality" color="white" />
+                        <button
+                            type="button"
+                            class="w-full flex items-center justify-between rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-900/50 px-3 py-2.5 text-left hover:bg-gray-50 dark:hover:bg-gray-900/80 transition"
+                            @click="openCameraTypeSelect"
+                        >
+                            <span class="text-sm text-gray-800 dark:text-gray-200">{{ cameraTypeLabel }}</span>
+                            <span class="text-xs text-gray-400">选择</span>
+                        </button>
+                        <QhxSelect
+                            ref="cameraTypeSelectRef"
+                            :options="cameraTypeOptions"
+                            :default-value="cameraTypeSelectDefault"
+                            @select="onCameraTypeSelect"
+                        />
                     </div>
 
-                    <!-- 镜头角度（仅透视相机） -->
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">阴影质量</label>
+                        <button
+                            type="button"
+                            class="w-full flex items-center justify-between rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-900/50 px-3 py-2.5 text-left hover:bg-gray-50 dark:hover:bg-gray-900/80 transition"
+                            @click="openShadowQualitySelect"
+                        >
+                            <span class="text-sm text-gray-800 dark:text-gray-200">{{ shadowQualityLabel }}</span>
+                            <span class="text-xs text-gray-400">选择</span>
+                        </button>
+                        <QhxSelect
+                            ref="shadowQualitySelectRef"
+                            :options="shadowQualityOptions"
+                            :default-value="shadowQualitySelectDefault"
+                            @select="onShadowQualitySelect"
+                        />
+                    </div>
+
                     <div v-if="settingsState.cameraType === 'perspective'">
                         <div class="flex justify-between mb-2">
                             <label class="text-sm font-medium text-gray-700 dark:text-gray-300">镜头角度</label>
                             <span class="text-xs font-mono text-gray-500 dark:text-gray-400">{{ Math.round(settingsState.fov) }}°</span>
                         </div>
-                        <URange v-model="settingsState.fov" :min="10" :max="120" :step="1"
-                            @update:model-value="changeFov" />
+                        <input
+                            v-model.number="settingsState.fov"
+                            type="range"
+                            min="10"
+                            max="120"
+                            step="1"
+                            class="scene-settings-range"
+                            @input="changeFov(settingsState.fov)"
+                        >
                     </div>
 
-                    <!-- 光源水平角度 -->
-                    <div class="mb-2">
+                    <div>
                         <div class="flex justify-between mb-2">
                             <span class="text-sm text-gray-700 dark:text-gray-300">光照方向(水平)</span>
                             <span class="text-xs text-gray-500">{{ Math.round(settingsState.lightAzimuth) }}°</span>
                         </div>
-                        <URange v-model="settingsState.lightAzimuth" :min="0" :max="360" :step="1"
-                            @update:model-value="updateLightPosition" />
+                        <input
+                            v-model.number="settingsState.lightAzimuth"
+                            type="range"
+                            min="0"
+                            max="360"
+                            step="1"
+                            class="scene-settings-range"
+                            @input="updateLightPosition"
+                        >
                     </div>
 
-                    <!-- 光源垂直角度 -->
-                    <div class="mb-2">
+                    <div>
                         <div class="flex justify-between mb-2">
                             <span class="text-sm text-gray-700 dark:text-gray-300">光照高度(垂直)</span>
                             <span class="text-xs text-gray-500">{{ Math.round(settingsState.lightElevation) }}°</span>
                         </div>
-                        <URange v-model="settingsState.lightElevation" :min="0" :max="90" :step="1"
-                            @update:model-value="updateLightPosition" />
+                        <input
+                            v-model.number="settingsState.lightElevation"
+                            type="range"
+                            min="0"
+                            max="90"
+                            step="1"
+                            class="scene-settings-range"
+                            @input="updateLightPosition"
+                        >
                     </div>
                 </section>
 
@@ -4958,13 +5327,19 @@ useHead({
 
                     <div>
                         <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">画质预设</label>
-                        <USelect
-                            :model-value="sceneGraphicsPreset"
+                        <button
+                            type="button"
+                            class="w-full flex items-center justify-between rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-900/50 px-3 py-2.5 text-left hover:bg-gray-50 dark:hover:bg-gray-900/80 transition"
+                            @click="openGraphicsPresetSelect"
+                        >
+                            <span class="text-sm text-gray-800 dark:text-gray-200">{{ graphicsPresetLabel }}</span>
+                            <span class="text-xs text-gray-400">选择</span>
+                        </button>
+                        <QhxSelect
+                            ref="graphicsPresetSelectRef"
                             :options="graphicsPresetOptions"
-                            option-attribute="label"
-                            value-attribute="value"
-                            color="white"
-                            @update:model-value="onGraphicsPresetChange"
+                            :default-value="graphicsPresetSelectDefault"
+                            @select="onGraphicsPresetSelect"
                         />
                     </div>
 
@@ -4986,7 +5361,6 @@ useHead({
                 <section v-if="edit_mode || add_mode" class="space-y-4 rounded-2xl border border-gray-200/90 bg-gray-50/50 p-4 dark:border-gray-600/80 dark:bg-gray-800/40 md:p-5">
                     <h4 class="text-sm font-semibold text-gray-800 dark:text-gray-200">控制器设置</h4>
 
-                    <!-- 水平旋转角度范围 -->
                     <div>
                         <div class="flex justify-between mb-2">
                             <label class="text-sm font-medium text-gray-700 dark:text-gray-300">水平旋转角度范围</label>
@@ -5002,7 +5376,6 @@ useHead({
                         />
                     </div>
 
-                    <!-- 垂直旋转角度范围 -->
                     <div>
                         <div class="flex justify-between mb-2">
                             <label class="text-sm font-medium text-gray-700 dark:text-gray-300">垂直旋转角度范围</label>
@@ -5353,8 +5726,8 @@ useHead({
                         <UIcon name="material-symbols:light-mode-rounded" class="text-base text-white" />
                     </div>
                     <div class="flex-1">
-                        <div class="text-sm font-medium text-gray-800 dark:text-gray-200">默认</div>
-                        <div class="text-xs text-gray-500 dark:text-gray-400">默认灯光配置</div>
+                        <div class="text-sm font-medium text-gray-800 dark:text-gray-200">{{ lightPresets.default.name }}</div>
+                        <div class="text-xs text-gray-500 dark:text-gray-400">{{ lightPresets.default.description }}</div>
                     </div>
                     <UIcon v-if="currentLightPreset === 'default'" name="material-symbols:check-circle-rounded"
                         class="text-yellow-500 text-lg" />
@@ -5369,8 +5742,8 @@ useHead({
                         <UIcon name="material-symbols:wb-sunny-rounded" class="text-base text-white" />
                     </div>
                     <div class="flex-1">
-                        <div class="text-sm font-medium text-gray-800 dark:text-gray-200">温暖</div>
-                        <div class="text-xs text-gray-500 dark:text-gray-400">温暖的暖色调灯光</div>
+                        <div class="text-sm font-medium text-gray-800 dark:text-gray-200">{{ lightPresets.warm.name }}</div>
+                        <div class="text-xs text-gray-500 dark:text-gray-400">{{ lightPresets.warm.description }}</div>
                     </div>
                     <UIcon v-if="currentLightPreset === 'warm'" name="material-symbols:check-circle-rounded"
                         class="text-yellow-500 text-lg" />
@@ -5385,8 +5758,8 @@ useHead({
                         <UIcon name="material-symbols:ac-unit-rounded" class="text-base text-white" />
                     </div>
                     <div class="flex-1">
-                        <div class="text-sm font-medium text-gray-800 dark:text-gray-200">冷调</div>
-                        <div class="text-xs text-gray-500 dark:text-gray-400">冷色调灯光效果</div>
+                        <div class="text-sm font-medium text-gray-800 dark:text-gray-200">{{ lightPresets.cool.name }}</div>
+                        <div class="text-xs text-gray-500 dark:text-gray-400">{{ lightPresets.cool.description }}</div>
                     </div>
                     <UIcon v-if="currentLightPreset === 'cool'" name="material-symbols:check-circle-rounded"
                         class="text-yellow-500 text-lg" />
@@ -5502,7 +5875,9 @@ useHead({
             <div class="p-6 w-[min(92vw,420px)] bg-white dark:bg-gray-800 rounded-2xl shadow-xl border border-gray-200/80 dark:border-gray-700/80">
                 <div class="flex items-center gap-3 mb-5">
                     <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gray-500/[0.11] ring-1 ring-inset ring-gray-500/15 dark:bg-gray-400/10 dark:ring-gray-400/20">
-                        <UIcon name="i-heroicons-cog-6-tooth" class="h-5 w-5 text-gray-600 dark:text-gray-400" />
+                        <svg class="h-5 w-5 text-gray-600 dark:text-gray-400" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                            <path d="M19.14 12.94c.04-.31.06-.63.06-.94s-.02-.63-.06-.94l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.6-.22l-2.39.96a7.03 7.03 0 0 0-1.63-.94l-.36-2.54A.5.5 0 0 0 13.9 2h-3.8a.5.5 0 0 0-.49.42l-.36 2.54c-.6.24-1.15.55-1.63.94l-2.39-.96a.5.5 0 0 0-.6.22L2.71 8.48a.5.5 0 0 0 .12.64l2.03 1.58c-.04.31-.06.63-.06.94s.02.63.06.94l-2.03 1.58a.5.5 0 0 0-.12.64l1.92 3.32c.14.24.43.34.68.22l2.39-.96c.48.39 1.03.7 1.63.94l.36 2.54c.05.24.25.42.49.42h3.8c.24 0 .44-.18.49-.42l.36-2.54c.6-.24 1.15-.55 1.63-.94l2.39.96c.25.12.54.02.68-.22l1.92-3.32a.5.5 0 0 0-.12-.64l-2.03-1.58ZM12 15.5A3.5 3.5 0 1 1 12 8.5a3.5 3.5 0 0 1 0 7Z" />
+                        </svg>
                     </div>
                     <h3 class="text-base font-semibold text-gray-900 dark:text-gray-100">场景设置</h3>
                 </div>
@@ -5520,19 +5895,33 @@ useHead({
                         </div>
                     </div>
                     <div class="flex items-center gap-2 shrink-0">
-                        <UToggle
-                            :model-value="sceneAllowCopyEnabled"
-                            :loading="allowCopyUpdating"
+                        <button
+                            type="button"
+                            role="switch"
+                            :aria-checked="sceneAllowCopyEnabled"
                             :disabled="allowCopyUpdating"
-                            @update:model-value="updateSceneAllowCopy"
-                        />
+                            class="relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-qhx-primary disabled:opacity-50"
+                            :class="sceneAllowCopyEnabled ? 'bg-qhx-primary' : 'bg-gray-300 dark:bg-gray-600'"
+                            @click="updateSceneAllowCopy(!sceneAllowCopyEnabled)"
+                        >
+                            <span
+                                class="inline-block h-5 w-5 rounded-full bg-white shadow transition-transform"
+                                :class="sceneAllowCopyEnabled ? 'translate-x-6' : 'translate-x-1'"
+                            />
+                        </button>
                         <span class="text-xs text-gray-500 dark:text-gray-400 w-8 text-center">
                             {{ sceneAllowCopyEnabled ? '开启' : '关闭' }}
                         </span>
                     </div>
                 </div>
                 <div class="flex justify-end mt-6">
-                    <UButton color="gray" @click="showSceneSettings = false">关闭</UButton>
+                    <button
+                        type="button"
+                        class="px-4 py-2 text-sm rounded-full border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                        @click="showSceneSettings = false"
+                    >
+                        关闭
+                    </button>
                 </div>
             </div>
         </QhxModal>
@@ -6595,6 +6984,41 @@ html.dark .role-dialogue-neu-tail {
     box-shadow:
         4px 4px 10px rgba(0, 0, 0, 0.45),
         inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+/* 场景设置：单滑条（对齐 QhxDualRange 主色） */
+.scene-settings-range {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 100%;
+    height: 6px;
+    border-radius: 9999px;
+    background: #e5e7eb;
+    outline: none;
+    cursor: pointer;
+}
+html.dark .scene-settings-range {
+    background: #374151;
+}
+.scene-settings-range::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 16px;
+    height: 16px;
+    border-radius: 9999px;
+    background: #fff;
+    border: 2px solid var(--qhx-primary, #a855f7);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+    cursor: pointer;
+}
+.scene-settings-range::-moz-range-thumb {
+    width: 16px;
+    height: 16px;
+    border-radius: 9999px;
+    background: #fff;
+    border: 2px solid var(--qhx-primary, #a855f7);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+    cursor: pointer;
 }
 
 </style>

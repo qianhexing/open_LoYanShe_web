@@ -208,6 +208,8 @@
 	"addLibrary.max_images_18": "最大18枚の画像",
 	"addLibrary.max_images_1": "最大1枚の画像",
 	"addLibrary.select_library_warning": "図鑑を選択してください",
+	"addLibrary.no_permission": "編集権限がありません",
+	"addLibrary.no_permission_desc": "この図鑑はあなたの店舗のものではないため、編集できません。",
 	"addLibrary.error": "エラー",
 	"addLibrary.warning": "警告",
 	"addLibrary.success": "成功",

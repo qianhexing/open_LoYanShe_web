@@ -187,42 +187,42 @@
 
               <!-- 功能栏：快捷入口，横向滚动隐藏滚动条 -->
               <div class="hero-action-bar mt-3 -mx-1 px-1">
-                <div class="hero-action-bar__scroll flex gap-2 overflow-x-auto overscroll-x-contain">
+                <div class="hero-action-bar__scroll flex items-center gap-2 overflow-x-auto overscroll-x-contain py-1.5">
                   <button
                     type="button"
-                    class="hero-action-bar__item hero-action-bar__action flex-shrink-0 inline-flex items-center gap-2 rounded-2xl py-2 px-4 border border-pink-200/70 dark:border-pink-700/50 bg-gradient-to-br from-pink-50/90 to-purple-50/90 dark:from-pink-900/35 dark:to-purple-900/35 hover:from-pink-100 dark:hover:from-pink-900/50 hover:to-purple-100 dark:hover:to-purple-900/50 transition-colors active:scale-[0.98]"
+                    class="hero-action-bar__item modal-capsule-btn modal-capsule-btn--sm shrink-0"
                     @click="openCareerStatsModal"
                   >
-                    <UIcon name="i-heroicons-chart-bar-square" class="w-5 h-5 text-pink-500 dark:text-pink-300 flex-shrink-0" />
-                    <span class="text-sm font-medium text-pink-600 dark:text-pink-300 whitespace-nowrap">生涯统计</span>
+                    <UIcon name="i-heroicons-chart-bar-square" class="h-3.5 w-3.5 shrink-0" />
+                    <span>生涯统计</span>
                   </button>
                   <button
                     v-if="!isCurrentUser && spaceUserId"
                     type="button"
-                    class="hero-action-bar__item hero-action-bar__action flex-shrink-0 inline-flex items-center gap-2 rounded-2xl py-2 px-4 border border-pink-200/70 dark:border-pink-700/50 bg-gradient-to-br from-pink-50/90 to-purple-50/90 dark:from-pink-900/35 dark:to-purple-900/35 hover:from-pink-100 dark:hover:from-pink-900/50 hover:to-purple-100 dark:hover:to-purple-900/50 transition-colors active:scale-[0.98]"
+                    class="hero-action-bar__item modal-capsule-btn modal-capsule-btn--sm shrink-0"
                     @click="openWardrobeCompareModal"
                   >
-                    <UIcon name="i-heroicons-arrows-right-left-20-solid" class="w-5 h-5 text-pink-500 dark:text-pink-300 flex-shrink-0" />
-                    <span class="text-sm font-medium text-pink-600 dark:text-pink-300 whitespace-nowrap">衣柜对比</span>
+                    <UIcon name="i-heroicons-arrows-right-left-20-solid" class="h-3.5 w-3.5 shrink-0" />
+                    <span>衣柜对比</span>
                   </button>
                   <button
                     v-if="spaceUserId && spaceSenceId"
                     type="button"
-                    class="hero-action-bar__item hero-action-bar__action flex-shrink-0 inline-flex items-center gap-2 rounded-2xl py-2 px-4 border border-pink-200/70 dark:border-pink-700/50 bg-gradient-to-br from-pink-50/90 to-purple-50/90 dark:from-pink-900/35 dark:to-purple-900/35 hover:from-pink-100 dark:hover:from-pink-900/50 hover:to-purple-100 dark:hover:to-purple-900/50 transition-colors active:scale-[0.98]"
+                    class="hero-action-bar__item modal-capsule-btn modal-capsule-btn--sm shrink-0"
                     @click="visitUserNest"
                   >
-                    <UIcon name="i-heroicons-home-modern" class="w-5 h-5 text-pink-500 dark:text-pink-300 flex-shrink-0" />
-                    <span class="text-sm font-medium text-pink-600 dark:text-pink-300 whitespace-nowrap">参观小窝</span>
+                    <UIcon name="i-heroicons-home-modern" class="h-3.5 w-3.5 shrink-0" />
+                    <span>参观小窝</span>
                   </button>
                   <button
                     v-if="isCurrentUser && spaceUserId"
                     type="button"
                     data-hero-action="wardrobe-qr"
-                    class="hero-action-bar__item hero-action-bar__action flex-shrink-0 inline-flex items-center gap-2 rounded-2xl py-2 px-4 border border-pink-200/70 dark:border-pink-700/50 bg-gradient-to-br from-pink-50/90 to-purple-50/90 dark:from-pink-900/35 dark:to-purple-900/35 hover:from-pink-100 dark:hover:from-pink-900/50 hover:to-purple-100 dark:hover:to-purple-900/50 transition-colors active:scale-[0.98]"
+                    class="hero-action-bar__item modal-capsule-btn modal-capsule-btn--sm shrink-0"
                     @click="showWardrobeAddressQrcode"
                   >
-                    <UIcon name="material-symbols:qr-code-2" class="w-5 h-5 text-pink-500 dark:text-pink-300 flex-shrink-0" />
-                    <span class="text-sm font-medium text-pink-600 dark:text-pink-300 whitespace-nowrap">衣柜二维码</span>
+                    <UIcon name="material-symbols:qr-code-2" class="h-3.5 w-3.5 shrink-0" />
+                    <span>衣柜二维码</span>
                   </button>
                 </div>
               </div>
@@ -1922,7 +1922,7 @@ useHead({
   min-height: 1.5rem;
 }
 
-/* Hero 功能栏：横向滚动，隐藏滚动条 */
+/* Hero 功能栏：横向滚动，隐藏滚动条；上下留白避免阴影/字高被 overflow-x 裁切 */
 .hero-action-bar__scroll {
   scrollbar-width: none;
   -ms-overflow-style: none;
@@ -1933,12 +1933,70 @@ useHead({
   display: none;
 }
 
-.hero-action-bar__action {
-  box-shadow: 0 2px 8px rgba(236, 72, 153, 0.12);
+/* 胶囊按钮（对齐衣服详情 / 时间管道等页） */
+.modal-capsule-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.375rem;
+  padding: 0.5rem 1.35rem;
+  border-radius: 9999px;
+  border: 1.5px solid color-mix(in srgb, var(--primary-color, #ff9eb5) 58%, transparent);
+  background: linear-gradient(
+    145deg,
+    color-mix(in srgb, var(--primary-color, #ff9eb5) 90%, #fff) 0%,
+    color-mix(in srgb, var(--primary-color, #ff9eb5) 68%, #f472b6) 100%
+  );
+  color: #fff;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  line-height: 1.25;
+  white-space: nowrap;
+  cursor: pointer;
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.38),
+    0 2px 8px color-mix(in srgb, var(--primary-color, #ff9eb5) 22%, transparent);
+  transition:
+    transform 0.16s ease,
+    box-shadow 0.2s ease,
+    filter 0.2s ease,
+    border-color 0.2s ease;
 }
 
-.dark .hero-action-bar__action {
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.25);
+.modal-capsule-btn:hover:not(:disabled) {
+  filter: brightness(1.04);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.4),
+    0 4px 14px color-mix(in srgb, var(--primary-color, #ff9eb5) 34%, transparent);
+}
+
+.modal-capsule-btn:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.modal-capsule-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+.dark .modal-capsule-btn {
+  border-color: color-mix(in srgb, var(--primary-color, #ff9eb5) 55%, rgb(255 255 255 / 0.15));
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--primary-color, #ff9eb5) 75%, #831843) 0%,
+    color-mix(in srgb, var(--primary-color, #ff9eb5) 58%, #4c0519) 100%
+  );
+  color: #fce7f3;
+}
+
+.modal-capsule-btn--sm {
+  padding: 0.28rem 0.85rem;
+  font-size: 0.75rem;
+  letter-spacing: 0.02em;
 }
 
 /* Tab 面板最低高度，避免切换时内容区高度骤变 */

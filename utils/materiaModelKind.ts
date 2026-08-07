@@ -3,7 +3,7 @@ import type { Material } from '@/types/api'
 /** 是否为 GLB/GLTF 三维模型素材（非上传图片类） */
 export function isGltfGlbModelMaterial(item: Material): boolean {
   const o = item.options
-  if (o && o.assetKind === 'image') return false
+  if (o && (o.assetKind === 'image' || o.assetKind === 'video')) return false
   if (o && o.assetKind === 'model') return true
   const u = (item.materia_url || '').toLowerCase().split('?')[0] || ''
   return /\.(glb|gltf)(\?|#|$)/i.test(u)
@@ -27,6 +27,16 @@ export function isSplatMaterial(item: Material): boolean {
   const o = item.options
   if (o && o.assetKind === 'splat') return true
   return isSplatUrl(item.materia_url || '')
+}
+
+const VIDEO_URL_RE = /\.(mp4|webm|mov|m4v|ogg)(\?|#|$)/i
+
+/** 是否为视频平面素材（非模型 / 点云） */
+export function isVideoMaterial(item: Material): boolean {
+  const o = item.options
+  if (o && (o.assetKind === 'video' || o.mediaType === 'video')) return true
+  if (o && o.assetKind === 'image') return false
+  return VIDEO_URL_RE.test((item.materia_url || '').toLowerCase().split('?')[0] || '')
 }
 
 export function materialFileNameFromUrl(url: string): string {

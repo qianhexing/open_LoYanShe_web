@@ -208,6 +208,8 @@
 	"addLibrary.max_images_18": "Maximum 18 images",
 	"addLibrary.max_images_1": "Maximum 1 image",
 	"addLibrary.select_library_warning": "Please select library",
+	"addLibrary.no_permission": "No permission to edit",
+	"addLibrary.no_permission_desc": "This library does not belong to your shop and cannot be edited.",
 	"addLibrary.error": "Error",
 	"addLibrary.warning": "Warning",
 	"addLibrary.success": "Success",

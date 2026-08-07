@@ -147,6 +147,11 @@ const initialTypeFromQuery = computed(() => {
 })
 
 function onCancel() {
+  const port = config.getPort()
+  if (port) {
+    port.postMessage(JSON.stringify({ type: 'back' }))
+    return
+  }
   if (typeof window !== 'undefined' && window.history.length > 1) {
     router.back()
     return
@@ -160,6 +165,7 @@ function onSuccess(community: Community) {
     const isInUniApp =
       typeof window !== 'undefined' &&
       navigator.userAgent.includes('Html5Plus')
+    const port = config.getPort()
     if (isInUniApp) {
       void ensureUniWebview().then((u) => {
         if (u && typeof u.postMessage === 'function') {
@@ -168,6 +174,12 @@ function onSuccess(community: Community) {
           void router.push(`/community/detail/${id}`)
         }
       })
+    } else if (port) {
+      // 鸿蒙 Outlink：关闭 WebView 并带回列表重载 + 详情 id
+      port.postMessage(JSON.stringify({
+        type: 'back',
+        params: { reload: true, community_id: id }
+      }))
     } else {
       void router.push(`/community/detail/${id}`)
     }

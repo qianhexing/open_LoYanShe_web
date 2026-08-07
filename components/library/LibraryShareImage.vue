@@ -1,9 +1,12 @@
 <template>
   <ClientOnly>
-    <template v-if="variant === 'inline'">
+    <template v-if="variant === 'inline' || variant === 'capsule'">
       <button
         type="button"
-        class="share-inline-btn cursor-pointer inline-flex items-center justify-center gap-0.5 disabled:opacity-45 disabled:cursor-not-allowed"
+        class="share-inline-btn cursor-pointer inline-flex items-center justify-center disabled:opacity-45 disabled:cursor-not-allowed"
+        :class="variant === 'capsule'
+          ? 'flex-col gap-0.5 px-1.5 py-0.5'
+          : 'gap-0.5'"
         title="生成或查看分享图"
         aria-label="生成或查看分享图"
         :disabled="!payload || generating"
@@ -12,14 +15,22 @@
         <UIcon
           v-if="generating"
           name="i-heroicons-arrow-path"
-          class="text-[26px] text-gray-500 animate-spin"
+          :class="variant === 'capsule'
+            ? 'h-[18px] w-[18px] text-gray-600 dark:text-gray-300 animate-spin'
+            : 'text-[26px] text-gray-500 animate-spin'"
         />
         <UIcon
           v-else
           name="i-heroicons-photo"
-          class="text-[26px] text-gray-500"
+          :class="variant === 'capsule'
+            ? 'h-[18px] w-[18px] text-gray-600 dark:text-gray-300'
+            : 'text-[26px] text-gray-500'"
         />
-        <span class="text-base text-gray-500">分享图</span>
+        <span
+          :class="variant === 'capsule'
+            ? 'text-[10px] leading-none text-gray-600 dark:text-gray-300'
+            : 'text-base text-gray-500'"
+        >分享图</span>
       </button>
     </template>
     <div
@@ -127,7 +138,7 @@ export type { LibrarySharePayload }
 const props = withDefaults(
   defineProps<{
     payload: LibrarySharePayload | null
-    variant?: 'inline' | 'block'
+    variant?: 'inline' | 'capsule' | 'block'
   }>(),
   { variant: 'block' },
 )

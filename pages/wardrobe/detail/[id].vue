@@ -960,8 +960,49 @@ function parseClothesPartLabels(raw: string | null | undefined): string[] {
   return raw.split(',').map((s) => s.trim()).filter(Boolean)
 }
 
+type ClothesPartGroup = { part: string; items: WardrobeClothes[] }
+
+/** 按 config 优先排序；已删除/不存在的部位忽略；未出现在 config 中的部位保持原顺序排在已排序项之后 */
+function sortPartsByConfig(allParts: readonly string[], configParts?: readonly string[] | null): string[] {
+  const cleaned = allParts.map((p) => p.trim()).filter(Boolean)
+  if (!cleaned.length) return []
+  const cleanedConfig = configParts?.length
+    ? configParts.map((p) => (typeof p === 'string' ? p.trim() : '')).filter(Boolean)
+    : []
+  if (!cleanedConfig.length) return cleaned
+  const ordered: string[] = []
+  const remaining = new Set(cleaned)
+  for (const p of cleanedConfig) {
+    if (!remaining.has(p)) continue
+    ordered.push(p)
+    remaining.delete(p)
+  }
+  for (const p of cleaned) {
+    if (remaining.has(p)) ordered.push(p)
+  }
+  return ordered
+}
+
+const wardrobeConfigClothesPart = computed(() => {
+  const parts = info.value?.config?.clothes_part
+  return Array.isArray(parts)
+    ? parts.map((p) => (typeof p === 'string' ? p.trim() : '')).filter(Boolean)
+    : []
+})
+
+function patchWardrobeConfigClothesPart(nextParts: string[]) {
+  if (!info.value) return
+  info.value = {
+    ...info.value,
+    config: {
+      ...(info.value.config ?? {}),
+      clothes_part: nextParts,
+    },
+  }
+}
+
 /** 按部位分组；逗号多部位会重复出现在各组；无部位归入「未分类」 */
-const clothesPartGroups = computed(() => {
+const clothesPartGroups = computed((): ClothesPartGroup[] => {
   const groups = new Map<string, WardrobeClothes[]>()
   const firstSeen: string[] = []
   for (const item of list.value) {
@@ -977,19 +1018,69 @@ const clothesPartGroups = computed(() => {
       bucket.push(item)
     }
   }
-  const configOrder = wardrobeStore.config?.clothes_part ?? []
-  const keys = [...groups.keys()].sort((a, b) => {
-    if (a === CLOTHES_PART_UNGROUPED) return 1
-    if (b === CLOTHES_PART_UNGROUPED) return -1
-    const ia = configOrder.indexOf(a)
-    const ib = configOrder.indexOf(b)
-    if (ia !== -1 && ib !== -1) return ia - ib
-    if (ia !== -1) return -1
-    if (ib !== -1) return 1
-    return firstSeen.indexOf(a) - firstSeen.indexOf(b)
-  })
+  const existingParts = firstSeen.filter((p) => p !== CLOTHES_PART_UNGROUPED)
+  // 衣柜自定义排序优先；否则回退全局部位配置顺序
+  const configOrder = wardrobeConfigClothesPart.value.length
+    ? wardrobeConfigClothesPart.value
+    : (wardrobeStore.config?.clothes_part ?? [])
+  const orderedParts = sortPartsByConfig(existingParts, configOrder)
+  const keys = groups.has(CLOTHES_PART_UNGROUPED)
+    ? [...orderedParts, CLOTHES_PART_UNGROUPED]
+    : orderedParts
   return keys.map((part) => ({ part, items: groups.get(part) ?? [] }))
 })
+
+/** 部位布局可拖拽分组（不含「未分类」）；与 clothesPartGroups 同步 */
+const sortablePartGroups = ref<ClothesPartGroup[]>([])
+const ungroupedPartGroup = computed(() =>
+  clothesPartGroups.value.find((g) => g.part === CLOTHES_PART_UNGROUPED) ?? null,
+)
+const partGroupItemKey = (item: ClothesPartGroup) => item.part
+const partGroupsSorting = ref(false)
+let partGroupsDragging = false
+
+watch(
+  clothesPartGroups,
+  (groups) => {
+    if (partGroupsDragging) return
+    sortablePartGroups.value = groups.filter((g) => g.part !== CLOTHES_PART_UNGROUPED)
+  },
+  { immediate: true },
+)
+
+function onPartGroupsDragStart() {
+  partGroupsDragging = true
+}
+
+async function onPartGroupsDragEnd() {
+  partGroupsDragging = false
+  if (!isPageOwner.value) return
+  const wid = currentWardrobe.value?.wardrobe_id
+  if (!wid) return
+  // 仅保存当前仍存在的部位（不含「未分类」）
+  const sort = sortablePartGroups.value
+    .map((g) => g.part.trim())
+    .filter((p) => p && p !== CLOTHES_PART_UNGROUPED)
+  const prev = wardrobeConfigClothesPart.value
+  if (sort.length === prev.length && sort.every((p, i) => p === prev[i])) return
+  partGroupsSorting.value = true
+  try {
+    await updateWardrobe({
+      wardrobe_id: wid,
+      config: {
+        ...(info.value?.config ?? {}),
+        clothes_part: sort,
+      },
+    })
+    patchWardrobeConfigClothesPart(sort)
+  } catch {
+    // 失败时回退到 computed 顺序
+    sortablePartGroups.value = clothesPartGroups.value.filter((g) => g.part !== CLOTHES_PART_UNGROUPED)
+    toast.add({ title: '部位排序保存失败', icon: 'i-heroicons-exclamation-circle', color: 'red' })
+  } finally {
+    partGroupsSorting.value = false
+  }
+}
 
 const formatClothesListDate = (item: WardrobeClothes) => {
   const raw = item.add_time ?? item.date
@@ -1459,6 +1550,7 @@ const fetchClothesList = async (Ipage: number | null = null, IpageSize: number |
           'wardrobe_status',
           'color',
           'price',
+          'original_price',
         ],
         ...(password.value ? { password: password.value } : {}),
         ...(qrcode.value ? { qrcode: qrcode.value } : {}),
@@ -2524,6 +2616,9 @@ const runToolbarAction = (toolId: WardrobeToolbarToolId, e?: MouseEvent) => {
     case 'plan':
       jumpToPlan()
       break
+    case 'browse':
+      jumpToWardrobeSquare()
+      break
   }
 }
 
@@ -2612,6 +2707,39 @@ const jumpToMatchingList = () => {
       navigateTo(matchingUrl)
     }
   }
+}
+
+// 打开逛逛（独立页面）
+const jumpToWardrobeSquare = () => {
+  showMoreMenu.value = false
+  const squareUrl = '/wardrobe/square'
+
+  const isInUniApp =
+    typeof window !== 'undefined' &&
+    navigator.userAgent.includes('Html5Plus')
+
+  if (isInUniApp && typeof uni !== 'undefined' && uni.navigateTo) {
+    uni.navigateTo({
+      url: `/pages/common/outerLink2?url=https://lolitalibrary.com${squareUrl}`,
+      fail: () => {
+        console.log('跳转逛逛失败')
+      },
+    })
+    return
+  }
+
+  if (port.value) {
+    port.value.postMessage(JSON.stringify({
+      type: 'jump',
+      path: 'Outlink',
+      params: {
+        url: `https://lolitalibrary.com${squareUrl}`,
+      },
+    }))
+    return
+  }
+
+  navigateTo(squareUrl)
 }
 
 // 跳转到衣柜展馆（仅 PC 端展示入口）
@@ -4818,7 +4946,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
             </div>
           </QhxJellyButton>
         </div>
-        <QhxSortableList :disabled="!sortMode" v-model="wardrobeList" item-key="wardrobe_id" :animation="250" :delay="150"
+        <QhxSortableList :disabled="!isPageOwner" v-model="wardrobeList" item-key="wardrobe_id" :animation="250" :delay="150"
           @end="onWardrobeDragEnd">
           <template #item="{ element }">
             <div>
@@ -5442,6 +5570,9 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
                 <span v-if="hasClothesPrice(element)">
                   价格：￥{{ info?.show_price === 2 ? '***' : (element.price || 0) }}
                 </span>
+                <span v-if="element.original_price">
+                  原价：￥{{ info?.show_price === 2 ? '***' : element.original_price }}
+                </span>
                 <span v-if="element.size?.trim()">尺码：{{ element.size }}</span>
                 <span v-if="element.clothes_part?.trim()">部位：{{ element.clothes_part }}</span>
                 <span v-if="formatClothesListDate(element)">入柜：{{ formatClothesListDate(element) }}</span>
@@ -5636,6 +5767,10 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
                 :class="shouldShowClothesNote(element) ? 'mt-1' : ''"
               >
                 ￥ {{ info?.show_price === 2 ? '***' : (element.price || 0) }}
+                <span
+                  v-if="info?.show_price !== 2 && element.original_price"
+                  class="ml-1 text-xs font-normal text-gray-400 line-through"
+                >￥{{ element.original_price }}</span>
               </div>
             </div>
           </div>
@@ -5774,6 +5909,10 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
                   :class="shouldShowClothesNote(element) ? 'mt-0.5' : ''"
                 >
                   ￥{{ info?.show_price === 2 ? '***' : (element.price || 0) }}
+                  <span
+                    v-if="info?.show_price !== 2 && element.original_price"
+                    class="ml-1 text-xs font-normal text-gray-400 line-through max-md:text-[10px]"
+                  >￥{{ element.original_price }}</span>
                 </div>
               </div>
             </div>
@@ -5817,25 +5956,67 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
               :element="element"
             />
           </div>
-          <!-- 浏览态：按部位分组（同网格单元，多部位可重复出现） -->
+          <!-- 浏览态：按部位分组（同网格单元，多部位可重复出现；主人可拖拽小标题右侧手柄排序） -->
           <div v-else-if="isPartLayout" class="wardrobe-clothes-part-groups flex w-full flex-col gap-0">
+            <QhxSortableList
+              v-model="sortablePartGroups"
+              :item-key="partGroupItemKey"
+              handle=".part-group-drag-handle"
+              class="flex w-full flex-col gap-0"
+              item-class="wardrobe-clothes-part-group min-w-0"
+              :disabled="!isPageOwner || partGroupsSorting"
+              :animation="200"
+              :delay="120"
+              :get-scroll-container="() => scrollRootRef"
+              @start="onPartGroupsDragStart"
+              @end="onPartGroupsDragEnd"
+            >
+              <template #item="{ element: group }">
+                <div class="mt-1 flex items-center gap-2 px-1.5 max-md:px-1">
+                  <h4 class="min-w-0 flex-1 truncate text-sm font-semibold text-gray-800 dark:text-gray-100">
+                    {{ group.part }}
+                  </h4>
+                  <span class="shrink-0 text-xs tabular-nums text-gray-400 dark:text-gray-500">
+                    {{ group.items.length }}
+                  </span>
+                  <button
+                    v-if="isPageOwner"
+                    type="button"
+                    class="part-group-drag-handle shrink-0 flex h-7 w-7 items-center justify-center rounded text-gray-400 touch-none cursor-grab active:cursor-grabbing hover:text-gray-600 dark:hover:text-gray-300"
+                    title="拖拽调整部位顺序"
+                    aria-label="拖拽调整部位顺序"
+                  >
+                    <UIcon name="material-symbols:drag-indicator" class="text-base" />
+                  </button>
+                </div>
+                <div class="flex flex-wrap">
+                  <div
+                    v-for="element in group.items"
+                    :key="`part-${group.part}-${element.clothes_id ?? element.clothes_img}`"
+                    class="wardrobe-clothes-cell [@media(min-width:1920px)]:w-[calc(100%/10)] xl:w-1/6 md:w-1/4 max-md:w-1/3"
+                  >
+                    <ReuseClothesCard :element="element" />
+                  </div>
+                </div>
+              </template>
+            </QhxSortableList>
             <section
-              v-for="group in clothesPartGroups"
-              :key="`part-group-${group.part}`"
+              v-if="ungroupedPartGroup"
+              :key="`part-group-${ungroupedPartGroup.part}`"
               class="wardrobe-clothes-part-group min-w-0"
             >
               <div class="mt-1 flex items-baseline gap-2 px-1.5 max-md:px-1">
                 <h4 class="text-sm font-semibold text-gray-800 dark:text-gray-100">
-                  {{ group.part }}
+                  {{ ungroupedPartGroup.part }}
                 </h4>
                 <span class="text-xs tabular-nums text-gray-400 dark:text-gray-500">
-                  {{ group.items.length }}
+                  {{ ungroupedPartGroup.items.length }}
                 </span>
               </div>
               <div class="flex flex-wrap">
                 <div
-                  v-for="element in group.items"
-                  :key="`part-${group.part}-${element.clothes_id ?? element.clothes_img}`"
+                  v-for="element in ungroupedPartGroup.items"
+                  :key="`part-${ungroupedPartGroup.part}-${element.clothes_id ?? element.clothes_img}`"
                   class="wardrobe-clothes-cell [@media(min-width:1920px)]:w-[calc(100%/10)] xl:w-1/6 md:w-1/4 max-md:w-1/3"
                 >
                   <ReuseClothesCard :element="element" />
@@ -5843,7 +6024,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
               </div>
             </section>
             <div
-              v-if="!isLoading && clothesPartGroups.length === 0"
+              v-if="!isLoading && sortablePartGroups.length === 0 && !ungroupedPartGroup"
               class="py-16 text-center text-sm text-gray-400 dark:text-gray-500"
             >
               暂无服饰

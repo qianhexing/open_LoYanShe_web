@@ -82,6 +82,12 @@ export async function getShopById(params: { shop_id: number }): Promise<Shop> {
   return response.data;
 }
 
+/** 查询当前登录用户是否为店主；是则返回完整店铺信息，否则返回 null */
+export async function getShopByShopkeeper(): Promise<Shop | null> {
+  const response = await use$Post<BaseResponse<Shop | null>>('/shop/shopkeeper')
+  return response.data
+}
+
 /** 检查店名是否已存在 */
 export async function cheackShopName(params: { shop_name: string }): Promise<boolean> {
   const response = await use$Post<BaseResponse<boolean>>('/shop/cheackName', params)

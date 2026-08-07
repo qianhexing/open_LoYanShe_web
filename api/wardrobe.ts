@@ -57,6 +57,8 @@ export type ClothesAllAttribute =
   | 'wardrobe_status'
   | 'color'
   | 'price'
+  | 'original_price'
+  | 'offer_price'
 
 /** 单次拉取某衣柜下全部服饰（与列表排序一致由后端保证） */
 export interface ClothesAllParams {
@@ -170,7 +172,16 @@ export async function insertClothes(
 
 export type ClothesBatchInsertItem = Pick<
   WardrobeClothes,
-  'clothes_img' | 'clothes_note' | 'library_id' | 'price' | 'origin' | 'color' | 'season' | 'size'
+  | 'clothes_img'
+  | 'clothes_note'
+  | 'library_id'
+  | 'price'
+  | 'original_price'
+  | 'offer_price'
+  | 'origin'
+  | 'color'
+  | 'season'
+  | 'size'
 > & {
   clothes_img: string
 }
@@ -334,9 +345,9 @@ export async function getWardrobeVisualization(
   return response.data;
 }
 
-// 全局搜索衣柜服饰
+// 全局搜索衣柜服饰（value 支持精确值，或区间对象如 original_price/offer_price：`{ start, end }`）
 export interface ClothesSearchParams extends PaginationParams {
-  filter_list?: Array<{ field: string; op: string; value: string | number }>
+  filter_list?: Array<{ field: string; op: string; value: string | number | Record<string, unknown> }>
   wardrobe_id?: number[]
 }
 
@@ -437,4 +448,38 @@ export async function getWardrobeStatistics(
 export async function getWardrobeClothesLibraryIds(params: { wardrobe_id: number }): Promise<number[]> {
   const response = await use$Post<BaseResponse<number[]>>('/wardrobe/clothes/library_ids', params)
   return Array.isArray(response.data) ? response.data : []
+}
+
+/** 逛逛：随机衣柜（含部分服饰预览） */
+export interface WardrobeRandomClothesBundle {
+  count: number
+  rows: WardrobeClothes[]
+}
+
+export interface WardrobeRandomItem extends Wardrobe {
+  user?: User
+  wardrobe_clothes?: WardrobeRandomClothesBundle
+}
+
+export interface WardrobeRandomParams {
+  /** 已加载的衣柜 id，用于排除重复 */
+  exclude?: number[]
+}
+
+export interface WardrobeRandomResponse {
+  rows: WardrobeRandomItem[]
+  count: number
+}
+
+export async function getWardrobeRandom(
+  params: WardrobeRandomParams = {},
+): Promise<WardrobeRandomResponse> {
+  const response = await use$Post<BaseResponse<WardrobeRandomResponse>>('/wardrobe/random', {
+    exclude: params.exclude ?? [],
+  })
+  const data = response.data
+  return {
+    rows: Array.isArray(data?.rows) ? data.rows : [],
+    count: typeof data?.count === 'number' ? data.count : 0,
+  }
 }

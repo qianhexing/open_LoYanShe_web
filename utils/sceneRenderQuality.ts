@@ -3,31 +3,79 @@ import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment
 import type ThreeCore from '@/utils/threeCore'
 
 /**
- * 场景详情 3A 渲染：IBL / 电影色调 / 阴影 / 轻 Bloom / 材质环境反射
+ * 场景详情渲染：柔和日光棚拍风
+ * - 干净中性光色（告别旧版粉调电影光）
+ * - 3/4 主光 + 冷补光塑造体积
+ * - PCFSoft 接触阴影，IBL 只补材质反射
  * 不改动 scene.background（由页面 DOM / 用户背景控制）
  */
 
-/**
- * 对齐云展馆光色/比例，整体再压一档：
- * 场景页背景更亮、素材 albedo 更高，同档数值易过曝。
- */
+/** 默认场景光：柔和日光棚拍 */
 export const SCENE_AAA_LIGHT = {
-	ambient: 0.08,
-	hemi: 0.2,
-	key: 0.58,
-	fill: 0.12,
-	lens: 0.04,
-	exposure: 0.7,
-	exposureSplat: 0.78,
-	bloomStrength: 0.12,
-	bloomRadius: 0.28,
-	bloomThreshold: 0.94,
-	envIntensity: 0.26,
-	envIntensitySplat: 0.14
+	ambient: 0.2,
+	hemi: 0.38,
+	key: 1.05,
+	fill: 0.26,
+	lens: 0.07,
+	/** 3/4 前侧高位主光，利于衣物/模型塑形 */
+	azimuth: 36,
+	elevation: 54,
+	/** 补光方位：主光对侧、略低 */
+	fillAzimuth: 216,
+	fillElevation: 28,
+	/** 方向光距原点；兼顾阴影相机精度 */
+	lightRadius: 55,
+	fillRadius: 42,
+	exposure: 0.88,
+	exposureSplat: 0.96,
+	bloomStrength: 0.07,
+	bloomRadius: 0.32,
+	bloomThreshold: 0.97,
+	envIntensity: 0.34,
+	envIntensitySplat: 0.18
+} as const
+
+/** 中性日光棚拍色温（默认预设 / tuneLights 共用） */
+export const SCENE_AAA_LIGHT_COLORS = {
+	ambient: 0xf5f2ed,
+	hemiSky: 0xd4e4f2,
+	hemiGround: 0x3d342c,
+	key: 0xfff4e6,
+	fill: 0xa8bcdc,
+	lens: 0xfffaf4
 } as const
 
 export interface SceneRenderHandles {
 	envRT: THREE.WebGLRenderTarget | null
+}
+
+/** 与 ThreeCore.setMainLightPosition 同一球坐标约定 */
+export function sceneLightPositionFromAngles(
+	azimuth: number,
+	elevation: number,
+	radius: number
+): [number, number, number] {
+	const theta = (azimuth * Math.PI) / 180
+	const phi = (elevation * Math.PI) / 180
+	return [
+		radius * Math.cos(phi) * Math.sin(theta),
+		radius * Math.sin(phi),
+		radius * Math.cos(phi) * Math.cos(theta)
+	]
+}
+
+/** 按方位角放置方向光 */
+function placeDirectionalFromAngles(
+	light: THREE.DirectionalLight,
+	azimuth: number,
+	elevation: number,
+	radius: number
+) {
+	const [x, y, z] = sceneLightPositionFromAngles(azimuth, elevation, radius)
+	light.position.set(x, y, z)
+	light.target.position.set(0, 0, 0)
+	light.target.updateMatrixWorld()
+	light.lookAt(0, 0, 0)
 }
 
 /** Standard/Physical：只同步环境反射强度（不压粗糙度，避免高光过亮） */
@@ -93,8 +141,39 @@ export function createSceneIBL(
 }
 
 /**
- * 应用 3A 渲染管线。
- * @param tuneLights 无存档灯光时为 true，写入电影光色与强度
+ * 收紧主光阴影相机与 bias：柔边接触阴影，减少 peter-panning / 条纹
+ */
+export function tuneSceneContactShadows(
+	light: THREE.DirectionalLight | undefined,
+	mobile: boolean
+) {
+	if (!light?.castShadow) return
+
+	light.shadow.bias = mobile ? -0.00055 : -0.00028
+	light.shadow.normalBias = mobile ? 0.018 : 0.009
+	light.shadow.radius = mobile ? 2.2 : 3.2
+	light.shadow.blurSamples = mobile ? 8 : 16
+
+	const cam = light.shadow.camera as THREE.OrthographicCamera
+	const half = mobile ? 14 : 18
+	cam.near = 1
+	cam.far = 110
+	cam.left = -half
+	cam.right = half
+	cam.top = half
+	cam.bottom = -half
+	cam.updateProjectionMatrix()
+
+	const shadowMap = light.shadow.map
+	if (shadowMap) {
+		shadowMap.dispose()
+		light.shadow.map = null
+	}
+}
+
+/**
+ * 应用场景默认渲染管线。
+ * @param tuneLights 无存档灯光时为 true，写入棚拍光色 / 强度 / 方位
  */
 export function applySceneAaaRender(
 	core: ThreeCore,
@@ -127,40 +206,59 @@ export function applySceneAaaRender(
 
 	if (tuneLights && core.lights) {
 		const { ambient, hemisphere, directional, fill } = core.lights
+		const C = SCENE_AAA_LIGHT_COLORS
 
-		// 光色对齐云展馆
-		ambient.color.setHex(0xfff5f8)
+		ambient.color.setHex(C.ambient)
 		ambient.intensity = L.ambient
 
 		if (hemisphere) {
-			hemisphere.color.setHex(0xffdce8)
-			hemisphere.groundColor.setHex(0x3a2830)
+			hemisphere.color.setHex(C.hemiSky)
+			hemisphere.groundColor.setHex(C.hemiGround)
 			hemisphere.intensity = L.hemi
+			hemisphere.position.set(0, 12, 0)
 		}
 
-		directional.color.setHex(0xfff2e6)
+		directional.color.setHex(C.key)
 		directional.intensity = L.key
 		directional.castShadow = true
 		if (!directional.target.parent) {
 			core.scene.add(directional.target)
 		}
+		placeDirectionalFromAngles(
+			directional,
+			L.azimuth,
+			L.elevation,
+			L.lightRadius
+		)
 
 		if (fill) {
-			fill.color.setHex(0xa8b8e0)
+			fill.color.setHex(C.fill)
 			fill.intensity = L.fill
 			fill.castShadow = false
+			if (!fill.target.parent) {
+				core.scene.add(fill.target)
+			}
+			placeDirectionalFromAngles(
+				fill,
+				L.fillAzimuth,
+				L.fillElevation,
+				L.fillRadius
+			)
 		}
 	}
 
 	if (tuneLights && core.lensLight) {
-		core.lensLight.color.setHex(0xfff8f5)
+		core.lensLight.color.setHex(SCENE_AAA_LIGHT_COLORS.lens)
 		core.lensLight.intensity = L.lens
-		core.lensLight.distance = 18
+		core.lensLight.distance = 22
 		core.lensLight.decay = 2
 		core.lensLight.castShadow = false
 	}
 
+	// VSM 近距光渗会导致物体贴太近时阴影消失；场景改用 PCFSoft 保接触阴影
+	core.setShadowMapType(THREE.PCFSoftShadowMap)
 	core.setShadowQuality(mobile ? 'medium' : 'high')
+	tuneSceneContactShadows(core.lights?.directional, mobile)
 	core.setShadowMapEnabled(true)
 
 	core.syncSceneColorSpaces()
@@ -175,7 +273,7 @@ export function applySceneAaaRender(
 	} else {
 		core.toggleBloom(true)
 		core.setBloomParams(
-			mobile ? L.bloomStrength * 0.7 : L.bloomStrength,
+			mobile ? L.bloomStrength * 0.65 : L.bloomStrength,
 			L.bloomRadius,
 			L.bloomThreshold
 		)

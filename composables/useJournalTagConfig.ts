@@ -4,8 +4,8 @@ import { parseFeatureMessageConfig } from '@/composables/useFeaturePinnedMenu'
 /** message_config 中手账自定义标签列表的键名 */
 export const JOURNAL_TAGS_CONFIG_KEY = 'journal_tags'
 
-/** 筛选「签到」时匹配 pk_type=0 的手账 */
-export const JOURNAL_SIGN_IN_FILTER_TAG = '签到'
+/** 筛选「手账」时匹配 pk_type=0 的手账（随手记 / 评论型） */
+export const JOURNAL_SIGN_IN_FILTER_TAG = '手账'
 
 /** 手账标签默认快捷选项 */
 export const JOURNAL_DEFAULT_TAGS = [

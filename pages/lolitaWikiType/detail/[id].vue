@@ -34,7 +34,26 @@ const list = ref<Wiki[]>([])
 const total = ref(0)
 const sortMode = ref(false)
 const isSorting = ref(false) // 排序保存状态
+/** 搜索/刷新时递增，强制列表按新结果重建 */
+const listRenderKey = ref(0)
 let oldList: { wiki_id: number | string; sort: number }[] = []
+
+/** 与旧 APP wikiList 一致：有 wiki:admin:insert 时可新增词条 */
+const canInsertWiki = computed(() => user.hasPermi('wiki:admin:insert'))
+
+const wikiAddEditRef = ref<{
+  showModel: (item: null, defaultTypeId?: number, event?: MouseEvent) => void
+} | null>(null)
+
+const showAddWiki = (event?: MouseEvent) => {
+  wikiAddEditRef.value?.showModel(null, type_id.value, event)
+}
+
+const onAddWikiSuccess = () => {
+  page.value = 1
+  listRenderKey.value += 1
+  fetchWikiList()
+}
 
 // 是否为使用手动排序的类型（当前仅类型 3，预留后续扩展）
 const isManualSortType = computed(() => {
@@ -151,6 +170,7 @@ const fetchWikiList = async (Ipage: number | null = null, IpageSize: number | nu
 const handleSearch = () => {
   keyword.value = value.value.trim()
   page.value = 1
+  listRenderKey.value += 1
   // 如果有搜索关键词，自动关闭排序模式
   if (keyword.value && type_id.value !== 3) {
     sortMode.value = false
@@ -293,9 +313,25 @@ onMounted(async () => {
         </div>
       </div>
       
-      <!-- 排序按钮 -->
-      <div class="flex items-center gap-2" v-if="user.token && (user.user?.user_id === 1 || user.user?.user_id === 2018)">
-        <QhxJellyButton>
+      <!-- 操作：新增词条（权限同旧 APP） / 排序（指定管理员） -->
+      <div
+        v-if="canInsertWiki || (user.token && (user.user?.user_id === 1 || user.user?.user_id === 2018))"
+        class="flex items-center gap-2"
+      >
+        <QhxJellyButton v-if="canInsertWiki">
+          <div
+            class="h-[60px] text-center px-1 cursor-pointer"
+            @click="(e: MouseEvent) => showAddWiki(e)"
+          >
+            <div
+              class="m-[5px] text-white rounded-[50%] h-[30px] w-[30px] flex items-center justify-center bg-qhx-primary"
+            >
+              <UIcon name="i-heroicons-plus" class="text-[22px] text-[#ffffff]" />
+            </div>
+            <div class="text-sm text-qhx-text">新增词条</div>
+          </div>
+        </QhxJellyButton>
+        <QhxJellyButton v-if="user.token && (user.user?.user_id === 1 || user.user?.user_id === 2018)">
           <div 
             class="h-[60px] text-center px-1" 
             :class="hasSearchKeyword ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'"
@@ -319,6 +355,7 @@ onMounted(async () => {
     <!-- Wiki列表 -->
     <div class="px-4">
       <Draggable 
+        :key="`wiki-list-${listRenderKey}`"
         :delay="50"
         :disabled="!sortMode || hasSearchKeyword || isManualSortType"
         @start="onDragStart" 
@@ -337,21 +374,17 @@ onMounted(async () => {
         class="flex flex-wrap"
       >
         <template #item="{ element }">
-          <transition-group 
-            tag="div"
-            class="w-full sm:w-1/2 md:w-1/3 lg:w-1/4 xl:w-1/5"
-            name="list"
+          <div
+            :key="element.wiki_id"
+            class="custom-item cursor-grab active:cursor-grabbing w-full sm:w-1/2 md:w-1/3 lg:w-1/4 xl:w-1/5"
           >
-            <div class="custom-item cursor-grab active:cursor-grabbing">
-              <WikiItem
-                :item="element"
-                :need-jump="!sortMode"
-                :key="element.wiki_id"
-                :show-manual-sort="sortMode && isManualSortType"
-                @manual-sort="openManualSort"
-              />
-            </div>
-          </transition-group>
+            <WikiItem
+              :item="element"
+              :need-jump="!sortMode"
+              :show-manual-sort="sortMode && isManualSortType"
+              @manual-sort="openManualSort"
+            />
+          </div>
         </template>
       </Draggable>
       
@@ -377,6 +410,9 @@ onMounted(async () => {
         <span class="text-gray-600 dark:text-gray-300">暂无数据</span>
       </div>
     </div>
+
+    <!-- 新增词条弹窗（复用 WikiAddEdit，预填当前类型） -->
+    <WikiAddEdit ref="wikiAddEditRef" @success="onAddWikiSuccess" />
 
     <!-- 手动排序弹框 -->
     <UModal v-model="showSortDialog" :ui="{ width: 'max-w-md' }">

@@ -30,6 +30,11 @@ const props = withDefaults(
     arrows?: boolean
     /** 交互或悬停时暂停自动播放 */
     pauseOnInteraction?: boolean
+    /**
+     * 窗口渲染：仅挂载当前页与相邻页（±1）的插槽/默认内容，其余保留占位 slide 以维持轨道宽度。
+     * 适合重内容卡片（如手账）；轻量图轮播保持默认 false。
+     */
+    virtualWindow?: boolean
     /** 根节点额外 class */
     rootClass?: string
   }>(),
@@ -40,6 +45,7 @@ const props = withDefaults(
     indicators: true,
     arrows: false,
     pauseOnInteraction: true,
+    virtualWindow: false,
     rootClass: ''
   }
 )
@@ -47,6 +53,8 @@ const props = withDefaults(
 const emit = defineEmits<{
   'update:modelValue': [index: number]
   change: [index: number]
+  /** 非 loop 时滑过首/末页触发，便于外层接续（如切月） */
+  overflow: [direction: 'prev' | 'next']
 }>()
 
 const rootRef = ref<HTMLElement | null>(null)
@@ -74,6 +82,21 @@ const currentIndex = computed(() => {
   return clampIndex(localIndex.value)
 })
 
+/** 是否在渲染窗口内（virtualWindow 关闭时恒为 true） */
+function isInRenderWindow(i: number): boolean {
+  if (!props.virtualWindow) return true
+  const n = slideCount.value
+  if (n <= 0) return false
+  const cur = currentIndex.value
+  if (i === cur) return true
+  if (props.loop && n > 1) {
+    const prev = (cur - 1 + n) % n
+    const next = (cur + 1) % n
+    return i === prev || i === next
+  }
+  return i === cur - 1 || i === cur + 1
+}
+
 function setIndex(index: number) {
   const next = clampIndex(index)
   if (props.modelValue !== undefined) {
@@ -87,14 +110,20 @@ function setIndex(index: number) {
 function goPrev() {
   const n = slideCount.value
   if (n <= 0) return
-  if (!props.loop && currentIndex.value <= 0) return
+  if (!props.loop && currentIndex.value <= 0) {
+    emit('overflow', 'prev')
+    return
+  }
   setIndex(currentIndex.value - 1)
 }
 
 function goNext() {
   const n = slideCount.value
   if (n <= 0) return
-  if (!props.loop && currentIndex.value >= n - 1) return
+  if (!props.loop && currentIndex.value >= n - 1) {
+    emit('overflow', 'next')
+    return
+  }
   setIndex(currentIndex.value + 1)
 }
 
@@ -129,6 +158,7 @@ function applyRubberBand(rawDelta: number): number {
 }
 
 let dragStartX = 0
+let dragRawDelta = 0
 
 function refreshWidth() {
   if (rootRef.value) {
@@ -137,8 +167,10 @@ function refreshWidth() {
 }
 
 function onDragStart(clientX: number) {
-  if (slideCount.value <= 1) return
+  // 允许仅 1 页时拖动，以便非 loop 场景触发 overflow（如切月）
+  if (slideCount.value <= 0) return
   dragStartX = clientX
+  dragRawDelta = 0
   isDragging.value = true
   swipeOffset.value = 0
   refreshWidth()
@@ -146,8 +178,9 @@ function onDragStart(clientX: number) {
 }
 
 function onDragMove(clientX: number) {
-  if (!isDragging.value || slideCount.value <= 1) return
+  if (!isDragging.value || slideCount.value <= 0) return
   const rawDelta = clientX - dragStartX
+  dragRawDelta = rawDelta
   swipeOffset.value = applyRubberBand(rawDelta)
 }
 
@@ -155,11 +188,19 @@ function onDragEnd() {
   if (!isDragging.value) return
   isDragging.value = false
   const delta = swipeOffset.value
-  if (Math.abs(delta) > DRAG_THRESHOLD) {
-    if (delta < 0) goNext()
+  const raw = dragRawDelta
+  const n = slideCount.value
+  const atStart = !props.loop && currentIndex.value <= 0
+  const atEnd = !props.loop && currentIndex.value >= n - 1
+  // 边界橡皮筋会缩小 offset，边缘/单页用原始位移判断，便于触发 overflow
+  const useRaw = n <= 1 || (atStart && raw > 0) || (atEnd && raw < 0)
+  const check = useRaw ? raw : delta
+  if (Math.abs(check) > DRAG_THRESHOLD) {
+    if (check < 0) goNext()
     else goPrev()
   }
   swipeOffset.value = 0
+  dragRawDelta = 0
 }
 
 function isLiveBadgeTarget(target: EventTarget | null): boolean {
@@ -280,39 +321,43 @@ defineExpose({
         v-for="(item, i) in items"
         :key="i"
         class="qhx-carousel-slide shrink-0 w-full"
+        :class="{ 'qhx-carousel-slide--placeholder': virtualWindow && !isInRenderWindow(i) }"
         role="group"
         :aria-roledescription="`第 ${i + 1} 张，共 ${slideCount} 张`"
         :aria-hidden="i !== currentIndex"
       >
-        <slot
-          name="item"
-          :item="item"
-          :index="i"
-          :active="i === currentIndex"
-        >
-          <CommunityLiveThumb
-            v-if="item.videoSrc"
-            :poster-src="item.src"
-            :video-src="item.videoSrc"
+        <template v-if="isInRenderWindow(i)">
+          <slot
+            name="item"
+            :item="item"
+            :index="i"
             :active="i === currentIndex"
-            :alt="item.alt ?? ''"
-            media-class="h-full w-full object-cover"
-          />
-          <component
-            :is="item.href ? 'a' : 'div'"
-            v-else
-            v-bind="item.href ? { href: item.href } : {}"
-            class="block h-full w-full outline-none"
+            :in-window="true"
           >
-            <img
-              :src="item.src"
+            <CommunityLiveThumb
+              v-if="item.videoSrc"
+              :poster-src="item.src"
+              :video-src="item.videoSrc"
+              :active="i === currentIndex"
               :alt="item.alt ?? ''"
-              class="h-full w-full object-cover"
-              draggable="false"
-              :loading="i === 0 ? 'eager' : 'lazy'"
+              media-class="h-full w-full object-cover"
             />
-          </component>
-        </slot>
+            <component
+              :is="item.href ? 'a' : 'div'"
+              v-else
+              v-bind="item.href ? { href: item.href } : {}"
+              class="block h-full w-full outline-none"
+            >
+              <img
+                :src="item.src"
+                :alt="item.alt ?? ''"
+                class="h-full w-full object-cover"
+                draggable="false"
+                :loading="i === currentIndex ? 'eager' : 'lazy'"
+              />
+            </component>
+          </slot>
+        </template>
       </div>
     </div>
 
@@ -376,5 +421,11 @@ defineExpose({
 
 .qhx-carousel-track--dragging:active {
   cursor: grabbing;
+}
+
+/* 窗口外占位：保持轨道宽度，不撑内容高度依赖由父级 h-full 约束 */
+.qhx-carousel-slide--placeholder {
+  min-height: 1px;
+  pointer-events: none;
 }
 </style>

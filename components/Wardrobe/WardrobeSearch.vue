@@ -232,6 +232,86 @@
           </div>
         </div>
 
+        <!-- 原价：起末相同为精确值，不同为区间 -->
+        <div class="mb-3 flex items-center gap-3">
+          <div class="text-sm font-semibold text-gray-800 dark:text-gray-200 flex-shrink-0 w-20">原价：</div>
+          <div class="flex-1 flex items-center gap-2">
+            <UInput
+              v-model="filter_list.original_price.start"
+              type="number"
+              placeholder="起 / 精确"
+              class="flex-1"
+              :ui="{
+                base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
+                rounded: 'rounded-[10px]',
+                padding: { xs: 'px-4 py-2' },
+                color: {
+                  white: {
+                    outline: 'bg-gray-50 dark:bg-gray-800 ring-1 ring-gray-300 dark:ring-gray-600 focus:ring-2 focus:ring-qhx-primary'
+                  }
+                }
+              }"
+            />
+            <span class="text-gray-600 dark:text-gray-400 text-sm">到</span>
+            <UInput
+              v-model="filter_list.original_price.end"
+              type="number"
+              placeholder="末"
+              class="flex-1"
+              :ui="{
+                base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
+                rounded: 'rounded-[10px]',
+                padding: { xs: 'px-4 py-2' },
+                color: {
+                  white: {
+                    outline: 'bg-gray-50 dark:bg-gray-800 ring-1 ring-gray-300 dark:ring-gray-600 focus:ring-2 focus:ring-qhx-primary'
+                  }
+                }
+              }"
+            />
+          </div>
+        </div>
+
+        <!-- 出物价：起末相同为精确值，不同为区间 -->
+        <div class="mb-3 flex items-center gap-3">
+          <div class="text-sm font-semibold text-gray-800 dark:text-gray-200 flex-shrink-0 w-20">出物价：</div>
+          <div class="flex-1 flex items-center gap-2">
+            <UInput
+              v-model="filter_list.offer_price.start"
+              type="number"
+              placeholder="起 / 精确"
+              class="flex-1"
+              :ui="{
+                base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
+                rounded: 'rounded-[10px]',
+                padding: { xs: 'px-4 py-2' },
+                color: {
+                  white: {
+                    outline: 'bg-gray-50 dark:bg-gray-800 ring-1 ring-gray-300 dark:ring-gray-600 focus:ring-2 focus:ring-qhx-primary'
+                  }
+                }
+              }"
+            />
+            <span class="text-gray-600 dark:text-gray-400 text-sm">到</span>
+            <UInput
+              v-model="filter_list.offer_price.end"
+              type="number"
+              placeholder="末"
+              class="flex-1"
+              :ui="{
+                base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
+                rounded: 'rounded-[10px]',
+                padding: { xs: 'px-4 py-2' },
+                color: {
+                  white: {
+                    outline: 'bg-gray-50 dark:bg-gray-800 ring-1 ring-gray-300 dark:ring-gray-600 focus:ring-2 focus:ring-qhx-primary'
+                  }
+                }
+              }"
+            />
+          </div>
+        </div>
+
         <!-- 穿着次数 -->
         <div class="mb-3 flex items-center gap-3">
           <div class="text-sm font-semibold text-gray-800 dark:text-gray-200 flex-shrink-0 w-20">穿着次数：</div>
@@ -364,6 +444,12 @@
                 </div>
                 <div v-if="item.price" class="text-xs text-gray-600 dark:text-gray-400 mb-1">
                   价格：{{ item.price }}
+                </div>
+                <div v-if="item.original_price" class="text-xs text-gray-500 dark:text-gray-400 mb-1">
+                  原价：{{ item.original_price }}
+                </div>
+                <div v-if="item.offer_price" class="text-xs text-rose-500 dark:text-rose-400 mb-1">
+                  出物价：{{ item.offer_price }}
                 </div>
                 <div v-if="item.times !== undefined && item.times !== null" class="text-xs text-gray-600 dark:text-gray-400 mb-1">
                   穿着次数：{{ item.times }}
@@ -591,6 +677,14 @@ const filter_list = ref({
     start_price: null as number | null,
     end_price: null as number | null
   },
+  original_price: {
+    start: null as number | null,
+    end: null as number | null
+  },
+  offer_price: {
+    start: null as number | null,
+    end: null as number | null
+  },
   season: [] as Array<{ value: string; label: string }>,
   clothes_note: '',
   wardrobe_status: [] as Array<{ value: string; label: string }>,
@@ -606,7 +700,34 @@ const fetchShopOptiosns = async (keywords: string) => {
   return data
 }
 
-const filter_list1 = ref<Array<{ field: string; op: string; value: string | number }>>([])
+const filter_list1 = ref<Array<{ field: string; op: string; value: string | number | Record<string, unknown> }>>([])
+
+/** 原价/出物价：仅填一侧或起末相等 → 精确值；起末不同 → 区间 `{ start, end }` */
+function pushRangeOrExactFilter(
+  list: Array<{ field: string; op: string; value: string | number | Record<string, unknown> }>,
+  field: 'original_price' | 'offer_price',
+  start: number | null | string,
+  end: number | null | string
+) {
+  const hasStart = start !== null && start !== undefined && start !== ''
+  const hasEnd = end !== null && end !== undefined && end !== ''
+  if (!hasStart && !hasEnd) return
+  const startNum = hasStart ? Number(start) : null
+  const endNum = hasEnd ? Number(end) : null
+  if (hasStart && hasEnd) {
+    if (startNum === endNum) {
+      list.push({ field, op: 'and', value: startNum as number })
+    } else {
+      list.push({ field, op: 'and', value: { start: startNum, end: endNum } })
+    }
+    return
+  }
+  if (hasStart) {
+    list.push({ field, op: 'and', value: startNum as number })
+  } else if (hasEnd) {
+    list.push({ field, op: 'and', value: endNum as number })
+  }
+}
 
 // 控制显示
 const show_control = ref({
@@ -812,7 +933,7 @@ const jumpToClothes = (item: WardrobeClothes) => {
 
 // 格式化筛选列表
 const formatFilterList = () => {
-  const filterList: Array<{ field: string; op: string; value: string | number }> = []
+  const filterList: Array<{ field: string; op: string; value: string | number | Record<string, unknown> }> = []
 
   // 颜色
   if (filter_list.value.color.length > 0) {
@@ -856,6 +977,19 @@ const formatFilterList = () => {
       value: end_price
     })
   }
+
+  pushRangeOrExactFilter(
+    filterList,
+    'original_price',
+    filter_list.value.original_price.start,
+    filter_list.value.original_price.end
+  )
+  pushRangeOrExactFilter(
+    filterList,
+    'offer_price',
+    filter_list.value.offer_price.start,
+    filter_list.value.offer_price.end
+  )
 
   // 名称
   if (filter_list.value.clothes_note && filter_list.value.clothes_note.trim() !== '') {
@@ -945,6 +1079,14 @@ const clearFilter = () => {
     price: {
       start_price: null,
       end_price: null
+    },
+    original_price: {
+      start: null,
+      end: null
+    },
+    offer_price: {
+      start: null,
+      end: null
     },
     season: [],
     clothes_note: '',
@@ -1059,6 +1201,14 @@ const initData = () => {
     price: {
       start_price: null,
       end_price: null
+    },
+    original_price: {
+      start: null,
+      end: null
+    },
+    offer_price: {
+      start: null,
+      end: null
     },
     season: [],
     clothes_note: '',

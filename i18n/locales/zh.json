@@ -208,6 +208,8 @@
 	"addLibrary.max_images_18": "最多选18张图片",
 	"addLibrary.max_images_1": "最多选1张图片",
 	"addLibrary.select_library_warning": "请选择图鉴",
+	"addLibrary.no_permission": "无权限修改",
+	"addLibrary.no_permission_desc": "该图鉴不属于您的店铺，无法修改。",
 	"addLibrary.error": "错误",
 	"addLibrary.warning": "警告",
 	"addLibrary.success": "成功",

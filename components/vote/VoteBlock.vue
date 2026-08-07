@@ -16,6 +16,8 @@ const props = withDefaults(
 )
 
 const toast = useToast()
+const user = useUserStore()
+const { navigateToLogin } = useLoginRedirect()
 
 const detail = ref<VoteDetail | null>(null)
 const isVoted = ref(false)
@@ -60,6 +62,12 @@ async function loadDetail() {
 }
 
 async function loadIsVote() {
+  // 未登录不请求，避免 /vote/isVote 401 强制跳登录
+  if (!user.token) {
+    isVoted.value = false
+    checkList.value = []
+    return
+  }
   const res = await getVoteIsVote({ vote_id: props.voteId })
   if (res && Array.isArray(res) && res.length > 0) {
     checkList.value = res.map((r) => ({ options_id: r.options_id }))
@@ -97,6 +105,10 @@ function chooseOptions(item: VoteOption) {
 }
 
 async function submit() {
+  if (!user.token) {
+    await navigateToLogin()
+    return
+  }
   if (loading.value) {
     toast.add({ title: '请求中请稍候', color: 'amber' })
     return

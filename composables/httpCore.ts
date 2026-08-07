@@ -50,6 +50,7 @@ async function handleResponse<T>(response: any): Promise<T> {
           pathname === LOGIN_PATH || pathname.startsWith('/register')
             ? undefined
             : current
+        // 鸿蒙 Outlink：走 MessagePort type=login 携带回跳地址；浏览器仍跳 /login
         void redirectToLoginPage(redirectTo)
       }
       throw new Error(

@@ -41,6 +41,19 @@ const useExternalItems = computed(() => props.items !== undefined)
 
 const emit = defineEmits(['loading', 'loaded', 'error'])
 
+/** 列表项稳定 key：覆盖服饰/图鉴/百科等常见主键 */
+const resolveItemKey = (item: Record<string, unknown> | null | undefined, index: number) => {
+  if (!item || typeof item !== 'object') return index
+  return (
+    item.clothes_id ??
+    item.library_id ??
+    item.wiki_type_id ??
+    item.wiki_id ??
+    item.id ??
+    index
+  )
+}
+
 // 分页状态
 const page = ref(1)
 const isLoading = ref(false)
@@ -308,10 +321,10 @@ defineExpose({
       class="waterfall-default-container relative w-full"
       :class="`waterfall-container${props.itemKey === 0 ? '' : props.itemKey}`"
     >
-      <!-- 每个项目 -->
+      <!-- 每个项目：优先业务主键，避免搜索刷新后按 index 复用导致内容不更新 -->
       <div 
         v-for="(item, index) in list" 
-        :key="(item as Record<string, unknown>)?.clothes_id ?? (item as Record<string, unknown>)?.library_id ?? index" 
+        :key="resolveItemKey(item, index)" 
         class="waterfall-default-item"
         :class="`waterfall-item${props.itemKey === 0 ? '' : props.itemKey}`"
         :style="`width: calc(100% / ${column})`"

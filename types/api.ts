@@ -273,6 +273,8 @@ export interface WardrobeConfig {
   open_danmu?: number
   /** 标签自定义排序，未出现在此数组中的 tag 展示时排在末尾 */
   tags?: string[]
+  /** 部位布局自定义排序；仅保留仍存在的部位，未出现在此数组中的部位排在已排序项之后、「未分类」之前 */
+  clothes_part?: string[]
 }
 
 /** 衣柜 */
@@ -317,7 +319,12 @@ export interface WardrobeClothes {
   detail_image?: string
   detail_image_list?: string[]
   season?: string
+  /** 入柜/实际价格（计入总价等仍以此为准） */
   price?: number
+  /** 原价 */
+  original_price?: number | null
+  /** 出物价 */
+  offer_price?: number | null
   color?: string
   times?: number
   real_picture?: string
@@ -1029,7 +1036,7 @@ export interface PlanList {
 /** 手账 */
 export interface Journal {
   journal_id: number
-  pk_type: number // 0=评论(签到) 1=帖子 2=服饰 3=搭配 4=图鉴 5=计划 6=3D场景
+  pk_type: number // 0=评论(手账) 1=帖子 2=服饰 3=搭配 4=图鉴 5=计划 6=3D场景
   pk_id: number
   journal_time: string // YYYY-MM-DD
   create_time?: string

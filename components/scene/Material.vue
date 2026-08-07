@@ -134,11 +134,14 @@ const onCustomFileChange = async (e: Event) => {
   const lower = file.name.toLowerCase()
   const isGltf = lower.endsWith('.glb') || lower.endsWith('.gltf')
   const isImage = file.type.startsWith('image/')
+  const isVideo =
+    file.type.startsWith('video/')
+    || /\.(mp4|webm|mov|m4v|ogg)$/i.test(lower)
 
-  if (!isGltf && !isImage) {
+  if (!isGltf && !isImage && !isVideo) {
     toast.add({
       title: '格式不支持',
-      description: '请选择图片或 .glb / .gltf 文件',
+      description: '请选择图片、视频或 .glb / .gltf 文件',
       icon: 'i-heroicons-exclamation-circle',
       color: 'orange'
     })
@@ -158,6 +161,18 @@ const onCustomFileChange = async (e: Event) => {
         is_enable: 0,
         is_private: 0,
         options: { assetKind: 'image' }
+      })
+      chooseMaterial(created)
+    } else if (isVideo) {
+      const uploaded = await uploadFileToOSS(file, 'video')
+      const created = await insertMaterial({
+        materia_title: file.name,
+        materia_url: uploaded.file_url,
+        pk_type: 5,
+        pk_id: uploaded.file_id,
+        is_enable: 0,
+        is_private: 0,
+        options: { assetKind: 'video', mediaType: 'video' }
       })
       chooseMaterial(created)
     } else {
@@ -282,7 +297,7 @@ defineExpose({
     ref="customUploadInput"
     type="file"
     class="hidden"
-    accept="image/*,.glb,.gltf,model/gltf-binary,model/gltf+json"
+    accept="image/*,video/*,.mp4,.webm,.mov,.m4v,.ogg,.glb,.gltf,model/gltf-binary,model/gltf+json"
     @change="onCustomFileChange"
   >
   <QhxImagePicker :multiple="true" @update:files="onUpdateFiles" class="hidden" ref="imagePicker" />
@@ -472,7 +487,7 @@ defineExpose({
           type="button"
           class="w-full h-8 text-[10px] font-medium text-center px-1.5 cursor-pointer flex items-center justify-center gap-1 bg-indigo-50 dark:bg-indigo-900/25 hover:bg-indigo-100 dark:hover:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300 rounded-lg border border-indigo-200/70 dark:border-indigo-700/50 transition-colors active:scale-[0.98] disabled:opacity-60 disabled:pointer-events-none"
           :disabled="customUploading"
-          title="上传图片或 glTF / GLB 模型"
+          title="上传图片、视频或 glTF / GLB 模型"
           @click="triggerCustomUpload"
         >
           <UIcon

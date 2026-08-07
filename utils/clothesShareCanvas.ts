@@ -62,6 +62,8 @@ export const CLOTHES_SHARE_FIELD_META: { key: string; label: string }[] = [
   { key: 'num', label: '拥有数量' },
   { key: 'main_style', label: '风格' },
   { key: 'price', label: '价格' },
+  { key: 'original_price', label: '原价' },
+  { key: 'offer_price', label: '出物价' },
   { key: 'size', label: '尺码' },
   { key: 'times', label: '穿着次数' },
   { key: 'cost_per_wear', label: '次均价格' },

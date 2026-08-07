@@ -1,15 +1,14 @@
 <script setup lang="ts">
-import type { Wiki, PaginationResponse } from '@/types/api';
-import { getWikiList } from '@/api/wiki';
+import type { WikiType, PaginationResponse } from '@/types/api'
+import { getWikiList } from '@/api/wiki'
 import authGlobal from '@/middleware/auth.global'
 import type QhxWaterList from '@/components/Qhx/WaterList.vue'
+
 const waterList = ref<InstanceType<typeof QhxWaterList> | null>(null)
 const user = useUserStore()
 const configStore = useConfigStore()
-const router = useRouter()
 const route = useRoute()
 // 分页参数
-const pageSize = 20
 const page = ref(Number(route.query.page) || 1)
 const keyword = ref('')
 const value = ref('')
@@ -17,6 +16,8 @@ const column = ref(4)
 const isLoading = ref(true)
 const isServer = useState('isServer', () => false)
 const type_id = ref<number | undefined>(undefined)
+/** 搜索时递增，强制列表按新结果重建，避免 key 复用导致 UI 不刷新 */
+const listRenderKey = ref(0)
 
 useHead({
 	title: 'Lolita百科',
@@ -35,15 +36,39 @@ definePageMeta({
   name: 'lolitaWiki',
   middleware: [authGlobal]
 })
-// 页码改变处理函数
+
 const handlePageChange = (current: number) => {
   page.value = current
 }
 
-// 统一处理搜索逻辑
+const fetchWikiTypeList = async (pageNum: number, pageSize: number) => {
+  const params: {
+    page: number
+    pageSize: number
+    keywords?: string
+    type_id?: number
+  } = {
+    page: pageNum,
+    pageSize
+  }
+  if (keyword.value) {
+    params.keywords = keyword.value
+  }
+  if (type_id.value !== undefined) {
+    params.type_id = type_id.value
+  }
+  const response = await getWikiList(params) as unknown as PaginationResponse<WikiType>
+  isLoading.value = false
+  return {
+    rows: response.rows,
+    count: response.count
+  }
+}
+
 const handleSearch = () => {
   keyword.value = value.value.trim()
-  waterList.value?.refresh()
+  // 重建列表；WaterList mount 时会按最新 keyword 重新拉取
+  listRenderKey.value += 1
 }
 
 onMounted(() => {
@@ -100,30 +125,23 @@ onMounted(() => {
         />
       </div>
     </div>
-    <!-- 空状态 -->
-    <QhxWaterList ref="waterList"
-    :fetch-data="async (page, pageSize) => {
-      const params: any = {
-        page: page,
-        pageSize: pageSize
-      }
-      if (keyword) {
-        params.keywords = keyword
-      }
-      if (type_id) {
-        params.type_id = type_id
-      }
-      const response = await getWikiList(params)
-      isLoading = false
-      return {
-        rows: response.rows,
-        count: response.count
-      }
-    }" :columns="4" :itemKey="0"  :columns_768="2" :enableWaterfall="true" :enableLoadMore="true">
+    <QhxWaterList
+      :key="`wiki-type-list-${listRenderKey}`"
+      ref="waterList"
+      :fetch-data="fetchWikiTypeList"
+      :columns="4"
+      :item-key="0"
+      :columns_768="2"
+      :enable-waterfall="true"
+      :enable-load-more="true"
+    >
       <template #default="{ item, debouncedApplyLayout }">
-        <!-- 自定义内容 -->
-        <div class="custom-item" :key="item.wiki_id">
-          <WikiTypeItem :item="item" @image-load="debouncedApplyLayout"></WikiTypeItem>
+        <div class="custom-item">
+          <WikiTypeItem
+            :item="item"
+            :key="item.wiki_type_id"
+            @image-load="debouncedApplyLayout"
+          />
         </div>
       </template>
     </QhxWaterList>
@@ -157,4 +175,3 @@ onMounted(() => {
   @apply transform scale-110 transition-transform duration-300;
 }
 </style>
-

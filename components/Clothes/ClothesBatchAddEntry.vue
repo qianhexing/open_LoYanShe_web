@@ -119,6 +119,7 @@ const libraryToBatchItem = (lib: Library): ClothesBatchInsertItem => {
   }
   if (lib.library_price) {
     item.price = lib.library_price
+    item.original_price = lib.library_price
   }
   if (lib.shop?.shop_id) {
     item.origin = lib.shop.shop_id

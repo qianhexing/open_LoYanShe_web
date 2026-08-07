@@ -23,7 +23,7 @@
           <div class="mb-2 ml-2">
             <!-- <div class="text-5xl mb-4">💬</div> -->
             <div class="text-sm mt-[14px] text-gray-800 dark:text-gray-100 mb-2">
-              {{ replyToName ? `回复 ${replyToName}` : '发表评论' }}
+              {{ modalTitle }}
           </div>
             <!-- <p class="text-sm text-gray-500 dark:text-gray-400">分享您的想法</p> -->
           </div>
@@ -102,6 +102,8 @@ interface Props {
 interface ShowModalParams {
   id: number | string
   type: string
+  /** 弹窗标题；不传时：有回复对象显示「回复 xxx」，否则「发表评论」 */
+  title?: string
   /** 被回复用户 user_id（子评回复时常用） */
   reply_to?: number
   reply_to_name?: string
@@ -139,6 +141,7 @@ const richTextEditorRef = ref<InstanceType<typeof QhxRichTextEditor> | null>(nul
 // 评论相关状态
 const commentId = ref<number | string | null>(null)
 const commentType = ref<string>('')
+const customTitle = ref<string>('')
 const replyTo = ref<number | undefined>(undefined)
 const replyToName = ref<string>('')
 /** 成功回调里刷新子列表用：主楼 id */
@@ -150,6 +153,12 @@ const replaceCommentIds = ref<number[]>([])
 
 // 编辑器内容
 const editorContent = ref('')
+
+const modalTitle = computed(() => {
+  if (customTitle.value) return customTitle.value
+  if (replyToName.value) return `回复 ${replyToName.value}`
+  return '发表评论'
+})
 
 // 缓存内容
 const cachedContent = ref('')
@@ -193,6 +202,7 @@ const showModel = async (e: ShowModalParams) => {
   // 设置参数
   commentId.value = e.id
   commentType.value = e.type
+  customTitle.value = e.title?.trim() || ''
   replyTo.value = e.reply_to
   replyToName.value = e.reply_to_name || ''
   threadRootCommentId.value = e.threadRootCommentId

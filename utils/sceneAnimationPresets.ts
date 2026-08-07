@@ -39,6 +39,16 @@ export const SCENE_ANIMATION_TIMING_PARAMS: AnimationParamDef[] = [
 	},
 	{ key: 'delay', label: '延迟(秒)', type: 'number', default: 0, min: 0, max: 60, step: 0.1 },
 	{
+		key: 'startTime',
+		/** 已推进的播放进度（秒），用于错落相位；不是 delay */
+		label: '起始时间(已运行秒)',
+		type: 'number',
+		default: 0,
+		min: 0,
+		max: 120,
+		step: 0.1
+	},
+	{
 		key: 'repeat',
 		label: '重复',
 		type: 'number',
@@ -86,6 +96,24 @@ export function computeSatelliteOrbitOffset(
 	}
 }
 
+/**
+ * 秋千钟摆：静止位在绳下端，支点在物体正上方 ropeLength 处。
+ * theta=0 时偏移为 0；摆动时沿圆弧抬升并倾斜。
+ */
+export function computeSwingOffset(
+	theta: number,
+	ropeLength: number,
+	axis: 'x' | 'z'
+): { x: number; y: number; z: number; rotX: number; rotZ: number } {
+	const R = Math.max(0.01, ropeLength)
+	const sinT = Math.sin(theta)
+	const lift = R * (1 - Math.cos(theta))
+	if (axis === 'x') {
+		return { x: 0, y: lift, z: R * sinT, rotX: theta, rotZ: 0 }
+	}
+	return { x: R * sinT, y: lift, z: 0, rotX: 0, rotZ: theta }
+}
+
 export interface SceneAnimationPreset {
 	id: string
 	label: string
@@ -110,16 +138,45 @@ function timingFromParams(
 	overrides?: Partial<Pick<SceneEffectJSON, 'duration' | 'ease' | 'repeat' | 'yoyo'>>
 ): Pick<
 	SceneEffectJSON,
-	'duration' | 'ease' | 'delay' | 'repeat' | 'yoyo' | 'repeatDelay'
+	'duration' | 'ease' | 'delay' | 'startTime' | 'repeat' | 'yoyo' | 'repeatDelay'
 > {
 	const repeat = Math.round(num(params, 'repeat', overrides?.repeat ?? 0))
 	return {
 		duration: overrides?.duration ?? num(params, 'duration', 2),
 		ease: overrides?.ease ?? String(params.ease ?? 'power2.inOut'),
 		delay: num(params, 'delay', 0),
+		/** 已运行进度，不是延迟；播放时 seek 切入 */
+		startTime: Math.max(0, num(params, 'startTime', 0)),
 		repeat: repeat === -1 ? -1 : Math.max(0, repeat),
 		yoyo: overrides?.yoyo ?? Boolean(params.yoyo),
 		repeatDelay: num(params, 'repeatDelay', 0)
+	}
+}
+
+/** 读取起始时间：动画已推进的秒数（非 delay） */
+export function readAnimationStartTime(effect: SceneEffectJSON): number {
+	const candidates = [effect.startTime, effect.options?.startTime]
+	for (const v of candidates) {
+		const n = typeof v === 'number' ? v : Number(v)
+		if (Number.isFinite(n) && n > 0) return n
+	}
+	return 0
+}
+
+/**
+ * 将 tween 快进到「延迟结束后再跑 startTime 秒」的位置，形成错落相位。
+ * suppressEvents=false 以立刻刷新卫星/秋千等 onUpdate 姿态。
+ */
+export function seekGsapTweensToStartTime(
+	tweens: { seek: (time: number, suppressEvents?: boolean) => unknown }[],
+	effect: SceneEffectJSON
+) {
+	const startTime = readAnimationStartTime(effect)
+	if (!(startTime > 0) || !tweens.length) return
+	const delay = Math.max(0, Number(effect.delay ?? effect.options?.delay) || 0)
+	const seekTo = delay + startTime
+	for (const tw of tweens) {
+		tw.seek(seekTo, false)
 	}
 }
 
@@ -230,7 +287,9 @@ export const SCENE_ANIMATION_PRESETS: SceneAnimationPreset[] = [
 				ease: 'none',
 				repeat: Math.round(num(params, 'repeat', -1)) === -1 ? -1 : Math.max(0, num(params, 'repeat', 0)),
 				yoyo: false,
-				delay: num(params, 'delay', 0)
+				delay: num(params, 'delay', 0),
+				startTime: Math.max(0, num(params, 'startTime', 0)),
+				repeatDelay: num(params, 'repeatDelay', 0)
 			}
 		}
 	},
@@ -431,7 +490,9 @@ export const SCENE_ANIMATION_PRESETS: SceneAnimationPreset[] = [
 						? -1
 						: Math.max(0, num(params, 'repeat', 0)),
 				yoyo: false,
-				delay: num(params, 'delay', 0)
+				delay: num(params, 'delay', 0),
+				startTime: Math.max(0, num(params, 'startTime', 0)),
+				repeatDelay: num(params, 'repeatDelay', 0)
 			}
 		}
 	},
@@ -454,6 +515,78 @@ export const SCENE_ANIMATION_PRESETS: SceneAnimationPreset[] = [
 				options: { ...params },
 				properties: { 'position.y': obj.position.y + d },
 				...timingFromParams(params, { repeat: 0, yoyo: false })
+			}
+		}
+	},
+	{
+		id: 'swing',
+		label: '秋千',
+		icon: 'material-symbols:attractions',
+		category: 'rotate',
+		paramDefs: mergeParamDefs(
+			{
+				key: 'angle',
+				label: '摆角(°)',
+				type: 'number',
+				default: 28,
+				min: 5,
+				max: 80,
+				step: 1
+			},
+			{
+				key: 'ropeLength',
+				label: '绳长',
+				type: 'number',
+				default: 1.2,
+				min: 0.1,
+				max: 30,
+				step: 0.1
+			},
+			{
+				key: 'axis',
+				label: '摆动轴',
+				type: 'select',
+				default: 'z',
+				options: [
+					{ value: 'z', label: '左右 (Z)' },
+					{ value: 'x', label: '前后 (X)' }
+				]
+			},
+			{
+				key: 'duration',
+				label: '周期(秒)',
+				type: 'number',
+				default: 2.4,
+				min: 0.4,
+				max: 30,
+				step: 0.1
+			},
+			{
+				key: 'repeat',
+				label: '重复',
+				type: 'number',
+				default: -1,
+				min: -1,
+				max: 100,
+				step: 1
+			}
+		),
+		buildEffect(params) {
+			return {
+				type: 'animation',
+				preset: 'swing',
+				options: { ...params },
+				properties: {},
+				duration: num(params, 'duration', 2.4),
+				ease: 'none',
+				repeat:
+					Math.round(num(params, 'repeat', -1)) === -1
+						? -1
+						: Math.max(0, num(params, 'repeat', 0)),
+				yoyo: false,
+				delay: num(params, 'delay', 0),
+				startTime: Math.max(0, num(params, 'startTime', 0)),
+				repeatDelay: num(params, 'repeatDelay', 0)
 			}
 		}
 	}

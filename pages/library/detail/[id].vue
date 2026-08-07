@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { Library, LibrarySimilarItem, PaginationResponse, Shop, LibraryVideo, LibraryPipe, Community, User, Compilations, SenceForeign, Comment, WardrobeClothes } from '@/types/api';
+import type { Library, LibrarySimilarItem, PaginationResponse, Shop, LibraryVideo, LibraryPipe, Community, User, Compilations, SenceForeign, Scene, Comment, WardrobeClothes } from '@/types/api';
 import { getMatchingListListVisitor, type MatchingListItem } from '@/api/matching_list'
 import type MatchingAddEditType from '@/components/matching/MatchingAddEdit.vue'
 import { getLibraryDetail, getLibraryList, getLibraryVideo, getLibraryPipeListAll, getLibrarySimilar, updateStateMultiple, updatePatternElementsMultiple, updateSaleTimeMultiple } from '@/api/library'
@@ -31,7 +31,8 @@ import {
 import type { CommunityPostForeignContext } from '@/utils/communityPost'
 import { isHtml5PlusWebview, openLibraryWebPath, openLibraryDetailTab, libraryDetailPageHref, openMatchingDetailTab, openHumanPlatform } from '@/composables/useLibraryDetailNavigation'
 import { BASE_IMG } from '@/utils/ipConfig'
-import { deleteSenceForeign, getSenceForeignList, getSceneId, insertScene } from '@/api/scene'
+import { deleteSenceForeign, getSenceForeignList, getSceneId, insertScene, insertSenceForeign } from '@/api/scene'
+import type SceneChooseType from '@/components/scene/SceneChoose.vue'
 import type { SceneJSON } from '@/utils/threeCore'
 import { getCommentList } from '@/api/comment'
 import {
@@ -45,7 +46,7 @@ import { plainTextFromHtml } from '@/utils/libraryShareCanvas'
 import { libraryVideoAddrIsRad } from '@/utils/humanPlatformNav'
 import CommentSection from '@/components/comment/CommentSection.vue'
 import CommunityCommentModal from '@/components/community/CommentModal.vue'
-import LibraryShareImage from '@/components/library/LibraryShareImage.vue'
+import LibraryDetailActionBar from '@/components/library/LibraryDetailActionBar.vue'
 import LibrarySimilarRecommendImage from '@/components/library/LibrarySimilarRecommendImage.vue'
 
 const CommunityChoose = defineAsyncComponent(
@@ -77,6 +78,9 @@ const LibraryChoose = defineAsyncComponent(
 )
 const LibraryTypeColorChoose = defineAsyncComponent(
   () => import('@/components/library/LibraryTypeColorChoose.vue'),
+)
+const SceneChoose = defineAsyncComponent(
+  () => import('@/components/scene/SceneChoose.vue'),
 )
 
 const customInput = defineAsyncComponent(() => import('~/components/Clothes/customInput.vue'))
@@ -300,12 +304,6 @@ const matchingAddEditRef = ref<InstanceType<typeof MatchingAddEditType> | null>(
 
 const FAB_ACTIONS_STORAGE_KEY = 'library-detail-fab-actions-expanded'
 const fabActionsExpanded = ref(true)
-const fabTotalBadgeCount = computed(() => {
-  const returnCount = libraryReturnTabCount.value ?? 0
-  const eventCount = libraryEventTabCount.value ?? 0
-  const matchingCount = libraryMatchingTabCount.value ?? 0
-  return returnCount + eventCount + matchingCount
-})
 
 const libraryMatchingFilterList = computed(() => {
   const lid = library.value?.library_id
@@ -804,6 +802,13 @@ const senceForeignPage = ref(1)
 const senceForeignTotal = ref(0)
 const senceForeignHasMore = computed(() => senceForeignRows.value.length < senceForeignTotal.value)
 
+const fabTotalBadgeCount = computed(() => {
+  const returnCount = libraryReturnTabCount.value ?? 0
+  const eventCount = libraryEventTabCount.value ?? 0
+  const matchingCount = libraryMatchingTabCount.value ?? 0
+  return returnCount + eventCount + matchingCount
+})
+
 const resolveSenceForeignSceneId = (item: SenceForeign) => item.sence?.sence_id ?? item.sence_id
 
 async function fetchSenceForeignList(reset = false) {
@@ -855,14 +860,66 @@ const deleteSenceForeignLoading = ref(false)
 const showDeleteSenceForeignConfirm = ref(false)
 const deleteSenceForeignTarget = ref<SenceForeign | null>(null)
 
+const librarySceneChooseRef = ref<InstanceType<typeof SceneChooseType> | null>(null)
+const librarySceneSubmitLoading = ref(false)
+
+function openLibrarySubmitScene(e?: MouseEvent) {
+  if (!user.token) {
+    toast.add({
+      title: '请先登录',
+      description: '登录后可将自己的场景投稿到本图鉴',
+      icon: 'i-heroicons-exclamation-circle',
+      color: 'orange'
+    })
+    return
+  }
+  if (!library.value?.library_id || librarySceneSubmitLoading.value) return
+  librarySceneChooseRef.value?.showModel(e)
+}
+
+async function onLibrarySceneChosen(list: Scene[]) {
+  const lid = library.value?.library_id
+  const selected = list[0]
+  if (lid == null || selected?.sence_id == null || librarySceneSubmitLoading.value) return
+
+  librarySceneSubmitLoading.value = true
+  try {
+    await insertSenceForeign({
+      sence_id: selected.sence_id,
+      pk_type: LIBRARY_SENCE_FOREIGN_PK_TYPE,
+      pk_id: lid
+    })
+    toast.add({
+      title: '投稿成功',
+      description: '场景已关联到本图鉴',
+      icon: 'i-heroicons-check-circle',
+      color: 'green'
+    })
+    senceForeignPage.value = 1
+    await fetchSenceForeignList(true)
+  } catch (error: unknown) {
+    console.error('投稿场景失败:', error)
+    const msg = error instanceof Error ? error.message : '请稍后重试'
+    toast.add({
+      title: '投稿失败',
+      description: msg,
+      icon: 'i-heroicons-x-circle',
+      color: 'red'
+    })
+  } finally {
+    librarySceneSubmitLoading.value = false
+  }
+}
+
 function isSenceForeignSceneOwner(item: SenceForeign) {
   const myId = user.user?.user_id
   if (myId == null) return false
   return item.user_id === myId
 }
 
-function jumpToSceneEdit(senceId: number) {
-  const sceneUrl = `/scene/detail/${senceId}?edit=1`
+/** 场景详情 / 编辑：UniApp outerLink2、鸿蒙 Outlink、浏览器新标签 */
+function openSceneInNewTab(senceId: number, edit = false) {
+  const sceneUrl = `/scene/detail/${senceId}${edit ? '?edit=1' : ''}`
   const fullUrl = `https://lolitalibrary.com${sceneUrl}`
 
   if (isHtml5PlusWebview()) {
@@ -882,15 +939,29 @@ function jumpToSceneEdit(senceId: number) {
   }
 
   if (port.value) {
-    port.value.postMessage(JSON.stringify({
-      type: 'jump',
-      path: 'Outlink',
-      params: { url: fullUrl },
-    }))
+    try {
+      port.value.postMessage(JSON.stringify({
+        type: 'jump',
+        path: 'Outlink',
+        params: { url: fullUrl },
+      }))
+    } catch {
+      window.open(sceneUrl, '_blank', 'noopener,noreferrer')
+    }
     return
   }
 
   window.open(sceneUrl, '_blank', 'noopener,noreferrer')
+}
+
+function jumpToSceneDetail(senceId: number | null | undefined) {
+  if (senceId == null) return
+  openSceneInNewTab(senceId, false)
+}
+
+function jumpToSceneEdit(senceId: number | null | undefined) {
+  if (senceId == null) return
+  openSceneInNewTab(senceId, true)
 }
 
 function openCloneSenceForeignConfirm(item: SenceForeign) {
@@ -1905,35 +1976,6 @@ const setLibraryScore = async (score: number) => {
   }
 }
 
-const { copyCurrentUrl } = useCopyCurrentUrl()
-
-const handleShareLink = async () => {
-  try {
-    const result = await copyCurrentUrl()
-    if (result?.success) {
-      toast.add({
-        title: '链接已复制',
-        description: '可将本页链接分享给他人',
-        icon: 'i-heroicons-check-circle',
-        color: 'green',
-      })
-    } else {
-      toast.add({
-        title: '复制失败',
-        description: result?.message || '请手动复制地址栏链接',
-        icon: 'i-heroicons-exclamation-circle',
-        color: 'orange',
-      })
-    }
-  } catch {
-    toast.add({
-      title: '复制失败',
-      icon: 'i-heroicons-x-circle',
-      color: 'red',
-    })
-  }
-}
-
 const splitLibraryCsv = (value?: string | null) =>
   value ? value.split(',').map((item) => item.trim()).filter(Boolean) : []
 
@@ -2168,7 +2210,7 @@ const libraryChildThumbImgClass =
       aria-hidden="true"
       :style="{ height: `${config.statusBarHeight}px` }"
     />
-    <div class="container mx-auto p-4 max-md:p-2">
+    <div class="container mx-auto p-4 max-md:p-2 library-detail-page">
     <div
       v-if="library"
       class="library-fab-anchor fixed top-20 max-md:top-16 inset-x-0 z-[60] pointer-events-none"
@@ -2745,70 +2787,29 @@ const libraryChildThumbImgClass =
           </div>
 
 
-          <div class="flex justify-center">
-            <div class=" flex-1 text-center">
-              <UserGoodBtn :pk_type="2" :pk_id="library.library_id" :good_count="library.good_count" :need_judge="true">
-              </UserGoodBtn>
-            </div>
-            <div class=" flex-1 text-center">
-              <UserCollectBtn :collect_count="library.collect_count" :pk_type="2" :pk_id="library.library_id"
-                :need_judge="true"></UserCollectBtn>
-            </div>
-            <div class=" flex-1 text-center">
-              <div @click="handleAddToWardrobe" class="cursor-pointer inline-block">
-                <div class="flex items-center">
-                  <UIcon 
-                    name="hugeicons:wardrobe-04" 
-                    class="text-[26px]"
-                    :class="isInWardrobe ? 'text-[#409EFF]' : 'text-gray-500'" 
-                  />
-                  <div class="text-base ml-1">{{ wardrobeCount }}</div>
-                </div>
-              </div>
-            </div>
-            <div class="flex-1 text-center">
-              <button
-                type="button"
-                class="cursor-pointer inline-block"
-                title="复制链接"
-                aria-label="分享：复制当前页链接"
-                @click="handleShareLink"
-              >
-                <UIcon name="ic:round-share" class="text-[26px] text-gray-500" />
-              </button>
-            </div>
-            <div class="flex-1 text-center">
-              <LibraryShareImage :payload="librarySharePayload" variant="inline" />
-            </div>
-            <!-- <div class=" flex-1 text-center">
-              <UIcon :name="'i-heroicons-heart-20-solid'" class=" text-[26px] text-[#409EFF] cursor-pointer" @click="captureScreen()"/>
-            </div> -->
-          </div>
         </div>
       </div>
       <div v-if="library?.detail_image && detailImageLayoutReady" class="my-2">
         <div class="flex items-center justify-end gap-1 px-3 max-md:px-2 mb-1.5">
           <div
-            class="inline-flex rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden text-xs"
+            class="library-layout-capsule"
             role="group"
             aria-label="详情图布局"
           >
             <button
               type="button"
-              class="px-2.5 py-1 transition-colors"
-              :class="detailImageLayout === 'thumb'
-                ? 'bg-qhx-primary text-white'
-                : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'"
+              class="library-layout-capsule__btn"
+              :class="{ 'library-layout-capsule__btn--active': detailImageLayout === 'thumb' }"
+              :aria-pressed="detailImageLayout === 'thumb'"
               @click="setDetailImageLayout('thumb')"
             >
               缩略图
             </button>
             <button
               type="button"
-              class="px-2.5 py-1 transition-colors border-l border-gray-200 dark:border-gray-700"
-              :class="detailImageLayout === 'long'
-                ? 'bg-qhx-primary text-white'
-                : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'"
+              class="library-layout-capsule__btn"
+              :class="{ 'library-layout-capsule__btn--active': detailImageLayout === 'long' }"
+              :aria-pressed="detailImageLayout === 'long'"
               @click="setDetailImageLayout('long')"
             >
               长图
@@ -2832,71 +2833,83 @@ const libraryChildThumbImgClass =
           />
         </div>
       </div>
-      <div v-if="shop" class="p-3 px-6">
+      <div v-if="shop" class="p-3 px-6 max-md:px-3">
         <ShopItem v-if="shop" :item="shop" size="small" />
       </div>
       <div
-        v-if="library && (senceForeignLoading && senceForeignRows.length === 0 || senceForeignRows.length > 0)"
-        class="p-3 px-8"
+        v-if="library"
+        class="p-3 px-8 max-md:px-3"
       >
-        <p class="text-xs text-gray-500 dark:text-gray-400 mb-2">关联场景</p>
+        <div class="mb-2 flex items-center justify-between gap-2">
+          <p class="text-xs text-gray-500 dark:text-gray-400">关联场景</p>
+          <button
+            type="button"
+            class="inline-flex items-center gap-1.5 rounded-full bg-qhx-primary px-3 py-1.5 text-sm font-medium text-qhx-inverted shadow-sm hover:bg-qhx-primaryHover transition-colors disabled:opacity-50"
+            :disabled="librarySceneSubmitLoading || !library?.library_id"
+            @click="openLibrarySubmitScene($event)"
+          >
+            <UIcon
+              :name="librarySceneSubmitLoading ? 'i-heroicons-arrow-path' : 'i-heroicons-plus'"
+              class="text-base"
+              :class="{ 'animate-spin': librarySceneSubmitLoading }"
+            />
+            <span>{{ librarySceneSubmitLoading ? '投稿中…' : '投稿场景' }}</span>
+          </button>
+        </div>
         <div v-if="senceForeignLoading && senceForeignRows.length === 0" class="text-sm text-gray-500 py-2">
           加载中…
+        </div>
+        <div v-else-if="senceForeignRows.length === 0" class="text-sm text-gray-500 dark:text-gray-400 py-2">
+          暂无关联场景，可将自己的场景投稿到本图鉴
         </div>
         <div v-else class="flex gap-3 overflow-x-auto pb-1">
           <div
             v-for="item in senceForeignRows"
             :key="item.foreign_id"
-            class="flex-shrink-0 w-[120px] max-md:w-[100px] rounded-[10px] border border-gray-100 dark:border-gray-700 overflow-hidden shadow-sm hover:shadow-md transition-shadow bg-white dark:bg-gray-900/40"
+            class="relative flex-shrink-0 w-[120px] max-md:w-[100px] rounded-[10px] border border-gray-100 dark:border-gray-700 overflow-hidden shadow-sm hover:shadow-md transition-shadow bg-white dark:bg-gray-900/40"
           >
-            <nuxt-link
-              :to="`/scene/detail/${resolveSenceForeignSceneId(item)}`"
-              class="block"
+            <button
+              v-if="isSenceForeignSceneOwner(item)"
+              type="button"
+              class="absolute top-2 right-2 z-10 flex h-8 w-8 items-center justify-center rounded-full bg-white/95 text-red-500 shadow-md ring-1 ring-gray-200/80 hover:bg-red-50 dark:bg-gray-800/95 dark:ring-gray-600 dark:hover:bg-red-950/40 disabled:opacity-50"
+              :disabled="deleteSenceForeignLoading && deleteSenceForeignTarget?.foreign_id === item.foreign_id"
+              aria-label="移除投稿"
+              @click.stop="openDeleteSenceForeignConfirm(item)"
             >
-              <div class="relative aspect-[4/3] w-full bg-gray-100 dark:bg-gray-800">
+              <UIcon
+                :name="deleteSenceForeignLoading && deleteSenceForeignTarget?.foreign_id === item.foreign_id ? 'i-heroicons-arrow-path' : 'i-heroicons-trash'"
+                class="h-4 w-4"
+                :class="{ 'animate-spin': deleteSenceForeignLoading && deleteSenceForeignTarget?.foreign_id === item.foreign_id }"
+              />
+            </button>
+            <button
+              type="button"
+              class="block w-full text-left cursor-pointer"
+              :aria-label="item.sence?.sence_desc || '查看场景'"
+              @click="jumpToSceneDetail(resolveSenceForeignSceneId(item))"
+            >
+              <div class="relative aspect-[3/4] w-full bg-gray-100 dark:bg-gray-800">
                 <img
-                  :src="`${BASE_IMG}${item.sence?.sence_cover || 'static/plan_cover/default.jpg'}?x-oss-process=image/quality,q_80/resize,w_300,h_225`"
+                  :src="`${BASE_IMG}${item.sence?.sence_cover || 'static/plan_cover/default.jpg'}?x-oss-process=image/quality,q_80/resize,w_300,h_400`"
                   :alt="item.sence?.sence_desc || '场景封面'"
                   class="w-full h-full object-cover"
                   loading="lazy"
                 />
               </div>
-              <p
-                class="px-2 pt-1.5 pb-1 text-xs font-medium text-gray-900 dark:text-gray-100 leading-snug line-clamp-2"
-                :title="item.sence?.sence_desc || '未命名场景'"
-              >
-                {{ item.sence?.sence_desc || '未命名场景' }}
-              </p>
-            </nuxt-link>
-            <div class="flex border-t border-gray-100 dark:border-gray-700">
-              <button
-                type="button"
-                class="flex-1 flex items-center justify-center gap-0.5 px-2 py-1.5 text-[11px] text-qhx-primary hover:bg-qhx-primary/5 transition-colors disabled:opacity-50"
-                :disabled="cloneSceneLoading && cloneTargetSceneId === resolveSenceForeignSceneId(item)"
-                @click.stop="openCloneSenceForeignConfirm(item)"
-              >
-                <UIcon
-                  :name="cloneSceneLoading && cloneTargetSceneId === resolveSenceForeignSceneId(item) ? 'i-heroicons-arrow-path' : 'i-heroicons-document-duplicate'"
-                  class="text-sm"
-                  :class="{ 'animate-spin': cloneSceneLoading && cloneTargetSceneId === resolveSenceForeignSceneId(item) }"
-                />
-                <span>克隆</span>
-              </button>
-              <button
-                v-if="isSenceForeignSceneOwner(item)"
-                type="button"
-                class="flex-1 flex items-center justify-center gap-0.5 px-2 py-1.5 text-[11px] text-red-500 border-l border-gray-100 dark:border-gray-700 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors disabled:opacity-50"
-                :disabled="deleteSenceForeignLoading && deleteSenceForeignTarget?.foreign_id === item.foreign_id"
-                @click.stop="openDeleteSenceForeignConfirm(item)"
-              >
-                <UIcon
-                  :name="deleteSenceForeignLoading && deleteSenceForeignTarget?.foreign_id === item.foreign_id ? 'i-heroicons-arrow-path' : 'i-heroicons-trash'"
-                  class="text-sm"
-                  :class="{ 'animate-spin': deleteSenceForeignLoading && deleteSenceForeignTarget?.foreign_id === item.foreign_id }"
-                />
-                <span>删除</span>
-              </button>
-            </div>
+            </button>
+            <button
+              type="button"
+              class="w-full flex items-center justify-center gap-1 px-2 py-1.5 text-[11px] font-medium bg-qhx-primary text-qhx-inverted hover:bg-qhx-primaryHover transition-colors disabled:opacity-50"
+              :disabled="cloneSceneLoading && cloneTargetSceneId === resolveSenceForeignSceneId(item)"
+              @click.stop="openCloneSenceForeignConfirm(item)"
+            >
+              <UIcon
+                :name="cloneSceneLoading && cloneTargetSceneId === resolveSenceForeignSceneId(item) ? 'i-heroicons-arrow-path' : 'i-heroicons-document-duplicate'"
+                class="text-sm"
+                :class="{ 'animate-spin': cloneSceneLoading && cloneTargetSceneId === resolveSenceForeignSceneId(item) }"
+              />
+              <span>克隆</span>
+            </button>
           </div>
           <button
             v-if="senceForeignHasMore"
@@ -2916,7 +2929,7 @@ const libraryChildThumbImgClass =
       </div>
       <div
           v-if="uploadUser"
-          class="p-3 px-8"
+          class="p-3 px-8 max-md:px-3"
         >
           <p class="text-xs text-gray-500 dark:text-gray-400 mb-2">上传用户</p>
           <UserInfo :user="uploadUser" :need-jump="true" size="mini" />
@@ -3154,6 +3167,11 @@ const libraryChildThumbImgClass =
         title="选择要关联的返图帖子"
         placeholder="搜索我的帖子..."
         @choose="onLibraryReturnCommunityChosen"
+      />
+      <SceneChoose
+        ref="librarySceneChooseRef"
+        :multiple="false"
+        @choose="onLibrarySceneChosen"
       />
       <CommunityPostModal
         ref="libraryReturnPostModalRef"
@@ -3640,25 +3658,28 @@ const libraryChildThumbImgClass =
         <p class="mt-2 text-sm leading-relaxed text-gray-600 dark:text-gray-400">
           将把「{{ deleteSenceForeignTarget?.sence?.sence_desc || '未命名场景' }}」从本图鉴关联场景中移除，场景本身不会被删除。是否继续？
         </p>
-        <div class="mt-4 flex flex-col gap-2 sm:flex-row">
-          <UButton
-            variant="outline"
-            color="gray"
-            class="w-full min-w-0 justify-center sm:flex-1"
+        <div class="mt-4 flex justify-end gap-2">
+          <button
+            type="button"
+            class="px-4 py-2 text-sm rounded-full border border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 disabled:opacity-50"
             :disabled="deleteSenceForeignLoading"
             @click="showDeleteSenceForeignConfirm = false"
           >
             取消
-          </UButton>
-          <UButton
-            color="red"
-            class="w-full min-w-0 justify-center sm:flex-1"
-            :loading="deleteSenceForeignLoading"
+          </button>
+          <button
+            type="button"
+            class="inline-flex items-center justify-center gap-1.5 px-4 py-2 text-sm rounded-full bg-red-500 text-white hover:bg-red-600 disabled:opacity-50"
             :disabled="deleteSenceForeignLoading"
             @click="confirmDeleteSenceForeign"
           >
-            确认删除
-          </UButton>
+            <UIcon
+              v-if="deleteSenceForeignLoading"
+              name="i-heroicons-arrow-path"
+              class="h-4 w-4 animate-spin"
+            />
+            {{ deleteSenceForeignLoading ? '删除中…' : '确认删除' }}
+          </button>
         </div>
       </div>
     </QhxModal>
@@ -3674,24 +3695,28 @@ const libraryChildThumbImgClass =
         <p class="mt-2 text-sm leading-relaxed text-gray-600 dark:text-gray-400">
           将把「{{ cloneTargetSceneName }}」完整复制到你的账号下，并进入编辑模式。是否继续？
         </p>
-        <div class="mt-4 flex flex-col gap-2 sm:flex-row">
-          <UButton
-            variant="outline"
-            color="gray"
-            class="w-full min-w-0 justify-center sm:flex-1"
+        <div class="mt-4 flex justify-end gap-2">
+          <button
+            type="button"
+            class="px-4 py-2 text-sm rounded-full border border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 disabled:opacity-50"
             :disabled="cloneSceneLoading"
             @click="showCloneSceneConfirm = false"
           >
             取消
-          </UButton>
-          <UButton
-            class="w-full min-w-0 justify-center bg-qhx-primary text-qhx-inverted hover:bg-qhx-primaryHover sm:flex-1"
-            :loading="cloneSceneLoading"
+          </button>
+          <button
+            type="button"
+            class="inline-flex items-center justify-center gap-1.5 px-4 py-2 text-sm rounded-full bg-qhx-primary text-qhx-inverted hover:bg-qhx-primaryHover disabled:opacity-50"
             :disabled="cloneSceneLoading"
             @click="confirmCloneSenceForeign"
           >
-            确认克隆
-          </UButton>
+            <UIcon
+              v-if="cloneSceneLoading"
+              name="i-heroicons-arrow-path"
+              class="h-4 w-4 animate-spin"
+            />
+            {{ cloneSceneLoading ? '克隆中…' : '确认克隆' }}
+          </button>
         </div>
       </div>
     </QhxModal>
@@ -3722,6 +3747,17 @@ const libraryChildThumbImgClass =
       </button>
     </div> -->
     </div>
+    <LibraryDetailActionBar
+      v-if="library"
+      :library-id="library.library_id"
+      :good-count="library.good_count || 0"
+      :collect-count="library.collect_count || 0"
+      :wardrobe-count="wardrobeCount"
+      :is-in-wardrobe="isInWardrobe"
+      :share-payload="librarySharePayload"
+      @comment="openCommentComposer"
+      @add-to-wardrobe="handleAddToWardrobe"
+    />
   </div>
 </template>
 
@@ -3752,6 +3788,90 @@ const libraryChildThumbImgClass =
   aspect-ratio: 1 / 1;
   object-fit: cover;
   object-position: center;
+}
+
+.library-detail-page {
+  padding-bottom: calc(5.5rem + env(safe-area-inset-bottom, 0px));
+}
+
+.library-layout-capsule {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  padding: 0.18rem;
+  border-radius: 9999px;
+  border: 1.5px solid color-mix(in srgb, var(--primary-color, #ff9eb5) 40%, transparent);
+  background: color-mix(in srgb, var(--primary-color, #ff9eb5) 6%, #fff);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.65),
+    0 2px 8px rgba(0, 0, 0, 0.05);
+}
+
+.dark .library-layout-capsule {
+  border-color: color-mix(in srgb, var(--primary-color, #ff9eb5) 45%, rgba(255, 255, 255, 0.1));
+  background: color-mix(in srgb, var(--primary-color, #ff9eb5) 10%, rgba(17, 24, 39, 0.72));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    0 2px 10px rgba(0, 0, 0, 0.28);
+}
+
+.library-layout-capsule__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.28rem 0.75rem;
+  border-radius: 9999px;
+  border: none;
+  background: transparent;
+  color: color-mix(in srgb, var(--primary-color, #ff9eb5) 72%, #6b7280);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background 0.18s ease,
+    color 0.18s ease,
+    box-shadow 0.18s ease,
+    transform 0.14s ease;
+}
+
+.library-layout-capsule__btn:hover:not(.library-layout-capsule__btn--active) {
+  background: color-mix(in srgb, var(--primary-color, #ff9eb5) 10%, transparent);
+}
+
+.library-layout-capsule__btn:active {
+  transform: scale(0.97);
+}
+
+.library-layout-capsule__btn--active {
+  background: linear-gradient(
+    145deg,
+    color-mix(in srgb, var(--primary-color, #ff9eb5) 90%, #fff) 0%,
+    color-mix(in srgb, var(--primary-color, #ff9eb5) 68%, #f472b6) 100%
+  );
+  color: #fff;
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.38),
+    0 2px 8px color-mix(in srgb, var(--primary-color, #ff9eb5) 22%, transparent);
+}
+
+.dark .library-layout-capsule__btn {
+  color: color-mix(in srgb, var(--primary-color, #ff9eb5) 70%, #e5e7eb);
+}
+
+.dark .library-layout-capsule__btn--active {
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--primary-color, #ff9eb5) 75%, #831843) 0%,
+    color-mix(in srgb, var(--primary-color, #ff9eb5) 58%, #4c0519) 100%
+  );
+  color: #fce7f3;
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.12),
+    0 2px 10px color-mix(in srgb, var(--primary-color, #ff9eb5) 28%, transparent);
 }
 
 .library-fab-stack {

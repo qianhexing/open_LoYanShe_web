@@ -1,5 +1,6 @@
 <!-- 安全的富文本解析器！安全！（应该安全吧） -->
 <script setup lang="ts">
+import { openLibraryWebPath } from '@/composables/useLibraryDetailNavigation'
 import { BASE_IMG } from '~/utils/ipConfig'
 
 defineProps<{
@@ -12,8 +13,6 @@ interface RichNode {
   children: RichNode[]
   attrs: Record<string, string>
 }
-
-const configStore = useConfigStore()
 
 function parseVoteIdFromNode(node: RichNode): number | null {
   const raw = node.attrs?.href
@@ -95,14 +94,6 @@ function isAllowedIframeSrc(val: string): boolean {
   }
 }
 
-function isInUniAppShell(): boolean {
-  return typeof window !== 'undefined' && navigator.userAgent.includes('Html5Plus')
-}
-
-function openLinkInNewTab(href: string) {
-  window.open(toAbsoluteUrl(href), '_blank', 'noopener,noreferrer')
-}
-
 function onSafeLinkClick(ev: MouseEvent, href: string | null) {
   if (import.meta.server) return
   if (ev.defaultPrevented) return
@@ -119,29 +110,8 @@ function onSafeLinkClick(ev: MouseEvent, href: string | null) {
   }
 
   ev.preventDefault()
-
-  const uni = configStore.uniWebviewJs
-  const abs = toAbsoluteUrl(href)
-  const toast = useToast()
-
-  if (isInUniAppShell() && typeof uni !== 'undefined' && uni?.navigateTo) {
-    // UniApp WebView 环境 - 使用 outerlink
-    uni.navigateTo({
-      url: `/pages/common/outerLink?url=${abs}`,
-      fail: () => {
-        toast.add({
-          title: '路径调试',
-          description: abs,
-          icon: 'i-heroicons-exclamation-circle',
-          color: 'red'
-        })
-      }
-    })
-    return
-  }
-
-  // 网页版：站内/站外链接均新页签打开
-  openLinkInNewTab(href)
+  // UniApp outerLink2 / 鸿蒙 Outlink / 浏览器新标签
+  openLibraryWebPath(toAbsoluteUrl(href))
 }
 
 function onRichLinkClick(ev: MouseEvent, node: RichNode) {

@@ -541,6 +541,50 @@ function clothesPreviewItem(src: string | null | undefined, alt = '') {
   return [{ src: appendOwnerLargeImageParams(src), alt }]
 }
 
+/** 详情图布局：缩略图（九宫格）/ 长图（竖排），与图鉴详情共用偏好 */
+const CLOTHES_DETAIL_IMAGE_LAYOUT_KEY = 'libraryDetailImageLayout'
+type ClothesDetailImageLayout = 'thumb' | 'long'
+
+function readDetailImageLayoutPref(): ClothesDetailImageLayout {
+  if (!import.meta.client || typeof localStorage === 'undefined') return 'thumb'
+  return localStorage.getItem(CLOTHES_DETAIL_IMAGE_LAYOUT_KEY) === 'long' ? 'long' : 'thumb'
+}
+
+function persistDetailImageLayoutPref(layout: ClothesDetailImageLayout) {
+  if (!import.meta.client || typeof localStorage === 'undefined') return
+  localStorage.setItem(CLOTHES_DETAIL_IMAGE_LAYOUT_KEY, layout)
+}
+
+const detailImageLayout = ref<ClothesDetailImageLayout>('thumb')
+/** 客户端读取缓存后再展示详情图，避免首屏误渲染 */
+const detailImageLayoutReady = ref(false)
+
+function setDetailImageLayout(layout: ClothesDetailImageLayout) {
+  detailImageLayout.value = layout
+  persistDetailImageLayoutPref(layout)
+}
+
+const detailImageUrls = computed(() => {
+  const list = detail.value?.detail_image_list
+  if (!list?.length) return [] as string[]
+  return list.map((item) => (item || '').trim()).filter(Boolean)
+})
+
+const detailImageThumbList = computed(() =>
+  detailImageUrls.value.map((image) => ({
+    src: `${image}?x-oss-process=image/quality,q_80/resize,w_300,h_300`,
+    alt: detail.value?.clothes_note || '',
+  })),
+)
+
+/** 缩略图：手机端三列等宽网格，桌面端保持 flex + 固定尺寸 */
+const clothesThumbGridClass =
+  'clothes-thumb-grid flex flex-wrap my-2 max-md:grid max-md:grid-cols-3 max-md:gap-2'
+const clothesThumbImgClass =
+  'cursor-pointer ml-3 w-[100px] h-[100px] aspect-square object-cover object-center rounded-[10px] shadow-lg border border-gray-200 max-md:ml-0 max-md:w-full'
+const clothesDetailImageLongImgClass =
+  'cursor-pointer w-full h-auto object-contain rounded-lg shadow-lg border border-gray-200'
+
 // 是否共享（兼容 undefined/null/0）
 const isShared = computed(() => (detail.value?.is_shared ?? 0) === 1)
 
@@ -906,6 +950,8 @@ const clothesShareSource = computed((): ClothesShareSource | null => {
     })
   }
   if (d.price) sections.push({ key: 'price', title: '价格', text: `￥${d.price}` })
+  if (d.original_price) sections.push({ key: 'original_price', title: '原价', text: `￥${d.original_price}` })
+  if (d.offer_price) sections.push({ key: 'offer_price', title: '出物价', text: `￥${d.offer_price}` })
   if (d.size?.trim()) sections.push({ key: 'size', title: '尺码', text: d.size.trim() })
   if (d.times !== undefined && d.times !== null) {
     sections.push({ key: 'times', title: '穿着次数', text: String(d.times) })
@@ -1483,6 +1529,8 @@ async function confirmDeleteMatching() {
 
 onMounted(async () => {
   restoreHeaderCollapsedPref()
+  detailImageLayout.value = readDetailImageLayoutPref()
+  detailImageLayoutReady.value = true
   const isInUniApp =
     typeof window !== 'undefined' &&
     navigator.userAgent.includes('Html5Plus')
@@ -2350,6 +2398,12 @@ const showEditPlan = (e?: MouseEvent) => {
                         <template v-else>定尾：￥{{ planPriceDisplay.amount }}</template>
                       </div>
                     </div>
+                    <div v-if="detail.original_price" :class="clothesPlateRow">
+                      原价：￥{{ detail.original_price }}
+                    </div>
+                    <div v-if="detail.offer_price" :class="clothesPlateRow">
+                      出物价：￥{{ detail.offer_price }}
+                    </div>
 
                     <!-- 次均价格 -->
                     <div v-if="detail.times && detail.times > 0 && detail.price" :class="clothesPlateRow">
@@ -2648,11 +2702,49 @@ const showEditPlan = (e?: MouseEvent) => {
                     </div>
 
                     <!-- 详情图片列表 -->
-                    <div v-if="detail.detail_image_list && detail.detail_image_list.length > 0" class="mt-4 space-y-2">
-                      <QhxPreviewImage v-for="(img, index) in detail.detail_image_list" :key="index"
-                        :list="clothesPreviewItem(img, detail.clothes_note || '')"
-                        :preview="mapOwnerLargeImageParams(detail.detail_image_list)"
-                        className="w-full rounded-lg" />
+                    <div v-if="detailImageUrls.length > 0 && detailImageLayoutReady" class="mt-4">
+                      <div class="flex items-center justify-end gap-1 mb-1.5">
+                        <div
+                          class="clothes-layout-capsule"
+                          role="group"
+                          aria-label="详情图布局"
+                        >
+                          <button
+                            type="button"
+                            class="clothes-layout-capsule__btn"
+                            :class="{ 'clothes-layout-capsule__btn--active': detailImageLayout === 'thumb' }"
+                            :aria-pressed="detailImageLayout === 'thumb'"
+                            @click="setDetailImageLayout('thumb')"
+                          >
+                            缩略图
+                          </button>
+                          <button
+                            type="button"
+                            class="clothes-layout-capsule__btn"
+                            :class="{ 'clothes-layout-capsule__btn--active': detailImageLayout === 'long' }"
+                            :aria-pressed="detailImageLayout === 'long'"
+                            @click="setDetailImageLayout('long')"
+                          >
+                            长图
+                          </button>
+                        </div>
+                      </div>
+                      <div v-if="detailImageLayout === 'long'" class="flex flex-col gap-2">
+                        <QhxPreviewImage
+                          v-for="(img, index) in detailImageUrls"
+                          :key="`detail-long-scene-${index}`"
+                          :list="clothesPreviewItem(img, detail.clothes_note || '')"
+                          :preview="mapOwnerLargeImageParams(detailImageUrls)"
+                          :className="clothesDetailImageLongImgClass"
+                        />
+                      </div>
+                      <div v-else :class="clothesThumbGridClass">
+                        <QhxPreviewImage
+                          :list="detailImageThumbList"
+                          :preview="mapOwnerLargeImageParams(detailImageUrls)"
+                          :className="clothesThumbImgClass"
+                        />
+                      </div>
                     </div>
 
                     <!-- 查看衣柜按钮 -->
@@ -3075,6 +3167,12 @@ const showEditPlan = (e?: MouseEvent) => {
                         <template v-else>定尾：￥{{ planPriceDisplay.amount }}</template>
                       </div>
                     </div>
+                    <div v-if="detail.original_price" :class="clothesPlateRow">
+                      原价：￥{{ detail.original_price }}
+                    </div>
+                    <div v-if="detail.offer_price" :class="clothesPlateRow">
+                      出物价：￥{{ detail.offer_price }}
+                    </div>
 
                     <!-- 次均价格 -->
                     <div v-if="detail.times && detail.times > 0 && detail.price" :class="clothesPlateRow">
@@ -3394,11 +3492,49 @@ const showEditPlan = (e?: MouseEvent) => {
                 </div>
 
                 <!-- 详情图片列表 -->
-                <div v-if="detail.detail_image_list && detail.detail_image_list.length > 0" class="mt-4 space-y-2">
-                  <QhxPreviewImage v-for="(img, index) in detail.detail_image_list" :key="index"
-                    :list="clothesPreviewItem(img, detail.clothes_note || '')"
-                    :preview="mapOwnerLargeImageParams(detail.detail_image_list)"
-                    className="w-full rounded-lg" />
+                <div v-if="detailImageUrls.length > 0 && detailImageLayoutReady" class="mt-4">
+                  <div class="flex items-center justify-end gap-1 mb-1.5">
+                    <div
+                      class="clothes-layout-capsule"
+                      role="group"
+                      aria-label="详情图布局"
+                    >
+                      <button
+                        type="button"
+                        class="clothes-layout-capsule__btn"
+                        :class="{ 'clothes-layout-capsule__btn--active': detailImageLayout === 'thumb' }"
+                        :aria-pressed="detailImageLayout === 'thumb'"
+                        @click="setDetailImageLayout('thumb')"
+                      >
+                        缩略图
+                      </button>
+                      <button
+                        type="button"
+                        class="clothes-layout-capsule__btn"
+                        :class="{ 'clothes-layout-capsule__btn--active': detailImageLayout === 'long' }"
+                        :aria-pressed="detailImageLayout === 'long'"
+                        @click="setDetailImageLayout('long')"
+                      >
+                        长图
+                      </button>
+                    </div>
+                  </div>
+                  <div v-if="detailImageLayout === 'long'" class="flex flex-col gap-2">
+                    <QhxPreviewImage
+                      v-for="(img, index) in detailImageUrls"
+                      :key="`detail-long-${index}`"
+                      :list="clothesPreviewItem(img, detail.clothes_note || '')"
+                      :preview="mapOwnerLargeImageParams(detailImageUrls)"
+                      :className="clothesDetailImageLongImgClass"
+                    />
+                  </div>
+                  <div v-else :class="clothesThumbGridClass">
+                    <QhxPreviewImage
+                      :list="detailImageThumbList"
+                      :preview="mapOwnerLargeImageParams(detailImageUrls)"
+                      :className="clothesThumbImgClass"
+                    />
+                  </div>
                 </div>
 
                 <!-- 是否共享 -->
@@ -3778,6 +3914,101 @@ const showEditPlan = (e?: MouseEvent) => {
   box-shadow:
     inset 3px 3px 10px rgba(0, 0, 0, 0.55),
     inset -2px -2px 8px rgba(140, 100, 120, 0.06);
+}
+
+/* 缩略图 1:1，避免手机端网格内因原图尺寸导致高度不齐 */
+.clothes-thumb-grid :deep(img) {
+  aspect-ratio: 1 / 1;
+  object-fit: cover;
+  object-position: center;
+}
+
+@media (max-width: 767px) {
+  .clothes-thumb-grid :deep(img) {
+    display: block;
+    width: 100%;
+    height: auto;
+  }
+}
+
+.clothes-layout-capsule {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  padding: 0.18rem;
+  border-radius: 9999px;
+  border: 1.5px solid color-mix(in srgb, var(--primary-color, #ff9eb5) 40%, transparent);
+  background: color-mix(in srgb, var(--primary-color, #ff9eb5) 6%, #fff);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.65),
+    0 2px 8px rgba(0, 0, 0, 0.05);
+}
+
+.dark .clothes-layout-capsule {
+  border-color: color-mix(in srgb, var(--primary-color, #ff9eb5) 45%, rgba(255, 255, 255, 0.1));
+  background: color-mix(in srgb, var(--primary-color, #ff9eb5) 10%, rgba(17, 24, 39, 0.72));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    0 2px 10px rgba(0, 0, 0, 0.28);
+}
+
+.clothes-layout-capsule__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.28rem 0.75rem;
+  border-radius: 9999px;
+  border: none;
+  background: transparent;
+  color: color-mix(in srgb, var(--primary-color, #ff9eb5) 72%, #6b7280);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background 0.18s ease,
+    color 0.18s ease,
+    box-shadow 0.18s ease,
+    transform 0.14s ease;
+}
+
+.clothes-layout-capsule__btn:hover:not(.clothes-layout-capsule__btn--active) {
+  background: color-mix(in srgb, var(--primary-color, #ff9eb5) 10%, transparent);
+}
+
+.clothes-layout-capsule__btn:active {
+  transform: scale(0.97);
+}
+
+.clothes-layout-capsule__btn--active {
+  background: linear-gradient(
+    145deg,
+    color-mix(in srgb, var(--primary-color, #ff9eb5) 90%, #fff) 0%,
+    color-mix(in srgb, var(--primary-color, #ff9eb5) 68%, #f472b6) 100%
+  );
+  color: #fff;
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.38),
+    0 2px 8px color-mix(in srgb, var(--primary-color, #ff9eb5) 22%, transparent);
+}
+
+.dark .clothes-layout-capsule__btn {
+  color: color-mix(in srgb, var(--primary-color, #ff9eb5) 70%, #e5e7eb);
+}
+
+.dark .clothes-layout-capsule__btn--active {
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--primary-color, #ff9eb5) 75%, #831843) 0%,
+    color-mix(in srgb, var(--primary-color, #ff9eb5) 58%, #4c0519) 100%
+  );
+  color: #fce7f3;
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.12),
+    0 2px 10px color-mix(in srgb, var(--primary-color, #ff9eb5) 28%, transparent);
 }
 
 /* 手机端滑动引导：轻遮罩、无卡片无模糊，低存在感 */
