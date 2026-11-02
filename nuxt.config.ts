@@ -11,6 +11,42 @@ export default defineNuxtConfig({
 				}
 			}
 		},
+		// 去掉 @nuxt/ui 的 useToast，避免和 Qhx 提示抢同一个名字。
+		'imports:extend'(imports) {
+			const fromPath = (item: { from?: string }) =>
+				String(item.from || '').replace(/\\/g, '/')
+			const isNamed = (item: { name?: string; as?: string }, name: string) =>
+				item.name === name || item.as === name
+
+			for (let i = imports.length - 1; i >= 0; i--) {
+				const item = imports[i]
+				const from = fromPath(item)
+				if (isNamed(item, 'useToast') && from.includes('@nuxt/ui')) {
+					imports.splice(i, 1)
+					continue
+				}
+				if (from.replace(/\\/g, '/').includes('/composables/useToast')) {
+					imports.splice(i, 1)
+				}
+			}
+
+			const hasUseToast = imports.some((item) => isNamed(item, 'useToast'))
+			if (!hasUseToast) {
+				imports.push({
+					from: '~/composables/useQhxToast',
+					name: 'useQhxToast',
+					as: 'useToast',
+				})
+			}
+			const hasShowToast = imports.some((item) => isNamed(item, 'showToast'))
+			if (!hasShowToast) {
+				imports.push({
+					from: '~/utils/qhxToast',
+					name: 'showToast',
+					as: 'showToast',
+				})
+			}
+		},
 	},
 	pages: true,
 	vue: {

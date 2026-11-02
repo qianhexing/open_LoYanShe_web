@@ -143,6 +143,7 @@ export interface WikiDetailParams {
 }
 export interface WikiDetail extends Wiki {
   wiki_describe?: string
+  /** 词条配图相对路径，多张以逗号分隔，最多 20 张 */
   wiki_illustration?: string
   other_name?: string
   filter_library?: FilterList[]
@@ -202,7 +203,9 @@ export interface InsertWikiParams {
   type_id: number
   other_name?: string
   wiki_describe?: string
+  /** 词条配图相对路径，多张以逗号分隔，最多 20 张 */
   wiki_illustration?: string
+  /** 词条封面：相对路径或外链 URL */
   cover?: string
 }
 export async function insertWiki (params: InsertWikiParams): Promise<WikiDetail> {

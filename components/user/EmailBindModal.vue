@@ -1,73 +1,5 @@
-<template>
-  <UModal :model-value="modelValue" @update:model-value="updateModelValue">
-    <UCard>
-      <template #header>
-        <div class="text-lg font-semibold">{{ user?.email ? '换绑邮箱' : '绑定邮箱' }}</div>
-      </template>
-      <div class="space-y-4">
-        <!-- 邮箱输入 -->
-        <UFormGroup label="邮箱" name="email">
-          <UInput
-            v-model="emailForm.email"
-            placeholder="请输入邮箱地址"
-            type="email"
-            icon="i-heroicons-envelope"
-            :ui="{
-              base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
-              rounded: 'rounded-lg',
-            }"
-          />
-        </UFormGroup>
-
-        <!-- 验证码输入 -->
-        <UFormGroup label="验证码" name="email_code">
-          <div class="flex gap-2">
-            <UInput
-              v-model="emailForm.email_code"
-              placeholder="请输入验证码"
-              class="flex-1"
-              icon="i-heroicons-shield-check"
-              :ui="{
-                base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
-                rounded: 'rounded-lg',
-              }"
-            />
-            <UButton
-              @click="sendEmailVerificationCode"
-              :disabled="!canSendEmailCode || emailCodeCountdown > 0"
-              :loading="sendingEmailCode"
-              variant="outline"
-              class="px-4 whitespace-nowrap"
-              :ui="{ rounded: 'rounded-lg' }"
-            >
-              {{ emailCodeCountdown > 0 ? `${emailCodeCountdown}s` : (emailCodeSent ? '重新发送' : '获取验证码') }}
-            </UButton>
-          </div>
-        </UFormGroup>
-
-        <div class="flex gap-2 justify-end mt-4">
-          <UButton
-            @click="handleCancel"
-            variant="outline"
-          >
-            取消
-          </UButton>
-          <UButton
-            @click="confirmBindEmail"
-            class="bg-qhx-primary text-qhx-inverted hover:bg-qhx-primaryHover"
-            :loading="bindingEmail"
-            :disabled="!emailForm.email || !emailForm.email_code"
-          >
-            确认绑定
-          </UButton>
-        </div>
-      </div>
-    </UCard>
-  </UModal>
-</template>
-
 <script setup lang="ts">
-import { sendEmailCode, bindEmail, changeUserInfo } from '@/api/user'
+import { sendEmailCode, bindEmail } from '@/api/user'
 import type { User } from '@/types/api'
 
 interface Props {
@@ -86,7 +18,6 @@ const emit = defineEmits<{
 
 const toast = useToast()
 
-// 邮箱绑定相关
 const emailForm = reactive({
   email: '',
   email_code: ''
@@ -96,22 +27,18 @@ const emailCodeSent = ref(false)
 const emailCodeCountdown = ref(0)
 const bindingEmail = ref(false)
 
-// 邮箱验证码倒计时
 const canSendEmailCode = computed(() => {
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
   return emailForm.email && emailRegex.test(emailForm.email)
 })
 
-// 更新 modelValue
 const updateModelValue = (value: boolean) => {
   emit('update:modelValue', value)
   if (!value) {
-    // 弹窗关闭时重置表单
     resetForm()
   }
 }
 
-// 重置表单
 const resetForm = () => {
   emailForm.email = props.user?.email || ''
   emailForm.email_code = ''
@@ -119,12 +46,10 @@ const resetForm = () => {
   emailCodeCountdown.value = 0
 }
 
-// 取消操作
 const handleCancel = () => {
   updateModelValue(false)
 }
 
-// 发送邮箱验证码
 const sendEmailVerificationCode = async () => {
   if (!canSendEmailCode.value || emailCodeCountdown.value > 0) return
 
@@ -133,8 +58,7 @@ const sendEmailVerificationCode = async () => {
     await sendEmailCode({ email: emailForm.email })
     emailCodeSent.value = true
     emailCodeCountdown.value = 60
-    
-    // 开始倒计时
+
     const timer = setInterval(() => {
       emailCodeCountdown.value--
       if (emailCodeCountdown.value <= 0) {
@@ -160,7 +84,6 @@ const sendEmailVerificationCode = async () => {
   }
 }
 
-// 确认绑定邮箱
 const confirmBindEmail = async () => {
   if (!emailForm.email || !emailForm.email_code) {
     toast.add({
@@ -173,13 +96,11 @@ const confirmBindEmail = async () => {
 
   bindingEmail.value = true
   try {
-    // 验证并绑定邮箱（调用 /email/bind 接口）
     await bindEmail({
       email: emailForm.email,
       code: emailForm.email_code
     })
 
-    // 绑定成功后，更新用户信息
     await useUserStore().updateUserInfo({
       email: emailForm.email
     })
@@ -190,11 +111,8 @@ const confirmBindEmail = async () => {
       color: 'green'
     })
 
-    // 关闭弹窗并重置表单
     updateModelValue(false)
     resetForm()
-    
-    // 触发成功事件
     emit('success')
   } catch (error) {
     toast.add({
@@ -208,7 +126,6 @@ const confirmBindEmail = async () => {
   }
 }
 
-// 错误信息处理
 function getErrorMessage(error: unknown): string {
   if (error instanceof Error) return error.message
   if (typeof error === 'string') return error
@@ -219,14 +136,12 @@ function getErrorMessage(error: unknown): string {
   return ''
 }
 
-// 监听 user 变化，初始化邮箱
 watch(() => props.user, (newUser) => {
   if (newUser?.email) {
     emailForm.email = newUser.email
   }
 }, { immediate: true })
 
-// 监听 modelValue 变化，初始化表单
 watch(() => props.modelValue, (newVal) => {
   if (newVal) {
     emailForm.email = props.user?.email || ''
@@ -237,3 +152,105 @@ watch(() => props.modelValue, (newVal) => {
 })
 </script>
 
+<template>
+  <QhxModal :model-value="modelValue" @update:model-value="updateModelValue">
+    <div
+      class="flex w-[92vw] max-w-md flex-col overflow-hidden rounded-2xl border border-gray-200/60 bg-white shadow-2xl dark:border-gray-700/50 dark:bg-gray-800"
+    >
+      <div
+        class="flex items-center justify-between border-b border-gray-100 bg-gradient-to-r from-pink-50/90 to-orange-50/70 px-5 py-4 dark:border-gray-700 dark:from-gray-800 dark:to-gray-800"
+      >
+        <h3 class="text-base font-semibold text-gray-900 dark:text-white">
+          {{ user?.email ? '换绑邮箱' : '绑定邮箱' }}
+        </h3>
+        <button
+          type="button"
+          class="flex h-8 w-8 items-center justify-center rounded-full text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-700"
+          aria-label="关闭"
+          @click="handleCancel"
+        >
+          <Icon name="i-heroicons-x-mark" class="h-5 w-5" />
+        </button>
+      </div>
+
+      <div class="space-y-4 p-5">
+        <div>
+          <label class="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-300">
+            邮箱
+          </label>
+          <div class="relative">
+            <Icon
+              name="i-heroicons-envelope"
+              class="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400"
+            />
+            <input
+              v-model="emailForm.email"
+              type="email"
+              placeholder="请输入邮箱地址"
+              class="w-full rounded-full border border-gray-200 bg-gray-50/90 py-2.5 pl-10 pr-4 text-sm text-gray-800 outline-none transition-shadow focus:border-qhx-primary/40 focus:ring-2 focus:ring-qhx-primary/30 dark:border-gray-600 dark:bg-gray-800/60 dark:text-gray-100"
+            >
+          </div>
+        </div>
+
+        <div>
+          <label class="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-300">
+            验证码
+          </label>
+          <div class="flex gap-2">
+            <div class="relative min-w-0 flex-1">
+              <Icon
+                name="i-heroicons-shield-check"
+                class="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400"
+              />
+              <input
+                v-model="emailForm.email_code"
+                type="text"
+                placeholder="请输入验证码"
+                class="w-full rounded-full border border-gray-200 bg-gray-50/90 py-2.5 pl-10 pr-4 text-sm text-gray-800 outline-none transition-shadow focus:border-qhx-primary/40 focus:ring-2 focus:ring-qhx-primary/30 dark:border-gray-600 dark:bg-gray-800/60 dark:text-gray-100"
+              >
+            </div>
+            <button
+              type="button"
+              class="shrink-0 rounded-full border border-qhx-primary/40 bg-white px-3.5 py-2 text-sm font-medium text-qhx-primary transition-colors hover:bg-qhx-primary/5 disabled:opacity-50 dark:bg-gray-800"
+              :disabled="!canSendEmailCode || emailCodeCountdown > 0 || sendingEmailCode"
+              @click="sendEmailVerificationCode"
+            >
+              <span v-if="sendingEmailCode" class="inline-flex items-center gap-1">
+                <Icon name="i-heroicons-arrow-path" class="h-3.5 w-3.5 animate-spin" />
+                发送中
+              </span>
+              <span v-else>
+                {{ emailCodeCountdown > 0 ? `${emailCodeCountdown}s` : (emailCodeSent ? '重新发送' : '获取验证码') }}
+              </span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div class="flex justify-end gap-2 border-t border-gray-100 px-5 py-4 dark:border-gray-700">
+        <button
+          type="button"
+          class="rounded-full border border-gray-200 px-4 py-2 text-sm text-gray-600 transition-colors hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700"
+          @click="handleCancel"
+        >
+          取消
+        </button>
+        <QhxJellyButton>
+          <button
+            type="button"
+            class="inline-flex items-center gap-1.5 rounded-full bg-qhx-primary px-5 py-2 text-sm font-medium text-qhx-inverted transition-colors hover:bg-qhx-primaryHover disabled:opacity-50"
+            :disabled="!emailForm.email || !emailForm.email_code || bindingEmail"
+            @click="confirmBindEmail"
+          >
+            <Icon
+              v-if="bindingEmail"
+              name="i-heroicons-arrow-path"
+              class="h-4 w-4 animate-spin"
+            />
+            确认绑定
+          </button>
+        </QhxJellyButton>
+      </div>
+    </div>
+  </QhxModal>
+</template>

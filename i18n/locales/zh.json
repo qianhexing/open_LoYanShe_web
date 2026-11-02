@@ -151,6 +151,8 @@
 	"addLibrary.theme": "主题",
 	"addLibrary.select_theme": "选择主题",
 	"addLibrary.library_pattern": "版型/部位",
+	"addLibrary.pattern_note": "备注",
+	"addLibrary.pattern_note_placeholder": "比如:长款",
 	"addLibrary.select_pattern": "选择版型/部位",
 	"addLibrary.color": "颜色",
 	"addLibrary.select_color": "选择颜色",

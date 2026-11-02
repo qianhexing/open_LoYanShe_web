@@ -16,6 +16,8 @@ export interface LibraryShareChildItem {
 
 export interface LibraryShareSkuItem {
   pattern: string
+  /** 版型备注（SKU 同级自定义字符串） */
+  note?: string
   priceText?: string
   priceRmbText?: string
   cover?: string
@@ -87,7 +89,7 @@ const SKU_COLS = 3
 const SKU_GAP = 10
 const SKU_CELL_W = (CONTENT_W - SKU_GAP * (SKU_COLS - 1)) / SKU_COLS
 const SKU_THUMB_H = coverHeight(SKU_CELL_W)
-const SKU_META_H = 40
+const SKU_META_H = 58
 
 /** 信息区 QhxTag 胶囊 */
 const TAG_PILL = {
@@ -634,6 +636,7 @@ function skuInfoSectionForHero(list: LibraryShareSkuItem[]): LibraryShareInfoSec
     title: '版型/参考价',
     lines: list.map((item) => {
       const parts = [item.pattern.trim()]
+      if (item.note?.trim()) parts.push(item.note.trim())
       if (item.priceText?.trim()) parts.push(item.priceText.trim())
       if (item.priceRmbText?.trim()) parts.push(item.priceRmbText.trim())
       return parts.join(' · ')
@@ -879,6 +882,14 @@ function drawSkuSection(
     }
 
     let ty = cellY + SKU_THUMB_H + 10
+    if (item.note?.trim()) {
+      ctx.fillStyle = PAGE.muted
+      ctx.font = '10px system-ui, "Microsoft YaHei", sans-serif'
+      ctx.textAlign = 'left'
+      ctx.textBaseline = 'alphabetic'
+      ctx.fillText(truncateName(item.note.trim(), 12), cellX + 4, ty + 10)
+      ty += 16
+    }
     if (item.priceText) {
       drawWardrobeBadge(ctx, item.priceText, cellX + 4, ty, WARDROBE_FAV_BADGE, 11)
       ty += 22

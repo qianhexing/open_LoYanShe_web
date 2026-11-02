@@ -10,6 +10,7 @@ import type PhysicalShopModal from '@/components/shop/PhysicalShopModal.vue'
 import type { PhysicalShop } from '@/types/api'
 import { BASE_IMG } from '@/utils/ipConfig'
 import { isHtml5PlusWebview, openLibraryWebPath, openLibraryDetailTab } from '@/composables/useLibraryDetailNavigation'
+import { parseRichText } from '@/utils/public'
 
 interface ShopLinkEntry {
   href: string
@@ -544,7 +545,9 @@ watch(
           >
             本店疑似使用过AI设计柄图
           </p>
-          <h3 class="text-sm m-1" v-html="detail.shop_describe" v-if="detail.shop_describe"></h3>
+          <h3 v-if="detail.shop_describe" class="text-sm m-1">
+            <SafeRichText :nodes="parseRichText(detail.shop_describe)" />
+          </h3>
           <!-- 淘宝/官网 & 微博/小红书入口 -->
           <div
             v-if="shopOfficialEntry || socialMediaEntry"

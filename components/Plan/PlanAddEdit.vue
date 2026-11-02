@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch, nextTick } from 'vue'
+import { ref, computed, watch, nextTick, unref } from 'vue'
 import type { PlanList, WardrobeClothes } from '@/types/api'
 import { insertPlanList, updatePlanList, planListRelate } from '@/api/plan'
 import { uploadImage } from '@/api'
@@ -7,9 +7,16 @@ import { BASE_IMG } from '@/utils/ipConfig'
 import type QhxImagePicker from '@/components/Qhx/ImagePicker.vue'
 import type WardrobeClothesChoose from '@/components/Wardrobe/WardrobeClothesChoose.vue'
 import { useConfigStore } from '@/stores/config'
+import {
+  PLAN_COVER_MAX,
+  joinPlanCoverPaths,
+  parsePlanCoverPaths,
+} from '@/utils/planCover'
 import dayjs from 'dayjs'
 
 interface PlanStage {
+  /** 已有子计划 id；提交时带回，避免后端当作新阶段重复插入 */
+  list_id?: number
   need_money: number
   end_time: string | null
   plan_note: string
@@ -67,24 +74,6 @@ const selectedLinkedClothes = ref<WardrobeClothes | null>(null)
 
 const getImageParams = () => configStore.config?.image_params || ''
 
-const coverPreviewUrl = computed(() => {
-  const preview = imagePickerRef.value?.previewImages?.[0]?.url?.trim()
-  if (preview) return preview
-  const cover = form.value.plan_cover
-  if (cover) return `${BASE_IMG}${cover}${getImageParams()}`
-  return ''
-})
-
-const openCoverPicker = () => {
-  imagePickerRef.value?.triggerInput()
-}
-
-const clearCover = (e: MouseEvent) => {
-  e.stopPropagation()
-  imagePickerRef.value?.clear()
-  form.value.plan_cover = ''
-}
-
 const syncLinkedClothesFromPlan = () => {
   const p = props.planList
   if (!p) {
@@ -112,6 +101,41 @@ const onClothesChosen = (item: WardrobeClothes) => {
 
 const clearLinkedClothes = () => {
   selectedLinkedClothes.value = null
+}
+
+const TIME_FORMAT = 'YYYY-MM-DD HH:mm:ss'
+
+/** 统一尾款时间格式，保证编辑回显正确 */
+const normalizeEndTime = (time: string | Date | null | undefined): string | null => {
+  if (!time) return null
+  const d = dayjs(time)
+  return d.isValid() ? d.format(TIME_FORMAT) : null
+}
+
+/** 子计划 → 表单阶段：保留 list_id，并按 list_id 去重（排除与母计划同 id） */
+const stagesFromPlanList = (
+  planList: PlanList[] | undefined | null,
+  parentId?: number | null
+): PlanStage[] => {
+  if (!Array.isArray(planList) || planList.length === 0) return []
+  const seen = new Set<number>()
+  const out: PlanStage[] = []
+  for (const item of planList) {
+    if (!item) continue
+    const id = item.list_id
+    if (parentId != null && id === parentId) continue
+    if (id != null) {
+      if (seen.has(id)) continue
+      seen.add(id)
+    }
+    out.push({
+      list_id: id,
+      need_money: item.need_money || 0,
+      end_time: normalizeEndTime(item.end_time),
+      plan_note: item.plan_note || ''
+    })
+  }
+  return out
 }
 
 // 计算总金额
@@ -144,34 +168,30 @@ watch(show, (newValue) => {
       form.value.have_money = have_money || 0
       form.value.end_time = normalizeEndTime(end_time)
       form.value.plan_cover = plan_cover || ''
-      
-      // 设置封面图片预览
+
       nextTick(() => {
-        if (imagePickerRef.value && plan_cover) {
-          imagePickerRef.value.previewImages = [{ 
-            id: `img_${Date.now()}_${Math.random()}`,
-            file: undefined as unknown as File, 
-            url: BASE_IMG + plan_cover 
-          }]
+        imagePickerRef.value?.clear()
+        const paths = parsePlanCoverPaths(plan_cover)
+        if (paths.length) {
+          imagePickerRef.value?.seedFromPaths(paths)
         }
       })
-      
-      // 如果有子计划列表（plan_list），需要从后端获取或处理
-      // 这里假设 plan_list 是一个数组
-      if ((props.planList as any).plan_list && Array.isArray((props.planList as any).plan_list)) {
-        list.value = (props.planList as any).plan_list.map((item: any) => ({
-          need_money: item.need_money || 0,
-          end_time: normalizeEndTime(item.end_time),
-          plan_note: item.plan_note || ''
-        }))
-      } else {
-        list.value = []
-      }
+
+      list.value = stagesFromPlanList(props.planList.plan_list, props.planList.list_id)
     } else {
       type.value = 0
-      if (props.initialNeedMoney && props.initialNeedMoney > 0) {
-        form.value.need_money = props.initialNeedMoney
+      form.value = {
+        plan_name: '',
+        need_money: props.initialNeedMoney > 0 ? props.initialNeedMoney : 0,
+        plan_note: '',
+        plan_cover: '',
+        have_money: 0,
+        end_time: null
       }
+      list.value = []
+      nextTick(() => {
+        imagePickerRef.value?.clear()
+      })
     }
   }
 })
@@ -188,15 +208,6 @@ const addPlan = () => {
     end_time: null,
     plan_note: ''
   })
-}
-
-const TIME_FORMAT = 'YYYY-MM-DD HH:mm:ss'
-
-/** 统一尾款时间格式，保证编辑回显正确 */
-const normalizeEndTime = (time: string | Date | null | undefined): string | null => {
-  if (!time) return null
-  const d = dayjs(time)
-  return d.isValid() ? d.format(TIME_FORMAT) : null
 }
 
 // 显示弹窗
@@ -244,24 +255,34 @@ const initData = () => {
   selectedLinkedClothes.value = null
 }
 
-// 处理图片上传
-const onUpdateFiles = async (files: File[]) => {
-  if (files.length > 0) {
-    try {
-      const result = await uploadImage(files[0])
-      form.value.plan_cover = result.file_url
-    } catch (error) {
-      console.error('图片上传失败:', error)
-      toast.add({
-        title: '图片上传失败',
-        icon: 'i-heroicons-exclamation-circle',
-        color: 'red'
-      })
+const fetchUpload = async (file: { file?: File; url?: string }): Promise<string> => {
+  try {
+    if (file.file) {
+      const res = await uploadImage(file.file)
+      return res.file_url
     }
-  } else {
-    // 如果清空了图片，清空封面
-    form.value.plan_cover = ''
+    if (file.url) {
+      return file.url.replace(BASE_IMG, '')
+    }
+  } catch (error) {
+    console.error('图片上传失败:', error)
+    toast.add({
+      title: '图片上传失败',
+      icon: 'i-heroicons-exclamation-circle',
+      color: 'red'
+    })
   }
+  return ''
+}
+
+/** 从选择器解析封面路径列表，提交时上传并逗号拼接 */
+const resolvePlanCoverForSubmit = async (): Promise<string> => {
+  const raw = imagePickerRef.value?.previewImages as unknown
+  const list = (Array.isArray(raw) ? raw : unref(raw as never)) as Array<{ file?: File; url?: string }>
+  const rows = (Array.isArray(list) ? list : []).slice(0, PLAN_COVER_MAX)
+  if (!rows.length) return ''
+  const urls = await Promise.all(rows.map((item) => fetchUpload(item)))
+  return joinPlanCoverPaths(urls.filter(Boolean))
 }
 
 // 提交表单
@@ -297,38 +318,34 @@ const handleSubmit = async () => {
     return
   }
 
-  const params: any = {
-    plan_name: form.value.plan_name,
-    need_money: form.value.need_money,
-    plan_note: form.value.plan_note,
-    end_time: form.value.end_time,
-    plan_list: list.value
-  }
-
-  if (props.planList) {
-    params.list_id = props.planList.list_id
-  }
-
-  // 如果有新的封面图片，使用新的；否则在编辑模式下保留原有的
-  if (form.value.plan_cover && form.value.plan_cover !== '') {
-    params.plan_cover = form.value.plan_cover
-  } else if (props.planList && props.planList.plan_cover) {
-    // 编辑模式下，如果没有上传新图片，保留原有图片
-    params.plan_cover = props.planList.plan_cover
-  }
-
-  // 如果不自动上传，直接触发事件（服饰关联由父级或后续接口处理）
-  if (!props.dontUpload) {
-    if (props.enableLinkClothes) {
-      params.clothes_id = selectedLinkedClothes.value?.clothes_id ?? null
-    }
-    emit('success', params)
-    closeModel()
-    return
-  }
-
   loading.value = true
   try {
+    const planCover = await resolvePlanCoverForSubmit()
+    form.value.plan_cover = planCover
+
+    const params: any = {
+      plan_name: form.value.plan_name,
+      need_money: form.value.need_money,
+      plan_note: form.value.plan_note,
+      end_time: form.value.end_time,
+      plan_list: list.value
+    }
+
+    if (props.planList) {
+      params.list_id = props.planList.list_id
+    }
+
+    params.plan_cover = planCover
+
+    // 如果不自动上传，直接触发事件（服饰关联由父级或后续接口处理）
+    if (!props.dontUpload) {
+      if (props.enableLinkClothes) {
+        params.clothes_id = selectedLinkedClothes.value?.clothes_id ?? null
+      }
+      emit('success', params)
+      closeModel()
+      return
+    }
     if (type.value === 0) {
       const res = await insertPlanList(params)
       let merged = res as PlanList
@@ -381,11 +398,14 @@ const handleSubmit = async () => {
         color: 'green'
       })
       // 合并本地表单数据，确保编辑后及时回显（后端可能不返回完整 plan_list）
-      const planListFormatted = list.value.map((item, idx) => {
-        const original = props.planList?.plan_list?.[idx]
+      const planListFormatted = list.value.map((item) => {
+        const original =
+          item.list_id != null
+            ? props.planList?.plan_list?.find((child) => child.list_id === item.list_id)
+            : undefined
         return {
           ...original,
-          list_id: original?.list_id,
+          list_id: item.list_id ?? original?.list_id,
           need_money: item.need_money,
           end_time: item.end_time,
           plan_note: item.plan_note
@@ -424,7 +444,7 @@ defineExpose({
 
 <template>
   <QhxModal v-model="show" :trigger-position="clickPosition" @close="handleClose">
-    <div class="w-[95vw] max-w-xl h-[min(560px,calc(100dvh-4rem))] bg-white dark:bg-gray-800 rounded-2xl shadow-xl overflow-hidden flex flex-col border border-gray-200/50 dark:border-gray-700/50">
+    <div class="w-[95vw] max-w-xl h-[min(640px,calc(100dvh-4rem))] bg-white dark:bg-gray-800 rounded-2xl shadow-xl overflow-hidden flex flex-col border border-gray-200/50 dark:border-gray-700/50">
       <!-- 头部 -->
       <div class="flex items-center justify-between px-4 py-3 border-b border-gray-200/60 dark:border-gray-700 flex-shrink-0">
         <h2 class="text-base font-semibold text-gray-800 dark:text-gray-100">
@@ -442,41 +462,20 @@ defineExpose({
       <!-- 内容区域 -->
       <div class="flex-1 min-h-0 overflow-y-auto overscroll-contain p-4 space-y-3">
         <UFormGroup label="计划名称" class="mb-0">
-          <div class="flex items-center gap-2">
-            <button
-              type="button"
-              class="group relative w-10 h-10 flex-shrink-0 rounded-lg border border-dashed border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-700/50 overflow-hidden transition-colors hover:border-qhx-primary/50 hover:bg-qhx-primary/5"
-              aria-label="选择计划封面"
-              title="添加封面"
-              @click="openCoverPicker"
-            >
-              <img
-                v-if="coverPreviewUrl"
-                :src="coverPreviewUrl"
-                alt="计划封面"
-                class="w-full h-full object-cover"
-              />
-              <div v-else class="w-full h-full flex items-center justify-center text-gray-400 dark:text-gray-500">
-                <UIcon name="i-heroicons-photo" class="w-5 h-5" />
-              </div>
-              <button
-                v-if="coverPreviewUrl"
-                type="button"
-                class="absolute top-0 right-0 z-10 w-4 h-4 flex items-center justify-center rounded-bl bg-black/55 text-white opacity-0 group-hover:opacity-100 transition-opacity"
-                aria-label="清除封面"
-                @click="clearCover"
-              >
-                <UIcon name="i-heroicons-x-mark" class="w-3 h-3" />
-              </button>
-            </button>
-            <UInput
-              v-model="form.plan_name"
-              placeholder="计划名称"
-              size="sm"
-              class="flex-1 min-w-0"
-              :ui="{ base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary' }"
-            />
-          </div>
+          <UInput
+            v-model="form.plan_name"
+            placeholder="计划名称"
+            size="sm"
+            :ui="{ base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary' }"
+          />
+        </UFormGroup>
+
+        <UFormGroup :label="`计划封面（最多 ${PLAN_COVER_MAX} 张）`" class="mb-0">
+          <QhxImagePicker
+            ref="imagePickerRef"
+            :multiple="true"
+            :max="PLAN_COVER_MAX"
+          />
         </UFormGroup>
 
         <!-- 母计划：金额 + 尾款时间同行（与定尾阶段一致） -->
@@ -606,12 +605,6 @@ defineExpose({
       </div>
     </div>
   </QhxModal>
-  <QhxImagePicker
-    ref="imagePickerRef"
-    class="hidden"
-    :multiple="false"
-    @update:files="onUpdateFiles"
-  />
   <WardrobeClothesChoose ref="wardrobeClothesChooseRef" @choose="onClothesChosen" />
 </template>
 

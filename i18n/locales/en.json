@@ -151,6 +151,8 @@
 	"addLibrary.theme": "Theme",
 	"addLibrary.select_theme": "Select Theme",
 	"addLibrary.library_pattern": "Pattern/Part",
+	"addLibrary.pattern_note": "Note",
+	"addLibrary.pattern_note_placeholder": "e.g. long version",
 	"addLibrary.select_pattern": "Select Pattern/Part",
 	"addLibrary.color": "Color",
 	"addLibrary.select_color": "Select Color",

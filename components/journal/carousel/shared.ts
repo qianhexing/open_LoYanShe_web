@@ -1,5 +1,6 @@
 import type { Journal } from '@/types/api'
 import { firstCommunityDisplayPath, parseCommunityImgList } from '@/utils/communityLiveMedia'
+import { firstPlanCoverPath } from '@/utils/planCover'
 
 export const JOURNAL_PK_LABELS: Record<number, string> = {
   0: '手账',
@@ -51,8 +52,8 @@ export function getJournalFirstImagePath(j: Journal): string | null {
     return j.library.cover.trim() || null
   }
   if (j.pk_type === 5 && j.plan) {
-    const cover = j.plan.plan_cover || j.plan.parent_plan?.plan_cover
-    if (cover) return cover.trim()
+    const first = firstPlanCoverPath(j.plan.plan_cover || j.plan.parent_plan?.plan_cover)
+    if (first) return first
     if (j.plan.wardrobe_clothes?.clothes_img) return j.plan.wardrobe_clothes.clothes_img.trim()
     return null
   }

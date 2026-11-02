@@ -10,7 +10,7 @@ interface Props {
   water_class?: string
   /** 关联业务实体 id（与 pk_type 一起筛选 foreign） */
   pk_id: number
-  /** 关联类型：0店铺 1实体店 2衣柜服饰 3搭配场景 4搭配清单 5合集考据 6茶会返图 7图鉴返图（详见 types/api CommunityForeign） */
+  /** 关联类型：0店铺 1实体店 2衣柜服饰 3搭配场景 4搭配清单 5合集考据 6茶会返图 7图鉴返图 8小工具（详见 types/api CommunityForeign） */
   pk_type: number
   can_load?: boolean // 是否允许加载
   /** 强制 PC / 移动端均为单列（弹窗等极窄容器）；默认仅移动端单列，PC 仍走瀑布流 */

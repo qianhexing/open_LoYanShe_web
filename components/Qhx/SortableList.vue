@@ -316,8 +316,15 @@ function hitTest() {
   if (!cloneEl) return
   // 重排冷却：FLIP 动画期间不再命中，避免命中到正在位移的元素而来回抖动
   if (now() - lastReorderAt < props.animation) return
-  const hit = document.elementFromPoint(curX, curY)
-  const itemEl = findItemEl(hit)
+  // 克隆上若有子元素把 pointer-events 设回 auto（如图片遮罩），elementFromPoint 会一直命中克隆自己，换位不触发。
+  // 跳过克隆及其子节点，命中下面真正的列表项。
+  const hits = document.elementsFromPoint(curX, curY)
+  let itemEl: HTMLElement | null = null
+  for (const hit of hits) {
+    if (cloneEl.contains(hit)) continue
+    itemEl = findItemEl(hit)
+    if (itemEl) break
+  }
   if (!itemEl) return
   const targetKeyStr = itemEl.dataset.qhxKey
   if (targetKeyStr == null || targetKeyStr === String(activeKey)) return
@@ -502,9 +509,13 @@ onBeforeUnmount(() => {
   opacity: 0.32 !important;
   transition: opacity 0.18s ease;
 }
-/* 拖拽克隆：跟手、抬起阴影；transform 由 JS 内联控制 */
+/* 拖拽克隆：跟手、抬起阴影；transform 由 JS 内联控制。
+   子元素即使写了 pointer-events:auto 也不能接住命中，否则盖住下方卡片、无法换位。 */
+:global(.qhx-sortable-clone),
+:global(.qhx-sortable-clone *) {
+  pointer-events: none !important;
+}
 :global(.qhx-sortable-clone) {
-  pointer-events: none;
   will-change: transform;
   cursor: grabbing;
   filter: drop-shadow(0 14px 30px rgba(0, 0, 0, 0.26));

@@ -3,6 +3,7 @@ import dayjs from 'dayjs'
 import { getBrowTimeOne, insertBrowTime } from '~/api/brow_time'
 import { getUserMy } from '~/api/user'
 import FeatureNavIcon from '~/components/features/FeatureNavIcon.vue'
+import FeatureMiniTools from '~/components/features/FeatureMiniTools.vue'
 import FeaturePinnedTools from '~/components/features/FeaturePinnedTools.vue'
 import YearlySummaryLoginModal from '~/components/yearlySummary/LoginModal.vue'
 import {
@@ -42,6 +43,8 @@ function getMessageConfigBase(): Record<string, unknown> {
 }
 
 const showLoginModal = ref(false)
+/** 原功能导航默认折叠，突出小工具清单与最近使用 */
+const moreNavOpen = ref(false)
 
 function isFeaturesUserLoggedIn(): boolean {
   const uid = user.value?.user_id
@@ -252,65 +255,86 @@ useHead({
         </div>
       </div>
 
-      <header class="mb-6 px-1">
-        <h1 class="features-hero-title">{{ featuresNavIntro.title }}</h1>
-        <p class="mt-1.5 text-xs leading-relaxed text-[#9a858a]">
-          常用功能入口一站直达
-        </p>
-      </header>
-
       <FeaturePinnedTools />
 
-      <section
-        v-for="section in featureNavSections"
-        v-show="sectionHasVisibleItem(section)"
-        :key="section.id"
-        class="mb-8 min-w-0"
+      <FeatureMiniTools />
+
+      <div class="mb-4 px-1">
+        <button
+          type="button"
+          class="features-chip-btn inline-flex w-full items-center justify-between gap-2 rounded-xl px-3.5 py-2.5 text-left text-sm font-medium text-[#4f3f43] outline-none transition-all duration-200 hover:bg-qhx-primary/10 focus-visible:ring-2 focus-visible:ring-qhx-primary/40 active:scale-[0.99]"
+          :aria-expanded="moreNavOpen"
+          @click="moreNavOpen = !moreNavOpen"
+        >
+          <span class="inline-flex min-w-0 items-center gap-2">
+            <UIcon
+              name="i-heroicons-squares-2x2"
+              class="size-4 shrink-0 text-qhx-primary"
+            />
+            更多功能导航
+          </span>
+          <UIcon
+            :name="moreNavOpen ? 'i-heroicons-chevron-up' : 'i-heroicons-chevron-down'"
+            class="size-4 shrink-0 text-[#9a858a]"
+          />
+        </button>
+      </div>
+
+      <div
+        v-show="moreNavOpen"
+        class="min-w-0"
       >
-        <h2 class="features-section-title mb-3 px-1">
-          {{ section.title }}
-        </h2>
-        <div class="grid grid-cols-2 gap-2.5">
-          <button
-            v-for="(item, itemIdx) in section.items"
-            v-show="!itemPinnedHidden(item)"
-            :key="`${section.id}-${itemIdx}`"
-            type="button"
-            class="features-tile group flex w-full cursor-pointer flex-col gap-2 p-3 text-left outline-none transition-all duration-200 focus-visible:ring-2 focus-visible:ring-qhx-primary/40 active:scale-[0.99] sm:flex-row sm:items-center sm:gap-3 sm:p-3.5"
-            @click="go(item)"
-          >
-            <div class="flex min-w-0 w-full items-center gap-2.5 sm:w-auto sm:shrink-0">
-              <div class="features-icon-well flex h-9 w-9 shrink-0 items-center justify-center transition-transform duration-200 group-hover:scale-[1.03] sm:h-10 sm:w-10">
-                <FeatureNavIcon
-                  :key="`${section.id}-${itemIdx}-${item.icon}-${item.path}`"
-                  :name="item.icon"
-                  :icon-class="featureNavToneClasses[item.tone]?.iconText ?? featureNavToneClasses.pink!.iconText"
-                />
-              </div>
-              <div class="min-w-0 flex-1 sm:hidden">
-                <div class="line-clamp-2 text-sm font-medium leading-snug text-[#4f3f43]">
-                  {{ item.title }}<span
-                    v-if="item.requiresUserId && !user"
-                    class="whitespace-nowrap text-[10px] font-normal text-[#9a858a]"
-                  >（需登录）</span>
+        <section
+          v-for="section in featureNavSections"
+          v-show="sectionHasVisibleItem(section)"
+          :key="section.id"
+          class="mb-8 min-w-0"
+        >
+          <h2 class="features-section-title mb-3 px-1">
+            {{ section.title }}
+          </h2>
+          <div class="grid grid-cols-2 gap-2.5">
+            <button
+              v-for="(item, itemIdx) in section.items"
+              v-show="!itemPinnedHidden(item)"
+              :key="`${section.id}-${itemIdx}`"
+              type="button"
+              class="features-tile group flex w-full cursor-pointer flex-col gap-2 p-3 text-left outline-none transition-all duration-200 focus-visible:ring-2 focus-visible:ring-qhx-primary/40 active:scale-[0.99] sm:flex-row sm:items-center sm:gap-3 sm:p-3.5"
+              @click="go(item)"
+            >
+              <div class="flex min-w-0 w-full items-center gap-2.5 sm:w-auto sm:shrink-0">
+                <div class="features-icon-well flex h-9 w-9 shrink-0 items-center justify-center transition-transform duration-200 group-hover:scale-[1.03] sm:h-10 sm:w-10">
+                  <FeatureNavIcon
+                    :key="`${section.id}-${itemIdx}-${item.icon}-${item.path}`"
+                    :name="item.icon"
+                    :icon-class="featureNavToneClasses[item.tone]?.iconText ?? featureNavToneClasses.pink!.iconText"
+                  />
+                </div>
+                <div class="min-w-0 flex-1 sm:hidden">
+                  <div class="line-clamp-2 text-sm font-medium leading-snug text-[#4f3f43]">
+                    {{ item.title }}<span
+                      v-if="item.requiresUserId && !user"
+                      class="whitespace-nowrap text-[10px] font-normal text-[#9a858a]"
+                    >（需登录）</span>
+                  </div>
                 </div>
               </div>
-            </div>
-            <div class="min-w-0 sm:flex-1 sm:text-left">
-              <div class="mb-0 hidden font-medium text-[#4f3f43] sm:mb-0.5 sm:block">
-                {{ item.title }}
-                <span
-                  v-if="item.requiresUserId && !user"
-                  class="text-xs font-normal text-[#9a858a]"
-                >（需登录）</span>
+              <div class="min-w-0 sm:flex-1 sm:text-left">
+                <div class="mb-0 hidden font-medium text-[#4f3f43] sm:mb-0.5 sm:block">
+                  {{ item.title }}
+                  <span
+                    v-if="item.requiresUserId && !user"
+                    class="text-xs font-normal text-[#9a858a]"
+                  >（需登录）</span>
+                </div>
+                <div class="text-[11px] leading-relaxed text-[#9a858a] sm:text-xs">
+                  {{ item.desc }}
+                </div>
               </div>
-              <div class="text-[11px] leading-relaxed text-[#9a858a] sm:text-xs">
-                {{ item.desc }}
-              </div>
-            </div>
-          </button>
-        </div>
-      </section>
+            </button>
+          </div>
+        </section>
+      </div>
     </div>
 
     <div
@@ -358,15 +382,6 @@ useHead({
     radial-gradient(ellipse 80% 50% at 10% -10%, color-mix(in srgb, var(--primary-color) 28%, transparent), transparent 55%),
     radial-gradient(ellipse 70% 40% at 100% 0%, color-mix(in srgb, var(--primary-color) 18%, transparent), transparent 50%),
     linear-gradient(180deg, #fff9fb 0%, #fff5f8 45%, #fff2f6 100%);
-}
-
-.features-hero-title {
-  font-family: 'Cormorant Garamond', 'Songti SC', Georgia, serif;
-  font-size: 1.7rem;
-  font-weight: 600;
-  color: #4f3f43;
-  letter-spacing: 0.02em;
-  line-height: 1.2;
 }
 
 .features-section-title {

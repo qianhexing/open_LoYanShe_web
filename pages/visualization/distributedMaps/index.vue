@@ -11,6 +11,17 @@ import { BASE_IMG, BASE_IMG_MODEL } from '@/utils/ipConfig';
 import dayjs from 'dayjs';
 import TimeRuler from '@/components/TimeRuler.vue';
 import { getLolitaHeatColorByRank } from '@/utils/lolitaHeatGradient';
+import {
+  GLOBE_RADIUS,
+  GLOBE_BG,
+  GLOBE_BUILD_VERSION,
+  buildGlobeScene,
+  updateGlobeTeaPartyPositions,
+  updateGlobeLabelVisibility,
+  disposeObject3D,
+  getCameraLookingAtLngLat,
+  type GlobeSceneParts,
+} from '@/utils/globeVisualization';
 
 // --- 类型定义 ---
 interface ProvinceFeature {
@@ -73,6 +84,8 @@ const totalCount = ref(0);
 const maxCountVal = ref(1);
 // 控制圆柱和数字的显示
 const showBars = ref(true);
+// 视图模式：平面中国地图 / 地球
+const viewMode = ref<'flat' | 'globe'>('flat');
 // 控制茶会圆柱显示
 const showTeaParties = ref(true);
 const teaPartyList = ref<TeaParty[]>([]);
@@ -95,6 +108,16 @@ let mapGroup: THREE.Group | null = null;
 let cachedGeoJson: GeoJSON | null = null;
 let cachedDataMap: Map<string, DataItem> | null = null;
 let cachedMaxCount = 1;
+let cachedDistData: DistributedMapData[] | null = null;
+// 地球模式场景部件
+let globeParts: GlobeSceneParts | null = null;
+let flatCameraSnapshot: { position: THREE.Vector3; target: THREE.Vector3 } | null = null;
+let globeLabelVisibilityCallbackAdded = false;
+
+const updateGlobeLabelsEachFrame = () => {
+  if (viewMode.value !== 'globe' || !threeCore.value || !globeParts) return;
+  updateGlobeLabelVisibility(globeParts.root, threeCore.value.camera);
+};
 // 存储方向光引用，用于切换阴影
 let dirLightRef: THREE.DirectionalLight | null = null;
 // 跟踪是否已经添加了阴影更新回调
@@ -289,13 +312,15 @@ const updateDirLightForShadow = () => {
   
   if (dirLightRef.shadow.camera && showShadows.value) {
     const direction = new THREE.Vector3().subVectors(target, cameraPos).normalize();
-    const lightDistance = 100;
-    const lightHeight = 80;
+    const lightDistance = 90;
+    const lightHeight = 110;
     const lightPosition = target.clone();
     lightPosition.addScaledVector(direction, -lightDistance);
     lightPosition.z += lightHeight;
     
+    dirLightRef.position.copy(lightPosition);
     dirLightRef.target.position.copy(target);
+    dirLightRef.target.updateMatrixWorld();
     
     const distance = cameraPos.distanceTo(target);
     const fov = threeCore.value.camera instanceof THREE.PerspectiveCamera ? threeCore.value.camera.fov * (Math.PI / 180) : Math.PI / 4;
@@ -308,7 +333,7 @@ const updateDirLightForShadow = () => {
     dirLightRef.shadow.camera.top = height * margin / 2;
     dirLightRef.shadow.camera.bottom = -height * margin / 2;
     dirLightRef.shadow.camera.near = 0.1;
-    dirLightRef.shadow.camera.far = Math.max(distance * 2, 200);
+    dirLightRef.shadow.camera.far = Math.max(distance * 2, 240);
     dirLightRef.shadow.camera.position.copy(lightPosition);
     dirLightRef.shadow.camera.lookAt(target);
     dirLightRef.shadow.camera.updateProjectionMatrix();
@@ -353,7 +378,7 @@ const CHINA_PROVINCES = [
 const raycaster = new THREE.Raycaster();
 const mouse = new THREE.Vector2();
 let hoveredObject: THREE.Object3D | null = null;
-const tooltip = ref({ visible: false, x: 0, y: 0, name: '', count: 0 });
+const tooltip = ref({ visible: false, x: 0, y: 0, name: '', count: 0, kind: '' as '' | 'province' | 'shop' | 'tea' | 'bar' });
 // 鼠标移动检测相关变量
 let mouseHasMoved = false;
 let mouseDownX = 0;
@@ -379,48 +404,255 @@ const project = (lng: number, lat: number) => {
   return { x, y };
 };
 
-const createTextSprite = (text: string, color: string = '#333333', options?: { fontSize?: number; withBackground?: boolean; strokeWidth?: number }) => {
+const setFlatLayersVisible = (visible: boolean) => {
+  if (mapGroup) mapGroup.visible = visible;
+  if (barGroup) barGroup.visible = visible && showBars.value;
+  if (teaPartyGroup) teaPartyGroup.visible = visible && showTeaParties.value;
+  if (shopGroup) shopGroup.visible = visible && showShops.value;
+};
+
+const applyFlatControls = () => {
+  const core = threeCore.value;
+  if (!core?.controls) return;
+  const controls = core.controls;
+  controls.enableRotate = false;
+  controls.enablePan = true;
+  controls.autoRotate = false;
+  controls.screenSpacePanning = true;
+  controls.panSpeed = 2.0;
+  controls.zoomSpeed = 1.2;
+  controls.minDistance = 1;
+  controls.maxDistance = 500;
+  controls.mouseButtons = {
+    LEFT: THREE.MOUSE.PAN,
+    MIDDLE: THREE.MOUSE.DOLLY,
+    RIGHT: THREE.MOUSE.PAN,
+  };
+  if ('touches' in controls) {
+    (controls as any).touches = {
+      ONE: THREE.TOUCH.PAN,
+      TWO: THREE.TOUCH.DOLLY_PAN,
+    };
+  }
+};
+
+const applyGlobeControls = () => {
+  const core = threeCore.value;
+  if (!core?.controls) return;
+  const controls = core.controls;
+  controls.enableRotate = true;
+  controls.enablePan = false;
+  controls.autoRotate = true;
+  controls.autoRotateSpeed = 0.35;
+  controls.enableDamping = true;
+  controls.dampingFactor = 0.08;
+  controls.zoomSpeed = 1.0;
+  controls.minDistance = GLOBE_RADIUS * 1.4;
+  controls.maxDistance = GLOBE_RADIUS * 4.5;
+  controls.target.set(0, 0, 0);
+  controls.mouseButtons = {
+    LEFT: THREE.MOUSE.ROTATE,
+    MIDDLE: THREE.MOUSE.DOLLY,
+    RIGHT: THREE.MOUSE.ROTATE,
+  };
+  if ('touches' in controls) {
+    (controls as any).touches = {
+      ONE: THREE.TOUCH.ROTATE,
+      TWO: THREE.TOUCH.DOLLY_PAN,
+    };
+  }
+};
+
+const refreshGlobeScene = () => {
+  if (!threeCore.value || !cachedGeoJson || !cachedDataMap) return;
+
+  if (globeParts) {
+    threeCore.value.scene.remove(globeParts.root);
+    disposeObject3D(globeParts.root);
+    globeParts = null;
+  }
+
+  const shopMarkers = physicalShops.value
+    .filter((s) => {
+      const lng = toNumber(s.longitude);
+      const lat = toNumber(s.latitude);
+      return Number.isFinite(lng) && Number.isFinite(lat) && (lng !== 0 || lat !== 0);
+    })
+    .map((s) => ({
+      longitude: toNumber(s.longitude),
+      latitude: toNumber(s.latitude),
+      shops: [s],
+    }));
+
+  globeParts = buildGlobeScene({
+    geojson: cachedGeoJson,
+    dataMap: cachedDataMap,
+    totalRanks: rankList.value.length,
+    barSources: (cachedDistData || []).map((d) => ({
+      name: d.ip_location,
+      count: d.COUNT,
+    })),
+    teaParties: teaPartyList.value,
+    shopMarkers,
+    showBars: showBars.value,
+    showTeaParties: showTeaParties.value,
+    showShops: showShops.value,
+    timeScale: TIME_SCALE,
+    currentTimestamp: currentDate.value.getTime(),
+    formatLocationLabel,
+    createTextSprite,
+    barColor: LOLITA_COLORS.bar,
+  });
+
+  threeCore.value.scene.add(globeParts.root);
+  // 可见性由 switchViewMode 显式控制，避免 viewMode 尚未更新时被藏起来
+  globeParts.root.visible = true;
+};
+
+const applyMapColorPipeline = (mode: 'flat' | 'globe') => {
+  if (!threeCore.value?.renderer) return;
+  const renderer = threeCore.value.renderer as THREE.WebGLRenderer;
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  if (mode === 'flat') {
+    renderer.toneMapping = THREE.NoToneMapping;
+    // sRGB 开启后整体偏亮，略压曝光
+    renderer.toneMappingExposure = 0.86;
+  } else {
+    renderer.toneMapping = THREE.NeutralToneMapping;
+    renderer.toneMappingExposure = 1.0;
+  }
+  if (renderer.domElement) {
+    (renderer.domElement.style as CSSStyleDeclaration & { colorSpace?: string }).colorSpace =
+      'srgb';
+  }
+};
+
+const placeGlobeCamera = (duration = 0) => {
+  const core = threeCore.value;
+  if (!core?.controls) return;
+  const cam = getCameraLookingAtLngLat(105, 35, GLOBE_RADIUS * 2.4);
+  if (duration <= 0) {
+    core.camera.position.copy(cam.position);
+    core.controls.target.copy(cam.target);
+    core.controls.update();
+    return;
+  }
+  core.lookAtCameraState(
+    { position: cam.position, target: cam.target },
+    duration
+  );
+};
+
+const switchViewMode = async (mode: 'flat' | 'globe') => {
+  if (viewMode.value === mode || !threeCore.value) return;
+  const core = threeCore.value;
+  const renderer = core.renderer as THREE.WebGLRenderer;
+
+  if (mode === 'globe') {
+    if (core.controls) {
+      flatCameraSnapshot = {
+        position: core.camera.position.clone(),
+        target: core.controls.target.clone(),
+      };
+    }
+
+    // 先更新模式，再建地球，避免 refresh 时按旧 mode 隐藏
+    viewMode.value = 'globe';
+    setFlatLayersVisible(false);
+
+    if (
+      !globeParts ||
+      !globeParts.root.getObjectByName('GlobeLand') ||
+      (globeParts.root.userData as { buildVersion?: string }).buildVersion !==
+        GLOBE_BUILD_VERSION
+    ) {
+      refreshGlobeScene();
+    }
+    if (globeParts) {
+      globeParts.root.visible = true;
+      if (globeParts.barGroup) globeParts.barGroup.visible = showBars.value;
+      if (globeParts.teaGroup) globeParts.teaGroup.visible = showTeaParties.value;
+      if (globeParts.shopGroup) globeParts.shopGroup.visible = showShops.value;
+      updateGlobeTeaPartyPositions(globeParts.teaGroup, currentDate.value.getTime());
+    }
+
+    applyGlobeControls();
+    if (renderer) renderer.setClearColor(GLOBE_BG, 1);
+    applyMapColorPipeline('globe');
+    // 立刻放到地球外侧可见机位（平面图相机常在球体内，tween 中途会看不见）
+    placeGlobeCamera(0);
+    updateGlobeLabelsEachFrame();
+    if (!globeLabelVisibilityCallbackAdded) {
+      core.addAnimationCallback(updateGlobeLabelsEachFrame);
+      globeLabelVisibilityCallbackAdded = true;
+    }
+  } else {
+    viewMode.value = 'flat';
+    if (globeParts) globeParts.root.visible = false;
+    setFlatLayersVisible(true);
+    applyFlatControls();
+    if (renderer) renderer.setClearColor(LOLITA_COLORS.bg, 1);
+    applyMapColorPipeline('flat');
+    if (flatCameraSnapshot) {
+      core.lookAtCameraState(
+        {
+          position: flatCameraSnapshot.position,
+          target: flatCameraSnapshot.target,
+        },
+        900
+      );
+    }
+  }
+};
+
+const toggleViewMode = () => {
+  switchViewMode(viewMode.value === 'flat' ? 'globe' : 'flat');
+};
+
+const createTextSprite = (text: string, color: string = '#333333', options?: {
+  fontSize?: number;
+  withBackground?: boolean;
+  strokeWidth?: number;
+  /** 地球模式：深色不透明底，避免和球体糊在一起 */
+  theme?: 'light' | 'globe';
+}) => {
   const canvas = document.createElement('canvas');
-  const fontSize = options?.fontSize || 36; // 缩小默认字体到 36
-  const withBackground = options?.withBackground !== false; // 默认添加背景
-  const strokeWidth = options?.strokeWidth || 2.5; // 减小描边宽度
+  const fontSize = options?.fontSize || 36;
+  const withBackground = options?.withBackground !== false;
+  const strokeWidth = options?.strokeWidth || 2.5;
+  const theme = options?.theme || 'light';
+  const isGlobe = theme === 'globe';
   
   const context = canvas.getContext('2d');
   if (!context) return null;
 
-  // 测量文本尺寸，优化内边距
-  const padding = 10;
-  context.font = `600 ${fontSize}px "Microsoft YaHei", "PingFang SC", "Helvetica Neue", Arial, sans-serif`;
+  const padding = isGlobe ? 14 : 10;
+  context.font = `700 ${fontSize}px "Microsoft YaHei", "PingFang SC", "Helvetica Neue", Arial, sans-serif`;
   const metrics = context.measureText(text);
   const textWidth = metrics.width;
   const textHeight = fontSize * 1.3;
   
-  // 计算画布尺寸（包含内边距和描边）
   const width = textWidth + padding * 2 + strokeWidth * 2;
   const height = textHeight + padding * 2 + strokeWidth * 2;
 
   canvas.width = width;
   canvas.height = height;
 
-  // 设置高质量渲染
   context.imageSmoothingEnabled = true;
   context.imageSmoothingQuality = 'high';
 
-  // 绘制背景（带渐变和阴影效果，更大的圆角）
   if (withBackground) {
-    const radius = 12; // 增大圆角半径
+    const radius = isGlobe ? 10 : 12;
     const x = strokeWidth / 2;
     const y = strokeWidth / 2;
     const w = width - strokeWidth;
     const h = height - strokeWidth;
     
-    // 绘制阴影
-    context.shadowColor = 'rgba(0, 0, 0, 0.15)';
-    context.shadowBlur = 8;
+    context.shadowColor = isGlobe ? 'rgba(0, 0, 0, 0.55)' : 'rgba(0, 0, 0, 0.15)';
+    context.shadowBlur = isGlobe ? 12 : 8;
     context.shadowOffsetX = 0;
-    context.shadowOffsetY = 2;
+    context.shadowOffsetY = isGlobe ? 3 : 2;
     
-    // 使用兼容的方式绘制圆角矩形
     context.beginPath();
     context.moveTo(x + radius, y);
     context.lineTo(x + w - radius, y);
@@ -433,41 +665,49 @@ const createTextSprite = (text: string, color: string = '#333333', options?: { f
     context.quadraticCurveTo(x, y, x + radius, y);
     context.closePath();
     
-    // 创建渐变背景（增加透明度）
-    const gradient = context.createLinearGradient(x, y, x, y + h);
-    gradient.addColorStop(0, 'rgba(255, 255, 255, 0.85)');
-    gradient.addColorStop(1, 'rgba(255, 255, 255, 0.75)');
-    context.fillStyle = gradient;
+    if (isGlobe) {
+      // 浅色实心底托住黑字
+      const gradient = context.createLinearGradient(x, y, x, y + h);
+      gradient.addColorStop(0, 'rgba(255, 255, 255, 0.96)');
+      gradient.addColorStop(1, 'rgba(245, 240, 255, 0.96)');
+      context.fillStyle = gradient;
+    } else {
+      const gradient = context.createLinearGradient(x, y, x, y + h);
+      gradient.addColorStop(0, 'rgba(255, 255, 255, 0.85)');
+      gradient.addColorStop(1, 'rgba(255, 255, 255, 0.75)');
+      context.fillStyle = gradient;
+    }
     context.fill();
     
-    // 清除阴影，绘制边框
     context.shadowColor = 'transparent';
     context.shadowBlur = 0;
     context.shadowOffsetX = 0;
     context.shadowOffsetY = 0;
     
-    // 添加更精致的边框（降低不透明度）
-    context.strokeStyle = 'rgba(0, 0, 0, 0.06)';
-    context.lineWidth = 1.5;
+    context.strokeStyle = isGlobe ? 'rgba(113, 48, 174, 0.55)' : 'rgba(0, 0, 0, 0.06)';
+    context.lineWidth = isGlobe ? 2 : 1.5;
     context.stroke();
   }
 
-  // 设置文本样式
-  context.font = `600 ${fontSize}px "Microsoft YaHei", "PingFang SC", "Helvetica Neue", Arial, sans-serif`;
+  context.font = `${isGlobe ? 700 : 600} ${fontSize}px "Microsoft YaHei", "PingFang SC", "Helvetica Neue", Arial, sans-serif`;
   context.textAlign = 'center';
   context.textBaseline = 'middle';
   
   const centerX = width / 2;
   const centerY = height / 2;
   
-  // 先绘制描边（白色描边，增强对比度）
-  context.strokeStyle = 'rgba(255, 255, 255, 0.9)';
-  context.lineWidth = strokeWidth;
+  if (isGlobe) {
+    // 白边托住黑字
+    context.strokeStyle = 'rgba(255, 255, 255, 0.95)';
+    context.lineWidth = strokeWidth + 1.5;
+  } else {
+    context.strokeStyle = 'rgba(255, 255, 255, 0.9)';
+    context.lineWidth = strokeWidth;
+  }
   context.lineJoin = 'round';
   context.miterLimit = 2;
   context.strokeText(text, centerX, centerY);
   
-  // 绘制填充
   context.fillStyle = color;
   context.fillText(text, centerX, centerY);
 
@@ -477,15 +717,19 @@ const createTextSprite = (text: string, color: string = '#333333', options?: { f
   const material = new THREE.SpriteMaterial({ 
     map: texture, 
     transparent: true, 
-    depthTest: false,
-    alphaTest: 0.05 // 降低阈值，使边缘更柔和
+    // 地球标注需要参与深度测试，背面会被球体挡住
+    depthTest: isGlobe,
+    depthWrite: false,
+    alphaTest: isGlobe ? 0.02 : 0.05,
   });
   const sprite = new THREE.Sprite(material);
   
-  // 缩小 scale，使文本更精致
-  const scale = 0.12; // 从 0.15 减小到 0.12
+  const scale = 0.12;
   sprite.scale.set(width * scale * 0.1, height * scale * 0.1, 1);
-  sprite.renderOrder = 10;
+  sprite.renderOrder = isGlobe ? 2 : 10;
+  if (isGlobe) {
+    sprite.userData.isGlobeLabel = true;
+  }
   return sprite;
 };
 
@@ -748,6 +992,14 @@ const loadTeaPartyData = async (date: Date) => {
 };
 
 const updateTeaPartyPositions = () => {
+    if (viewMode.value === 'globe') {
+      updateGlobeTeaPartyPositions(
+        globeParts?.teaGroup ?? null,
+        currentDate.value.getTime()
+      );
+      return;
+    }
+
     if (!teaPartyGroup) return;
     
     const currentTs = currentDate.value.getTime();
@@ -876,8 +1128,15 @@ const drawTeaParties = (scene: THREE.Scene, mapGroupOffset: THREE.Vector3) => {
     // 立即更新一次位置
     updateTeaPartyPositions();
     
-    if (showTeaParties.value) {
+    if (showTeaParties.value && viewMode.value === 'flat') {
         scene.add(teaPartyGroup);
+    } else if (teaPartyGroup) {
+        teaPartyGroup.visible = showTeaParties.value && viewMode.value === 'flat';
+    }
+
+    // 地球模式同步茶会层
+    if (viewMode.value === 'globe' && globeParts) {
+      refreshGlobeScene();
     }
 };
 
@@ -958,12 +1217,12 @@ const drawMap = (geojson: GeoJSON, scene: THREE.Scene, dataMap: Map<string, Data
     const maxHeight = 6;
     const depth = Math.max(0.01, ratio * maxHeight);
 
-    // 颜色逻辑：如果有数据，则根据全球排名计算插值渐变色；无数据则为浅灰
+    // 颜色逻辑：如果有数据，则根据全球排名计算插值渐变色；无数据则为浅暖白（避免发灰）
     let baseColor: THREE.Color;
     if (count > 0) {
         baseColor = getLolitaHeatColorByRank(rank, totalRanks);
     } else {
-        baseColor = new THREE.Color(0xeeeeee);
+        baseColor = new THREE.Color(0xf6f3fb);
     }
 
     const provinceGroup = new THREE.Group();
@@ -996,8 +1255,11 @@ const drawMap = (geojson: GeoJSON, scene: THREE.Scene, dataMap: Map<string, Data
       const material = new THREE.MeshStandardMaterial({
         color: baseColor,
         side: THREE.DoubleSide,
-        roughness: 0.5,
-        metalness: 0.1,
+        roughness: 0.72,
+        metalness: 0,
+        // 轻微自发光保住热力色饱和度，不被灯光洗成灰紫
+        emissive: count > 0 ? baseColor.clone().multiplyScalar(0.12) : new THREE.Color(0x000000),
+        emissiveIntensity: count > 0 ? 0.35 : 0,
       });
 
       const mesh = new THREE.Mesh(geometry, material);
@@ -1007,7 +1269,7 @@ const drawMap = (geojson: GeoJSON, scene: THREE.Scene, dataMap: Map<string, Data
       
       // 边框逻辑
       const borderColor = isChina ? LOLITA_COLORS.borderChina : LOLITA_COLORS.borderOther;
-      const opacity = 0.3; 
+      const opacity = isChina ? 0.45 : 0.22; 
       
       const lineGeometry = new THREE.EdgesGeometry(geometry);
       const lineMaterial = new THREE.LineBasicMaterial({ 
@@ -1181,10 +1443,12 @@ const drawBars = (data: DistributedMapData[], geojson: GeoJSON, scene: THREE.Sce
             const geometry = new THREE.CylinderGeometry(0.6, 0.6, height, 16);
             const material = new THREE.MeshStandardMaterial({ 
                 color: LOLITA_COLORS.bar,
-                roughness: 0.6,
-                metalness: 0.1,
+                roughness: 0.55,
+                metalness: 0,
                 transparent: true,
-                opacity: 0.9
+                opacity: 0.92,
+                emissive: new THREE.Color(LOLITA_COLORS.bar),
+                emissiveIntensity: 0.18,
             });
             const mesh = new THREE.Mesh(geometry, material);
             
@@ -1243,15 +1507,26 @@ const drawBars = (data: DistributedMapData[], geojson: GeoJSON, scene: THREE.Sce
   });
 
   // 根据状态决定是否添加到场景
-  if (showBars.value) {
+  if (showBars.value && viewMode.value === 'flat') {
     scene.add(barGroup);
+  } else if (barGroup) {
+    barGroup.visible = showBars.value && viewMode.value === 'flat';
   }
 };
 
 // 切换茶会圆柱显示
 const toggleTeaParties = () => {
     showTeaParties.value = !showTeaParties.value;
-    if (!threeCore.value || !teaPartyGroup) return;
+    if (!threeCore.value) return;
+
+    if (viewMode.value === 'globe') {
+      if (globeParts?.teaGroup) {
+        globeParts.teaGroup.visible = showTeaParties.value;
+      }
+      return;
+    }
+
+    if (!teaPartyGroup) return;
 
     const existsInScene = threeCore.value.scene.children.includes(teaPartyGroup);
 
@@ -1265,7 +1540,16 @@ const toggleTeaParties = () => {
 // 切换圆柱和数字的显示
 const toggleBars = () => {
   showBars.value = !showBars.value;
-  if (!threeCore.value || !barGroup) return;
+  if (!threeCore.value) return;
+
+  if (viewMode.value === 'globe') {
+    if (globeParts?.barGroup) {
+      globeParts.barGroup.visible = showBars.value;
+    }
+    return;
+  }
+
+  if (!barGroup) return;
   
   const existsInScene = threeCore.value.scene.children.includes(barGroup);
   
@@ -1602,9 +1886,10 @@ const drawPhysicalShops = async (
     shopGroup.add(marker);
     }
     
-    // 根据状态决定是否添加到场景
+    // 根据状态决定是否添加到场景（地球模式下仅挂载但隐藏，避免平面层露出来）
     if (showShops.value) {
       scene.add(shopGroup);
+      shopGroup.visible = viewMode.value === 'flat';
     }
   } finally {
     // 加载完成
@@ -1617,6 +1902,18 @@ const toggleShops = async () => {
   showShops.value = !showShops.value;
   
   if (!threeCore.value) return;
+
+  if (viewMode.value === 'globe') {
+    if (!globeParts) {
+      refreshGlobeScene();
+    } else if (showShops.value && physicalShops.value.length > 0) {
+      // 首次在地球模式打开实体店时重建以带上店铺层
+      refreshGlobeScene();
+    } else if (globeParts.shopGroup) {
+      globeParts.shopGroup.visible = showShops.value;
+    }
+    return;
+  }
   
   // 如果实体店组不存在，需要先绘制（只绘制一次）
   if (!shopGroup && mapGroup && physicalShops.value.length > 0) {
@@ -1756,130 +2053,113 @@ const initThree = async () => {
 
   core.toggleBloom(false);
 
-  // 灯光与阴影配置 (PC端开启高质量阴影)
-  const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+  // 使用模块级色彩管线：sRGB + 平面关闭 Reinhard
+  applyMapColorPipeline('flat');
+
+  // --- 平面地图光影（Z 向上挤出）---
+  // 半球光减弱，避免把紫色洗成灰；sRGB 下再略压一点亮度
+  const hemiLight = new THREE.HemisphereLight(0xffffff, 0xeee8f8, 0.38);
+  hemiLight.name = 'FlatHemiLight';
+  core.scene.add(hemiLight);
+
+  const ambientLight = new THREE.AmbientLight(0xffffff, 0.18);
+  ambientLight.name = 'FlatAmbientLight';
   core.scene.add(ambientLight);
 
-  const dirLight = new THREE.DirectionalLight(0xffffff, 1.2);
-  dirLightRef = dirLight; // 保存引用，用于切换阴影
+  // 主光：从斜上方打下，保证顶面受光足、侧面有层次
+  const dirLight = new THREE.DirectionalLight(0xffffff, 1.85);
+  dirLight.name = 'FlatKeyLight';
+  dirLightRef = dirLight;
+  dirLight.position.set(55, -70, 140);
+  dirLight.target.position.set(0, 0, 0);
+  core.scene.add(dirLight.target);
 
-  dirLight.position.set(300, 0, 50);
-  // 辅助器变量
+  // 辅光：对面弱补光，压死死黑但不洗白
+  const flatFillLight = new THREE.DirectionalLight(0xfff0fa, 0.22);
+  flatFillLight.name = 'FlatFillLight';
+  flatFillLight.position.set(-90, 50, 70);
+  core.scene.add(flatFillLight);
+
+  // 辅助器（默认不挂场景，避免干扰观感）
   let dirLightHelper: THREE.DirectionalLightHelper | null = null;
   let shadowCameraHelper: THREE.CameraHelper | null = null;
-  
-  // 更新方向光位置，使其指向相机观察的目标点
+
   const updateDirLight = () => {
-    if (!core.controls || !showShadows.value) return;
-    
+    if (!core.controls) return;
+
     const target = core.controls.target;
     const cameraPos = core.camera.position;
-    // 计算从相机到目标的方向
     const direction = new THREE.Vector3().subVectors(target, cameraPos).normalize();
-    
-    // 方向光位置：在相机上方一定距离，沿相机到目标的方向偏移
-    const lightDistance = 100; // 光源距离目标的距离
-    const lightHeight = 80; // 光源在目标上方的垂直高度
-    
-    // 计算光源位置：从目标点沿方向反方向偏移，并加上垂直高度
+
+    const lightDistance = 90;
+    const lightHeight = 110;
     const lightPosition = target.clone();
     lightPosition.addScaledVector(direction, -lightDistance);
     lightPosition.z += lightHeight;
-    
-    dirLight.target.position.copy(core.controls.target);
-    // position.copy(lightPosition);
-    
-    // 更新方向光辅助器
-    if (dirLightHelper) {
-      dirLightHelper.update();
-    }
-    
-    // 更新阴影相机（使用模块级别的函数）
+
+    // 主光跟随观察点，保持顶面始终被照亮
+    dirLight.position.copy(lightPosition);
+    dirLight.target.position.copy(target);
+    dirLight.target.updateMatrixWorld();
+
+    if (!showShadows.value) return;
+
+    if (dirLightHelper) dirLightHelper.update();
     updateDirLightForShadow();
-    
-    // 更新阴影相机辅助器
-    if (shadowCameraHelper && showShadows.value) {
-      shadowCameraHelper.update();
-    }
+    if (shadowCameraHelper) shadowCameraHelper.update();
   };
-  
-  // 根据showShadows设置阴影
-  // 注意：即使默认不启用，也要初始化阴影配置，以便后续切换时能正常工作
-  dirLight.castShadow = true;
-  // 始终初始化阴影配置，这样切换时才能正常工作
-  dirLight.shadow.mapSize.width = 2048;
-  dirLight.shadow.mapSize.height = 2048;
-  dirLight.shadow.radius = 4;
-  dirLight.shadow.bias = -0.0001;
-  
+
+  dirLight.castShadow = showShadows.value;
+  dirLight.shadow.mapSize.set(2048, 2048);
+  dirLight.shadow.radius = 3;
+  dirLight.shadow.bias = -0.0002;
+  dirLight.shadow.normalBias = 0.02;
+
   if (core.renderer) {
     const renderer = core.renderer as THREE.WebGLRenderer;
-    renderer.shadowMap.enabled = true;
-    // 始终设置阴影类型，以便切换时能正常工作
+    renderer.shadowMap.enabled = showShadows.value;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   }
-  
-  // 监听控制器变化，实时更新方向光（仅在启用阴影时）
-  if (showShadows.value && core.controls) {
-    
-  }
-  core.controls.addEventListener('change', updateDirLight);
-    // 在动画循环中更新
+
+  if (core.controls) {
+    core.controls.addEventListener('change', updateDirLight);
     core.addAnimationCallback(updateDirLight);
     shadowUpdateCallbackAdded = true;
+  }
 
   core.scene.add(dirLight);
-  
-  // 即使默认不启用阴影，也要初始化阴影相机配置（手机端也需要）
-  // 这样当用户在手机端切换阴影时，阴影相机已经正确配置
+
   if (core.controls && dirLight.shadow.camera) {
-    // 初始化阴影相机配置
     const target = core.controls.target;
     const cameraPos = core.camera.position;
     const distance = cameraPos.distanceTo(target);
-    const fov = core.camera instanceof THREE.PerspectiveCamera ? core.camera.fov * (Math.PI / 180) : Math.PI / 4;
+    const fov =
+      core.camera instanceof THREE.PerspectiveCamera
+        ? (core.camera.fov * Math.PI) / 180
+        : Math.PI / 4;
     const height = 2 * Math.tan(fov / 2) * distance;
-    const width = height * (core.camera instanceof THREE.PerspectiveCamera ? core.camera.aspect : 1);
-    
+    const width =
+      height *
+      (core.camera instanceof THREE.PerspectiveCamera ? core.camera.aspect : 1);
+
     const margin = 1.5;
-    dirLight.shadow.camera.left = -width * margin / 2;
-    dirLight.shadow.camera.right = width * margin / 2;
-    dirLight.shadow.camera.top = height * margin / 2;
-    dirLight.shadow.camera.bottom = -height * margin / 2;
+    dirLight.shadow.camera.left = (-width * margin) / 2;
+    dirLight.shadow.camera.right = (width * margin) / 2;
+    dirLight.shadow.camera.top = (height * margin) / 2;
+    dirLight.shadow.camera.bottom = (-height * margin) / 2;
     dirLight.shadow.camera.near = 0.1;
-    dirLight.shadow.camera.far = Math.max(distance * 2, 200);
-    
-    // 计算光源位置
+    dirLight.shadow.camera.far = Math.max(distance * 2, 240);
+
     const direction = new THREE.Vector3().subVectors(target, cameraPos).normalize();
-    const lightDistance = 100;
-    const lightHeight = 80;
     const lightPosition = target.clone();
-    lightPosition.addScaledVector(direction, -lightDistance);
-    lightPosition.z += lightHeight;
-    
+    lightPosition.addScaledVector(direction, -90);
+    lightPosition.z += 110;
+    dirLight.position.copy(lightPosition);
     dirLight.shadow.camera.position.copy(lightPosition);
     dirLight.shadow.camera.lookAt(target);
     dirLight.shadow.camera.updateProjectionMatrix();
   }
-  
-  // 添加方向光和阴影相机辅助器（仅在启用阴影时，且非手机端）
-  if (showShadows.value) {
-    // 创建方向光辅助器（红色，显示光源位置和方向）
-    
-  }
-  dirLightHelper = new THREE.DirectionalLightHelper(dirLight, 20, 0xff0000);
-  core.scene.add(dirLightHelper);
-  
-  // 创建阴影相机辅助器（绿色，显示阴影范围）
-  if (dirLight.shadow.camera) {
-    shadowCameraHelper = new THREE.CameraHelper(dirLight.shadow.camera);
-    const material = shadowCameraHelper.material as THREE.LineBasicMaterial;
-    if (material) {
-      material.color.setHex(0x00ff00); // 绿色
-    }
-    core.scene.add(shadowCameraHelper);
-  }
-  
+
   // 初始化方向光指向上海（使用预估坐标）
   if (core.controls) {
     // 预估上海在世界坐标系中的位置（基于 MAP_CENTER 和 MAP_SCALE）
@@ -1898,10 +2178,6 @@ const initThree = async () => {
     // 初始化方向光位置
     updateDirLight();
   }
-  
-  const fillLight = new THREE.DirectionalLight(0xffecd2, 0.4);
-  fillLight.position.set(-50, 50, 50);
-  core.scene.add(fillLight);
 
   const [geojson, distData, shopsData] = await Promise.all([
     loadMapData(),
@@ -1934,6 +2210,7 @@ const initThree = async () => {
     cachedGeoJson = geojson;
     cachedDataMap = dataMap;
     cachedMaxCount = maxCount;
+    cachedDistData = distData || null;
     
     mapGroup = drawMap(geojson, core.scene, dataMap, maxCount);
     
@@ -1955,12 +2232,12 @@ const initThree = async () => {
     const shanghaiWorldX = rawSx + groupOffset.x;
     const shanghaiWorldY = rawSy + groupOffset.y;
     
-    const cameraHeight = 50; 
-    const cameraOffsetZ = 45; 
+    const finalCameraHeight = 50; 
+    const finalCameraOffsetZ = 45; 
     
     if (core.controls) {
         core.controls.target.set(shanghaiWorldX, shanghaiWorldY, 0);
-        core.camera.position.set(shanghaiWorldX, shanghaiWorldY - cameraOffsetZ, cameraHeight);
+        core.camera.position.set(shanghaiWorldX, shanghaiWorldY - finalCameraOffsetZ, finalCameraHeight);
         core.controls.update();
         
         // 更新方向光位置（在相机位置设置后）
@@ -2260,6 +2537,24 @@ const focusOnTarget = (clientX: number, clientY: number) => {
     const point = intersects.find(i => i.object === object)?.point;
     
     if (point && threeCore.value.controls) {
+      if (viewMode.value === 'globe') {
+        const dir = point.clone().normalize();
+        const newCamPos = dir.multiplyScalar(GLOBE_RADIUS * 1.95);
+        if (threeCore.value.controls.autoRotate) {
+          threeCore.value.controls.autoRotate = false;
+          setTimeout(() => {
+            if (viewMode.value === 'globe' && threeCore.value?.controls) {
+              threeCore.value.controls.autoRotate = true;
+            }
+          }, 2500);
+        }
+        threeCore.value.lookAtCameraState({
+          position: newCamPos,
+          target: new THREE.Vector3(0, 0, 0),
+        }, 1000);
+        return;
+      }
+
       const currentCamPos = threeCore.value.camera.position.clone();
       const currentTarget = threeCore.value.controls.target.clone();
       
@@ -2284,7 +2579,7 @@ const focusOnTarget = (clientX: number, clientY: number) => {
 
 // 跳转到指定省份位置
 const focusOnProvince = (provinceName: string) => {
-  if (!threeCore.value || !cachedGeoJson || !mapGroup) return;
+  if (!threeCore.value || !cachedGeoJson) return;
   
   // 特别处理内蒙古和蒙古的区分
   const isInnerMongolia = provinceName === '内蒙古' || provinceName === '内蒙古自治区' || provinceName.includes('内蒙古');
@@ -2331,6 +2626,27 @@ const focusOnProvince = (provinceName: string) => {
   }
   
   if (!center) return;
+
+  // 地球模式：镜头对准球面省份
+  if (viewMode.value === 'globe') {
+    const cam = getCameraLookingAtLngLat(center[0], center[1], GLOBE_RADIUS * 1.95);
+    if (threeCore.value.controls) {
+      threeCore.value.controls.autoRotate = false;
+      threeCore.value.lookAtCameraState(
+        { position: cam.position, target: cam.target },
+        1000
+      );
+      // 聚焦后短暂暂停自转，再恢复
+      setTimeout(() => {
+        if (viewMode.value === 'globe' && threeCore.value?.controls) {
+          threeCore.value.controls.autoRotate = true;
+        }
+      }, 2500);
+    }
+    return;
+  }
+
+  if (!mapGroup) return;
   
   // 转换为世界坐标
   const { x, y } = project(center[0], center[1]);
@@ -2383,13 +2699,16 @@ const onMouseMove = (event: MouseEvent) => {
                 (object as THREE.Mesh).material = new THREE.MeshStandardMaterial({
                     color: highlightColor,
                     side: THREE.DoubleSide,
-                    roughness: 0.5,
-                    metalness: 0.1
+                    roughness: 0.65,
+                    metalness: 0,
+                    emissive: highlightColor.clone().multiplyScalar(0.15),
+                    emissiveIntensity: 0.4,
                 });
 
                 tooltip.value.visible = true;
                 tooltip.value.name = object.parent.userData.name;
                 tooltip.value.count = object.parent.userData.count;
+                tooltip.value.kind = 'province';
             }
         }
         else if (object.userData.isBar) {
@@ -2410,6 +2729,7 @@ const onMouseMove = (event: MouseEvent) => {
                 tooltip.value.visible = true;
                 tooltip.value.name = object.userData.name;
                 tooltip.value.count = object.userData.count;
+                tooltip.value.kind = 'bar';
             }
         }
         else if (object.userData.isPhysicalShop || object.userData.isShopCluster) {
@@ -2420,12 +2740,14 @@ const onMouseMove = (event: MouseEvent) => {
               tooltip.value.visible = true;
               tooltip.value.name = `${cluster.length} 家实体店`;
               tooltip.value.count = 0;
+              tooltip.value.kind = 'shop';
             } else {
               // 单个实体店
               const shop = object.userData.shop as PhysicalShop;
               tooltip.value.visible = true;
               tooltip.value.name = shop.physical_name || '实体店';
               tooltip.value.count = 0; // 实体店不显示数量
+              tooltip.value.kind = 'shop';
             }
         }
         else if (object.userData.isTeaParty) {
@@ -2446,6 +2768,7 @@ const onMouseMove = (event: MouseEvent) => {
                 tooltip.value.visible = true;
                 tooltip.value.name = object.userData.name;
                 tooltip.value.count = 0; // 茶会暂时不显示数量，或者显示天数？
+                tooltip.value.kind = 'tea';
             }
         }
     }
@@ -2462,10 +2785,12 @@ const restoreObjectMaterial = (obj: THREE.Object3D) => {
     if (obj.userData.isBar) {
         (obj as THREE.Mesh).material = new THREE.MeshStandardMaterial({ 
             color: LOLITA_COLORS.bar,
-            roughness: 0.6,
-            metalness: 0.1,
+            roughness: 0.55,
+            metalness: 0,
             transparent: true,
-            opacity: 0.9
+            opacity: 0.92,
+            emissive: new THREE.Color(LOLITA_COLORS.bar),
+            emissiveIntensity: 0.18,
         });
     } else if (obj.userData.isTeaParty) {
         (obj as THREE.Mesh).material = new THREE.MeshStandardMaterial({
@@ -2476,12 +2801,15 @@ const restoreObjectMaterial = (obj: THREE.Object3D) => {
             opacity: 0.8
         });
     } else if (obj.parent?.userData.isProvince) {
-        const baseColor = obj.parent.userData.baseColor || new THREE.Color(0xeeeeee);
+        const baseColor = obj.parent.userData.baseColor || new THREE.Color(0xf6f3fb);
+        const count = obj.parent.userData.count || 0;
         (obj as THREE.Mesh).material = new THREE.MeshStandardMaterial({
             color: baseColor,
             side: THREE.DoubleSide,
-            roughness: 0.5,
-            metalness: 0.1
+            roughness: 0.72,
+            metalness: 0,
+            emissive: count > 0 ? baseColor.clone().multiplyScalar(0.12) : new THREE.Color(0x000000),
+            emissiveIntensity: count > 0 ? 0.35 : 0,
         });
     }
 }
@@ -2495,6 +2823,10 @@ onMounted(() => {
 });
 
 onBeforeUnmount(() => {
+  if (globeParts) {
+    disposeObject3D(globeParts.root);
+    globeParts = null;
+  }
   if (threeCore.value) {
     threeCore.value.dispose();
   }
@@ -2531,147 +2863,215 @@ onBeforeUnmount(() => {
 useHead({
   title: 'Lo娘分布地图 - Lo研社',
 });
+
+const panelChipActiveClass =
+  'bg-qhx-primary text-white';
+const panelChipIdleClass = computed(() =>
+  viewMode.value === 'globe'
+    ? 'bg-white/10 text-purple-200/70 hover:bg-white/15'
+    : 'bg-gray-100/90 text-gray-500 hover:bg-purple-50 hover:text-qhx-primary'
+);
 </script>
 
 <template>
-  <div class="relative w-full h-screen bg-white overflow-hidden font-serif">
+  <div
+    class="relative w-full h-screen overflow-hidden font-serif transition-colors duration-500"
+    :class="viewMode === 'globe' ? 'bg-[#0a0614]' : 'bg-white'"
+  >
     <!-- 3D 容器 -->
     <div ref="container" class="w-full h-full relative z-10"></div>
 
     <!-- Loading -->
-    <div v-if="loading"
-      class="absolute inset-0 flex flex-col items-center justify-center bg-white/90 backdrop-blur-sm z-50">
-      <div class="w-16 h-16 border-4 border-purple-400 rounded-full border-t-transparent animate-spin"></div>
-      <p class="mt-4 text-purple-600 tracking-widest font-bold">正在生成星图...</p>
+    <div
+      v-if="loading"
+      class="absolute inset-0 z-50 flex flex-col items-center justify-center bg-qhx-bg-card/90 backdrop-blur-sm"
+    >
+      <div class="relative">
+        <div class="h-14 w-14 rounded-full border-4 border-qhx-primary/15" />
+        <div class="absolute inset-0 h-14 w-14 animate-spin rounded-full border-4 border-qhx-primary border-t-transparent" />
+      </div>
+      <p class="mt-4 text-sm font-medium tracking-widest text-qhx-primary">正在生成星图...</p>
+    </div>
+
+    <!-- 左上标题（对齐可视化其他页） -->
+    <div class="pointer-events-none absolute left-4 top-4 z-40 md:left-6 md:top-6">
+      <div class="relative inline-block">
+        <h1
+          class="bg-gradient-to-r from-qhx-primary to-pink-400 bg-clip-text text-2xl font-bold tracking-tight text-transparent md:text-3xl"
+        >
+          Lo娘分布
+        </h1>
+        <span class="absolute -right-4 -top-2 animate-bounce text-lg">✨</span>
+      </div>
+      <p
+        class="mt-1 text-xs md:text-sm"
+        :class="viewMode === 'globe' ? 'text-purple-200/80' : 'text-gray-400'"
+      >
+        {{ viewMode === 'globe' ? '地球模式' : '平面地图' }} · 样本 {{ totalCount }}
+      </p>
     </div>
 
     <!-- 控制面板 -->
-    <div class="absolute top-3 left-3 z-40 pointer-events-auto">
-      <div class="bg-white/95 backdrop-blur-md rounded-xl shadow-lg border border-gray-200 overflow-hidden">
-        <div class="flex flex-col gap-1.5 p-2">
-          <!-- 分布图显示/隐藏按钮 -->
-          <button
-            @click.stop="toggleBars"
-            class="px-3 py-1.5 bg-white/95 backdrop-blur-md rounded-lg shadow-sm border border-gray-200 text-xs font-medium transition-colors flex items-center justify-between gap-2 touch-manipulation min-w-[140px]"
-            :class="showBars ? 'text-gray-700 hover:bg-gray-50' : 'bg-gray-100 text-gray-500'"
-          >
-            <span>{{ showBars ? '隐藏' : '显示' }}分布图</span>
-            <span>{{ showBars ? '👁️' : '👁️‍🗨️' }}</span>
-          </button>
-          
-          <!-- 实体店显示/隐藏按钮 -->
-          <button
-            @click.stop="toggleShops"
-            class="px-3 py-1.5 bg-white/95 backdrop-blur-md rounded-lg shadow-sm border border-gray-200 text-xs font-medium transition-colors flex items-center justify-between gap-2 touch-manipulation min-w-[140px]"
-            :class="showShops ? 'bg-purple-100 text-purple-700 border-purple-300' : 'text-gray-700 hover:bg-gray-50'"
-            :disabled="shopLoading"
-          >
-            <span v-if="shopLoading" class="flex items-center gap-1.5">
-              <div class="w-2.5 h-2.5 border-2 border-purple-400 rounded-full border-t-transparent animate-spin"></div>
-              <span>加载中...</span>
-            </span>
-            <template v-else>
-              <span>{{ showShops ? '隐藏' : '显示' }}实体店</span>
-              <span>{{ showShops ? '🏪' : '📍' }}</span>
-            </template>
-          </button>
-          
-          <!-- 茶会显示/隐藏按钮 -->
-          <button
-            @click.stop="toggleTeaParties"
-            class="px-3 py-1.5 bg-white/95 backdrop-blur-md rounded-lg shadow-sm border border-gray-200 text-xs font-medium transition-colors flex items-center justify-between gap-2 touch-manipulation min-w-[140px]"
-            :class="showTeaParties ? 'bg-blue-100 text-blue-700 border-blue-300' : 'text-gray-700 hover:bg-gray-50'"
-          >
-            <span>{{ showTeaParties ? '隐藏' : '显示' }}茶会</span>
-            <span>{{ showTeaParties ? '🍵' : '🫖' }}</span>
-          </button>
-          
-          <!-- 光影显示/隐藏按钮 -->
-          <button
-            @click.stop="toggleShadows"
-            class="px-3 py-1.5 bg-white/95 backdrop-blur-md rounded-lg shadow-sm border border-gray-200 text-xs font-medium transition-colors flex items-center justify-between gap-2 touch-manipulation min-w-[140px]"
-            :class="showShadows ? 'bg-yellow-100 text-yellow-700 border-yellow-300' : 'text-gray-700 hover:bg-gray-50'"
-          >
-            <span>{{ showShadows ? '隐藏' : '显示' }}光影</span>
-            <span>{{ showShadows ? '☀️' : '🌙' }}</span>
-          </button>
-          
-          <!-- 实体店加载中提示 -->
-          <div v-if="shopLoading && showShops"
-            class="px-3 py-1.5 bg-purple-50/80 backdrop-blur-sm rounded-lg border border-purple-200 text-xs text-purple-600 flex items-center gap-1.5">
-            <div class="w-2.5 h-2.5 border-2 border-purple-400 rounded-full border-t-transparent animate-spin"></div>
-            <span>正在加载实体店...</span>
+    <div class="absolute left-3 top-[4.75rem] z-40 pointer-events-auto md:left-6 md:top-[5.5rem]">
+      <div
+        class="w-[min(92vw,320px)] overflow-hidden rounded-2xl border shadow-xl backdrop-blur-md transition-colors duration-300"
+        :class="viewMode === 'globe'
+          ? 'border-white/15 bg-[#1a1230]/88 text-purple-50'
+          : 'border-white/50 bg-qhx-bg-card/95 text-gray-700'"
+      >
+        <div class="space-y-3 p-3">
+          <!-- 图层开关 -->
+          <div class="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              class="touch-manipulation rounded-full px-3 py-2 text-xs font-medium transition-all active:scale-[0.98]"
+              :class="viewMode === 'globe' ? panelChipActiveClass : panelChipIdleClass"
+              @click.stop="toggleViewMode"
+            >
+              <span class="mr-1">{{ viewMode === 'globe' ? '🗺️' : '🌍' }}</span>
+              {{ viewMode === 'globe' ? '平面' : '地球' }}
+            </button>
+            <button
+              type="button"
+              class="touch-manipulation rounded-full px-3 py-2 text-xs font-medium transition-all active:scale-[0.98]"
+              :class="showBars ? panelChipActiveClass : panelChipIdleClass"
+              @click.stop="toggleBars"
+            >
+              <span class="mr-1">📊</span>
+              分布
+            </button>
+            <button
+              type="button"
+              class="touch-manipulation rounded-full px-3 py-2 text-xs font-medium transition-all active:scale-[0.98] disabled:opacity-60"
+              :class="showShops ? panelChipActiveClass : panelChipIdleClass"
+              :disabled="shopLoading"
+              @click.stop="toggleShops"
+            >
+              <span v-if="shopLoading" class="mr-1 inline-block h-3 w-3 animate-spin rounded-full border-2 border-qhx-primary border-t-transparent align-[-2px]" />
+              <span v-else class="mr-1">🏪</span>
+              实体店
+            </button>
+            <button
+              type="button"
+              class="touch-manipulation rounded-full px-3 py-2 text-xs font-medium transition-all active:scale-[0.98]"
+              :class="showTeaParties ? panelChipActiveClass : panelChipIdleClass"
+              @click.stop="toggleTeaParties"
+            >
+              <span class="mr-1">🍵</span>
+              茶会
+            </button>
+            <button
+              type="button"
+              class="col-span-2 touch-manipulation rounded-full px-3 py-2 text-xs font-medium transition-all active:scale-[0.98]"
+              :class="showShadows ? panelChipActiveClass : panelChipIdleClass"
+              @click.stop="toggleShadows"
+            >
+              <span class="mr-1">{{ showShadows ? '☀️' : '🌙' }}</span>
+              {{ showShadows ? '光影开启' : '光影关闭' }}
+            </button>
           </div>
-          
+
+          <div
+            v-if="shopLoading && showShops"
+            class="flex items-center gap-2 rounded-xl bg-qhx-primary/10 px-3 py-2 text-xs text-qhx-primary"
+          >
+            <span class="h-3 w-3 animate-spin rounded-full border-2 border-qhx-primary border-t-transparent" />
+            正在加载实体店...
+          </div>
+
           <!-- 排行榜 -->
-          <div class="w-[320px] bg-white/95 backdrop-blur-md rounded-lg shadow-sm overflow-hidden text-xs transition-all duration-300 border border-gray-200">
-            <div 
-              class="flex justify-between items-center px-3 py-2 cursor-pointer border-b border-gray-100 hover:bg-gray-50 touch-manipulation"
+          <div
+            class="overflow-hidden rounded-xl text-xs transition-all duration-300"
+            :class="viewMode === 'globe'
+              ? 'bg-white/5 ring-1 ring-white/10'
+              : 'bg-white/70 ring-1 ring-purple-100/80'"
+          >
+            <button
+              type="button"
+              class="flex w-full touch-manipulation items-center justify-between gap-2 px-3 py-2.5 text-left transition-colors"
+              :class="viewMode === 'globe' ? 'hover:bg-white/10' : 'hover:bg-purple-50/80'"
               @click.stop="isRankExpanded = !isRankExpanded"
             >
-              <span class="font-bold text-gray-800 flex items-center gap-1.5 text-xs">
-                  <span class="text-base">📊</span>
-                  <span>样本总数: {{ totalCount }}</span>
+              <span class="flex min-w-0 items-center gap-1.5 font-semibold">
+                <span class="text-base">📊</span>
+                <span class="truncate" :class="viewMode === 'globe' ? 'text-purple-50' : 'text-gray-800'">
+                  样本总数 {{ totalCount }}
+                </span>
               </span>
-              <span class="transform transition-transform duration-300 text-gray-500 text-xs" :class="{ 'rotate-180': isRankExpanded }">▼</span>
-            </div>
+              <span
+                class="shrink-0 text-[10px] transition-transform duration-300"
+                :class="[
+                  viewMode === 'globe' ? 'text-purple-300' : 'text-gray-400',
+                  isRankExpanded ? 'rotate-180' : '',
+                ]"
+              >▼</span>
+            </button>
 
             <div v-show="isRankExpanded">
-              <!-- 说明提示 -->
-              <div class="px-3 py-2 bg-gray-50 border-b border-gray-200 space-y-1.5">
-                <!-- 排名颜色说明 -->
-                <div class="flex items-center gap-2 text-[10px] text-gray-600">
-                  <span class="font-medium text-gray-700">排名颜色：</span>
-                  <div class="flex items-center gap-1.5">
-                    <span class="w-3 h-3 rounded-full bg-yellow-400"></span>
-                    <span>第1名</span>
-                    <span class="w-3 h-3 rounded-full bg-gray-300 ml-1"></span>
-                    <span>第2名</span>
-                    <span class="w-3 h-3 rounded-full bg-amber-600 ml-1"></span>
-                    <span>第3名</span>
-                    <span class="w-3 h-3 rounded-full bg-purple-200 ml-1"></span>
-                    <span>其他</span>
-                  </div>
+              <div
+                class="space-y-1.5 border-t px-3 py-2 text-[10px]"
+                :class="viewMode === 'globe'
+                  ? 'border-white/10 text-purple-200/80'
+                  : 'border-purple-100/80 bg-purple-50/40 text-gray-500'"
+              >
+                <div class="flex flex-wrap items-center gap-1.5">
+                  <span class="font-medium" :class="viewMode === 'globe' ? 'text-purple-100' : 'text-gray-600'">排名</span>
+                  <span class="inline-flex items-center gap-1"><i class="h-2.5 w-2.5 rounded-full bg-yellow-400" />1</span>
+                  <span class="inline-flex items-center gap-1"><i class="h-2.5 w-2.5 rounded-full bg-gray-300" />2</span>
+                  <span class="inline-flex items-center gap-1"><i class="h-2.5 w-2.5 rounded-full bg-amber-600" />3</span>
+                  <span class="inline-flex items-center gap-1"><i class="h-2.5 w-2.5 rounded-full bg-purple-300" />其他</span>
                 </div>
-                <!-- 占比说明 -->
-                <div class="flex items-center gap-2 text-[10px] text-gray-600">
-                  <span class="font-medium text-gray-700">占比说明：</span>
-                  <div class="flex items-center gap-2">
-                    <span class="text-gray-500">灰色=样本占比</span>
-                    <span class="text-blue-500">蓝色=人口十万分比</span>
-                  </div>
+                <div class="flex flex-wrap gap-x-3 gap-y-0.5">
+                  <span :class="viewMode === 'globe' ? 'text-purple-300/80' : 'text-gray-400'">灰=样本占比</span>
+                  <span class="text-sky-500">蓝=人口十万分比</span>
                 </div>
               </div>
-              
-              <div class="max-h-[50vh] overflow-y-auto custom-scrollbar">
-                <div 
-                  v-for="item in rankList" 
+
+              <div class="custom-scrollbar max-h-[42vh] overflow-y-auto">
+                <button
+                  v-for="item in rankList"
                   :key="item.name"
-                  class="flex items-center px-3 py-1.5 border-b border-gray-50 last:border-0 hover:bg-gray-50 transition-colors cursor-pointer"
-                  :class="{ 'bg-purple-50': item.rank % 2 !== 0 }"
+                  type="button"
+                  class="flex w-full touch-manipulation items-center gap-1.5 border-b px-3 py-1.5 text-left transition-colors last:border-0"
+                  :class="viewMode === 'globe'
+                    ? 'border-white/5 hover:bg-white/10'
+                    : item.rank % 2 !== 0
+                      ? 'border-purple-50/80 bg-purple-50/50 hover:bg-purple-100/60'
+                      : 'border-gray-50 hover:bg-purple-50/70'"
                   @click="focusOnProvince(item.name)"
                 >
-                  <span 
-                    class="w-5 h-5 flex items-center justify-center rounded-full text-[10px] font-bold mr-1.5"
+                  <span
+                    class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold"
                     :class="{
-                        'bg-yellow-400 text-yellow-900': item.rank === 1,
-                        'bg-gray-300 text-gray-800': item.rank === 2,
-                        'bg-amber-600 text-amber-100': item.rank === 3,
-                        'bg-purple-200 text-purple-800': item.rank > 3
+                      'bg-yellow-400 text-yellow-900': item.rank === 1,
+                      'bg-gray-300 text-gray-800': item.rank === 2,
+                      'bg-amber-600 text-amber-50': item.rank === 3,
+                      'bg-purple-200 text-purple-800': item.rank > 3,
                     }"
                   >
                     {{ item.rank }}
                   </span>
-                  <span class="flex-1 truncate text-gray-700 font-medium text-xs">{{ item.name }}</span>
-                  <span class="w-10 text-right text-gray-600 font-mono font-bold text-xs">{{ item.count }}</span>
-                  <span class="w-12 text-right text-gray-400 text-[10px]">{{ item.percent }}</span>
-                  <span class="w-14 text-right text-[10px]">
-                    <span v-if="item.populationPercent" class="text-blue-500 font-medium" title="占总人口十万分比">
-                      {{ item.populationPercent }}
-                    </span>
+                  <span
+                    class="min-w-0 flex-1 truncate text-xs font-medium"
+                    :class="viewMode === 'globe' ? 'text-purple-50' : 'text-gray-700'"
+                  >{{ item.name }}</span>
+                  <span
+                    class="w-9 shrink-0 text-right font-mono text-xs font-bold"
+                    :class="viewMode === 'globe' ? 'text-purple-100' : 'text-gray-700'"
+                  >{{ item.count }}</span>
+                  <span
+                    class="w-11 shrink-0 text-right text-[10px]"
+                    :class="viewMode === 'globe' ? 'text-purple-300/80' : 'text-gray-400'"
+                  >{{ item.percent }}</span>
+                  <span class="w-12 shrink-0 text-right text-[10px]">
+                    <span
+                      v-if="item.populationPercent"
+                      class="font-medium text-sky-500"
+                      title="占总人口十万分比"
+                    >{{ item.populationPercent }}</span>
                     <span v-else class="text-transparent">—</span>
                   </span>
-                </div>
+                </button>
               </div>
             </div>
           </div>
@@ -2680,27 +3080,50 @@ useHead({
     </div>
 
     <!-- Tooltip -->
-    <div v-if="tooltip.visible"
-      class="fixed pointer-events-none z-50 px-4 py-2 bg-white/95 backdrop-blur text-gray-800 text-xs rounded-lg shadow-xl border border-gray-200"
-      :style="{ left: `${tooltip.x}px`, top: `${tooltip.y}px` }">
-      <div class="font-bold text-purple-700 text-sm mb-1">{{ tooltip.name }}</div>
+    <div
+      v-if="tooltip.visible"
+      class="pointer-events-none fixed z-50 rounded-2xl border border-white/50 bg-qhx-bg-card/95 px-4 py-2 text-xs text-gray-800 shadow-xl backdrop-blur-md"
+      :style="{ left: `${tooltip.x}px`, top: `${tooltip.y}px` }"
+    >
+      <div class="mb-1 text-sm font-bold text-qhx-primary">{{ tooltip.name }}</div>
       <div v-if="tooltip.count > 0" class="flex items-center gap-2">
-          <span class="w-2 h-2 rounded-full bg-green-400"></span>
-          <span>人数: <span class="font-mono text-lg font-bold">{{ tooltip.count }}</span></span>
+        <span class="h-2 w-2 rounded-full bg-emerald-400" />
+        <span>人数: <span class="font-mono text-lg font-bold">{{ tooltip.count }}</span></span>
       </div>
-      <div v-else class="flex items-center gap-2">
-          <span class="w-2 h-2 rounded-full bg-purple-400"></span>
-          <span>实体店</span>
+      <div v-else-if="tooltip.kind === 'shop'" class="flex items-center gap-2">
+        <span class="h-2 w-2 rounded-full bg-qhx-primary" />
+        <span>实体店</span>
       </div>
+      <div v-else-if="tooltip.kind === 'tea'" class="flex items-center gap-2">
+        <span class="h-2 w-2 rounded-full bg-sky-400" />
+        <span>茶会</span>
+      </div>
+      <div v-else-if="tooltip.kind === 'province'" class="text-gray-500">地区</div>
     </div>
-    
+
     <!-- 底部操作提示 -->
-    <div class="absolute bottom-6 left-1/2 transform -translate-x-1/2 z-40 pointer-events-none opacity-80">
-        <div class="bg-white/80 backdrop-blur-sm px-4 py-2 rounded-full text-xs text-gray-600 border border-gray-200 shadow-sm flex items-center gap-4">
-            <span class="flex items-center gap-1"><span class="i-heroicons-arrows-pointing-out"></span> 左键拖拽平移</span>
-            <span class="flex items-center gap-1"><span class="i-heroicons-magnifying-glass"></span> 滚轮缩放</span>
-            <span class="flex items-center gap-1"><span class="i-heroicons-cursor-click"></span> 双击聚焦</span>
-        </div>
+    <div class="pointer-events-none absolute bottom-5 left-1/2 z-40 -translate-x-1/2 md:bottom-6">
+      <div
+        class="flex items-center gap-3 rounded-full border px-4 py-2 text-[11px] shadow-lg backdrop-blur-md md:gap-4 md:text-xs"
+        :class="viewMode === 'globe'
+          ? 'border-white/15 bg-[#1a1230]/80 text-purple-100'
+          : 'border-white/50 bg-qhx-bg-card/90 text-gray-500'"
+      >
+        <template v-if="viewMode === 'globe'">
+          <span>拖拽旋转</span>
+          <span class="opacity-40">·</span>
+          <span>滚轮缩放</span>
+          <span class="opacity-40">·</span>
+          <span>双击聚焦</span>
+        </template>
+        <template v-else>
+          <span>拖拽平移</span>
+          <span class="opacity-40">·</span>
+          <span>滚轮缩放</span>
+          <span class="opacity-40">·</span>
+          <span>双击聚焦</span>
+        </template>
+      </div>
     </div>
 
     <!-- 实体店列表弹窗 -->

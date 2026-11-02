@@ -5,6 +5,7 @@ import {
   parseCommunityImgList,
   withOssImageProcess,
 } from '@/utils/communityLiveMedia'
+import { formatRich, parseRichText, type RichNode } from '@/utils/public'
 interface Props {
   item: Community,
   className?: string,
@@ -108,6 +109,12 @@ function filterIframePlaceholder(html: string): string {
     .replace(/<iframe[^>]*\/?>/gi, placeholder)
     .replace('60vh', '500px')
 }
+
+/** 列表预览：走 SafeRichText，避免 v-html 执行用户载荷 */
+const previewNodes = computed<RichNode[]>(() => {
+  if (!text.value) return []
+  return parseRichText(filterIframePlaceholder(text.value))
+})
 </script>
 <template>
   <div :class="props.className ? props.className :'bg-qhx-bg-card polaroid-card cursor-pointer shadow-lg p-2 m-2 rounded'">
@@ -117,7 +124,9 @@ function filterIframePlaceholder(html: string): string {
         <h3 class="text-base font-semibold text-gray-900 truncate w-full transition-colors duration-300" @click="handleJump(item.community_id)">
           {{ item.title }}
         </h3>
-        <div v-html="filterIframePlaceholder(text)" class="community-content m-1" @click="handleJump(item.community_id)"></div>
+        <div class="community-content m-1" @click="handleJump(item.community_id)">
+          <SafeRichText :nodes="previewNodes" />
+        </div>
         <div class="flex flex-wrap w-full">
           <QhxPreviewImage
             @load="load"

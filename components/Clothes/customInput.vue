@@ -11,8 +11,13 @@
           }
         }
       }" />
-      <UButton type="submit" block class="bg-qhx-primary text-qhx-inverted hover:bg-qhx-primaryHover mt-6"
-        @click="add()">
+      <UButton
+        type="submit"
+        block
+        :ui="{ rounded: 'rounded-full' }"
+        class="bg-qhx-primary text-qhx-inverted hover:bg-qhx-primaryHover mt-6"
+        @click="add()"
+      >
         添加
       </UButton>
     </div>

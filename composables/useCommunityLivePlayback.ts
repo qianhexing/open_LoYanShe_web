@@ -1,4 +1,4 @@
-import { nextTick, onBeforeUnmount, ref, watch, type Ref } from 'vue'
+import { nextTick, onBeforeUnmount, onMounted, ref, watch, type Ref } from 'vue'
 
 const LONG_PRESS_MS = 480
 const MOVE_CANCEL_PX = 10
@@ -11,10 +11,13 @@ export function useCommunityLivePlayback(options: {
   getSrc: () => string | undefined
   /** 是否处于应播放状态（详情当前页 / Lightbox 可见等） */
   shouldPlay: () => boolean
+  /** 初始 / 切源后是否循环；服饰封面默认开 */
+  defaultLoop?: boolean
   /** 仅用户切换循环时回调（不含切图重置） */
   onLoopChange?: (enabled: boolean) => void
 }) {
-  const loopEnabled = ref(false)
+  const defaultLoop = () => Boolean(options.defaultLoop)
+  const loopEnabled = ref(defaultLoop())
   const videoVisible = ref(false)
 
   let pressTimer: ReturnType<typeof setTimeout> | null = null
@@ -32,10 +35,16 @@ export function useCommunityLivePlayback(options: {
   async function playFromStart(): Promise<boolean> {
     if (!options.shouldPlay()) return false
     await nextTick()
-    const el = options.videoRef.value
+    let el = options.videoRef.value
+    if (!el) {
+      await nextTick()
+      el = options.videoRef.value
+    }
     const src = options.getSrc()?.trim()
     if (!el || !src) return false
     el.loop = loopEnabled.value
+    el.muted = true
+    el.playsInline = true
     if (el.getAttribute('src') !== src) {
       el.src = src
     }
@@ -48,6 +57,10 @@ export function useCommunityLivePlayback(options: {
       videoVisible.value = false
       return false
     }
+  }
+
+  function onPlaying() {
+    videoVisible.value = true
   }
 
   function stop(clearSrc = true) {
@@ -150,11 +163,17 @@ export function useCommunityLivePlayback(options: {
     e.preventDefault()
   }
 
+  function tryPlayIfNeeded() {
+    if (options.shouldPlay() && options.getSrc()?.trim()) {
+      void playFromStart()
+    }
+  }
+
   watch(
     () => [options.shouldPlay(), options.getSrc()] as const,
     ([play, src], prev) => {
       if (src !== prev?.[1]) {
-        setLoopEnabled(false, false)
+        setLoopEnabled(defaultLoop(), false)
       }
       if (play && src?.trim()) {
         void playFromStart()
@@ -164,6 +183,14 @@ export function useCommunityLivePlayback(options: {
     },
     { immediate: true },
   )
+
+  watch(options.videoRef, (el) => {
+    if (el) tryPlayIfNeeded()
+  })
+
+  onMounted(() => {
+    tryPlayIfNeeded()
+  })
 
   onBeforeUnmount(() => {
     clearPressTimer()
@@ -176,6 +203,7 @@ export function useCommunityLivePlayback(options: {
     playFromStart,
     stop,
     onEnded,
+    onPlaying,
     toggleLoop,
     setLoopEnabled,
     onBadgePointerDown,

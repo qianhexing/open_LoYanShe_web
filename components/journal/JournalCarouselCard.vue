@@ -1,5 +1,5 @@
 <!--
-  手账轮播公共卡片壳：顶栏 + 滚动/纯文本居中 + lite + 3D 全高 iframe。
+  手账轮播公共卡片壳：顶栏 + 滚动/纯文本居中 + lite + 3D 占位（WebGL 由父级宿主托管）。
   可跳转类型底部固定「查看详情」；卡片本身不跳转。
   各 pk_type 内容见 components/journal/carousel/*。
 -->
@@ -28,7 +28,7 @@ const props = withDefaults(
     /** 底部显示「查看详情」（可跳转类型且当前页激活） */
     showDetail?: boolean
     showMore?: boolean
-    /** 当前页激活（用于 3D iframe 懒挂载） */
+    /** 当前页激活（用于 3D 宿主信令） */
     active?: boolean
     /** 轻量模式（邻页）：不挂载类型重组件 */
     lite?: boolean
@@ -186,7 +186,7 @@ function onMore(e: MouseEvent) {
       <LitePreview :journal="journal" :image-params="imageParams" />
     </div>
 
-    <!-- 3D：全高 iframe，不走封面滚动区 -->
+    <!-- 3D：全高占位，WebGL 由 JournalCarouselMode 宿主托管 -->
     <div
       v-else-if="isScene"
       class="journal-carousel-card__scene-body flex min-h-0 flex-1 flex-col px-2 pb-2 pt-1"

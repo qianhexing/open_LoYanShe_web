@@ -4,7 +4,7 @@ import OSS from 'ali-oss'
 import SparkMD5 from 'spark-md5'
 import { checkFileAndGetUploadInfo, insertFile } from '@/api'
 import type { FileInterface } from '@/types/api'
-import { ensureJpegForUpload } from '@/utils/heicUploadGate'
+import { ensureAllowedImageForUpload } from '@/utils/heicUploadGate'
 import { BASE_IMG } from '@/utils/ipConfig'
 
 /**
@@ -86,23 +86,30 @@ export async function uploadImageOSS(file: { file?: File; url?: string; }): Prom
 }
 
 async function gateImageFileForOss(file: File): Promise<File> {
-  const isLikelyImage =
-    file.type.startsWith('image/') ||
-    /\.(jpe?g|png|gif|webp|heic|heif|bmp|avif)$/i.test(file.name)
-  if (!isLikelyImage) return file
-  return ensureJpegForUpload(file)
+  return ensureAllowedImageForUpload(file)
+}
+
+/**
+ * 生成仅含十六进制的临时 id（与后端 STS Policy 的 md5 清洗规则一致）
+ * 后端：fileMd5.replace(/[^a-fA-F0-9]/g, '')，再签发 path/{md5}*
+ */
+function createTempHexId(): string {
+  const rand = Math.random().toString(16).slice(2, 10).padEnd(8, '0')
+  return `${Date.now().toString(16)}${rand}`
 }
 
 /**
  * temp 目录 OSS 直传：不查重、不写文件记录（分享图等临时场景）
+ * object key 必须落在 STS 的 path/{md5}* 范围内，不能用原始文件名。
  */
 export async function uploadTempFileToOSS(
   file: File,
   onProgress?: (progress: number) => void
 ): Promise<{ file_url: string }> {
   const uploadFile = await gateImageFileForOss(file)
+  const tempId = createTempHexId()
   const checkResult = await checkFileAndGetUploadInfo({
-    file_md5: `temp_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`,
+    file_md5: tempId,
     path: 'temp',
   })
 
@@ -111,7 +118,8 @@ export async function uploadTempFileToOSS(
   }
 
   const ossInfo = checkResult.oss
-  const objectName = `${ossInfo.path}/${uploadFile.name}`
+  const fileExtension = getFileExtension(uploadFile.name) || '.jpg'
+  const objectName = `${ossInfo.path}/${tempId}${fileExtension}`
 
   const client = new OSS({
     region: ossInfo.region,
@@ -249,5 +257,101 @@ export async function uploadFileToOSS(
     console.error('上传文件到 OSS 失败:', error)
     throw error
   }
+}
+
+type OssCredential = NonNullable<Awaited<ReturnType<typeof checkFileAndGetUploadInfo>>['oss']>
+
+function createOssClient(ossInfo: OssCredential) {
+  return new OSS({
+    region: ossInfo.region,
+    accessKeyId: ossInfo.AccessKeyId,
+    accessKeySecret: ossInfo.AccessKeySecret,
+    stsToken: ossInfo.SecurityToken,
+    bucket: ossInfo.bucket,
+  })
+}
+
+function toRelativeOssPath(fileUrl: string): string {
+  return fileUrl.replace(/^https?:\/\/[^/]+\//, '').replace(/^\/+/, '')
+}
+
+function pairedLivePosterPath(videoRelPath: string): string {
+  const q = videoRelPath.search(/[?#]/)
+  const base = q >= 0 ? videoRelPath.slice(0, q) : videoRelPath
+  return `${base.replace(/\.[^.]+$/, '')}.jpg`
+}
+
+/** 实况成对上传的默认 OSS 目录（`live/{md5}.mp4` + 同名 `.jpg`） */
+export const LIVE_OSS_PATH = 'live'
+
+/**
+ * 实况成对上传：视频与封面同 basename（`xxx.mp4` + `xxx.jpg`），返回视频相对路径写入 img_list。
+ * 默认目录为 `live`，与普通图片的 `editor` 分开。
+ */
+export async function uploadPairedLiveToOSS(
+  videoFile: File,
+  posterFile: File,
+  path = LIVE_OSS_PATH,
+): Promise<string> {
+  const videoMd5 = await calculateFileMD5(videoFile)
+  const videoCheck = await checkFileAndGetUploadInfo({
+    file_md5: videoMd5,
+    path,
+  })
+
+  let videoRel: string
+  let ossInfo = videoCheck.oss
+
+  if (videoCheck.exists && videoCheck.file_url) {
+    videoRel = toRelativeOssPath(videoCheck.file_url)
+    if (!/\.mp4$/i.test(videoRel)) {
+      videoRel = `${videoRel.replace(/\.[^.]+$/, '')}.mp4`
+    }
+  } else {
+    if (!ossInfo) throw new Error('获取 OSS 签名失败')
+    const objectName = `${ossInfo.path}/${videoMd5}.mp4`
+    const client = createOssClient(ossInfo)
+    const uploadResult = await client.put(objectName, videoFile, {
+      // 统一按 mp4 存，避免 iOS video/quicktime 在安卓无法播放
+      headers: { 'Content-Type': 'video/mp4' },
+    })
+    videoRel = toRelativeOssPath(uploadResult.name || objectName)
+    const fileRecord = await insertFile({
+      file_url: videoRel,
+      file_md5: videoMd5,
+      file_type: 0,
+      file_size: videoFile.size,
+    })
+    if (fileRecord.file_url) videoRel = toRelativeOssPath(fileRecord.file_url)
+  }
+
+  if (!ossInfo) {
+    const posterMd5 = await calculateFileMD5(posterFile)
+    const posterCheck = await checkFileAndGetUploadInfo({
+      file_md5: posterMd5,
+      path,
+    })
+    ossInfo = posterCheck.oss
+  }
+  if (!ossInfo) throw new Error('获取 OSS 签名失败')
+
+  const posterRel = pairedLivePosterPath(videoRel)
+  const posterClient = createOssClient(ossInfo)
+  await posterClient.put(posterRel, posterFile, {
+    headers: { 'Content-Type': posterFile.type || 'image/jpeg' },
+  })
+  try {
+    const posterMd5 = await calculateFileMD5(posterFile)
+    await insertFile({
+      file_url: posterRel,
+      file_md5: posterMd5,
+      file_type: 0,
+      file_size: posterFile.size,
+    })
+  } catch {
+    /* 封面记录失败不影响实况路径 */
+  }
+
+  return videoRel
 }
 

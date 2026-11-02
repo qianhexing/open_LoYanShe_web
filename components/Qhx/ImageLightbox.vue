@@ -42,6 +42,8 @@ const props = withDefaults(
     minZoom?: number
     /** 2D 人台图标点（position = [归一化 x, y, 图片下标]） */
     laxianList?: LaxianItem[]
+    /** Live 默认循环（服饰主封面） */
+    defaultLoop?: boolean
   }>(),
   {
     index: 0,
@@ -49,6 +51,7 @@ const props = withDefaults(
     maxZoom: 0,
     minZoom: 0.05,
     laxianList: () => [],
+    defaultLoop: false,
   }
 )
 
@@ -213,6 +216,7 @@ const {
       && !imageLoading.value
       && !imageError.value,
     ),
+  defaultLoop: props.defaultLoop,
   onLoopChange: (enabled) => {
     toast.add({
       title: enabled ? '已开启循环播放' : '已关闭循环，仅播放一次',

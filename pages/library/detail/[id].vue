@@ -168,12 +168,15 @@ const spzModelViewerRef = ref<{ showModel: (models: Array<{ url: string; type?: 
 interface LibrarySkuItem {
   library_pattern: string
   library_price?: number
+  /** 版型备注（SKU 同级自定义字符串） */
+  note?: string
   cover?: string
 }
 
 interface LibrarySkuRaw {
   library_pattern: string
   library_price?: unknown
+  note?: unknown
   cover?: unknown
 }
 
@@ -218,6 +221,7 @@ const resolveSkuRawList = (jsonData: Record<string, unknown>): LibrarySkuRaw[] =
     .map((item) => ({
       library_pattern: String(item.library_pattern).trim(),
       library_price: item.library_price,
+      note: item.note,
       cover: item.cover
     }))
 }
@@ -248,14 +252,18 @@ const librarySkuList = computed((): LibrarySkuItem[] => {
     const cover = record?.cover != null && String(record.cover).trim() !== ''
       ? String(record.cover).trim()
       : undefined
+    const note = record?.note != null && String(record.note).trim() !== ''
+      ? String(record.note).trim()
+      : undefined
     return {
       library_pattern: name,
       library_price: record?.library_price != null ? Number(record.library_price) : undefined,
+      note,
       cover
     }
   }
 
-  // 按名称顺序消费 sku，支持同名版型各自保留价格/封面
+  // 按名称顺序消费 sku，支持同名版型各自保留价格/封面/备注
   if (lib.library_pattern) {
     const patternNames = lib.library_pattern.split(',').map((s) => s.trim()).filter(Boolean)
     if (!patternNames.length) return []
@@ -2087,6 +2095,7 @@ const librarySharePayload = computed((): LibrarySharePayload | null => {
         }
         return {
           pattern: item.library_pattern,
+          note: item.note || undefined,
           priceText: skuPriceText || undefined,
           priceRmbText: skuPriceRmb || undefined,
           cover: item.cover || undefined,
@@ -2465,6 +2474,13 @@ const libraryChildThumbImgClass =
                   >
                     <!-- @click="jumpToWiki({ wiki_name: item.library_pattern, type_id: 1 })" -->
                     {{ item.library_pattern }}
+                  </p>
+                  <p
+                    v-if="item.note"
+                    class="text-[10px] text-gray-500 dark:text-gray-400 leading-snug line-clamp-2"
+                    :title="item.note"
+                  >
+                    {{ item.note }}
                   </p>
                   <div v-if="item.library_price" class="mt-auto text-qhx-primary font-semibold text-[11px] leading-tight">
                     <p>

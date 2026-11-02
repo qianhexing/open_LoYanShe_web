@@ -16,6 +16,12 @@ export { default as TypeNoteFallback } from './TypeNoteFallback.vue'
 export { default as TypeInvalid } from './TypeInvalid.vue'
 export { default as LitePreview } from './LitePreview.vue'
 
+export type {
+  JournalCarouselSceneHostApi,
+  JournalCarouselSceneLayout
+} from './sceneHostTypes'
+export { journalCarouselSceneHostKey } from './sceneHostTypes'
+
 export {
   JOURNAL_PK_LABELS,
   getJournalTypeLabel,

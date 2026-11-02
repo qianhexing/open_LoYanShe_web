@@ -136,6 +136,12 @@
                 >
                   ID: {{ spaceUserId }}
                 </p>
+                <p
+                  v-if="formerNamesLabel"
+                  class="text-xs text-gray-400 dark:text-gray-500 mt-0.5 break-words"
+                >
+                  {{ formerNamesLabel }}
+                </p>
 
                 <!-- 签名 -->
                 <div v-if="userInfo.signature" class="signature-preview mt-1.5">
@@ -723,6 +729,7 @@ import { getCommunityList } from '@/api/community'
 import { getAlbumList, getAlbumAchievementStats, type AlbumAchievementStats } from '@/api/album'
 import { getWardrobeList, checkWadrobePassword } from '@/api/wardrobe'
 import { parseRichText } from '@/utils/public'
+import { formatFormerNamesLabel } from '@/utils/userName'
 import SafeRichText from '@/components/SafeRichText.vue'
 import QhxModal from '@/components/Qhx/Modal.vue'
 import type QrcodeListType from '@/components/qrcode/QrcodeList.vue'
@@ -816,6 +823,10 @@ const spaceSenceId = computed(() => {
   const sid = userInfo.value?.sence_id
   return sid != null && sid > 0 ? sid : null
 })
+
+const formerNamesLabel = computed(() =>
+  formatFormerNamesLabel(userInfo.value?.former_name)
+)
 
 // 个人签名富文本节点
 const signatureNodes = computed(() => {

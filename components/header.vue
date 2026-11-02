@@ -44,33 +44,35 @@
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
             </svg>
           </NuxtLink>
-          <div class="flex items-center gap-2 md:gap-4" v-show="!user">
-            <LoginBox />
-          </div>
-          <div class="flex items-center gap-2 md:gap-4" v-show="user">
-            <button
-              type="button"
-              @click="handleMessageClick"
-              class="relative p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
-              aria-label="消息"
-            >
-              <svg class="w-6 h-6 text-gray-700 dark:text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-              </svg>
-              <span
-                v-if="hasNotification"
-                class="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full"
-              />
-            </button>
-            <UserBox />
-          </div>
+          <ClientOnly>
+            <div v-if="!user" class="flex items-center gap-2 md:gap-4">
+              <LoginBox />
+            </div>
+            <div v-else class="flex items-center gap-2 md:gap-4">
+              <button
+                type="button"
+                @click="handleMessageClick"
+                class="relative p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+                aria-label="消息"
+              >
+                <svg class="w-6 h-6 text-gray-700 dark:text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                </svg>
+                <span
+                  v-if="hasNotification"
+                  class="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full"
+                />
+              </button>
+              <UserBox />
+            </div>
+          </ClientOnly>
         </div>
       </div>
 
-      <!-- 手机端菜单：左侧抽屉（仅小屏） -->
-      <Teleport to="body">
+      <!-- 手机端菜单：仅打开时挂到 body，避免 SSR Teleport 残留全屏遮罩把页面点死 -->
+      <ClientOnly>
+      <Teleport v-if="mobileMenuOpen" to="body">
         <div
-          v-show="mobileMenuOpen"
           class="fixed inset-0 z-[60] md:hidden"
           :aria-hidden="!mobileMenuOpen"
         >
@@ -130,6 +132,7 @@
           </Transition>
         </div>
       </Teleport>
+      </ClientOnly>
     </header>
 </template>
 

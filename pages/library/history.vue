@@ -7,6 +7,7 @@ import dayjs from 'dayjs'
 import QhxTag from '~/components/Qhx/Tag.vue'
 import QhxPreviewImage from '~/components/Qhx/PreviewImage.vue'
 import { BASE_IMG } from '@/utils/ipConfig'
+import { parseRichText } from '@/utils/public'
 
 interface LibrarySkuRecord {
   library_pattern: string
@@ -1035,10 +1036,14 @@ useHead({
             <!-- 备注 -->
             <div v-if="hasValue(history.params.notes) && (!hasValidCompareRecord(index) || isFieldChanged(index, 'notes', history.params.notes))" :class="['border-t pt-4', isFieldChanged(index, 'notes', history.params.notes) ? 'bg-yellow-100 dark:bg-yellow-900/30 p-3 rounded-lg border-2 border-yellow-400 dark:border-yellow-600' : '']">
               <h3 class="text-sm font-medium mb-2">备注</h3>
-              <div class="text-sm" v-html="history.params.notes"></div>
+              <div class="text-sm">
+                <SafeRichText :nodes="parseRichText(String(history.params.notes ?? ''))" />
+              </div>
               <div v-if="isFieldChanged(index, 'notes', history.params.notes)" class="text-xs text-gray-500 dark:text-gray-400 mt-2">
                 <span class="text-yellow-600 dark:text-yellow-400">原值：</span>
-                <div class="text-sm mt-1" v-html="formatFieldValue(getOriginalValue(index, 'notes'), 'notes')"></div>
+                <div class="text-sm mt-1">
+                  <SafeRichText :nodes="parseRichText(String(formatFieldValue(getOriginalValue(index, 'notes'), 'notes') ?? ''))" />
+                </div>
               </div>
             </div>
           </div>

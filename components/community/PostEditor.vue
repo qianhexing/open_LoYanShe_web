@@ -16,6 +16,46 @@
         "
       >
         <form @submit.prevent="handleSubmit" class="space-y-6">
+          <!-- 帖子类型 -->
+          <div>
+            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              帖子类型
+            </label>
+            <div
+              class="flex flex-wrap gap-2"
+              role="listbox"
+              aria-label="帖子类型"
+            >
+              <button
+                v-for="opt in typeOptions"
+                :key="String(opt.value)"
+                type="button"
+                role="option"
+                :aria-selected="formData.type === opt.value"
+                class="rounded-full border px-3.5 py-1.5 text-sm font-medium transition-colors outline-none focus-visible:ring-2 focus-visible:ring-pink-400/55 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-gray-800"
+                :class="
+                  formData.type === opt.value
+                    ? 'border-qhx-primary bg-qhx-primary text-white shadow-sm shadow-qhx-primary/25'
+                    : 'border-gray-200 bg-gray-50 text-gray-700 hover:border-pink-300 hover:bg-white dark:border-gray-600 dark:bg-gray-700/40 dark:text-gray-200 dark:hover:border-pink-500/40 dark:hover:bg-gray-700/90'
+                "
+                @click="formData.type = String(opt.value)"
+              >
+                {{ opt.label }}
+              </button>
+            </div>
+            <p
+              v-if="showTradeTypeHint"
+              class="mt-2 flex items-start gap-1.5 text-xs leading-relaxed text-amber-700 dark:text-amber-300/90"
+            >
+              <UIcon
+                name="i-heroicons-exclamation-triangle"
+                class="mt-0.5 h-3.5 w-3.5 shrink-0"
+                aria-hidden="true"
+              />
+              <span>出物收物请正确选择分区</span>
+            </p>
+          </div>
+
           <!-- 标题输入 -->
           <div>
             <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
@@ -53,9 +93,10 @@
           <!-- 图片选择 -->
           <div>
             <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              图片 <span class="text-gray-500 text-xs">(最多20张，支持拖拽排序)</span>
+              图片 <span class="text-gray-500 text-xs">(最多20张，支持拖拽排序，可上传 8 秒内短视频作为实况)</span>
             </label>
             <QhxImagePicker 
+              allow-live
               :multiple="true" 
               :max="20"
               :initial-image-paths="initialImagePaths"
@@ -144,7 +185,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, onMounted } from 'vue'
 // QhxRichTextEditor 在模板中注册为组件，需值导入；biome 无法识别 SFC 模板用法
 // biome-ignore lint/style/useImportType: Vue SFC 组件供模板与 InstanceType 使用
 import QhxRichTextEditor from '@/components/Qhx/RichTextEditor.vue'
@@ -157,18 +198,25 @@ import {
   type UpdateCommunityParams
 } from '@/api/community'
 import { useUserStore } from '@/stores/user'
+import { useConfigStore } from '@/stores/config'
 import type { Community } from '@/types/api'
 import type QhxImagePicker from '@/components/Qhx/ImagePicker.vue'
 import type { default as QhxSelect, optionsInterface } from '@/components/Qhx/Select.vue'
 // biome-ignore lint/style/useImportType: Vue SFC 组件供模板与 InstanceType 使用
 import CommunityCustomStyleForm from '@/components/community/CommunityCustomStyleForm.vue'
-import { uploadImageOSS } from '@/utils/ossUpload'
+import { uploadImageOSS, uploadPairedLiveToOSS } from '@/utils/ossUpload'
+import { normalizeRawImgPath } from '@/utils/communityLiveMedia'
 import {
   parseCommunityCustomStyle,
   serializeCommunityCustomStyle,
   hasCommunityCustomStyle
 } from '@/utils/communityCustomStyle'
 import type { CommunityCustomStyle } from '@/utils/communityCustomStyle'
+import {
+  parseCommunityPostIsOpenValue,
+  readCachedCommunityPostIsOpen,
+  writeCachedCommunityPostIsOpen
+} from '@/utils/communityPost'
 
 interface Props {
   userId?: number
@@ -184,6 +232,11 @@ interface Props {
   foreignPk?: { pk_id: number; pk_type: number } | null
   /** 社区内可见：0 正式居民可见，1 开放（默认），2 仅自己可见 */
   initialIsOpen?: number
+  /**
+   * 新增发帖时把「谁能看到」写入该 localStorage key，下次打开优先用缓存。
+   * 编辑已有帖子不读写缓存。
+   */
+  persistIsOpenKey?: string
   /**
    * 嵌入模式（弹窗等）：去掉整页背景与外层卡片；取消不发 router.back；成功不发 router.push。
    */
@@ -210,6 +263,7 @@ const props = withDefaults(defineProps<Props>(), {
   initialType: '日常交流',
   foreignPk: undefined,
   initialIsOpen: 1,
+  persistIsOpenKey: undefined,
   embedded: false,
   editorMinHeightEmbedded: 220,
   editorMaxHeightEmbedded: 320,
@@ -217,6 +271,46 @@ const props = withDefaults(defineProps<Props>(), {
   editorMaxHeight: 400,
   initialCustomStyle: null
 })
+
+const DEFAULT_COMMUNITY_TYPE = '日常交流'
+/** 非正式居民唯一可选类型 */
+const NEWBIE_COMMUNITY_TYPE = '萌新报道'
+/** 发帖页不展示的类型 */
+const HIDDEN_COMMUNITY_TYPES = new Set(['上新图透', '种草推广'])
+const FALLBACK_TYPE_OPTIONS: optionsInterface[] = [
+  { label: '日常交流', value: DEFAULT_COMMUNITY_TYPE }
+]
+
+const configStore = useConfigStore()
+const userStore = useUserStore()
+
+/** 与 userSpace / AI 一致：access_level >= 1 为正式居民 */
+const isFormalResident = computed(() => (userStore.user?.access_level ?? 0) >= 1)
+
+function isNewbieCommunityType(opt: { label?: string; value?: string | number }): boolean {
+  return String(opt.value) === NEWBIE_COMMUNITY_TYPE || opt.label === NEWBIE_COMMUNITY_TYPE
+}
+
+function isHiddenCommunityType(opt: { label?: string; value?: string | number }): boolean {
+  return HIDDEN_COMMUNITY_TYPES.has(String(opt.value)) || (opt.label != null && HIDDEN_COMMUNITY_TYPES.has(opt.label))
+}
+
+function isSelectableCommunityType(opt: { label?: string; value?: string | number }): boolean {
+  if (isHiddenCommunityType(opt)) return false
+  if (isFormalResident.value && isNewbieCommunityType(opt)) return false
+  return true
+}
+
+function normalizeType(raw: string | undefined | null): string {
+  if (!isFormalResident.value) return NEWBIE_COMMUNITY_TYPE
+  const t = typeof raw === 'string' ? raw.trim() : ''
+  if (t && isSelectableCommunityType({ value: t, label: t })) return t
+  const fromConfig = configStore.config?.community_type?.find((item) =>
+    isSelectableCommunityType(item)
+  )?.value
+  if (fromConfig) return fromConfig
+  return DEFAULT_COMMUNITY_TYPE
+}
 
 const isOpenDisplayOptions = [
   { value: 0, label: '正式居民可见', desc: '仅正式居民在社区内可见' },
@@ -256,8 +350,22 @@ const isOpenSelectOptions: optionsInterface[] = isOpenDisplayOptions.map((o) => 
 const isEditMode = computed(() => props.communityId != null && props.communityId > 0)
 
 function normalizeInitialIsOpen(v: number | undefined): number {
-  if (v === 0 || v === 1 || v === 2) return v
-  return 1
+  return parseCommunityPostIsOpenValue(v) ?? 1
+}
+
+function persistCreateIsOpen(value: number) {
+  const key = props.persistIsOpenKey
+  if (!key || isEditMode.value) return
+  writeCachedCommunityPostIsOpen(key, value)
+}
+
+function resolveCreateIsOpen(): number {
+  const key = props.persistIsOpenKey
+  if (key && !isEditMode.value) {
+    const cached = readCachedCommunityPostIsOpen(key)
+    if (cached !== undefined) return cached
+  }
+  return normalizeInitialIsOpen(props.initialIsOpen)
 }
 
 const initialImagePaths = computed(() => {
@@ -272,7 +380,6 @@ const emit = defineEmits<{
 
 const toast = useToast()
 const router = useRouter()
-const userStore = useUserStore()
 
 const submitting = ref(false)
 const imagePickerRef = ref<InstanceType<typeof QhxImagePicker> | null>(null)
@@ -287,7 +394,70 @@ const customStyle = ref<CommunityCustomStyle>(
 const formData = ref({
   title: props.initialTitle,
   content: props.initialContent,
-  is_open: normalizeInitialIsOpen(props.initialIsOpen)
+  is_open: resolveCreateIsOpen(),
+  type: normalizeType(props.initialType)
+})
+
+function isTradeCommunityType(opt: { label?: string; value?: string | number }): boolean {
+  return String(opt.value) === '出物收物' || opt.label === '出物收物'
+}
+
+/** 正式居民列表：「出物收物」固定第二 */
+function orderFormalTypeOptions(opts: optionsInterface[]): optionsInterface[] {
+  const trade = opts.find((o) => isTradeCommunityType(o))
+  if (!trade) return opts
+  const rest = opts.filter((o) => !isTradeCommunityType(o))
+  if (rest.length === 0) return [trade]
+  return [rest[0], trade, ...rest.slice(1)]
+}
+
+const typeOptions = computed((): optionsInterface[] => {
+  const list = configStore.config?.community_type
+  const base: optionsInterface[] = list?.length
+    ? list.map((item) => ({
+        label: item.label || item.value,
+        value: item.value
+      }))
+    : FALLBACK_TYPE_OPTIONS
+
+  // 非正式居民：仅萌新报道
+  if (!isFormalResident.value) {
+    const hit = base.find((o) => isNewbieCommunityType(o))
+    return hit
+      ? [hit]
+      : [{ label: NEWBIE_COMMUNITY_TYPE, value: NEWBIE_COMMUNITY_TYPE }]
+  }
+
+  // 正式居民：去掉萌新报道、上新图透、种草推广；出物收物排第二
+  let filtered = orderFormalTypeOptions(base.filter((o) => isSelectableCommunityType(o)))
+  const current = formData.value.type
+  if (
+    current &&
+    isSelectableCommunityType({ value: current, label: current }) &&
+    !filtered.some((o) => String(o.value) === current)
+  ) {
+    filtered = orderFormalTypeOptions([{ label: current, value: current }, ...filtered])
+  }
+  return filtered.length ? filtered : FALLBACK_TYPE_OPTIONS
+})
+
+const showTradeTypeHint = computed(() =>
+  typeOptions.value.some((o) => isTradeCommunityType(o))
+)
+
+watch(
+  typeOptions,
+  (opts) => {
+    const values = opts.map((o) => String(o.value))
+    if (!values.includes(formData.value.type)) {
+      formData.value.type = values[0] ?? normalizeType(null)
+    }
+  },
+  { immediate: true }
+)
+
+onMounted(() => {
+  void configStore.getConfig()
 })
 
 const defaultIsOpenForSelect = computed(
@@ -317,6 +487,7 @@ function onIsOpenSelect(sel: optionsInterface | { label: string; value: string }
   const num = typeof v === 'number' ? v : Number(v)
   if (num === 0 || num === 1 || num === 2) {
     formData.value.is_open = num
+    persistCreateIsOpen(num)
   }
 }
 
@@ -327,6 +498,7 @@ watch(
       props.initialTitle,
       props.initialContent,
       props.initialIsOpen,
+      props.initialType,
       props.initialCustomStyle
     ] as const,
   () => {
@@ -334,6 +506,7 @@ watch(
     formData.value.title = props.initialTitle
     formData.value.content = props.initialContent
     formData.value.is_open = normalizeInitialIsOpen(props.initialIsOpen)
+    formData.value.type = normalizeType(props.initialType)
     customStyle.value = parseCommunityCustomStyle(props.initialCustomStyle)
   },
   { immediate: true }
@@ -343,15 +516,37 @@ watch(
   () => props.initialIsOpen,
   (v) => {
     if (isEditMode.value) return
+    if (props.persistIsOpenKey) return
     formData.value.is_open = normalizeInitialIsOpen(v)
   }
 )
 
+watch(
+  () => props.initialType,
+  (v) => {
+    if (isEditMode.value) return
+    formData.value.type = normalizeType(v)
+  }
+)
+
+type PickerUploadItem = {
+  file?: File
+  url?: string
+  videoFile?: File
+  videoUrl?: string
+  kind?: 'image' | 'live'
+}
+
 // Upload & Submit Logic (Similar to before)
-const fetchUpload = async (file: { file?: File; url: string }): Promise<string> => {
+const fetchUpload = async (item: PickerUploadItem): Promise<string> => {
   try {
-    const res = await uploadImageOSS(file)
-    return res
+    if (item.kind === 'live' && item.videoFile && item.file) {
+      return await uploadPairedLiveToOSS(item.videoFile, item.file)
+    }
+    if (item.kind === 'live' && item.videoUrl && !item.videoFile) {
+      return normalizeRawImgPath(item.videoUrl)
+    }
+    return await uploadImageOSS({ file: item.file, url: item.url || '' })
   } catch (error) {
     console.error('图片上传失败:', error)
     throw error
@@ -420,7 +615,9 @@ const handleSubmit = async () => {
     if (imagePickerRef.value && imagePickerRef.value.previewImages.length > 0) {
       try {
         const uploadPromises = imagePickerRef.value.previewImages
-          .filter((img): img is { file?: File; url: string } => typeof img === 'object' && 'url' in img && typeof img.url === 'string')
+          .filter((img): img is PickerUploadItem & { url: string } =>
+            typeof img === 'object' && typeof img.url === 'string' && img.url.length > 0
+          )
           .map(img => fetchUpload(img))
         imgList = await Promise.all(uploadPromises)
       } catch (error) {
@@ -461,7 +658,13 @@ const handleSubmit = async () => {
     const params: CommunityInterface = {
       title: formData.value.title,
       content: finalContent,
-      type: props.initialType || '日常交流',
+      type: isFormalResident.value
+        ? (
+            isSelectableCommunityType({ value: formData.value.type, label: formData.value.type })
+              ? (formData.value.type || DEFAULT_COMMUNITY_TYPE)
+              : normalizeType(null)
+          )
+        : NEWBIE_COMMUNITY_TYPE,
       img_list: imgList.length > 0 ? imgList.join() : null,
       is_open: formData.value.is_open,
       custom_style: hasCommunityCustomStyle(stylePayload)
@@ -487,6 +690,7 @@ const handleSubmit = async () => {
       }
     } else {
       community = await insertCommunity(params)
+      persistCreateIsOpen(formData.value.is_open)
       const fk = props.foreignPk
       if (fk && Number.isFinite(fk.pk_id) && Number.isFinite(fk.pk_type)) {
         try {

@@ -9,10 +9,10 @@
       :style="{ height: `${config.statusBarHeight}px` }"
     />
 
-    <main class="mx-auto max-w-3xl px-4 pb-safe pt-6 md:pb-12 md:pt-8" role="main">
+    <main class="mx-auto max-w-3xl px-0 pb-safe pt-0 md:px-4 md:pb-12 md:pt-8" role="main">
       <!-- 上下文：从外链带来的关联物体 -->
       <div v-if="foreignContextLabel"
-        class="mb-5 flex gap-3 rounded-2xl border border-violet-200/70 bg-violet-50/60 px-4 py-3 text-sm dark:border-violet-800/60 dark:bg-violet-950/35">
+        class="mb-0 flex gap-3 border-b border-violet-200/70 bg-violet-50/60 px-4 py-3 text-sm md:mb-5 md:rounded-2xl md:border dark:border-violet-800/60 dark:bg-violet-950/35">
         <div
           class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/90 ring-1 ring-violet-200/70 dark:bg-gray-900/70 dark:ring-violet-700/45"
           aria-hidden="true">
@@ -28,7 +28,7 @@
 
       <ClientOnly>
         <div
-          class="rounded-[1.35rem] border border-gray-200/95 bg-white p-6 shadow-xl shadow-gray-900/[0.06] md:p-8 dark:border-gray-700/85 dark:bg-gray-800 dark:shadow-gray-950/40"
+          class="rounded-none border-0 bg-white p-4 shadow-none md:rounded-[1.35rem] md:border md:border-gray-200/95 md:p-8 md:shadow-xl md:shadow-gray-900/[0.06] dark:bg-gray-800 dark:md:border-gray-700/85 dark:md:shadow-gray-950/40"
         >
           <CommunityPostEditor
             embedded
@@ -45,10 +45,10 @@
         </div>
         <template #fallback>
           <div
-            class="rounded-[1.35rem] border border-gray-200/95 bg-white p-6 shadow-xl shadow-gray-900/[0.06] md:p-8 dark:border-gray-700/85 dark:bg-gray-800 dark:shadow-gray-950/40"
+            class="rounded-none border-0 bg-white p-4 shadow-none md:rounded-[1.35rem] md:border md:border-gray-200/95 md:p-8 md:shadow-xl md:shadow-gray-900/[0.06] dark:bg-gray-800 dark:md:border-gray-700/85 dark:md:shadow-gray-950/40"
           >
             <div
-              class="h-[420px] animate-pulse rounded-[1.35rem] border border-gray-200 bg-gray-100/90 dark:border-gray-700 dark:bg-gray-800/80"
+              class="h-[420px] animate-pulse rounded-none border border-gray-200 bg-gray-100/90 md:rounded-[1.35rem] dark:border-gray-700 dark:bg-gray-800/80"
               aria-hidden="true"
             />
             <p class="mt-3 text-center text-xs text-gray-500 dark:text-gray-400">
@@ -58,7 +58,7 @@
         </template>
       </ClientOnly>
 
-      <p class="mt-8 pb-8 text-center text-[11px] text-gray-400 dark:text-gray-500 md:text-xs">
+      <p class="mt-6 px-4 pb-6 text-center text-[11px] text-gray-400 dark:text-gray-500 md:mt-8 md:pb-8 md:text-xs">
         遵守社区规范，友善交流。如需返回列表，
         <NuxtLink to="/community"
           class="font-medium text-pink-600 underline-offset-2 hover:underline dark:text-pink-400">

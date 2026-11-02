@@ -107,6 +107,14 @@ const handleInit = (event: MessageEvent) => {
     const [port] = event.ports
     configStore.setPort(port)
     isFromMobie.value = true
+    // 供跳转逻辑在 port 尚未挂上 computed 前也能识别鸿蒙壳
+    if (import.meta.client && typeof sessionStorage !== 'undefined') {
+      try {
+        sessionStorage.setItem('harmony_webview', '1')
+      } catch {
+        /* ignore */
+      }
+    }
     // 监听应用发来的消息
     port.onmessage = (e) => {
       const message = JSON.parse(e.data)
@@ -230,7 +238,6 @@ onBeforeUnmount(() => {
 </script> 
 <template>
   <div class="min-h-screen background transition-colors duration-300">
-    <UNotifications position="top-0 right-0" />
     <Header v-show="layoutStyle === 0 && !isFromMobie" />
     <div v-show="layoutStyle === 0 && !isFromMobie" class="h-[80px]"></div>
     <div v-if="HarmonyOS" class="w-full h-full absolute top-0 left-0 z-50 bg-white/80 dark:bg-gray-900/80 backdrop-blur-sm border-t border-gray-200 dark:border-gray-700 bottom-0">
@@ -332,7 +339,6 @@ onBeforeUnmount(() => {
     </footer>
   </div>
   <!-- <div class="min-h-screen background transition-colors duration-300" v-else>
-    <UNotifications position="top-0 right-0" />
     <main>
       <slot />
     </main>

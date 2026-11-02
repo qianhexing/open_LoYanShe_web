@@ -162,6 +162,18 @@ export async function updateMatchingListTags(
   return response.data;
 }
 
+/** 更新搭配关联衣柜服饰的最后穿着时间；不传 last_dress 时服务端记为当前时间 */
+export async function updateMatchingClothesLastDress(params: {
+  matching_id: number
+  last_dress?: string | null
+}): Promise<{ updated: number; last_dress: string | Date | null }> {
+  const response = await use$Post<BaseResponse<{ updated: number; last_dress: string | Date | null }>>(
+    '/matchingList/update/last_dress',
+    params
+  )
+  return response.data
+}
+
 // 获取搭配详情
 export async function getMatchingDetail(
   params: MatchingDetailParams

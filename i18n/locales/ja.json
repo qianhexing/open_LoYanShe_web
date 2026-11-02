@@ -151,6 +151,8 @@
 	"addLibrary.theme": "テーマ",
 	"addLibrary.select_theme": "テーマを選択",
 	"addLibrary.library_pattern": "パターン/部位",
+	"addLibrary.pattern_note": "メモ",
+	"addLibrary.pattern_note_placeholder": "例:ロング",
 	"addLibrary.select_pattern": "パターン/部位を選択",
 	"addLibrary.color": "カラー",
 	"addLibrary.select_color": "カラーを選択",

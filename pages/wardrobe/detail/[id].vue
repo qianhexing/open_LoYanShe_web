@@ -6,30 +6,40 @@ definePageMeta({
 import type { Wardrobe, WardrobeClothes, UserDeco } from '@/types/api';
 import { getUserDecoBadges, getUserSpace } from '@/api/user'
 import type { UserDecoBadgeItem } from '@/api/user'
-import { getWardrobeList, getClothesList, getClothesListAllFallback, sortClothee, changeWardrobeClothes, changeWardrobeClothesBatch, deleteClothesByIds, updateClothesIds, batchUpdateClothesTags, sortClothesTags, deleteClothesTag, checkWadrobePassword, sortWardrobe, updateWardrobe, deleteWardrobe, insertWardrobe } from '@/api/wardrobe'
+import { getWardrobeList, getClothesList, getClothesListAllFallback, getClothesDetail, sortClothee, changeWardrobeClothes, changeWardrobeClothesBatch, deleteClothesByIds, updateClothesIds, batchUpdateClothesTags, sortClothesTags, deleteClothesTag, checkWadrobePassword, sortWardrobe, updateWardrobe, deleteWardrobe, insertWardrobe } from '@/api/wardrobe'
 import { getPlanListWardrobe, planComplete } from '@/api/plan'
 import type { ClothesAllParams, ClothesParams } from '@/api/wardrobe'
 import { useCopyCurrentUrl } from '~/composables/useCopyCurrentUrl';
 import { useCommunityDetailTheme } from '@/composables/useCommunityDetailTheme'
 import type QhxSelect from '@/components/Qhx/Select.vue'
 import type { optionsInterface } from '@/components/Qhx/Select.vue'
+import type QhxOptionsChoose from '@/components/Qhx/OptionsChoose.vue'
+import { clothesTermDeletedMessage, deleteClothesConfigOptionThenReload } from '@/utils/clothesConfigOption'
+import type QhxColorPicker from '@/components/Qhx/ColorPicker.vue'
 import type QhxWaterList from '@/components/Qhx/WaterList.vue'
 import { useMatchingDraftStore } from '@/stores/matchingDraft'
 import { useFlyToButton } from '~/composables/useFlyToButton'
 import { useWardrobeToolbar } from '~/composables/useWardrobeToolbar'
 import { getWardrobeToolbarTool } from '~/utils/wardrobeToolbarConfig'
 import { BASE_IMG } from '@/utils/ipConfig'
+import {
+  isCommunityLivePath,
+  toAbsoluteMediaUrl,
+  toCommunityLivePosterPath,
+  withOssImageProcess,
+} from '@/utils/communityLiveMedia'
 import { createReusableTemplate, useEventListener, useResizeObserver, useDebounceFn } from '@vueuse/core'
 import type { WardrobeToolbarToolId } from '~/utils/wardrobeToolbarConfig'
 import type QhxStepGuide from '@/components/Qhx/StepGuide.vue'
 import type QrcodeListType from '@/components/qrcode/QrcodeList.vue'
 import type ClothesAddType from '@/components/Clothes/ClothesAdd.vue'
 import type ClothesBatchAddEntryType from '@/components/Clothes/ClothesBatchAddEntry.vue'
+import type ClothesExtractAddType from '@/components/Clothes/ClothesExtractAdd.vue'
+import type { ClothesExtractAddItem } from '@/utils/clothesExtract'
 import type WardrobeAddEditType from '@/components/Wardrobe/WardrobeAddEdit.vue'
 import type WardrobeSearchType from '@/components/Wardrobe/WardrobeSearch.vue'
 import type WardrobeChooseType from '@/components/Wardrobe/WardrobeChoose.vue'
 import type MatchingAddEditType from '@/components/matching/MatchingAddEdit.vue'
-import customInput from '@/components/Clothes/customInput.vue'
 import dayjs from 'dayjs'
 import {
   hasCompletedWardrobeEditGuide,
@@ -77,6 +87,9 @@ const WardrobeClothesFavoriteShare = defineAsyncComponent(
 const ClothesAdd = defineAsyncComponent(() => import('@/components/Clothes/ClothesAdd.vue'))
 const ClothesBatchAddEntry = defineAsyncComponent(
   () => import('@/components/Clothes/ClothesBatchAddEntry.vue'),
+)
+const ClothesExtractAdd = defineAsyncComponent(
+  () => import('@/components/Clothes/ClothesExtractAdd.vue'),
 )
 const WardrobeAddEdit = defineAsyncComponent(
   () => import('@/components/Wardrobe/WardrobeAddEdit.vue'),
@@ -269,11 +282,15 @@ let oldList: { clothes_id: number; sort: number }[] = [];
 const record = ref<Wardrobe | null>(null)
 const addEditClothesRef = ref<InstanceType<typeof ClothesAddType> | null>(null)
 const clothesBatchAddEntryRef = ref<InstanceType<typeof ClothesBatchAddEntryType> | null>(null)
+const clothesExtractAddRef = ref<InstanceType<typeof ClothesExtractAddType> | null>(null)
 const toast = useToast()
 
 const showBatchStatusModal = ref(false)
+const showBatchLastDressModal = ref(false)
 const showBatchTagsModal = ref(false)
 const showBatchSortModal = ref(false)
+/** 非自定义排序时，点「排序」询问是否改为自定义 */
+const showSwitchCustomSortModal = ref(false)
 /** 批量排序：目标序号（1 起，与封面蒙版一致） */
 const batchSortTargetNo = ref('')
 /** 仅自定义排序（sort_type=0）时可手动调整顺序 */
@@ -294,7 +311,7 @@ const getClothesDisplaySortNo = (item: WardrobeClothes) => {
 }
 /** 批量修改拥有状态：与 ClothesAdd 表单项 wardrobe_status 一致 */
 const batchMultipleFormWardrobeStatus = ref<string | null>(null)
-const batchStatusSelectRef = ref<InstanceType<typeof QhxSelect> | null>(null)
+const batchStatusChooseRef = ref<InstanceType<typeof QhxOptionsChoose> | null>(null)
 const wardrobe_status_defaults: optionsInterface[] = [
   { value: '已拥有', label: '已拥有' },
   { value: '待补款', label: '待补款' },
@@ -322,10 +339,33 @@ const openBatchStatusModal = () => {
   showBatchStatusModal.value = true
 }
 const openBatchStatusPicker = (e: MouseEvent) => {
-  batchStatusSelectRef.value?.showPicker(e)
+  const selected = batchMultipleFormWardrobeStatus.value
+    ? [{ value: batchMultipleFormWardrobeStatus.value, label: batchMultipleFormWardrobeStatus.value }]
+    : []
+  batchStatusChooseRef.value?.showPicker(e, selected)
 }
-const onBatchWardrobeStatusSelect = (select: optionsInterface) => {
-  batchMultipleFormWardrobeStatus.value = select.label
+const onBatchWardrobeStatusChoose = (list: optionsInterface[]) => {
+  const label = list[0]?.label?.trim()
+  if (!label) return
+  batchMultipleFormWardrobeStatus.value = label
+  if (!batchWardrobeStatusOptions.value.some((o) => o.label === label)) {
+    batchWardrobeStatusOptions.value.push({ value: label, label })
+  }
+}
+const onDeleteBatchStatusOption = async (item: optionsInterface) => {
+  const label = item.label?.trim()
+  if (!label) return
+  try {
+    const { updated } = await deleteClothesConfigOptionThenReload('wardrobe_status', label)
+    refreshBatchWardrobeStatusOptions()
+    if (batchMultipleFormWardrobeStatus.value === label) {
+      batchMultipleFormWardrobeStatus.value = null
+    }
+    stripTermFromClothesList('wardrobe_status', label)
+    toast.add({ title: clothesTermDeletedMessage(updated), color: 'green', icon: 'i-heroicons-check-circle' })
+  } catch {
+    toast.add({ title: '删除失败', color: 'red', icon: 'i-heroicons-exclamation-circle' })
+  }
 }
 const confirmBatchStatus = async () => {
   const ids = Array.from(selectedClothesIds.value)
@@ -354,28 +394,91 @@ const confirmBatchStatus = async () => {
   }
 }
 
+/** 批量修改最后穿着时间 */
+const batchLastDressValue = ref<string | null>(null)
+const batchLastDressSaving = ref(false)
+function pad2Batch(n: number) {
+  return String(n).padStart(2, '0')
+}
+function nowAsPickerDateTime() {
+  const d = new Date()
+  return `${d.getFullYear()}-${pad2Batch(d.getMonth() + 1)}-${pad2Batch(d.getDate())} ${pad2Batch(d.getHours())}:${pad2Batch(d.getMinutes())}:${pad2Batch(d.getSeconds())}`
+}
+const openBatchLastDressModal = () => {
+  if (selectedClothesIds.value.size === 0) return
+  batchLastDressValue.value = nowAsPickerDateTime()
+  showBatchLastDressModal.value = true
+}
+const confirmBatchLastDress = async () => {
+  const ids = Array.from(selectedClothesIds.value)
+  if (ids.length === 0) return
+  const last_dress = batchLastDressValue.value && String(batchLastDressValue.value).trim()
+    ? String(batchLastDressValue.value).trim()
+    : null
+  batchLastDressSaving.value = true
+  try {
+    const res = await updateClothesIds({
+      clothes_id: ids.join(','),
+      last_dress,
+    })
+    toast.add({
+      title: `已更新 ${res?.updated ?? ids.length} 件服饰穿着时间`,
+      icon: 'i-heroicons-check-circle',
+      color: 'green',
+    })
+    for (const cid of ids) {
+      const idx = list.value.findIndex((item) => item.clothes_id === cid)
+      if (idx !== -1) {
+        list.value[idx] = { ...list.value[idx], last_dress }
+      }
+    }
+    selectedClothesIds.value = new Set()
+    showBatchLastDressModal.value = false
+  } catch {
+    toast.add({ title: '更新失败', icon: 'i-heroicons-exclamation-circle', color: 'red' })
+  } finally {
+    batchLastDressSaving.value = false
+  }
+}
+
 /** 批量追加标签：与 ClothesAdd 自定义标签交互一致 */
 const batchTagsToAdd = ref<string[]>([])
-const batchTagInputRef = ref<InstanceType<typeof customInput> | null>(null)
+const batchTagChooseRef = ref<InstanceType<typeof QhxOptionsChoose> | null>(null)
+const batchTagOptions = computed(() =>
+  sortedTagList.value.map((tag) => ({ value: tag, label: tag })),
+)
 const openBatchTagsModal = () => {
   if (selectedClothesIds.value.size === 0) return
   batchTagsToAdd.value = []
   showBatchTagsModal.value = true
 }
-const openBatchTagInput = (e: MouseEvent) => {
-  batchTagInputRef.value?.showModel(e)
+const openBatchTagPicker = (e: MouseEvent) => {
+  batchTagChooseRef.value?.showPicker(
+    e,
+    batchTagsToAdd.value.map((tag) => ({ value: tag, label: tag })),
+  )
 }
-const onBatchTagInputInsert = (tag: string) => {
-  if (batchTagsToAdd.value.indexOf(tag) === -1) {
-    batchTagsToAdd.value.push(tag)
+const onBatchTagsChoose = (list: optionsInterface[]) => {
+  for (const item of list) {
+    const tag = item.label?.trim()
+    if (tag && batchTagsToAdd.value.indexOf(tag) === -1) {
+      batchTagsToAdd.value.push(tag)
+    }
   }
 }
-const toggleBatchTagQuickPick = (tag: string) => {
-  const idx = batchTagsToAdd.value.indexOf(tag)
-  if (idx === -1) {
-    batchTagsToAdd.value.push(tag)
-  } else {
-    batchTagsToAdd.value.splice(idx, 1)
+const onDeleteBatchTagOption = async (item: optionsInterface) => {
+  const label = item.label?.trim()
+  if (!label) return
+  try {
+    const { updated } = await deleteClothesConfigOptionThenReload('tags', label)
+    batchTagsToAdd.value = batchTagsToAdd.value.filter((tag) => tag !== label)
+    tagList.value = tagList.value.filter((tag) => tag !== label)
+    const filterIdx = filter_list.value.tags.indexOf(label)
+    if (filterIdx !== -1) filter_list.value.tags.splice(filterIdx, 1)
+    stripTermFromClothesList('tags', label)
+    toast.add({ title: clothesTermDeletedMessage(updated), color: 'green', icon: 'i-heroicons-check-circle' })
+  } catch {
+    toast.add({ title: '删除失败', color: 'red', icon: 'i-heroicons-exclamation-circle' })
   }
 }
 function mergeClothesTagsString(existing?: string | null, append: string[] = []): string {
@@ -409,16 +512,34 @@ function patchWardrobeConfigTags(nextTags: string[]) {
   }
 }
 
-function stripTagFromClothesList(tag: string) {
+function stripCommaField(raw: string | undefined | null, term: string) {
+  const parts = (raw ?? '').split(',').map((t) => t.trim()).filter(Boolean)
+  const filtered = parts.filter((t) => t !== term)
+  if (filtered.length === parts.length) return raw ?? undefined
+  return filtered.length ? filtered.join(',') : undefined
+}
+
+function stripTermFromClothesList(kind: 'tags' | 'clothes_part' | 'wardrobe_status', term: string) {
   for (let i = 0; i < list.value.length; i++) {
     const item = list.value[i]
-    if (!item.tags?.trim()) continue
-    const parts = item.tags.split(',').map((t) => t.trim()).filter(Boolean)
-    const filtered = parts.filter((t) => t !== tag)
-    if (filtered.length !== parts.length) {
-      list.value[i] = { ...item, tags: filtered.length ? filtered.join(',') : undefined }
+    if (kind === 'tags') {
+      const next = stripCommaField(item.tags, term)
+      if (next !== item.tags) list.value[i] = { ...item, tags: next }
+      continue
+    }
+    if (kind === 'clothes_part') {
+      const next = stripCommaField(item.clothes_part, term)
+      if (next !== item.clothes_part) list.value[i] = { ...item, clothes_part: next }
+      continue
+    }
+    if (item.wardrobe_status === term) {
+      list.value[i] = { ...item, wardrobe_status: undefined }
     }
   }
+}
+
+function stripTagFromClothesList(tag: string) {
+  stripTermFromClothesList('tags', tag)
 }
 
 const openTagManageModal = () => {
@@ -512,6 +633,7 @@ const filter_list =  ref({
   wardrobe_status: [] as string[],
   clothes_note: '' as string,
   size: [] as string[],
+  clothes_part: [] as string[],
 }) 
 const showFilterDrawer = ref(false)
 
@@ -780,9 +902,19 @@ const virtualWrapperRef = ref<HTMLElement | null>(null)
 const CARD_VERTICAL_PADDING_PX = 20 // py-[10px] × 2
 const CARD_META_MX_PX = 4 // wardrobe-card-meta mx-[2px] × 2
 const META_TOP_GAP_PX = 8 // mt-2
-const META_NOTE_LINE_PX = 20 // text-sm leading-5
 const META_INNER_GAP_PX = 4 // mt-1
-const META_PRICE_LINE_PX = 20
+const CLOTHES_CARD_FONT_SIZE_MIN = 10
+const CLOTHES_CARD_FONT_SIZE_MAX = 18
+const CLOTHES_CARD_FONT_SIZE_DEFAULT = 14 // text-sm
+/** 14px 字号对应 leading-5 = 20px */
+const CLOTHES_CARD_LINE_HEIGHT_AT_DEFAULT = 20
+
+type ToolbarBtnSize = 'sm' | 'md' | 'lg'
+const TOOLBAR_BTN_SIZE_DEFAULT: ToolbarBtnSize = 'md'
+/** 卡片备注/价格字号（布局设置可调，影响虚拟列表行高） */
+const clothesCardFontSize = ref(CLOTHES_CARD_FONT_SIZE_DEFAULT)
+/** 顶部功能按钮尺寸（布局设置可调，改变列表上方占位高度） */
+const toolbarBtnSize = ref<ToolbarBtnSize>(TOOLBAR_BTN_SIZE_DEFAULT)
 
 /** 单列宽度（px），由 spacer 宽度 / cols 得出 */
 const virtualGridCellWidth = ref(120)
@@ -809,15 +941,25 @@ function updateVirtualGridCellWidth() {
   }
 }
 
+function getClothesCardFontPx(): number {
+  const n = clothesCardFontSize.value
+  if (!Number.isFinite(n)) return CLOTHES_CARD_FONT_SIZE_DEFAULT
+  return Math.min(CLOTHES_CARD_FONT_SIZE_MAX, Math.max(CLOTHES_CARD_FONT_SIZE_MIN, Math.round(n)))
+}
+
+function getClothesCardLineHeightPx(): number {
+  return Math.round((getClothesCardFontPx() * CLOTHES_CARD_LINE_HEIGHT_AT_DEFAULT) / CLOTHES_CARD_FONT_SIZE_DEFAULT)
+}
+
 function estimateNoteLineCount(note: string | null | undefined, textWidth: number): number {
   const t = (note ?? '').trim()
   if (!t || textWidth <= 0) return 0
-  // text-sm ≈ 14px，中文约 1em 字宽
-  const charsPerLine = Math.max(4, Math.floor(textWidth / 14))
+  // 中文约 1em 字宽，随卡片字号变化
+  const charsPerLine = Math.max(4, Math.floor(textWidth / getClothesCardFontPx()))
   return Math.min(2, Math.ceil(t.length / charsPerLine))
 }
 
-/** 单个服饰卡片整格高度（封面正方形 + 下方 meta） */
+/** 单个服饰卡片整格高度（封面正方形 + 下方 meta；字号变化时行高同步） */
 function estimateItemCellHeight(item: WardrobeClothes, cellWidth: number): number {
   const hPad = getCardHorizontalPaddingPx()
   const contentWidth = Math.max(0, cellWidth - hPad)
@@ -827,14 +969,15 @@ function estimateItemCellHeight(item: WardrobeClothes, cellWidth: number): numbe
   const hasPrice = showClothesPrice.value && hasClothesPrice(item)
   if (!hasNote && !hasPrice) return h
 
+  const linePx = getClothesCardLineHeightPx()
   const metaWidth = Math.max(0, contentWidth - CARD_META_MX_PX)
   h += META_TOP_GAP_PX
   if (hasNote) {
-    h += estimateNoteLineCount(item.clothes_note, metaWidth) * META_NOTE_LINE_PX
+    h += estimateNoteLineCount(item.clothes_note, metaWidth) * linePx
   }
   if (hasPrice) {
     if (hasNote) h += META_INNER_GAP_PX
-    h += META_PRICE_LINE_PX
+    h += linePx
   }
   return h
 }
@@ -910,6 +1053,15 @@ function scheduleWaterfallLayout() {
 }
 const wardrobeImgLoadingMode = (key?: string | null): 'eager' | 'lazy' =>
   key && wardrobeLoadedImgKeys.has(key) ? 'eager' : 'lazy'
+
+const WARDROBE_CLOTHES_THUMB_PROCESS = 'image/quality,q_100/resize,w_300'
+
+/** 仅 .mp4 换成同名 .jpg；png/webp/jpeg 等保持原格式再拼缩略参数 */
+function wardrobeClothesPosterSrc(path?: string | null) {
+  const p = path?.trim()
+  if (!p) return ''
+  return toAbsoluteMediaUrl(withOssImageProcess(p, WARDROBE_CLOTHES_THUMB_PROCESS))
+}
 
 /** 列数与模板断点一致：<768→3，768–1279→4，1280–1919→6，≥1920→10 */
 function computeVirtualColumns(): number {
@@ -1124,7 +1276,7 @@ const virtualAvgRowHeight = computed(() => {
     const first = list.value[0]
     return first
       ? estimateItemCellHeight(first, virtualGridCellWidth.value)
-      : virtualGridCellWidth.value + CARD_VERTICAL_PADDING_PX
+      : virtualGridCellWidth.value + CARD_VERTICAL_PADDING_PX + getClothesCardLineHeightPx()
   }
   return heights.reduce((sum, h) => sum + h, 0) / heights.length
 })
@@ -1300,15 +1452,127 @@ const planTimelineDrawerDefaultSize = computed(() => {
   return isMobile.value ? Math.min(360, window.innerWidth - 24) : 400
 })
 
-/** 服饰状态角标配色（参考展馆 scene-link-detail-tag） */
-const WARDROBE_STATUS_BADGE_MAP: Record<string, string> = {
-  待补款: 'wardrobe-clothes-status-badge--amber',
-  已拥有: 'wardrobe-clothes-status-badge--emerald',
+/** 拥有状态默认色（可被衣柜 config.wardrobe_status_colors 覆盖） */
+const WARDROBE_STATUS_DEFAULT_COLORS: Record<string, string> = {
+  已拥有: '#10b981',
+  待补款: '#f59e0b',
+}
+const WARDROBE_STATUS_FALLBACK_COLOR = '#8b5cf6'
+
+function getDefaultWardrobeStatusColor(status: string): string {
+  return WARDROBE_STATUS_DEFAULT_COLORS[status] ?? WARDROBE_STATUS_FALLBACK_COLOR
 }
 
-function getWardrobeStatusBadgeClass(status: string | null | undefined): string {
-  if (!status) return 'wardrobe-clothes-status-badge--violet'
-  return WARDROBE_STATUS_BADGE_MAP[status] ?? 'wardrobe-clothes-status-badge--violet'
+function resolveWardrobeStatusColor(status: string | null | undefined): string {
+  const key = status?.trim()
+  if (!key) return WARDROBE_STATUS_FALLBACK_COLOR
+  const fromConfig = info.value?.config?.wardrobe_status_colors?.[key]
+  if (typeof fromConfig === 'string' && fromConfig.trim()) return fromConfig.trim()
+  return getDefaultWardrobeStatusColor(key)
+}
+
+function getWardrobeStatusBadgeClass(): string {
+  return 'wardrobe-clothes-status-badge--tonal'
+}
+
+function getWardrobeStatusBadgeStyle(status: string | null | undefined): Record<string, string> {
+  return { '--status-c': resolveWardrobeStatusColor(status) }
+}
+
+function patchWardrobeConfigStatusColors(next: Record<string, string>) {
+  if (!info.value) return
+  info.value = {
+    ...info.value,
+    config: {
+      ...(info.value.config ?? {}),
+      wardrobe_status_colors: next,
+    },
+  }
+}
+
+type StatusColorDraftItem = { label: string; color: string }
+const showStatusColorManageModal = ref(false)
+const statusColorManageDraft = ref<StatusColorDraftItem[]>([])
+const statusColorManageSaving = ref(false)
+const statusColorPickerRef = ref<InstanceType<typeof QhxColorPicker> | null>(null)
+const statusColorPickerEditingLabel = ref<string | null>(null)
+
+function listWardrobeStatusLabels(): string[] {
+  const seen = new Set<string>()
+  const labels: string[] = []
+  for (const opt of wardrobe_status_defaults) {
+    if (seen.has(opt.label)) continue
+    seen.add(opt.label)
+    labels.push(opt.label)
+  }
+  for (const raw of wardrobeStore.config?.wardrobe_status ?? []) {
+    const label = typeof raw === 'string' ? raw.trim() : ''
+    if (!label || seen.has(label)) continue
+    seen.add(label)
+    labels.push(label)
+  }
+  return labels
+}
+
+const openStatusColorManageModal = () => {
+  if (!isPageOwner.value) return
+  statusColorManageDraft.value = listWardrobeStatusLabels().map((label) => ({
+    label,
+    color: resolveWardrobeStatusColor(label),
+  }))
+  showStatusColorManageModal.value = true
+}
+
+const openStatusColorPicker = (label: string, e: MouseEvent) => {
+  statusColorPickerEditingLabel.value = label
+  const current = statusColorManageDraft.value.find((i) => i.label === label)?.color
+  statusColorPickerRef.value?.showModel(e, current)
+}
+
+const onStatusColorChoose = (hex: string) => {
+  const label = statusColorPickerEditingLabel.value
+  if (!label) return
+  const idx = statusColorManageDraft.value.findIndex((i) => i.label === label)
+  if (idx === -1) return
+  statusColorManageDraft.value[idx] = {
+    ...statusColorManageDraft.value[idx],
+    color: hex,
+  }
+}
+
+const resetStatusColorDraftItem = (label: string) => {
+  const idx = statusColorManageDraft.value.findIndex((i) => i.label === label)
+  if (idx === -1) return
+  statusColorManageDraft.value[idx] = {
+    ...statusColorManageDraft.value[idx],
+    color: getDefaultWardrobeStatusColor(label),
+  }
+}
+
+const confirmStatusColorManage = async () => {
+  const wid = currentWardrobe.value?.wardrobe_id
+  if (!wid || statusColorManageDraft.value.length === 0) return
+  statusColorManageSaving.value = true
+  try {
+    const colors: Record<string, string> = {}
+    for (const item of statusColorManageDraft.value) {
+      colors[item.label] = item.color
+    }
+    await updateWardrobe({
+      wardrobe_id: wid,
+      config: {
+        ...(info.value?.config ?? {}),
+        wardrobe_status_colors: colors,
+      },
+    })
+    patchWardrobeConfigStatusColors(colors)
+    toast.add({ title: '状态颜色已保存', icon: 'i-heroicons-check-circle', color: 'green' })
+    showStatusColorManageModal.value = false
+  } catch {
+    toast.add({ title: '保存状态颜色失败', icon: 'i-heroicons-exclamation-circle', color: 'red' })
+  } finally {
+    statusColorManageSaving.value = false
+  }
 }
 
 // 衣柜状态选项
@@ -1320,6 +1584,29 @@ const wardrobeStatusOptions = computed(() => {
       label: status,
       value: status
     }))
+})
+
+/** 详情区图例：默认状态 + 配置自定义状态 */
+const wardrobeStatusLegendItems = computed(() =>
+  listWardrobeStatusLabels().map((label) => ({
+    label,
+    color: resolveWardrobeStatusColor(label),
+  })),
+)
+
+/** 部位筛选项：衣柜自定义 config 优先，否则全局 clothes_part */
+const clothesPartFilterOptions = computed(() => {
+  const fromWardrobe = wardrobeConfigClothesPart.value
+  const fromStore = (wardrobeStore.config?.clothes_part ?? [])
+    .map((p) => (typeof p === 'string' ? p.trim() : ''))
+    .filter(Boolean)
+  const parts = fromWardrobe.length ? fromWardrobe : fromStore
+  const set = new Set(parts)
+  for (const p of filter_list.value.clothes_part) {
+    const t = p?.trim()
+    if (t) set.add(t)
+  }
+  return [...set].map((part) => ({ label: part, value: part }))
 })
 
 /** `/clothes/config` 中含 `total_price` 时展示「全衣柜总价」，与当前衣柜「总价」同样受 `show_price` 控制 */
@@ -1340,6 +1627,9 @@ const filterCount = computed(() => {
   }
   if (filter_list.value.size.length > 0) {
     count += filter_list.value.size.length
+  }
+  if (filter_list.value.clothes_part.length > 0) {
+    count += filter_list.value.clothes_part.length
   }
   return count
 })
@@ -1454,6 +1744,7 @@ const initFilter = () => {
     wardrobe_status: [],
     clothes_note: '',
     size: [],
+    clothes_part: [],
   }
 }
 /** 侧栏衣柜项：点的若是当前衣柜则打开攒钱计划抽屉，否则切换衣柜（与原「点我」同一大块热区） */
@@ -1694,6 +1985,14 @@ const showAddClothes = () => {
 const showBatchAddClothes = (event?: MouseEvent) => {
   clothesBatchAddEntryRef.value?.showModel(currentWardrobe.value, event)
 }
+const showExtractAddClothes = (event?: MouseEvent) => {
+  clothesExtractAddRef.value?.showModel(currentWardrobe.value, event)
+}
+const extractFillPending = shallowRef(false)
+const onExtractAddConfirm = (item: ClothesExtractAddItem) => {
+  extractFillPending.value = true
+  addEditClothesRef.value?.showModel(item)
+}
 const getWardrobeIdByPoint = (clientX: number, clientY: number): number | null => {
   if (typeof document === 'undefined') return null
 
@@ -1832,6 +2131,10 @@ const patchClothesInList = (payload: WardrobeClothes): boolean => {
 }
 
 const onClothesAddSuccess = (payload?: WardrobeClothes) => {
+  if (extractFillPending.value) {
+    clothesExtractAddRef.value?.markInserted()
+    extractFillPending.value = false
+  }
   if (payload && patchClothesInList(payload)) return
   reloadWardrobe()
 }
@@ -1857,9 +2160,9 @@ const loadingController = ref({
   show_price: false,
   sort_type: false
 })
-const updateWardrobeSetting = async (field: 'sort_type' | 'is_private' | 'show_price', value: number) => {
-  if (!currentWardrobe.value?.wardrobe_id || !info.value) return
-  if (loadingController.value[field]) return
+const updateWardrobeSetting = async (field: 'sort_type' | 'is_private' | 'show_price', value: number): Promise<boolean> => {
+  if (!currentWardrobe.value?.wardrobe_id || !info.value) return false
+  if (loadingController.value[field]) return false
   
   loadingController.value[field] = true
   try {
@@ -1885,6 +2188,7 @@ const updateWardrobeSetting = async (field: 'sort_type' | 'is_private' | 'show_p
       icon: 'i-heroicons-check-circle',
       color: 'green'
     })
+    return true
   } catch (error) {
     console.error('更新失败:', error)
     toast.add({
@@ -1892,6 +2196,7 @@ const updateWardrobeSetting = async (field: 'sort_type' | 'is_private' | 'show_p
       icon: 'i-heroicons-exclamation-circle',
       color: 'red'
     })
+    return false
   } finally {
     setTimeout(() => {
       loadingController.value[field] = false
@@ -1908,8 +2213,11 @@ const formatSortType = (index: number | undefined) => {
     3: '价格倒叙',
     4: '价格正序',
     5: '穿着次数倒叙',
+    11: '穿着次数正序',
     7: '评分倒叙',
-    8: '评分正序'
+    8: '评分正序',
+    9: '穿着时间倒叙',
+    10: '穿着时间正序'
   }
   return sortTypeMap[index] || '自定义'
 }
@@ -1927,6 +2235,9 @@ const sortTypeOptions = [
   { label: '价格倒叙', value: 3 },
   { label: '价格正序', value: 4 },
   { label: '穿着次数倒叙', value: 5 },
+  { label: '穿着次数正序', value: 11 },
+  { label: '穿着时间倒叙', value: 9 },
+  { label: '穿着时间正序', value: 10 },
   { label: '评分倒叙', value: 7 },
   { label: '评分正序', value: 8 }
 ]
@@ -1962,6 +2273,29 @@ const isInUniAppShell = computed(
     typeof navigator !== 'undefined' &&
     navigator.userAgent.includes('Html5Plus')
 )
+
+/** 左上角返回：UniApp navigateBack / 鸿蒙 port / 浏览器 history */
+function goBack() {
+  if (isInUniAppShell.value) {
+    const uniApi = configStore.uniWebviewJs ?? uni
+    if (uniApi && typeof uniApi.navigateBack === 'function') {
+      uniApi.navigateBack()
+      return
+    }
+  }
+
+  if (port.value) {
+    port.value.postMessage(JSON.stringify({ type: 'back' }))
+    return
+  }
+
+  if (import.meta.client && window.history.length > 1) {
+    router.back()
+    return
+  }
+
+  void navigateTo(isPageOwner.value ? '/wardrobe' : `/userSpace/${id}`)
+}
 
 /**
  * UniApp 衣柜详情「设为首页」：`message_config.home_page` **仅在为 `3` 时表示开启**。
@@ -2495,11 +2829,21 @@ const chooseSize = (size: string) => {
     filter_list.value.size.splice(index, 1)
   }
 }
+// 选择部位
+const chooseClothesPart = (part: string) => {
+  const index = filter_list.value.clothes_part.findIndex((item) => item === part)
+  if (index === -1) {
+    filter_list.value.clothes_part.push(part)
+  } else {
+    filter_list.value.clothes_part.splice(index, 1)
+  }
+}
 // 重置筛选
 const resetFilter = () => {
   filter_list.value.wardrobe_status = []
   filter_list.value.clothes_note = ''
   filter_list.value.size = []
+  filter_list.value.clothes_part = []
   confirmFilter()
 }
 // 确认筛选
@@ -2557,21 +2901,23 @@ const jumpToClothes = (item: WardrobeClothes) => {
 				console.log('跳转错误')
 			}
 		});
-	} else {
-    if (port.value) {
-      // 鸿蒙系统
-      port.value.postMessage(JSON.stringify({
-        type: 'jump',
-        path: 'Outlink',
-        params: {
-          url: clothesDetailAbsoluteUrl
-        }
-      }));
-    } else {
-      // 普通网页环境：新页签打开
-      window.open(clothesDetailUrl, '_blank', 'noopener,noreferrer')
-    }
+    return
 	}
+
+  // 鸿蒙壳：port 异步注入，不能只靠 port；statusBar / session 标记也视为 App WebView
+  const harmonyMarked =
+    import.meta.client &&
+    typeof sessionStorage !== 'undefined' &&
+    sessionStorage.getItem('harmony_webview') === '1'
+  const inHarmonyShell =
+    !!port.value || configStore.statusBarHeight > 0 || !!harmonyMarked
+  if (inHarmonyShell) {
+    void navigateTo(clothesDetailUrl)
+    return
+  }
+
+  // 普通网页环境：新页签打开
+  window.open(clothesDetailUrl, '_blank', 'noopener,noreferrer')
 }
 
 // 打开更多菜单
@@ -2921,6 +3267,8 @@ const SHOW_CLOTHES_NOTE_KEY = 'wardrobe-detail-show-clothes-note'
 const SHOW_CLOTHES_PRICE_KEY = 'wardrobe-detail-show-clothes-price'
 const SHOW_CLOTHES_STATUS_KEY = 'wardrobe-detail-show-clothes-status'
 const SHOW_CLOTHES_FAVORITE_KEY = 'wardrobe-detail-show-clothes-favorite'
+const CLOTHES_CARD_FONT_SIZE_KEY = 'wardrobe-detail-clothes-card-font-size'
+const TOOLBAR_BTN_SIZE_KEY = 'wardrobe-detail-toolbar-btn-size'
 
 function readSidebarCollapsedPref(): boolean {
   if (!import.meta.client || typeof localStorage === 'undefined') {
@@ -2993,11 +3341,23 @@ function readShowClothesFavoritePref(): boolean {
   }
 }
 
+function parseClothesCardFontSize(raw: string | null): number | null {
+  if (raw == null) return null
+  const n = Number.parseInt(raw, 10)
+  if (!Number.isFinite(n)) return null
+  return Math.min(CLOTHES_CARD_FONT_SIZE_MAX, Math.max(CLOTHES_CARD_FONT_SIZE_MIN, n))
+}
+
+function isToolbarBtnSize(v: string | null): v is ToolbarBtnSize {
+  return v === 'sm' || v === 'md' || v === 'lg'
+}
+
 /** 左侧衣柜列表是否收起（localStorage 持久化） */
 const sidebarCollapsed = ref(readSidebarCollapsedPref())
+
 /** 中间衣柜详情头部是否收起（localStorage 持久化，默认收起） */
 const headerCollapsed = ref(readHeaderCollapsedPref())
-/** 左侧功能栏是否收起（localStorage 持久化，默认收起；收起后仅保留添加与批量添加） */
+/** 左侧功能栏是否收起（localStorage 持久化，默认收起；收起后仅保留添加、批量添加与识图添加） */
 const toolbarCollapsed = ref(readToolbarCollapsedPref())
 /** 整体引导临时展开左侧功能栏（不写入偏好，关闭引导后恢复收起态） */
 const overviewGuideToolbarExpanded = ref(false)
@@ -3053,6 +3413,10 @@ function restoreLayoutPrefs() {
     if (status !== null) showClothesStatus.value = status === '1'
     const favorite = localStorage.getItem(SHOW_CLOTHES_FAVORITE_KEY)
     if (favorite !== null) showClothesFavorite.value = favorite === '1'
+    const fontSize = parseClothesCardFontSize(localStorage.getItem(CLOTHES_CARD_FONT_SIZE_KEY))
+    if (fontSize !== null) clothesCardFontSize.value = fontSize
+    const btnSize = localStorage.getItem(TOOLBAR_BTN_SIZE_KEY)
+    if (isToolbarBtnSize(btnSize)) toolbarBtnSize.value = btnSize
     const layout = localStorage.getItem(CLOTHES_LIST_LAYOUT_KEY)
     if (layout === 'grid' || layout === 'waterfall' || layout === 'list' || layout === 'part') {
       clothesListLayout.value = layout
@@ -3135,6 +3499,36 @@ function persistClothesListLayout(layout: ClothesListLayout) {
   }
 }
 
+function persistClothesCardFontSize() {
+  if (!import.meta.client || typeof localStorage === 'undefined') return
+  try {
+    localStorage.setItem(CLOTHES_CARD_FONT_SIZE_KEY, String(getClothesCardFontPx()))
+  } catch {
+    /* 忽略写入失败 */
+  }
+}
+
+function persistToolbarBtnSize(size: ToolbarBtnSize) {
+  if (!import.meta.client || typeof localStorage === 'undefined') return
+  try {
+    localStorage.setItem(TOOLBAR_BTN_SIZE_KEY, size)
+  } catch {
+    /* 忽略写入失败 */
+  }
+}
+
+const wardrobePageStyle = computed(() => ({
+  ...(pageContentStyle.value ?? {}),
+  '--wardrobe-card-fs': `${getClothesCardFontPx()}px`,
+  '--wardrobe-card-lh': `${getClothesCardLineHeightPx()}px`,
+}))
+
+const toolbarBtnSizeOptions: { id: ToolbarBtnSize; label: string }[] = [
+  { id: 'sm', label: '小' },
+  { id: 'md', label: '中' },
+  { id: 'lg', label: '大' },
+]
+
 const toggleSidebarCollapsed = () => {
   sidebarCollapsed.value = !sidebarCollapsed.value
 }
@@ -3172,6 +3566,8 @@ watch(showClothesNote, persistShowClothesNote)
 watch(showClothesPrice, persistShowClothesPrice)
 watch(showClothesStatus, persistShowClothesStatus)
 watch(showClothesFavorite, persistShowClothesFavorite)
+watch(clothesCardFontSize, persistClothesCardFontSize)
+watch(toolbarBtnSize, persistToolbarBtnSize)
 watch(clothesListLayout, (layout, prev) => {
   persistClothesListLayout(layout)
   if (layout === prev || timelineMode.value) return
@@ -3188,6 +3584,8 @@ watch(
     showClothesPrice.value,
     showClothesStatus.value,
     showClothesFavorite.value,
+    clothesCardFontSize.value,
+    toolbarBtnSize.value,
     list.value.length,
   ] as const,
   () => {
@@ -3209,6 +3607,8 @@ watch(
     showClothesPrice.value,
     showClothesStatus.value,
     showClothesFavorite.value,
+    clothesCardFontSize.value,
+    toolbarBtnSize.value,
     clothesListLayout.value,
     virtualEnabled.value,
     virtualColumns.value,
@@ -3647,19 +4047,36 @@ const toggleMatchingMode = () => {
     showMatchingGuide.value = false
   }
 }
+const enterSortMode = () => {
+  sortMode.value = true
+  matchingMode.value = false
+  selectMode.value = false
+  editMode.value = false
+  selectedClothesIds.value = new Set()
+  closeAllModeGuides()
+  tryOpenSortGuide()
+}
+
 const toggleSortMode = () => {
   if (!sortMode.value && !requireClothesForMode()) return
-  sortMode.value = !sortMode.value
-  if (sortMode.value) {
-    matchingMode.value = false
-    selectMode.value = false
-    editMode.value = false
-    selectedClothesIds.value = new Set()
-    closeAllModeGuides()
-    tryOpenSortGuide()
-  } else {
-    showSortGuide.value = false
+  // 进入排序：仅自定义排序（sort_type=0）可手动拖拽调整顺序
+  if (!sortMode.value && !isCustomSortMode.value) {
+    showSwitchCustomSortModal.value = true
+    return
   }
+  if (sortMode.value) {
+    sortMode.value = false
+    showSortGuide.value = false
+    return
+  }
+  enterSortMode()
+}
+
+const confirmSwitchToCustomSort = async () => {
+  const ok = await updateWardrobeSetting('sort_type', 0)
+  if (!ok) return
+  showSwitchCustomSortModal.value = false
+  enterSortMode()
 }
 
 function tryOpenSortGuide() {
@@ -3807,12 +4224,43 @@ const toggleEditMode = () => {
     showEditGuide.value = false
   }
 }
-const openEditClothes = (item: WardrobeClothes, event?: MouseEvent) => {
-  if (!addEditClothesRef.value || !item.clothes_id) return
-  addEditClothesRef.value.showModel({
-    ...item,
-    wardrobe_name: currentWardrobe.value?.wardrobe_name ?? info.value?.wardrobe_name,
-  }, false, event)
+/** 编辑模式：不直接用列表行（/clothes/all 字段不全），先拉 /clothes/id 再打开表单 */
+const editingClothesId = ref<number | null>(null)
+const openEditClothes = async (item: WardrobeClothes, event?: MouseEvent) => {
+  const clothesId = item.clothes_id
+  if (!addEditClothesRef.value || clothesId == null) return
+  if (editingClothesId.value === clothesId) return
+  editingClothesId.value = clothesId
+  try {
+    const detail = await getClothesDetail({
+      clothes_id: clothesId,
+      ...(password.value ? { password: password.value } : {}),
+      ...(qrcode.value ? { qrcode: qrcode.value } : {}),
+    })
+    const wardrobeName =
+      detail.wardrobe?.wardrobe_name
+      ?? info.value?.wardrobe_name
+      ?? currentWardrobe.value?.wardrobe_name
+    addEditClothesRef.value.showModel(
+      {
+        ...detail,
+        wardrobe_name: wardrobeName,
+        wardrobe: detail.wardrobe ?? info.value ?? currentWardrobe.value ?? null,
+        detailReady: true,
+      },
+      false,
+      event,
+    )
+  } catch {
+    toast.add({
+      title: '无法加载服饰详情',
+      description: '请稍后重试',
+      color: 'red',
+      icon: 'i-heroicons-exclamation-circle',
+    })
+  } finally {
+    if (editingClothesId.value === clothesId) editingClothesId.value = null
+  }
 }
 const toggleSelectMode = () => {
   if (!selectMode.value && !requireClothesForMode()) return
@@ -4039,7 +4487,13 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
   } else {
     const sourceEl = e?.currentTarget as HTMLElement | null
     const sourceRect = sourceEl?.parentElement?.getBoundingClientRect()
-    const imgSrc = item.clothes_img ? `${BASE_IMG}${item.clothes_img}` : ''
+    const imgSrc = item.clothes_img
+      ? toAbsoluteMediaUrl(
+          isCommunityLivePath(item.clothes_img)
+            ? toCommunityLivePosterPath(item.clothes_img)
+            : item.clothes_img,
+        )
+      : ''
     addToMatchingDraft(item)
     if (sourceRect && imgSrc) {
       nextTick(() => {
@@ -4054,7 +4508,8 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
   <div
     class="wardrobe-wrap wardrobe-page-neu text-qhx-text relative"
     :class="{ 'wardrobe-perf-lite': preferLiteEffects }"
-    :style="pageContentStyle"
+    :data-toolbar-size="toolbarBtnSize"
+    :style="wardrobePageStyle"
   >
     <div
       v-if="customStyle"
@@ -4084,6 +4539,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
         class="pointer-events-none"
       />
     </div>
+    <ClothesExtractAdd ref="clothesExtractAddRef" @confirm="onExtractAddConfirm" @success="reloadWardrobe" />
     <ClothesAdd ref="addEditClothesRef" @success="onClothesAddSuccess" />
     <ClothesBatchAddEntry ref="clothesBatchAddEntryRef" @success="reloadWardrobe" />
     <WardrobeAddEdit ref="addEditWardrobeRef" @success="onWardrobeEditSuccess" />
@@ -4190,6 +4646,34 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
       :wardrobe-id="currentWardrobe?.wardrobe_id"
     />
     <QrcodeList ref="qrcodeListRef" />
+    <QhxModal v-model="showSwitchCustomSortModal">
+      <div class="p-6 w-[min(94vw,420px)] bg-white dark:bg-gray-800 rounded-[10px] shadow-lg">
+        <h3 class="text-base font-bold mb-4 text-gray-800 dark:text-gray-200">无法手动排序</h3>
+        <p class="text-gray-700 dark:text-gray-300 mb-4">
+          当前为「{{ formatSortType(info?.sort_type) }}」，仅「自定义」排序可手动调整顺序。是否改为自定义排序并开启排序？
+        </p>
+        <div class="flex justify-end gap-2">
+          <UButton
+            color="gray"
+            :class="hasAnyCustomBtnTheme && hasCustomBtnBg ? 'hover:opacity-90' : ''"
+            :style="customBtnStyle"
+            :disabled="loadingController.sort_type"
+            @click="showSwitchCustomSortModal = false"
+          >
+            取消
+          </UButton>
+          <UButton
+            color="primary"
+            :loading="loadingController.sort_type"
+            :class="hasAnyCustomBtnTheme && hasCustomBtnBg ? 'hover:opacity-90' : ''"
+            :style="customBtnStyle"
+            @click="confirmSwitchToCustomSort"
+          >
+            改为自定义并排序
+          </UButton>
+        </div>
+      </div>
+    </QhxModal>
     <QhxModal v-model="showDeleteModal">
       <div class="p-6 w-[min(94vw,420px)] bg-white dark:bg-gray-800 rounded-[10px] shadow-lg">
         <h3 class="text-base font-bold mb-4 text-gray-800 dark:text-gray-200">操作确认</h3>
@@ -4238,6 +4722,42 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
         </div>
       </div>
     </QhxModal>
+    <QhxModal v-model="showBatchLastDressModal">
+      <div class="p-6 w-[min(94vw,420px)] max-h-[85vh] overflow-y-auto bg-white dark:bg-gray-800 rounded-[10px] shadow-lg">
+        <h3 class="text-base font-bold mb-4 text-gray-800 dark:text-gray-200">批量修改穿着时间</h3>
+        <p class="text-sm text-gray-600 dark:text-gray-400 mb-4">
+          已选 {{ selectedClothesIds.size }} 件服饰，将统一设置最后穿着时间。可清除为空。
+        </p>
+        <UFormGroup label="最后穿着时间">
+          <QhxDateTimePicker
+            v-model="batchLastDressValue"
+            mode="date"
+            :enable-time-picker="true"
+            format="YYYY-MM-DD HH:mm:ss"
+            placeholder="选择穿着时间"
+          />
+        </UFormGroup>
+        <div class="flex justify-end gap-2 mt-6">
+          <UButton
+            color="gray"
+            :class="hasAnyCustomBtnTheme && hasCustomBtnBg ? 'hover:opacity-90' : ''"
+            :style="customBtnStyle"
+            @click="showBatchLastDressModal = false"
+          >
+            取消
+          </UButton>
+          <UButton
+            color="primary"
+            :loading="batchLastDressSaving"
+            :class="hasAnyCustomBtnTheme && hasCustomBtnBg ? 'hover:opacity-90' : ''"
+            :style="customBtnStyle"
+            @click="confirmBatchLastDress"
+          >
+            确定
+          </UButton>
+        </div>
+      </div>
+    </QhxModal>
     <QhxModal v-model="showBatchStatusModal">
       <div class="p-6 w-[min(94vw,420px)] max-h-[85vh] overflow-y-auto bg-white dark:bg-gray-800 rounded-[10px] shadow-lg">
         <h3 class="text-base font-bold mb-4 text-gray-800 dark:text-gray-200">批量修改拥有状态</h3>
@@ -4266,12 +4786,16 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
           >
             选择状态
           </UButton>
-          <QhxSelect
-            ref="batchStatusSelectRef"
+          <QhxOptionsChoose
+            ref="batchStatusChooseRef"
+            title="选择状态"
             :options="batchWardrobeStatusOptions"
-            :default-value="batchWardrobeStatusOptions[0]"
-            :canCustomize="true"
-            @select="onBatchWardrobeStatusSelect"
+            :multiple="false"
+            :can-customize="true"
+            :undeletable-values="wardrobe_status_defaults.map((item) => item.value)"
+            empty-confirm-message="请选择状态"
+            @select="onBatchWardrobeStatusChoose"
+            @delete="onDeleteBatchStatusOption"
           />
         </UFormGroup>
         <div class="flex justify-end gap-2 mt-6">
@@ -4314,26 +4838,23 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
               </div>
             </QhxTag>
           </div>
-          <div v-if="sortedTagList.length > 0" class="flex flex-wrap gap-2 mb-2">
-            <QhxJellyButton v-for="(tag, index) in sortedTagList" :key="`pick-${tag}-${index}`">
-              <QhxTag
-                class="cursor-pointer"
-                :active="batchTagsToAdd.includes(tag)"
-                @click="toggleBatchTagQuickPick(tag)"
-              >
-                {{ tag }}
-              </QhxTag>
-            </QhxJellyButton>
-          </div>
-          <customInput ref="batchTagInputRef" @insert="onBatchTagInputInsert" />
           <UButton
             type="button"
             size="xs"
             class="bg-qhx-primary text-qhx-inverted hover:bg-qhx-primaryHover mt-2"
-            @click="(e: MouseEvent) => openBatchTagInput(e)"
+            @click="(e: MouseEvent) => openBatchTagPicker(e)"
           >
-            添加tag
+            选择标签
           </UButton>
+          <QhxOptionsChoose
+            ref="batchTagChooseRef"
+            title="选择标签"
+            :options="batchTagOptions"
+            :can-customize="true"
+            empty-confirm-message="请选择标签"
+            @select="onBatchTagsChoose"
+            @delete="onDeleteBatchTagOption"
+          />
         </UFormGroup>
         <div class="flex justify-end gap-2 mt-6">
           <UButton
@@ -4419,6 +4940,69 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
         </div>
       </div>
     </QhxModal>
+    <QhxModal v-model="showStatusColorManageModal">
+      <div class="p-6 w-[min(94vw,420px)] max-h-[85vh] overflow-y-auto bg-white dark:bg-gray-800 rounded-[10px] shadow-lg">
+        <h3 class="text-base font-bold mb-2 text-gray-800 dark:text-gray-200">状态颜色</h3>
+        <p class="text-sm text-gray-600 dark:text-gray-400 mb-4">
+          为各拥有状态设置角标与图例颜色，保存后写入本衣柜配置。
+        </p>
+        <div v-if="statusColorManageDraft.length === 0" class="py-8 text-center text-sm text-gray-500 dark:text-gray-400">
+          暂无状态
+        </div>
+        <div v-else class="space-y-2">
+          <div
+            v-for="item in statusColorManageDraft"
+            :key="`status-color-${item.label}`"
+            class="flex items-center gap-2 rounded-lg border border-gray-200/80 bg-gray-50/90 px-2 py-2 dark:border-gray-700/80 dark:bg-gray-800/80"
+          >
+            <button
+              type="button"
+              class="shrink-0 h-8 w-8 rounded-full border-2 border-white shadow-sm ring-1 ring-black/10 dark:border-gray-700 dark:ring-white/15"
+              :style="{ backgroundColor: item.color }"
+              :title="`选择「${item.label}」颜色`"
+              :aria-label="`选择${item.label}颜色`"
+              @click="openStatusColorPicker(item.label, $event)"
+            />
+            <span class="min-w-0 flex-1 truncate text-sm font-medium text-gray-800 dark:text-gray-200">
+              {{ item.label }}
+            </span>
+            <span class="shrink-0 font-mono text-[10px] tabular-nums text-gray-500 dark:text-gray-400">
+              {{ item.color }}
+            </span>
+            <UButton
+              color="gray"
+              variant="ghost"
+              size="xs"
+              class="shrink-0"
+              @click="resetStatusColorDraftItem(item.label)"
+            >
+              默认
+            </UButton>
+          </div>
+        </div>
+        <div class="mt-6 flex justify-end gap-2">
+          <UButton
+            color="gray"
+            :class="hasAnyCustomBtnTheme && hasCustomBtnBg ? 'hover:opacity-90' : ''"
+            :style="customBtnStyle"
+            @click="showStatusColorManageModal = false"
+          >
+            取消
+          </UButton>
+          <UButton
+            color="primary"
+            :loading="statusColorManageSaving"
+            :disabled="statusColorManageDraft.length === 0"
+            :class="hasAnyCustomBtnTheme && hasCustomBtnBg ? 'hover:opacity-90' : ''"
+            :style="customBtnStyle"
+            @click="confirmStatusColorManage"
+          >
+            保存
+          </UButton>
+        </div>
+      </div>
+    </QhxModal>
+    <QhxColorPicker ref="statusColorPickerRef" @choose="onStatusColorChoose" />
     <QhxModal v-model="showDeleteWardrobeTagModal">
       <div class="p-6 w-[min(94vw,420px)] bg-white dark:bg-gray-800 rounded-[10px] shadow-lg">
         <h3 class="text-base font-bold mb-2 text-gray-800 dark:text-gray-200">删除标签</h3>
@@ -4653,7 +5237,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
       </div>
     </QhxModal>
     <QhxModal v-model="showLayoutModal">
-      <div class="p-5 w-[min(94vw,360px)] bg-white dark:bg-gray-800 rounded-[10px] shadow-lg">
+      <div class="p-5 w-[min(94vw,360px)] max-h-[min(85dvh,640px)] overflow-y-auto bg-white dark:bg-gray-800 rounded-[10px] shadow-lg">
         <h3 class="text-base font-bold text-gray-800 dark:text-gray-200">布局设置</h3>
         <p class="text-xs text-gray-500 dark:text-gray-400 mt-1 mb-4">
           偏好将自动保存；侧栏、详情收起按钮仍可独立操作
@@ -4738,6 +5322,44 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
                 <UIcon name="i-heroicons-rectangle-group" class="text-xl" />
                 <span class="text-xs font-medium">按部位</span>
               </button>
+            </div>
+          </div>
+          <div class="h-px bg-gray-200 dark:bg-gray-700" />
+          <div>
+            <div class="text-sm font-medium text-gray-800 dark:text-gray-200 mb-1">功能按钮大小</div>
+            <div class="text-xs text-gray-500 dark:text-gray-400 mb-2">
+              顶部添加、排序等工具按钮的尺寸
+            </div>
+            <div class="grid grid-cols-3 gap-2">
+              <button
+                v-for="opt in toolbarBtnSizeOptions"
+                :key="opt.id"
+                type="button"
+                class="rounded-lg border px-2 py-2 text-xs font-medium transition-colors"
+                :class="toolbarBtnSize === opt.id
+                  ? 'border-qhx-primary bg-qhx-primary/10 text-qhx-primary'
+                  : 'border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:border-gray-300 dark:hover:border-gray-500'"
+                @click="toolbarBtnSize = opt.id"
+              >
+                {{ opt.label }}
+              </button>
+            </div>
+          </div>
+          <div>
+            <div class="flex items-center justify-between gap-3">
+              <div class="min-w-0">
+                <div class="text-sm font-medium text-gray-800 dark:text-gray-200">卡片字号</div>
+                <div class="text-xs text-gray-500 dark:text-gray-400">
+                  备注与价格文字大小，会重新校准列表高度
+                </div>
+              </div>
+              <QhxNumberStepper
+                v-model="clothesCardFontSize"
+                size="sm"
+                :min="CLOTHES_CARD_FONT_SIZE_MIN"
+                :max="CLOTHES_CARD_FONT_SIZE_MAX"
+                :step="1"
+              />
             </div>
           </div>
           <div class="h-px bg-gray-200 dark:bg-gray-700" />
@@ -4908,6 +5530,25 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
           sidebarTransitionEnabled && 'transition-all duration-350 ease-[cubic-bezier(0.4,0,0.2,1)]',
         ]"
       >
+        <!-- 侧栏收起时：固定于视口左上角 -->
+        <button
+          v-if="!timelineMode && sidebarCollapsed"
+          type="button"
+          class="wardrobe-back-btn fixed z-[55] flex h-9 w-9 items-center justify-center rounded-full shadow-lg backdrop-blur-md"
+          :class="[
+            !customStyle?.btnColor && 'bg-black/55 hover:bg-black/65 dark:bg-white/20 dark:hover:bg-white/30',
+            !customStyle?.btnFontColor && 'text-white',
+          ]"
+          :style="{
+            top: `${(configStore.statusBarHeight || 0) + 10}px`,
+            left: '12px',
+            ...customBtnStyle,
+          }"
+          aria-label="返回"
+          @click="goBack"
+        >
+          <UIcon name="i-heroicons-arrow-left" class="text-[18px]" />
+        </button>
         <div
           v-show="!sidebarCollapsed"
           id="wardrobe-guide-sidebar-list"
@@ -4915,8 +5556,25 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
         >
         <!-- 状态栏高度占位 -->
         <div v-if="configStore.statusBarHeight > 0" :style="{ height: `${configStore.statusBarHeight}px` }"></div>
+
+        <!-- 返回键：悬浮于「新建衣柜」等侧栏工具上方 -->
+        <div v-if="!timelineMode" class="relative z-20 flex justify-center px-2 pb-1.5 pt-1">
+          <button
+            type="button"
+            class="wardrobe-back-btn flex h-9 w-9 items-center justify-center rounded-full shadow-lg backdrop-blur-md transition-opacity hover:opacity-90 active:scale-95"
+            :class="[
+              !customStyle?.btnColor && 'bg-black/55 hover:bg-black/65 dark:bg-white/20 dark:hover:bg-white/30',
+              !customStyle?.btnFontColor && 'text-white',
+            ]"
+            :style="customBtnStyle"
+            aria-label="返回"
+            @click="goBack"
+          >
+            <UIcon name="i-heroicons-arrow-left" class="text-[18px]" />
+          </button>
+        </div>
         
-        <div v-if="user.user?.user_id === Number.parseInt(id)" class="flex flex-col items-center py-2 gap-1.5">
+        <div v-if="user.user?.user_id === Number.parseInt(id)" class="flex flex-col items-center py-2 gap-1.5 pt-0">
           <QhxJellyButton v-for="tool in sidebarToolbarTools" :key="tool.id">
             <div
               :id="tool.id === 'addWardrobe' ? 'wardrobe-guide-add-wardrobe' : undefined"
@@ -5219,6 +5877,36 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
               @select="onSortTypeChange"
             />
 
+            <!-- 拥有状态颜色图例 -->
+            <div
+              v-if="wardrobeStatusLegendItems.length"
+              class="flex items-center gap-2 min-w-0"
+            >
+              <div class="wardrobe-status-legend flex min-w-0 flex-1 flex-nowrap items-center gap-x-2.5 overflow-x-auto">
+                <span
+                  v-for="item in wardrobeStatusLegendItems"
+                  :key="`status-legend-${item.label}`"
+                  class="inline-flex shrink-0 items-center gap-1 whitespace-nowrap text-xs text-qhx-text"
+                >
+                  <span
+                    class="wardrobe-status-legend-dot inline-block h-2 w-2 shrink-0 rounded-full"
+                    :style="{ '--status-c': item.color }"
+                    aria-hidden="true"
+                  />
+                  {{ item.label }}
+                </span>
+              </div>
+              <QhxJellyButton v-if="isPageOwner" class="shrink-0">
+                <QhxTag
+                  class="cursor-pointer whitespace-nowrap"
+                  :active="true"
+                  @click="openStatusColorManageModal"
+                >
+                  管理
+                </QhxTag>
+              </QhxJellyButton>
+            </div>
+
             <div class="flex items-center space-x-3">
               <div>
                 <p class="text-xs">创建于 {{ dayjs(info.create_date).format('YYYY-MM-DD') }}</p>
@@ -5308,6 +5996,22 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
                     <UIcon name="i-heroicons-squares-plus" class="text-[20px]" />
                   </div>
                   <div class="text-sm text-qhx-text">批量添加</div>
+                </div>
+              </QhxJellyButton>
+              <QhxJellyButton>
+                <div
+                  id="wardrobe-guide-tool-extract-add"
+                  class="h-[56px] flex flex-col items-center justify-center px-1 cursor-pointer"
+                  @click="showExtractAddClothes($event)"
+                >
+                  <div
+                    class="wardrobe-neu-tool-orb m-[3px] rounded-[50%] h-[32px] w-[32px] flex items-center justify-center"
+                    :class="[!hasCustomBtnBg && 'bg-qhx-primary', !hasCustomBtnFont && 'text-white']"
+                    :style="customBtnStyle"
+                  >
+                    <UIcon name="material-symbols:document-scanner-outline" class="text-[20px]" />
+                  </div>
+                  <div class="text-sm text-qhx-text">识图添加</div>
                 </div>
               </QhxJellyButton>
               <QhxJellyButton>
@@ -5473,7 +6177,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
             </div>
           </div>
         </div>
-        <div v-if="sortedTagList.length > 0" class="flex items-center gap-2 min-w-0 my-1.5">
+        <div v-if="sortedTagList.length > 0" class="flex items-center gap-2 min-w-0 my-1.5 px-6 max-md:px-2">
           <div
             ref="tagScrollRef"
             class="wardrobe-tag-scroll flex flex-nowrap gap-2 flex-1 min-w-0 w-0 overflow-x-auto"
@@ -5516,19 +6220,17 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
             @click="selectMode ? toggleClothesSelection(element) : jumpToClothes(element)"
           >
             <div class="relative h-[96px] w-[96px] shrink-0 overflow-hidden rounded-lg border border-gray-200 dark:border-gray-700 max-md:h-[80px] max-md:w-[80px]">
-              <img
-                :src="`${BASE_IMG}${element.clothes_img}?x-oss-process=image/quality,q_100/resize,w_300`"
-                draggable="false"
-                class="wardrobe-detail-img block h-full w-full object-cover"
+              <WardrobeClothesLiveCover
+                :clothes-img="element.clothes_img"
+                img-class="wardrobe-detail-img absolute inset-0 block h-full w-full object-cover"
                 :loading="wardrobeImgLoadingMode(element.clothes_img)"
-                decoding="async"
                 @load="markWardrobeImgLoaded(element.clothes_img)"
-                @contextmenu.prevent
               />
               <div
                 v-if="shouldShowClothesStatusBadge(element)"
                 class="pointer-events-none absolute left-1 top-1 z-10 max-w-[calc(100%-0.5rem)] truncate rounded px-1 py-0.5 text-[10px] font-medium"
-                :class="getWardrobeStatusBadgeClass(element.wardrobe_status)"
+                :class="getWardrobeStatusBadgeClass()"
+                :style="getWardrobeStatusBadgeStyle(element.wardrobe_status)"
               >
                 {{ element.wardrobe_status }}
               </div>
@@ -5562,7 +6264,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
               </div>
             </div>
             <div class="flex min-w-0 flex-1 flex-col justify-center py-0.5">
-              <div class="line-clamp-2 text-sm font-medium leading-5 text-gray-900 dark:text-gray-100">
+              <div class="line-clamp-2 wardrobe-card-meta-text font-medium text-gray-900 dark:text-gray-100">
                 {{ element.clothes_note?.trim() || '暂无备注' }}
               </div>
               <div class="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 text-xs text-gray-600 dark:text-gray-400">
@@ -5645,21 +6347,25 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
             @touchstart.passive="opearClothesId = element.clothes_id"
             @click="selectMode ? toggleClothesSelection(element) : jumpToClothes(element)"
           >
-            <div class="wardrobe-neu-item wardrobe-aspect-square w-full relative">
+            <div
+              class="wardrobe-neu-item wardrobe-aspect-square w-full relative"
+              :class="{ 'wardrobe-sort-image': sortMode }"
+            >
               <div
                 v-if="shouldShowClothesStatusBadge(element) || shouldShowClothesFavoriteBadge(element)"
                 class="wardrobe-clothes-badge-stack pointer-events-none absolute z-10 max-md:left-1 max-md:top-1 max-md:flex max-md:max-w-[calc(100%-2.25rem)] max-md:flex-col max-md:items-start max-md:gap-0.5 md:contents"
               >
                 <div
                   v-if="shouldShowClothesStatusBadge(element)"
-                  class="wardrobe-clothes-status-badge pointer-events-auto max-md:max-w-full max-md:truncate md:absolute md:left-1 md:top-1 md:max-w-[calc(100%-0.5rem)]"
-                  :class="getWardrobeStatusBadgeClass(element.wardrobe_status)"
+                  class="wardrobe-clothes-status-badge pointer-events-auto max-md:max-w-full max-md:truncate md:absolute md:left-1 md:top-1 md:z-10 md:max-w-[calc(100%-0.5rem)]"
+                  :class="getWardrobeStatusBadgeClass()"
+                  :style="getWardrobeStatusBadgeStyle(element.wardrobe_status)"
                 >
                   {{ element.wardrobe_status }}
                 </div>
                 <div
                   v-if="shouldShowClothesFavoriteBadge(element)"
-                  class="wardrobe-clothes-fav-badge pointer-events-auto flex max-w-full items-center gap-0.5 max-md:flex-wrap md:absolute md:right-1 md:top-1"
+                  class="wardrobe-clothes-fav-badge pointer-events-auto flex max-w-full items-center gap-0.5 max-md:flex-wrap md:absolute md:right-1 md:top-1 md:z-10"
                   :title="getClothesFavoriteLevelTitle(element)"
                   @click.stop="jumpToClothes(element)"
                 >
@@ -5725,14 +6431,11 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
                 />
               </div>
               <div class="wardrobe-neu-photo relative w-full overflow-hidden rounded-xl border border-gray-200">
-                <img
-                  :src="`${BASE_IMG}${element.clothes_img}?x-oss-process=image/quality,q_100/resize,w_300`"
-                  draggable="false"
-                  class="wardrobe-detail-img block w-full cursor-grab object-cover active:cursor-grabbing"
+                <WardrobeClothesLiveCover
+                  :clothes-img="element.clothes_img"
+                  img-class="wardrobe-detail-img absolute inset-0 block h-full w-full cursor-grab object-cover active:cursor-grabbing"
                   :loading="wardrobeImgLoadingMode(element.clothes_img)"
-                  decoding="async"
                   @load="markWardrobeImgLoaded(element.clothes_img)"
-                  @contextmenu.prevent
                 />
                 <div
                   v-if="selectMode && getClothesDisplaySortNo(element)"
@@ -5757,19 +6460,19 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
             >
               <div
                 v-if="shouldShowClothesNote(element)"
-                class="line-clamp-2 overflow-hidden text-sm font-medium leading-5"
+                class="wardrobe-card-meta-text line-clamp-2 overflow-hidden font-medium"
               >
                 {{ element.clothes_note }}
               </div>
               <div
                 v-if="shouldShowClothesPrice(element)"
-                class="text-sm text-qhx-primary font-medium leading-5 overflow-hidden"
+                class="wardrobe-card-meta-text text-qhx-primary font-medium overflow-hidden"
                 :class="shouldShowClothesNote(element) ? 'mt-1' : ''"
               >
                 ￥ {{ info?.show_price === 2 ? '***' : (element.price || 0) }}
                 <span
                   v-if="info?.show_price !== 2 && element.original_price"
-                  class="ml-1 text-xs font-normal text-gray-400 line-through"
+                  class="ml-1 wardrobe-card-meta-text--sub font-normal text-gray-400 line-through"
                 >￥{{ element.original_price }}</span>
               </div>
             </div>
@@ -5787,21 +6490,25 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
             <div
               class="wardrobe-clothes-card wardrobe-neu-item w-full overflow-hidden rounded-2xl border border-gray-200/50 dark:border-gray-600/45"
             >
-              <div class="wardrobe-clothes-card-cover wardrobe-waterfall-item relative w-full">
+              <div
+                class="wardrobe-clothes-card-cover wardrobe-waterfall-item relative w-full"
+                :class="{ 'wardrobe-sort-image': sortMode }"
+              >
                 <div
                   v-if="shouldShowClothesStatusBadge(element) || shouldShowClothesFavoriteBadge(element)"
                   class="wardrobe-clothes-badge-stack pointer-events-none absolute z-10 max-md:left-1.5 max-md:top-1.5 max-md:flex max-md:max-w-[calc(100%-2.25rem)] max-md:flex-col max-md:items-start max-md:gap-0.5 md:contents"
                 >
                   <div
                     v-if="shouldShowClothesStatusBadge(element)"
-                    class="wardrobe-clothes-status-badge pointer-events-auto max-md:max-w-full max-md:truncate md:absolute md:left-1.5 md:top-1.5 md:max-w-[calc(100%-0.5rem)]"
-                    :class="getWardrobeStatusBadgeClass(element.wardrobe_status)"
+                    class="wardrobe-clothes-status-badge pointer-events-auto max-md:max-w-full max-md:truncate md:absolute md:left-1.5 md:top-1.5 md:z-10 md:max-w-[calc(100%-0.5rem)]"
+                    :class="getWardrobeStatusBadgeClass()"
+                    :style="getWardrobeStatusBadgeStyle(element.wardrobe_status)"
                   >
                     {{ element.wardrobe_status }}
                   </div>
                   <div
                     v-if="shouldShowClothesFavoriteBadge(element)"
-                    class="wardrobe-clothes-fav-badge pointer-events-auto flex max-w-full items-center gap-0.5 max-md:flex-wrap md:absolute md:right-1.5 md:top-1.5"
+                    class="wardrobe-clothes-fav-badge pointer-events-auto flex max-w-full items-center gap-0.5 max-md:flex-wrap md:absolute md:right-1.5 md:top-1.5 md:z-10"
                     :title="getClothesFavoriteLevelTitle(element)"
                     @click.stop="jumpToClothes(element)"
                   >
@@ -5867,14 +6574,12 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
                   />
                 </div>
                 <div class="wardrobe-neu-photo wardrobe-waterfall-photo relative w-full h-full overflow-hidden">
-                  <img
-                    :src="`${BASE_IMG}${element.clothes_img}?x-oss-process=image/quality,q_100/resize,w_300`"
-                    draggable="false"
-                    class="wardrobe-detail-img wardrobe-waterfall-img block w-full h-auto cursor-grab object-cover active:cursor-grabbing"
+                  <WardrobeClothesLiveCover
+                    :clothes-img="element.clothes_img"
+                    :fill="false"
+                    img-class="wardrobe-detail-img wardrobe-waterfall-img block w-full h-auto cursor-grab object-cover active:cursor-grabbing"
                     :loading="wardrobeImgLoadingMode(element.clothes_img)"
-                    decoding="async"
                     @load="onClothesCardImgLoad(element.clothes_img)"
-                    @contextmenu.prevent
                   />
                   <div
                     v-if="selectMode && getClothesDisplaySortNo(element)"
@@ -5899,19 +6604,19 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
               >
                 <div
                   v-if="shouldShowClothesNote(element)"
-                  class="line-clamp-2 overflow-hidden text-sm font-medium leading-5 text-gray-800 dark:text-gray-100 max-md:text-xs max-md:leading-4"
-                >
-                  {{ element.clothes_note }}
-                </div>
-                <div
-                  v-if="shouldShowClothesPrice(element)"
-                  class="text-sm text-qhx-primary font-semibold leading-5 max-md:text-xs max-md:leading-4"
-                  :class="shouldShowClothesNote(element) ? 'mt-0.5' : ''"
-                >
+                class="wardrobe-card-meta-text line-clamp-2 overflow-hidden font-medium text-gray-800 dark:text-gray-100"
+              >
+                {{ element.clothes_note }}
+              </div>
+              <div
+                v-if="shouldShowClothesPrice(element)"
+                class="wardrobe-card-meta-text text-qhx-primary font-semibold overflow-hidden max-md:font-medium"
+                :class="shouldShowClothesNote(element) ? 'mt-0.5' : ''"
+              >
                   ￥{{ info?.show_price === 2 ? '***' : (element.price || 0) }}
                   <span
                     v-if="info?.show_price !== 2 && element.original_price"
-                    class="ml-1 text-xs font-normal text-gray-400 line-through max-md:text-[10px]"
+                    class="ml-1 wardrobe-card-meta-text--sub font-normal text-gray-400 line-through"
                   >￥{{ element.original_price }}</span>
                 </div>
               </div>
@@ -6210,7 +6915,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
                           <div class="timeline-tarot-image-wrap">
                             <img
                               v-if="node.items[0].clothes_img"
-                              :src="`${BASE_IMG}${node.items[0].clothes_img}?x-oss-process=image/quality,q_100/resize,w_300`"
+                              :src="wardrobeClothesPosterSrc(node.items[0].clothes_img)"
                               class="timeline-tarot-img"
                               draggable="false"
                               loading="lazy"
@@ -6275,7 +6980,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
                               <div class="timeline-tarot-image-wrap">
                                 <img
                                   v-if="deck[0].clothes_img"
-                                  :src="`${BASE_IMG}${deck[0].clothes_img}?x-oss-process=image/quality,q_100/resize,w_300`"
+                                  :src="wardrobeClothesPosterSrc(deck[0].clothes_img)"
                                   class="timeline-tarot-img"
                                   draggable="false"
                                   loading="lazy"
@@ -6364,7 +7069,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
                                     <div class="timeline-tarot-image-wrap">
                                       <img
                                         v-if="item.clothes_img"
-                                        :src="`${BASE_IMG}${item.clothes_img}?x-oss-process=image/quality,q_100/resize,w_300`"
+                                        :src="wardrobeClothesPosterSrc(item.clothes_img)"
                                         class="timeline-tarot-img"
                                         draggable="false"
                                         loading="lazy"
@@ -6481,6 +7186,21 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
                 @click="chooseStatus(status.label)"
               >
                 {{ status.label }}
+              </QhxTag>
+            </div>
+          </div>
+
+          <div v-if="clothesPartFilterOptions.length > 0" class="mb-4">
+            <div class="text-sm font-semibold mb-3 text-gray-800 dark:text-gray-200">部位：</div>
+            <div class="flex flex-wrap gap-2">
+              <QhxTag
+                v-for="(part, index) in clothesPartFilterOptions"
+                :key="index"
+                :active="filter_list.clothes_part.includes(part.label)"
+                class="cursor-pointer"
+                @click="chooseClothesPart(part.label)"
+              >
+                {{ part.label }}
               </QhxTag>
             </div>
           </div>
@@ -6613,7 +7333,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
                             class="plan-neu-thumb plan-neu-thumb--round flex-shrink-0 overflow-hidden w-7 h-7"
                           >
                             <img
-                              :src="`${BASE_IMG}${row.clothes_img}?x-oss-process=image/quality,q_100/resize,w_300`"
+                              :src="wardrobeClothesPosterSrc(row.clothes_img)"
                               alt=""
                               class="w-full h-full object-cover"
                               draggable="false"
@@ -6743,7 +7463,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
               >
                 <div class="relative w-14 h-14 flex-shrink-0 overflow-hidden rounded-lg bg-gray-200 dark:bg-gray-700">
                   <img
-                    :src="`${BASE_IMG}${item.clothes_img}?x-oss-process=image/quality,q_100/resize,w_300`"
+                    :src="wardrobeClothesPosterSrc(item.clothes_img)"
                     class="wardrobe-detail-img h-full w-full object-cover"
                     draggable="false"
                     loading="lazy"
@@ -6855,6 +7575,25 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
             </div>
             <div class="text-xs text-qhx-text">
               批量状态
+              <span v-if="selectedClothesIds.size > 0">({{ selectedClothesIds.size }})</span>
+            </div>
+          </div>
+        </QhxJellyButton>
+        <QhxJellyButton>
+          <div
+            class="h-[46px] text-center px-0.5 cursor-pointer"
+            :class="selectedClothesIds.size === 0 ? 'cursor-not-allowed opacity-60' : ''"
+            @click="selectedClothesIds.size > 0 && openBatchLastDressModal()"
+          >
+            <div
+              class="wardrobe-neu-tool-orb m-[3px] rounded-[50%] h-[24px] w-[24px] flex items-center justify-center mx-auto"
+              :class="selectedClothesIds.size > 0 ? [!hasCustomBtnBg && 'bg-violet-500', !hasCustomBtnFont && 'text-white'] : [!hasCustomBtnBg && 'bg-qhx-info', !hasCustomBtnFont && 'text-white']"
+              :style="selectedClothesIds.size > 0 ? customBtnStyle : {}"
+            >
+              <UIcon name="i-heroicons-calendar-days" class="text-[16px]" />
+            </div>
+            <div class="text-xs text-qhx-text">
+              穿着时间
               <span v-if="selectedClothesIds.size > 0">({{ selectedClothesIds.size }})</span>
             </div>
           </div>
@@ -7038,6 +7777,85 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
   -webkit-user-select: none;
   -moz-user-select: none;
   -ms-user-select: none;
+  --ward-tool-h: 46px;
+  --ward-tool-orb: 24px;
+  --ward-tool-icon: 16px;
+  --ward-tool-label: 12px;
+  --ward-tool-h-lg: 56px;
+  --ward-tool-orb-lg: 32px;
+  --ward-tool-icon-lg: 20px;
+  --ward-tool-label-lg: 14px;
+}
+
+.wardrobe-wrap[data-toolbar-size='sm'] {
+  --ward-tool-h: 40px;
+  --ward-tool-orb: 20px;
+  --ward-tool-icon: 14px;
+  --ward-tool-label: 10px;
+  --ward-tool-h-lg: 46px;
+  --ward-tool-orb-lg: 24px;
+  --ward-tool-icon-lg: 16px;
+  --ward-tool-label-lg: 12px;
+}
+
+.wardrobe-wrap[data-toolbar-size='lg'] {
+  --ward-tool-h: 68px;
+  --ward-tool-orb: 40px;
+  --ward-tool-icon: 24px;
+  --ward-tool-label: 16px;
+  --ward-tool-h-lg: 72px;
+  --ward-tool-orb-lg: 44px;
+  --ward-tool-icon-lg: 26px;
+  --ward-tool-label-lg: 16px;
+}
+
+.wardrobe-card-meta-text {
+  font-size: var(--wardrobe-card-fs, 14px);
+  line-height: var(--wardrobe-card-lh, 20px);
+}
+
+.wardrobe-card-meta-text--sub {
+  font-size: calc(var(--wardrobe-card-fs, 14px) * 0.857);
+}
+
+#wardrobe-guide-add-tools :deep(.h-\[56px\]) {
+  height: var(--ward-tool-h-lg);
+}
+
+#wardrobe-guide-add-tools .wardrobe-neu-tool-orb {
+  height: var(--ward-tool-orb-lg);
+  width: var(--ward-tool-orb-lg);
+}
+
+#wardrobe-guide-add-tools :deep(.text-\[20px\]) {
+  font-size: var(--ward-tool-icon-lg) !important;
+}
+
+#wardrobe-guide-add-tools :deep(.text-sm) {
+  font-size: var(--ward-tool-label-lg) !important;
+  line-height: 1.2;
+}
+
+#wardrobe-guide-main-toolbar :deep(.h-\[46px\]),
+#wardrobe-guide-select-bar :deep(.h-\[46px\]) {
+  height: var(--ward-tool-h);
+}
+
+#wardrobe-guide-main-toolbar .wardrobe-neu-tool-orb,
+#wardrobe-guide-select-bar .wardrobe-neu-tool-orb {
+  height: var(--ward-tool-orb);
+  width: var(--ward-tool-orb);
+}
+
+#wardrobe-guide-main-toolbar :deep(.text-\[16px\]),
+#wardrobe-guide-select-bar :deep(.text-\[16px\]) {
+  font-size: var(--ward-tool-icon) !important;
+}
+
+#wardrobe-guide-main-toolbar :deep(.text-xs),
+#wardrobe-guide-select-bar :deep(.text-xs) {
+  font-size: var(--ward-tool-label) !important;
+  line-height: 1.2;
 }
 
 /* 拟态：左侧栏 / 服饰卡 / 工具圆钮；仅用阴影与高光，不改配色与布局 */
@@ -7189,7 +8007,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
   width: 100%;
   height: 100%;
 }
-.wardrobe-neu-photo .wardrobe-detail-img {
+.wardrobe-neu-photo :deep(.wardrobe-detail-img) {
   position: absolute;
   inset: 0;
   width: 100%;
@@ -7225,7 +8043,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
   position: relative;
   height: auto;
 }
-.wardrobe-waterfall-photo .wardrobe-waterfall-img.wardrobe-detail-img {
+.wardrobe-waterfall-photo :deep(.wardrobe-waterfall-img.wardrobe-detail-img) {
   position: static;
   inset: auto;
   width: 100%;
@@ -7284,12 +8102,12 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
   -webkit-backdrop-filter: none;
 }
 
-.wardrobe-perf-lite .wardrobe-clothes-status-badge {
-  background: rgba(255, 255, 255, 0.94);
+.wardrobe-perf-lite .wardrobe-clothes-status-badge--tonal {
+  background: color-mix(in srgb, var(--status-c, #8b5cf6) 18%, rgba(255, 255, 255, 0.94));
 }
 
-.dark .wardrobe-perf-lite .wardrobe-clothes-status-badge {
-  background: rgba(44, 46, 54, 0.94);
+.dark .wardrobe-perf-lite .wardrobe-clothes-status-badge--tonal {
+  background: color-mix(in srgb, var(--status-c, #8b5cf6) 28%, rgba(44, 46, 54, 0.94));
 }
 
 .wardrobe-perf-lite .wardrobe-clothes-fav-badge {
@@ -7346,40 +8164,33 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
     inset 0 1px 0 rgba(255, 255, 255, 0.45);
 }
 
-.wardrobe-page-neu .wardrobe-clothes-status-badge--violet {
-  color: rgb(91 33 182);
-  background: color-mix(in srgb, #8b5cf6 14%, rgba(255, 255, 255, 0.78));
-  border-color: color-mix(in srgb, #8b5cf6 24%, transparent);
+/* 状态色由 --status-c 驱动（默认色或 config.wardrobe_status_colors） */
+.wardrobe-page-neu .wardrobe-clothes-status-badge--tonal {
+  color: var(--status-c, #8b5cf6);
+  background: color-mix(in srgb, var(--status-c, #8b5cf6) 14%, rgba(255, 255, 255, 0.78));
+  border-color: color-mix(in srgb, var(--status-c, #8b5cf6) 26%, transparent);
 }
 
-.dark .wardrobe-page-neu .wardrobe-clothes-status-badge--violet {
-  color: rgb(216 180 254);
-  background: color-mix(in srgb, #6d28d9 30%, rgba(44, 46, 54, 0.82));
-  border-color: color-mix(in srgb, #8b5cf6 32%, transparent);
+.dark .wardrobe-page-neu .wardrobe-clothes-status-badge--tonal {
+  background: color-mix(in srgb, var(--status-c, #8b5cf6) 28%, rgba(44, 46, 54, 0.82));
+  border-color: color-mix(in srgb, var(--status-c, #8b5cf6) 32%, transparent);
 }
 
-.wardrobe-page-neu .wardrobe-clothes-status-badge--amber {
-  color: rgb(146 64 14);
-  background: color-mix(in srgb, #f59e0b 16%, rgba(255, 255, 255, 0.78));
-  border-color: color-mix(in srgb, #f59e0b 30%, transparent);
+/* 详情区拥有状态图例圆点 */
+.wardrobe-status-legend {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
 }
 
-.dark .wardrobe-page-neu .wardrobe-clothes-status-badge--amber {
-  color: rgb(253 230 138);
-  background: color-mix(in srgb, #d97706 28%, rgba(44, 46, 54, 0.82));
-  border-color: color-mix(in srgb, #f59e0b 35%, transparent);
+.wardrobe-status-legend::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
 }
 
-.wardrobe-page-neu .wardrobe-clothes-status-badge--emerald {
-  color: rgb(6 95 70);
-  background: color-mix(in srgb, #10b981 14%, rgba(255, 255, 255, 0.78));
-  border-color: color-mix(in srgb, #10b981 26%, transparent);
-}
-
-.dark .wardrobe-page-neu .wardrobe-clothes-status-badge--emerald {
-  color: rgb(167 243 208);
-  background: color-mix(in srgb, #059669 28%, rgba(44, 46, 54, 0.82));
-  border-color: color-mix(in srgb, #10b981 32%, transparent);
+.wardrobe-status-legend-dot {
+  background: var(--status-c, #8b5cf6);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--status-c, #8b5cf6) 35%, transparent);
 }
 
 .wardrobe-page-neu .wardrobe-clothes-fav-badge {
@@ -7684,10 +8495,22 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
   touch-action: manipulation;
 }
 
-/* 排序模式：遮罩穿透命中，便于 QhxSortableList 的指针拖拽与落点检测 */
+/* 排序时图片区不交给浏览器：系统菜单/图片拖拽会 pointercancel，长按排序起不来。
+   文字在该区域外，仍可长按排序，也可滑动列表。 */
+.wardrobe-sort-image {
+  touch-action: none;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+.wardrobe-sort-image :deep(img),
+.wardrobe-sort-image :deep(video) {
+  pointer-events: none;
+  -webkit-touch-callout: none;
+  -webkit-user-drag: none;
+}
 .wardrobe-img-touch-shield--sorting {
-  pointer-events: none !important;
-  touch-action: auto;
+  touch-action: none;
 }
 
 /* 多选模式：封面排序序号蒙版 */

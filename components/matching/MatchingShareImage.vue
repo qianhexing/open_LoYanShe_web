@@ -1,6 +1,27 @@
 <template>
   <ClientOnly>
-    <div class="matching-share select-none">
+    <button
+      v-if="variant === 'capsule'"
+      type="button"
+      class="share-inline-btn cursor-pointer inline-flex flex-col items-center justify-center gap-0.5 px-1.5 py-0.5 disabled:cursor-not-allowed disabled:opacity-45"
+      title="生成或查看分享图"
+      aria-label="生成或查看分享图"
+      :disabled="!payload || generating"
+      @click="handleShareAction"
+    >
+      <UIcon
+        v-if="generating"
+        name="i-heroicons-arrow-path"
+        class="h-[18px] w-[18px] animate-spin text-gray-600 dark:text-gray-300"
+      />
+      <UIcon
+        v-else
+        name="i-heroicons-photo"
+        class="h-[18px] w-[18px] text-gray-600 dark:text-gray-300"
+      />
+      <span class="text-[10px] leading-none text-gray-600 dark:text-gray-300">分享图</span>
+    </button>
+    <div v-else class="matching-share select-none">
       <div class="matching-share__icon mb-3 flex justify-center">
         <span class="matching-share__icon-well inline-flex h-11 w-11 items-center justify-center rounded-[0.7rem]">
           <UIcon name="i-heroicons-photo-20-solid" class="h-5 w-5 text-qhx-primary" />
@@ -159,11 +180,17 @@ export interface MatchingSharePayload {
   mainItemShopLine?: string
   /** 主单品色盘，逗号分隔，与详情主图角标一致 */
   mainItemColors?: string
+  /** 为 true 时海报只保留图片，不绘制文案、色点、状态与品牌字 */
+  hideText?: boolean
 }
 
-const props = defineProps<{
-  payload: MatchingSharePayload | null
-}>()
+const props = withDefaults(
+  defineProps<{
+    payload: MatchingSharePayload | null
+    variant?: 'capsule' | 'block'
+  }>(),
+  { variant: 'block' },
+)
 
 const generating = ref(false)
 const errorMsg = ref('')
@@ -171,6 +198,34 @@ const serverRelativeUrl = ref('')
 const showSharePreviewModal = ref(false)
 
 const isAppWebView = computed(() => isHtml5PlusWebView())
+const hasCachedShare = computed(() => serverRelativeUrl.value.trim().length > 0)
+
+watch(
+  () => [props.payload?.matchingId, props.payload?.hideText] as const,
+  (next, prev) => {
+    if (!prev) return
+    if (next[0] !== prev[0] || next[1] !== prev[1]) {
+      serverRelativeUrl.value = ''
+      errorMsg.value = ''
+      showSharePreviewModal.value = false
+    }
+  },
+)
+
+function handleShareAction() {
+  if (hasCachedShare.value) {
+    showSharePreviewModal.value = true
+    return
+  }
+  void generateAndUpload()
+}
+
+function notifyShareError(title: string) {
+  errorMsg.value = title
+  if (props.variant === 'capsule') {
+    toast.add({ title, color: 'red', icon: 'i-heroicons-x-circle' })
+  }
+}
 
 const previewSrc = computed(() => {
   const rel = serverRelativeUrl.value.trim()
@@ -430,6 +485,7 @@ function drawMainHeroCell(
   radius: number,
   mainColors: string | undefined,
   primary: string,
+  hideText = false,
 ) {
   const { x, y, w, h } = r
   if (w <= 0 || h <= 0) return
@@ -451,6 +507,7 @@ function drawMainHeroCell(
 
   drawSoftPhotoBorder(ctx, x, y, w, h, radius)
 
+  if (hideText) return
   const colors = parseColorList(mainColors)
   if (colors.length) {
     const pad = Math.max(10, Math.floor(w * 0.02))
@@ -463,9 +520,10 @@ function drawClothesThumbOverlay(
   r: CollageRect,
   item: MatchingShareSideItem,
   primary: string,
+  hideText: boolean,
 ) {
   const { x, y, w, h } = r
-  if (w <= 0 || h <= 0) return
+  if (w <= 0 || h <= 0 || hideText) return
   const pad = Math.max(6, Math.floor(w * 0.028))
   const colors = parseColorList(item.color)
   if (colors.length) {
@@ -534,6 +592,7 @@ function drawClothesCell(
   item: MatchingShareSideItem,
   radius: number,
   primary: string,
+  hideText: boolean,
 ) {
   const { x, y, w, h } = r
   if (w <= 0 || h <= 0) return
@@ -554,7 +613,7 @@ function drawClothesCell(
   ctx.restore()
 
   drawSoftPhotoBorder(ctx, x, y, w, h, radius)
-  drawClothesThumbOverlay(ctx, r, item, primary)
+  drawClothesThumbOverlay(ctx, r, item, primary, hideText)
 }
 
 function drawPageBackground(ctx: CanvasRenderingContext2D, w: number, h: number, primary: string) {
@@ -779,27 +838,29 @@ async function drawMatchingShareCanvas(payload: MatchingSharePayload): Promise<H
   const urls = pathsOrdered.map((p) => resolveImgUrl(p) + IMG_PROC)
   const images = await Promise.all(urls.map(loadImageCors))
 
+  const hideText = !!payload.hideText
   const contentW = CANVAS_W - OUTER_PAD * 2
   const sideCount = payload.sideItems.length
   const { mainRect, thumbRects, height: collageH } = buildMainTopClothesBottom(contentW, sideCount)
 
-  // 临时测量信息区高度
-  const measureCanvas = document.createElement('canvas')
-  measureCanvas.width = 10
-  measureCanvas.height = 10
-  const mctx = measureCanvas.getContext('2d')
-  if (!mctx) throw new Error('canvas')
-  const infoH = measureInfoBlock(mctx, payload, contentW)
+  // 临时测量信息区高度；隐藏文本时不绘制底部信息卡
+  let infoH = 0
+  if (!hideText) {
+    const measureCanvas = document.createElement('canvas')
+    measureCanvas.width = 10
+    measureCanvas.height = 10
+    const mctx = measureCanvas.getContext('2d')
+    if (!mctx) throw new Error('canvas')
+    infoH = measureInfoBlock(mctx, payload, contentW)
+  }
 
   const headerH = 78
   const sectionGap = 22
   const canvasH =
     OUTER_PAD +
-    headerH +
-    sectionGap +
+    (hideText ? 0 : headerH + sectionGap) +
     collageH +
-    sectionGap +
-    infoH +
+    (hideText ? 0 : sectionGap + infoH) +
     OUTER_PAD
 
   const canvas = document.createElement('canvas')
@@ -820,8 +881,10 @@ async function drawMatchingShareCanvas(payload: MatchingSharePayload): Promise<H
   let cursorY = OUTER_PAD + 8
   const contentX = OUTER_PAD
 
-  const usedHeader = drawHeaderBrand(ctx, contentX, cursorY, contentW, primary)
-  cursorY += usedHeader + sectionGap
+  if (!hideText) {
+    const usedHeader = drawHeaderBrand(ctx, contentX, cursorY, contentW, primary)
+    cursorY += usedHeader + sectionGap
+  }
 
   // 拼贴相对偏移
   const ox = contentX
@@ -833,6 +896,7 @@ async function drawMatchingShareCanvas(payload: MatchingSharePayload): Promise<H
     PHOTO_RADIUS,
     payload.mainItemColors,
     primary,
+    hideText,
   )
 
   for (let i = 0; i < thumbRects.length; i++) {
@@ -846,11 +910,14 @@ async function drawMatchingShareCanvas(payload: MatchingSharePayload): Promise<H
       item,
       PHOTO_RADIUS,
       primary,
+      hideText,
     )
   }
 
-  cursorY += collageH + sectionGap
-  drawInfoBlock(ctx, payload, contentX, cursorY, contentW, infoH, primary)
+  if (!hideText) {
+    cursorY += collageH + sectionGap
+    drawInfoBlock(ctx, payload, contentX, cursorY, contentW, infoH, primary)
+  }
 
   return canvas
 }
@@ -862,7 +929,7 @@ async function generateAndUpload() {
   showSharePreviewModal.value = false
   const payload = props.payload
   if (!payload?.mainImagePath) {
-    errorMsg.value = '缺少主图，无法生成'
+    notifyShareError('缺少主图，无法生成')
     return
   }
 
@@ -873,7 +940,7 @@ async function generateAndUpload() {
       canvas.toBlob((b) => resolve(b), 'image/jpeg', 0.92),
     )
     if (!blob) {
-      errorMsg.value = '生成图片失败'
+      notifyShareError('生成图片失败')
       return
     }
     const file = new File([blob], `matching-share-${payload.matchingId}-${Date.now()}.jpg`, {
@@ -881,14 +948,17 @@ async function generateAndUpload() {
     })
     const res = await uploadImageToTemp(file)
     if (!res?.file_url) {
-      errorMsg.value = '上传失败：未返回地址'
+      notifyShareError('上传失败：未返回地址')
       return
     }
     serverRelativeUrl.value = res.file_url
     showSharePreviewModal.value = true
+    if (props.variant === 'capsule') {
+      toast.add({ title: '分享图已生成', color: 'green', icon: 'i-heroicons-check-circle' })
+    }
   } catch (e) {
     console.error(e)
-    errorMsg.value = '生成或上传失败，请稍后重试'
+    notifyShareError('生成或上传失败，请稍后重试')
   } finally {
     generating.value = false
   }

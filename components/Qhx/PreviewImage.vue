@@ -11,7 +11,6 @@ import {
   toAbsoluteMediaUrl,
   toCommunityLivePosterPath,
 } from '@/utils/communityLiveMedia'
-import { BASE_IMG } from '@/utils/ipConfig'
 
 interface Image {
   src: string
@@ -34,12 +33,18 @@ interface Props {
   preview?: Array<string> | Image[]
   /** 2D 人台图标点，大图预览时叠加显示 */
   laxianList?: LaxianItem[]
+  /** 缩略图是否自动播 Live（仅主封面） */
+  playLive?: boolean
+  /** Live 默认循环 */
+  liveLoop?: boolean
 }
 const emit = defineEmits(['load'])
 const visible = ref(false)
 const index = ref(0)
 const props = withDefaults(defineProps<Props>(), {
   laxianList: () => [],
+  playLive: false,
+  liveLoop: false,
 })
 
 const toast = useToast()
@@ -100,15 +105,19 @@ const menuStyle = computed(() => {
 
 function resolveThumbSrc(image: Image): string {
   const raw = normalizeRawImgPath(image.src)
-  if (image.videoSrc || isCommunityLivePath(raw)) {
-    return toCommunityLivePosterPath(raw)
-  }
+  if (isCommunityLivePath(raw)) return toCommunityLivePosterPath(raw)
   return raw
 }
 
 function isLiveThumb(image: Image): boolean {
   if (image.videoSrc?.trim()) return true
   return isCommunityLivePath(image.src)
+}
+
+function resolveLiveVideoSrc(image: Image, i: number): string {
+  const fromItem = image.videoSrc?.trim()
+  if (fromItem) return toAbsoluteMediaUrl(fromItem)
+  return lightboxImgs.value[i]?.videoSrc?.trim() || ''
 }
 
 function toLightboxSrc(item: string | Image): LightboxImage {
@@ -281,27 +290,40 @@ watch(menuVisible, (open) => {
     :key="`${image.src}-${i}`"
     class="preview-image-cell relative inline-block align-top overflow-hidden"
     :class="props.className || undefined"
+    @mousedown="onImgPressStart($event, i)"
+    @mousemove="onImgPressMove"
+    @mouseup="onImgPressEnd"
+    @mouseleave="onImgPressEnd"
+    @touchstart.passive="onImgPressStart($event, i)"
+    @touchmove.passive="onImgPressMove"
+    @touchend="onImgPressEnd"
+    @touchcancel="onImgPressEnd"
+    @contextmenu="onImgContextMenu($event, i)"
   >
+    <CommunityLiveThumb
+      v-if="props.playLive && isLiveThumb(image) && resolveLiveVideoSrc(image, i)"
+      :poster-src="toAbsoluteMediaUrl(resolveThumbSrc(image))"
+      :video-src="resolveLiveVideoSrc(image, i)"
+      :alt="image.alt || 'Lo研社 嘎嘎'"
+      :active="true"
+      :default-loop="props.liveLoop"
+      badge-position="bottom-right"
+      media-class="preview-image-thumb block h-full w-full max-h-full max-w-full object-cover object-center"
+      @load="load"
+      @click="handleClick(i)"
+    />
     <img
-      :src="`${BASE_IMG}${resolveThumbSrc(image)}`"
+      v-else
+      :src="toAbsoluteMediaUrl(resolveThumbSrc(image))"
       :alt="image.alt || 'Lo研社 嘎嘎'"
       class="preview-image-thumb block h-full w-full max-h-full max-w-full object-cover object-center"
       loading="lazy"
       draggable="false"
       @click="handleClick(i)"
       @load="load"
-      @mousedown="onImgPressStart($event, i)"
-      @mousemove="onImgPressMove"
-      @mouseup="onImgPressEnd"
-      @mouseleave="onImgPressEnd"
-      @touchstart.passive="onImgPressStart($event, i)"
-      @touchmove.passive="onImgPressMove"
-      @touchend="onImgPressEnd"
-      @touchcancel="onImgPressEnd"
-      @contextmenu="onImgContextMenu($event, i)"
     />
     <span
-      v-if="isLiveThumb(image)"
+      v-if="isLiveThumb(image) && !props.playLive"
       class="preview-image-live-badge pointer-events-none absolute left-1 top-1 z-[2] rounded px-1 py-0.5 text-[9px] font-bold uppercase tracking-wide text-white"
       aria-hidden="true"
     >
@@ -349,6 +371,7 @@ watch(menuVisible, (open) => {
     :imgs="lightboxImgs"
     :index="index"
     :laxian-list="laxianList"
+    :default-loop="props.liveLoop"
     @hide="visible = false"
   />
 </template>

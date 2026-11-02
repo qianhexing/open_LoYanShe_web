@@ -489,6 +489,30 @@ const getImageUrl = (path: string): string => {
   return BASE_IMG + path
 }
 
+const illustrationPaths = computed(() => {
+  const raw = wiki.value?.wiki_illustration
+  if (!raw) return [] as string[]
+  return raw.split(',').map((item) => item.trim()).filter(Boolean)
+})
+
+const wikiCoverPath = computed(() => {
+  const cover = wiki.value?.cover?.trim()
+  return cover || ''
+})
+
+const capsuleBtnClass =
+  'inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-full border border-qhx-primary/40 text-qhx-primary hover:bg-qhx-primary/5 disabled:opacity-50 disabled:pointer-events-none transition-colors'
+const capsuleBtnDangerClass =
+  'inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-full border border-red-400/50 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 disabled:opacity-50 disabled:pointer-events-none transition-colors'
+const capsuleBtnPrimaryClass =
+  'inline-flex items-center gap-1.5 px-4 py-2 text-sm rounded-full bg-qhx-primary text-qhx-inverted hover:bg-qhx-primaryHover disabled:opacity-50 disabled:pointer-events-none transition-colors'
+const capsuleBtnGhostClass =
+  'inline-flex items-center gap-1.5 px-4 py-2 text-sm rounded-full border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700/50 disabled:opacity-50 disabled:pointer-events-none transition-colors'
+const capsuleBtnIconClass =
+  'inline-flex items-center justify-center w-8 h-8 rounded-full border border-qhx-primary/40 text-qhx-primary hover:bg-qhx-primary/5 disabled:opacity-0 disabled:pointer-events-none transition-colors'
+const capsuleBtnXsClass =
+  'inline-flex items-center gap-1 px-2.5 py-1 text-xs rounded-full border border-qhx-primary/40 text-qhx-primary hover:bg-qhx-primary/5 disabled:opacity-50 disabled:pointer-events-none transition-colors'
+
 onMounted(async () => {
   await fetchWikiDetail()
 })
@@ -519,72 +543,55 @@ useHead({
         <div v-if="wiki.other_name" class="flex justify-center text-sm text-gray-600 dark:text-gray-400 mb-4">
           {{ wiki.other_name }}
         </div>
+
+        <!-- 封面：有则参考服饰详情单图展示 -->
+        <div v-if="wikiCoverPath" class="mb-6 flex justify-center">
+          <div class="relative w-full max-w-sm aspect-[3/4] rounded-xl overflow-hidden shadow-md ring-1 ring-black/5 transition-shadow hover:shadow-lg">
+            <QhxPreviewImage
+              :list="[{ src: wikiCoverPath, alt: wiki.wiki_name || '' }]"
+              :preview="[wikiCoverPath]"
+              className="!block w-full h-full"
+            />
+          </div>
+        </div>
         
         <!-- 操作按钮：关联/合并仍按 wiki:admin:merge；其余管理仅指定用户 -->
         <div class="flex flex-wrap gap-2 justify-center mb-6">
-          <UButton
-            v-if="hasPermi('wiki:admin:merge')"
-            size="sm"
-            color="primary"
-            variant="outline"
-            @click="showParent"
-          >
-            关联上级
-          </UButton>
-          <UButton
-            v-if="hasPermi('wiki:admin:merge')"
-            size="sm"
-            color="primary"
-            variant="outline"
-            @click="showChild"
-          >
-            关联下级
-          </UButton>
-          <UButton
-            v-if="hasPermi('wiki:admin:merge')"
-            size="sm"
-            color="primary"
-            variant="outline"
-            @click="showManage"
-          >
-            管理关联
-          </UButton>
-          <UButton
-            v-if="hasPermi('wiki:admin:merge')"
-            size="sm"
-            color="primary"
-            variant="outline"
-            @click="showChooseWiki"
-          >
-            合并wiki
-          </UButton>
-          <UButton
-            v-if="canManageWiki"
-            size="sm"
-            color="primary"
-            variant="outline"
-            @click="(e: MouseEvent) => showAddSection(e)"
-          >
-            新增段落
-          </UButton>
-          <UButton
-            v-if="canManageWiki"
-            size="sm"
-            color="primary"
-            variant="outline"
-            @click="showEditWiki"
-          >
-            编辑词条
-          </UButton>
-          <UButton
-            v-if="canManageWiki"
-            size="sm"
-            color="red"
-            variant="outline"
-            @click="showDeleteWiki = true"
-          >
-            删除wiki
-          </UButton>
+          <QhxJellyButton v-if="hasPermi('wiki:admin:merge')">
+            <button type="button" :class="capsuleBtnClass" @click="showParent">
+              关联上级
+            </button>
+          </QhxJellyButton>
+          <QhxJellyButton v-if="hasPermi('wiki:admin:merge')">
+            <button type="button" :class="capsuleBtnClass" @click="showChild">
+              关联下级
+            </button>
+          </QhxJellyButton>
+          <QhxJellyButton v-if="hasPermi('wiki:admin:merge')">
+            <button type="button" :class="capsuleBtnClass" @click="showManage">
+              管理关联
+            </button>
+          </QhxJellyButton>
+          <QhxJellyButton v-if="hasPermi('wiki:admin:merge')">
+            <button type="button" :class="capsuleBtnClass" @click="showChooseWiki">
+              合并wiki
+            </button>
+          </QhxJellyButton>
+          <QhxJellyButton v-if="canManageWiki">
+            <button type="button" :class="capsuleBtnClass" @click="(e: MouseEvent) => showAddSection(e)">
+              新增段落
+            </button>
+          </QhxJellyButton>
+          <QhxJellyButton v-if="canManageWiki">
+            <button type="button" :class="capsuleBtnClass" @click="(e: MouseEvent) => showEditWiki(e)">
+              编辑词条
+            </button>
+          </QhxJellyButton>
+          <QhxJellyButton v-if="canManageWiki">
+            <button type="button" :class="capsuleBtnDangerClass" @click="showDeleteWiki = true">
+              删除wiki
+            </button>
+          </QhxJellyButton>
         </div>
         
         <!-- 上级列表 -->
@@ -625,14 +632,10 @@ useHead({
           <div class="prose dark:prose-invert max-w-none">
             <SafeRichText :nodes="parseWikiContent(wiki.wiki_describe)" />
           </div>
-          <div v-if="wiki.wiki_illustration" class="mt-4">
-            <img
-              :src="getImageUrl(wiki.wiki_illustration)"
-              :alt="wiki.wiki_name"
-              class="w-full rounded-lg shadow-md"
-            />
-          </div>
         </div>
+
+        <!-- 词条配图：与图鉴详情一致，可切换缩略图（九宫格）/ 长图（竖排） -->
+        <WikiIllustrationGallery :paths="illustrationPaths" />
         
         <!-- 图鉴列表 -->
         <div v-if="libraryList.length > 0" class="mb-6">
@@ -660,16 +663,22 @@ useHead({
               <div
                 v-if="libraryPage * libraryPageSize < libraryTotal"
                 class="flex-shrink-0 w-[100px] flex items-center justify-center"
-                @click="loadMoreLibrary"
               >
-                <UButton
-                  :loading="loadingLibrary"
-                  variant="ghost"
-                  color="gray"
-                  size="sm"
-                >
-                  加载更多
-                </UButton>
+                <QhxJellyButton>
+                  <button
+                    type="button"
+                    :class="capsuleBtnXsClass"
+                    :disabled="loadingLibrary"
+                    @click="loadMoreLibrary"
+                  >
+                    <UIcon
+                      v-if="loadingLibrary"
+                      name="i-heroicons-arrow-path"
+                      class="w-3.5 h-3.5 animate-spin"
+                    />
+                    {{ loadingLibrary ? '加载中' : '加载更多' }}
+                  </button>
+                </QhxJellyButton>
               </div>
             </div>
           </div>
@@ -684,32 +693,39 @@ useHead({
           >
             <div class="flex items-center justify-between mb-3">
               <h3 class="text-lg font-semibold flex-1">{{ item.section_title }}</h3>
-              <div v-if="canManageWiki" class="flex gap-2">
-                <UButton
-                  size="xs"
-                  color="primary"
-                  variant="outline"
-                  icon="i-heroicons-pencil-square"
-                  @click="(e: MouseEvent) => showEditSection(item, e)"
-                >
-                  编辑
-                </UButton>
-                <UButton
-                  :disabled="index === 0"
-                  :style="{ opacity: index === 0 ? 0 : 1, pointerEvents: index === 0 ? 'none' : '' }"
-                  size="xs"
-                  color="primary"
-                  icon="i-heroicons-arrow-up"
-                  @click="changeSort(index, -1)"
-                />
-                <UButton
-                  :disabled="index === sectionList.length - 1"
-                  :style="{ opacity: index === sectionList.length - 1 ? 0 : 1, pointerEvents: index === sectionList.length - 1 ? 'none' : '' }"
-                  size="xs"
-                  color="primary"
-                  icon="i-heroicons-arrow-down"
-                  @click="changeSort(index, 1)"
-                />
+              <div v-if="canManageWiki" class="flex gap-2 items-center">
+                <QhxJellyButton>
+                  <button
+                    type="button"
+                    :class="capsuleBtnXsClass"
+                    @click="(e: MouseEvent) => showEditSection(item, e)"
+                  >
+                    <UIcon name="i-heroicons-pencil-square" class="w-3.5 h-3.5" />
+                    编辑
+                  </button>
+                </QhxJellyButton>
+                <QhxJellyButton>
+                  <button
+                    type="button"
+                    :class="capsuleBtnIconClass"
+                    :disabled="index === 0"
+                    :aria-hidden="index === 0"
+                    @click="changeSort(index, -1)"
+                  >
+                    <UIcon name="i-heroicons-arrow-up" class="w-4 h-4" />
+                  </button>
+                </QhxJellyButton>
+                <QhxJellyButton>
+                  <button
+                    type="button"
+                    :class="capsuleBtnIconClass"
+                    :disabled="index === sectionList.length - 1"
+                    :aria-hidden="index === sectionList.length - 1"
+                    @click="changeSort(index, 1)"
+                  >
+                    <UIcon name="i-heroicons-arrow-down" class="w-4 h-4" />
+                  </button>
+                </QhxJellyButton>
               </div>
             </div>
             <div class="prose dark:prose-invert max-w-none">
@@ -734,8 +750,12 @@ useHead({
         <p class="text-gray-600 dark:text-gray-400 mb-4">注意合并会修改所有相关图鉴？</p>
         <template #footer>
           <div class="flex justify-end gap-2">
-            <UButton color="gray" @click="showMerge = false">取消</UButton>
-            <UButton color="primary" @click="confirmMerge">确认</UButton>
+            <QhxJellyButton>
+              <button type="button" :class="capsuleBtnGhostClass" @click="showMerge = false">取消</button>
+            </QhxJellyButton>
+            <QhxJellyButton>
+              <button type="button" :class="capsuleBtnPrimaryClass" @click="confirmMerge">确认</button>
+            </QhxJellyButton>
           </div>
         </template>
       </UCard>
@@ -750,8 +770,12 @@ useHead({
         <p class="text-gray-600 dark:text-gray-400 mb-4">确定要删除wiki吗?</p>
         <template #footer>
           <div class="flex justify-end gap-2">
-            <UButton color="gray" @click="showDeleteWiki = false">取消</UButton>
-            <UButton color="red" @click="confirmDeleteWiki">确认</UButton>
+            <QhxJellyButton>
+              <button type="button" :class="capsuleBtnGhostClass" @click="showDeleteWiki = false">取消</button>
+            </QhxJellyButton>
+            <QhxJellyButton>
+              <button type="button" :class="capsuleBtnDangerClass" @click="confirmDeleteWiki">确认</button>
+            </QhxJellyButton>
           </div>
         </template>
       </UCard>
@@ -766,8 +790,12 @@ useHead({
         <p class="text-gray-600 dark:text-gray-400 mb-4">确定要关联吗</p>
         <template #footer>
           <div class="flex justify-end gap-2">
-            <UButton color="gray" @click="showRelatedWiki = false">取消</UButton>
-            <UButton color="primary" @click="confirmRelatedWiki">确认</UButton>
+            <QhxJellyButton>
+              <button type="button" :class="capsuleBtnGhostClass" @click="showRelatedWiki = false">取消</button>
+            </QhxJellyButton>
+            <QhxJellyButton>
+              <button type="button" :class="capsuleBtnPrimaryClass" @click="confirmRelatedWiki">确认</button>
+            </QhxJellyButton>
           </div>
         </template>
       </UCard>
@@ -782,8 +810,12 @@ useHead({
         <p class="text-gray-600 dark:text-gray-400 mb-4">确定要关联吗</p>
         <template #footer>
           <div class="flex justify-end gap-2">
-            <UButton color="gray" @click="showChildWiki = false">取消</UButton>
-            <UButton color="primary" @click="confirmChildWiki">确认</UButton>
+            <QhxJellyButton>
+              <button type="button" :class="capsuleBtnGhostClass" @click="showChildWiki = false">取消</button>
+            </QhxJellyButton>
+            <QhxJellyButton>
+              <button type="button" :class="capsuleBtnPrimaryClass" @click="confirmChildWiki">确认</button>
+            </QhxJellyButton>
           </div>
         </template>
       </UCard>

@@ -1,10 +1,10 @@
 <template>
-  <div class="image-picker space-y-4">
+  <div :class="props.compact ? 'image-picker' : 'image-picker space-y-4'">
     <!-- 拖拽上传区 -->
-    <div v-if="!props.disabled && !isMobile"
+    <div v-if="!props.disabled && !isMobile && !props.compact"
       class="w-full border-2 border-dashed border-gray-300 p-4 text-center rounded-lg" @dragover.prevent
       @drop.prevent="handleDrop">
-      拖拽图片到这里上传
+      {{ dropHint }}
     </div>
 
     <!-- 预览区 -->
@@ -35,11 +35,11 @@
         ghost-class="drag-ghost" chosen-class="drag-chosen" drag-class="dragging" class=" flex flex-wrap">
         <template #header>
           <div
-            v-if="!props.disabled"
-            class="[@media(min-width:1920px)]:w-[calc(100%/4)] xl:w-1/4 md:w-1/4 max-md:w-1/3"
+            v-if="showAddTile"
+            :class="tileClass"
           >
             <div
-              class="flex flex-col items-center transition-transform duration-300 ease-out hover:scale-105 py-[10px] px-[15px] max-md:px-[5px]"
+              :class="tilePadClass"
             >
               <div
                 class="picker-square w-full relative shadow-xl rounded-xl border border-gray-200 bg-gray-50/90 overflow-hidden"
@@ -51,12 +51,21 @@
                   type="file"
                   :accept="fileAccept"
                   :multiple="multiple"
-                  :class="isMobile
+                  :class="isMobile && !props.allowLive
                     ? 'absolute inset-0 z-10 h-full w-full cursor-pointer opacity-0 touch-manipulation'
-                    : 'hidden'"
+                    : 'picker-file-input'"
                   @change="handleFiles"
                   @dragover.prevent="onPickerDragOver"
                   @drop.prevent.stop="handleDrop"
+                />
+                <input
+                  v-if="props.allowLive"
+                  ref="liveFileInput"
+                  type="file"
+                  :accept="LIVE_ACCEPT"
+                  :multiple="multiple"
+                  class="picker-file-input"
+                  @change="handleFiles"
                 />
                 <button
                   v-if="!isMobile"
@@ -67,7 +76,16 @@
                   @drop.prevent="handleDrop"
                 >
                   <UIcon class="size-9 text-qhx-primary/80" name="i-heroicons-photo" />
-                  <span class="text-xs font-medium px-1 text-center leading-tight">选择图片</span>
+                  <span class="text-xs font-medium px-1 text-center leading-tight">{{ pickerActionLabel }}</span>
+                </button>
+                <button
+                  v-else-if="props.allowLive"
+                  type="button"
+                  class="absolute inset-0 z-10 flex flex-col items-center justify-center gap-1.5 text-gray-500 cursor-pointer touch-manipulation"
+                  @click="onMobilePickerTap"
+                >
+                  <UIcon class="size-9 text-qhx-primary/80" name="i-heroicons-photo" />
+                  <span class="text-xs font-medium px-1 text-center leading-tight">{{ pickerActionLabel }}</span>
                 </button>
                 <div
                   v-else
@@ -75,7 +93,7 @@
                   aria-hidden="true"
                 >
                   <UIcon class="size-9 text-qhx-primary/80" name="i-heroicons-photo" />
-                  <span class="text-xs font-medium px-1 text-center leading-tight">选择图片</span>
+                  <span class="text-xs font-medium px-1 text-center leading-tight">{{ pickerActionLabel }}</span>
                 </div>
               </div>
             </div>
@@ -83,14 +101,18 @@
         </template>
         <template #item="{ element, index }">
           <transition-group tag="div"
-            class="[@media(min-width:1920px)]:w-[calc(100%/4)] xl:w-1/4 md:w-1/4 max-md:w-1/3" name="list">
+            :class="tileClass" name="list">
             <div
-              class="group drag-handle no-long-press flex flex-col items-center transition-transform duration-300 ease-out hover:scale-105 py-[10px] px-[15px] max-md:px-[5px]">
+              :class="['group drag-handle no-long-press', tilePadClass]">
               <div class="picker-square w-full relative shadow-xl">
                 <img :src="element.url" draggable="false"
                   class="absolute inset-0 h-full w-full object-cover rounded-xl border border-gray-200 cursor-grab active:cursor-grabbing"
                   loading="lazy">
                 </img>
+                <span
+                  v-if="element.kind === 'live'"
+                  class="picker-live-badge pointer-events-none absolute left-1 bottom-1 z-10 rounded px-1 py-0.5 text-[9px] font-bold uppercase tracking-wide text-white"
+                >LIVE</span>
                 <UButton v-if="!props.disabled" icon="i-heroicons-x-mark" color="red" size="2xs" variant="soft"
                   class="absolute top-1 right-1 z-10" @click="removeImage(index)" />
                 <!-- 透明遮罩：避免移动端误触长按；单击打开大图预览 -->
@@ -111,6 +133,45 @@
           :index="lightboxIndex"
           @hide="lightboxVisible = false"
         />
+        <Teleport to="body">
+          <div
+            v-if="mobileLiveSheetOpen"
+            class="fixed inset-0 z-[260] flex items-end justify-center bg-black/30 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]"
+            @click="mobileLiveSheetOpen = false"
+          >
+            <div
+              class="w-[min(100%,22rem)] overflow-hidden rounded-2xl bg-white shadow-xl dark:bg-gray-800"
+              @click.stop
+            >
+              <p class="px-4 pt-4 pb-2 text-sm font-medium text-gray-800 dark:text-gray-100">
+                选择上传类型
+              </p>
+              <button
+                type="button"
+                class="flex w-full items-center gap-3 px-4 py-3 text-left text-sm text-gray-700 dark:text-gray-200"
+                @click="pickImages"
+              >
+                <UIcon name="i-heroicons-photo" class="size-5 text-qhx-primary" />
+                <span>选择图片</span>
+              </button>
+              <button
+                type="button"
+                class="flex w-full items-center gap-3 px-4 py-3 text-left text-sm text-gray-700 dark:text-gray-200"
+                @click="pickLiveVideo"
+              >
+                <UIcon name="i-heroicons-video-camera" class="size-5 text-qhx-primary" />
+                <span>选择实况视频（{{ liveMaxDurationSec }} 秒内）</span>
+              </button>
+              <button
+                type="button"
+                class="w-full border-t border-gray-100 px-4 py-3 text-sm text-gray-500 dark:border-gray-700 dark:text-gray-400"
+                @click="mobileLiveSheetOpen = false"
+              >
+                取消
+              </button>
+            </div>
+          </div>
+        </Teleport>
       </ClientOnly>
       <!-- <Draggable :forceFallback="true" :disabled="!props.multiple || props.disabled" :delay="150"
         v-model="previewImages" item-key="id" animation="250" ghost-class="drag-ghost" chosen-class="drag-chosen"
@@ -127,12 +188,19 @@
     </div>
 
     <label
-      v-if="!props.disabled"
+      v-if="!props.disabled && !props.compact"
       class="flex items-center gap-2 cursor-pointer text-sm text-gray-600 dark:text-gray-400"
     >
       <UCheckbox v-model="compressEnabled" />
       <span>开启图片压缩</span>
+      <span class="text-xs text-gray-400">（超过 10MB 会强制压缩）</span>
     </label>
+    <p
+      v-if="props.allowLive && !props.disabled"
+      class="text-xs text-gray-400 dark:text-gray-500"
+    >
+      可选择 {{ liveMaxDurationSec }} 秒以内的视频或系统实况；超过 {{ liveMaxDurationSec }} 秒会立刻提示
+    </p>
   </div>
 </template>
 
@@ -140,29 +208,75 @@
 import Draggable from "vuedraggable"
 import { BASE_IMG } from '@/utils/ipConfig'
 import { useImageUploadStore } from '@/stores/imageUpload'
-import { ensureJpegForUpload, HeicConvertError } from '@/utils/heicUploadGate'
+import { ensureAllowedImageForUpload, ImageConvertError } from '@/utils/heicUploadGate'
+import {
+  isCommunityLivePath,
+  toAbsoluteMediaUrl,
+  toCommunityLivePosterPath,
+} from '@/utils/communityLiveMedia'
+import {
+  extractEmbeddedLiveVideo,
+  pairLivePhotoFiles,
+} from '@/utils/livePhotoExtract'
+import {
+  isLikelyLiveVideoFile,
+  isLiveVideoFile,
+  LIVE_MAX_DURATION_SEC,
+  processLiveVideoFile,
+} from '@/utils/livePhotoUpload'
+
+export interface ImagePickerPreviewItem {
+  id?: string
+  file?: File
+  url?: string
+  videoFile?: File
+  videoUrl?: string
+  kind?: 'image' | 'live'
+}
 
 const emit = defineEmits<(e: 'update:files', value: File[]) => void>()
 const toast = useToast()
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   multiple?: boolean
   max?: number  // 最大图片数量
   disabled?: boolean  // 是否禁用
   /** 已有图片相对路径（不含域名），用于编辑回显 */
   initialImagePaths?: string[]
-}>()
+  /** 是否允许上传实况（短视频 + 抽帧封面）。默认关闭，避免衣橱/图鉴等误选 */
+  allowLive?: boolean
+  /** 列表内嵌封面：隐藏拖拽区和压缩开关，格子铺满父级 */
+  compact?: boolean
+}>(), {
+  allowLive: false,
+  compact: false,
+})
 
 // 移动端检测
 const configStore = useConfigStore()
 const isMobile = computed(() => configStore.isMobile)
-
-/** 移动端用具体图片 MIME，减少系统弹出「选择文件/浏览」导致进文件管理器 */
-const fileAccept = computed(() =>
-  isMobile.value
-    ? 'image/jpeg,image/jpg,image/png,image/gif,image/webp,image/heic,image/heif'
-    : 'image/*'
+const liveMaxDurationSec = LIVE_MAX_DURATION_SEC
+const pickerActionLabel = computed(() => {
+  if (props.compact) return '封面'
+  return props.allowLive ? '选择图片/实况' : '选择图片'
+})
+const dropHint = computed(() =>
+  props.allowLive ? '拖拽图片或短视频到这里上传' : '拖拽图片到这里上传'
 )
+
+const IMAGE_ACCEPT_MOBILE = 'image/jpeg,image/jpg,image/png,image/gif,image/webp,image/heic,image/heif,image/bmp,image/avif,image/tiff,.jfif'
+const IMAGE_ACCEPT_DESKTOP = 'image/*'
+const LIVE_ACCEPT = 'video/*,video/mp4,video/quicktime,video/webm,.mp4,.mov,.m4v,.webm,.livp,.pvt'
+const LIVE_IMAGE_EXTRA_ACCEPT = '.livp,.pvt,.heic,.heif,video/quicktime,video/mp4,.mov,.mp4'
+
+/** 移动端用具体图片 MIME，减少系统弹出「选择文件/浏览」导致进文件管理器。
+ *  允许实况时：桌面端仍合并 accept；手机端图片/视频拆开，避免相册选不出视频。 */
+const fileAccept = computed(() => {
+  const images = isMobile.value ? IMAGE_ACCEPT_MOBILE : IMAGE_ACCEPT_DESKTOP
+  if (!props.allowLive) return images
+  if (isMobile.value) return `${images},${LIVE_IMAGE_EXTRA_ACCEPT}`
+  return `${images},${LIVE_ACCEPT}`
+})
 
 const imageUploadStore = useImageUploadStore()
 const compressEnabled = computed({
@@ -171,13 +285,35 @@ const compressEnabled = computed({
 })
 
 const fileInput = ref<HTMLInputElement | null>(null)
+const liveFileInput = ref<HTMLInputElement | null>(null)
+const mobileLiveSheetOpen = ref(false)
 const files = ref<File[]>([])
-const previewImages = ref<{ id?: string; file?: File; url?: string }[]>([])
+const previewImages = ref<ImagePickerPreviewItem[]>([])
+
+const tileClass = computed(() =>
+  props.compact
+    ? 'w-full'
+    : '[@media(min-width:1920px)]:w-[calc(100%/4)] xl:w-1/4 md:w-1/4 max-md:w-1/3'
+)
+const tilePadClass = computed(() =>
+  props.compact
+    ? 'flex flex-col items-center'
+    : 'flex flex-col items-center transition-transform duration-300 ease-out hover:scale-105 py-[10px] px-[15px] max-md:px-[5px]'
+)
+const showAddTile = computed(() => {
+  if (props.disabled) return false
+  if (!props.compact) return true
+  const limit = props.max && props.max > 0 ? props.max : (props.multiple ? Number.POSITIVE_INFINITY : 1)
+  return previewImages.value.length < limit
+})
 
 const lightboxVisible = ref(false)
 const lightboxIndex = ref(0)
 const lightboxImgs = computed(() =>
-  previewImages.value.map((el) => ({ src: el.url || '' }))
+  previewImages.value.map((el) => ({
+    src: el.url || '',
+    videoSrc: el.kind === 'live' ? el.videoUrl : undefined,
+  }))
 )
 
 const openLightbox = (index: number) => {
@@ -190,9 +326,28 @@ let idCounter = 0
 const generateId = () => `img_${Date.now()}_${++idCounter}`
 
 const triggerInput = () => {
-  if (!props.disabled) {
-    fileInput.value?.click()
+  if (props.disabled) return
+  if (isMobile.value && props.allowLive) {
+    mobileLiveSheetOpen.value = true
+    return
   }
+  fileInput.value?.click()
+}
+
+const onMobilePickerTap = () => {
+  if (props.disabled) return
+  mobileLiveSheetOpen.value = true
+}
+
+const pickImages = () => {
+  // 必须同步 click，否则 iOS 会丢掉用户手势打不开相册
+  fileInput.value?.click()
+  mobileLiveSheetOpen.value = false
+}
+
+const pickLiveVideo = () => {
+  liveFileInput.value?.click()
+  mobileLiveSheetOpen.value = false
 }
 
 async function handleFiles(event: Event) {
@@ -278,17 +433,23 @@ async function toSafeUploadFile(file: File): Promise<File> {
   if (file.size === 0) return file
   try {
     const blob = await file.arrayBuffer()
-    const type = file.type?.startsWith('image/') ? file.type : 'image/jpeg'
-    const name = file.name || 'image.jpg'
+    const asVideo = file.type?.startsWith('video/') || isLiveVideoFile(file)
+    const type = file.type?.startsWith('image/')
+      ? file.type
+      : asVideo
+        ? (file.type || 'video/mp4')
+        : 'image/jpeg'
+    const name = file.name || (asVideo ? 'video.mp4' : 'image.jpg')
     return new File([blob], name, { type })
   } catch {
     return file
   }
 }
 
-const THRESHOLD_BYTES = 2 * 1024 * 1024
 const UNIFORM_MAX_EDGE = 1920
 const UNIFORM_QUALITY = 0.85
+/** 超过该体积（含 HEIC 转 JPEG 后）即使未开压缩开关也强制压缩 */
+const FORCE_COMPRESS_BYTES = 10 * 1024 * 1024
 
 function jpegFileName(file: File) {
   return `${(file.name || 'img').replace(/\.[^.]+$/, '') || 'img'}.jpg`
@@ -298,6 +459,10 @@ function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
   return `${(bytes / (1024 * 1024)).toFixed(2)} MB`
+}
+
+function shouldCompressImage(file: File, compressEnabled: boolean): boolean {
+  return compressEnabled || file.size > FORCE_COMPRESS_BYTES
 }
 
 async function loadImageBitmap(f: File): Promise<ImageBitmap | null> {
@@ -328,70 +493,50 @@ async function compressUniform(f: File): Promise<File> {
   return blob ? new File([blob], jpegFileName(f), { type: 'image/jpeg' }) : f
 }
 
-/** 关闭压缩：仅当超过 2MB 时迭代压缩至阈值以内 */
-async function compressIfOverThreshold(f: File): Promise<File> {
-  if (f.size <= THRESHOLD_BYTES) return f
-  const b = await loadImageBitmap(f)
-  if (!b) return f
-  const c = document.createElement('canvas')
-  const x = c.getContext('2d')
-  if (!x) {
-    b.close()
-    return f
-  }
-  const n = jpegFileName(f)
-  for (let s = 1; s > 0.18; s *= 0.86) {
-    for (let q = 0.92; q > 0.42; q -= 0.07) {
-      c.width = Math.max(1, (b.width * s) | 0)
-      c.height = Math.max(1, (b.height * s) | 0)
-      x.drawImage(b, 0, 0, c.width, c.height)
-      const blob = await new Promise<Blob | null>((r) => c.toBlob(r, 'image/jpeg', q))
-      if (blob && blob.size <= THRESHOLD_BYTES) {
-        b.close()
-        return new File([blob], n, { type: 'image/jpeg' })
-      }
-    }
-  }
-  b.close()
-  return f
-}
-
 async function processImageFile(f: File, forceCompress: boolean): Promise<File | null> {
-  // 上传闸门：HEIC/HEIF → JPEG（压缩前）
+  // 上传闸门：非 jpg/jpeg、png、webp 转为 JPEG（压缩前）
   let file: File
   try {
-    file = await ensureJpegForUpload(f)
+    file = await ensureAllowedImageForUpload(f)
   } catch (e) {
     const msg =
-      e instanceof HeicConvertError
+      e instanceof ImageConvertError
         ? e.message
-        : '无法解析该 HEIC/HEIF 图片，请导出为 JPEG 后再上传'
+        : '无法将该图片转为 JPG，请换一张后再上传'
     toast.add({
-      title: f.name || 'HEIC 图片',
+      title: f.name || '图片',
       description: msg,
       color: 'orange',
       icon: 'i-heroicons-exclamation-triangle',
     })
-    console.warn('[ImagePicker] HEIC 闸门拦截:', f.name, e)
+    console.warn('[ImagePicker] 图片格式闸门拦截:', f.name, e)
     return null
   }
 
+  const oversize = file.size > FORCE_COMPRESS_BYTES
+  if (!forceCompress && !oversize) {
+    console.log(`[ImagePicker] ${file.name} | 未开启压缩 | ${formatFileSize(file.size)} | 原图直传`)
+    return file
+  }
+
+  const label = forceCompress
+    ? (oversize ? '统一压缩(含超10MB)' : '统一压缩')
+    : '超过10MB强制压缩'
   const before = file.size
-  const result = forceCompress ? await compressUniform(file) : await compressIfOverThreshold(file)
+  const result = await compressUniform(file)
   const after = result.size
-  const mode = forceCompress ? '统一压缩' : '超 2MB 压缩'
   if (before === after) {
-    console.log(`[ImagePicker] ${result.name} | ${mode} | ${formatFileSize(before)} → 未变化`)
+    console.log(`[ImagePicker] ${result.name} | ${label} | ${formatFileSize(before)} → 未变化`)
   } else {
     const savedPct = before > 0 ? (((before - after) / before) * 100).toFixed(1) : '0'
     console.log(
-      `[ImagePicker] ${result.name} | ${mode} | ${formatFileSize(before)} → ${formatFileSize(after)} (减少 ${formatFileSize(before - after)}, ${savedPct}%)`
+      `[ImagePicker] ${result.name} | ${label} | ${formatFileSize(before)} → ${formatFileSize(after)} (减少 ${formatFileSize(before - after)}, ${savedPct}%)`
     )
   }
   return result
 }
 
-const IMAGE_EXT_RE = /\.(jpe?g|png|gif|webp|heic|heif|bmp|avif)$/i
+const IMAGE_EXT_RE = /\.(jpe?g|jfif|jpe|png|gif|webp|heic|heif|bmp|avif|tiff?|svg|ico)$/i
 
 function isImageFile(f: File) {
   if (f.type?.startsWith('image/')) return true
@@ -399,55 +544,155 @@ function isImageFile(f: File) {
   return IMAGE_EXT_RE.test(f.name)
 }
 
+function revokePreviewUrls(item: ImagePickerPreviewItem | undefined) {
+  if (!item) return
+  if (item.url?.startsWith('blob:')) URL.revokeObjectURL(item.url)
+  if (item.videoUrl?.startsWith('blob:')) URL.revokeObjectURL(item.videoUrl)
+}
+
 const addFiles = async (newFiles: File[]) => {
   if (props.disabled) return
   imageUploadStore.initFromLocalStorage()
-  const processed = await Promise.all(
-    newFiles
-      .filter(isImageFile)
-      .map((f) => processImageFile(f, imageUploadStore.compressEnabled)),
-  )
-  const imageFiles = processed.filter((f): f is File => f != null)
-  if (!imageFiles.length) return
 
-  const newPreviews = imageFiles.map((file) => ({
+  const images: File[] = []
+  const videos: File[] = []
+  const extractedPosters = new Map<File, File>()
+  let rejectedLiveCount = 0
+  let unknownCount = 0
+
+  const { pairs, rest } = props.allowLive
+    ? pairLivePhotoFiles(newFiles)
+    : { pairs: [], rest: newFiles }
+
+  for (const pair of pairs) {
+    videos.push(pair.video)
+    extractedPosters.set(pair.video, pair.poster)
+  }
+
+  for (const f of rest) {
+    if (isLiveVideoFile(f) || await isLikelyLiveVideoFile(f)) {
+      if (props.allowLive) videos.push(f)
+      else rejectedLiveCount++
+      continue
+    }
+
+    if (props.allowLive) {
+      const embedded = await extractEmbeddedLiveVideo(f)
+      if (embedded) {
+        videos.push(embedded.videoFile)
+        if (embedded.posterFile) extractedPosters.set(embedded.videoFile, embedded.posterFile)
+        continue
+      }
+    }
+
+    if (isImageFile(f)) {
+      images.push(f)
+    } else {
+      unknownCount++
+    }
+  }
+
+  if (rejectedLiveCount) {
+    toast.add({
+      title: '该位置不支持实况图',
+      description: '请选择静态图片',
+      color: 'orange',
+      icon: 'i-heroicons-exclamation-triangle',
+    })
+  }
+  if (unknownCount) {
+    toast.add({
+      title: '无法识别该文件',
+      description: props.allowLive ? '请选择图片或 8 秒以内的视频' : '请选择图片',
+      color: 'orange',
+      icon: 'i-heroicons-exclamation-triangle',
+    })
+  }
+
+  const processedImages = (
+    await Promise.all(
+      images.map((f) => processImageFile(f, imageUploadStore.compressEnabled)),
+    )
+  ).filter((f): f is File => f != null)
+
+  const livePreviews: ImagePickerPreviewItem[] = []
+  if (props.allowLive && videos.length) {
+    // 逐个处理：超 8 秒在读到时长后立刻 toast，不空等抽帧
+    for (const video of videos) {
+      const result = await processLiveVideoFile(video)
+      if (!result.ok) {
+        toast.add({
+          title: result.reason === 'duration'
+            ? `视频超过${LIVE_MAX_DURATION_SEC}秒`
+            : '实况图未添加',
+          description: result.error,
+          color: 'orange',
+          icon: 'i-heroicons-exclamation-triangle',
+        })
+        continue
+      }
+      let poster = result.posterFile
+      const still = extractedPosters.get(video)
+      if (still) {
+        const converted = await processImageFile(still, imageUploadStore.compressEnabled)
+        if (converted) poster = converted
+      } else if (shouldCompressImage(poster, imageUploadStore.compressEnabled)) {
+        poster = await compressUniform(poster)
+      }
+      livePreviews.push({
+        id: generateId(),
+        kind: 'live',
+        file: poster,
+        url: URL.createObjectURL(poster),
+        videoFile: result.videoFile,
+        videoUrl: URL.createObjectURL(result.videoFile),
+      })
+    }
+  }
+
+  const imagePreviews: ImagePickerPreviewItem[] = processedImages.map((file) => ({
     id: generateId(),
+    kind: 'image',
     file,
     url: URL.createObjectURL(file),
   }))
+
+  const newPreviews = [...imagePreviews, ...livePreviews]
+  if (!newPreviews.length) return
+
+  const newEmitFiles = newPreviews
+    .map((p) => p.file)
+    .filter((f): f is File => f != null)
+
   if (props.multiple) {
-    // 如果有最大数量限制
     if (props.max && props.max > 0) {
       const remaining = props.max - previewImages.value.length
       if (remaining > 0) {
         const toAdd = newPreviews.slice(0, remaining)
         previewImages.value.push(...toAdd)
-        files.value.push(...imageFiles.slice(0, remaining))
+        files.value.push(...newEmitFiles.slice(0, remaining))
       }
     } else {
       previewImages.value.push(...newPreviews)
-      files.value.push(...imageFiles)
+      files.value.push(...newEmitFiles)
     }
   } else {
-    // 单选模式
+    previewImages.value.forEach(revokePreviewUrls)
     previewImages.value = newPreviews.slice(0, 1)
-    files.value = imageFiles.slice(0, 1)
+    files.value = newEmitFiles.slice(0, 1)
   }
   emit('update:files', files.value)
 }
 
 const removeImage = (index: number) => {
-  // 删除弹出提示
-  console.log(index)
   if (props.disabled) return
-  if (previewImages.value[index].url) {
-    URL.revokeObjectURL(previewImages.value[index].url)
-  }
+  revokePreviewUrls(previewImages.value[index])
   previewImages.value.splice(index, 1)
   files.value.splice(index, 1)
   emit('update:files', files.value)
 }
 const clear = () => {
+  previewImages.value.forEach(revokePreviewUrls)
   files.value = []
   previewImages.value = []
 }
@@ -456,9 +701,18 @@ const seedFromPaths = (paths: string[]) => {
   if (!paths.length) return
   previewImages.value = paths.map((p) => {
     const t = p.trim()
+    if (isCommunityLivePath(t)) {
+      return {
+        id: generateId(),
+        kind: 'live' as const,
+        url: toAbsoluteMediaUrl(toCommunityLivePosterPath(t)),
+        videoUrl: toAbsoluteMediaUrl(t),
+      }
+    }
     return {
       id: generateId(),
-      url: t.startsWith('http') ? t : `${BASE_IMG}${t}`
+      kind: 'image' as const,
+      url: t.startsWith('http') || t.startsWith('blob:') || t.startsWith('data:') ? t : `${BASE_IMG}${t}`,
     }
   })
 }
@@ -500,5 +754,23 @@ defineExpose({
   -webkit-user-drag: none;
   user-drag: none;
   -webkit-touch-callout: none;
+}
+
+.picker-live-badge {
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(4px);
+  letter-spacing: 0.04em;
+}
+
+/* 不用 display:none，避免 iOS 程序化 click 打不开相册 */
+.picker-file-input {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  overflow: hidden;
+  pointer-events: none;
 }
 </style>

@@ -367,12 +367,12 @@
     </UCard>
   </UModal>
   
-  <!-- 封面预览 -->
-  <QhxPreviewImage
-    v-if="coverPreview.length > 0"
-    :list="coverPreview.map(img => ({ src: img.replace(BASE_IMG, ''), alt: '计划封面' }))"
-    :preview="coverPreview.map(img => img.replace(BASE_IMG, ''))"
-    className="hidden"
+  <!-- 封面预览（支持逗号多图） -->
+  <QhxImageLightbox
+    :visible="coverLightboxVisible"
+    :imgs="coverPreview.map((src) => ({ src, alt: '计划封面' }))"
+    :index="0"
+    @hide="coverLightboxVisible = false"
   />
 
   <!-- 邮箱绑定弹窗 -->
@@ -396,7 +396,8 @@ import { BASE_IMG } from '@/utils/ipConfig'
 import dayjs from 'dayjs'
 import { useUserStore } from '@/stores/user'
 import { useConfigStore } from '@/stores/config'
-import QhxPreviewImage from '@/components/Qhx/PreviewImage.vue'
+import QhxImageLightbox from '@/components/Qhx/ImageLightbox.vue'
+import { firstPlanCoverPath, PLAN_COVER_DEFAULT } from '@/utils/planCover'
 import EmailBindModal from '@/components/user/EmailBindModal.vue'
 // biome-ignore lint/style/useImportType: 组件在 template 中使用
 import WardrobeClothesChoose from '@/components/Wardrobe/WardrobeClothesChoose.vue'
@@ -649,8 +650,9 @@ const addLoading = ref(false)
 const planForClothes = ref<PlanList | null>(null)
 const linkClothesLoading = ref(false)
 
-// 封面预览
+// 封面预览（完整 URL 列表）
 const coverPreview = ref<string[]>([])
+const coverLightboxVisible = ref(false)
 
 // 订阅邮件通知
 const getEmailNoticeInitialValue = () => {
@@ -1633,15 +1635,12 @@ const addHaveMoney = async (id: number | undefined, money: number) => {
   }
 }
 
-// 显示封面预览（cover 为完整 URL）
-const showCover = (cover: string | undefined) => {
-  if (cover) {
-    coverPreview.value = [cover]
-    // 触发预览（需要根据 QhxPreviewImage 组件的实际实现调整）
-    nextTick(() => {
-      // 这里可能需要调用预览组件的显示方法
-    })
-  }
+// 显示封面预览（urls 为完整 URL 列表）
+const showCover = (urls: string[] | string | undefined) => {
+  const list = Array.isArray(urls) ? urls.filter(Boolean) : urls ? [urls] : []
+  if (!list.length) return
+  coverPreview.value = list
+  coverLightboxVisible.value = true
 }
 
 // 跳转到衣物详情（Uni outerLink2 / 鸿蒙 Outlink / 浏览器新开）
@@ -1749,12 +1748,13 @@ const getWardrobeClothes = (item: PlanList & { wardrobe_clothes?: WardrobeClothe
   return undefined
 }
 
-// 计划封面图：优先 plan_cover，其次关联衣物图，最后默认图
+// 计划封面图：优先 plan_cover 第一张，其次关联衣物图，最后默认图
 const getPlanCoverSrc = (item: PlanList & { wardrobe_clothes?: WardrobeClothes | WardrobeClothes[] }) => {
-  if (item.plan_cover) return `${BASE_IMG}${item.plan_cover}`
+  const first = firstPlanCoverPath(item.plan_cover)
+  if (first) return `${BASE_IMG}${first}${getImageParams()}`
   const clothes = getWardrobeClothes(item)
   if (clothes?.clothes_img) return `${BASE_IMG}${clothes.clothes_img}${getImageParams()}`
-  return `${BASE_IMG}static/plan_cover/default.jpg`
+  return `${BASE_IMG}${PLAN_COVER_DEFAULT}`
 }
 
 // 计算时间差文本

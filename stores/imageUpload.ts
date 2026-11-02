@@ -4,7 +4,7 @@ const STORAGE_KEY = 'qhx_image_compress_enabled'
 
 export const useImageUploadStore = defineStore('imageUpload', {
   state: () => ({
-    /** 开启后对全部图片无差别压缩；关闭时仅压缩超过 2MB 的图片 */
+    /** 开启后对全部图片统一压缩；关闭时原图直传（不解码、不经过 Canvas）。超过 10MB 仍由 ImagePicker 强制压缩 */
     compressEnabled: false,
     hydrated: false,
   }),

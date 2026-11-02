@@ -1,31 +1,33 @@
 <!--
-  pk_type=6 3D场景：当前卡挂载 iframe（from_iframe+from_card）仅初始化灯光；
-  点「操作场景」后 postMessage 加载内容；「恢复滑动」不卸载；滑离当前卡卸载。
+  pk_type=6 3D场景：轮播内仅占位 + 封面；WebGL 由父级 JournalCarouselSceneHost 单例托管。
+  点「操作场景」通知父级对齐/显示/加载；滑离当前卡通知 clear。
 -->
 <script setup lang="ts">
+import { computed, inject, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import type { Journal } from '@/types/api'
 import TypeInvalid from '@/components/journal/carousel/TypeInvalid.vue'
+import { journalCarouselSceneHostKey } from '@/components/journal/carousel/sceneHostTypes'
 import { BASE_IMG } from '@/utils/ipConfig'
-import { postSceneLoadContent } from '@/utils/sceneIframeBridge'
 
 const props = withDefaults(
   defineProps<{
     journal: Journal
     imageParams?: string
-    /** 仅当前轮播页挂载 iframe */
+    /** 仅当前轮播页参与宿主信令 */
     active?: boolean
   }>(),
   { active: false }
 )
 
-/** 是否处于操作场景（露出 iframe） */
-const interactive = ref(false)
-/** 是否已请求加载场景内容（同卡恢复滑动后保持，避免重复通信） */
-const wantContent = ref(false)
+const sceneHost = inject(journalCarouselSceneHostKey, null)
 
-const iframeRef = ref<HTMLIFrameElement | null>(null)
+const slotRef = ref<HTMLElement | null>(null)
 
 const sceneId = computed(() => props.journal.sence?.sence_id ?? null)
+
+const interactive = computed(() =>
+  props.active ? Boolean(sceneHost?.cardInteractive.value) : false
+)
 
 const coverSrc = computed(() => {
   const cover = props.journal.sence?.sence_cover
@@ -33,60 +35,59 @@ const coverSrc = computed(() => {
   return `${BASE_IMG}${cover}${props.imageParams || ''}`
 })
 
-/** 当前卡即挂载：仅初始化页面；内容等「操作场景」消息 */
-const iframeSrc = computed(() => {
-  if (!props.active || sceneId.value == null) return ''
-  return `/scene/detail/${sceneId.value}?from_iframe=true&from_card=true`
-})
+async function withSlot(run: (el: HTMLElement, id: number) => void) {
+  const id = sceneId.value
+  if (id == null || !sceneHost) return
+  await nextTick()
+  const el = slotRef.value
+  if (!el) return
+  run(el, id)
+}
+
+function onEnter() {
+  void withSlot((el, id) => {
+    sceneHost?.enter(id, el)
+  })
+}
+
+function onLeave() {
+  const id = sceneId.value
+  if (id == null || !sceneHost) return
+  sceneHost.leave(id)
+}
+
+function onOperateClick() {
+  if (!sceneHost || sceneId.value == null || interactive.value) return
+  void withSlot((el, id) => {
+    sceneHost.interact(id, el)
+  })
+}
 
 watch(
-  () => props.active,
-  (on) => {
-    if (!on) {
-      interactive.value = false
-      wantContent.value = false
-    }
-  }
+  () => [props.active, sceneId.value] as const,
+  ([on]) => {
+    if (on) onEnter()
+    else onLeave()
+  },
+  { immediate: true }
 )
 
-function sendLoadContent() {
-  if (!wantContent.value) return
-  postSceneLoadContent(iframeRef.value?.contentWindow)
-}
-
-function onIframeLoad() {
-  sendLoadContent()
-}
-
-function toggleInteractive() {
-  if (!interactive.value) {
-    interactive.value = true
-    wantContent.value = true
-    sendLoadContent()
-    return
-  }
-  // 恢复滑动：盖回封面，同卡不卸载 iframe
-  interactive.value = false
-}
+onBeforeUnmount(() => {
+  if (props.active) onLeave()
+})
 </script>
 
 <template>
   <div
     v-if="journal.sence && sceneId != null"
+    ref="slotRef"
     class="journal-carousel-type-scene relative h-full min-h-0 w-full flex-1 overflow-hidden rounded-xl"
+    data-journal-scene-slot
   >
-    <iframe
-      v-if="iframeSrc"
-      ref="iframeRef"
-      :key="sceneId"
-      :src="iframeSrc"
-      class="journal-carousel-type-scene__frame absolute inset-0 h-full w-full border-0 bg-black/5"
-      :class="interactive ? 'z-[1]' : 'z-0 opacity-0'"
-      :style="{ pointerEvents: interactive ? 'auto' : 'none' }"
-      title="3D场景"
-      allow="autoplay; fullscreen; xr-spatial-tracking"
-      allowfullscreen
-      @load="onIframeLoad"
+    <!-- 空白占位：父级 WebGL 叠在此区域上方 -->
+    <div
+      class="journal-carousel-type-scene__box absolute inset-0"
+      aria-hidden="true"
     />
 
     <!-- 未操作 / 恢复滑动：封面 -->
@@ -109,18 +110,16 @@ function toggleInteractive() {
       </div>
     </div>
 
-    <div class="pointer-events-none absolute inset-x-0 bottom-0 z-[2] flex justify-center p-2">
+    <div
+      v-show="!interactive"
+      class="pointer-events-none absolute inset-x-0 bottom-0 z-[2] flex justify-center p-2"
+    >
       <button
         type="button"
-        class="journal-carousel-type-scene__toggle pointer-events-auto rounded-full px-3 py-1.5 text-xs font-medium shadow-md backdrop-blur-sm"
-        :class="
-          interactive
-            ? 'bg-[var(--seal-red)] text-white'
-            : 'bg-black/55 text-white hover:bg-black/65'
-        "
-        @click.stop="toggleInteractive"
+        class="journal-carousel-type-scene__toggle pointer-events-auto rounded-full px-3 py-1.5 text-xs font-medium shadow-md backdrop-blur-sm bg-black/55 text-white hover:bg-black/65"
+        @click.stop="onOperateClick"
       >
-        {{ interactive ? '恢复滑动' : '操作场景' }}
+        操作场景
       </button>
     </div>
   </div>
@@ -131,6 +130,10 @@ function toggleInteractive() {
 .journal-carousel-type-scene {
   min-height: 280px;
   background: var(--paper-dent);
+}
+
+.journal-carousel-type-scene__box {
+  background: transparent;
 }
 
 .journal-carousel-type-scene__placeholder {

@@ -32,23 +32,15 @@ definePageMeta({
   ssr: false,
 })
 
-import { ref, onMounted, computed } from 'vue'
-import { useUserStore } from '@/stores/user'
+import { ref, onMounted } from 'vue'
 import { getUserMy } from '@/api/user'
 import { getWardrobeList, insertWardrobe } from '@/api/wardrobe'
-import { useConfigStore } from '@/stores/config'
 
-const userStore = useUserStore()
-const configStore = useConfigStore()
 const router = useRouter()
-const route = useRoute()
 const toast = useToast()
 
 const loading = ref(true)
 const showLoginModal = ref(false)
-
-let uni: any
-const port = computed(() => configStore.getPort())
 
 /** 无衣柜时创建默认衣柜（与 ClothesAdd 一致） */
 const ensureAtLeastOneWardrobe = async (userId: number) => {
@@ -63,38 +55,9 @@ const ensureAtLeastOneWardrobe = async (userId: number) => {
   }
 }
 
-// 跳转到衣柜详情页
+// 各端统一同 WebView replace；鸿蒙勿再 Outlink，否则会先闪本页再开详情
 const jumpToWardrobe = (userId: number) => {
-  const wardrobeUrl = `/wardrobe/detail/${userId}`
-  
-  const isInUniApp =
-    typeof window !== 'undefined' &&
-    navigator.userAgent.includes('Html5Plus')
-  
-  if (isInUniApp && typeof uni !== 'undefined' && uni.navigateTo) {
-    // UniApp WebView 环境
-    router.replace(wardrobeUrl)
-    // uni.navigateTo({
-    //   url: `/pages/wardrobe/wardrobe?user_id=${userId}`,
-    //   fail: () => {
-    //     console.log('跳转错误')
-    //   }
-    // })
-  } else {
-    if (port.value) {
-      // 鸿蒙系统
-      port.value.postMessage(JSON.stringify({
-        type: 'jump',
-        path: 'Outlink',
-        params: {
-          url: `https://lolitalibrary.com${wardrobeUrl}`
-        }
-      }))
-    } else {
-      // 普通网页环境
-      router.replace(wardrobeUrl)
-    }
-  }
+  void router.replace(`/wardrobe/detail/${userId}`)
 }
 
 // 检查登录状态并跳转
@@ -153,15 +116,8 @@ const handleLoginSuccess = async () => {
   }
 }
 
-onMounted(async () => {
-  await Promise.all([
-    import('@dcloudio/uni-webview-js')
-      .then((mod) => { uni = mod })
-      .catch((err) => {
-        console.error('Failed to load uni-webview-js:', err)
-      }),
-    checkLoginAndJump(),
-  ])
+onMounted(() => {
+  void checkLoginAndJump()
 })
 
 useHead({

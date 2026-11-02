@@ -76,12 +76,23 @@ export async function checkUserExist(
   return response.data;
 }
 
-// 检查用户名是否已存在
+// 检查用户名是否已存在（true=可用，false=已占用）
 export async function checkUserName(
   params: { user_name: string }
 ): Promise<boolean> {
   const response = await use$Post<BaseResponse<boolean>>(
     '/user/CheckUserName',
+    params
+  );
+  return response.data;
+}
+
+/** 改名（固定扣 100 经验，成功才改名） */
+export async function renameUser(
+  params: { user_name: string }
+): Promise<User> {
+  const response = await use$Post<BaseResponse<User>>(
+    '/user/rename',
     params
   );
   return response.data;

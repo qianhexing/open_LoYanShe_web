@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { getMatchingDetail, type MatchingListDetail } from '@/api/matching_list'
+import { getMatchingDetail, updateMatchingClothesLastDress, type MatchingListDetail } from '@/api/matching_list'
 import { BASE_IMG } from '@/utils/ipConfig'
 import dayjs from 'dayjs'
 import LibraryList from '@/components/library/LibraryList.vue'
@@ -8,7 +8,6 @@ import CommunityForeignList from '@/components/community/CommunityForeignList.vu
 import QhxPreviewImage from '@/components/Qhx/PreviewImage.vue'
 import QhxTabs from '@/components/Qhx/Tabs.vue'
 import QhxTabPanel from '@/components/Qhx/TabPanel.vue'
-import QhxModal from '@/components/Qhx/Modal.vue'
 import UserInfo from '@/components/user/UserInfo.vue'
 import UserGoodBtn from '@/components/user/GoodBtn.vue'
 import UserCollectBtn from '@/components/user/CollectBtn.vue'
@@ -19,6 +18,43 @@ let uni: any;
 const configStore = useConfigStore()
 const config = computed(() => configStore.config)
 const port = computed(() => configStore.getPort())
+const isMobile = computed(() => configStore.isMobile)
+const isInUniAppShell = computed(
+  () =>
+    import.meta.client &&
+    typeof navigator !== 'undefined' &&
+    navigator.userAgent.includes('Html5Plus'),
+)
+const matchingBackBtnStyle = computed(() => ({
+  top:
+    configStore.statusBarHeight > 0
+      ? `${configStore.statusBarHeight + 10}px`
+      : 'calc(0.5rem + env(safe-area-inset-top, 0px))',
+  left: isMobile.value ? '8px' : '12px',
+}))
+
+/** 返回：UniApp navigateBack / 鸿蒙 port / 浏览器 history，无历史时回搭配列表 */
+function goBack() {
+  if (isInUniAppShell.value) {
+    const uniApi = configStore.uniWebviewJs ?? uni
+    if (uniApi && typeof uniApi.navigateBack === 'function') {
+      uniApi.navigateBack()
+      return
+    }
+  }
+
+  if (port.value) {
+    port.value.postMessage(JSON.stringify({ type: 'back' }))
+    return
+  }
+
+  if (import.meta.client && window.history.length > 1) {
+    router.back()
+    return
+  }
+
+  void navigateTo('/matching')
+}
 
 // 禁用 SSR
 definePageMeta({
@@ -48,6 +84,7 @@ interface ExtendedMatchingDetail extends MatchingListDetail {
   main_clothes_item?: ClothesItem
   list?: ClothesItem[]
   clothes_list?: ClothesItem[]
+  clothes_id?: string | number | null
   user?: User
   appointment_time?: string | Date
   is_private?: number
@@ -89,6 +126,9 @@ function sideItemShopLine(item: ClothesItem): string {
   return ''
 }
 
+/** 隐藏备注、价格、店铺、状态与颜色；标题保留。同时作用于页面和分享图 */
+const hideShareText = ref(false)
+
 const matchingSharePayload = computed((): MatchingSharePayload | null => {
   const d = detail.value
   if (!d) return null
@@ -124,6 +164,7 @@ const matchingSharePayload = computed((): MatchingSharePayload | null => {
       ? sideItemShopLine(d.main_clothes_item)
       : undefined,
     mainItemColors: d.main_clothes_item?.color,
+    hideText: hideShareText.value,
     sideItems: sideForShare.map((it) => ({
       clothes_img: it.clothes_img,
       caption: sideItemCaption(it),
@@ -142,23 +183,8 @@ const matchingSharePayload = computed((): MatchingSharePayload | null => {
 const currentTab = ref(0)
 const tabs = ['搭配详情', '评论区', '搭配返图']
 
-const toast = useToast()
-
 // 弹窗状态
 const showActivityModal = ref(false)
-const showMatchingShareModal = ref(false)
-
-function openMatchingShareModal() {
-  if (!matchingSharePayload.value) {
-    toast.add({
-      title: '暂无可生成的分享图',
-      color: 'amber',
-      icon: 'i-heroicons-information-circle',
-    })
-    return
-  }
-  showMatchingShareModal.value = true
-}
 const showAddCommunity = ref(false)
 const showChooseCommunity = ref(false)
 interface CommunityItem {
@@ -168,6 +194,79 @@ interface CommunityItem {
 
 const chooseCommunity = ref<CommunityItem | null>(null)
 const loading = ref(false)
+const toast = useToast()
+
+const isMatchingOwner = computed(() => {
+  const uid = user.user?.user_id
+  const ownerId = detail.value?.user_id ?? detail.value?.user?.user_id
+  return uid != null && ownerId != null && Number(uid) === Number(ownerId)
+})
+
+const hasMatchingClothes = computed(() => {
+  const raw = detail.value?.clothes_id
+  if (!raw) return false
+  return String(raw).split(',').some((id) => Number(String(id).trim()) > 0)
+})
+
+const showLastDressModal = ref(false)
+const matchingLastDressValue = ref<string | null>(null)
+const matchingLastDressSaving = ref(false)
+
+function pad2Matching(n: number) {
+  return String(n).padStart(2, '0')
+}
+function nowAsMatchingPickerDateTime() {
+  const d = new Date()
+  return `${d.getFullYear()}-${pad2Matching(d.getMonth() + 1)}-${pad2Matching(d.getDate())} ${pad2Matching(d.getHours())}:${pad2Matching(d.getMinutes())}:${pad2Matching(d.getSeconds())}`
+}
+function openMatchingLastDressModal() {
+  if (!isMatchingOwner.value || !hasMatchingClothes.value) return
+  matchingLastDressValue.value = nowAsMatchingPickerDateTime()
+  showLastDressModal.value = true
+}
+async function confirmMatchingLastDress() {
+  if (!detail.value?.matching_id || matchingLastDressSaving.value) return
+  const last_dress = matchingLastDressValue.value && String(matchingLastDressValue.value).trim()
+    ? String(matchingLastDressValue.value).trim()
+    : null
+  matchingLastDressSaving.value = true
+  try {
+    const res = await updateMatchingClothesLastDress({
+      matching_id: detail.value.matching_id,
+      last_dress,
+    })
+    toast.add({
+      title: `已更新 ${res.updated} 件关联服饰穿着时间`,
+      icon: 'i-heroicons-check-circle',
+      color: 'green',
+    })
+    showLastDressModal.value = false
+  } catch (error) {
+    console.error('更新搭配穿着时间失败:', error)
+    toast.add({ title: '更新失败', icon: 'i-heroicons-exclamation-circle', color: 'red' })
+  } finally {
+    matchingLastDressSaving.value = false
+  }
+}
+async function updateMatchingLastDressNow() {
+  if (!detail.value?.matching_id || !isMatchingOwner.value || !hasMatchingClothes.value) return
+  matchingLastDressSaving.value = true
+  try {
+    const res = await updateMatchingClothesLastDress({
+      matching_id: detail.value.matching_id,
+    })
+    toast.add({
+      title: `已更新 ${res.updated} 件关联服饰穿着时间`,
+      icon: 'i-heroicons-check-circle',
+      color: 'green',
+    })
+  } catch (error) {
+    console.error('更新搭配穿着时间失败:', error)
+    toast.add({ title: '更新失败', icon: 'i-heroicons-exclamation-circle', color: 'red' })
+  } finally {
+    matchingLastDressSaving.value = false
+  }
+}
 
 // 点赞和收藏状态（由组件内部管理，这里保留用于初始化）
 
@@ -377,6 +476,15 @@ useHead({
 
 <template>
   <div class="matching-detail relative min-h-screen w-full overflow-x-hidden pb-28 md:pb-32">
+    <button
+      type="button"
+      class="matching-back-btn fixed z-[55] flex h-9 w-9 items-center justify-center rounded-full bg-black/55 text-white shadow-lg backdrop-blur-md transition-opacity hover:bg-black/65 hover:opacity-90 active:scale-95 dark:bg-white/20 dark:hover:bg-white/30"
+      :style="matchingBackBtnStyle"
+      aria-label="返回"
+      @click="goBack"
+    >
+      <UIcon name="i-heroicons-arrow-left" class="text-[18px]" />
+    </button>
     <div
       v-if="configStore.statusBarHeight > 0"
       class="shrink-0"
@@ -430,7 +538,7 @@ useHead({
                   @click="previewImage([BASE_IMG + detail.main_clothes_item.clothes_img], 0)"
                 >
                   <div
-                    v-if="detail.main_clothes_item.color"
+                    v-if="!hideShareText && detail.main_clothes_item.color"
                     class="absolute left-2 top-2 z-10 flex flex-wrap gap-1"
                   >
                     <div
@@ -457,13 +565,13 @@ useHead({
                   class="matching-photo relative h-full w-full overflow-hidden rounded-xl transition-all duration-200 hover:ring-2 hover:ring-qhx-primary/35"
                 >
                   <div
-                    v-if="item.library"
+                    v-if="!hideShareText && item.library"
                     class="absolute right-1 top-1 z-10 rounded-md bg-qhx-primary px-1.5 py-0.5 text-[10px] font-medium text-white shadow-sm"
                   >
                     {{ item.library.state }}
                   </div>
                   <div
-                    v-if="item.color"
+                    v-if="!hideShareText && item.color"
                     class="absolute left-1 top-1 z-10 flex flex-wrap gap-1"
                   >
                     <div
@@ -480,6 +588,7 @@ useHead({
                     @click="previewImage([BASE_IMG + item.clothes_img], 0)"
                   />
                   <div
+                    v-if="!hideShareText"
                     class="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 via-black/55 to-transparent px-2 py-2 text-left text-[11px] text-white"
                   >
                     <p
@@ -526,13 +635,13 @@ useHead({
                   class="matching-photo relative h-full w-full overflow-hidden rounded-xl"
                 >
                   <div
-                    v-if="item.library"
+                    v-if="!hideShareText && item.library"
                     class="absolute right-1 top-1 z-10 rounded-md bg-qhx-primary px-1.5 py-0.5 text-[10px] font-medium text-white shadow-sm"
                   >
                     {{ item.library.state }}
                   </div>
                   <div
-                    v-if="item.color"
+                    v-if="!hideShareText && item.color"
                     class="absolute left-1 top-1 z-10 flex flex-wrap gap-1"
                   >
                     <div
@@ -549,6 +658,7 @@ useHead({
                     @click="previewImage([BASE_IMG + item.clothes_img], 0)"
                   />
                   <div
+                    v-if="!hideShareText"
                     class="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 via-black/55 to-transparent px-2 py-2 text-left text-[11px] text-white"
                   >
                     <p class="line-clamp-2 drop-shadow-sm">
@@ -568,11 +678,27 @@ useHead({
               <p class="text-[11px] font-medium uppercase tracking-wider text-[#9a858a]">
                 搭配信息
               </p>
-              <h2 class="matching-detail-title mt-1 leading-snug">
-                {{ detail.note || `搭配 #${detail.matching_id}` }}
-              </h2>
+              <div class="mt-1 flex items-start gap-2">
+                <h2 class="matching-detail-title min-w-0 flex-1 leading-snug">
+                  {{ detail.note || `搭配 #${detail.matching_id}` }}
+                </h2>
+                <button
+                  type="button"
+                  class="matching-hide-text-btn ml-auto inline-flex shrink-0 items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium outline-none transition active:scale-[0.98]"
+                  :aria-pressed="hideShareText"
+                  :aria-label="hideShareText ? '显示备注、价格、店铺、状态和颜色' : '隐藏备注、价格、店铺、状态和颜色'"
+                  @click="hideShareText = !hideShareText"
+                >
+                  <UIcon
+                    :name="hideShareText ? 'i-heroicons-eye-slash' : 'i-heroicons-language'"
+                    class="h-3.5 w-3.5 shrink-0"
+                    :class="hideShareText ? 'text-qhx-primary' : ''"
+                  />
+                  {{ hideShareText ? '显示文本' : '隐藏文本' }}
+                </button>
+              </div>
               <div
-                v-if="detail.main_clothes_item && (detail.main_clothes_item.price || detail.main_clothes_item.library || detail.main_clothes_item.origin_shop || detail.main_clothes_item.origin)"
+                v-if="!hideShareText && detail.main_clothes_item && (detail.main_clothes_item.price || detail.main_clothes_item.library || detail.main_clothes_item.origin_shop || detail.main_clothes_item.origin)"
                 class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-[#4f3f43]"
               >
                 <span
@@ -654,6 +780,32 @@ useHead({
           </span>
         </div>
 
+        <!-- 主人：更新关联衣柜服饰的最后穿着时间 -->
+        <div
+          v-if="isMatchingOwner && hasMatchingClothes"
+          class="mx-3 mb-3 flex flex-wrap items-center gap-2 sm:mx-4"
+        >
+          <UButton
+            size="sm"
+            color="primary"
+            :loading="matchingLastDressSaving"
+            class="rounded-xl"
+            @click="updateMatchingLastDressNow"
+          >
+            记为今日穿着
+          </UButton>
+          <UButton
+            size="sm"
+            color="gray"
+            variant="soft"
+            class="rounded-xl"
+            :disabled="matchingLastDressSaving"
+            @click="openMatchingLastDressModal"
+          >
+            自定义穿着时间
+          </UButton>
+        </div>
+
         <!-- 用户信息 -->
         <div
           v-if="detail.user"
@@ -677,68 +829,60 @@ useHead({
       </article>
     </main>
 
-    <!-- 底部操作栏 -->
     <div
       v-if="detail"
-      class="matching-bottom-bar fixed bottom-0 left-0 right-0 z-50"
+      class="matching-detail-action-dock pointer-events-none fixed inset-x-0 bottom-0 z-[55] flex justify-center px-3"
+      role="toolbar"
+      aria-label="搭配互动"
     >
-      <div class="mx-auto flex max-w-4xl justify-center gap-4 px-4 py-3 sm:gap-8 md:py-4">
-        <div class="flex-1 text-center">
-          <UserGoodBtn 
-            :pk_type="4" 
-            :pk_id="detail.matching_id" 
-            :good_count="detail.good_count || 0" 
-            :is_good="detail.is_good ? true : false"
-            :need_judge="true"
-          />
-        </div>
-        <div class="flex-1 text-center">
-          <UserCollectBtn 
-            :pk_type="4" 
-            :pk_id="detail.matching_id" 
-            :collect_count="detail.collect_count || 0" 
-            :is_collect="detail.is_collect ? true : false"
-            :need_judge="true"
-          />
-        </div>
-        <div class="flex-1 text-center">
-          <button
-            type="button"
-            class="inline-flex cursor-pointer flex-row items-center justify-center gap-1 outline-none active:opacity-90"
-            @click="openMatchingShareModal"
-          >
-            <UIcon
-              name="i-heroicons-photo-20-solid"
-              class="text-[26px] text-[#9a858a]"
-            />
-            <span class="text-base text-[#4f3f43]">生成</span>
-          </button>
-        </div>
+      <div
+        class="matching-detail-action-capsule pointer-events-auto flex max-w-full items-stretch gap-0.5 overflow-x-auto"
+      >
+        <UserGoodBtn
+          :pk_type="4"
+          :pk_id="detail.matching_id"
+          :good_count="detail.good_count || 0"
+          :is_good="detail.is_good ? true : false"
+          :need_judge="true"
+        >
+          <template #default="{ childData }">
+            <div class="matching-detail-action-item" role="button" aria-label="点赞">
+              <UIcon
+                name="weui:like-filled"
+                class="matching-detail-action-item__icon"
+                :class="childData.is_good ? 'text-[#409EFF]' : ''"
+              />
+              <span class="matching-detail-action-item__label tabular-nums">
+                {{ childData.good_count }}
+              </span>
+            </div>
+          </template>
+        </UserGoodBtn>
+
+        <UserCollectBtn
+          :pk_type="4"
+          :pk_id="detail.matching_id"
+          :collect_count="detail.collect_count || 0"
+          :is_collect="detail.is_collect ? true : false"
+          :need_judge="true"
+        >
+          <template #default="collectSlot">
+            <div class="matching-detail-action-item" role="button" aria-label="收藏">
+              <UIcon
+                name="ant-design:star-filled"
+                class="matching-detail-action-item__icon"
+                :class="collectSlot.childData?.is_collect ? 'text-[#FFD166]' : ''"
+              />
+              <span class="matching-detail-action-item__label tabular-nums">
+                {{ collectSlot.childData?.collect_count ?? detail.collect_count ?? 0 }}
+              </span>
+            </div>
+          </template>
+        </UserCollectBtn>
+
+        <MatchingShareImage :payload="matchingSharePayload" variant="capsule" />
       </div>
     </div>
-
-    <QhxModal v-model="showMatchingShareModal">
-      <div
-        class="matching-share-modal flex max-h-[90vh] w-[min(94vw,440px)] flex-col overflow-hidden rounded-2xl shadow-2xl"
-      >
-        <div
-          class="flex shrink-0 items-center justify-between gap-2 border-b border-qhx-primary/15 px-4 py-3"
-        >
-          <span class="text-sm font-semibold text-[#4f3f43]">搭配分享图</span>
-          <button
-            type="button"
-            class="flex h-9 w-9 items-center justify-center rounded-xl text-[#9a858a] outline-none transition hover:bg-qhx-primary/10"
-            aria-label="关闭"
-            @click="showMatchingShareModal = false"
-          >
-            <UIcon name="i-heroicons-x-mark-20-solid" class="h-5 w-5" />
-          </button>
-        </div>
-        <div class="min-h-0 flex-1 overflow-y-auto overscroll-contain p-3 sm:p-4">
-          <MatchingShareImage v-if="matchingSharePayload" :payload="matchingSharePayload" />
-        </div>
-      </div>
-    </QhxModal>
 
     <!-- 活动列表弹窗 -->
     <UModal v-model="showActivityModal" title="参与的活动">
@@ -800,6 +944,29 @@ useHead({
         </div>
       </div>
     </UModal>
+
+    <UModal v-model="showLastDressModal" title="更新穿着时间">
+      <div class="space-y-4 p-1">
+        <p class="text-sm text-gray-600 dark:text-gray-400">
+          将同步更新本搭配关联的全部衣柜服饰「最后穿着时间」。
+        </p>
+        <QhxDateTimePicker
+          v-model="matchingLastDressValue"
+          mode="date"
+          :enable-time-picker="true"
+          format="YYYY-MM-DD HH:mm:ss"
+          placeholder="选择穿着时间"
+        />
+        <div class="flex justify-end gap-2">
+          <UButton color="gray" variant="outline" @click="showLastDressModal = false">
+            取消
+          </UButton>
+          <UButton color="primary" :loading="matchingLastDressSaving" @click="confirmMatchingLastDress">
+            确定
+          </UButton>
+        </div>
+      </div>
+    </UModal>
   </div>
 </template>
 
@@ -836,6 +1003,18 @@ useHead({
   letter-spacing: 0.02em;
 }
 
+.matching-hide-text-btn {
+  margin-top: 0.35rem;
+  color: #9a858a;
+  background: #fffbfc;
+  border: 1px solid color-mix(in srgb, var(--primary-color) 22%, transparent);
+}
+
+.matching-hide-text-btn[aria-pressed='true'] {
+  color: var(--primary-color, #ff9eb5);
+  background: color-mix(in srgb, var(--primary-color) 12%, white);
+}
+
 .matching-chip {
   background: #fffbfc;
   border: 1px solid color-mix(in srgb, var(--primary-color) 20%, transparent);
@@ -867,11 +1046,121 @@ useHead({
   background: color-mix(in srgb, var(--primary-color) 8%, white);
 }
 
-.matching-bottom-bar {
-  background: color-mix(in srgb, #fff9fb 92%, transparent);
-  backdrop-filter: blur(10px);
-  border-top: 1px solid color-mix(in srgb, var(--primary-color) 15%, transparent);
-  padding-bottom: max(0.25rem, env(safe-area-inset-bottom, 0px));
+.matching-detail-action-dock {
+  padding-bottom: max(0.75rem, env(safe-area-inset-bottom, 0px));
+}
+
+.matching-detail-action-capsule {
+  height: 3.2rem;
+  min-height: 3.2rem;
+  border-radius: 9999px;
+  border: 1px solid color-mix(in srgb, var(--border-color, #e5e7eb) 55%, transparent);
+  background: color-mix(in srgb, var(--background-color-card, #fff) 62%, transparent);
+  backdrop-filter: blur(14px) saturate(1.2);
+  -webkit-backdrop-filter: blur(14px) saturate(1.2);
+  box-shadow:
+    0 8px 28px rgba(0, 0, 0, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.55);
+  padding: 0.28rem 0.4rem;
+  scrollbar-width: none;
+}
+
+.matching-detail-action-capsule::-webkit-scrollbar {
+  display: none;
+}
+
+.dark .matching-detail-action-capsule {
+  border-color: color-mix(in srgb, #fff 12%, transparent);
+  background: color-mix(in srgb, #111827 58%, transparent);
+  box-shadow:
+    0 10px 30px rgba(0, 0, 0, 0.4),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+.matching-detail-action-item {
+  box-sizing: border-box;
+  display: inline-flex;
+  width: 3.25rem;
+  height: 2.625rem;
+  min-width: 3.25rem;
+  min-height: 2.625rem;
+  flex: 0 0 3.25rem;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.15rem;
+  padding: 0.28rem 0.35rem;
+  border-radius: 9999px;
+  color: color-mix(in srgb, var(--text-color, #374151) 88%, transparent);
+  cursor: pointer;
+  transition: background 0.15s ease, transform 0.12s ease;
+  user-select: none;
+  overflow: hidden;
+}
+
+.matching-detail-action-item:hover {
+  background: color-mix(in srgb, var(--primary-color, #ff9eb5) 10%, transparent);
+}
+
+.matching-detail-action-item:active {
+  transform: scale(0.96);
+}
+
+.matching-detail-action-item__icon {
+  display: block;
+  width: 18px;
+  height: 18px;
+  min-width: 18px;
+  min-height: 18px;
+  flex-shrink: 0;
+  line-height: 0;
+}
+
+.matching-detail-action-item__icon :deep(svg) {
+  width: 18px !important;
+  height: 18px !important;
+}
+
+.matching-detail-action-item__label {
+  display: block;
+  width: 100%;
+  height: 10px;
+  font-size: 10px;
+  line-height: 10px;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: center;
+}
+
+.matching-detail-action-dock :deep(.share-inline-btn) {
+  box-sizing: border-box;
+  width: 3.25rem;
+  height: 2.625rem;
+  min-width: 3.25rem;
+  min-height: 2.625rem;
+  flex: 0 0 3.25rem;
+  border-radius: 9999px;
+  color: color-mix(in srgb, var(--text-color, #374151) 88%, transparent);
+  transition: background 0.15s ease, transform 0.12s ease;
+  overflow: hidden;
+}
+
+.matching-detail-action-dock :deep(.share-inline-btn:hover) {
+  background: color-mix(in srgb, var(--primary-color, #ff9eb5) 10%, transparent);
+}
+
+.matching-detail-action-dock :deep(.share-inline-btn:active) {
+  transform: scale(0.96);
+}
+
+.matching-detail-action-dock :deep(.cursor-pointer.inline-block) {
+  display: inline-flex;
+  align-items: stretch;
+  width: 3.25rem;
+  height: 2.625rem;
+  flex: 0 0 3.25rem;
 }
 
 .matching-empty {
@@ -883,12 +1172,6 @@ useHead({
 .matching-empty-icon {
   background: color-mix(in srgb, var(--primary-color) 14%, white);
   border: 1px solid color-mix(in srgb, var(--primary-color) 18%, transparent);
-}
-
-.matching-share-modal {
-  background: linear-gradient(165deg, #fffbfc 0%, #fff7f9 100%);
-  border: 1px solid color-mix(in srgb, var(--primary-color) 18%, transparent);
-  color: #4f3f43;
 }
 
 .line-clamp-2 {

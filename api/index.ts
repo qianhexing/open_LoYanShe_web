@@ -1,6 +1,7 @@
 // 没改好
 import type { BaseResponse, Config, Swiper, Icon, FileInterface } from '@/types/api';
 import { BASE_IMG } from '@/utils/ipConfig';
+import { ensureAllowedImageForUpload } from '@/utils/heicUploadGate';
 
 export async function getConfig(): Promise<Config> {
   const response = await use$Get<BaseResponse<Config>>('/config');
@@ -19,8 +20,9 @@ export async function getHomeIcon(data: IconParams): Promise<Icon[]> {
 }
 
 export async function uploadImage(file: File): Promise<FileInterface> {
+  const ready = await ensureAllowedImageForUpload(file, { assumeImage: true })
   const formData = new FormData()
-  formData.append('file', file) // myFile 是 File 类型
+  formData.append('file', ready)
   const response = await use$Post<BaseResponse<FileInterface>>('/qhxUpload', formData);
   return response.data;
 }
@@ -32,8 +34,9 @@ export interface UploadImageToTempOptions {
 
 /** 上传到服务器 temp 目录（与 /qhxUpload 约定传 path=temp，若后端字段名不同请改此处） */
 export async function uploadImageToTemp(file: File, options?: UploadImageToTempOptions): Promise<FileInterface> {
+  const ready = await ensureAllowedImageForUpload(file, { assumeImage: true })
   const formData = new FormData()
-  formData.append('file', file)
+  formData.append('file', ready)
   formData.append('path', 'temp')
   if (options?.skipSizeLimit) {
     formData.append('skip_size_limit', '1')

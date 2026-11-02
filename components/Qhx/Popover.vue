@@ -4,21 +4,19 @@
     <div ref="triggerRef" class="qhx-popover-trigger inline-flex" @click="onTriggerClick">
       <slot />
     </div>
+    <!-- 关闭时不要挂 Teleport：空 Teleport + SSR/水合会把 vnode.component 弄成 null，卸载时报 bum -->
     <ClientOnly>
-      <Teleport to="body">
-        <Transition name="qhx-popover-fade">
-          <div
-            v-if="open"
-            ref="panelRef"
-            class="qhx-popover-panel fixed z-[150] max-h-[min(90vh,calc(100vh-2rem))] overflow-y-auto overflow-x-hidden shadow-xl ring-1 ring-gray-200/80 dark:ring-gray-600/80 bg-white dark:bg-gray-900"
-            :class="panelClass"
-            :style="panelStyle"
-            role="dialog"
-            @click.stop
-          >
-            <slot name="panel" />
-          </div>
-        </Transition>
+      <Teleport v-if="open" to="body">
+        <div
+          ref="panelRef"
+          class="qhx-popover-panel qhx-popover-fade-in fixed z-[150] max-h-[min(90vh,calc(100vh-2rem))] overflow-y-auto overflow-x-hidden shadow-xl ring-1 ring-gray-200/80 dark:ring-gray-600/80 bg-white dark:bg-gray-900"
+          :class="panelClass"
+          :style="panelStyle"
+          role="dialog"
+          @click.stop
+        >
+          <slot name="panel" />
+        </div>
       </Teleport>
     </ClientOnly>
   </div>
@@ -133,16 +131,18 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-.qhx-popover-fade-enter-active,
-.qhx-popover-fade-leave-active {
-  transition:
-    opacity 0.15s ease,
-    transform 0.15s ease;
+.qhx-popover-fade-in {
+  animation: qhx-popover-in 0.15s ease both;
 }
 
-.qhx-popover-fade-enter-from,
-.qhx-popover-fade-leave-to {
-  opacity: 0;
-  transform: translateY(-4px);
+@keyframes qhx-popover-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 </style>

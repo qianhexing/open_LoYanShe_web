@@ -17,7 +17,7 @@ const props = withDefaults(
   defineProps<{
     journal: Journal
     imageParams?: string
-    /** 透传给需要按激活态懒加载的类型（如 3D iframe） */
+    /** 透传给需要按激活态联动的类型（如 3D 宿主） */
     active?: boolean
   }>(),
   { active: true }

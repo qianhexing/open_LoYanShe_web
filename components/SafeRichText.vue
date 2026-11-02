@@ -1,7 +1,14 @@
-<!-- 安全的富文本解析器！安全！（应该安全吧） -->
+<!-- 安全的富文本解析器：属性白名单 + 协议过滤，见 utils/safeRichTextSanitize -->
 <script setup lang="ts">
 import { openLibraryWebPath } from '@/composables/useLibraryDetailNavigation'
 import { BASE_IMG } from '~/utils/ipConfig'
+import {
+  getSafeAttrs,
+  hasSafeIframeSrc,
+  isAllowedAnchorHref,
+  toAbsoluteUrl,
+  type SafeAttrMap,
+} from '@/utils/safeRichTextSanitize'
 
 defineProps<{
   nodes: RichNode[]
@@ -42,7 +49,7 @@ function mentionSpanDisplay(node: RichNode): string {
 function rewriteAliImageSrc(src: string): string {
   const prefixes = [
     'https://www.lolitalibrary.com/ali/',
-    'https://lolitalibrary.com/ali/'
+    'https://lolitalibrary.com/ali/',
   ] as const
   for (const prefix of prefixes) {
     if (src.startsWith(prefix)) {
@@ -52,46 +59,14 @@ function rewriteAliImageSrc(src: string): string {
   return src
 }
 
-/** 是否允许跳转（域名/路径白名单等），当前空实现 */
-function isSafeLinkHref(_href: string): boolean {
-  void _href
-  return true
+function safeAttrsFor(tag: string, attrs: Record<string, string>): SafeAttrMap {
+  return getSafeAttrs(tag, attrs, { rewriteImgSrc: rewriteAliImageSrc })
 }
 
 function getAnchorHref(node: RichNode): string | null {
-  const safe = getSafeAttrs('a', node.attrs)
+  const safe = safeAttrsFor('a', node.attrs)
   const h = safe.href
   return typeof h === 'string' && h.length > 0 ? h : null
-}
-
-function toAbsoluteUrl(href: string): string {
-  if (/^https?:\/\//i.test(href)) return href
-  if (href.startsWith('//')) {
-    if (typeof window !== 'undefined') return `${window.location.protocol}${href}`
-    return `https:${href}`
-  }
-  if (href.startsWith('/')) {
-    if (typeof window !== 'undefined') return `${window.location.origin}${href}`
-    return `https://lolitalibrary.com${href}`
-  }
-  return href
-}
-
-/** 仅允许同站/主站子域的 iframe 嵌入，避免 open redirect；含站内以 / 开头的 path-only URL */
-function isAllowedIframeSrc(val: string): boolean {
-  const v = String(val).trim()
-  if (v === '') return false
-  if (/^\/(?!\/)/.test(v)) return true
-  if (/^javascript:/i.test(v) || /^data:/i.test(v)) return false
-  try {
-    const abs = toAbsoluteUrl(v)
-    const u = new URL(abs)
-    if (u.protocol !== 'http:' && u.protocol !== 'https:') return false
-    const host = u.hostname.toLowerCase()
-    return host === 'lolitalibrary.com' || host.endsWith('.lolitalibrary.com')
-  } catch {
-    return false
-  }
 }
 
 function onSafeLinkClick(ev: MouseEvent, href: string | null) {
@@ -100,17 +75,12 @@ function onSafeLinkClick(ev: MouseEvent, href: string | null) {
   if (ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.altKey) return
   if (ev.button !== 0) return
 
-  if (!href) {
-    ev.preventDefault()
-    return
-  }
-  if (!isSafeLinkHref(href)) {
+  if (!href || !isAllowedAnchorHref(href)) {
     ev.preventDefault()
     return
   }
 
   ev.preventDefault()
-  // UniApp outerLink2 / 鸿蒙 Outlink / 浏览器新标签
   openLibraryWebPath(toAbsoluteUrl(href))
 }
 
@@ -121,109 +91,37 @@ function onRichLinkClick(ev: MouseEvent, node: RichNode) {
 // 合法标签
 const ALLOWED_TAGS = new Set([
   'div', 'p', 'span', 'strong', 'em', 'a', 'ul', 'ol', 'li',
-  'br', 'img', 'b', 'i', 'video', 'audio', 'source', 'h3', 'iframe'
+  'br', 'img', 'b', 'i', 'video', 'audio', 'source', 'h3', 'iframe',
 ])
 
 // 自定义标签映射
 const CUSTOM_TAGS: Record<string, string> = {
   library: 'div',
   shop: 'div',
-  emoji: 'span'
+  emoji: 'span',
 }
 
-// 所有标签 = 合法标签 + 自定义
 function isSafeTag(tag: string) {
   return ALLOWED_TAGS.has(tag) || tag in CUSTOM_TAGS
-}
-
-// 安全样式过滤（白名单）
-function sanitizeStyle(style: string = ''): string {
-  return style
-    .split(';')
-    .map(s => s.trim())
-    .filter(rule =>
-      /^(color|font-size|text-align|margin|padding|background-color|width|height)/i.test(rule) &&
-      !/url\(|expression\(/i.test(rule)
-    )
-    .join(';')
-}
-
-// 安全属性过滤
-function getSafeAttrs(tag: string, attrs: Record<string, string>): Record<string, any> {
-  const safe: Record<string, string> = {}
-  for (const key in attrs) {
-    let val = attrs[key]
-    if (tag === 'img' && key === 'src' && typeof val === 'string') {
-      val = rewriteAliImageSrc(val)
-    }
-    if (key.startsWith('on') || val?.toLowerCase?.().includes('javascript:')) continue
-
-    // 处理 style
-    if (key === 'style') {
-      const clean = sanitizeStyle(val)
-      if (clean) safe.style = clean
-      continue
-    }
-
-    // if (key === 'href' && !/^https?:\/\//.test(val)) continue
-    if (tag === 'a' && key === 'href') {
-      if (val.startsWith('/')) {
-        safe.href = val
-        continue
-      }
-      if (/^https?:\/\//.test(val)) {
-        safe.href = val
-        safe.target = '_blank'
-        safe.rel = 'noopener noreferrer'
-        continue
-      }
-      continue
-    }
-    if (key === 'src' && tag !== 'iframe') {
-      const allowedExt = /\.(jpg|jpeg|png|gif|svg|webp|mp4|mp3|webm)$/i
-      if (!/^https?:\/\//.test(val) || !allowedExt.test(val)) continue
-    }
-    if (key === 'src' && tag === 'iframe') {
-      if (!isAllowedIframeSrc(val)) continue
-    }
-    safe[key] = val
-  }
-
-  // video/audio 额外安全属性
-  if (tag === 'a') {
-    safe.target = '_blank'
-    safe.rel = 'noopener noreferrer'
-  }
-  if (tag === 'img') {
-    safe.loading = 'lazy'
-    safe.alt = safe.alt || 'image'
-  }
-  if (tag === 'video' || tag === 'audio') {
-    safe.controls = true
-    delete safe.autoplay
-    delete safe.muted
-  }
-
-  return safe
 }
 </script>
 
 <template>
   <template v-for="(node, index) in nodes" :key="index">
     <!-- 文本节点 -->
-    <template v-if="node.name === 'text'" >
+    <template v-if="node.name === 'text'">
       {{ node.text }}
     </template>
-    <template v-if="node.name === 'library'">
+    <template v-else-if="node.name === 'library'">
       图鉴标签
     </template>
-    <template v-if="node.name === 'emoji'">
+    <template v-else-if="node.name === 'emoji'">
       <QhxEmoji :id="Number.parseInt(node.attrs.href)"></QhxEmoji>
     </template>
 
     <a
       v-else-if="node.name === 'a'"
-      v-bind="getSafeAttrs('a', node.attrs)"
+      v-bind="safeAttrsFor('a', node.attrs)"
       class="text-qhx-primary underline rich-inline-link"
       @click="onRichLinkClick($event, node)"
     >
@@ -253,13 +151,18 @@ function getSafeAttrs(tag: string, attrs: Record<string, string>): Record<string
       />
     </div>
 
+    <!-- iframe：无合法 src（含仅 srcdoc）时不渲染 -->
+    <iframe
+      v-else-if="node.name === 'iframe' && hasSafeIframeSrc(node.attrs)"
+      v-bind="safeAttrsFor('iframe', node.attrs)"
+    />
+
     <!-- 允许标签或自定义标签 -->
     <component
-      v-else-if="isSafeTag(node.name)"
+      v-else-if="isSafeTag(node.name) && node.name !== 'iframe'"
       :is="CUSTOM_TAGS[node.name] || node.name"
-      v-bind="getSafeAttrs(node.name, node.attrs)"
+      v-bind="safeAttrsFor(node.name, node.attrs)"
     >
-      <!-- 递归渲染子节点 -->
       <SafeRichText v-if="node.children?.length" :nodes="node.children" />
       <template v-else>{{ node.text }}</template>
     </component>

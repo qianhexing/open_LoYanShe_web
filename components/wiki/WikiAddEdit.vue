@@ -86,13 +86,28 @@
         </UFormGroup>
 
         <!-- 词条配图 -->
-        <UFormGroup label="词条配图">
-          <QhxImagePicker :multiple="false" @update:files="onUpdateIllustrationFiles" ref="illustrationRef" />
+        <UFormGroup label="词条配图（最多20张）">
+          <QhxImagePicker :multiple="true" :max="ILLUSTRATION_MAX" ref="illustrationRef" />
         </UFormGroup>
 
         <!-- 词条封面 -->
         <UFormGroup label="词条封面">
-          <QhxImagePicker :multiple="false" @update:files="onUpdateCoverFiles" ref="coverRef" />
+          <UInput
+            v-model="coverLink"
+            placeholder="直接粘贴图片链接（有链接时优先使用）"
+            class="mb-3 flex-1 focus:ring-0"
+            :ui="{
+              base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
+              rounded: 'rounded-full',
+              padding: { xs: 'px-4 py-2' },
+              color: {
+                white: {
+                  outline: 'bg-gray-50 dark:bg-gray-800 ring-1 ring-gray-300 dark:ring-gray-600 focus:ring-2 focus:ring-qhx-primary'
+                }
+              }
+            }"
+          />
+          <QhxImagePicker :multiple="false" ref="coverRef" />
         </UFormGroup>
       </div>
       <!-- 底部 -->
@@ -112,14 +127,15 @@
 </template>
 
 <script setup lang="ts">
-import type { WikiDetail } from '@/api/wiki'
+import type { InsertWikiParams, UpdateWikiParams, WikiDetail } from '@/api/wiki'
 import type QhxImagePicker from '@/components/Qhx/ImagePicker.vue'
 import { insertWiki, updateWiki } from '@/api/wiki'
 import { uploadImage } from '@/api'
 import { useToast } from '#imports'
 import { BASE_IMG } from '@/utils/ipConfig'
 import { useConfigStore } from '@/stores/config'
-import { contentToEditorFormat, type RichNode } from '@/utils/public'
+import { contentToEditorFormat } from '@/utils/public'
+import { unref } from 'vue'
 const show = ref<boolean>(false)
 const clickPosition = ref({ x: 0, y: 0 })
 const emit = defineEmits(['success'])
@@ -130,8 +146,30 @@ const wiki_id = ref<number | null>(null)
 const type = ref<number>(0) // 0 新增 1 编辑
 const loading = ref<boolean>(false)
 
+const ILLUSTRATION_MAX = 20
 const illustrationRef = ref<InstanceType<typeof QhxImagePicker> | null>(null)
 const coverRef = ref<InstanceType<typeof QhxImagePicker> | null>(null)
+/** 封面外链；有值时提交优先于本地上传 */
+const coverLink = ref('')
+
+function parseIllustrationPaths(raw?: string | null): string[] {
+  if (!raw) return []
+  return raw.split(',').map((s) => s.trim()).filter(Boolean).slice(0, ILLUSTRATION_MAX)
+}
+
+function isAbsoluteCoverUrl(path: string): boolean {
+  return /^https?:\/\//i.test(path.trim())
+}
+
+/** 站内 CDN 存相对路径，外链保持完整 URL */
+function normalizeCoverValue(raw: string): string {
+  const t = raw.trim()
+  if (!t) return ''
+  if (t.startsWith(BASE_IMG)) return t.slice(BASE_IMG.length)
+  return t
+    .replace(/^https?:\/\/www\.lolitalibrary\.com\/ali\//i, '')
+    .replace(/^https?:\/\/image\.lolitalibrary\.com\//i, '')
+}
 
 const wikiTypeOptions = computed(() => {
   const list = configStore.config?.wiki_type || []
@@ -167,8 +205,9 @@ const resetForm = () => {
     cover: ''
   }
   wiki_id.value = null
-  if (illustrationRef.value) illustrationRef.value.previewImages = []
-  if (coverRef.value) coverRef.value.previewImages = []
+  coverLink.value = ''
+  illustrationRef.value?.clear()
+  coverRef.value?.clear()
 }
 
 const handleClose = () => {
@@ -201,6 +240,7 @@ const showModel = (item: WikiDetail | null = null, defaultTypeId?: number, event
       }
       return ''
     }
+    const existingCover = item.cover || ''
     form.value = {
       wiki_name: item.wiki_name || '',
       type_id:
@@ -210,18 +250,19 @@ const showModel = (item: WikiDetail | null = null, defaultTypeId?: number, event
       other_name: item.other_name || '',
       wiki_describe: contentToEditorFormat(item.wiki_describe || '', { getEmojiUrl }),
       wiki_illustration: item.wiki_illustration || '',
-      cover: item.cover || ''
+      cover: existingCover
     }
+    coverLink.value = isAbsoluteCoverUrl(existingCover) ? existingCover.trim() : ''
     nextTick(() => {
-      if (item.wiki_illustration && illustrationRef.value) {
-        illustrationRef.value.previewImages = [
-          { file: undefined as unknown as File, url: BASE_IMG + item.wiki_illustration }
-        ]
+      illustrationRef.value?.clear()
+      coverRef.value?.clear()
+      const illustrationPaths = parseIllustrationPaths(item.wiki_illustration)
+      if (illustrationPaths.length) {
+        illustrationRef.value?.seedFromPaths(illustrationPaths)
       }
-      if (item.cover && coverRef.value) {
-        coverRef.value.previewImages = [
-          { file: undefined as unknown as File, url: BASE_IMG + item.cover }
-        ]
+      // 有外链时以链接为准，不再回填本地选择器，避免与链接抢优先级
+      if (existingCover && !coverLink.value && coverRef.value) {
+        coverRef.value.seedFromPaths([existingCover])
       }
     })
   } else {
@@ -260,8 +301,26 @@ const fetchUpload = async (file: { file?: File; url?: string }) => {
   return ''
 }
 
-const onUpdateIllustrationFiles = () => {}
-const onUpdateCoverFiles = () => {}
+const uploadPickerUrls = async (
+  picker: InstanceType<typeof QhxImagePicker> | null,
+  maxCount?: number,
+): Promise<string[]> => {
+  const raw = picker?.previewImages as unknown
+  const list = (Array.isArray(raw) ? raw : unref(raw as never)) as Array<{ file?: File; url?: string }>
+  const rows = Array.isArray(list) ? list : []
+  const sliced = typeof maxCount === 'number' ? rows.slice(0, maxCount) : rows
+  const urls = await Promise.all(sliced.map((item) => fetchUpload(item)))
+  return urls.filter((url): url is string => Boolean(url))
+}
+
+/** 有链接优先用链接；否则用本地上传；再回退已有 cover */
+async function resolveCoverForSubmit(): Promise<string> {
+  const link = coverLink.value.trim()
+  if (link) return normalizeCoverValue(link)
+  const coverUrls = await uploadPickerUrls(coverRef.value, 1)
+  if (coverUrls[0]) return coverUrls[0]
+  return form.value.cover?.trim() || ''
+}
 
 const submit = async () => {
   if (loading.value) return
@@ -286,47 +345,36 @@ const submit = async () => {
 
   loading.value = true
   try {
-    const params: Record<string, unknown> = {
-      wiki_name: form.value.wiki_name.trim(),
-      other_name: form.value.other_name?.trim() || undefined,
-      wiki_describe: form.value.wiki_describe?.trim() || undefined
-    }
+    const cover = await resolveCoverForSubmit()
+    const illustrationUrls = await uploadPickerUrls(illustrationRef.value, ILLUSTRATION_MAX)
 
     if (type.value === 0) {
-      params.type_id = form.value.type_id
-      const illustrationList = illustrationRef.value?.previewImages || []
-      if (illustrationList.length > 0) {
-        const url = await fetchUpload(illustrationList[0])
-        if (url) params.wiki_illustration = url
+      const params: InsertWikiParams = {
+        wiki_name: form.value.wiki_name.trim(),
+        type_id: form.value.type_id,
+        other_name: form.value.other_name?.trim() || undefined,
+        wiki_describe: form.value.wiki_describe?.trim() || undefined,
+        cover,
       }
-      const coverList = coverRef.value?.previewImages || []
-      if (coverList.length > 0) {
-        const url = await fetchUpload(coverList[0])
-        if (url) params.cover = url
+      if (illustrationUrls.length > 0) {
+        params.wiki_illustration = illustrationUrls.join(',')
       }
-      await insertWiki(params as Parameters<typeof insertWiki>[0])
+      await insertWiki(params)
       toast.add({
         title: '添加成功',
         icon: 'i-heroicons-check-circle',
         color: 'green'
       })
     } else {
-      params.wiki_id = wiki_id.value as number
-      const illustrationList = illustrationRef.value?.previewImages || []
-      if (illustrationList.length > 0) {
-        const url = await fetchUpload(illustrationList[0])
-        if (url) params.wiki_illustration = url
-      } else {
-        params.wiki_illustration = form.value.wiki_illustration || ''
+      const params: UpdateWikiParams = {
+        wiki_id: wiki_id.value as number,
+        wiki_name: form.value.wiki_name.trim(),
+        other_name: form.value.other_name?.trim() || undefined,
+        wiki_describe: form.value.wiki_describe?.trim() || undefined,
+        wiki_illustration: illustrationUrls.join(','),
+        cover,
       }
-      const coverList = coverRef.value?.previewImages || []
-      if (coverList.length > 0) {
-        const url = await fetchUpload(coverList[0])
-        if (url) params.cover = url
-      } else {
-        params.cover = form.value.cover || ''
-      }
-      await updateWiki(params as Parameters<typeof updateWiki>[0])
+      await updateWiki(params)
       toast.add({
         title: '修改成功',
         icon: 'i-heroicons-check-circle',

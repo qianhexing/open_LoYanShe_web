@@ -492,6 +492,10 @@ provide(communityCommentSectionRefreshKey, commentSectionRefreshFn)
 const commentSectionReady = ref(false)
 let commentSectionIdleHandle = 0
 
+/** 关联列表：客户端空闲后再挂载，不抢正文首屏 */
+const foreignSectionReady = ref(false)
+let foreignSectionIdleHandle = 0
+
 async function waitCommentModalRef(maxTries = 40) {
   for (let i = 0; i < maxTries; i++) {
     if (commentModalRef.value) return commentModalRef.value
@@ -530,12 +534,19 @@ onMounted(() => {
       commentSectionIdleHandle = 0
     }, 1200)
   }
+
+  // 关联列表比评论区更靠后：等正文与其它首屏任务空闲后再挂
+  foreignSectionIdleHandle = runWhenIdle(() => {
+    foreignSectionReady.value = true
+    foreignSectionIdleHandle = 0
+  }, 1800)
 })
 onUnmounted(() => {
   if (communityViewRecordTimer) clearTimeout(communityViewRecordTimer)
   cancelIdle(badgePhysicsIdleHandle)
   cancelIdle(sceneIframeIdleHandle)
   cancelIdle(commentSectionIdleHandle)
+  cancelIdle(foreignSectionIdleHandle)
   commentUiStore.clearNewCommentHighlight()
 })
 
@@ -739,10 +750,12 @@ useHead({
                 <div v-if="richText" class="leading-[1.8]">
                   <SafeRichText :nodes="richText"></SafeRichText>
                 </div>
-                <CommunityDetailForeignSection
-                  v-if="detail.foreign_list?.length"
-                  :items="detail.foreign_list"
-                />
+                <ClientOnly>
+                  <CommunityDetailForeignSection
+                    v-if="foreignSectionReady && detail.foreign_list?.length"
+                    :items="detail.foreign_list"
+                  />
+                </ClientOnly>
               </div>
               <div class="community-scene-glass-panel rounded-lg shadow-inner mt-1 border border-white/50 dark:border-white/10 overflow-hidden">
                 <CommentSection
@@ -868,10 +881,12 @@ useHead({
               <div v-if="richText" class=" leading-[1.8]">
                 <SafeRichText :nodes="richText"></SafeRichText>
               </div>
-              <CommunityDetailForeignSection
-                v-if="detail.foreign_list?.length"
-                :items="detail.foreign_list"
-              />
+              <ClientOnly>
+                <CommunityDetailForeignSection
+                  v-if="foreignSectionReady && detail.foreign_list?.length"
+                  :items="detail.foreign_list"
+                />
+              </ClientOnly>
             </div>
           </div>
         </div>

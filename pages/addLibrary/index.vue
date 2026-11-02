@@ -439,6 +439,17 @@
                     }
                   }
                 }" />
+              <UInput v-model="item.note" :disabled="isReviewMode"
+                :placeholder="t('addLibrary.pattern_note_placeholder')" class="w-40" :ui="{
+                  base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
+                  rounded: 'rounded-full',
+                  padding: { xs: 'px-4 py-2' },
+                  color: {
+                    white: {
+                      outline: 'bg-gray-50 dark:bg-gray-800 ring-1 ring-gray-300 dark:ring-gray-600 focus:ring-2 focus:ring-qhx-primary'
+                    }
+                  }
+                }" />
               <UIcon v-if="!isReviewMode" name="ant-design:close-outlined"
                 class="text-sm cursor-pointer text-gray-500 hover:text-gray-700"
                 @click="removePatternFromList(index)" />
@@ -453,7 +464,7 @@
           </div>
           <div v-if="isReviewMode && changedFields.has('json_data')" class="mt-2">
             <p class="text-sm font-semibold text-gray-600 dark:text-gray-400 mb-2">
-              {{ t('addLibrary.original_value') }}（版型封面/参考价）
+              {{ t('addLibrary.original_value') }}（版型封面/参考价/备注）
             </p>
             <div v-if="originalPatternListForReview.length > 0" class="flex flex-col gap-2">
               <div
@@ -483,6 +494,12 @@
                   class="text-sm text-gray-600 dark:text-gray-400"
                 >
                   ¥{{ item.library_price }}
+                </span>
+                <span
+                  v-if="item.note"
+                  class="text-sm text-gray-500 dark:text-gray-400"
+                >
+                  {{ item.note }}
                 </span>
               </div>
             </div>
@@ -1113,12 +1130,16 @@ interface LibraryItem {
 interface LibraryPatternPriceRecord {
   library_pattern: string
   library_price?: number | null
+  /** 版型备注（SKU 同级自定义字符串） */
+  note?: string | null
   cover?: string | null
 }
 
 interface LibraryPatternPriceItem {
   library_pattern: Wiki
   library_price?: number
+  /** 版型备注（SKU 同级自定义字符串） */
+  note?: string
   cover?: string
   coverDraft?: PatternCoverDraft
 }
@@ -1235,9 +1256,11 @@ const extractSkuListFromJsonData = (jsonData: unknown): LibraryPatternPriceRecor
       const pattern = String(record.library_pattern ?? '').trim()
       if (!pattern) return null
       const cover = record.cover != null ? String(record.cover).trim() : null
+      const note = record.note != null ? String(record.note).trim() : null
       return {
         library_pattern: pattern,
         library_price: record.library_price != null ? Number(record.library_price) : null,
+        note: note || null,
         cover: cover || null
       }
     })
@@ -1250,6 +1273,7 @@ const serializeSkuForCompare = (jsonData: unknown) => {
       .map((item) => ({
         library_pattern: item.library_pattern,
         library_price: item.library_price ?? null,
+        note: item.note ?? null,
         cover: item.cover ?? null
       }))
       .sort((a, b) => a.library_pattern.localeCompare(b.library_pattern))
@@ -1273,11 +1297,12 @@ const parseLibraryPatternList = (
         wiki_id: record.library_pattern
       },
       library_price: record.library_price != null ? Number(record.library_price) : undefined,
+      note: record.note || undefined,
       cover: record.cover || undefined
     }))
   }
   const names = libraryPattern.split(',').filter(Boolean).map((name: string) => name.trim())
-  // 按名称顺序消费 sku，支持同名版型各自保留价格/封面
+  // 按名称顺序消费 sku，支持同名版型各自保留价格/封面/备注
   const remaining = [...skuList]
   return names.map((trimmed) => {
     const skuIndex = remaining.findIndex((record) => record.library_pattern === trimmed)
@@ -1285,6 +1310,7 @@ const parseLibraryPatternList = (
     return {
       library_pattern: { wiki_name: trimmed, wiki_id: trimmed },
       library_price: record?.library_price != null ? Number(record.library_price) : undefined,
+      note: record?.note || undefined,
       cover: record?.cover || undefined
     }
   })
@@ -1295,6 +1321,10 @@ const buildLibraryPatternJsonData = (list: LibraryPatternPriceItem[]): LibraryPa
     const record: LibraryPatternPriceRecord = {
       library_pattern: item.library_pattern.wiki_name,
       library_price: item.library_price ?? null
+    }
+    const note = item.note?.trim()
+    if (note) {
+      record.note = note
     }
     if (item.cover?.trim()) {
       record.cover = item.cover.trim()
@@ -2088,9 +2118,32 @@ const addThemeTag = async (tag: string) => {
 
 /** 提交成功后放行路由/关闭页，无需再次 confirm */
 const bypassLeaveGuard = ref(false)
+/** 新增页挂载完成后的表单快照；仅相对此基线有改动时才拦截离开 */
+const leaveGuardBaseline = ref<string | null>(null)
+
+function serializeLeaveGuardState() {
+  return JSON.stringify({
+    library: library.value,
+    cover: coverRef.value?.previewImages?.length ?? 0,
+    size: sizeImageRef.value?.previewImages?.length ?? 0,
+    detail: detailImageRef.value?.previewImages?.length ?? 0,
+    quality: qualityImageRef.value?.previewImages?.length ?? 0,
+  })
+}
+
+function captureLeaveGuardBaseline() {
+  leaveGuardBaseline.value = serializeLeaveGuardState()
+}
+
+/** 仅「新增」且相对进入页时已有改动时才提示 */
+function shouldConfirmLeave() {
+  if (!isAddMode.value || bypassLeaveGuard.value) return false
+  if (leaveGuardBaseline.value == null) return false
+  return serializeLeaveGuardState() !== leaveGuardBaseline.value
+}
 
 function onWindowBeforeUnload(e: BeforeUnloadEvent) {
-  if (bypassLeaveGuard.value) return
+  if (!shouldConfirmLeave()) return
   e.preventDefault()
   e.returnValue = ''
 }
@@ -2100,6 +2153,7 @@ onBeforeRouteLeave(() => {
     bypassLeaveGuard.value = false
     return true
   }
+  if (!shouldConfirmLeave()) return true
   return window.confirm(t('addLibrary.leave_unsaved_confirm'))
 })
 
@@ -2195,6 +2249,10 @@ onMounted(async () => {
 
   getLibraryType()
   getMainStyle()
+
+  // URL/店主预填完成后再拍基线，避免「未动手填写」也被拦截
+  await nextTick()
+  captureLeaveGuardBaseline()
 })
 
 onUnmounted(() => {

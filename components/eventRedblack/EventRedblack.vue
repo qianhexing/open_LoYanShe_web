@@ -234,6 +234,7 @@ defineExpose({ reload })
               :enable-mention="true"
               :enable-internal-link="true"
               :enable-image-upload="true"
+              :image-upload-multiple="true"
             />
           </ClientOnly>
         </div>

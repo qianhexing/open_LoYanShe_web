@@ -154,6 +154,8 @@ export interface WardrobeConfigInterface {
   clothes_part: Array<string>
   color_list: Array<string>
   wardrobe_status: Array<string>
+  /** 服饰自定义标签记忆（接口有才返回） */
+  tags?: Array<string>
   /** 当前用户全部启用衣柜中、启用服饰且参与总价统计的金额合计（两位小数），无衣柜时接口为 null 无此字段 */
   total_price?: string
 }
@@ -163,11 +165,117 @@ export async function wardrobeConfig(): Promise<WardrobeConfigInterface> {
   return response.data;
 }
 
+/** 用户词表里可自定义删除的种类 */
+export type ClothesConfigOptionKind = 'tags' | 'clothes_part' | 'wardrobe_status'
+
+/** POST /clothes/delete/term 的 type */
+export type ClothesDeleteTermType = '状态' | '版型' | '标签'
+
+export const CLOTHES_DELETE_TERM_TYPE: Record<ClothesConfigOptionKind, ClothesDeleteTermType> = {
+  wardrobe_status: '状态',
+  clothes_part: '版型',
+  tags: '标签',
+}
+
+/** 从当前用户所有衣柜中删除词条，并写回对应逗号分隔字段 */
+export async function deleteClothesConfigOption(params: {
+  kind: ClothesConfigOptionKind
+  value: string
+}): Promise<{ updated: number }> {
+  const response = await use$Post<BaseResponse<{ updated: number }>>('/clothes/delete/term', {
+    term: params.value,
+    type: CLOTHES_DELETE_TERM_TYPE[params.kind],
+  })
+  return response.data
+}
+
 export async function insertClothes(
   params: WardrobeClothes
 ): Promise<WardrobeClothes> {
   const response = await use$Post<BaseResponse<WardrobeClothes>>('/clothes/insert', params);
   return response.data;
+}
+
+export interface ClothesExtractShopCandidate {
+  shop_id?: number | null
+  shop_name?: string | null
+  score?: number | null
+  similarity?: number | null
+  match?: string | null
+}
+
+export interface ClothesExtractLibraryCandidate {
+  library_id: number
+  name?: string | null
+  cover?: string | null
+  square_cover?: string | null
+  shop_id?: number | null
+}
+
+/** 定金/尾款等拆分，存在 json_data.extract */
+export interface ClothesExtractJsonExtra {
+  deposit?: number | null
+  balance?: number | null
+  include_names?: string[] | string | null
+  price_breakdown?: unknown
+}
+
+/** 识图结果里可直接铺进服饰表单的字段；未识别为 null */
+export interface ClothesExtractFormFields {
+  clothes_note?: string | null
+  price?: number | null
+  original_price?: number | null
+  offer_price?: number | null
+  num?: number | null
+  size?: string | null
+  /** 16 进制，如 "#f3d6e0,#2b2b2b" */
+  color?: string | null
+  /** 纯文本颜色 */
+  color_text?: string | null
+  origin?: string | number | null
+  add_time?: string | null
+  clothes_part?: string | null
+  wardrobe_status?: string | null
+  is_favorite?: number | null
+  season?: string | null
+  tags?: string | null
+  note?: string | null
+  /** 人民币为 0 */
+  currency_type?: string | number | null
+  clothes_img?: string | null
+  library_id?: number | null
+  json_data?: Record<string, unknown> | null
+}
+
+export interface ClothesExtractItem extends ClothesExtractFormFields {
+  library_candidates?: ClothesExtractLibraryCandidate[]
+  shop_candidates?: ClothesExtractShopCandidate[]
+}
+
+export interface ClothesExtractResult {
+  items: ClothesExtractItem[]
+}
+
+export interface ClothesExtractFromImageParams {
+  /** 单张公网图 */
+  url?: string
+  /** 多张公网图 */
+  urls?: string[]
+  skip_cache?: boolean
+}
+
+const EXTRACT_FROM_IMAGE_TIMEOUT_MS = 90_000
+
+/** POST /clothes/extract-from-image（需登录）。url / urls 至少一张公网图，最多 4 张。data 即服饰数组 */
+export async function extractClothesFromImage(
+  params: ClothesExtractFromImageParams,
+): Promise<ClothesExtractItem[] | ClothesExtractResult> {
+  const response = await use$Post<BaseResponse<ClothesExtractItem[] | ClothesExtractResult>>(
+    '/clothes/extract-from-image',
+    params,
+    { timeout: EXTRACT_FROM_IMAGE_TIMEOUT_MS },
+  )
+  return response.data
 }
 
 export type ClothesBatchInsertItem = Pick<
@@ -180,6 +288,7 @@ export type ClothesBatchInsertItem = Pick<
   | 'offer_price'
   | 'origin'
   | 'color'
+  | 'color_text'
   | 'season'
   | 'size'
 > & {
@@ -224,12 +333,14 @@ export async function deleteClothesByIds(params: { ids: string }): Promise<boole
   return response.data;
 }
 
-/** 批量更新服饰字段（如拥有状态）；clothes_id 为逗号分割字符串，与客户端约定一致 */
+/** 批量更新服饰字段（拥有状态 / 最后穿着时间等）；clothes_id 为逗号分割字符串 */
 export async function updateClothesIds(data: {
   clothes_id: string
-  wardrobe_status: string
-}): Promise<boolean> {
-  const response = await use$Post<BaseResponse<boolean>>('/clothes/update/ids', data)
+  wardrobe_status?: string
+  last_dress?: string | null
+  [key: string]: unknown
+}): Promise<{ updated: number }> {
+  const response = await use$Post<BaseResponse<{ updated: number }>>('/clothes/update/ids', data)
   return response.data
 }
 

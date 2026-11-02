@@ -1,348 +1,11 @@
-<template>
-  <div v-if="user && config" class="min-h-screen bg-gray-50 dark:bg-gray-900 pb-20 md:pb-8">
-    <div class="max-w-2xl mx-auto p-4">
-      <!-- 头部 -->
-      <div class="mb-6">
-        <h1 class="text-2xl font-bold text-gray-900 dark:text-white">编辑个人信息</h1>
-      </div>
-
-      <!-- 表单 -->
-      <UCard class="mb-4">
-        <template #header>
-          <div class="text-lg font-semibold">基本信息</div>
-        </template>
-
-        <!-- 用户头像 -->
-        <div class="mb-6">
-          <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-            头像
-          </label>
-          <div class="flex items-center gap-4">
-            <div class="relative">
-              <img 
-                :src="user.user_face ? `${BASE_IMG}${user.user_face}` : '/default-avatar.png'" 
-                :alt="user.user_name || '用户头像'"
-                class="w-20 h-20 rounded-full object-cover border-2 border-gray-200 dark:border-gray-700"
-              />
-              <div 
-                v-if="user.avatar?.avatar_frame" 
-                class="absolute inset-0 rounded-full"
-                :style="{
-                  backgroundImage: `url(${BASE_IMG}${user.avatar.avatar_frame})`,
-                  backgroundSize: '110%',
-                  backgroundPosition: 'center',
-                  zIndex: 10
-                }"
-              ></div>
-            </div>
-            <UButton
-              @click="triggerAvatarUpload"
-              variant="outline"
-              icon="i-heroicons-photo"
-              :loading="uploadingAvatar"
-            >
-              更换头像
-            </UButton>
-            <input
-              ref="avatarInput"
-              type="file"
-              accept="image/*"
-              class="hidden"
-              @change="handleAvatarChange"
-            />
-          </div>
-        </div>
-
-        <!-- 用户名 -->
-        <UFormGroup label="用户名" class="mb-4">
-          <div class="flex items-center gap-2">
-            <UInput
-              :model-value="user.user_name"
-              disabled
-              class="flex-1"
-            />
-            <span class="text-xs text-gray-500 dark:text-gray-400">
-              昵称是唯一且不重复的，暂不支持修改
-            </span>
-          </div>
-        </UFormGroup>
-
-        <!-- 个人签名 -->
-        <UFormGroup label="个人签名" class="mb-4">
-          <UTextarea
-            v-model="formData.signature"
-            placeholder="介绍一下自己"
-            :rows="4"
-            :ui="{
-              base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
-              rounded: 'rounded-lg',
-            }"
-          />
-        </UFormGroup>
-
-        <!-- 邮箱 -->
-        <UFormGroup label="邮箱" class="mb-4">
-          <div class="flex items-center gap-2">
-            <UInput
-              :model-value="user.email || '未绑定'"
-              disabled
-              class="flex-1"
-            />
-            <UButton
-              @click="showEmailModal = true"
-              variant="outline"
-              size="sm"
-            >
-              {{ user.email ? '换绑邮箱' : '绑定邮箱' }}
-            </UButton>
-          </div>
-          <!-- 邮件通知开关 -->
-          <div v-if="user.email" class="mt-3 flex items-center justify-between">
-            <div class="flex flex-col">
-              <span class="text-sm font-medium text-gray-700 dark:text-gray-300">邮件通知</span>
-              <span class="text-xs text-gray-500">开启后，系统将通过邮件发送重要通知</span>
-            </div>
-            <UToggle
-              v-model="formData.email_notice"
-              :disabled="loading"
-              @update:model-value="updateMessageConfig"
-            />
-          </div>
-          <!-- 订阅上新资讯开关 -->
-          <div v-if="user.email" class="mt-3 flex items-center justify-between">
-            <div class="flex flex-col">
-              <span class="text-sm font-medium text-gray-700 dark:text-gray-300">订阅上新资讯</span>
-              <span class="text-xs text-gray-500">开启后，系统将通过邮件发送上新资讯通知</span>
-            </div>
-            <UToggle
-              v-model="formData.daily_news_subscribe"
-              :disabled="loading"
-              @update:model-value="updateMessageConfig"
-            />
-          </div>
-          <div class="text-xs text-gray-500">如果收不到邮件,请将 noreply@chaozj.com 添加至白名单</div>
-        </UFormGroup>
-      </UCard>
-
-      <!-- 风格标签 -->
-      <UCard class="mb-4">
-        <template #header>
-          <div class="text-lg font-semibold">风格标签</div>
-        </template>
-        <div class="flex flex-wrap gap-2 mb-4">
-          <QhxTag
-            v-for="(style, index) in formData.main_style"
-            :key="index"
-            
-          >
-            <div class="flex items-center">
-              # {{ style.label }}
-              <Icon @click="deleteStyle(index)" name="i-heroicons-x-mark" class="w-4 h-4 cursor-pointer" />
-
-            </div>
-          </QhxTag>
-          <UButton
-            @click="openStylePicker"
-            variant="outline"
-            size="sm"
-          >
-            选择风格
-          </UButton>
-        </div>
-      </UCard>
-
-      <!-- 所在城市 -->
-      <UCard class="mb-4">
-        <template #header>
-          <div class="text-lg font-semibold">所在城市</div>
-        </template>
-        <div class="flex flex-wrap gap-2 mb-4">
-          <UTag
-            v-if="formData.province"
-            color="blue"
-            variant="soft"
-            size="md"
-            class="cursor-pointer"
-          >
-            {{ `${formData.province} ${formData.city} ${formData.area}` }}
-            <button
-              @click="deleteArea"
-              class="ml-2 hover:text-red-500"
-            >
-              <Icon name="i-heroicons-x-mark" class="w-4 h-4" />
-            </button>
-          </UTag>
-          <UButton
-            @click="openAddressPicker"
-            variant="outline"
-            size="sm"
-          >
-            选择地址
-          </UButton>
-        </div>
-      </UCard>
-
-      <!-- 显示设置 -->
-      <UCard class="mb-4">
-        <template #header>
-          <div class="text-lg font-semibold">显示设置</div>
-        </template>
-        
-        <!-- 是否显示所在城市 -->
-        <div class="flex items-center justify-between mb-4">
-          <div>
-            <div class="font-medium text-gray-900 dark:text-white">是否显示所在城市</div>
-            <div v-if="formData.show_area" class="text-sm text-gray-500 dark:text-gray-400 mt-1">
-              将在个人空间内展示位置
-            </div>
-          </div>
-          <UToggle
-            v-model="formData.show_area"
-            color="primary"
-          />
-        </div>
-
-        <!-- 是否展示成就簿 -->
-        <div class="flex items-center justify-between">
-          <div>
-            <div class="font-medium text-gray-900 dark:text-white">是否展示成就簿</div>
-            <div v-if="formData.is_achieve" class="text-sm text-gray-500 dark:text-gray-400 mt-1">
-              将在个人空间内展示成就簿
-            </div>
-          </div>
-          <UToggle
-            v-model="formData.is_achieve"
-            color="primary"
-          />
-        </div>
-      </UCard>
-
-      <!-- 自定义主题 -->
-      <UCard class="mb-4">
-        <CommunityCustomStyleForm
-          ref="customStyleFormRef"
-          v-model="customStyle"
-          background-hint="个人空间背景"
-        />
-      </UCard>
-
-      <!-- 保存按钮：移动端固定底栏，PC 端随内容流右对齐 -->
-      <div
-        class="fixed bottom-0 left-0 right-0 z-10 border-t border-gray-200 bg-white p-4 pb-[max(1rem,env(safe-area-inset-bottom,0px))] dark:border-gray-700 dark:bg-gray-800 md:static md:z-auto md:border-0 md:bg-transparent md:p-0 md:pt-4 md:pb-0 dark:md:bg-transparent"
-      >
-        <UButton
-          @click="saveUserInfo"
-          block
-          size="lg"
-          :loading="loading"
-          class="bg-qhx-primary text-qhx-inverted hover:bg-qhx-primaryHover md:max-w-[240px] md:ml-auto"
-          :ui="{ rounded: 'rounded-full' }"
-        >
-          保存信息
-        </UButton>
-      </div>
-    </div>
-
-    <!-- 风格选择器 -->
-    <QhxSelect
-      ref="styleSelectRef"
-      :options="styleOptions"
-      @select="confirmMainStyle"
-    />
-
-    <!-- 地址选择器 - 三级联动 -->
-    <UModal v-model="showAddressPicker">
-      <UCard>
-        <template #header>
-          <div class="text-lg font-semibold">选择地址</div>
-        </template>
-        <div class="space-y-4">
-          <!-- 省份选择 -->
-          <UFormGroup label="省份">
-            <UButton
-              @click="openProvincePicker"
-              variant="outline"
-              block
-              class="justify-start"
-            >
-              {{ selectedProvince?.label || '请选择省份' }}
-            </UButton>
-            <QhxSelect
-              ref="provinceSelectRef"
-              :options="provinceOptions"
-              @select="onProvinceSelect"
-            />
-          </UFormGroup>
-
-          <!-- 城市选择 -->
-          <UFormGroup label="城市" v-if="selectedProvince">
-            <UButton
-              @click="openCityPicker"
-              variant="outline"
-              block
-              class="justify-start"
-            >
-              {{ selectedCity?.label || '请选择城市' }}
-            </UButton>
-            <QhxSelect
-              ref="citySelectRef"
-              :options="cityOptions"
-              @select="onCitySelect"
-            />
-          </UFormGroup>
-
-          <!-- 区县选择 -->
-          <UFormGroup label="区县" v-if="selectedCity">
-            <UButton
-              @click="openAreaPicker"
-              variant="outline"
-              block
-              class="justify-start"
-            >
-              {{ selectedArea?.label || '请选择区县' }}
-            </UButton>
-            <QhxSelect
-              ref="areaSelectRef"
-              :options="areaOptions"
-              @select="onAreaSelect"
-            />
-          </UFormGroup>
-
-          <div class="flex gap-2 justify-end mt-4">
-            <UButton
-              @click="showAddressPicker = false"
-              variant="outline"
-            >
-              取消
-            </UButton>
-            <UButton
-              @click="confirmAddress"
-              class="bg-qhx-primary text-qhx-inverted hover:bg-qhx-primaryHover"
-              :disabled="!selectedArea"
-            >
-              确认
-            </UButton>
-          </div>
-        </div>
-      </UCard>
-    </UModal>
-
-    <!-- 邮箱绑定弹窗 -->
-    <EmailBindModal
-      v-model="showEmailModal"
-      :user="user"
-      @success="handleEmailBindSuccess"
-    />
-  </div>
-</template>
-
 <script setup lang="ts">
-import { getUserMy } from '@/api/user'
 import { uploadImage } from '@/api/index'
 import { BASE_IMG } from '@/utils/ipConfig'
 import type { User } from '@/types/api'
 import type { default as QhxSelect } from '@/components/Qhx/Select.vue'
 import EmailBindModal from '@/components/user/EmailBindModal.vue'
+import RenameModal from '@/components/user/RenameModal.vue'
+import { formatFormerNamesLabel } from '@/utils/userName'
 // biome-ignore lint/style/useImportType: Vue SFC 组件供模板与 InstanceType 使用
 import CommunityCustomStyleForm from '@/components/community/CommunityCustomStyleForm.vue'
 import {
@@ -352,17 +15,16 @@ import {
   serializeCommunityCustomStyle,
   type CommunityCustomStyle,
 } from '@/utils/communityCustomStyle'
-let uni: any;
+
+let uni: any
 const port = computed(() => configStore.getPort())
 
-// 地址数据类型
 interface AddressItem {
   value: string
   label: string
   children?: AddressItem[]
 }
 
-// 设置页面标题
 useHead({
   title: '编辑个人信息 - Lo研社'
 })
@@ -372,16 +34,20 @@ const configStore = useConfigStore()
 const toast = useToast()
 const router = useRouter()
 
-// 数据
 const user = ref<User | null>(null)
 const config = computed(() => configStore.config)
 const loading = ref(false)
 const uploadingAvatar = ref(false)
 const showAddressPicker = ref(false)
 const showEmailModal = ref(false)
+const showRenameModal = ref(false)
+const addressClickPosition = ref({ x: 0, y: 0 })
 const avatarInput = ref<HTMLInputElement | null>(null)
 
-// 选择器引用
+const formerNamesLabel = computed(() =>
+  formatFormerNamesLabel(user.value?.former_name)
+)
+
 const styleSelectRef = ref<InstanceType<typeof QhxSelect>>()
 const provinceSelectRef = ref<InstanceType<typeof QhxSelect>>()
 const citySelectRef = ref<InstanceType<typeof QhxSelect>>()
@@ -389,13 +55,11 @@ const areaSelectRef = ref<InstanceType<typeof QhxSelect>>()
 const customStyleFormRef = ref<InstanceType<typeof CommunityCustomStyleForm> | null>(null)
 const customStyle = ref<CommunityCustomStyle>(createDefaultCommunityCustomStyle())
 
-// 地址数据
 const addressData = ref<AddressItem[]>([])
 const selectedProvince = ref<{ label: string; value: string } | null>(null)
 const selectedCity = ref<{ label: string; value: string } | null>(null)
 const selectedArea = ref<{ label: string; value: string } | null>(null)
 
-// 表单数据
 const formData = reactive({
   signature: '',
   main_style: [] as Array<{ label: string; value: number }>,
@@ -409,7 +73,6 @@ const formData = reactive({
   daily_news_subscribe: false
 })
 
-// 地址选项
 const provinceOptions = computed(() => {
   return addressData.value.map(item => ({
     label: item.label,
@@ -439,9 +102,13 @@ const areaOptions = computed(() => {
   }))
 })
 
-// 风格选项
 const styleOptions = computed(() => {
   return config.value?.main_style || []
+})
+
+const addressLabel = computed(() => {
+  if (!formData.province) return ''
+  return `${formData.province} ${formData.city} ${formData.area}`.trim()
 })
 
 function parseMessageConfig(
@@ -476,14 +143,11 @@ async function fetchCustomStyleUpload(file: { file?: File; url: string }) {
   }
 }
 
-// 获取用户信息
 const fetchUserInfo = async () => {
   try {
-    // 使用 store 中的方法获取用户信息并更新缓存
     const data = await userStore.fetchUserInfo()
     user.value = data
-    
-    // 填充表单数据
+
     const userData = data as User & {
       signature?: string
       main_style?: Array<{ label: string; value: number }>
@@ -494,7 +158,7 @@ const fetchUserInfo = async () => {
       is_achieve?: number | boolean
       message_config?: Record<string, unknown> | undefined
     }
-    
+
     formData.signature = userData.signature || ''
     formData.main_style = userData.main_style || []
     formData.province = userData.province || ''
@@ -503,8 +167,7 @@ const fetchUserInfo = async () => {
     formData.show_area = userData.show_area === 1 || userData.show_area === true
     formData.is_achieve = userData.is_achieve === 1 || userData.is_achieve === true
     formData.user_face = data.user_face || ''
-    
-    // 解析 message_config JSON
+
     const messageConfig = parseMessageConfig(userData.message_config)
     formData.email_notice = messageConfig.email_notice === true
     formData.daily_news_subscribe = messageConfig.daily_news_subscribe === true
@@ -521,12 +184,10 @@ const fetchUserInfo = async () => {
   }
 }
 
-// 触发头像上传
 const triggerAvatarUpload = () => {
   avatarInput.value?.click()
 }
 
-// 处理头像选择
 const handleAvatarChange = async (event: Event) => {
   const input = event.target as HTMLInputElement
   if (!input.files || input.files.length === 0) return
@@ -540,7 +201,7 @@ const handleAvatarChange = async (event: Event) => {
     if (user.value) {
       user.value.user_face = formData.user_face
     }
-    
+
     toast.add({
       title: '头像上传成功',
       icon: 'i-heroicons-check-circle',
@@ -559,20 +220,17 @@ const handleAvatarChange = async (event: Event) => {
   }
 }
 
-// 删除风格标签
 const deleteStyle = (index: number) => {
   formData.main_style.splice(index, 1)
 }
 
-// 打开风格选择器
 const openStylePicker = (e: MouseEvent) => {
   styleSelectRef.value?.showPicker(e)
 }
 
-// 确认选择风格
 const confirmMainStyle = (value: { label: string; value: number | string }) => {
   if (!value) return
-  
+
   const style = styleOptions.value.find((s) => s.value === value.value)
   if (!style) return
 
@@ -588,9 +246,11 @@ const confirmMainStyle = (value: { label: string; value: number | string }) => {
   }
 }
 
-// 打开地址选择器
-const openAddressPicker = () => {
-  // 如果有已选择的地址，初始化选择状态
+const openAddressPicker = (e?: MouseEvent) => {
+  if (e) {
+    addressClickPosition.value = { x: e.clientX, y: e.clientY }
+  }
+
   if (formData.province && formData.city && formData.area) {
     const province = addressData.value.find(p => p.label === formData.province)
     if (province) {
@@ -605,7 +265,6 @@ const openAddressPicker = () => {
       }
     }
   } else {
-    // 重置选择
     selectedProvince.value = null
     selectedCity.value = null
     selectedArea.value = null
@@ -613,40 +272,33 @@ const openAddressPicker = () => {
   showAddressPicker.value = true
 }
 
-// 打开省份选择器
 const openProvincePicker = (e: MouseEvent) => {
   provinceSelectRef.value?.showPicker(e)
 }
 
-// 打开城市选择器
 const openCityPicker = (e: MouseEvent) => {
   citySelectRef.value?.showPicker(e)
 }
 
-// 打开区县选择器
 const openAreaPicker = (e: MouseEvent) => {
   areaSelectRef.value?.showPicker(e)
 }
 
-// 省份选择
 const onProvinceSelect = (value: { label: string; value: string | number }) => {
   selectedProvince.value = { label: value.label, value: String(value.value) }
   selectedCity.value = null
   selectedArea.value = null
 }
 
-// 城市选择
 const onCitySelect = (value: { label: string; value: string | number }) => {
   selectedCity.value = { label: value.label, value: String(value.value) }
   selectedArea.value = null
 }
 
-// 区县选择
 const onAreaSelect = (value: { label: string; value: string | number }) => {
   selectedArea.value = { label: value.label, value: String(value.value) }
 }
 
-// 删除地址
 const deleteArea = () => {
   formData.province = ''
   formData.city = ''
@@ -656,7 +308,6 @@ const deleteArea = () => {
   selectedArea.value = null
 }
 
-// 确认地址
 const confirmAddress = () => {
   if (!selectedProvince.value || !selectedCity.value || !selectedArea.value) {
     toast.add({
@@ -666,14 +317,25 @@ const confirmAddress = () => {
     })
     return
   }
-  
+
   formData.province = selectedProvince.value.label
   formData.city = selectedCity.value.label
   formData.area = selectedArea.value.label
   showAddressPicker.value = false
 }
 
-// 更新消息配置（仅更新 message_config）
+const toggleEmailNotice = () => {
+  if (loading.value) return
+  formData.email_notice = !formData.email_notice
+  updateMessageConfig()
+}
+
+const toggleDailyNewsSubscribe = () => {
+  if (loading.value) return
+  formData.daily_news_subscribe = !formData.daily_news_subscribe
+  updateMessageConfig()
+}
+
 const updateMessageConfig = async () => {
   if (loading.value) return
 
@@ -690,10 +352,8 @@ const updateMessageConfig = async () => {
       message_config: messageConfig
     })
 
-    // 更新本地 user 引用
     user.value = userStore.user
 
-    // 更新表单数据（从 store 中获取最新值）
     if (user.value?.message_config && typeof user.value.message_config === 'object') {
       formData.email_notice = user.value.message_config.email_notice as boolean || false
       formData.daily_news_subscribe = user.value.message_config.daily_news_subscribe as boolean || false
@@ -705,7 +365,6 @@ const updateMessageConfig = async () => {
       color: 'green'
     })
   } catch (error) {
-    // 如果更新失败，恢复开关状态
     formData.email_notice = !formData.email_notice
     formData.daily_news_subscribe = !formData.daily_news_subscribe
     toast.add({
@@ -719,7 +378,6 @@ const updateMessageConfig = async () => {
   }
 }
 
-// 保存用户信息
 const saveUserInfo = async () => {
   if (loading.value) {
     toast.add({
@@ -768,7 +426,6 @@ const saveUserInfo = async () => {
       stylePayload.background = null
     }
 
-    // 更新 message_config JSON
     try {
       const messageConfig = parseMessageConfig(
         (user.value as User & { message_config?: string | Record<string, unknown> })?.message_config
@@ -783,10 +440,7 @@ const saveUserInfo = async () => {
       console.error('更新 message_config 失败:', error)
     }
 
-    // 使用 store 中的方法更新用户信息并重新拉取数据缓存
     await userStore.updateUserInfo(params)
-
-    // 更新本地 user 引用
     user.value = userStore.user
 
     toast.add({
@@ -826,13 +480,14 @@ const saveUserInfo = async () => {
   }
 }
 
-// 邮箱绑定成功回调
 const handleEmailBindSuccess = async () => {
-  // 重新获取用户信息以显示最新数据
   await fetchUserInfo()
 }
 
-// 错误信息处理
+const handleRenameSuccess = async () => {
+  await fetchUserInfo()
+}
+
 function getErrorMessage(error: unknown): string {
   if (error instanceof Error) return error.message
   if (typeof error === 'string') return error
@@ -843,7 +498,6 @@ function getErrorMessage(error: unknown): string {
   return ''
 }
 
-// 加载地址数据
 const loadAddressData = async () => {
   try {
     const response = await fetch('/address.json')
@@ -858,15 +512,588 @@ const loadAddressData = async () => {
   }
 }
 
-// 初始化
 onMounted(async () => {
   uni = await import('@dcloudio/uni-webview-js').catch((err) => {
-    console.error('Failed to load uni-webview-js:', err);
-  });
+    console.error('Failed to load uni-webview-js:', err)
+  })
   await configStore.getConfig()
   await loadAddressData()
   await fetchUserInfo()
 })
-
 </script>
 
+<template>
+  <div
+    v-if="user && config"
+    class="min-h-screen bg-gradient-to-b from-pink-50/80 via-gray-50 to-gray-50 dark:from-gray-900 dark:via-gray-900 dark:to-gray-950 pb-24 md:pb-10"
+  >
+    <div class="max-w-2xl mx-auto px-4 pt-5 md:pt-8">
+      <!-- 头部 -->
+      <div class="mb-6">
+        <h1 class="text-2xl font-bold text-gray-900 dark:text-white tracking-tight">
+          编辑个人信息
+        </h1>
+        <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+          完善资料，让个人空间更有辨识度
+        </p>
+      </div>
+
+      <!-- 基本信息 -->
+      <section class="edit-section mb-4">
+        <div class="edit-section__header">
+          <span class="edit-section__dot" />
+          <h2 class="edit-section__title">基本信息</h2>
+        </div>
+
+        <!-- 头像 -->
+        <div class="mb-6">
+          <label class="edit-label">头像</label>
+          <div class="flex items-center gap-4">
+            <button
+              type="button"
+              class="relative group shrink-0"
+              :disabled="uploadingAvatar"
+              aria-label="更换头像"
+              @click="triggerAvatarUpload"
+            >
+              <div class="relative h-20 w-20">
+                <img
+                  :src="user.user_face ? `${BASE_IMG}${user.user_face}` : '/default-avatar.png'"
+                  :alt="user.user_name || '用户头像'"
+                  class="h-20 w-20 rounded-full object-cover border-2 border-white dark:border-gray-700 shadow-md ring-2 ring-pink-100 dark:ring-pink-900/40"
+                >
+                <div
+                  v-if="user.avatar?.avatar_frame"
+                  class="pointer-events-none absolute inset-0 z-10 rounded-full"
+                  :style="{
+                    backgroundImage: `url(${BASE_IMG}${user.avatar.avatar_frame})`,
+                    backgroundSize: '110%',
+                    backgroundPosition: 'center',
+                  }"
+                />
+                <div
+                  class="absolute inset-0 z-20 flex items-center justify-center rounded-full bg-black/40 opacity-0 transition-opacity group-hover:opacity-100"
+                >
+                  <Icon
+                    v-if="!uploadingAvatar"
+                    name="i-heroicons-camera"
+                    class="h-6 w-6 text-white"
+                  />
+                  <Icon
+                    v-else
+                    name="i-heroicons-arrow-path"
+                    class="h-6 w-6 animate-spin text-white"
+                  />
+                </div>
+              </div>
+            </button>
+            <div class="min-w-0 flex-1">
+              <QhxJellyButton>
+                <button
+                  type="button"
+                  class="inline-flex items-center gap-1.5 rounded-full border border-qhx-primary/40 bg-white px-4 py-2 text-sm font-medium text-qhx-primary transition-colors hover:bg-qhx-primary/5 disabled:opacity-50 dark:bg-gray-800"
+                  :disabled="uploadingAvatar"
+                  @click="triggerAvatarUpload"
+                >
+                  <Icon name="i-heroicons-photo" class="h-4 w-4" />
+                  {{ uploadingAvatar ? '上传中…' : '更换头像' }}
+                </button>
+              </QhxJellyButton>
+              <p class="mt-1.5 text-xs text-gray-400">
+                支持常见图片格式
+              </p>
+            </div>
+            <input
+              ref="avatarInput"
+              type="file"
+              accept="image/*"
+              class="hidden"
+              @change="handleAvatarChange"
+            >
+          </div>
+        </div>
+
+        <!-- 用户名 -->
+        <div class="mb-5">
+          <label class="edit-label">用户名</label>
+          <div class="flex items-center gap-2">
+            <input
+              :value="user.user_name"
+              type="text"
+              disabled
+              class="edit-input flex-1 disabled:cursor-not-allowed disabled:opacity-70"
+            >
+            <QhxJellyButton>
+              <button
+                type="button"
+                class="shrink-0 rounded-full border border-qhx-primary/40 bg-white px-3.5 py-2 text-sm font-medium text-qhx-primary transition-colors hover:bg-qhx-primary/5 dark:bg-gray-800"
+                @click="showRenameModal = true"
+              >
+                改名
+              </button>
+            </QhxJellyButton>
+          </div>
+          <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+            改名消耗 100 经验；昵称唯一，1–6 字，不可含特殊字符
+          </p>
+          <p
+            v-if="formerNamesLabel"
+            class="mt-1 text-xs text-gray-400 dark:text-gray-500"
+          >
+            {{ formerNamesLabel }}
+          </p>
+        </div>
+
+        <!-- 个人签名 -->
+        <div class="mb-5">
+          <label class="edit-label">个人签名</label>
+          <textarea
+            v-model="formData.signature"
+            placeholder="介绍一下自己"
+            rows="4"
+            class="edit-textarea"
+          />
+        </div>
+
+        <!-- 邮箱 -->
+        <div>
+          <label class="edit-label">邮箱</label>
+          <div class="flex items-center gap-2">
+            <input
+              :value="user.email || '未绑定'"
+              type="text"
+              disabled
+              class="edit-input flex-1 disabled:cursor-not-allowed disabled:opacity-70"
+            >
+            <QhxJellyButton>
+              <button
+                type="button"
+                class="shrink-0 rounded-full border border-qhx-primary/40 bg-white px-3.5 py-2 text-sm font-medium text-qhx-primary transition-colors hover:bg-qhx-primary/5 dark:bg-gray-800"
+                @click="showEmailModal = true"
+              >
+                {{ user.email ? '换绑邮箱' : '绑定邮箱' }}
+              </button>
+            </QhxJellyButton>
+          </div>
+
+          <div
+            v-if="user.email"
+            class="mt-3 space-y-3 rounded-2xl border border-pink-100/80 bg-pink-50/40 p-3.5 dark:border-pink-900/30 dark:bg-pink-950/20"
+          >
+            <div class="flex items-center justify-between gap-4">
+              <div class="min-w-0">
+                <div class="text-sm font-medium text-gray-800 dark:text-gray-200">
+                  邮件通知
+                </div>
+                <div class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+                  开启后，系统将通过邮件发送重要通知
+                </div>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                :aria-checked="formData.email_notice"
+                :disabled="loading"
+                class="edit-switch"
+                :class="formData.email_notice ? 'bg-qhx-primary' : 'bg-gray-300 dark:bg-gray-600'"
+                @click="toggleEmailNotice"
+              >
+                <span
+                  class="edit-switch__thumb"
+                  :class="formData.email_notice ? 'translate-x-6' : 'translate-x-1'"
+                />
+              </button>
+            </div>
+
+            <div class="flex items-center justify-between gap-4">
+              <div class="min-w-0">
+                <div class="text-sm font-medium text-gray-800 dark:text-gray-200">
+                  订阅上新资讯
+                </div>
+                <div class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+                  开启后，系统将通过邮件发送上新资讯通知
+                </div>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                :aria-checked="formData.daily_news_subscribe"
+                :disabled="loading"
+                class="edit-switch"
+                :class="formData.daily_news_subscribe ? 'bg-qhx-primary' : 'bg-gray-300 dark:bg-gray-600'"
+                @click="toggleDailyNewsSubscribe"
+              >
+                <span
+                  class="edit-switch__thumb"
+                  :class="formData.daily_news_subscribe ? 'translate-x-6' : 'translate-x-1'"
+                />
+              </button>
+            </div>
+          </div>
+
+          <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">
+            如果收不到邮件，请将 noreply@chaozj.com 添加至白名单
+          </p>
+        </div>
+      </section>
+
+      <!-- 风格标签 -->
+      <section class="edit-section mb-4">
+        <div class="edit-section__header">
+          <span class="edit-section__dot" />
+          <h2 class="edit-section__title">风格标签</h2>
+        </div>
+        <div class="flex flex-wrap items-center gap-1.5">
+          <QhxTag
+            v-for="(style, index) in formData.main_style"
+            :key="index"
+            :active="true"
+          >
+            <div class="flex items-center gap-1">
+              <span># {{ style.label }}</span>
+              <button
+                type="button"
+                class="ml-0.5 rounded-full p-0.5 transition-colors hover:bg-white/20"
+                aria-label="删除风格"
+                @click="deleteStyle(index)"
+              >
+                <Icon name="i-heroicons-x-mark" class="h-3.5 w-3.5" />
+              </button>
+            </div>
+          </QhxTag>
+          <QhxJellyButton>
+            <button
+              type="button"
+              class="inline-flex items-center gap-1 rounded-full border border-dashed border-qhx-primary/50 bg-white px-3 py-1.5 text-xs font-medium text-qhx-primary transition-colors hover:bg-qhx-primary/5 dark:bg-gray-800"
+              @click="openStylePicker"
+            >
+              <Icon name="i-heroicons-plus" class="h-3.5 w-3.5" />
+              选择风格
+            </button>
+          </QhxJellyButton>
+        </div>
+      </section>
+
+      <!-- 所在城市 -->
+      <section class="edit-section mb-4">
+        <div class="edit-section__header">
+          <span class="edit-section__dot" />
+          <h2 class="edit-section__title">所在城市</h2>
+        </div>
+        <div class="flex flex-wrap items-center gap-1.5">
+          <QhxTag
+            v-if="addressLabel"
+            :active="true"
+          >
+            <div class="flex items-center gap-1">
+              <Icon name="i-heroicons-map-pin" class="h-3.5 w-3.5" />
+              <span>{{ addressLabel }}</span>
+              <button
+                type="button"
+                class="ml-0.5 rounded-full p-0.5 transition-colors hover:bg-white/20"
+                aria-label="清除地址"
+                @click="deleteArea"
+              >
+                <Icon name="i-heroicons-x-mark" class="h-3.5 w-3.5" />
+              </button>
+            </div>
+          </QhxTag>
+          <QhxJellyButton>
+            <button
+              type="button"
+              class="inline-flex items-center gap-1 rounded-full border border-dashed border-qhx-primary/50 bg-white px-3 py-1.5 text-xs font-medium text-qhx-primary transition-colors hover:bg-qhx-primary/5 dark:bg-gray-800"
+              @click="openAddressPicker"
+            >
+              <Icon name="i-heroicons-plus" class="h-3.5 w-3.5" />
+              选择地址
+            </button>
+          </QhxJellyButton>
+        </div>
+      </section>
+
+      <!-- 显示设置 -->
+      <section class="edit-section mb-4">
+        <div class="edit-section__header">
+          <span class="edit-section__dot" />
+          <h2 class="edit-section__title">显示设置</h2>
+        </div>
+
+        <div class="space-y-1">
+          <div class="edit-setting-row">
+            <div class="min-w-0 flex-1">
+              <div class="text-sm font-medium text-gray-900 dark:text-white">
+                是否显示所在城市
+              </div>
+              <div
+                v-if="formData.show_area"
+                class="mt-0.5 text-xs text-gray-500 dark:text-gray-400"
+              >
+                将在个人空间内展示位置
+              </div>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              :aria-checked="formData.show_area"
+              class="edit-switch"
+              :class="formData.show_area ? 'bg-qhx-primary' : 'bg-gray-300 dark:bg-gray-600'"
+              @click="formData.show_area = !formData.show_area"
+            >
+              <span
+                class="edit-switch__thumb"
+                :class="formData.show_area ? 'translate-x-6' : 'translate-x-1'"
+              />
+            </button>
+          </div>
+
+          <div class="edit-setting-row">
+            <div class="min-w-0 flex-1">
+              <div class="text-sm font-medium text-gray-900 dark:text-white">
+                是否展示成就簿
+              </div>
+              <div
+                v-if="formData.is_achieve"
+                class="mt-0.5 text-xs text-gray-500 dark:text-gray-400"
+              >
+                将在个人空间内展示成就簿
+              </div>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              :aria-checked="formData.is_achieve"
+              class="edit-switch"
+              :class="formData.is_achieve ? 'bg-qhx-primary' : 'bg-gray-300 dark:bg-gray-600'"
+              @click="formData.is_achieve = !formData.is_achieve"
+            >
+              <span
+                class="edit-switch__thumb"
+                :class="formData.is_achieve ? 'translate-x-6' : 'translate-x-1'"
+              />
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <!-- 自定义主题 -->
+      <section class="edit-section mb-4">
+        <CommunityCustomStyleForm
+          ref="customStyleFormRef"
+          v-model="customStyle"
+          background-hint="个人空间背景"
+        />
+      </section>
+
+      <!-- 保存按钮：移动端固定底栏，PC 端随内容流右对齐 -->
+      <div
+        class="fixed bottom-0 left-0 right-0 z-10 border-t border-pink-100/80 bg-white/90 p-4 pb-[max(1rem,env(safe-area-inset-bottom,0px))] backdrop-blur-md dark:border-gray-700 dark:bg-gray-900/90 md:static md:z-auto md:border-0 md:bg-transparent md:p-0 md:pt-2 md:pb-0 md:backdrop-blur-none dark:md:bg-transparent"
+      >
+        <div class="w-full md:ml-auto md:w-auto md:inline-flex">
+          <QhxJellyButton class="w-full md:w-auto">
+            <button
+              type="button"
+              class="flex w-full items-center justify-center gap-2 rounded-full bg-qhx-primary px-8 py-3 text-base font-semibold text-qhx-inverted shadow-lg shadow-pink-500/20 transition-colors hover:bg-qhx-primaryHover disabled:opacity-60 md:min-w-[200px]"
+              :disabled="loading"
+              @click="saveUserInfo"
+            >
+              <Icon
+                v-if="loading"
+                name="i-heroicons-arrow-path"
+                class="h-5 w-5 animate-spin"
+              />
+              {{ loading ? '保存中…' : '保存信息' }}
+            </button>
+          </QhxJellyButton>
+        </div>
+      </div>
+    </div>
+
+    <!-- 风格选择器 -->
+    <QhxSelect
+      ref="styleSelectRef"
+      :options="styleOptions"
+      @select="confirmMainStyle"
+    />
+
+    <!-- 地址选择器 -->
+    <QhxModal
+      v-model="showAddressPicker"
+      :trigger-position="addressClickPosition"
+    >
+      <div
+        class="flex w-[92vw] max-w-md flex-col overflow-hidden rounded-2xl border border-gray-200/60 bg-white shadow-2xl dark:border-gray-700/50 dark:bg-gray-800"
+      >
+        <div
+          class="flex items-center justify-between border-b border-gray-100 bg-gradient-to-r from-pink-50/90 to-orange-50/70 px-5 py-4 dark:border-gray-700 dark:from-gray-800 dark:to-gray-800"
+        >
+          <h3 class="text-base font-semibold text-gray-900 dark:text-white">
+            选择地址
+          </h3>
+          <button
+            type="button"
+            class="flex h-8 w-8 items-center justify-center rounded-full text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-700"
+            aria-label="关闭"
+            @click="showAddressPicker = false"
+          >
+            <Icon name="i-heroicons-x-mark" class="h-5 w-5" />
+          </button>
+        </div>
+
+        <div class="space-y-4 p-5">
+          <div>
+            <label class="edit-label">省份</label>
+            <button
+              type="button"
+              class="edit-picker-btn"
+              @click="openProvincePicker"
+            >
+              <span :class="selectedProvince ? 'text-gray-900 dark:text-white' : 'text-gray-400'">
+                {{ selectedProvince?.label || '请选择省份' }}
+              </span>
+              <Icon name="i-heroicons-chevron-right" class="h-4 w-4 text-gray-400" />
+            </button>
+            <QhxSelect
+              ref="provinceSelectRef"
+              :options="provinceOptions"
+              @select="onProvinceSelect"
+            />
+          </div>
+
+          <div v-if="selectedProvince">
+            <label class="edit-label">城市</label>
+            <button
+              type="button"
+              class="edit-picker-btn"
+              @click="openCityPicker"
+            >
+              <span :class="selectedCity ? 'text-gray-900 dark:text-white' : 'text-gray-400'">
+                {{ selectedCity?.label || '请选择城市' }}
+              </span>
+              <Icon name="i-heroicons-chevron-right" class="h-4 w-4 text-gray-400" />
+            </button>
+            <QhxSelect
+              ref="citySelectRef"
+              :options="cityOptions"
+              @select="onCitySelect"
+            />
+          </div>
+
+          <div v-if="selectedCity">
+            <label class="edit-label">区县</label>
+            <button
+              type="button"
+              class="edit-picker-btn"
+              @click="openAreaPicker"
+            >
+              <span :class="selectedArea ? 'text-gray-900 dark:text-white' : 'text-gray-400'">
+                {{ selectedArea?.label || '请选择区县' }}
+              </span>
+              <Icon name="i-heroicons-chevron-right" class="h-4 w-4 text-gray-400" />
+            </button>
+            <QhxSelect
+              ref="areaSelectRef"
+              :options="areaOptions"
+              @select="onAreaSelect"
+            />
+          </div>
+        </div>
+
+        <div class="flex justify-end gap-2 border-t border-gray-100 px-5 py-4 dark:border-gray-700">
+          <button
+            type="button"
+            class="rounded-full border border-gray-200 px-4 py-2 text-sm text-gray-600 transition-colors hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700"
+            @click="showAddressPicker = false"
+          >
+            取消
+          </button>
+          <QhxJellyButton>
+            <button
+              type="button"
+              class="rounded-full bg-qhx-primary px-5 py-2 text-sm font-medium text-qhx-inverted transition-colors hover:bg-qhx-primaryHover disabled:opacity-50"
+              :disabled="!selectedArea"
+              @click="confirmAddress"
+            >
+              确认
+            </button>
+          </QhxJellyButton>
+        </div>
+      </div>
+    </QhxModal>
+
+    <EmailBindModal
+      v-model="showEmailModal"
+      :user="user"
+      @success="handleEmailBindSuccess"
+    />
+
+    <RenameModal
+      v-model="showRenameModal"
+      :user="user"
+      @success="handleRenameSuccess"
+    />
+  </div>
+</template>
+
+<style scoped>
+.edit-section {
+  @apply rounded-2xl border border-gray-100 bg-qhx-bg-card p-4 shadow-sm dark:border-gray-700 md:p-5;
+}
+
+.edit-section__header {
+  @apply mb-4 flex items-center gap-2;
+}
+
+.edit-section__dot {
+  @apply h-2 w-2 shrink-0 rounded-full bg-qhx-primary;
+}
+
+.edit-section__title {
+  @apply text-base font-semibold text-gray-900 dark:text-white;
+}
+
+.edit-label {
+  @apply mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-300;
+}
+
+.edit-input {
+  @apply w-full rounded-full border border-gray-200 bg-gray-50 px-4 py-2.5 text-sm text-gray-800 outline-none transition-shadow dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100;
+}
+
+.edit-input:focus {
+  border-color: var(--primary-color);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary-color) 30%, transparent);
+}
+
+.edit-textarea {
+  @apply w-full resize-none rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-800 outline-none transition-shadow dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100;
+}
+
+.edit-textarea:focus {
+  border-color: var(--primary-color);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary-color) 30%, transparent);
+}
+
+.edit-switch {
+  @apply relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition-colors focus-visible:outline-none disabled:opacity-50;
+}
+
+.edit-switch:focus-visible {
+  box-shadow: 0 0 0 2px var(--primary-color);
+}
+
+.edit-switch__thumb {
+  @apply inline-block h-5 w-5 rounded-full bg-white shadow transition-transform;
+}
+
+.edit-setting-row {
+  @apply flex items-center justify-between gap-4 rounded-xl px-1 py-3;
+}
+
+.edit-picker-btn {
+  @apply flex w-full items-center justify-between rounded-full border border-gray-200 bg-gray-50 px-4 py-2.5 text-left text-sm transition-colors dark:border-gray-600 dark:bg-gray-800;
+}
+
+.edit-picker-btn:hover {
+  border-color: var(--primary-color);
+}
+</style>

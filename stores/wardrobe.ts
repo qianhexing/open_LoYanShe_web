@@ -33,6 +33,18 @@ export const useWardrobeStore = defineStore('wardrobe', {
         data.clothes_part = [...new Set(clothes_part)]
 
         data.color_list = [...new Set(response.color_list)]
+        const tagsRaw = response.tags ?? (response as { tags_list?: unknown }).tags_list
+        if (Array.isArray(tagsRaw)) {
+          const tags: string[] = []
+          for (const child of tagsRaw) {
+            if (typeof child !== 'string') continue
+            for (const item of child.split(',')) {
+              const t = item.trim()
+              if (t) tags.push(t)
+            }
+          }
+          data.tags = [...new Set(tags)]
+        }
         this.config = data
         return data
       } catch (err) {

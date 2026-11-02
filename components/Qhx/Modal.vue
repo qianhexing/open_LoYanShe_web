@@ -11,7 +11,8 @@
         <div
           v-if="modelValue"
           ref="modalContainer"
-          class="modal-container fixed inset-0 z-[200] flex items-center justify-center"
+          class="modal-container fixed inset-0 flex items-center justify-center"
+          :style="{ zIndex: zIndex }"
           tabindex="0"
           @keydown.esc="close"
         >
@@ -35,10 +36,34 @@
   </ClientOnly>
 </template>
 
-<script setup lang="ts">
-import { ref, nextTick, watch, onUnmounted } from 'vue'
+<script lang="ts">
+let modalOpenCount = 0
+let originalBodyOverflow = ''
+let originalHtmlOverflow = ''
 
-// 客户端检查
+export function lockModalBodyScroll() {
+  if (typeof document === 'undefined') return
+  if (modalOpenCount === 0) {
+    originalBodyOverflow = document.body.style.overflow
+    originalHtmlOverflow = document.documentElement.style.overflow
+    document.body.style.overflow = 'hidden'
+    document.documentElement.style.overflow = 'hidden'
+  }
+  modalOpenCount += 1
+}
+
+export function unlockModalBodyScroll() {
+  if (typeof document === 'undefined') return
+  modalOpenCount = Math.max(0, modalOpenCount - 1)
+  if (modalOpenCount > 0) return
+  document.body.style.overflow = originalBodyOverflow
+  document.documentElement.style.overflow = originalHtmlOverflow
+}
+</script>
+
+<script setup lang="ts">
+import { computed, ref, shallowRef, nextTick, watch, onUnmounted } from 'vue'
+
 const isClient = process.client
 
 const props = withDefaults(
@@ -47,9 +72,12 @@ const props = withDefaults(
     triggerPosition?: { x: number; y: number }
     /** 点击遮罩是否关闭，默认 true */
     closeOnBackdrop?: boolean
+    /** 叠层顺序，默认 200；嵌套弹窗请传更大值 */
+    zIndex?: number
   }>(),
   {
-    closeOnBackdrop: true
+    closeOnBackdrop: true,
+    zIndex: 200,
   }
 )
 
@@ -58,28 +86,19 @@ const emit = defineEmits(['update:modelValue', 'close'])
 const modalBox = ref<HTMLElement | null>(null)
 const modalContainer = ref<HTMLElement | null>(null)
 const modalStyle = ref<Record<string, string>>({})
+const zIndex = computed(() => props.zIndex)
+const didLockScroll = shallowRef(false)
 
-// 保存原始样式
-let originalBodyOverflow = ''
-let originalHtmlOverflow = ''
-
-// 禁用页面滚动（使用 overflow 而非 position:fixed，避免打开弹窗时页面回弹到顶部）
 const disableBodyScroll = () => {
-  if (!isClient) return
-
-  originalBodyOverflow = document.body.style.overflow
-  originalHtmlOverflow = document.documentElement.style.overflow
-
-  document.body.style.overflow = 'hidden'
-  document.documentElement.style.overflow = 'hidden'
+  if (!isClient || didLockScroll.value) return
+  lockModalBodyScroll()
+  didLockScroll.value = true
 }
 
-// 恢复页面滚动
 const enableBodyScroll = () => {
-  if (!isClient) return
-
-  document.body.style.overflow = originalBodyOverflow
-  document.documentElement.style.overflow = originalHtmlOverflow
+  if (!isClient || !didLockScroll.value) return
+  unlockModalBodyScroll()
+  didLockScroll.value = false
 }
 
 // 检查事件目标是否在模态框内容区域内
@@ -147,7 +166,6 @@ onUnmounted(() => {
 
 // 关闭方法
 const close = () => {
-  enableBodyScroll()
   emit('update:modelValue', false)
   emit('close')
 }

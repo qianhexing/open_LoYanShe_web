@@ -247,6 +247,9 @@ const sortTypeOptions: optionsInterface[] = [
   { label: '价格倒叙', value: 3 },
   { label: '价格正序', value: 4 },
   { label: '穿着次数倒叙', value: 5 },
+  { label: '穿着次数正序', value: 11 },
+  { label: '穿着时间倒叙', value: 9 },
+  { label: '穿着时间正序', value: 10 },
 ]
 
 const defaultSortTypeForSelect = computed(

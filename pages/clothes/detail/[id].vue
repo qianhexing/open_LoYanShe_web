@@ -25,9 +25,16 @@ import ClothesFavoriteCoverOverlay from '@/components/Clothes/ClothesFavoriteCov
 import ClothesDetailCoverFrame from '@/components/Clothes/ClothesDetailCoverFrame.vue'
 import CommunityPostModal from '@/components/community/CommunityPostModal.vue'
 import ClothesShareImage from '@/components/Clothes/ClothesShareImage.vue'
-import type { CommunityPostForeignContext } from '@/utils/communityPost'
+import { CLOTHES_MEMORY_IS_OPEN_STORAGE_KEY, type CommunityPostForeignContext } from '@/utils/communityPost'
 import type { ClothesShareSource } from '@/utils/clothesShareCanvas'
 import { BASE_IMG } from '@/utils/ipConfig'
+import {
+  isCommunityLivePath,
+  normalizeRawImgPath,
+  stripMediaQuery,
+  toAbsoluteMediaUrl,
+  toCommunityLivePosterPath,
+} from '@/utils/communityLiveMedia'
 import PhysicsDrop from '@/components/PhysicsDrop.client.vue'
 import type { MaterialForeign, Material } from '@/types/api'
 import { getLibraryVideo } from '@/api/library'
@@ -280,11 +287,25 @@ const wardrobeClothesChooseRef = ref<InstanceType<typeof WardrobeClothesChoose> 
 const linkClothesLoading = ref(false)
 const sharedLoading = ref(false)
 
+/** include_clothes 逗号 ID 列表（去空、去空白） */
+function parseIncludeClothesIds(raw?: string | null): string[] {
+  if (!raw?.trim()) return []
+  return raw.split(',').map((s) => s.trim()).filter(Boolean)
+}
+
+function sameClothesId(
+  a: string | number | null | undefined,
+  b: string | number | null | undefined
+): boolean {
+  if (a == null || b == null || a === '' || b === '') return false
+  const na = Number(a)
+  const nb = Number(b)
+  return Number.isFinite(na) && Number.isFinite(nb) && na === nb
+}
+
 /** 关联服饰剩余可添加数量（上限 10） */
 const linkClothesRemainingSlots = computed(() => {
-  const count = detail.value?.include_clothes
-    ? detail.value.include_clothes.split(',').filter(Boolean).length
-    : 0
+  const count = parseIncludeClothesIds(detail.value?.include_clothes).length
   return Math.max(0, 10 - count)
 })
 
@@ -492,10 +513,9 @@ const fetchClothesDetail = async () => {
       if (data.include_clothes && data.include_clothes !== '' && data.include && data.include.length > 0) {
         const include: WardrobeClothes[] = []
         for (const idStr of data.include_clothes.split(',')) {
-          if (!data.include) continue
-          const index = data.include.findIndex((child) => {
-            return child.clothes_id === Number.parseInt(idStr)
-          })
+          const id = Number.parseInt(idStr.trim(), 10)
+          if (!Number.isFinite(id)) continue
+          const index = data.include.findIndex((child) => Number(child.clothes_id) === id)
           if (index !== -1) {
             include.push(data.include[index])
           }
@@ -527,19 +547,44 @@ const OWNER_LARGE_IMAGE_PARAMS = '?x-oss-process=image/quality,q_100/resize,w_19
 /** 当前用户服饰大图 OSS 参数 */
 function appendOwnerLargeImageParams(path?: string | null): string {
   const p = path?.trim() || ''
-  if (!p || !isOwner.value) return p
-  if (p.includes('x-oss-process')) return p
-  return `${p}${OWNER_LARGE_IMAGE_PARAMS}`
+  if (!p) return p
+  const display = isCommunityLivePath(p) ? toCommunityLivePosterPath(p) : p
+  if (!isOwner.value) return display
+  if (display.includes('x-oss-process')) return display
+  return `${display}${OWNER_LARGE_IMAGE_PARAMS}`
 }
 
 function mapOwnerLargeImageParams(paths?: Array<string | null | undefined>): string[] {
   if (!paths?.length) return []
-  return paths.map((p) => appendOwnerLargeImageParams(p)).filter(Boolean)
+  return paths
+    .map((p) => {
+      const raw = p?.trim() || ''
+      if (!raw) return ''
+      // Lightbox 需要原始 .mp4 才能识别 Live
+      if (isCommunityLivePath(raw)) return raw
+      return appendOwnerLargeImageParams(raw)
+    })
+    .filter(Boolean)
 }
 
 function clothesPreviewItem(src: string | null | undefined, alt = '') {
-  return [{ src: appendOwnerLargeImageParams(src), alt }]
+  const raw = src?.trim() || ''
+  const item: { src: string; alt: string; videoSrc?: string } = {
+    src: appendOwnerLargeImageParams(src),
+    alt,
+  }
+  if (isCommunityLivePath(raw)) {
+    item.videoSrc = toAbsoluteMediaUrl(stripMediaQuery(normalizeRawImgPath(raw)))
+  }
+  return [item]
 }
+
+const mainCoverPreviewList = computed(() =>
+  clothesPreviewItem(detail.value?.clothes_img, detail.value?.clothes_note || ''),
+)
+const mainCoverPreviewPaths = computed(() =>
+  mapOwnerLargeImageParams([detail.value?.clothes_img]),
+)
 
 /** 详情图布局：缩略图（九宫格）/ 长图（竖排），与图鉴详情共用偏好 */
 const CLOTHES_DETAIL_IMAGE_LAYOUT_KEY = 'libraryDetailImageLayout'
@@ -653,12 +698,13 @@ const planPriceDisplay = computed(() => {
 const includeCoverPrimary = computed(() => detail.value?.include?.slice(0, 3) ?? [])
 const includeCoverOverflow = computed(() => detail.value?.include?.slice(3) ?? [])
 
-// 编辑服饰
+// 编辑服饰（detail 已是 /clothes/id，标记 detailReady 避免 ClothesAdd 再拉一次）
 const editClothes = () => {
   if (addEditClothesRef.value && detail.value) {
     const item = {
       ...detail.value,
-      wardrobe_name: detail.value.wardrobe?.wardrobe_name
+      wardrobe_name: detail.value.wardrobe?.wardrobe_name,
+      detailReady: true,
     }
     addEditClothesRef.value.showModel(item)
   }
@@ -669,7 +715,8 @@ const copyClothes = () => {
   if (addEditClothesRef.value && detail.value) {
     const item = {
       ...detail.value,
-      wardrobe_name: detail.value.wardrobe?.wardrobe_name
+      wardrobe_name: detail.value.wardrobe?.wardrobe_name,
+      detailReady: true,
     }
     addEditClothesRef.value.showModel(item, true)
   }
@@ -803,21 +850,52 @@ const updateNum = async (num: number) => {
   }
 }
 
-// 更新穿着次数
+// 更新穿着次数。次数恰好 +1 时，服务端会把最后穿着时间写成当前时间
 const updateTimes = async (times: number) => {
   if (!detail.value || !isOwner.value) return
   try {
-    await updateClothes({
+    const result = await updateClothes({
       clothes_id: detail.value.clothes_id,
       times
     })
     if (detail.value) {
       detail.value.times = times
+      if (result && Object.prototype.hasOwnProperty.call(result, 'last_dress')) {
+        detail.value.last_dress = result.last_dress
+      }
     }
   } catch (error) {
     console.error('更新穿着次数失败:', error)
   }
 }
+
+const lastDressSaving = ref(false)
+const updateLastDress = async (value: string | null) => {
+  if (!detail.value || !isOwner.value || lastDressSaving.value) return
+  const next = value && String(value).trim() ? String(value).trim() : null
+  const prev = detail.value.last_dress
+  if (toPickerDateTime(prev) === (next || '')) return
+  detail.value.last_dress = next
+  lastDressSaving.value = true
+  try {
+    await updateClothes({
+      clothes_id: detail.value.clothes_id,
+      last_dress: next,
+    })
+  } catch (error) {
+    if (detail.value) detail.value.last_dress = prev
+    console.error('更新最后穿着时间失败:', error)
+  } finally {
+    lastDressSaving.value = false
+  }
+}
+
+const lastDressInput = computed({
+  get: () => toPickerDateTime(detail.value?.last_dress),
+  set: (value: string | null) => {
+    void updateLastDress(value)
+  },
+})
 
 /** 拥有状态：与 ClothesAdd / 衣柜批量改状态一致 */
 const wardrobe_status_defaults: optionsInterface[] = [
@@ -901,11 +979,103 @@ const jumpToWardrobe = () => {
   }
 }
 
+const isInUniAppShell = computed(
+  () =>
+    import.meta.client &&
+    typeof navigator !== 'undefined' &&
+    navigator.userAgent.includes('Html5Plus')
+)
+
+const clothesBackBtnStyle = computed(() => ({
+  top:
+    configStore.statusBarHeight > 0
+      ? `${configStore.statusBarHeight + 10}px`
+      : 'calc(0.5rem + env(safe-area-inset-top, 0px))',
+  left: isMobile.value ? '8px' : '12px',
+}))
+
+/** Vue Router 是否写入了可回退的上一页（比 history.length 可靠） */
+function canSpaBack() {
+  if (!import.meta.client) return false
+  const state = window.history.state as { back?: unknown } | null
+  return state?.back != null
+}
+
+function navigateBackToWardrobe() {
+  if (detail.value?.wardrobe_id && detail.value.wardrobe?.user_id) {
+    void navigateTo({
+      path: `/wardrobe/detail/${detail.value.wardrobe.user_id}`,
+      query: {
+        wardrobe_id: String(detail.value.wardrobe_id),
+        ...buildAccessQueryParams(),
+      },
+    })
+    return
+  }
+  void navigateTo('/wardrobe')
+}
+
+/**
+ * 返回：UniApp → SPA 历史 → 衣柜页 → 鸿蒙 native back。
+ * 鸿蒙 MessagePort 异步注入，且嵌套 Outlink 的 native back 会偶发直接回主界面，
+ * 因此有衣柜上下文时不依赖 port.back。
+ */
+function goBack() {
+  if (isInUniAppShell.value) {
+    const uniApi = configStore.uniWebviewJs ?? uni
+    if (uniApi && typeof uniApi.navigateBack === 'function') {
+      uniApi.navigateBack()
+      return
+    }
+  }
+
+  if (canSpaBack()) {
+    router.back()
+    return
+  }
+
+  if (detail.value?.wardrobe_id && detail.value.wardrobe?.user_id) {
+    navigateBackToWardrobe()
+    return
+  }
+
+  if (port.value) {
+    port.value.postMessage(JSON.stringify({ type: 'back' }))
+    return
+  }
+
+  navigateBackToWardrobe()
+}
+
 // 格式化日期
 const formatDate = (date: Date | string | undefined) => {
   if (!date) return ''
   const d = typeof date === 'string' ? new Date(date) : date
   return d.toLocaleDateString('zh-CN')
+}
+
+function pad2(n: number) {
+  return String(n).padStart(2, '0')
+}
+
+/** 日期选择器值：本地时间 YYYY-MM-DD HH:mm:ss */
+function toPickerDateTime(value: Date | string | null | undefined): string {
+  if (!value) return ''
+  if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return `${value} 00:00:00`
+  }
+  if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(value)) {
+    return value
+  }
+  const d = value instanceof Date ? value : new Date(value)
+  if (Number.isNaN(d.getTime())) return ''
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`
+}
+
+const formatDateTime = (date: Date | string | null | undefined) => {
+  const text = toPickerDateTime(date)
+  if (!text) return ''
+  return text.endsWith('00:00:00') ? text.slice(0, 10) : text.slice(0, 16)
 }
 
 // 格式化货币标签
@@ -932,6 +1102,21 @@ const exchangeRate = (shop_country: number | undefined, price: number | undefine
   return false
 }
 
+/** 次均价格：有出物价时为 (价格 - 出物价) / 穿着次数，否则为 价格 / 穿着次数 */
+function calcCostPerWear(
+  price: number | undefined | null,
+  offerPrice: number | null | undefined,
+  times: number | undefined | null,
+): string | null {
+  if (!price || !times || times <= 0) return null
+  const effectivePrice = offerPrice ? Number(price) - Number(offerPrice) : Number(price)
+  return (effectivePrice / times).toFixed(2)
+}
+
+const costPerWearDisplay = computed(() =>
+  calcCostPerWear(detail.value?.price, detail.value?.offer_price, detail.value?.times),
+)
+
 const clothesShareSource = computed((): ClothesShareSource | null => {
   const d = detail.value
   if (!d?.clothes_img) return null
@@ -956,11 +1141,15 @@ const clothesShareSource = computed((): ClothesShareSource | null => {
   if (d.times !== undefined && d.times !== null) {
     sections.push({ key: 'times', title: '穿着次数', text: String(d.times) })
   }
-  if (d.times && d.times > 0 && d.price) {
+  if (d.last_dress) {
+    sections.push({ key: 'last_dress', title: '最后穿着', text: formatDateTime(d.last_dress) })
+  }
+  const costPerWear = calcCostPerWear(d.price, d.offer_price, d.times)
+  if (costPerWear) {
     sections.push({
       key: 'cost_per_wear',
       title: '次均价格',
-      text: `￥${(d.price / d.times).toFixed(2)}`,
+      text: `￥${costPerWear}`,
     })
   }
   if (d.color?.trim()) {
@@ -968,6 +1157,13 @@ const clothesShareSource = computed((): ClothesShareSource | null => {
       key: 'color',
       title: '颜色',
       tags: d.color.split(',').map((c) => c.trim()).filter(Boolean),
+    })
+  }
+  if (d.color_text?.trim()) {
+    sections.push({
+      key: 'color_text',
+      title: '颜色(文本)',
+      tags: d.color_text.split(',').map((c) => c.trim()).filter(Boolean),
     })
   }
   if (d.clothes_part?.trim()) {
@@ -1104,9 +1300,7 @@ const openLinkClothesChoose = (e?: MouseEvent) => {
 const handleLinkClothesChoose = async (clothesList: WardrobeClothes[]) => {
   if (!detail.value?.clothes_id || !clothesList.length || linkClothesLoading.value) return
   const selfId = detail.value.clothes_id
-  const currentInclude = detail.value.include_clothes
-    ? detail.value.include_clothes.split(',').filter(Boolean)
-    : []
+  const currentInclude = parseIncludeClothesIds(detail.value.include_clothes)
   if (currentInclude.length >= 10) {
     toast.add({ title: '最多关联10条', icon: 'i-heroicons-exclamation-circle', color: 'red' })
     return
@@ -1141,7 +1335,7 @@ const handleLinkClothesChoose = async (clothesList: WardrobeClothes[]) => {
     for (const clothes of actualLink) {
       const otherIncludeClothes = [
         ...new Set([
-          ...(clothes.include_clothes?.split(',').filter(Boolean) ?? []),
+          ...parseIncludeClothesIds(clothes.include_clothes),
           String(selfId)
         ])
       ].join(',')
@@ -1168,14 +1362,9 @@ const handleLinkClothesChoose = async (clothesList: WardrobeClothes[]) => {
 const deleteLinkClothes = async () => {
   if (!detail.value || !selectedClothes.value) return
   try {
-    let include_clothes: string[] = []
-    if (detail.value.include_clothes) {
-      include_clothes = detail.value.include_clothes.split(',')
-    }
-    if (!selectedClothes.value) return
-    const index = include_clothes.findIndex((item) => {
-      return Number.parseInt(item, 10) === selectedClothes.value.clothes_id
-    })
+    const targetId = selectedClothes.value.clothes_id
+    const include_clothes = parseIncludeClothesIds(detail.value.include_clothes)
+    const index = include_clothes.findIndex((item) => sameClothesId(item, targetId))
     if (index !== -1) {
       include_clothes.splice(index, 1)
       await updateClothes({
@@ -1201,40 +1390,68 @@ const deleteLinkClothes = async () => {
   }
 }
 
-// 上移关联服饰
-const upItem = async (index: number) => {
-  if (index === 0 || !detail.value || !detail.value.include_clothes) return
+const includeSortLoading = ref(false)
+
+/** 按展示列表下标交换；在 include_clothes 中按 clothes_id 定位，避免与过滤后的 include 下标错位 */
+const moveIncludeItem = async (fromIndex: number, toIndex: number) => {
+  const d = detail.value
+  const include = d?.include
+  if (!d?.clothes_id || !include?.length || includeSortLoading.value) return
+  if (
+    fromIndex < 0 ||
+    toIndex < 0 ||
+    fromIndex >= include.length ||
+    toIndex >= include.length ||
+    fromIndex === toIndex
+  ) {
+    return
+  }
+
+  const fromId = include[fromIndex]?.clothes_id
+  const toId = include[toIndex]?.clothes_id
+  if (fromId == null || toId == null) return
+
+  const ids = parseIncludeClothesIds(d.include_clothes)
+  const fromPos = ids.findIndex((id) => sameClothesId(id, fromId))
+  const toPos = ids.findIndex((id) => sameClothesId(id, toId))
+  if (fromPos < 0 || toPos < 0) return
+
+  const nextIds = [...ids]
+  const tmpId = nextIds[fromPos]
+  nextIds[fromPos] = nextIds[toPos]
+  nextIds[toPos] = tmpId
+  const include_clothes = nextIds.join(',')
+
+  const nextInclude = [...include]
+  const tmpItem = nextInclude[fromIndex]
+  nextInclude[fromIndex] = nextInclude[toIndex]
+  nextInclude[toIndex] = tmpItem
+  d.include = nextInclude
+  d.include_clothes = include_clothes
+
+  includeSortLoading.value = true
   try {
-    const include_clothes = detail.value.include_clothes.split(',')
-    const temp = include_clothes[index]
-    include_clothes[index] = include_clothes[index - 1]
-    include_clothes[index - 1] = temp
     await updateClothes({
-      clothes_id: detail.value.clothes_id,
-      include_clothes: include_clothes.join(',')
+      clothes_id: d.clothes_id,
+      include_clothes
     })
     await fetchClothesDetail()
   } catch (error) {
-    console.error('上移失败:', error)
+    console.error('关联服饰排序失败:', error)
+    await fetchClothesDetail()
+  } finally {
+    includeSortLoading.value = false
   }
 }
 
+// 上移关联服饰
+const upItem = (index: number) => {
+  void moveIncludeItem(index, index - 1)
+}
+
 // 下移关联服饰
-const downItem = async (index: number) => {
-  if (!detail.value || !detail.value.include || index >= detail.value.include.length - 1) return
-  try {
-    const include_clothes = detail.value.include_clothes?.split(',') || []
-    const temp = include_clothes[index]
-    include_clothes[index] = include_clothes[index + 1]
-    include_clothes[index + 1] = temp
-    await updateClothes({
-      clothes_id: detail.value.clothes_id,
-      include_clothes: include_clothes.join(',')
-    })
-    await fetchClothesDetail()
-  } catch (error) {
-    console.error('下移失败:', error)
-  }
+const downItem = (index: number) => {
+  void moveIncludeItem(index, index + 1)
 }
 
 // 编辑成功回调
@@ -1853,6 +2070,17 @@ const showEditPlan = (e?: MouseEvent) => {
 
 <template>
   <div class="wardrobe-page-neu">
+    <button
+      v-if="detail"
+      type="button"
+      class="clothes-back-btn fixed z-[55] flex h-9 w-9 items-center justify-center rounded-full bg-black/55 text-white shadow-lg backdrop-blur-md transition-opacity hover:bg-black/65 hover:opacity-90 active:scale-95 dark:bg-white/20 dark:hover:bg-white/30"
+      :style="clothesBackBtnStyle"
+      aria-label="返回"
+      @click="goBack"
+    >
+      <UIcon name="i-heroicons-arrow-left" class="text-[18px]" />
+    </button>
+
     <div
       v-if="detail"
       class="clothes-fab-stack fixed top-20 right-3 max-md:top-16 max-md:right-2 z-[60] flex flex-col items-end gap-1"
@@ -2160,6 +2388,7 @@ const showEditPlan = (e?: MouseEvent) => {
       modal-title="写新记忆"
       :skip-summary-link="true"
       :success-redirect="false"
+      :persist-is-open-key="CLOTHES_MEMORY_IS_OPEN_STORAGE_KEY"
       @success="onClothesMemoryPostSuccess"
     />
 
@@ -2406,8 +2635,8 @@ const showEditPlan = (e?: MouseEvent) => {
                     </div>
 
                     <!-- 次均价格 -->
-                    <div v-if="detail.times && detail.times > 0 && detail.price" :class="clothesPlateRow">
-                      次均价格：￥{{ (detail.price / detail.times).toFixed(2) }}
+                    <div v-if="costPerWearDisplay" :class="clothesPlateRow">
+                      次均价格：￥{{ costPerWearDisplay }}
                     </div>
 
                     <!-- 尺码 -->
@@ -2424,11 +2653,32 @@ const showEditPlan = (e?: MouseEvent) => {
                       <span v-else class="text-sm">{{ detail.times }}</span>
                     </div>
 
+                    <!-- 最后穿着时间：次数 +1 时服务端会自动更新，主人也可手动改 -->
+                    <div v-if="isOwner || detail.last_dress" class="flex items-center gap-2 flex-wrap">
+                      <span :class="clothesPlateLabel">最后穿着：</span>
+                      <div v-if="isOwner" class="w-full max-w-[16rem]">
+                        <QhxDateTimePicker
+                          v-model="lastDressInput"
+                          mode="date"
+                          :enable-time-picker="true"
+                          format="YYYY-MM-DD HH:mm:ss"
+                          placeholder="选择最后穿着时间"
+                        />
+                      </div>
+                      <span v-else class="text-sm">{{ formatDateTime(detail.last_dress) }}</span>
+                    </div>
+
                     <!-- 颜色 -->
                     <div v-if="detail.color" class="flex items-center gap-2 flex-wrap">
                       <span :class="clothesPlateLabel">颜色：</span>
                       <div v-for="(color, index) in detail.color.split(',')" :key="index"
                         class="w-8 h-8 rounded-full border-2 border-gray-300" :style="{ background: color }"></div>
+                    </div>
+                    <div v-if="detail.color_text" class="flex items-center gap-2 flex-wrap">
+                      <span :class="clothesPlateLabel">颜色(文本)：</span>
+                      <QhxTag v-for="(name, index) in detail.color_text.split(',')" :key="index" :active="true">
+                        {{ name }}
+                      </QhxTag>
                     </div>
 
                     <!-- 部位 -->
@@ -2823,8 +3073,10 @@ const showEditPlan = (e?: MouseEvent) => {
                               :iframe-src="humanPlatformIframeSrc"
                             >
                               <QhxPreviewImage
-                                :list="clothesPreviewItem(detail.clothes_img, detail.clothes_note || '')"
-                                :preview="mapOwnerLargeImageParams([detail.clothes_img])"
+                                play-live
+                                live-loop
+                                :list="mainCoverPreviewList"
+                                :preview="mainCoverPreviewPaths"
                                 className="w-full h-full object-cover" />
                               <ClothesFavoriteCoverOverlay
                                 v-if="detail.is_favorite !== undefined"
@@ -2915,8 +3167,10 @@ const showEditPlan = (e?: MouseEvent) => {
                               :iframe-src="humanPlatformIframeSrc"
                             >
                               <QhxPreviewImage
-                                :list="clothesPreviewItem(detail.clothes_img, detail.clothes_note || '')"
-                                :preview="mapOwnerLargeImageParams([detail.clothes_img])"
+                                play-live
+                                live-loop
+                                :list="mainCoverPreviewList"
+                                :preview="mainCoverPreviewPaths"
                                 className="w-full h-full object-cover" />
                               <ClothesFavoriteCoverOverlay
                                 v-if="detail.is_favorite !== undefined"
@@ -2962,8 +3216,10 @@ const showEditPlan = (e?: MouseEvent) => {
                         :iframe-src="humanPlatformIframeSrc"
                       >
                         <QhxPreviewImage
-                          :list="clothesPreviewItem(detail.clothes_img, detail.clothes_note || '')"
-                          :preview="mapOwnerLargeImageParams([detail.clothes_img])"
+                          play-live
+                          live-loop
+                          :list="mainCoverPreviewList"
+                          :preview="mainCoverPreviewPaths"
                           className="w-full h-full object-cover" />
                         <ClothesFavoriteCoverOverlay
                           v-if="detail.is_favorite !== undefined"
@@ -3175,8 +3431,8 @@ const showEditPlan = (e?: MouseEvent) => {
                     </div>
 
                     <!-- 次均价格 -->
-                    <div v-if="detail.times && detail.times > 0 && detail.price" :class="clothesPlateRow">
-                      次均价格：￥{{ (detail.price / detail.times).toFixed(2) }}
+                    <div v-if="costPerWearDisplay" :class="clothesPlateRow">
+                      次均价格：￥{{ costPerWearDisplay }}
                     </div>
 
                     <!-- 尺码 -->
@@ -3193,11 +3449,32 @@ const showEditPlan = (e?: MouseEvent) => {
                       <span v-else class="text-sm">{{ detail.times }}</span>
                     </div>
 
+                    <!-- 最后穿着时间：次数 +1 时服务端会自动更新，主人也可手动改 -->
+                    <div v-if="isOwner || detail.last_dress" class="flex items-center gap-2 flex-wrap">
+                      <span :class="clothesPlateLabel">最后穿着：</span>
+                      <div v-if="isOwner" class="w-full max-w-[16rem]">
+                        <QhxDateTimePicker
+                          v-model="lastDressInput"
+                          mode="date"
+                          :enable-time-picker="true"
+                          format="YYYY-MM-DD HH:mm:ss"
+                          placeholder="选择最后穿着时间"
+                        />
+                      </div>
+                      <span v-else class="text-sm">{{ formatDateTime(detail.last_dress) }}</span>
+                    </div>
+
                     <!-- 颜色 -->
                     <div v-if="detail.color" class="flex items-center gap-2 flex-wrap">
                       <span :class="clothesPlateLabel">颜色：</span>
                       <div v-for="(color, index) in detail.color.split(',')" :key="index"
                         class="w-8 h-8 rounded-full border-2 border-gray-300" :style="{ background: color }"></div>
+                    </div>
+                    <div v-if="detail.color_text" class="flex items-center gap-2 flex-wrap">
+                      <span :class="clothesPlateLabel">颜色(文本)：</span>
+                      <QhxTag v-for="(name, index) in detail.color_text.split(',')" :key="index" :active="true">
+                        {{ name }}
+                      </QhxTag>
                     </div>
 
                     <!-- 部位 -->

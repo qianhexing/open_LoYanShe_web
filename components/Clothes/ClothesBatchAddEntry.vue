@@ -126,8 +126,10 @@ const libraryToBatchItem = (lib: Library): ClothesBatchInsertItem => {
   } else if (lib.shop_id) {
     item.origin = lib.shop_id
   }
+  // 图鉴 color 是文本色名（如「白色,粉色」），对应服饰 color_text；
+  // 服饰 color 才是 hex，误写入会导致色块显示成一列白色。
   if (lib.color) {
-    item.color = lib.color
+    item.color_text = lib.color
   }
   if (lib.season) {
     item.season = lib.season

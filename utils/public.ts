@@ -1,4 +1,9 @@
 import { BASE_IMG } from '@/utils/ipConfig'
+import { parseHtmlDocument } from '@/utils/parseHtmlDocument'
+
+/** DOM 节点类型常量（避免 SSR 无全局 Node） */
+const NODE_ELEMENT = 1
+const NODE_TEXT = 3
 
 /** 富文本里历史绝对地址，统一成当前图片域名 + 相对路径 */
 function normalizeLolitaAliImgSrc(src: string): string {
@@ -220,9 +225,10 @@ export interface RichNode {
   children: RichNode[];                 // 子节点列表
   attrs: Record<string, string>;       // 标签属性，如 { href: '', class: '' }
 }
-// 解析富文本
+// 解析富文本（浏览器 DOMParser / SSR linkedom，见 parseHtmlDocument）
 export function parseRichText(html: string): RichNode[] {
-  let newHtml = html.replace(/ahref/g, 'a href')
+  if (html == null || html === '') return []
+  let newHtml = String(html).replace(/ahref/g, 'a href')
   newHtml = newHtml.replace(/editorcommunity/g, 'p')
   newHtml = replaceLolitavoteWithVoteTag(newHtml)
   // 编辑器包裹的图片：去掉 editorimage，只保留内层 img，便于 DOM 解析为 img 节点
@@ -235,11 +241,10 @@ export function parseRichText(html: string): RichNode[] {
     }
   )
   newHtml = newHtml.replace(/<img\b[^>]*>/gi, (tag) => rewriteImgTagLolitaAliSrc(tag))
-  const parser = new DOMParser()
-  const doc = parser.parseFromString(newHtml, 'text/html')
+  const doc = parseHtmlDocument(newHtml)
 
   function parseNode(node: ChildNode): RichNode | null {
-    if (node.nodeType === Node.TEXT_NODE) {
+    if (node.nodeType === NODE_TEXT) {
       const text = node.textContent?.trim() || ''
       return text
         ? {
@@ -251,7 +256,7 @@ export function parseRichText(html: string): RichNode[] {
         : null
     }
 
-    if (node.nodeType === Node.ELEMENT_NODE) {
+    if (node.nodeType === NODE_ELEMENT) {
       const el = node as HTMLElement
       const tagName = el.tagName.toLowerCase()
 

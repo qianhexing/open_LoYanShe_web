@@ -1,12 +1,26 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, provide, ref, watch } from 'vue'
 import type { Journal } from '@/types/api'
 import QhxCarousel from '@/components/Qhx/Carousel.vue'
 import type { QhxCarouselItem } from '@/components/Qhx/Carousel.vue'
 import JournalCarouselCard from '@/components/journal/JournalCarouselCard.vue'
+import JournalCarouselSceneHost from '@/components/journal/JournalCarouselSceneHost.vue'
 import { journalCanJumpDetail } from '@/components/journal/carousel/shared'
+import {
+  journalCarouselSceneHostKey,
+  type JournalCarouselSceneHostApi,
+  type JournalCarouselSceneLayout
+} from '@/components/journal/carousel/sceneHostTypes'
 import { BASE_IMG } from '@/utils/ipConfig'
 import dayjs from 'dayjs'
+
+type SceneHostExpose = {
+  ensureInit: () => Promise<void>
+  load: (sceneId: number) => Promise<void>
+  clear: () => void
+  dispose: () => void
+  requestResize: () => void
+}
 
 export interface JournalCarouselDay {
   day: number
@@ -40,11 +54,116 @@ type MonthEnterEdge = 'start' | 'end' | 'auto'
 const carouselIndex = ref(0)
 const selectedDay = ref<number | null>(null)
 const dayStripRef = ref<HTMLElement | null>(null)
+const stageRef = ref<HTMLElement | null>(null)
+const sceneHostRef = ref<SceneHostExpose | null>(null)
 const syncingFromStrip = ref(false)
 const pendingEnterEdge = ref<MonthEnterEdge>('auto')
 /** 已发起切月、等待当月数据就绪 */
 const awaitingMonthData = ref(false)
 const appliedMonthKey = ref('')
+
+/** 父级单 WebGL：显示 / 交互 / 对齐占位 */
+const sceneHostVisible = ref(false)
+const sceneHostInteractive = ref(false)
+const sceneHostLayout = ref<JournalCarouselSceneLayout | null>(null)
+const activeSceneId = ref<number | null>(null)
+const activeSlotEl = ref<HTMLElement | null>(null)
+const sceneCardInteractive = ref(false)
+
+function measureSceneSlot(slotEl: HTMLElement): JournalCarouselSceneLayout | null {
+  const stage = stageRef.value
+  if (!stage) return null
+  const sr = stage.getBoundingClientRect()
+  const r = slotEl.getBoundingClientRect()
+  if (r.width < 8 || r.height < 8) return null
+  return {
+    top: r.top - sr.top,
+    left: r.left - sr.left,
+    width: r.width,
+    height: r.height
+  }
+}
+
+function syncSceneHostLayout() {
+  const el = activeSlotEl.value
+  if (!el || !sceneHostInteractive.value) return
+  const layout = measureSceneSlot(el)
+  if (layout) {
+    sceneHostLayout.value = layout
+    nextTick(() => sceneHostRef.value?.requestResize())
+  }
+}
+
+function hideSceneHostKeepContent() {
+  sceneHostVisible.value = false
+  sceneHostInteractive.value = false
+  sceneCardInteractive.value = false
+}
+
+function clearAndHideSceneHost() {
+  sceneHostVisible.value = false
+  sceneHostInteractive.value = false
+  sceneCardInteractive.value = false
+  activeSceneId.value = null
+  activeSlotEl.value = null
+  sceneHostLayout.value = null
+  sceneHostRef.value?.clear()
+}
+
+const sceneHostApi: JournalCarouselSceneHostApi = {
+  cardInteractive: sceneCardInteractive,
+  enter(sceneId, slotEl) {
+    activeSceneId.value = sceneId
+    activeSlotEl.value = slotEl
+    sceneCardInteractive.value = false
+    // 进入卡不露画布、不额外 clear：切内容只走 load → reloadSceneKeepWebGL
+    sceneHostVisible.value = false
+    sceneHostInteractive.value = false
+  },
+  leave(sceneId) {
+    // 若已有其它卡接管 ownership，则不要清掉新卡状态
+    if (activeSceneId.value != null && activeSceneId.value !== sceneId) return
+    clearAndHideSceneHost()
+  },
+  interact(sceneId, slotEl) {
+    activeSceneId.value = sceneId
+    activeSlotEl.value = slotEl
+    sceneCardInteractive.value = true
+    const layout = measureSceneSlot(slotEl)
+    if (layout) sceneHostLayout.value = layout
+    sceneHostVisible.value = true
+    sceneHostInteractive.value = true
+    void sceneHostRef.value
+      ?.load(sceneId)
+      .then(() => syncSceneHostLayout())
+      .catch((e) => {
+        console.warn('[journal-carousel] scene load:', e)
+      })
+  },
+  idle() {
+    hideSceneHostKeepContent()
+  }
+}
+
+provide(journalCarouselSceneHostKey, sceneHostApi)
+
+const sceneIdleBtnStyle = computed(() => {
+  const l = sceneHostLayout.value
+  if (!l || !sceneHostInteractive.value) return { display: 'none' }
+  return {
+    top: `${l.top + l.height - 44}px`,
+    left: `${l.left}px`,
+    width: `${l.width}px`
+  }
+})
+
+function onSceneIdleClick() {
+  sceneHostApi.idle()
+}
+
+function onSceneHostResize() {
+  syncSceneHostLayout()
+}
 
 const monthKey = computed(() => `${props.year}-${props.month}`)
 const monthPrefix = computed(
@@ -69,6 +188,10 @@ const sortedJournals = computed(() => {
 const showMonthLoading = computed(
   () => props.loading || awaitingMonthData.value
 )
+
+watch(showMonthLoading, (loading) => {
+  if (loading) clearAndHideSceneHost()
+})
 
 const isEmptyMonth = computed(() => sortedJournals.value.length === 0)
 
@@ -291,13 +414,16 @@ onMounted(() => {
   }
   if (import.meta.client) {
     window.addEventListener('keydown', onKeydown)
+    window.addEventListener('resize', onSceneHostResize)
   }
 })
 
 onUnmounted(() => {
+  clearAndHideSceneHost()
   unlockBodyScroll()
   if (import.meta.client) {
     window.removeEventListener('keydown', onKeydown)
+    window.removeEventListener('resize', onSceneHostResize)
   }
 })
 
@@ -420,7 +546,7 @@ function canShowDetail(j: Journal): boolean {
         >
           加载中...
         </div>
-        <div v-else class="journal-carousel-mode__stage min-h-0 flex-1">
+        <div v-else ref="stageRef" class="journal-carousel-mode__stage relative min-h-0 flex-1">
           <QhxCarousel
             :model-value="carouselIndex"
             :items="carouselItems"
@@ -466,6 +592,30 @@ function canShowDetail(j: Journal): boolean {
               </div>
             </template>
           </QhxCarousel>
+
+          <!-- 单 WebGL 宿主：不在 slide 内，避免 virtual-window 拆 context -->
+          <ClientOnly>
+            <JournalCarouselSceneHost
+              ref="sceneHostRef"
+              :visible="sceneHostVisible"
+              :interactive="sceneHostInteractive"
+              :layout="sceneHostLayout"
+            />
+          </ClientOnly>
+
+          <div
+            v-if="sceneHostInteractive"
+            class="pointer-events-none absolute z-[20] flex justify-center p-2"
+            :style="sceneIdleBtnStyle"
+          >
+            <button
+              type="button"
+              class="journal-carousel-type-scene__idle pointer-events-auto rounded-full px-3 py-1.5 text-xs font-medium shadow-md backdrop-blur-sm"
+              @click.stop="onSceneIdleClick"
+            >
+              恢复滑动
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -612,6 +762,12 @@ function canShowDetail(j: Journal): boolean {
 
 .journal-carousel-mode__stage {
   min-height: 0;
+}
+
+.journal-carousel-type-scene__idle {
+  color: #fff;
+  background: var(--seal-red);
+  border: 1px solid rgba(255, 255, 255, 0.2);
 }
 
 .journal-carousel-mode__stage :deep(.journal-carousel-mode__carousel),

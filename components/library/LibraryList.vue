@@ -138,18 +138,6 @@ const handlePageChange = (current: number) => {
   page.value = current
 }
 
-const showToast = () => {
-  const user = useUserStore()
-  console.log(user.token, '获取到的token')
-  const toast = useToast()
-
-  toast.add({
-    title: '成功',
-    description: '操作已成功完成',
-    icon: 'i-heroicons-check-circle',
-    color: 'green'
-  })
-}
 // 统一处理搜索逻辑
 const handleSearch = () => {
   keyword.value = value.value.trim()

@@ -10,6 +10,8 @@ export interface LibraryClothesSeed {
   price?: number
   clothes_part?: string
   detail_image_list?: string[]
+  /** 图鉴文本色名 → 服饰 color_text（非 hex color） */
+  color_text?: string
 }
 
 export interface LibraryTypeColorChooseResult {
@@ -41,6 +43,9 @@ export function librarySeedForClothesAdd(
     clothes_note: lib.name ?? '',
     clothes_img: normalizeClothesImgPath(clothesImg) ?? normalizeClothesImgPath(lib.cover),
     price: lib.library_price ?? 0
+  }
+  if (lib.color?.trim()) {
+    seed.color_text = lib.color.trim()
   }
   if (lib.shop) {
     seed.origin_shop = lib.shop

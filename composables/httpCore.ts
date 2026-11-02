@@ -4,159 +4,232 @@
  * 提供了自定义的 HTTP 请求方法，例如 `use$Get`，同时给出了一个获取动态内容的请求示例 `GetFeeds`。
  */
 import { $fetch } from 'ofetch'
+import { addQhxToast } from '@/utils/qhxToast'
 import { BASE_URL } from '@/utils/ipConfig'
 import { LOGIN_PATH, redirectToLoginPage } from '@/utils/loginRedirect'
+
 const baseURL = BASE_URL
+
 interface RequestOptions {
-  [key: string]: any;
+  [key: string]: any
 }
 
-// if (process.client) {
-//   token = userStore.token
-// }
-type HttpMethod = 'GET' | 'POST' | 'PUT' | 'DELETE';
+type HttpMethod = 'GET' | 'POST' | 'PUT' | 'DELETE'
 
-// 请求拦截器
+type SilentError = Error & { silent?: boolean; __qhxToasted?: boolean }
+
+type HttpErrorPayload = {
+  status?: number
+  statusCode?: number
+  data?: unknown
+  silent?: boolean
+  message?: string
+  msg?: string
+  code?: number
+  __qhxToasted?: boolean
+}
+
+function isSilentHttpError(error: unknown): boolean {
+  return Boolean(
+    error &&
+      typeof error === 'object' &&
+      'silent' in error &&
+      (error as { silent?: boolean }).silent
+  )
+}
+
+function unwrapPayload(error: unknown): Record<string, unknown> | undefined {
+  if (!error || typeof error !== 'object') return undefined
+  const e = error as HttpErrorPayload & { response?: { _data?: unknown } }
+  const raw = e.data ?? e.response?._data ?? error
+  if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+    return raw as Record<string, unknown>
+  }
+  return undefined
+}
+
+function httpErrorMessageOf(error: unknown): string {
+  if (typeof error === 'string' && error.trim()) return error.trim()
+  const payload = unwrapPayload(error)
+  const fromPayload = payload?.message ?? payload?.msg
+  if (typeof fromPayload === 'string' && fromPayload.trim()) return fromPayload.trim()
+
+  if (error && typeof error === 'object') {
+    const e = error as HttpErrorPayload
+    const fromSelf = e.message || e.msg
+    if (
+      typeof fromSelf === 'string' &&
+      fromSelf.trim() &&
+      !/^\[(GET|POST|PUT|DELETE|PATCH)\]/i.test(fromSelf)
+    ) {
+      return fromSelf.trim()
+    }
+    const status = e.status ?? e.statusCode
+    if (typeof status === 'number' && status > 0) return `请求失败（${status}）`
+  }
+
+  return '操作失败，请重试'
+}
+
+function notifyHttpError(error: unknown) {
+  if (typeof document === 'undefined') return
+  if (isSilentHttpError(error)) return
+  if (error && typeof error === 'object' && (error as HttpErrorPayload).__qhxToasted) {
+    return
+  }
+  const description = httpErrorMessageOf(error)
+  const show = () => {
+    addQhxToast({
+      title: '错误',
+      description,
+      icon: 'i-heroicons-exclamation-circle',
+      color: 'red',
+    })
+  }
+  // 等当前 throw / Nuxt 错误处理走完再插入，避免被同步异常打断
+  setTimeout(show, 0)
+  if (error && typeof error === 'object') {
+    ;(error as HttpErrorPayload).__qhxToasted = true
+  }
+}
+
+function throwSilent(message: string): never {
+  const error = new Error(message) as SilentError
+  error.silent = true
+  throw error
+}
+
+function redirectToLogin() {
+  if (typeof window === 'undefined') return
+  const { pathname, search } = window.location
+  const current = pathname + search
+  const redirectTo =
+    pathname === LOGIN_PATH || pathname.startsWith('/register')
+      ? undefined
+      : current
+  void redirectToLoginPage(redirectTo)
+}
+
+function isUnauthorized(httpStatus?: number, payload?: unknown): boolean {
+  if (httpStatus === 401) return true
+  if (payload && typeof payload === 'object' && (payload as { code?: number }).code === 401) {
+    return true
+  }
+  return false
+}
+
+function unauthorizedStatus(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false
+  const payload = error as HttpErrorPayload
+  const body = unwrapPayload(error)
+  return isUnauthorized(
+    payload.status ?? payload.statusCode,
+    body ?? payload
+  )
+}
+
+function payloadMessage(payload: unknown, fallback: string): string {
+  if (payload && typeof payload === 'object') {
+    const p = payload as { message?: string; msg?: string }
+    if (p.message) return String(p.message)
+    if (p.msg) return String(p.msg)
+  }
+  if (typeof payload === 'string' && payload.trim()) return payload.trim()
+  return fallback
+}
+
 function handleRequest(options: RequestOptions) {
-  // 这需要Pinia
-  // const {UserInfo} = storeToRefs(useUserStore())
-  
   let token = null as null | string
   if (typeof window !== 'undefined' && useUserStore) {
-    const toast = useToast()
-    
     const userStore = storeToRefs(useUserStore())
     token = userStore.token.value
   }
-  const isFormData = options.data instanceof FormData
   options.headers = {
     ...options.headers,
-    // 'Content-Type': 'application/json',
-    // 这实现Authorization头自动携带
-    'Authorization': `${token}`,
+    Authorization: `${token}`,
   }
-  
 }
 
-// 响应拦截器
-async function handleResponse<T>(response: any): Promise<T> {
-  if (response.code !== 200) {
-    console.log(response, '返回参数')
-    if (response.code === 401) {
-      if (typeof window !== 'undefined') {
-        const { pathname, search } = window.location
-        const current = pathname + search
-        const redirectTo =
-          pathname === LOGIN_PATH || pathname.startsWith('/register')
-            ? undefined
-            : current
-        // 鸿蒙 Outlink：走 MessagePort type=login 携带回跳地址；浏览器仍跳 /login
-        void redirectToLoginPage(redirectTo)
-      }
-      throw new Error(
-        response.message || response.msg || '登录已失效，请重新登录'
-      )
-    }
-    const toast = useToast()
-    toast.add({
-      title: '错误',
-      description: response.message || response.msg || '操作失败，请重试',
-      icon: 'i-heroicons-exclamation-circle',
-      color: 'red'
-    })
-    throw new Error(response.message || '请求错误')
-  }
-  
-  if (response.error) {
-    const toast = useToast()
-    console.log(response, '错误')
-    toast.add({
-      title: '错误',
-      description: response.message || response.msg  || '操作失败，请重试',
-      icon: 'i-heroicons-exclamation-circle',
-      color: 'red'
-    })
-    throw new Error(response.error.message || '响应错误')
-  }
-  
-  return response
-}
-
-/**
- * 创建自定义的 $fetch 请求函数。
- * 此函数是一个高阶函数，接收一个 HTTP 方法作为参数，返回一个封装好的请求函数。
- * @param {string} method - HTTP 请求方法，如 'GET'、'POST'、'DELETE'、'PUT' 等。
- * @returns {Function} - 封装好的请求函数，接收 URL 和请求数据作为参数。
- */
 function createDollarFetchRequest(method: HttpMethod) {
   return async <T = any>(
     url: string,
     data?: Record<string, any> | FormData,
     options: RequestOptions = {},
   ): Promise<T> => {
-    const isFormData = data instanceof FormData
-    // const baseURL = useRuntimeConfig().public.baseUrl as string
     const fullPath = `${options.baseURL || baseURL}${url}`
-
-    // 这是不使用代理时 构建完整的请求 URL
-    // const requestUrl = new URL(fullPath).toString()
+    const body = method === 'GET' ? { params: data } : { body: data }
 
     try {
-      const body = method === 'GET' ? { params: data } : { body: data }
       handleRequest(options)
-      const response = await $fetch(fullPath, {
+      const res = await $fetch.raw(fullPath, {
         method,
         ...body,
         ...options,
-        // ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
+        // 必须放在 options 后面：4xx/5xx 也拿到 body，由我们自己提示
+        ignoreResponseError: true,
       })
-      return handleResponse<T>(response)
+      const payload = res._data as T
+      const httpStatus = res.status
+      const bizCode =
+        payload && typeof payload === 'object'
+          ? (payload as { code?: number }).code
+          : undefined
+
+      if (isUnauthorized(httpStatus, payload)) {
+        redirectToLogin()
+        throwSilent(
+          payloadMessage(payload, '登录已失效，请重新登录')
+        )
+      }
+
+      const httpFailed = httpStatus < 200 || httpStatus >= 300
+      const bizFailed = bizCode !== undefined && bizCode !== 200
+      if (httpFailed || bizFailed) {
+        const message = payloadMessage(
+          payload,
+          httpFailed ? `请求失败（${httpStatus}）` : '操作失败，请重试'
+        )
+        const error = new Error(message) as SilentError & HttpErrorPayload
+        error.data = payload
+        error.status = httpStatus
+        error.statusCode = httpStatus
+        notifyHttpError(error)
+        throw error
+      }
+
+      return payload
     } catch (error) {
       console.error('请求错误:', error)
+      if (isSilentHttpError(error)) throw error
+      if (error && typeof error === 'object' && (error as HttpErrorPayload).__qhxToasted) {
+        throw error
+      }
+      if (unauthorizedStatus(error)) {
+        redirectToLogin()
+        throwSilent(httpErrorMessageOf(error) || '登录已失效，请重新登录')
+      }
+      notifyHttpError(error)
       throw error
     }
   }
 }
 
-// 提供 $fetch & HTTP 方法 - 统一管理请求 - 再到组件中使用
-// export const GetFeeds = async function (offset: number, query: string) {
-
-// }
 /**
  * 使用自定义的 GET 请求方法。
- * 该函数是通过 `createDollarFetchRequest` 函数创建的，专门用于发起 GET 请求。
- * @param {string} url - 请求的地址。在baseUrl后拼接，baseUrl在`./nuxt.config.ts`]设置
- * @param {RequestOptions} options - 可选的请求选项[请看文档](https://nuxt.com/docs/api/composables/use-fetch)。
- * @returns {Promise<any>} - 响应数据的 Promise。
  */
 export const use$Get = createDollarFetchRequest('GET')
 
 /**
  * 使用自定义的 POST 请求方法。
- * 该函数是通过 `createDollarFetchRequest` 函数创建的，专门用于发起 POST 请求。
- * @param {string} url - 请求的地址。在baseUrl后拼接，baseUrl在`./nuxt.config.ts`]设置
- * @param {any} data - 可选的请求数据。例如：JSON.stringify({'offset': offset,'query': query})
- * @param {RequestOptions} options - 可选的请求选项[请看文档](https://nuxt.com/docs/api/composables/use-fetch)。
- * @returns {Promise<any>} - 响应数据的 Promise。
  */
 export const use$Post = createDollarFetchRequest('POST')
 
 /**
  * 使用自定义的 PUT 请求方法。
- * 该函数是通过 `createDollarFetchRequest` 函数创建的，专门用于发起 PUT 请求。
- * @param {string} url - 请求的地址。在baseUrl后拼接，baseUrl在`./nuxt.config.ts`]设置。
- * @param {any} data - 可选的请求数据。例如：JSON.stringify({'offset': offset,'query': query})
- * @param {RequestOptions} options - 可选的请求选项[请看文档](https://nuxt.com/docs/api/composables/use-fetch)。
- * @returns {Promise<any>} - 响应数据的 Promise。
  */
 export const use$Put = createDollarFetchRequest('PUT')
 
 /**
  * 使用自定义的 DELETE 请求方法。
- * 该函数是通过 `createDollarFetchRequest` 函数创建的，专门用于发起 DELETE 请求。
- * @param {string} url - 请求的地址。在baseUrl后拼接，baseUrl在`./nuxt.config.ts`]设置
- * @param {any} data - 可选的请求数据。例如：JSON.stringify({'offset': offset,'query': query})
- * @param {RequestOptions} options - 可选的请求选项[请看文档](https://nuxt.com/docs/api/composables/use-fetch)。
- * @returns {Promise<any>} - 响应数据的 Promise。
  */
 export const use$Delete = createDollarFetchRequest('DELETE')

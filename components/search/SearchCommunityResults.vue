@@ -21,9 +21,19 @@ function escapeRegExp(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
+/** 先剥标签再转义，再插入 mark，避免标题/摘要里的 HTML 探针经 v-html 执行 */
 function highlightText(raw: string): string {
   if (!raw) return ''
-  let html = raw
+  let html = escapeHtml(raw.replace(/<[^>]*>/g, ''))
   for (const kw of props.keywords) {
     if (!kw.trim()) continue
     const re = new RegExp(escapeRegExp(kw), 'gi')
@@ -53,7 +63,8 @@ function normalizeImages(item: Community): Array<{
 
 function contentPreview(item: Community): string {
   if (!item.content) return ''
-  return formatRich(item.content).text
+  // 仅取纯文本预览；highlightText 会再剥残片标签并转义
+  return formatRich(item.content).text.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim()
 }
 
 function openDetail(id: number) {

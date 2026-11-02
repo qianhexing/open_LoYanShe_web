@@ -14,6 +14,7 @@ import {
     getLibraryVideoList
 } from '@/api/library'
 import { BASE_IMG } from '@/utils/ipConfig'
+import { parseRichText } from '@/utils/public'
 import { useLayoutStyle } from '@/composables/useLayoutStyle'
 import { useForcedLandscape } from '@/composables/useForcedLandscape'
 import { useCssRotatedPointerFix } from '@/composables/useCssRotatedPointerFix'
@@ -463,11 +464,12 @@ watch(
                                 </p>
                             </div>
                         </div>
-                        <p
+                        <div
                             v-if="shop.shop_describe"
                             class="mt-3 text-xs text-stone-300/80 leading-relaxed font-serif break-words"
-                            v-html="shop.shop_describe"
-                        />
+                        >
+                            <SafeRichText :nodes="parseRichText(shop.shop_describe)" />
+                        </div>
                         <div v-if="shop.style_list && shop.style_list.length" class="mt-3 flex flex-wrap gap-1">
                             <span
                                 v-for="(tag, i) in shop.style_list"

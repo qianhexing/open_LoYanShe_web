@@ -1,6 +1,6 @@
 import { BASE_IMG } from '@/utils/ipConfig'
 
-/** img_list 中 `.mp4` 表示 Live；默认展示同名 `.jpg`，交互再播视频 */
+/** img_list 中仅 `.mp4` 表示 Live（展示同名 `.jpg`）；其它图片格式保持原后缀 */
 export type CommunityMediaKind = 'image' | 'live'
 
 export interface CommunityMediaItem {
@@ -36,15 +36,16 @@ export function isCommunityLivePath(path: string): boolean {
 }
 
 /**
- * Live：`.mp4` → 同名 `.jpg`（保留原 query/hash，若有）
- * 非 Live：原样返回
+ * 仅当路径以 `.mp4` 结尾时换成同名 `.jpg`（保留原 query/hash）。
+ * png / webp / jpeg / gif 等其它格式原样返回，不做后缀替换。
  */
 export function toCommunityLivePosterPath(path: string): string {
-  const trimmed = normalizeRawImgPath(path)
+  const original = path.trim()
+  if (!original || !isCommunityLivePath(original)) return original
+  const trimmed = normalizeRawImgPath(original)
   const qIndex = trimmed.search(/[?#]/)
   const base = qIndex >= 0 ? trimmed.slice(0, qIndex) : trimmed
   const suffix = qIndex >= 0 ? trimmed.slice(qIndex) : ''
-  if (!MP4_EXT_RE.test(base)) return trimmed
   return `${base.replace(/\.mp4$/i, '.jpg')}${suffix}`
 }
 
@@ -85,7 +86,7 @@ export function toAbsoluteMediaUrl(path: string, base: string = BASE_IMG): strin
 
 /**
  * 为图片路径追加 OSS 处理参数。
- * 已有 x-oss-process、或非图片扩展（如 .mp4）时不追加。
+ * 仅 `.mp4` 会先换成同名 `.jpg` 再追加；其它图片格式保持原后缀。
  */
 export function withOssImageProcess(path: string, process: string): string {
   const p = path.trim()

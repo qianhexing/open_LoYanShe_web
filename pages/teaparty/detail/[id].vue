@@ -260,11 +260,10 @@
         <QhxTabs :tabs="['返图']">
           <QhxTabPanel :index="0">
             <template #default="{ isActive }">
-              <div v-if="isActive" class="py-4">
-                <CommunityForeignList
+              <div v-if="isActive">
+                <TeapartyReturnGraph
                   v-if="detail?.tea_id"
-                  :pk_type="6"
-                  :pk_id="detail.tea_id"
+                  :tea-id="detail.tea_id"
                 />
               </div>
             </template>
@@ -304,7 +303,6 @@ import { BASE_IMG } from '@/utils/ipConfig'
 import { useCopyCurrentUrl } from '@/composables/useCopyCurrentUrl'
 import { getTeapartyStateBadgeClass, getTeapartyStateLabel, formatTeapartyPrice } from '@/utils/teaparty'
 import QhxPreviewImage from '@/components/Qhx/PreviewImage.vue'
-import CommunityForeignList from '@/components/community/CommunityForeignList.vue'
 import type TeapartyAdd from '@/components/Teaparty/TeapartyAdd.vue'
 
 const route = useRoute()

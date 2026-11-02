@@ -16,14 +16,23 @@ const props = withDefaults(
     /** 为 true 时加载并播放视频 */
     active?: boolean
     showBadge?: boolean
+    /** 角标是否可点（关则仅展示，不拦截点击） */
+    badgeInteractive?: boolean
+    /** LIVE 角标位置 */
+    badgePosition?: 'top-left' | 'bottom-right'
     /** 覆盖在 img/video 上的 class */
     mediaClass?: string
+    /** 默认循环播放（服饰封面） */
+    defaultLoop?: boolean
   }>(),
   {
     alt: 'Lo研社',
     active: false,
     showBadge: true,
+    badgeInteractive: true,
+    badgePosition: 'top-left',
     mediaClass: 'h-full w-full object-contain',
+    defaultLoop: false,
   },
 )
 
@@ -42,6 +51,7 @@ const {
   loopEnabled,
   videoVisible,
   onEnded,
+  onPlaying,
   onBadgePointerDown,
   onBadgePointerMove,
   onBadgePointerUp,
@@ -51,6 +61,7 @@ const {
   videoRef,
   getSrc: () => props.videoSrc,
   shouldPlay: () => Boolean(props.active && props.videoSrc?.trim()),
+  defaultLoop: props.defaultLoop,
   onLoopChange: (enabled) => {
     emit('loop-change', enabled)
     toast.add({
@@ -85,18 +96,25 @@ function onRootClick(e: MouseEvent) {
       ref="videoRef"
       class="community-live-thumb__video absolute inset-0 h-full w-full"
       :class="[mediaClass, videoVisible ? 'opacity-100' : 'opacity-0']"
+      :src="active ? videoSrc : undefined"
       muted
       playsinline
       webkit-playsinline
-      preload="none"
+      :autoplay="active"
+      :loop="defaultLoop"
+      :preload="active ? 'auto' : 'none'"
       disablepictureinpicture
+      @playing="onPlaying"
       @ended="onEnded"
     />
     <button
-      v-if="isLive && showBadge"
+      v-if="isLive && showBadge && badgeInteractive"
       type="button"
-      class="community-live-thumb__badge absolute left-1.5 top-1.5 z-20 rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white shadow-sm"
-      :class="{ 'community-live-thumb__badge--loop': loopEnabled }"
+      class="community-live-thumb__badge absolute z-20 rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white shadow-sm"
+      :class="[
+        badgePosition === 'bottom-right' ? 'bottom-1.5 right-1.5' : 'left-1.5 top-1.5',
+        { 'community-live-thumb__badge--loop': loopEnabled },
+      ]"
       data-live-badge
       :aria-label="loopEnabled ? '重播；长按关闭循环' : '重播；长按开启循环'"
       :title="loopEnabled ? '点击重播 · 长按关闭循环' : '点击重播 · 长按开启循环'"
@@ -115,6 +133,14 @@ function onRootClick(e: MouseEvent) {
       LIVE
       <span v-if="loopEnabled" class="ml-0.5 opacity-90" aria-hidden="true">∞</span>
     </button>
+    <span
+      v-else-if="isLive && showBadge"
+      class="community-live-thumb__badge pointer-events-none absolute z-20 rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white shadow-sm"
+      :class="badgePosition === 'bottom-right' ? 'bottom-1.5 right-1.5' : 'left-1.5 top-1.5'"
+      aria-hidden="true"
+    >
+      LIVE
+    </span>
   </div>
 </template>
 

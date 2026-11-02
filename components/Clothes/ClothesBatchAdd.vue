@@ -5,10 +5,14 @@ import { insertClothesMultiple } from '@/api/wardrobe'
 import type { ClothesBatchInsertItem } from '@/api/wardrobe'
 import { uploadImage } from '@/api'
 import { BASE_IMG } from '@/utils/ipConfig'
+import { uploadPairedLiveToOSS } from '@/utils/ossUpload'
+import { normalizeRawImgPath } from '@/utils/communityLiveMedia'
 
 const emit = defineEmits<{
   success: []
 }>()
+
+const capsuleBtnUi = { rounded: 'rounded-full' } as const
 
 type PreviewItem = NonNullable<InstanceType<typeof QhxImagePicker>['previewImages']>[number]
 
@@ -47,7 +51,19 @@ watch(
   { deep: true },
 )
 
-const fetchUpload = async (file: { file?: File; url?: string }): Promise<string> => {
+const fetchUpload = async (file: {
+  file?: File
+  url?: string
+  videoFile?: File
+  videoUrl?: string
+  kind?: 'image' | 'live'
+}): Promise<string> => {
+  if (file.kind === 'live' && file.videoFile && file.file) {
+    return uploadPairedLiveToOSS(file.videoFile, file.file)
+  }
+  if (file.kind === 'live' && file.videoUrl && !file.videoFile) {
+    return normalizeRawImgPath(file.videoUrl)
+  }
   if (file.file) {
     const res = await uploadImage(file.file)
     return res.file_url
@@ -175,7 +191,7 @@ defineExpose({ showModel })
           多选服饰封面后，在下方为每张图填写名称并批量创建。
         </p>
         <UFormGroup label="服饰封面（可多选）">
-          <QhxImagePicker ref="coverPickerRef" :multiple="true" />
+          <QhxImagePicker allow-live ref="coverPickerRef" :multiple="true" />
         </UFormGroup>
 
         <div v-if="draftList.length" class="space-y-2">
@@ -209,8 +225,8 @@ defineExpose({ showModel })
       <div
         class="flex justify-end gap-2 px-6 py-4 border-t border-gray-200 dark:border-gray-700 shrink-0"
       >
-        <UButton color="gray" variant="ghost" :disabled="loading" @click="closeModel">取消</UButton>
-        <UButton color="primary" :loading="loading" :disabled="!draftList.length" @click="submit">
+        <UButton color="gray" variant="ghost" :ui="capsuleBtnUi" :disabled="loading" @click="closeModel">取消</UButton>
+        <UButton color="primary" :ui="capsuleBtnUi" :loading="loading" :disabled="!draftList.length" @click="submit">
           确认批量新增
         </UButton>
       </div>

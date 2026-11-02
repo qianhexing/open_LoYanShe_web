@@ -2,6 +2,7 @@
 import type { Effect, Material, TemplateInterface } from '@/types/api';
 const configStore = useConfigStore()
 import { uploadImage } from '@/api';
+import { isLikelyImageFile } from '@/utils/heicUploadGate'
 import { insertMaterial } from '@/api/material'
 import { uploadFileToOSS } from '@/utils/ossUpload'
 import { createGltfCoverBlob } from '@/utils/gltfCoverSnapshot'
@@ -133,7 +134,7 @@ const onCustomFileChange = async (e: Event) => {
 
   const lower = file.name.toLowerCase()
   const isGltf = lower.endsWith('.glb') || lower.endsWith('.gltf')
-  const isImage = file.type.startsWith('image/')
+  const isImage = isLikelyImageFile(file)
   const isVideo =
     file.type.startsWith('video/')
     || /\.(mp4|webm|mov|m4v|ogg)$/i.test(lower)

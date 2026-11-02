@@ -47,6 +47,7 @@
             :foreign-pk="foreignResolved"
             :initial-type="initialType"
             :initial-is-open="initialIsOpen"
+            :persist-is-open-key="persistIsOpenKey"
             :sence-id="senceId"
             :scene-cover-relative-path="sceneCoverRelativePath"
             @success="onEditorSuccess"
@@ -81,6 +82,8 @@ const props = withDefaults(
     initialType?: string
     /** 社区内可见：0 正式居民可见，1 开放，2 仅自己可见（未传则由编辑器默认 1） */
     initialIsOpen?: number
+    /** 新增发帖时缓存「谁能看到」到该 key；编辑模式不生效 */
+    persistIsOpenKey?: string
     /** 发帖成功后跳转；false 表示不跳转（默认 /community） */
     successRedirect?: string | false
     /** 关闭弹窗且非发布成功时是否 router.back（发帖独立页可设为 true） */
@@ -101,6 +104,7 @@ const props = withDefaults(
     skipSummaryLink: false,
     initialType: undefined,
     initialIsOpen: undefined,
+    persistIsOpenKey: undefined,
     successRedirect: '/community',
     navigateBackOnDismiss: false,
     modalTitle: '发帖分享',

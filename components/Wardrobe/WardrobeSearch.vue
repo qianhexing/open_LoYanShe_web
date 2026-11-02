@@ -81,6 +81,26 @@
           />
         </div>
 
+        <!-- 搜索尺码 -->
+        <div class="mb-3 flex items-center gap-3">
+          <div class="text-sm font-semibold text-gray-800 dark:text-gray-200 flex-shrink-0 w-20">搜索尺码：</div>
+          <UInput
+            v-model="filter_list.size"
+            placeholder="搜索尺码，如 S / 均码"
+            class="flex-1"
+            :ui="{
+              base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
+              rounded: 'rounded-[10px]',
+              padding: { xs: 'px-4 py-2' },
+              color: {
+                white: {
+                  outline: 'bg-gray-50 dark:bg-gray-800 ring-1 ring-gray-300 dark:ring-gray-600 focus:ring-2 focus:ring-qhx-primary'
+                }
+              }
+            }"
+          />
+        </div>
+
         <!-- 来源搜索 -->
         <div class="mb-3 flex items-center gap-3">
           <div class="text-sm font-semibold text-gray-800 dark:text-gray-200 flex-shrink-0 w-20">来源搜索：</div>
@@ -475,6 +495,9 @@
                 <div v-if="item.wardrobe_status" class="text-xs text-gray-600 dark:text-gray-400 mb-1">
                   状态：{{ item.wardrobe_status }}
                 </div>
+                <div v-if="item.size" class="text-xs text-gray-600 dark:text-gray-400 mb-1">
+                  尺码：{{ item.size }}
+                </div>
                 <div v-if="item.clothes_part" class="text-xs text-gray-600 dark:text-gray-400 mb-1">
                   部位：{{ item.clothes_part }}
                 </div>
@@ -498,10 +521,11 @@
     </div>
 
     <!-- 季节选择 -->
-    <QhxSelect
-      v-model="showSeasonSelect"
+    <QhxOptionsChoose
       ref="seasonSelectRef"
+      title="选择季节"
       :options="seasonOptions"
+      empty-confirm-message="请选择季节"
       @select="confirmSeason"
     />
 
@@ -514,30 +538,37 @@
     />
 
     <!-- 状态选择 -->
-    <QhxSelect
-      v-model="showStatusSelect"
+    <QhxOptionsChoose
       ref="statusSelectRef"
+      title="选择状态"
       :options="wardrobeStatusOptions"
       :can-customize="true"
+      :undeletable-values="['已拥有', '待补款', '已出']"
+      empty-confirm-message="请选择状态"
       @select="confirmStatus"
+      @delete="(item) => onDeleteConfigOption('wardrobe_status', item)"
     />
 
     <!-- 部位选择 -->
-    <QhxSelect
-      v-model="showClothesPartSelect"
+    <QhxOptionsChoose
       ref="clothesPartSelectRef"
+      title="选择版型"
       :options="clothesPartOptions"
       :can-customize="true"
+      empty-confirm-message="请选择版型"
       @select="confirmClothesPart"
+      @delete="(item) => onDeleteConfigOption('clothes_part', item)"
     />
 
     <!-- 标签选择 -->
-    <QhxSelect
-      v-model="showTagsSelect"
+    <QhxOptionsChoose
       ref="tagsSelectRef"
+      title="选择标签"
       :options="tagsOptions"
       :can-customize="true"
+      empty-confirm-message="请选择标签"
       @select="confirmTags"
+      @delete="(item) => onDeleteConfigOption('tags', item)"
     />
 
     <!-- 颜色选择弹窗 -->
@@ -580,7 +611,14 @@ import type { Wardrobe, WardrobeClothes, Shop } from '@/types/api'
 import { getClothesSearch } from '@/api/wardrobe'
 import { getShopOptiosns } from '@/api/shop'
 import type QhxSelect from '@/components/Qhx/Select.vue'
+import type { optionsInterface } from '@/components/Qhx/Select.vue'
+import type QhxOptionsChoose from '@/components/Qhx/OptionsChoose.vue'
 import { BASE_IMG } from '@/utils/ipConfig'
+import {
+  clothesTermDeletedMessage,
+  deleteClothesConfigOptionThenReload,
+  type ClothesConfigOptionKind,
+} from '@/utils/clothesConfigOption'
 import dayjs from 'dayjs'
 
 interface Props {
@@ -653,10 +691,19 @@ const clothesPartOptions = computed(() => {
   }))
 })
 
-// 标签选项（从配置中获取，如果没有则使用空数组）
+// 标签选项：优先用衣柜已有记忆
 const tagsOptions = computed(() => {
-  // 这里可以根据实际需求从配置或API获取标签列表
-  return []
+  const raw = wardrobeStore.config?.tags
+  if (!Array.isArray(raw) || raw.length === 0) return []
+  const labels: string[] = []
+  for (const item of raw) {
+    if (typeof item !== 'string') continue
+    for (const part of item.split(',')) {
+      const t = part.trim()
+      if (t) labels.push(t)
+    }
+  }
+  return [...new Set(labels)].map((label) => ({ value: label, label }))
 })
 
 // 衣柜颜色列表（从配置中获取）
@@ -687,6 +734,7 @@ const filter_list = ref({
   },
   season: [] as Array<{ value: string; label: string }>,
   clothes_note: '',
+  size: '',
   wardrobe_status: [] as Array<{ value: string; label: string }>,
   clothes_part: [] as Array<{ value: string; label: string }>,
   note: '',
@@ -736,47 +784,31 @@ const show_control = ref({
   wardrobe: false
 })
 
-const showSeasonSelect = ref(false)
 const showWardrobeSelect = ref(false)
-const showStatusSelect = ref(false)
-const showClothesPartSelect = ref(false)
-const showTagsSelect = ref(false)
 const showColorChoose = ref(false)
 
 // 选择器引用
-const seasonSelectRef = ref<InstanceType<typeof QhxSelect> | null>(null)
+const seasonSelectRef = ref<InstanceType<typeof QhxOptionsChoose> | null>(null)
 const wardrobeSelectRef = ref<InstanceType<typeof QhxSelect> | null>(null)
-const statusSelectRef = ref<InstanceType<typeof QhxSelect> | null>(null)
-const clothesPartSelectRef = ref<InstanceType<typeof QhxSelect> | null>(null)
-const tagsSelectRef = ref<InstanceType<typeof QhxSelect> | null>(null)
+const statusSelectRef = ref<InstanceType<typeof QhxOptionsChoose> | null>(null)
+const clothesPartSelectRef = ref<InstanceType<typeof QhxOptionsChoose> | null>(null)
+const tagsSelectRef = ref<InstanceType<typeof QhxOptionsChoose> | null>(null)
 
 // 打开选择器
 const openStatusSelect = (e: MouseEvent) => {
-  showStatusSelect.value = true
-  nextTick(() => {
-    statusSelectRef.value?.showPicker(e)
-  })
+  statusSelectRef.value?.showPicker(e, filter_list.value.wardrobe_status)
 }
 
 const openClothesPartSelect = (e: MouseEvent) => {
-  showClothesPartSelect.value = true
-  nextTick(() => {
-    clothesPartSelectRef.value?.showPicker(e)
-  })
+  clothesPartSelectRef.value?.showPicker(e, filter_list.value.clothes_part)
 }
 
 const openTagsSelect = (e: MouseEvent) => {
-  showTagsSelect.value = true
-  nextTick(() => {
-    tagsSelectRef.value?.showPicker(e)
-  })
+  tagsSelectRef.value?.showPicker(e, filter_list.value.tags)
 }
 
 const openSeasonSelect = (e: MouseEvent) => {
-  showSeasonSelect.value = true
-  nextTick(() => {
-    seasonSelectRef.value?.showPicker(e)
-  })
+  seasonSelectRef.value?.showPicker(e, filter_list.value.season)
 }
 
 const openWardrobeSelect = (e: MouseEvent) => {
@@ -811,18 +843,18 @@ const deleteRemote = (str: string, type: 'wardrobeStatus' | 'clothesPart' | 'tag
   }
 }
 
+function pushUniqueOption(
+  list: Array<{ value: string; label: string }>,
+  item: optionsInterface,
+) {
+  const value = String(item.value)
+  const hasValue = list.some((row) => row.value === value || row.label === item.label)
+  if (!hasValue) list.push({ value, label: item.label })
+}
+
 // 确认选择
-const confirmSeason = (v: { value: string; label: string }) => {
-  const hasValue = filter_list.value.season.some(item => item.value === v.value)
-  if (!hasValue) {
-    filter_list.value.season.push(v)
-  } else {
-    toast.add({
-      title: '重复添加',
-      type: 'warning'
-    })
-  }
-  showSeasonSelect.value = false
+const confirmSeason = (list: optionsInterface[]) => {
+  for (const v of list) pushUniqueOption(filter_list.value.season, v)
 }
 
 const confirmWardrobe = (v: { value: number | string; label: string }) => {
@@ -838,43 +870,38 @@ const confirmWardrobe = (v: { value: number | string; label: string }) => {
   showWardrobeSelect.value = false
 }
 
-const confirmStatus = (v: { value: string; label: string }) => {
-  const hasValue = filter_list.value.wardrobe_status.some(item => item.value === v.value)
-  if (!hasValue) {
-    filter_list.value.wardrobe_status.push(v)
-  } else {
-    toast.add({
-      title: '重复添加',
-      type: 'warning'
-    })
-  }
-  showStatusSelect.value = false
+const confirmStatus = (list: optionsInterface[]) => {
+  for (const v of list) pushUniqueOption(filter_list.value.wardrobe_status, v)
 }
 
-const confirmClothesPart = (v: { value: string; label: string }) => {
-  const hasValue = filter_list.value.clothes_part.some(item => item.value === v.value)
-  if (!hasValue) {
-    filter_list.value.clothes_part.push(v)
-  } else {
-    toast.add({
-      title: '重复添加',
-      type: 'warning'
-    })
-  }
-  showClothesPartSelect.value = false
+const confirmClothesPart = (list: optionsInterface[]) => {
+  for (const v of list) pushUniqueOption(filter_list.value.clothes_part, v)
 }
 
-const confirmTags = (v: { value: string; label: string }) => {
-  const hasValue = filter_list.value.tags.some(item => item.value === v.value)
-  if (!hasValue) {
-    filter_list.value.tags.push(v)
-  } else {
-    toast.add({
-      title: '重复添加',
-      type: 'warning'
-    })
+const confirmTags = (list: optionsInterface[]) => {
+  for (const v of list) pushUniqueOption(filter_list.value.tags, v)
+}
+
+async function onDeleteConfigOption(kind: ClothesConfigOptionKind, item: optionsInterface) {
+  const label = item.label?.trim()
+  if (!label) return
+  try {
+    const { updated } = await deleteClothesConfigOptionThenReload(kind, label)
+    if (kind === 'wardrobe_status') {
+      filter_list.value.wardrobe_status = filter_list.value.wardrobe_status.filter(
+        (row) => row.label.trim() !== label,
+      )
+    } else if (kind === 'clothes_part') {
+      filter_list.value.clothes_part = filter_list.value.clothes_part.filter(
+        (row) => row.label.trim() !== label,
+      )
+    } else if (kind === 'tags') {
+      filter_list.value.tags = filter_list.value.tags.filter((row) => row.label.trim() !== label)
+    }
+    toast.add({ title: clothesTermDeletedMessage(updated), color: 'green', icon: 'i-heroicons-check-circle' })
+  } catch {
+    toast.add({ title: '删除失败', color: 'red', icon: 'i-heroicons-exclamation-circle' })
   }
-  showTagsSelect.value = false
 }
 
 // 选择颜色
@@ -913,21 +940,23 @@ const jumpToClothes = (item: WardrobeClothes) => {
           console.log('跳转错误')
         }
       })
-    } else {
-      if (port.value) {
-        // 鸿蒙系统
-        port.value.postMessage(JSON.stringify({
-          type: 'jump',
-          path: 'Outlink',
-          params: {
-            url: `https://lolitalibrary.com/clothes/detail/${item.clothes_id}`
-          }
-        }))
-      } else {
-        // 普通网页环境
-        window.open(`https://lolitalibrary.com/clothes/detail/${item.clothes_id}`, '_blank')
-      }
+      return
     }
+
+    // 鸿蒙壳：port 异步注入，不能只靠 port；statusBar / session 标记也视为 App WebView
+    const harmonyMarked =
+      import.meta.client &&
+      typeof sessionStorage !== 'undefined' &&
+      sessionStorage.getItem('harmony_webview') === '1'
+    const inHarmonyShell =
+      !!port.value || configStore.statusBarHeight > 0 || !!harmonyMarked
+    if (inHarmonyShell) {
+      void navigateTo(`/clothes/detail/${item.clothes_id}`)
+      return
+    }
+
+    // 普通网页环境
+    window.open(`https://lolitalibrary.com/clothes/detail/${item.clothes_id}`, '_blank')
   }
 }
 
@@ -1006,6 +1035,15 @@ const formatFilterList = () => {
       field: 'note',
       op: 'and',
       value: filter_list.value.note
+    })
+  }
+
+  // 尺码
+  if (filter_list.value.size && filter_list.value.size.trim() !== '') {
+    filterList.push({
+      field: 'size',
+      op: 'and',
+      value: filter_list.value.size.trim()
     })
   }
 
@@ -1090,6 +1128,7 @@ const clearFilter = () => {
     },
     season: [],
     clothes_note: '',
+    size: '',
     wardrobe_status: [],
     clothes_part: [],
     note: '',
@@ -1212,6 +1251,7 @@ const initData = () => {
     },
     season: [],
     clothes_note: '',
+    size: '',
     wardrobe_status: [],
     clothes_part: [],
     note: '',

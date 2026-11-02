@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { Wiki } from '@/types/api';
+import { toAbsoluteMediaUrl } from '@/utils/communityLiveMedia'
 let uni: any;
 interface Props {
   item: Wiki,
@@ -70,7 +71,7 @@ const handleJump = (id: number | string) => {
       <div class=" py-1 flex items-center justify-center">
         <div class="text-center">
           <div class="text-4xl mb-2 flex items-center justify-center">
-            <img :src="`${BASE_IMG}${item.cover || 'static/plan_cover/default.jpg'}`" :alt="item.wiki_name" class="w-[50px] h-[50px] object-cover rounded-[10px] border border-gray-200 my-2" loading="lazy" />
+            <img :src="toAbsoluteMediaUrl(item.cover || 'static/plan_cover/default.jpg')" :alt="item.wiki_name" class="w-[50px] h-[50px] object-cover rounded-[10px] border border-gray-200 my-2" loading="lazy" />
           </div>
           <h3 class="text-base font-semibold text-gray-900 truncate w-full transition-colors duration-300">
             {{ item.wiki_name }}

@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import QhxModal from '@/components/Qhx/Modal.vue'
 import type { CommunityDetailForeignItem } from '@/types/api'
 import { BASE_IMG } from '@/utils/ipConfig'
 
@@ -37,6 +36,7 @@ const PK_TYPE_LABELS: Record<number, string> = {
   5: '合集',
   6: '茶会',
   7: '图鉴',
+  8: '小工具',
 }
 
 const normalizedList = computed(() => {
@@ -52,20 +52,6 @@ const normalizedList = computed(() => {
 })
 
 const count = computed(() => normalizedList.value.length)
-
-/** 预览条最多展示的缩略图数量 */
-const previewLimit = 10
-const previewItems = computed(() => normalizedList.value.slice(0, previewLimit))
-
-const showModal = ref(false)
-const triggerPosition = ref({ x: 0, y: 0 })
-
-function openModal(ev?: MouseEvent) {
-  if (ev) triggerPosition.value = { x: ev.clientX, y: ev.clientY }
-  else if (typeof window !== 'undefined')
-    triggerPosition.value = { x: window.innerWidth / 2, y: window.innerHeight / 2 }
-  showModal.value = true
-}
 
 function resolveHref(item: CommunityDetailForeignItem): string | null {
   const pk = item.pk_type
@@ -93,13 +79,17 @@ function resolveHref(item: CommunityDetailForeignItem): string | null {
       const lid = libId ?? id
       return Number.isFinite(lid) ? `/library/detail/${lid}` : null
     }
+    case 8: {
+      // 统一进小工具容器（独立项目），由容器上报次数并嵌入 path
+      return Number.isFinite(id) ? `/pc/tool/?id=${id}` : null
+    }
     default:
       return null
   }
 }
 
 function resolveCoverSrc(it: CommunityDetailForeignItem): string {
-  const p = it.square_cover || it.cover
+  const p = it.square_cover || it.cover || it.icon
   const s =
     typeof p === 'string' && p.trim() !== ''
       ? p.startsWith('http')
@@ -110,7 +100,7 @@ function resolveCoverSrc(it: CommunityDetailForeignItem): string {
 }
 
 function displayTitle(it: CommunityDetailForeignItem): string {
-  const t = it.title ?? it.name
+  const t = it.title ?? it.tool_name ?? it.name
   return typeof t === 'string' && t.trim() ? t.trim() : '未命名'
 }
 
@@ -133,13 +123,40 @@ async function onRowClick(it: CommunityDetailForeignItem) {
     })
     return
   }
-  showModal.value = false
-  await nextTick()
 
-  const fullUrl = pathToAbsoluteSiteUrl(href)
+  const isAbsoluteHttp = /^https?:\/\//i.test(href)
+  const fullUrl = isAbsoluteHttp ? href : pathToAbsoluteSiteUrl(href)
   const isInUniApp =
     typeof window !== 'undefined' &&
     navigator.userAgent.includes('Html5Plus')
+
+  // 小工具：走外链打开（含站内静态 HTML 路径）
+  // 与其它页一致：明文传给 outerLink2，不要 encodeURIComponent（uni-webview-js 会再 encodeURI）
+  if (it.pk_type === 8) {
+    if (isInUniApp && typeof uni !== 'undefined' && uni?.navigateTo) {
+      uni.navigateTo({
+        url: `/pages/common/outerLink2?url=${fullUrl}`,
+        fail: () => {
+          console.warn('UniApp navigateTo outerLink2 失败', fullUrl)
+        },
+      })
+      return
+    }
+    if (port.value) {
+      port.value.postMessage(
+        JSON.stringify({
+          type: 'jump',
+          path: 'Outlink',
+          params: { url: fullUrl },
+        }),
+      )
+      return
+    }
+    if (typeof window !== 'undefined') {
+      window.open(fullUrl, '_blank', 'noopener,noreferrer')
+    }
+    return
+  }
 
   if (isInUniApp && typeof uni !== 'undefined' && uni?.navigateTo) {
     uni.navigateTo({
@@ -167,84 +184,45 @@ async function onRowClick(it: CommunityDetailForeignItem) {
 </script>
 
 <template>
-  <div v-if="count > 0" class="mt-4 flex flex-col items-center gap-3 px-1 max-md:px-0">
-    <button
-      type="button"
-      class="inline-flex items-center justify-center rounded-lg px-2 py-1 text-xs font-medium tabular-nums text-gray-500 underline decoration-gray-400/70 underline-offset-2 transition-colors hover:text-qhx-primary hover:decoration-qhx-primary/80 focus:outline-none focus-visible:ring-2 focus-visible:ring-qhx-primary/40 dark:text-gray-400 dark:decoration-gray-600"
-      aria-label="查看关联内容完整列表"
-      @click="openModal($event)"
-    >
-      ——关联{{ count }}条内容——
-    </button>
-    <!-- <div
-      class="flex max-w-full gap-2 overflow-x-auto pb-0.5 [scrollbar-width:thin]"
-      role="presentation"
-      aria-hidden="true"
-    >
-      <div
-        v-for="(it, i) in previewItems"
-        :key="`${it.pk_type}-${it.pk_id}-${i}`"
-        class="shrink-0 w-[72px]"
+  <div v-if="count > 0" class="mt-4 flex flex-col gap-2 px-1 max-md:px-0">
+    <div class="px-1 text-xs font-medium tabular-nums text-gray-500 dark:text-gray-400">
+      关联内容 · {{ count }}
+    </div>
+    <div class="flex flex-col gap-0.5">
+      <button
+        v-for="(it, idx) in normalizedList"
+        :key="`foreign-${it.pk_type}-${it.pk_id}-${idx}`"
+        type="button"
+        class="flex w-full gap-3 rounded-xl p-3 text-left transition-colors hover:bg-gray-50 dark:hover:bg-gray-800/80"
+        @click="onRowClick(it)"
       >
-        <div class="aspect-[3/4] overflow-hidden rounded-md bg-gray-100 ring-1 ring-gray-200/80 dark:bg-gray-800 dark:ring-gray-700">
+        <div class="relative size-14 shrink-0 overflow-hidden rounded-lg bg-gray-100 ring-1 ring-gray-200/80 dark:bg-gray-800 dark:ring-gray-700">
           <img
             :src="resolveCoverSrc(it)"
             alt=""
             class="h-full w-full object-cover"
             draggable="false"
             loading="lazy"
+            decoding="async"
           />
         </div>
-      </div>
-    </div> -->
-
-    <QhxModal v-model="showModal" :trigger-position="triggerPosition">
-      <div
-        class="flex max-h-[min(90vh,640px)] w-[min(100vw-1.5rem,420px)] flex-col overflow-hidden rounded-2xl border border-gray-200/70 bg-qhx-bg-card shadow-2xl dark:border-gray-700"
-      >
-        <header
-          class="flex shrink-0 items-center justify-between gap-3 border-b border-gray-100 px-4 py-3 dark:border-gray-700"
-        >
-          <h3 class="text-base font-semibold text-gray-900 dark:text-gray-100">关联内容</h3>
-          <button
-            type="button"
-            class="flex h-9 w-9 items-center justify-center rounded-full text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700"
-            aria-label="关闭"
-            @click="showModal = false"
+        <div class="flex min-w-0 flex-1 flex-col gap-1 py-0.5">
+          <div class="line-clamp-2 text-[13px] font-medium leading-snug text-gray-900 dark:text-gray-100">
+            {{ displayTitle(it) }}
+          </div>
+          <span class="text-[11px] text-qhx-primary/90">{{ pkTypeLabel(it.pk_type) }}</span>
+          <p
+            v-if="it.shop?.shop_name || it.library_type || it.tool_desc"
+            class="line-clamp-1 text-xs text-gray-500 dark:text-gray-400"
           >
-            <UIcon name="i-heroicons-x-mark" class="h-5 w-5" />
-          </button>
-        </header>
-        <div class="min-h-0 flex-1 overflow-y-auto px-2 py-2">
-          <button
-            v-for="(it, idx) in normalizedList"
-            :key="`modal-${it.pk_type}-${it.pk_id}-${idx}`"
-            type="button"
-            class="flex w-full gap-3 rounded-xl p-3 text-left transition-colors hover:bg-gray-50 dark:hover:bg-gray-800/80"
-            @click="onRowClick(it)"
-          >
-            <div class="relative h-[4.75rem] w-[3.5rem] shrink-0 overflow-hidden rounded-lg bg-gray-100 ring-1 ring-gray-200/80 dark:bg-gray-800 dark:ring-gray-700">
-              <img :src="resolveCoverSrc(it)" alt="" class="h-full w-full object-cover" draggable="false" />
-            </div>
-            <div class="flex min-w-0 flex-1 flex-col gap-1 py-0.5">
-              <div class="line-clamp-2 text-[13px] font-medium leading-snug text-gray-900 dark:text-gray-100">
-                {{ displayTitle(it) }}
-              </div>
-              <span class="text-[11px] text-qhx-primary/90">{{ pkTypeLabel(it.pk_type) }}</span>
-              <p
-                v-if="it.shop?.shop_name || it.library_type"
-                class="line-clamp-1 text-xs text-gray-500 dark:text-gray-400"
-              >
-                {{
-                  [it.shop?.shop_name, it.library_type].filter(Boolean).join(' · ')
-                }}
-              </p>
-              <p v-if="it.state" class="line-clamp-1 text-[11px] text-gray-400 dark:text-gray-500">{{ it.state }}</p>
-            </div>
-            <UIcon name="i-heroicons-chevron-right" class="mt-7 h-4 w-4 shrink-0 text-gray-400" />
-          </button>
+            {{
+              [it.shop?.shop_name, it.library_type, it.tool_desc].filter(Boolean).join(' · ')
+            }}
+          </p>
+          <p v-if="it.state" class="line-clamp-1 text-[11px] text-gray-400 dark:text-gray-500">{{ it.state }}</p>
         </div>
-      </div>
-    </QhxModal>
+        <UIcon name="i-heroicons-chevron-right" class="mt-5 h-4 w-4 shrink-0 text-gray-400" />
+      </button>
+    </div>
   </div>
 </template>

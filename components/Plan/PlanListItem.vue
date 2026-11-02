@@ -13,10 +13,14 @@
     />
     <div class="flex items-center gap-2">
       <div
-        class="w-6 h-6 rounded overflow-hidden border border-gray-200 dark:border-gray-700 flex-shrink-0 cursor-pointer"
-        @click="$emit('cover', getPlanCoverSrc())"
+        class="relative w-6 h-6 rounded overflow-hidden border border-gray-200 dark:border-gray-700 flex-shrink-0 cursor-pointer"
+        @click="$emit('cover', getPlanCoverSrcList())"
       >
         <img :src="getPlanCoverSrc()" class="w-full h-full object-cover" loading="lazy" alt="" />
+        <span
+          v-if="planCoverCount > 1"
+          class="absolute bottom-0 right-0 min-w-[12px] h-3 px-0.5 text-[8px] leading-3 text-white bg-black/55 text-center"
+        >{{ planCoverCount }}</span>
       </div>
       <div class="flex-1 min-w-0">
         <div class="flex items-center justify-between gap-1">
@@ -96,12 +100,30 @@
       alt="已完成"
       class="absolute right-2 top-[30px] w-10 h-10 z-5 opacity-90"
     />
-    <div class="px-3 py-2 flex gap-2">
+    <div class="px-3 py-2" :class="isMultiCover ? 'space-y-1.5' : 'flex gap-2'">
+      <!-- 多封面：单独一行列出全部缩略图 -->
       <div
-        class="w-9 h-9 rounded-md overflow-hidden border border-gray-200 dark:border-gray-700 flex-shrink-0 cursor-pointer"
-        @click="$emit('cover', getPlanCoverSrc())"
+        v-if="isMultiCover"
+        class="flex flex-wrap gap-1 cursor-pointer"
+        @click="$emit('cover', getPlanCoverSrcList())"
       >
-        <img :src="getPlanCoverSrc()" :alt="item.plan_name || '封面'" class="w-full h-full object-cover" loading="lazy" />
+        <div
+          v-for="(src, i) in planCoverThumbSrcs"
+          :key="`${src}-${i}`"
+          class="w-9 h-9 rounded-md overflow-hidden border border-gray-200 dark:border-gray-700 flex-shrink-0"
+        >
+          <img :src="src" :alt="item.plan_name || '封面'" class="w-full h-full object-cover" loading="lazy" />
+        </div>
+      </div>
+      <!-- 单封面：与标题同一行左侧 -->
+      <div
+        v-else
+        class="flex flex-shrink-0 cursor-pointer"
+        @click="$emit('cover', getPlanCoverSrcList())"
+      >
+        <div class="w-9 h-9 rounded-md overflow-hidden border border-gray-200 dark:border-gray-700">
+          <img :src="planCoverThumbSrcs[0]" :alt="item.plan_name || '封面'" class="w-full h-full object-cover" loading="lazy" />
+        </div>
       </div>
       <div class="flex-1 min-w-0">
         <div class="flex items-center justify-between gap-1 mb-0.5">
@@ -203,6 +225,11 @@ import { BASE_IMG } from '@/utils/ipConfig'
 import dayjs from 'dayjs'
 import { useConfigStore } from '@/stores/config'
 import QhxModal from '@/components/Qhx/Modal.vue'
+import {
+  PLAN_COVER_DEFAULT,
+  firstPlanCoverPath,
+  parsePlanCoverPaths,
+} from '@/utils/planCover'
 
 const props = withDefaults(
   defineProps<{
@@ -218,7 +245,7 @@ const props = withDefaults(
 )
 
 const emit = defineEmits<{
-  cover: [url: string]
+  cover: [urls: string[]]
   edit: [item: PlanList]
   delete: [listId: number | undefined]
   complete: [listId: number | undefined]
@@ -311,12 +338,46 @@ const resolveImgUrl = (url: string | undefined, appendParams = true): string => 
   return `${BASE_IMG}${url}${params}`
 }
 
+const rawPlanCover = computed(
+  () => props.item.plan_cover || props.item.parent_plan?.plan_cover || ''
+)
+
+const planCoverPaths = computed(() => parsePlanCoverPaths(rawPlanCover.value))
+
+const planCoverCount = computed(() => {
+  if (planCoverPaths.value.length) return planCoverPaths.value.length
+  if (props.wardrobeClothes?.clothes_img) return 1
+  return 1
+})
+
+/** full 卡片封面缩略图：多封面时列出全部 */
+const planCoverThumbSrcs = computed(() => {
+  const paths = planCoverPaths.value
+  if (paths.length) {
+    return paths.map((p) => resolveImgUrl(p))
+  }
+  const clothes = props.wardrobeClothes
+  if (clothes?.clothes_img) return [resolveImgUrl(clothes.clothes_img)]
+  return [`${BASE_IMG}${PLAN_COVER_DEFAULT}`]
+})
+
+const isMultiCover = computed(() => planCoverPaths.value.length > 1)
+
 const getPlanCoverSrc = (): string => {
-  const cover = props.item.plan_cover || props.item.parent_plan?.plan_cover
-  if (cover) return resolveImgUrl(cover)
+  const first = firstPlanCoverPath(rawPlanCover.value)
+  if (first) return resolveImgUrl(first)
   const clothes = props.wardrobeClothes
   if (clothes?.clothes_img) return resolveImgUrl(clothes.clothes_img)
-  return `${BASE_IMG}static/plan_cover/default.jpg`
+  return `${BASE_IMG}${PLAN_COVER_DEFAULT}`
+}
+
+/** 灯箱预览用完整 URL 列表（含关联服饰 / 默认图回退） */
+const getPlanCoverSrcList = (): string[] => {
+  const paths = planCoverPaths.value
+  if (paths.length) return paths.map((p) => resolveImgUrl(p, false))
+  const clothes = props.wardrobeClothes
+  if (clothes?.clothes_img) return [resolveImgUrl(clothes.clothes_img, false)]
+  return [`${BASE_IMG}${PLAN_COVER_DEFAULT}`]
 }
 
 const getClothesImgSrc = (): string => {

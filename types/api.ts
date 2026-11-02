@@ -275,6 +275,8 @@ export interface WardrobeConfig {
   tags?: string[]
   /** 部位布局自定义排序；仅保留仍存在的部位，未出现在此数组中的部位排在已排序项之后、「未分类」之前 */
   clothes_part?: string[]
+  /** 拥有状态 → 颜色（hex），用于角标与图例；未配置的状态走默认色 */
+  wardrobe_status_colors?: Record<string, string>
 }
 
 /** 衣柜 */
@@ -326,6 +328,8 @@ export interface WardrobeClothes {
   /** 出物价 */
   offer_price?: number | null
   color?: string
+  /** 纯文本颜色，如「樱花粉、奶茶」 */
+  color_text?: string | null
   times?: number
   real_picture?: string
   sort?: number
@@ -342,7 +346,11 @@ export interface WardrobeClothes {
   is_favorite?: number
   main_style?: string
   num?: number
-  last_dress?: Date
+  /** 识图 / 入库可选货币，如 CNY */
+  currency_type?: string | null
+  /** 识图等附加结构化数据，随 insert 透传 */
+  json_data?: Record<string, unknown> | null
+  last_dress?: Date | string | null
   sence_id?: number
   model_list?: MaterialForeign[]
   plan?: PlanList | null
@@ -496,6 +504,7 @@ export interface CollectionList {
  * - 5 合集考据
  * - 6 茶会返图
  * - 7 图鉴返图
+ * - 8 小工具
  */
 export interface CommunityForeign {
   community:Community
@@ -512,12 +521,52 @@ export interface CommunityForeign {
 /**
  * 帖子详情接口 `foreign_list` 单项：`pk_type` 含义与 {@link CommunityForeign} 一致，
  * 结构常与 {@link Library} 类似（封面、店铺、library_id / shop_id 等）。
+ * pk_type=8 小工具时另含 path / tool_desc / use_count / icon 等。
  */
 export type CommunityDetailForeignItem = Partial<Library> & {
   pk_type: number
   pk_id: number
   title?: string | null
   square_cover?: string | null
+  /** 小工具访问路径/URL（pk_type=8） */
+  path?: string | null
+  tool_desc?: string | null
+  tool_name?: string | null
+  icon?: string | null
+  use_count?: number | null
+}
+
+/** 小工具板块 */
+export interface MiniTool {
+  tool_id: number
+  tool_name: string
+  tool_desc?: string | null
+  icon?: string | null
+  path?: string | null
+  use_count?: number
+  good_count?: number
+  create_user?: number
+  sort?: number
+  is_enable?: number
+  nickname?: string
+  user_cover?: string
+  creator?: {
+    user_id: number
+    user_name?: string
+    user_face?: string
+    level?: number
+    authentication?: number | string
+  } | null
+}
+
+/** 小工具最近使用（user_history pk_type=9） */
+export interface MiniToolHistoryItem {
+  user_history_id?: number
+  pk_id: number
+  pk_type: number
+  user_id?: number
+  date?: string | Date
+  mini_tool: MiniTool
 }
 
 /** 评论 json_data 扩展字段 */
@@ -608,6 +657,8 @@ export interface User {
   user_id?: number,
   user_face?: string
   user_name?: string
+  /** 曾用名，多个用英文逗号分隔；无则为 null/空 */
+  former_name?: string | null
   avatar?: Avatar
   permission_list?: string[]
   email?: string
@@ -1008,6 +1059,7 @@ export interface ParentPlanSummary {
   need_money?: number
   have_money?: number
   parent_id?: number
+  /** 封面图相对路径，多张时逗号分隔 */
   plan_cover?: string
   end_time?: string | Date
 }
@@ -1019,6 +1071,7 @@ export interface PlanList {
   plan_name?: string
   need_money?: number
   have_money?: number
+  /** 封面图相对路径，多张时逗号分隔 */
   plan_cover?: string
   plan_note?: string
   is_complete?  : number

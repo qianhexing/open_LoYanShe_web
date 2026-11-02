@@ -1,107 +1,89 @@
 <script setup lang="ts">
-import type { Shop, PaginationResponse } from '@/types/api';
-import { getShopList } from '@/api/shop';
+import { computed, shallowRef, watch } from 'vue'
+import type { Shop, PaginationResponse } from '@/types/api'
+import { getShopList } from '@/api/shop'
+import QhxJellyButton from '@/components/Qhx/JellyButton.vue'
+import QhxPagination from '@/components/Qhx/Pagination.vue'
+
 const router = useRouter()
 const route = useRoute()
-// 分页参数
+const userStore = useUserStore()
+const configStore = useConfigStore()
+
 const pageSize = 20
-// const total = ref(0)
-// const list = ref<Shop[]>([])
-const page = ref(Number(route.query.page) || 1)
-const keyword = ref('')
-const value = ref('')
+const page = shallowRef(Number(route.query.page) || 1)
+const keyword = shallowRef('')
+const value = shallowRef('')
+const user = computed(() => userStore.user)
 
-
-// 使用`use$Post`请求函数
 const fetchShopList = async (): Promise<PaginationResponse<Shop>> => {
   try {
     const response = await getShopList({
       page: page.value,
-      pageSize: pageSize,
-      keyword: keyword.value
+      pageSize,
+      keyword: keyword.value,
     })
     return response
   } catch (error) {
-    if (process.client) {
+    if (import.meta.client) {
       console.error('获取店铺列表失败:', error)
     }
-
-    // 返回一个空的结构，防止前端 .rows 报错
     return {
       rows: [],
-      count: 0
+      count: 0,
     }
   }
 }
 
-
 const { data } = await useAsyncData('shops', fetchShopList, {
-  watch: [page, keyword]
+  watch: [page, keyword],
 })
 
 const list = computed(() => data.value?.rows ?? [])
 const total = computed(() => data.value?.count ?? 0)
 
-const isLoading = computed(() => false)
-
-// 监听总数变化
-watchEffect(() => {
-	console.log('当前总数:', total.value)
-})
-
-// SEO 配置
 useHead({
-	title: 'Lolita店铺',
-	meta: [
-		{
-			name: 'keywords',
-			content: 'Lo研社,洛丽塔店铺,Lolita,Lolita店铺,Lolita店铺汇总'
-		},
-		{
-			name: 'description',
-			content: '洛丽塔店铺汇总'
-		}
-	]
-})
-// 页码改变处理函数
-const handlePageChange = (current: number) => {
-  page.value = current
-  router.push({
-    query: {
-      ...route.query,
-      page: current
+  title: 'Lolita店铺',
+  meta: [
+    {
+      name: 'keywords',
+      content: 'Lo研社,洛丽塔店铺,Lolita,Lolita店铺,Lolita店铺汇总',
     },
-    force: true
+    {
+      name: 'description',
+      content: '洛丽塔店铺汇总',
+    },
+  ],
+})
+
+function syncPageQuery(current: number) {
+  const queryPage = Number(route.query.page) || 1
+  if (queryPage === current) return
+  const { page: _page, ...rest } = route.query
+  router.replace({
+    query: current <= 1 ? rest : { ...rest, page: String(current) },
   })
 }
 
-const userStore = useUserStore()
-const user = computed(() => userStore.user)
-const configStore = useConfigStore()
+watch(page, (current) => {
+  syncPageQuery(current)
+  if (!import.meta.client) return
+  window.scrollTo({ top: 0, left: 0, behavior: 'auto' })
+})
 
-const showToast = () => {
-  const user = useUserStore()
-  console.log(user.token, '获取到的token')
-  const toast = useToast()
+watch(
+  () => Number(route.query.page) || 1,
+  (queryPage) => {
+    if (queryPage !== page.value) page.value = queryPage
+  },
+)
 
-  toast.add({
-    title: '成功',
-    description: '操作已成功完成',
-    icon: 'i-heroicons-check-circle',
-    color: 'green'
-  })
-}
-// 统一处理搜索逻辑
 const handleSearch = () => {
   keyword.value = value.value.trim()
-  // 执行搜索操作（示例）
-  
-  if (keyword.value) {
-    page.value = 1
-  }
+  page.value = 1
+  syncPageQuery(1)
 }
 
-// 跳转到添加店铺页面
 const jumpToAddShop = () => {
   router.push('/addShop')
 }
@@ -110,9 +92,9 @@ const jumpToAddPhysicalShop = () => {
   router.push('/addPhysicalShop')
 }
 </script>
+
 <template>
   <div class="min-h-screen">
-    <!-- WebView 状态栏占位：layouts/default 中 ?statusbar= -->
     <div
       v-if="configStore.statusBarHeight > 0"
       class="shrink-0"
@@ -121,138 +103,209 @@ const jumpToAddPhysicalShop = () => {
     />
 
     <div class="container mx-auto p-4 pb-20">
-    <div class="grid grid-cols-1 md:grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4 px-4  pb-3">
-      <div class="w-full flex items-center gap-2">
-        <UInput
-          v-model="value"
-          :autofocus="false"
-          placeholder="搜索店铺 多条件空格分割."
-          class="flex-1 focus:ring-0"
-           @keyup.enter="handleSearch"
-          :ui="{
-            base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
-            rounded: 'rounded-full',
-            padding: { xs: 'px-4 py-2' },
-            color: {
-              white: {
-                outline: 'bg-gray-50 dark:bg-gray-800 ring-1 ring-gray-300 dark:ring-gray-600 focus:ring-2 focus:ring-qhx-primary'
-              }
-            }
-          }"
-        />
-        <UButton
-          icon="i-heroicons-magnifying-glass"
-          variant="ghost"
-          color="gray"
-          @click="handleSearch"
-        />
-        <UButton
-          v-if="user"
-          icon="i-heroicons-plus"
-          color="primary"
-          @click="jumpToAddShop"
-          class="whitespace-nowrap"
-        >
-          补充店铺
-        </UButton>
-        <UButton
-          v-if="user"
-          icon="i-heroicons-map-pin"
-          color="primary"
-          variant="outline"
-          @click="jumpToAddPhysicalShop"
-          class="whitespace-nowrap"
-        >
-          收录实体店
-        </UButton>
+      <div class="shop-toolbar">
+        <div class="shop-search">
+          <input
+            v-model="value"
+            class="shop-search-input"
+            type="search"
+            enterkeyhint="search"
+            placeholder="搜索店铺 多条件空格分割."
+            @keyup.enter="handleSearch"
+          >
+          <QhxJellyButton>
+            <button
+              type="button"
+              class="shop-icon-btn"
+              aria-label="搜索"
+              @click="handleSearch"
+            >
+              <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path
+                  d="M21 21l-5.2-5.2M10.8 18a7.2 7.2 0 1 1 0-14.4 7.2 7.2 0 0 1 0 14.4Z"
+                  stroke="currentColor"
+                  stroke-width="1.8"
+                  stroke-linecap="round"
+                />
+              </svg>
+            </button>
+          </QhxJellyButton>
+        </div>
+
+        <ClientOnly>
+          <div v-if="user" class="shop-actions">
+            <QhxJellyButton>
+              <button type="button" class="shop-action-btn is-primary" @click="jumpToAddShop">
+                <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <path
+                    d="M12 5v14M5 12h14"
+                    stroke="currentColor"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                  />
+                </svg>
+                补充店铺
+              </button>
+            </QhxJellyButton>
+            <QhxJellyButton>
+              <button type="button" class="shop-action-btn is-outline" @click="jumpToAddPhysicalShop">
+                <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <path
+                    d="M12 21s7-5.4 7-11a7 7 0 1 0-14 0c0 5.6 7 11 7 11Z"
+                    stroke="currentColor"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  />
+                  <circle cx="12" cy="10" r="2.2" stroke="currentColor" stroke-width="1.8" />
+                </svg>
+                收录实体店
+              </button>
+            </QhxJellyButton>
+          </div>
+        </ClientOnly>
       </div>
-    </div>
-    <!-- 加载状态 -->
-    <div v-if="isLoading" class="flex justify-center items-center min-h-[200px]">
-      <!-- <USkeleton class="h-32 w-full" /> -->
-    </div>
 
-    <!-- 空状态 -->
-    <!-- <div v-else-if="!list?.length" class="text-center text-gray-500 py-8">
-      暂无数据
-    </div> -->
-
-    <!-- 店铺列表 -->
-    <div v-else class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6">
-      <div
-        v-for="shop in list"
-        :key="shop.shop_id"
-        class="bg-white polaroid-card dark:bg-gray-900 rounded-[18px] shadow-lg hover:shadow-xl transition-all duration-300 cursor-pointer flex flex-col items-center overflow-hidden border border-gray-100 dark:border-gray-800 group relative hover:bg-qhx-primary hover:text-white"
-      >
-        <ShopItem size="big" :item="shop"></ShopItem>
+      <div class="shop-grid">
+        <div
+          v-for="shop in list"
+          :key="shop.shop_id"
+          class="bg-white polaroid-card dark:bg-gray-900 rounded-[18px] shadow-lg hover:shadow-xl transition-all duration-300 cursor-pointer flex flex-col items-center overflow-hidden border border-gray-100 dark:border-gray-800 group relative hover:bg-qhx-primary hover:text-white"
+        >
+          <ShopItem size="big" :item="shop" />
+        </div>
       </div>
-    </div>
 
-    <!-- 分页组件 -->
-    <div v-if="total > 0" class="mt-8 flex justify-center">
-      <client-only>
-        <UPagination
-          v-model="page"
-          :total="total / 2"
-          :ui="{
-            wrapper: 'flex items-center gap-1',
-            base: 'flex items-center gap-1',
-          }"
-          @change="handlePageChange"
-        />
-      </client-only>
-    </div>
+      <div v-if="total > pageSize" class="mt-8 flex justify-center">
+        <QhxPagination v-model="page" :total="total" :page-size="pageSize" />
+      </div>
     </div>
   </div>
 </template>
 
 <style scoped>
-.grid {
-  container-type: inline-size;
+.shop-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 0 1rem 0.75rem;
 }
 
-@container (min-width: 200px) {
-  .grid {
-    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+.shop-search {
+  display: flex;
+  flex: 1 1 16rem;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.shop-search-input {
+  flex: 1;
+  min-width: 0;
+  height: 40px;
+  padding: 0 16px;
+  border-radius: 999px;
+  border: 1px solid var(--border-color, #ffd1dc);
+  background: var(--card-color, #fff);
+  color: var(--text-color, #111827);
+  font-size: 14px;
+  outline: none;
+  transition: box-shadow 0.18s ease, border-color 0.18s ease;
+}
+
+.shop-search-input::placeholder {
+  color: var(--textSecondary-color, #9b8a97);
+}
+
+.shop-search-input:focus {
+  border-color: var(--primary-color, #ff9eb5);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary-color, #ff9eb5) 28%, transparent);
+}
+
+.shop-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.shop-icon-btn,
+.shop-action-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 40px;
+  border-radius: 999px;
+  cursor: pointer;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 600;
+  transition: background 0.18s ease, color 0.18s ease, border-color 0.18s ease;
+}
+
+.shop-icon-btn {
+  width: 40px;
+  padding: 0;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-color, #4b5563);
+}
+
+.shop-icon-btn:hover {
+  background: color-mix(in srgb, var(--primary-color, #ff9eb5) 12%, transparent);
+  color: var(--primary-color, #ff9eb5);
+}
+
+.shop-icon-btn svg,
+.shop-action-btn svg {
+  width: 18px;
+  height: 18px;
+}
+
+.shop-action-btn.is-primary {
+  padding: 0 14px;
+  border: 1px solid var(--primary-color, #ff9eb5);
+  background: var(--primary-color, #ff9eb5);
+  color: var(--inverted-color, #fff);
+}
+
+.shop-action-btn.is-outline {
+  padding: 0 14px;
+  border: 1px solid var(--primary-color, #ff9eb5);
+  background: var(--card-color, #fff);
+  color: var(--primary-color, #ff9eb5);
+}
+
+.shop-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1.5rem;
+}
+
+@media (min-width: 768px) {
+  .shop-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
 
-/* 添加卡片阴影效果 */
-.u-card {
-  @apply shadow-sm hover:shadow-md dark:shadow-gray-800;
+@media (min-width: 1024px) {
+  .shop-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
 }
 
-/* 优化图片容器 */
-.aspect-\[4\/3\] {
-  aspect-ratio: 4/3;
+@media (min-width: 1280px) {
+  .shop-grid {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
 }
 
-/* 适配暗色主题的过渡效果 */
-.group:hover .group-hover\:scale-110 {
-  @apply transform scale-110 transition-transform duration-300;
-}
-.badge-tip{
-  position: absolute;
-    left: calc(50% - 49px);
-    top: calc(50% - 45px);
-    font-size: 40px;
-    z-index: 10;
-    width: 80px;
-    text-align: center;
-    transform: rotate(-45deg);
-    color: var(--error-color);
-}
-
-/* 拍立得风格卡片样式 */
 .polaroid-card {
-  box-shadow: 0 6px 24px 0 rgba(0,0,0,0.10), 0 1.5px 4px 0 rgba(0,0,0,0.08);
+  box-shadow: 0 6px 24px 0 rgba(0, 0, 0, 0.1), 0 1.5px 4px 0 rgba(0, 0, 0, 0.08);
   border-radius: 18px;
   background: #fff;
   border: 1.5px solid #f3f3f3;
 }
-*{
-  font-family: 'Menlo', sans-serif;
-}
 </style>
-
-

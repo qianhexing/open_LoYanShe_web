@@ -71,8 +71,8 @@
             class="rte-tb-btn rte-tb-btn--accent-emerald"
             :class="{ 'rte-tb-btn--disabled': imageUploading }"
             :disabled="imageUploading"
-            :title="imageUploading ? '上传中…' : '上传并插入图片'"
-            :aria-label="imageUploading ? '上传中…' : '上传并插入图片'"
+            :title="imageUploading ? '上传中…' : imageUploadButtonTitle"
+            :aria-label="imageUploading ? '上传中…' : imageUploadButtonTitle"
             @click="triggerImageUpload"
           >
             <UIcon
@@ -85,7 +85,8 @@
             ref="imageFileInputRef"
             type="file"
             class="sr-only"
-            accept="image/jpeg,image/png,image/gif,image/webp,image/svg+xml"
+            accept="image/jpeg,image/png,image/gif,image/webp,image/svg+xml,image/heic,image/heif,image/bmp,image/avif,image/tiff,.jfif"
+            :multiple="props.imageUploadMultiple"
             @change="onRichTextImageSelected"
           >
 
@@ -298,6 +299,10 @@ interface Props {
   enableInternalLink?: boolean
   /** 工具栏上传图片并插入编辑器（OSS 上传，src 为完整 https 地址以通过 SafeRichText 校验） */
   enableImageUpload?: boolean
+  /** 图片上传是否支持一次选择多张 */
+  imageUploadMultiple?: boolean
+  /** 单次最多可选图片数（仅 imageUploadMultiple 为 true 时生效） */
+  imageUploadMax?: number
   /** 仅显示所列工具项；与 enable* 二选一语义：传入后忽略各 enable*，且扩展按列表注册 */
   toolbar?: RichTextToolbarItem[]
   mentionUsers?: string[]
@@ -318,6 +323,8 @@ const props = withDefaults(defineProps<Props>(), {
   enableEmoji: false,
   enableInternalLink: false,
   enableImageUpload: false,
+  imageUploadMultiple: false,
+  imageUploadMax: 9,
   mentionRemoteSearch: true,
   mentionRemotePageSize: 12,
   mentionUsers: () => [],
@@ -378,6 +385,37 @@ const toast = useToast()
 
 const imageFileInputRef = ref<HTMLInputElement | null>(null)
 const imageUploading = ref(false)
+
+const imageUploadButtonTitle = computed(() =>
+  props.imageUploadMultiple
+    ? `上传并插入图片（最多 ${props.imageUploadMax} 张）`
+    : '上传并插入图片'
+)
+
+const IMAGE_EXT_PATTERN = /\.(jpe?g|jfif|jpe|png|gif|webp|heic|heif|bmp|avif|tiff?|svg|ico)$/i
+const IMAGE_MAX_BYTES = 15 * 1024 * 1024
+
+function isRichTextImageFile(file: File) {
+  return file.type.startsWith('image/') || IMAGE_EXT_PATTERN.test(file.name)
+}
+
+function insertUploadedImage(file: File, src: string) {
+  editor.value
+    ?.chain()
+    .focus()
+    .setImage({ src, alt: file.name.replace(/[<>"]/g, '') })
+    .insertContent(' ')
+    .run()
+}
+
+async function uploadAndInsertRichTextImage(file: File) {
+  const path = await uploadImageOSS({ file })
+  const src = toAbsoluteImageSrc(path)
+  if (!src) {
+    throw new Error('upload-empty-src')
+  }
+  insertUploadedImage(file, src)
+}
 
 /** 将接口返回的相对路径转为带 CDN 域名的绝对地址（已是 http 则原样返回） */
 function toAbsoluteImageSrc(storedPath: string): string {
@@ -828,35 +866,60 @@ const triggerImageUpload = () => {
 
 const onRichTextImageSelected = async (e: Event) => {
   const input = e.target as HTMLInputElement
-  const file = input.files?.[0]
+  const selectedFiles = Array.from(input.files ?? [])
   input.value = ''
-  if (!file || !editor.value) return
-  if (!file.type.startsWith('image/') && !/\.(jpe?g|png|gif|webp|heic|heif|bmp|avif)$/i.test(file.name)) {
+  if (!selectedFiles.length || !editor.value) return
+
+  const files = selectedFiles.filter(isRichTextImageFile)
+  if (!files.length) {
     toast.add({ title: '请选择图片文件', color: 'orange', icon: 'i-heroicons-exclamation-circle' })
     return
   }
-  const maxBytes = 15 * 1024 * 1024
-  if (file.size > maxBytes) {
+
+  const oversized = files.find(file => file.size > IMAGE_MAX_BYTES)
+  if (oversized) {
     toast.add({ title: '图片请小于 15MB', color: 'orange', icon: 'i-heroicons-exclamation-circle' })
     return
   }
-  imageUploading.value = true
-  try {
-    const path = await uploadImageOSS({ file })
-    const src = toAbsoluteImageSrc(path)
-    if (!src) {
-      toast.add({ title: '上传未返回图片地址', color: 'red', icon: 'i-heroicons-x-circle' })
-      return
-    }
-    editor.value.chain().focus().setImage({ src, alt: file.name.replace(/[<>"]/g, '') }).insertContent(' ').run()
-  } catch (err) {
-    console.error(err)
+
+  const maxCount = props.imageUploadMultiple ? props.imageUploadMax : 1
+  const uploadFiles = files.slice(0, maxCount)
+  if (files.length > maxCount) {
     toast.add({
-      title: '图片上传失败',
-      description: '请稍后重试',
-      color: 'red',
-      icon: 'i-heroicons-x-circle',
+      title: `最多一次上传 ${maxCount} 张图片`,
+      description: `已选取前 ${maxCount} 张`,
+      color: 'orange',
+      icon: 'i-heroicons-exclamation-circle',
     })
+  }
+
+  imageUploading.value = true
+  let failedCount = 0
+  try {
+    for (const file of uploadFiles) {
+      try {
+        await uploadAndInsertRichTextImage(file)
+      } catch (err) {
+        failedCount += 1
+        console.error(err)
+      }
+    }
+
+    if (failedCount === uploadFiles.length) {
+      toast.add({
+        title: '图片上传失败',
+        description: '请稍后重试',
+        color: 'red',
+        icon: 'i-heroicons-x-circle',
+      })
+    } else if (failedCount > 0) {
+      toast.add({
+        title: `${failedCount} 张图片上传失败`,
+        description: '其余图片已插入',
+        color: 'orange',
+        icon: 'i-heroicons-exclamation-circle',
+      })
+    }
   } finally {
     imageUploading.value = false
   }

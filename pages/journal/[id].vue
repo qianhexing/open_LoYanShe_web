@@ -1227,6 +1227,7 @@ import { getSceneId } from '@/api/scene'
 import type { MatchingListItem } from '@/api/matching_list'
 import { BASE_IMG } from '@/utils/ipConfig'
 import { firstCommunityDisplayPath } from '@/utils/communityLiveMedia'
+import { firstPlanCoverPath } from '@/utils/planCover'
 import {
   hasSceneArTarget,
   pickArTargetFromSceneJson
@@ -1485,8 +1486,8 @@ function getFirstImageFromJournal(j: Journal): string | null {
     return j.library.cover.trim() || null
   }
   if (j.pk_type === 5 && j.plan) {
-    const cover = j.plan.plan_cover || j.plan.parent_plan?.plan_cover
-    if (cover) return cover.trim()
+    const first = firstPlanCoverPath(j.plan.plan_cover || j.plan.parent_plan?.plan_cover)
+    if (first) return first
     if (j.plan.wardrobe_clothes?.clothes_img) return j.plan.wardrobe_clothes.clothes_img.trim()
     return null
   }
@@ -1985,8 +1986,8 @@ function getPkTypeChooseLabel(pkType: number): string {
 
 /** 无封面时返回空字符串，调用方勿展示封面位 */
 function getPlanCoverSrc(plan: PlanList): string {
-  const cover = plan.plan_cover || plan.parent_plan?.plan_cover
-  if (cover?.trim()) return `${BASE_IMG}${cover.trim()}${getImageParams()}`
+  const first = firstPlanCoverPath(plan.plan_cover || plan.parent_plan?.plan_cover)
+  if (first) return `${BASE_IMG}${first}${getImageParams()}`
   const clothesImg = plan.wardrobe_clothes?.clothes_img
   if (clothesImg?.trim()) return `${BASE_IMG}${clothesImg.trim()}${getImageParams()}`
   return ''
