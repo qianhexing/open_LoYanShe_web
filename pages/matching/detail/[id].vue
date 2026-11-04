@@ -14,17 +14,17 @@ import UserCollectBtn from '@/components/user/CollectBtn.vue'
 import MatchingShareImage from '@/components/matching/MatchingShareImage.vue'
 import type { MatchingSharePayload } from '@/components/matching/MatchingShareImage.vue'
 import type { Library, Shop, User } from '~/types/api'
-let uni: any;
+import {
+  openLibraryDetailTab,
+  openUserSpaceTab,
+} from '@/composables/useLibraryDetailNavigation'
+import { navigateBackInShell } from '@/utils/nativeShell'
+
+let uni: any
 const configStore = useConfigStore()
 const config = computed(() => configStore.config)
 const port = computed(() => configStore.getPort())
 const isMobile = computed(() => configStore.isMobile)
-const isInUniAppShell = computed(
-  () =>
-    import.meta.client &&
-    typeof navigator !== 'undefined' &&
-    navigator.userAgent.includes('Html5Plus'),
-)
 const matchingBackBtnStyle = computed(() => ({
   top:
     configStore.statusBarHeight > 0
@@ -33,20 +33,9 @@ const matchingBackBtnStyle = computed(() => ({
   left: isMobile.value ? '8px' : '12px',
 }))
 
-/** 返回：UniApp navigateBack / 鸿蒙 port / 浏览器 history，无历史时回搭配列表 */
+/** 返回：UniApp navigateBack / 鸿蒙·iOS port / 浏览器 history，无历史时回搭配列表 */
 function goBack() {
-  if (isInUniAppShell.value) {
-    const uniApi = configStore.uniWebviewJs ?? uni
-    if (uniApi && typeof uniApi.navigateBack === 'function') {
-      uniApi.navigateBack()
-      return
-    }
-  }
-
-  if (port.value) {
-    port.value.postMessage(JSON.stringify({ type: 'back' }))
-    return
-  }
+  if (navigateBackInShell()) return
 
   if (import.meta.client && window.history.length > 1) {
     router.back()
@@ -319,27 +308,7 @@ const previewImage = (urls: string[], index = 0) => {
 
 // 跳转到用户空间（与 components/user/UserInfo.vue 路径一致）
 const jumpToUserSpace = (userId: number) => {
-  const isInUniApp =
-    typeof window !== 'undefined' && navigator.userAgent.includes('Html5Plus')
-
-  if (isInUniApp && uni?.navigateTo) {
-    uni.navigateTo({
-      url: `/pages/common/outerLink2?url=https://lolitalibrary.com/userSpace/${userId}`,
-      fail: () => {
-        console.error('跳转用户空间失败')
-      },
-    })
-  } else if (port.value) {
-    port.value.postMessage(
-      JSON.stringify({
-        type: 'jump',
-        path: 'UserSpace',
-        params: { id: userId },
-      }),
-    )
-  } else {
-    navigateTo(`/userSpace/${userId}`)
-  }
+  openUserSpaceTab(userId)
 }
 
 function goMatchingAuthorSpace() {
@@ -349,27 +318,7 @@ function goMatchingAuthorSpace() {
 
 // 跳转到图鉴详情
 const jumpToLibraryDetail = (libraryId: number) => {
-  let isInUniApp = false
-  if (typeof window !== 'undefined' && navigator.userAgent.includes('Html5Plus')) {
-    isInUniApp = true
-  }
-  if (isInUniApp) {
-    uni.navigateTo({
-      url: `/pages/library/detail/${libraryId}`,
-    })
-  } else {
-    if (port.value) {
-      port.value.postMessage(JSON.stringify({
-        type: 'jump',
-        path: 'LibraryDetail',
-        params: {
-          id: libraryId
-        }
-      }))
-    } else {
-      navigateTo(`/library/detail/${libraryId}`)
-    }
-  }
+  openLibraryDetailTab(libraryId)
 }
 
 // 跳转到店铺详情

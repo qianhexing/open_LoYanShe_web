@@ -488,6 +488,11 @@ const handleRenameSuccess = async () => {
   await fetchUserInfo()
 }
 
+/** 对齐 uni-app userInfo → changeAvatarframe */
+function goChangeAvatarFrame() {
+  void navigateTo('/user/changeAvatarFrame')
+}
+
 function getErrorMessage(error: unknown): string {
   if (error instanceof Error) return error.message
   if (typeof error === 'string') return error
@@ -519,6 +524,11 @@ onMounted(async () => {
   await configStore.getConfig()
   await loadAddressData()
   await fetchUserInfo()
+})
+
+/** 从更换头像框页返回时刷新头像框展示 */
+onActivated(() => {
+  if (user.value) void fetchUserInfo()
 })
 </script>
 
@@ -588,19 +598,31 @@ onMounted(async () => {
               </div>
             </button>
             <div class="min-w-0 flex-1">
-              <QhxJellyButton>
-                <button
-                  type="button"
-                  class="inline-flex items-center gap-1.5 rounded-full border border-qhx-primary/40 bg-white px-4 py-2 text-sm font-medium text-qhx-primary transition-colors hover:bg-qhx-primary/5 disabled:opacity-50 dark:bg-gray-800"
-                  :disabled="uploadingAvatar"
-                  @click="triggerAvatarUpload"
-                >
-                  <Icon name="i-heroicons-photo" class="h-4 w-4" />
-                  {{ uploadingAvatar ? '上传中…' : '更换头像' }}
-                </button>
-              </QhxJellyButton>
+              <div class="flex flex-wrap gap-2">
+                <QhxJellyButton>
+                  <button
+                    type="button"
+                    class="inline-flex items-center gap-1.5 rounded-full border border-qhx-primary/40 bg-white px-4 py-2 text-sm font-medium text-qhx-primary transition-colors hover:bg-qhx-primary/5 disabled:opacity-50 dark:bg-gray-800"
+                    :disabled="uploadingAvatar"
+                    @click="triggerAvatarUpload"
+                  >
+                    <Icon name="i-heroicons-photo" class="h-4 w-4" />
+                    {{ uploadingAvatar ? '上传中…' : '更换头像' }}
+                  </button>
+                </QhxJellyButton>
+                <QhxJellyButton>
+                  <button
+                    type="button"
+                    class="inline-flex items-center gap-1.5 rounded-full border border-qhx-primary/40 bg-white px-4 py-2 text-sm font-medium text-qhx-primary transition-colors hover:bg-qhx-primary/5 dark:bg-gray-800"
+                    @click="goChangeAvatarFrame"
+                  >
+                    <Icon name="i-heroicons-sparkles" class="h-4 w-4" />
+                    更换头像框
+                  </button>
+                </QhxJellyButton>
+              </div>
               <p class="mt-1.5 text-xs text-gray-400">
-                支持常见图片格式
+                支持常见图片格式；头像框可预览后确认使用
               </p>
             </div>
             <input

@@ -68,6 +68,7 @@
 
 <script setup lang="ts">
 import type { RankItem } from '@/api/rank'
+import { openUserSpaceTab } from '@/composables/useLibraryDetailNavigation'
 
 interface Props {
   list: RankItem[]
@@ -75,49 +76,8 @@ interface Props {
 
 defineProps<Props>()
 
-// eslint-disable-next-line
-let uni: any
-const configStore = useConfigStore()
-const port = computed(() => configStore.getPort())
-
-onMounted(async () => {
-  // @ts-ignore uni-webview-js 类型定义问题
-  uni = await import('@dcloudio/uni-webview-js').catch((err) => {
-    console.error('Failed to load uni-webview-js:', err)
-  })
-})
-
-// 跳转到用户详情页
 const handleJumpToUser = (user_id?: number) => {
-  if (!user_id) return
-  
-  const isInUniApp =
-    typeof window !== 'undefined' &&
-    navigator.userAgent.includes('Html5Plus')
-  
-  if (isInUniApp && typeof uni !== 'undefined' && uni.navigateTo) {
-    // UniApp WebView 环境
-    uni.navigateTo({
-      url: `/pages/userSpace/userSpace?id=${user_id}`,
-      fail: () => {
-        console.log('跳转错误')
-      }
-    })
-  } else {
-    if (port.value) {
-      // 鸿蒙系统
-      port.value.postMessage(JSON.stringify({
-        type: 'jump',
-        path: 'UserSpace',
-        params: {
-          id: user_id
-        }
-      }))
-    } else {
-      // 普通网页环境
-      window.open(`/user/detail/${user_id}`, '_blank')
-    }
-  }
+  openUserSpaceTab(user_id)
 }
 </script>
 

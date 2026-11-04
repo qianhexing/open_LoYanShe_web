@@ -1236,7 +1236,7 @@ import { useConfigStore } from '@/stores/config'
 import {
   openLibraryWebPath,
   openLibraryDetailTab,
-  isHtml5PlusWebview
+  openCommunityDetailTab,
 } from '@/composables/useLibraryDetailNavigation'
 import {
   JOURNAL_SIGN_IN_FILTER_TAG,
@@ -1261,8 +1261,6 @@ const getImageParams = () => configStore.config?.image_params || ''
 
 const port = computed(() => configStore.getPort())
 
-const SITE_ORIGIN = 'https://lolitalibrary.com'
-
 function canJumpJournalItem(j: Journal): boolean {
   // 签到/手账(0)、计划(5) 不跳转；其余有关联实体才可进详情
   if (j.pk_type === 1) return !!j.community?.community_id
@@ -1275,29 +1273,7 @@ function canJumpJournalItem(j: Journal): boolean {
 
 function openCommunityDetail(communityId: number) {
   if (!import.meta.client) return
-  const uniApi = configStore.uniWebviewJs
-  const fullUrl = `${SITE_ORIGIN}/community/detail/${communityId}`
-
-  if (isHtml5PlusWebview() && uniApi?.navigateTo) {
-    uniApi.navigateTo({
-      url: `/pages/common/outerLink2?url=${fullUrl}`,
-      fail: () => console.warn('[journal] uni community 跳转失败', fullUrl)
-    })
-    return
-  }
-
-  if (port.value) {
-    port.value.postMessage(
-      JSON.stringify({
-        type: 'jump',
-        path: 'CommunityDetail',
-        params: { id: communityId }
-      })
-    )
-    return
-  }
-
-  openLibraryWebPath(`/community/detail/${communityId}`)
+  openCommunityDetailTab(communityId)
 }
 
 /** 跳转关联详情（轮播「查看详情」直接调用；列表点击需避开按钮） */

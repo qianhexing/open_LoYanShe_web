@@ -5,6 +5,12 @@ import { getUserMy } from '~/api/user'
 import { useNotification } from '~/composables/useNotification'
 import { hasNotice } from '@/api/message_center'
 import type { UniWebviewJsModule } from '@/stores/config'
+import {
+  isIosWebview,
+  isNativeAppShell,
+  markHarmonyShell,
+  markIosShell,
+} from '@/utils/nativeShell'
 const themeStore = useThemeStore()
 const userStore = useUserStore()
 const configStore = useConfigStore()
@@ -31,8 +37,15 @@ const blank_list = [
   'matching/my',
   'user/signIn',
   '/userSpace/', '/exhibition/wardrobe/', '/exhibition/',
-  '/humanPlatform/', '/user/plan', '/user/signIn', '/user/center', '/user/message', '/post/', '/distributedMaps', '/visualization/wardrobe', '/visualization/shop-cloud', '/rank', '/yearlySummary', '/user/changePassword','/matching/detail','/album/detail', '/album', 'clothes/detail', 'scene/detail', 'wardrobe/detail', 'wardrobe/statistics', 'wardrobe/square', 'register', 'login', 'lighting-debug', 'timepipe', 'user/edit', '/journal', '/shop/shanzheng', '/library/search', '/search/', '/features', 'ai/chat', '/teaparty/detail', '/teaparty/snapshot', '/user/signIn/snapshot', '/wishBottle']
+  '/humanPlatform/', '/user/plan', '/user/signIn', '/user/center', '/user/message', '/post/', '/distributedMaps', '/visualization/wardrobe', '/visualization/shop-cloud', '/rank', '/yearlySummary', '/user/changePassword','/matching/detail','/album/detail', '/album', 'clothes/detail', 'scene/detail', 'wardrobe/detail', 'wardrobe/statistics', 'wardrobe/square', 'register', 'login', 'lighting-debug', 'timepipe', 'user/edit', 'user/changeAvatarFrame', '/journal', '/shop/shanzheng', '/library/search', '/search/', '/features', 'ai/chat', '/teaparty/detail', '/teaparty/snapshot', '/user/signIn/snapshot', '/wishBottle']
 const route = useRoute()
+
+function readQueryClient(): string {
+  const c = route.query?.client
+  const v = Array.isArray(c) ? c[0] : c
+  return String(v || '').toLowerCase()
+}
+
 if (route.query?.token) {
   useUserStore().setToken(route.query.token.toString())
 }
@@ -41,6 +54,11 @@ if (route.query?.statusbar) {
   if (!Number.isNaN(statusBarHeight) && statusBarHeight >= 0) {
     configStore.setStatusBarHeight(statusBarHeight <= 5 ? 50 : statusBarHeight)
   }
+}
+// iOS 原生外链：首屏即隐藏上下栏，并写入 session 供站内跳转保持
+if (readQueryClient() === 'ios') {
+  markIosShell()
+  isFromMobie.value = true
 }
 console.log(route.path, '初始路由地址')
 
@@ -97,6 +115,16 @@ watch(
     // 在这里执行路由变化后的逻辑
   }
 )
+watch(
+  () => route.query.client,
+  (client) => {
+    const v = Array.isArray(client) ? client[0] : client
+    if (String(v || '').toLowerCase() === 'ios') {
+      markIosShell()
+      isFromMobie.value = true
+    }
+  },
+)
 const preventZoom = (e: TouchEvent) => {
   if (e.touches.length > 1) {
     e.preventDefault();
@@ -107,14 +135,9 @@ const handleInit = (event: MessageEvent) => {
     const [port] = event.ports
     configStore.setPort(port)
     isFromMobie.value = true
-    // 供跳转逻辑在 port 尚未挂上 computed 前也能识别鸿蒙壳
-    if (import.meta.client && typeof sessionStorage !== 'undefined') {
-      try {
-        sessionStorage.setItem('harmony_webview', '1')
-      } catch {
-        /* ignore */
-      }
-    }
+    // 供跳转逻辑在 port 尚未挂上 computed 前也能识别鸿蒙 / iOS 壳
+    markHarmonyShell()
+    if (isIosWebview()) markIosShell()
     // 监听应用发来的消息
     port.onmessage = (e) => {
       const message = JSON.parse(e.data)
@@ -139,7 +162,8 @@ let wsConnection: WSConnection | null = null
 
 // 初始化 WebSocket 连接（如果有 token）
 const initNotificationSystem = () => {
-  if (process.client && !navigator.userAgent.includes('Html5Plus')) {
+  // 原生壳（Uni / iOS / 鸿蒙）不走浏览器 WebSocket 通知
+  if (process.client && !navigator.userAgent.includes('Html5Plus') && !isNativeAppShell()) {
     const { initWebSocket } = useNotification()
     const token = useCookie('token').value || (typeof window !== 'undefined' && window.localStorage ? localStorage.getItem('token') : null) || userStore.token
     
@@ -177,6 +201,11 @@ onMounted(async () => {
   if (isInUniApp && uni) {
     isFromMobie.value = true
     configStore.setUniWebviewJs(uni as UniWebviewJsModule)
+  } else if (isNativeAppShell()) {
+    // iOS / 鸿蒙壳：继续隐藏 Header、Footer（勿被下方 false 覆盖）
+    isFromMobie.value = true
+    if (isIosWebview()) markIosShell()
+    configStore.setUniWebviewJs(null)
   } else {
     isFromMobie.value = false
     configStore.setUniWebviewJs(null)

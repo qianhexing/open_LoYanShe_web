@@ -1,23 +1,20 @@
 import type { Library, Wardrobe } from '@/types/api'
+import {
+	openLibraryDetailTab,
+	openWardrobeDetail,
+} from '@/composables/useLibraryDetailNavigation'
+import { isHtml5PlusWebview } from '@/utils/nativeShell'
 import type { SceneObjectLinkType } from '@/utils/sceneObjectLink'
 import type { SceneObjectLinkDetailRow } from '@/utils/sceneObjectLinkDetails'
 
 export interface SceneObjectLinkNavigateContext {
 	defaultUserId?: number
+	/** @deprecated 已统一走 nativeShell，可省略 */
 	port?: { postMessage: (msg: string) => void } | null
 }
 
 export function isInUniAppShell(): boolean {
-	return (
-		typeof window !== 'undefined' &&
-		navigator.userAgent.includes('Html5Plus')
-	)
-}
-
-function buildWebUrl(path: string): string {
-	if (!import.meta.client) return path
-	if (path.includes('://')) return path
-	return `${window.location.origin}${path.startsWith('/') ? path : `/${path}`}`
+	return isHtml5PlusWebview()
 }
 
 export function canNavigateSceneObjectLink(row: SceneObjectLinkDetailRow): boolean {
@@ -49,59 +46,19 @@ function navigateWardrobe(
 	const userId = resolveWardrobeUserId(wardrobe, ctx)
 	if (!userId) return false
 
-	const webPath = `/wardrobe/detail/${userId}?wardrobe_id=${wardrobeId}`
-	const uniPath = `/pages/wardrobe/wardrobe?user_id=${userId}&wardrobe_id=${wardrobeId}`
-
-	if (isInUniAppShell() && typeof uni !== 'undefined' && uni.navigateTo) {
-		uni.navigateTo({ url: uniPath })
-		return true
-	}
-	if (ctx.port) {
-		ctx.port.postMessage(
-			JSON.stringify({
-				type: 'jump',
-				path: 'Outlink',
-				params: { url: buildWebUrl(webPath) }
-			})
-		)
-		return true
-	}
-	if (import.meta.client) {
-		window.open(buildWebUrl(webPath), '_blank', 'noopener,noreferrer')
-		return true
-	}
-	return false
+	openWardrobeDetail({ userId, wardrobeId })
+	return true
 }
 
 function navigateLibrary(
 	library: Library,
-	ctx: SceneObjectLinkNavigateContext
+	_ctx: SceneObjectLinkNavigateContext
 ): boolean {
 	const libraryId = library.library_id
 	if (!libraryId) return false
 
-	const webPath = `/library/detail/${libraryId}`
-	const uniPath = `/pages/library/libraryDetail/libraryDetail?id=${libraryId}`
-
-	if (isInUniAppShell() && typeof uni !== 'undefined' && uni.navigateTo) {
-		uni.navigateTo({ url: uniPath })
-		return true
-	}
-	if (ctx.port) {
-		ctx.port.postMessage(
-			JSON.stringify({
-				type: 'jump',
-				path: 'LibraryDetail',
-				params: { id: libraryId }
-			})
-		)
-		return true
-	}
-	if (import.meta.client) {
-		window.open(buildWebUrl(webPath), '_blank', 'noopener,noreferrer')
-		return true
-	}
-	return false
+	openLibraryDetailTab(libraryId)
+	return true
 }
 
 export function navigateSceneObjectLink(

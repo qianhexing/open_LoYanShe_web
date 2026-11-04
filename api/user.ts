@@ -117,6 +117,8 @@ interface UpdateUserInfoParams {
   show_area?: number
   is_achieve?: number
   user_face?: string
+  /** 头像框 ID；0 表示无框（对齐 uni-app changeUserAvatarFrame） */
+  avatar_frame?: number
   is_annual_report?: number
   email?: string
   message_config?: Record<string, unknown>

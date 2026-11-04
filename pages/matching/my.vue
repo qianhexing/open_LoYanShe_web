@@ -9,12 +9,10 @@ import type { WardrobeClothes } from '@/types/api'
 import type MatchingAddEdit from '@/components/matching/MatchingAddEdit.vue'
 import type QhxWaterList from '@/components/Qhx/WaterList.vue'
 import { BASE_IMG } from '@/utils/ipConfig'
-// biome-ignore lint/suspicious/noExplicitAny: uni-webview-js 类型声明缺失
-let uni: any
+import { openMatchingDetailTab } from '@/composables/useLibraryDetailNavigation'
 const layoutReady = inject('layoutReady') as Ref<boolean>
 const userStore = useUserStore()
 const configStore = useConfigStore()
-const port = computed(() => configStore.getPort())
 /** WebView 经 layouts/default 的 ?statusbar= 注入，与 wardrobe/detail、statistics 主栏一致 */
 const statusBarPx = computed(() => (configStore.statusBarHeight > 0 ? `${configStore.statusBarHeight}px` : '0px'))
 const toast = useToast()
@@ -46,13 +44,6 @@ const filterList = computed(() => {
   const uid = userStore.user?.user_id
   if (!uid) return []
   return [{ field: 'user_id', op: 'eq', value: uid }]
-})
-
-onMounted(async () => {
-  // @ts-ignore - uni-webview-js 类型声明缺失
-  uni = await import('@dcloudio/uni-webview-js').catch((err: unknown) => {
-    console.error('Failed to load uni-webview-js:', err)
-  })
 })
 
 definePageMeta({
@@ -109,25 +100,8 @@ const fetchMatchingData = async (page: number, pageSize: number) => {
 
 // 跳转到搭配详情
 const jumpToMatchingDetail = (item: MatchingListItem) => {
-  const isInUniApp =
-    typeof window !== 'undefined' &&
-    navigator.userAgent.includes('Html5Plus')
   if (!item.matching_id) return
-  if (isInUniApp && typeof uni !== 'undefined' && uni.navigateTo) {
-    uni.navigateTo({
-      url: `/pages/common/outerLink2?url=https://lolitalibrary.com/matching/detail/${item.matching_id}`
-    })
-  } else {
-    if (port.value) {
-      port.value.postMessage(JSON.stringify({
-        type: 'jump',
-        path: 'Outlink',
-        params: { url: `https://lolitalibrary.com/matching/detail/${item.matching_id}` }
-      }))
-    } else {
-      window.open(`/matching/detail/${item.matching_id}`, '_blank')
-    }
-  }
+  openMatchingDetailTab(item.matching_id)
 }
 
 // 编辑搭配：获取详情后打开编辑弹窗

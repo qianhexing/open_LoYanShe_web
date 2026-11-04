@@ -444,6 +444,8 @@ import { useConfigStore } from '@/stores/config'
 import { insertBrowTime } from '@/api/brow_time'
 import dayjs from 'dayjs'
 import QhxPreviewImage from '@/components/Qhx/PreviewImage.vue'
+import { openCommunityDetailTab } from '@/composables/useLibraryDetailNavigation'
+import { isHtml5PlusWebview } from '@/utils/nativeShell'
 let uni: any;
 const { $gsap } = useNuxtApp()
 const route = useRoute()
@@ -485,7 +487,6 @@ const blacklistRef = ref<HTMLElement | null>(null)
 const showPosterModal = ref(false)
 const showPostModal = ref(false)
 
-const port = computed(() => configStore.getPort())
 // 判断是否显示设置按钮（只有当前用户id等于URL中的user_id时才显示）
 const showSettings = computed(() => {
   const userId = route.query.user_id
@@ -603,27 +604,14 @@ const handlePostSuccess = async (community: Community) => {
   }
   // 可以在这里添加成功后的操作，比如刷新数据等
   console.log('发帖成功')
-  const isInUniApp =
-		typeof window !== 'undefined' &&
-		navigator.userAgent.includes('Html5Plus');
-	if (isInUniApp && typeof uni !== 'undefined' && uni.navigateTo) {
-		// UniApp WebView 环境
-		uni.navigateTo({
-			url: `/pages/community/communityDetail/communityDetail?id=${community.community_id}`,
-		});
-	} else {
-    if (port.value) {
-      port.value.postMessage(JSON.stringify({
-        type: 'jump',
-        path: 'CommunityDetail',
-        params: {
-          id: community.community_id
-        }
-      }));
-    } else {
-      window.open(`/community/detail/${community.community_id}`, '_blank')
-    }
+  // Uni 走原生社区详情页；鸿蒙 / iOS / 浏览器走统一壳桥
+  if (isHtml5PlusWebview() && typeof uni !== 'undefined' && uni?.navigateTo) {
+    uni.navigateTo({
+      url: `/pages/community/communityDetail/communityDetail?id=${community.community_id}`,
+    })
+    return
   }
+  openCommunityDetailTab(community.community_id)
 }
 
 // 根据部位名称获取图标

@@ -1,30 +1,17 @@
 <script setup lang="ts">
 import type { CommunityDetailForeignItem } from '@/types/api'
 import { BASE_IMG } from '@/utils/ipConfig'
-
-// biome-ignore lint/suspicious/noExplicitAny: @dcloudio/uni-webview-js 无类型声明
-let uni: any
-const configStore = useConfigStore()
-const port = computed(() => configStore.getPort())
+import {
+  isNativeAppShell,
+  openInNativeShell,
+  SITE_ORIGIN,
+} from '@/utils/nativeShell'
 
 const props = defineProps<{
   items?: CommunityDetailForeignItem[] | null
 }>()
 
 const toast = useToast()
-
-/** 站内 H5 路径对应完整 URL（UniApp outerLink2 / 鸿蒙外链用） */
-const SITE_ORIGIN = 'https://lolitalibrary.com'
-
-onMounted(async () => {
-  uni = await (
-    // @ts-expect-error：@dcloudio/uni-webview-js 无声明文件
-    import('@dcloudio/uni-webview-js')
-  ).catch((err: unknown) => {
-    console.error('Failed to load uni-webview-js:', err)
-    return undefined
-  })
-})
 
 /** 与 `CommunityForeign` / `CommunityDetailForeignItem` 的 `pk_type` 对齐 */
 const PK_TYPE_LABELS: Record<number, string> = {
@@ -126,59 +113,18 @@ async function onRowClick(it: CommunityDetailForeignItem) {
 
   const isAbsoluteHttp = /^https?:\/\//i.test(href)
   const fullUrl = isAbsoluteHttp ? href : pathToAbsoluteSiteUrl(href)
-  const isInUniApp =
-    typeof window !== 'undefined' &&
-    navigator.userAgent.includes('Html5Plus')
 
-  // 小工具：走外链打开（含站内静态 HTML 路径）
-  // 与其它页一致：明文传给 outerLink2，不要 encodeURIComponent（uni-webview-js 会再 encodeURI）
+  // Uni / 鸿蒙 / iOS：外链壳
+  if (isNativeAppShell()) {
+    openInNativeShell(fullUrl)
+    return
+  }
+
+  // 浏览器：小工具新开；其它站内 SPA
   if (it.pk_type === 8) {
-    if (isInUniApp && typeof uni !== 'undefined' && uni?.navigateTo) {
-      uni.navigateTo({
-        url: `/pages/common/outerLink2?url=${fullUrl}`,
-        fail: () => {
-          console.warn('UniApp navigateTo outerLink2 失败', fullUrl)
-        },
-      })
-      return
-    }
-    if (port.value) {
-      port.value.postMessage(
-        JSON.stringify({
-          type: 'jump',
-          path: 'Outlink',
-          params: { url: fullUrl },
-        }),
-      )
-      return
-    }
-    if (typeof window !== 'undefined') {
-      window.open(fullUrl, '_blank', 'noopener,noreferrer')
-    }
+    window.open(fullUrl, '_blank', 'noopener,noreferrer')
     return
   }
-
-  if (isInUniApp && typeof uni !== 'undefined' && uni?.navigateTo) {
-    uni.navigateTo({
-      url: `/pages/common/outerLink2?url=${fullUrl}`,
-      fail: () => {
-        console.warn('UniApp navigateTo outerLink2 失败', fullUrl)
-      },
-    })
-    return
-  }
-
-  if (port.value) {
-    port.value.postMessage(
-      JSON.stringify({
-        type: 'jump',
-        path: 'Outlink',
-        params: { url: fullUrl },
-      }),
-    )
-    return
-  }
-
   await navigateTo(href)
 }
 </script>

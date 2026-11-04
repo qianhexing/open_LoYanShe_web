@@ -2,16 +2,12 @@
 import dayjs from 'dayjs'
 import { BASE_IMG } from '@/utils/ipConfig'
 import { getFavoriteListVisitor } from '@/api/collect'
-import { FEATURE_SITE_ORIGIN } from '~/data/featuresNav'
 import type { FavoriteFolder } from '@/types/api'
+import { openInNativeShell } from '@/utils/nativeShell'
 
 const userStoreRefs = storeToRefs(useUserStore())
 const { user } = userStoreRefs
 const configStore = useConfigStore()
-const port = computed(() => configStore.getPort())
-
-// biome-ignore lint/suspicious/noExplicitAny: uni-webview-js 类型声明缺失
-let uni: any
 
 const page = ref(1)
 const pageSize = 18
@@ -51,41 +47,11 @@ async function loadMore() {
   await fetchFolders(false)
 }
 
-/** Uni outerLink2 / 鸿蒙 Outlink / 浏览器新开，与 matching/my 一致 */
+/** Uni outerLink2 / 鸿蒙·iOS Outlink / 浏览器新开，与 matching/my 一致 */
 function jumpToFavoriteDetail(item: FavoriteFolder) {
   if (item.id == null) return
-  const path = `/favorite/${item.id}`
-  const fullUrl = `${FEATURE_SITE_ORIGIN}${path}`
-  const isInUniApp =
-    typeof window !== 'undefined' &&
-    navigator.userAgent.includes('Html5Plus')
-
-  if (isInUniApp && typeof uni !== 'undefined' && uni?.navigateTo) {
-    uni.navigateTo({
-      url: `/pages/common/outerLink2?url=${fullUrl}`,
-      fail: () => console.warn('[favorite] uni outer 跳转失败', fullUrl),
-    })
-    return
-  }
-  if (port.value) {
-    port.value.postMessage(
-      JSON.stringify({
-        type: 'jump',
-        path: 'Outlink',
-        params: { url: fullUrl },
-      })
-    )
-    return
-  }
-  window.open(path, '_blank', 'noopener,noreferrer')
+  openInNativeShell(`/favorite/${item.id}`)
 }
-
-onMounted(async () => {
-  // @ts-ignore - uni-webview-js 类型声明缺失
-  uni = await import('@dcloudio/uni-webview-js').catch((err: unknown) => {
-    console.error('Failed to load uni-webview-js:', err)
-  })
-})
 
 /**
  * outerLink2 打开时 token 由 uniapp 注入，用户信息可能晚于挂载；

@@ -4,6 +4,11 @@ import type {
   FeatureNavHarmonyStrategy,
   FeatureNavUniStrategy
 } from '~/types/featuresNav'
+import {
+  isHtml5PlusWebview,
+  nativeNamedJump,
+  openInNativeShell,
+} from '@/utils/nativeShell'
 
 function interpolate(template: string, ctx: { userId: string }): string {
   return template.replaceAll('{userId}', ctx.userId)
@@ -62,11 +67,7 @@ async function loadUniNavigateTo(): Promise<UniNavigateFn | undefined> {
 }
 
 function isInUniAppShell(): boolean {
-  return (
-    import.meta.client &&
-    typeof navigator !== 'undefined' &&
-    navigator.userAgent.includes('Html5Plus')
-  )
+  return isHtml5PlusWebview()
 }
 
 function resolveHarmonyParams(
@@ -92,7 +93,6 @@ function resolveHarmonyParams(
 export function useFeaturesPlatformNav(manifest: FeaturesNavManifest) {
   const router = useRouter()
   const configStore = useConfigStore()
-  const port = computed(() => configStore.getPort())
   const { user } = storeToRefs(useUserStore())
 
   let uniNavigateTo: UniNavigateFn | undefined
@@ -173,43 +173,23 @@ export function useFeaturesPlatformNav(manifest: FeaturesNavManifest) {
       return
     }
 
-    if (port.value) {
-      if (pf.harmony.strategy === 'jump' && pf.harmony.path) {
-        const params = resolveHarmonyParams(pf.harmony.params, ctx)
-        port.value.postMessage(
-          JSON.stringify({
-            type: 'jump',
-            path: pf.harmony.path,
-            params
-          })
-        )
-        return
-      }
-      const harmonyOutUrl = pf.harmony.url
-        ? interpolate(pf.harmony.url, ctx)
-        : absoluteUrl(path)
-      port.value.postMessage(
-        JSON.stringify({
-          type: 'jump',
-          path: 'Outlink',
-          params: { url: harmonyOutUrl }
-        })
-      )
+    // 鸿蒙 / iOS：与鸿蒙同一套 port jump（命名页或 Outlink）
+    const harmonyOutUrl = pf.harmony.url
+      ? interpolate(pf.harmony.url, ctx)
+      : absoluteUrl(path)
+    if (pf.harmony.strategy === 'jump' && pf.harmony.path) {
+      const params = resolveHarmonyParams(pf.harmony.params, ctx)
+      nativeNamedJump(pf.harmony.path, params, harmonyOutUrl)
       return
     }
-
-    if (!import.meta.client) return
-
-    /** Web：功能导航统一新标签页打开，避免打断当前页 */
-    const url = path.includes('://') ? path : `${window.location.origin}${path.startsWith('/') ? '' : '/'}${path}`
-    window.open(url, '_blank', 'noopener,noreferrer')
+    openInNativeShell(harmonyOutUrl)
   }
 
   return {
     go,
     resolvedPath,
     isUniAppShell: () => isInUniAppShell(),
-    hasHarmonyPort: computed(() => !!port.value)
+    hasHarmonyPort: computed(() => !!configStore.getPort())
   }
 }
 

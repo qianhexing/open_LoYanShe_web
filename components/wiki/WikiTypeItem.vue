@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { WikiType } from '@/types/api';
+import { isHtml5PlusWebview, openInNativeShell } from '@/utils/nativeShell'
 let uni: any;
 interface Props {
   item: WikiType,
@@ -15,7 +16,6 @@ const props = withDefaults(defineProps<Props>(), {
   needJump: true
 })
 
-const port = computed(() => configStore.getPort())
 // 响应式变量（须用 toRef，否则列表复用时 item 不随 props 更新）
 const size = toRef(props, 'size')
 const needJump = toRef(props, 'needJump')
@@ -29,36 +29,18 @@ onMounted(async () => {
   });
 })
 const handleJump = (id: number | string) => {
-  if (!needJump.value) {
+  if (!needJump.value) return
+  if (!item.value.wiki_type_id) return
+  if (isHtml5PlusWebview() && typeof uni !== 'undefined' && uni.navigateTo) {
+    uni.navigateTo({
+      url: `/pages/lolitaWiki/lolitaWiki?id=${id}`,
+      fail: () => {
+        console.log('跳转错误')
+      }
+    });
     return
   }
-  const isInUniApp =
-		typeof window !== 'undefined' &&
-		navigator.userAgent.includes('Html5Plus');
-	if (!item.value.wiki_type_id) return
-	if (isInUniApp && typeof uni !== 'undefined' && uni.navigateTo) {
-		// UniApp WebView 环境
-		uni.navigateTo({
-			url: `/pages/lolitaWiki/lolitaWiki?id=${id}`,
-			fail: () => {
-				console.log('跳转错误')
-			}
-		});
-	} else {
-    if (port.value) {
-      // 鸿蒙系统
-      port.value.postMessage(JSON.stringify({
-        type: 'jump',
-        path: 'Outlink',
-        params: {
-          url: `https://lolitalibrary.com/lolitaWikiType/detail/${id}`
-        }
-      }));
-    } else {
-      // 普通网页环境
-      window.open(`/lolitaWikiType/detail/${item.value.wiki_type_id}`, '_blank')
-    }
-	}
+  openInNativeShell(`https://lolitalibrary.com/lolitaWikiType/detail/${id}`, { uni: null })
 }
 </script>
 <template>

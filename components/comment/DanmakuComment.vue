@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { Comment } from '@/types/api';
 import { getCommentList, insertComment, deleteComment } from '@/api/comment';
+import { openUserSpaceTab } from '@/composables/useLibraryDetailNavigation';
 import { formatRich } from '@/utils/public';
 import { BASE_IMG } from '@/utils/ipConfig';
 import { onMounted, onBeforeUnmount, ref, shallowRef, watch, nextTick } from 'vue';
@@ -44,11 +45,6 @@ const isSending = ref(false); // 是否正在发送
 const latestSentCommentId = ref<number | null>(null); // 最近发送的评论ID
 const isDeleting = ref(false); // 是否正在删除
 const user = useUserStore();
-const configStore = useConfigStore();
-const port = computed(() => configStore.getPort());
-
-// biome-ignore lint/suspicious/noExplicitAny: uni-webview-js 类型声明缺失
-let uni: any;
 
 // Canvas 上下文与状态
 let ctx: CanvasRenderingContext2D | null = null;
@@ -413,33 +409,9 @@ const handleMouseMove = (e: MouseEvent) => {
   }
 };
 
-// 跳转到用户空间（区分 UniApp、鸿蒙、普通网页）
+// 跳转到用户空间（Uni / 鸿蒙·iOS / 浏览器）
 const jumpToUserSpace = (userId?: number) => {
-  if (!userId) return;
-
-  const isInUniApp =
-    typeof window !== 'undefined' &&
-    navigator.userAgent.includes('Html5Plus');
-
-  if (isInUniApp && typeof uni !== 'undefined' && uni.navigateTo) {
-    // UniApp WebView 环境
-    uni.navigateTo({
-      url: `/pages/userSpace/userSpace?id=${userId}`,
-      fail: () => {
-        console.log('跳转用户空间失败');
-      },
-    });
-  } else if (port.value) {
-    // 鸿蒙系统
-    port.value.postMessage(JSON.stringify({
-      type: 'jump',
-      path: 'UserSpace',
-      params: { id: userId },
-    }));
-  } else {
-    // 普通网页环境
-    navigateTo(`/userSpace/${userId}`);
-  }
+  openUserSpaceTab(userId);
 };
 
 // 点击处理
@@ -660,12 +632,6 @@ defineExpose({
 });
 
 onMounted(async () => {
-  // 加载 uni-webview-js（UniApp WebView 环境跳转用）
-  try {
-    // @ts-expect-error uni-webview-js 类型定义问题
-    uni = await import('@dcloudio/uni-webview-js').catch(() => null);
-  } catch {}
-
   if (canvasRef.value) {
     ctx = canvasRef.value.getContext('2d');
     canvasRef.value.addEventListener('click', handleCanvasClick);

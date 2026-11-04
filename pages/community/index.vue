@@ -2,14 +2,11 @@
 import type { Community, PaginationResponse } from '@/types/api';
 import { getCommunityList } from '@/api/community';
 import useScrollBottom from '@/composables/useScrollBottom'
+import { openInNativeShell } from '@/utils/nativeShell'
 const user = useUserStore()
 const configStore = useConfigStore()
 const router = useRouter()
 const route = useRoute()
-const port = computed(() => configStore.getPort())
-
-// biome-ignore lint/suspicious/noExplicitAny: uni-webview-js 类型声明缺失
-let uni: any
 // 分页参数
 const pageSize = 20
 // const total = ref(0)
@@ -167,44 +164,18 @@ const { isFinished, setFinished } = useScrollBottom(
 )
 
 const goToPostPage = () => {
-  const path = '/community/post'
-  const fullUrl = `https://lolitalibrary.com${path}`
-  const isInUniApp =
-    typeof window !== 'undefined' &&
-    navigator.userAgent.includes('Html5Plus')
-
-  if (isInUniApp && typeof uni !== 'undefined' && uni?.navigateTo) {
-    uni.navigateTo({
-      url: `/pages/common/outerLink2?url=${fullUrl}`,
-      fail: () => console.warn('[community] uni outer 发帖跳转失败', fullUrl),
-    })
-    return
-  }
-  if (port.value) {
-    port.value.postMessage(
-      JSON.stringify({
-        type: 'jump',
-        path: 'Outlink',
-        params: { url: fullUrl },
-      })
-    )
-    return
-  }
-  void router.push(path)
+  openInNativeShell('/community/post', {
+    inAppNavigate: (p) => {
+      void router.push(p)
+    },
+  })
 }
 
-onMounted(async () => {
-  // @ts-ignore - uni-webview-js 类型声明缺失
-  uni = await import('@dcloudio/uni-webview-js').catch((err: unknown) => {
-    console.error('Failed to load uni-webview-js:', err)
-  })
-
-  if (window.innerWidth < 768) {
-    // column.value = 1
-  } else {
+onMounted(() => {
+  if (window.innerWidth >= 768) {
     waterCommunity()
   }
-  
+
   if (user.token) {
     console.log('是否服务端渲染', isServer.value)
     if (isServer.value) {

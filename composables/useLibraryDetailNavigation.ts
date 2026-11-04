@@ -4,8 +4,24 @@ import {
   buildHumanPlatformNav,
   type BuildHumanPlatformNavOptions,
 } from '@/utils/humanPlatformNav'
+import {
+  isHtml5PlusWebview,
+  isHarmonyWebview,
+  isIosWebview,
+  isNativeAppShell,
+  nativeOpenOutlink,
+  openCommunityDetailInShell,
+  openInNativeShell,
+  openLibraryDetailInShell,
+  openUserSpaceInShell,
+  SITE_ORIGIN,
+} from '@/utils/nativeShell'
 
-const SITE_ORIGIN = 'https://lolitalibrary.com'
+export {
+  isHtml5PlusWebview,
+  isIosWebview,
+  isNativeAppShell,
+} from '@/utils/nativeShell'
 
 function normalizeWebPath(path: string): string {
   if (path.includes('://')) return path
@@ -23,15 +39,8 @@ function buildQueryString(
   return serialized ? `?${serialized}` : ''
 }
 
-/** UniApp 内嵌 WebView（与项目内其它跳转一致） */
-export function isHtml5PlusWebview(): boolean {
-  return (
-    typeof navigator !== 'undefined' && navigator.userAgent.includes('Html5Plus')
-  )
-}
-
 /**
- * 打开图鉴详情：UniApp 直接打开 H5 地址；鸿蒙等走 port 桥接；浏览器新标签。
+ * 打开图鉴详情：UniApp 外链 H5；鸿蒙 / iOS port `LibraryDetail`；浏览器新标签。
  */
 export function openLibraryDetailTab(
   libraryId: number | string | null | undefined
@@ -40,44 +49,11 @@ export function openLibraryDetailTab(
   const idNum = Number(libraryId)
   if (!Number.isFinite(idNum)) return
   if (!import.meta.client || typeof window === 'undefined') return
-
-  // UniApp：不再进原生图鉴页，直接外链打开 H5 详情
-  if (isHtml5PlusWebview()) {
-    openLibraryWebPath(`/library/detail/${idNum}`)
-    return
-  }
-
-  const configStore = useConfigStore()
-  const port = configStore.getPort()
-  if (port) {
-    try {
-      port.postMessage(
-        JSON.stringify({
-          type: 'jump',
-          path: 'LibraryDetail',
-          params: { id: idNum }
-        })
-      )
-    } catch {
-      window.open(
-        new URL(`/library/detail/${idNum}`, window.location.origin).href,
-        '_blank',
-        'noopener,noreferrer'
-      )
-    }
-    return
-  }
-
-  window.open(
-    new URL(`/library/detail/${idNum}`, window.location.origin).href,
-    '_blank',
-    'noopener,noreferrer'
-  )
+  openLibraryDetailInShell(idNum)
 }
 
 /**
- * 打开帖子详情：UniApp outerLink2 / 鸿蒙 CommunityDetail / 浏览器新标签。
- * 与 `pages/journal/[id].vue`、`CommunityItem` 跳转行为对齐。
+ * 打开帖子详情：UniApp outerLink2 / 鸿蒙·iOS CommunityDetail / 浏览器新标签。
  */
 export function openCommunityDetailTab(
   communityId: number | string | null | undefined
@@ -86,43 +62,11 @@ export function openCommunityDetailTab(
   const idNum = Number(communityId)
   if (!Number.isFinite(idNum)) return
   if (!import.meta.client || typeof window === 'undefined') return
-
-  const configStore = useConfigStore()
-  const uniApi = configStore.uniWebviewJs
-  const fullUrl = `${SITE_ORIGIN}/community/detail/${idNum}`
-
-  if (isHtml5PlusWebview() && uniApi?.navigateTo) {
-    uniApi.navigateTo({
-      url: `/pages/common/outerLink2?url=${fullUrl}`,
-      fail: () => {
-        console.warn('[libraryNav] uni community 跳转失败', fullUrl)
-      }
-    })
-    return
-  }
-
-  const port = configStore.getPort()
-  if (port) {
-    try {
-      port.postMessage(
-        JSON.stringify({
-          type: 'jump',
-          path: 'CommunityDetail',
-          params: { id: idNum }
-        })
-      )
-    } catch {
-      openLibraryWebPath(`/community/detail/${idNum}`)
-    }
-    return
-  }
-
-  openLibraryWebPath(`/community/detail/${idNum}`)
+  openCommunityDetailInShell(idNum)
 }
 
 /**
- * 打开用户空间：UniApp 原生页 / 鸿蒙 UserSpace / 浏览器新标签。
- * 与 `UserRankingList`、`DanmakuComment` 跳转行为对齐。
+ * 打开用户空间：UniApp 原生页 / 鸿蒙·iOS UserSpace / 浏览器新标签。
  */
 export function openUserSpaceTab(
   userId: number | string | null | undefined
@@ -131,39 +75,7 @@ export function openUserSpaceTab(
   const idNum = Number(userId)
   if (!Number.isFinite(idNum)) return
   if (!import.meta.client || typeof window === 'undefined') return
-
-  const configStore = useConfigStore()
-  const uniApi = configStore.uniWebviewJs
-
-  if (isHtml5PlusWebview() && uniApi?.navigateTo) {
-    uniApi.navigateTo({
-      url: `/pages/userSpace/userSpace?id=${idNum}`,
-      fail: () => {
-        uniApi.navigateTo?.({
-          url: `/pages/common/outerLink2?url=${SITE_ORIGIN}/userSpace/${idNum}`
-        })
-      }
-    })
-    return
-  }
-
-  const port = configStore.getPort()
-  if (port) {
-    try {
-      port.postMessage(
-        JSON.stringify({
-          type: 'jump',
-          path: 'UserSpace',
-          params: { id: idNum }
-        })
-      )
-    } catch {
-      openLibraryWebPath(`/userSpace/${idNum}`)
-    }
-    return
-  }
-
-  openLibraryWebPath(`/userSpace/${idNum}`)
+  openUserSpaceInShell(idNum)
 }
 
 /** 打开服饰详情：UniApp outerLink2 / 鸿蒙 Outlink / 浏览器新标签。 */
@@ -240,52 +152,17 @@ export function openAlbumForeignRelatedContent(
 }
 
 /**
- * 打开站内 H5 路径：UniApp outerLink2 / 鸿蒙 Outlink / 浏览器新标签。
- * 与 wardrobe/detail、CommunityDetailForeignSection 等移动端跳转一致。
+ * 打开站内 H5 路径：UniApp outerLink2 / 鸿蒙·iOS Outlink / 浏览器新标签。
  */
 export function openLibraryWebPath(webPath: string): void {
   if (!webPath || !import.meta.client || typeof window === 'undefined') return
 
   const path = normalizeWebPath(webPath)
-  const configStore = useConfigStore()
-  const uniApi = configStore.uniWebviewJs
-  const mobileUrl = path.includes('://') ? path : `${SITE_ORIGIN}${path}`
-  const desktopUrl = path.includes('://')
-    ? path
-    : new URL(path, window.location.origin).href
-
-  if (isHtml5PlusWebview() && uniApi?.navigateTo) {
-    uniApi.navigateTo({
-      url: `/pages/common/outerLink2?url=${mobileUrl}`,
-      fail: () => {
-        console.warn('[libraryNav] uni outerLink2 失败', mobileUrl)
-      }
-    })
-    return
-  }
-
-  const port = configStore.getPort()
-  if (port) {
-    try {
-      port.postMessage(
-        JSON.stringify({
-          type: 'jump',
-          path: 'Outlink',
-          params: { url: mobileUrl }
-        })
-      )
-    } catch {
-      window.open(desktopUrl, '_blank', 'noopener,noreferrer')
-    }
-    return
-  }
-
-  window.open(desktopUrl, '_blank', 'noopener,noreferrer')
+  openInNativeShell(path.includes('://') ? path : `${SITE_ORIGIN}${path}`)
 }
 
 /**
  * 打开衣柜详情：UniApp 原生页 / 鸿蒙 Outlink / 浏览器新标签。
- * 与 `components/Wardrobe/WardrobeItem.vue` 跳转行为对齐。
  */
 export function openWardrobeDetail(options: {
   userId: number | string
@@ -331,9 +208,7 @@ export function openAlbumDetail(options: {
 
 /**
  * 打开人台页：按 addr 是否 rad 分流。
- * - rad → 新版 `/humanPlatform/:id`
- * - 非 rad → 旧版 `/pc/humanPlatform/:id`
- * UniApp / 鸿蒙走外链；浏览器可站内跳转（inAppNavigate）或新标签。
+ * UniApp / 鸿蒙·iOS 走外链；浏览器可站内跳转（inAppNavigate）或新标签。
  */
 export function openHumanPlatform(
   options: BuildHumanPlatformNavOptions & {
@@ -348,36 +223,23 @@ export function openHumanPlatform(
 
   const { inAppNavigate = false, fullScreen = true, ...navOptions } = options
   const { path, isLegacy, fullUrl } = buildHumanPlatformNav(navOptions)
-  const configStore = useConfigStore()
-  const uniApi = configStore.uniWebviewJs
   const desktopUrl = isLegacy
     ? fullUrl
     : new URL(path, window.location.origin).href
 
-  if (isHtml5PlusWebview() && uniApi?.navigateTo) {
-    const qs = fullScreen ? 'fullScreen=true&' : ''
-    uniApi.navigateTo({
-      url: `/pages/common/outerLink2?${qs}url=${fullUrl}`,
-      fail: () => {
-        console.warn('[libraryNav] uni humanPlatform 跳转失败', fullUrl)
-      },
-    })
+  if (isHtml5PlusWebview()) {
+    openInNativeShell(fullUrl, { fullScreen })
     return
   }
 
-  const port = configStore.getPort()
-  if (port) {
-    try {
-      port.postMessage(
-        JSON.stringify({
-          type: 'jump',
-          path: 'Outlink',
-          params: { url: fullUrl },
-        }),
-      )
-    } catch {
-      window.open(desktopUrl, '_blank', 'noopener,noreferrer')
-    }
+  if (nativeOpenOutlink(fullUrl)) return
+
+  if (isIosWebview() || isHarmonyWebview() || isNativeAppShell()) {
+    openInNativeShell(fullUrl, {
+      inAppNavigate: (p) => {
+        void navigateTo(p)
+      },
+    })
     return
   }
 

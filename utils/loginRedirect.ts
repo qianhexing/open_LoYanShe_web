@@ -1,3 +1,5 @@
+import { nativeLogin } from '@/utils/nativeShell'
+
 export const LOGIN_PATH = '/login'
 export const REGISTER_PATH = '/register'
 export const HOME_PATH = '/'
@@ -63,24 +65,13 @@ function releaseRedirectLock() {
 }
 
 /**
- * 鸿蒙 WebView：通过 MessagePort 通知原生打开登录页，并携带登录后回跳地址
+ * 鸿蒙 / iOS WebView：通过 MessagePort 通知原生打开登录页，并携带登录后回跳地址
  * @returns 是否已交给原生处理
  */
 export function notifyHarmonyNativeLogin(redirectTo?: string): boolean {
   if (typeof window === 'undefined') return false
   try {
-    const port = useConfigStore().port
-    if (!port) return false
-    const returnUrl = buildHarmonyReturnUrl(redirectTo)
-    port.postMessage(
-      JSON.stringify({
-        type: 'login',
-        params: {
-          url: returnUrl,
-        },
-      }),
-    )
-    return true
+    return nativeLogin(buildHarmonyReturnUrl(redirectTo))
   } catch {
     return false
   }

@@ -39,6 +39,8 @@ import PhysicsDrop from '@/components/PhysicsDrop.client.vue'
 import type { MaterialForeign, Material } from '@/types/api'
 import { getLibraryVideo } from '@/api/library'
 import { buildHumanPlatformNav } from '@/utils/humanPlatformNav'
+import { navigateBackInShell, openInNativeShell } from '@/utils/nativeShell'
+import { openMatchingDetailTab } from '@/composables/useLibraryDetailNavigation'
 let uni: any;
 const configStore = useConfigStore()
 const port = computed(() => configStore.getPort())
@@ -736,23 +738,8 @@ const confirmDelete = async () => {
       color: 'green'
     })
 
-    const isInUniApp =
-      typeof window !== 'undefined' &&
-      navigator.userAgent.includes('Html5Plus');
-    if (isInUniApp && typeof uni !== 'undefined' && uni.navigateBack) {
-      // 发送刷新通知，让上一页在返回时刷新列表
-      if (typeof uni.postMessage === 'function') {
-        uni.postMessage({ data: { type: 'BackAndReload' } })
-      }
-      uni.navigateBack()
-    } else {
-      if (port.value) {
-        port.value.postMessage(JSON.stringify({
-          type: 'BackAndReload'
-        }))
-      } else {
-        router.back()
-      }
+    if (!navigateBackInShell({ reload: true })) {
+      router.back()
     }
   } catch (error) {
     toast.add({
@@ -1039,10 +1026,7 @@ function goBack() {
     return
   }
 
-  if (port.value) {
-    port.value.postMessage(JSON.stringify({ type: 'back' }))
-    return
-  }
+  if (navigateBackInShell()) return
 
   navigateBackToWardrobe()
 }
@@ -1661,23 +1645,8 @@ const loadMoreMatchingList = () => {
 }
 
 const jumpToMatchingDetail = (item: MatchingListItem) => {
-  const isInUniApp =
-    typeof window !== 'undefined' &&
-    navigator.userAgent.includes('Html5Plus')
   if (!item.matching_id) return
-  if (isInUniApp && typeof uni !== 'undefined' && uni.navigateTo) {
-    uni.navigateTo({
-      url: `/pages/common/outerLink2?url=https://lolitalibrary.com/matching/detail/${item.matching_id}`
-    })
-  } else if (port.value) {
-    port.value.postMessage(JSON.stringify({
-      type: 'jump',
-      path: 'Outlink',
-      params: { url: `https://lolitalibrary.com/matching/detail/${item.matching_id}` }
-    }))
-  } else {
-    window.open(`/matching/detail/${item.matching_id}`, '_blank')
-  }
+  openMatchingDetailTab(item.matching_id)
 }
 
 function openNewMatching(e?: MouseEvent) {
@@ -1800,34 +1769,7 @@ useHead({
   ]
 })
 const jumpToScene = (sence_id: number) => {
-  const sceneUrl = `/scene/detail/${sence_id}?edit=1`
-  const fullUrl = `https://lolitalibrary.com${sceneUrl}`
-
-  const isInUniApp =
-    typeof window !== 'undefined' &&
-    navigator.userAgent.includes('Html5Plus');
-
-  if (isInUniApp && typeof uni !== 'undefined' && uni.navigateTo) {
-    // UniApp WebView 环境 - 使用 outerlink
-    uni.navigateTo({
-      url: `/pages/common/outerLink?url=${fullUrl}`,
-      fail: () => {
-        console.log('跳转错误')
-      }
-    });
-  } else if (port.value) {
-    // 鸿蒙系统 - 使用 outerlink
-    port.value.postMessage(JSON.stringify({
-      type: 'jump',
-      path: 'Outlink',
-      params: {
-        url: fullUrl
-      }
-    }))
-  } else {
-    // 普通浏览器环境
-    window.open(sceneUrl, '_blank')
-  }
+  openInNativeShell(`/scene/detail/${sence_id}?edit=1`, { fullScreen: true })
 }
 
 // 移除场景

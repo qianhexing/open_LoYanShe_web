@@ -26,6 +26,7 @@ import {
   toAbsoluteMediaUrl,
 } from '@/utils/communityLiveMedia'
 import CommunityLiveThumb from '@/components/community/CommunityLiveThumb.vue'
+import { navigateBackInShell } from '@/utils/nativeShell'
 
 const CommentSection = defineAsyncComponent(
   () => import('@/components/comment/CommentSection.vue'),
@@ -305,22 +306,7 @@ const communityDeleteModalOpen = ref(false)
 const communityDeleteLoading = ref(false)
 
 function navigateAfterCommunityDelete() {
-  const isInUniApp =
-    typeof window !== 'undefined' && navigator.userAgent.includes('Html5Plus')
-
-  if (isInUniApp && typeof uni !== 'undefined' && uni.navigateBack) {
-    if (typeof uni.postMessage === 'function') {
-      uni.postMessage({ data: { type: 'BackAndReload' } })
-    }
-    uni.navigateBack()
-    return
-  }
-
-  if (port.value) {
-    port.value.postMessage(JSON.stringify({ type: 'BackAndReload' }))
-    return
-  }
-
+  if (navigateBackInShell({ reload: true })) return
   void navigateTo('/community', { replace: true })
 }
 

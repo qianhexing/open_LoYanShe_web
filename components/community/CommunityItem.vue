@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { Community } from '@/types/api';
+import { openCommunityDetailTab } from '@/composables/useLibraryDetailNavigation'
 import {
   normalizeRawImgPath,
   parseCommunityImgList,
@@ -12,14 +13,6 @@ interface Props {
   size?: string  // 尺寸 mini small mid big
   needJump?: boolean // 是否需要跳转
 }
-let uni: any
-const configStore = useConfigStore()
-const port = computed(() => configStore.getPort())
-onMounted(async () => {
-  uni = await import('@dcloudio/uni-webview-js').catch((err) => {
-    console.error('Failed to load uni-webview-js:', err);
-  });
-})
 const image = ref<Array<string>>([])
 const text = ref('')
 const props = withDefaults(defineProps<Props>(), {
@@ -67,32 +60,8 @@ const previewLightboxList = computed(() => {
 })
 
 const handleJump = (id: number) => {
-  if (!needJump) {
-    return
-  }
-  const isInUniApp =
-		typeof window !== 'undefined' &&
-		navigator.userAgent.includes('Html5Plus');
-	if (isInUniApp && typeof uni !== 'undefined' && uni.navigateTo) {
-		uni.navigateTo({
-      url: `/pages/common/outerLink2?url=https://lolitalibrary.com/community/detail/${id}`,
-			fail: () => {
-				console.log('跳转错误')
-			}
-		});
-	} else {
-    if (port.value) {
-      port.value.postMessage(JSON.stringify({
-        type: 'jump',
-        path: 'CommunityDetail',
-        params: {
-          id: id
-        }
-      }));
-    } else {
-      window.open(`/community/detail/${id}`, '_blank')
-    }
-  }
+  if (!needJump) return
+  openCommunityDetailTab(id)
 }
 const emit = defineEmits(['load'])
 

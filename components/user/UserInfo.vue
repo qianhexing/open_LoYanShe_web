@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { User } from '@/types/api'
-import { computed, onMounted } from 'vue'
+import { openUserSpaceTab } from '@/composables/useLibraryDetailNavigation'
 
 interface Props {
   className?: string,
@@ -15,46 +15,9 @@ const props = withDefaults(defineProps<Props>(), {
 })
 const { size } = props
 
-const configStore = useConfigStore()
-const port = computed(() => configStore.getPort())
-
-// biome-ignore lint/suspicious/noExplicitAny: uni-webview-js 类型声明缺失
-let uni: any
-
-onMounted(async () => {
-  try {
-    // @ts-expect-error uni-webview-js 类型定义问题
-    uni = await import('@dcloudio/uni-webview-js').catch(() => null)
-  } catch { /* empty */ }
-})
-
 const jumpToUserSpace = () => {
   if (!props.needJump) return
-  const userId = props.user.user_id
-  console.log(configStore.statusBarHeight, 'statusBarHeight')
-
-  if (!userId) return
-  console.log(configStore.statusBarHeight, 'statusBarHeight')
-  const isInUniApp =
-    typeof window !== 'undefined' &&
-    navigator.userAgent.includes('Html5Plus')
-
-  if (isInUniApp && typeof uni !== 'undefined' && uni.navigateTo) {
-    uni.navigateTo({
-      url: `/pages/common/outerLink2?url=https://lolitalibrary.com/userSpace/${userId}`,
-      fail: () => {
-        console.log('跳转用户空间失败')
-      },
-    })
-  } else if (port.value) {
-    port.value.postMessage(JSON.stringify({
-      type: 'jump',
-      path: 'UserSpace',
-      params: { id: userId },
-    }))
-  } else {
-    navigateTo(`/userSpace/${userId}`)
-  }
+  openUserSpaceTab(props.user.user_id)
 }
 </script>
 <template>
