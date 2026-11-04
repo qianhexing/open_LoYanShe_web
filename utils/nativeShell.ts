@@ -1,13 +1,16 @@
 /**
- * 原生壳跳转桥：对齐 UniApp / 鸿蒙 Outlink / iOS Outlink。
+ * 原生壳跳转桥：
  * - Uni（Html5Plus）：uni.navigateTo outerLink2 / navigateBack + postMessage
- * - 鸿蒙 / iOS：MessagePort → { type: 'jump'|'back'|'BackAndReload'|... }
+ * - 鸿蒙：MessagePort → { type: 'jump'|'back'|'BackAndReload'|... }
+ * - iOS：webkit.messageHandlers.LoYanSheBridge（不依赖 MessagePort）
  */
 import { useConfigStore } from '@/stores/config'
 
 export const SITE_ORIGIN = 'https://lolitalibrary.com'
 export const IOS_SHELL_KEY = 'ios_webview'
 export const HARMONY_SHELL_KEY = 'harmony_webview'
+/** 与 iOS `WebBridgeCoordinator.handlerName` 一致 */
+export const IOS_BRIDGE_HANDLER = 'LoYanSheBridge'
 
 export type NativeBridgeMessage = {
   type: string
@@ -20,6 +23,16 @@ type UniNavigate = {
   navigateTo?: (opts: { url: string; fail?: (err?: unknown) => void }) => void
   navigateBack?: () => void
   postMessage?: (payload: { data: NativeBridgeMessage }) => void
+}
+
+type IosMessageHandler = {
+  postMessage: (body: string) => void
+}
+
+type LoNativeWindow = Window & {
+  webkit?: { messageHandlers?: Record<string, IosMessageHandler | undefined> }
+  __loOnNativeMessage?: (payload: string) => void
+  __loSendToH5?: (payload: string) => void
 }
 
 export type OpenInNativeShellOptions = {
@@ -36,6 +49,17 @@ export function isHtml5PlusWebview(): boolean {
   )
 }
 
+/** 是否存在 iOS WK 桥（不依赖 MessagePort） */
+export function hasIosNativeBridge(): boolean {
+  if (!import.meta.client || typeof window === 'undefined') return false
+  try {
+    const handler = (window as LoNativeWindow).webkit?.messageHandlers?.[IOS_BRIDGE_HANDLER]
+    return typeof handler?.postMessage === 'function'
+  } catch {
+    return false
+  }
+}
+
 export function isIosWebview(): boolean {
   if (!import.meta.client || typeof window === 'undefined') return false
   try {
@@ -45,26 +69,22 @@ export function isIosWebview(): boolean {
     /* ignore */
   }
   try {
-    return sessionStorage.getItem(IOS_SHELL_KEY) === '1'
+    if (sessionStorage.getItem(IOS_SHELL_KEY) === '1') return true
   } catch {
-    return false
+    /* ignore */
   }
+  return hasIosNativeBridge()
 }
 
 export function isHarmonyWebview(): boolean {
   if (!import.meta.client) return false
+  if (isIosWebview()) return false
   try {
-    if (sessionStorage.getItem(HARMONY_SHELL_KEY) === '1') {
-      // iOS 与鸿蒙共用 port；有 ios 标记时不算「仅鸿蒙」
-      if (isIosWebview()) return false
-      return true
-    }
+    if (sessionStorage.getItem(HARMONY_SHELL_KEY) === '1') return true
   } catch {
     /* ignore */
   }
-  const port = useConfigStore().getPort()
-  if (port && !isIosWebview()) return true
-  return false
+  return !!useConfigStore().getPort()
 }
 
 /** Uni / 鸿蒙 / iOS 任一原生壳 */
@@ -114,8 +134,9 @@ function getPort(): MessagePort | null {
   return useConfigStore().getPort()
 }
 
-/** 对外暴露当前 MessagePort（鸿蒙 / iOS） */
+/** 对外暴露当前鸿蒙 MessagePort（iOS 不使用） */
 export function getNativePort(): MessagePort | null {
+  if (isIosWebview()) return null
   return getPort()
 }
 
@@ -125,8 +146,24 @@ function resolveUni(override?: UniNavigate | null): UniNavigate | null {
   return uniApi
 }
 
-/** 向鸿蒙 / iOS MessagePort 发桥接消息 */
+/** iOS → WKScriptMessageHandler */
+export function postIosBridge(message: NativeBridgeMessage): boolean {
+  if (!import.meta.client || typeof window === 'undefined') return false
+  const handler = (window as LoNativeWindow).webkit?.messageHandlers?.[IOS_BRIDGE_HANDLER]
+  if (typeof handler?.postMessage !== 'function') return false
+  try {
+    handler.postMessage(JSON.stringify(message))
+    return true
+  } catch {
+    return false
+  }
+}
+
+/** 向壳发桥接消息：iOS 走 WK；鸿蒙走 MessagePort */
 export function postNativeBridge(message: NativeBridgeMessage): boolean {
+  if (isIosWebview()) {
+    return postIosBridge(message)
+  }
   const port = getPort()
   if (!port) return false
   try {
@@ -160,12 +197,13 @@ export function nativeLogin(returnUrl?: string): boolean {
   })
 }
 
-/** 同步尝试 Outlink jump（port 已就绪时） */
+/** 同步尝试 Outlink jump */
 export function nativeOpenOutlink(url: string): boolean {
   return nativeJump('Outlink', { url: toAbsoluteSiteUrl(url) })
 }
 
-function waitForPort(timeoutMs = 800): Promise<MessagePort | null> {
+function waitForHarmonyPort(timeoutMs = 800): Promise<MessagePort | null> {
+  if (isIosWebview()) return Promise.resolve(null)
   const existing = getPort()
   if (existing) return Promise.resolve(existing)
   if (!import.meta.client || typeof window === 'undefined') {
@@ -183,12 +221,12 @@ function waitForPort(timeoutMs = 800): Promise<MessagePort | null> {
   })
 }
 
-function postJumpWhenPortReady(
+function postJumpWhenHarmonyPortReady(
   path: string,
   params: Record<string, unknown>,
   timeoutMs = 800,
 ): Promise<boolean> {
-  return waitForPort(timeoutMs).then((port) => {
+  return waitForHarmonyPort(timeoutMs).then((port) => {
     if (!port) return false
     try {
       port.postMessage(JSON.stringify({ type: 'jump', path, params }))
@@ -200,8 +238,69 @@ function postJumpWhenPortReady(
 }
 
 /**
+ * 解析并分发原生 → H5 下行消息（setTheme / reload 等）
+ */
+export function handleNativeInboundPayload(
+  raw: unknown,
+  handlers: {
+    onSetTheme?: (data: unknown) => void
+    onReload?: () => void
+    onMessage?: (msg: NativeBridgeMessage) => void
+  } = {},
+): void {
+  try {
+    const text = typeof raw === 'string' ? raw : JSON.stringify(raw)
+    const message = JSON.parse(text) as NativeBridgeMessage
+    handlers.onMessage?.(message)
+    if (message.type === 'setTheme') {
+      handlers.onSetTheme?.(message.data)
+      return
+    }
+    if (message.type === 'reload') {
+      handlers.onReload?.()
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
+/**
+ * 安装 iOS 下行回调。原生通过 `window.__loSendToH5(str)` 或直接调 `__loOnNativeMessage`。
+ * 同时挂一层 port shim，兼容业务里仍写 `port.postMessage` 的旧代码（实际转发到 WK 桥）。
+ */
+export function installIosNativeBridge(options: {
+  onInbound?: (raw: string) => void
+} = {}): void {
+  if (!import.meta.client || typeof window === 'undefined') return
+  markIosShell()
+
+  const win = window as LoNativeWindow
+  win.__loOnNativeMessage = (payload: string) => {
+    options.onInbound?.(payload)
+  }
+
+  // 兼容旧注入：若原生仍走 MessageChannel，也无妨；出站统一走 WK
+  const shim = {
+    postMessage(data: unknown) {
+      const payload = typeof data === 'string' ? data : JSON.stringify(data)
+      const handler = win.webkit?.messageHandlers?.[IOS_BRIDGE_HANDLER]
+      if (typeof handler?.postMessage === 'function') {
+        handler.postMessage(payload)
+      }
+    },
+    start() {},
+    close() {},
+    onmessage: null as ((ev: MessageEvent) => void) | null,
+  }
+  // 不覆盖已有鸿蒙真 port；仅 iOS 场景写入 shim 供旧调用点使用
+  if (!getPort() || isIosWebview()) {
+    useConfigStore().setPort(shim as unknown as MessagePort)
+  }
+}
+
+/**
  * 在壳内打开 H5：
- * Uni → outerLink2；鸿蒙/iOS → jump Outlink；浏览器 → 新标签 / inAppNavigate。
+ * Uni → outerLink2；iOS → WK jump Outlink；鸿蒙 → MessagePort Outlink；浏览器 → 新标签。
  */
 export function openInNativeShell(
   pathOrUrl: string,
@@ -226,9 +325,24 @@ export function openInNativeShell(
 
   if (nativeOpenOutlink(absolute)) return
 
-  // iOS / 鸿蒙：port 可能尚未建连，短等后再发；仍失败则同 WebView 内跳转（勿 window.open）
-  if (isIosWebview() || isHarmonyWebview() || isNativeShell()) {
-    void postJumpWhenPortReady('Outlink', { url: absolute }).then((ok) => {
+  // iOS：桥应已就绪，失败则同 WebView 内跳（勿 window.open）
+  if (isIosWebview()) {
+    if (options.inAppNavigate) {
+      try {
+        const u = new URL(absolute)
+        options.inAppNavigate(u.pathname + u.search + u.hash)
+        return
+      } catch {
+        /* fall through */
+      }
+    }
+    window.location.href = absolute
+    return
+  }
+
+  // 鸿蒙：port 可能尚未建连，短等后再发
+  if (isHarmonyWebview() || isNativeShell()) {
+    void postJumpWhenHarmonyPortReady('Outlink', { url: absolute }).then((ok) => {
       if (ok) return
       if (options.inAppNavigate) {
         try {
@@ -262,7 +376,6 @@ export const openShellH5 = openInNativeShell
 
 /**
  * 命名页 jump：LibraryDetail / CommunityDetail / UserSpace 等。
- * Uni 不走此路径（由调用方 outerLink）；鸿蒙/iOS 对齐同一 MessagePort。
  */
 export function nativeNamedJump(
   path: string,
@@ -273,8 +386,13 @@ export function nativeNamedJump(
 
   if (nativeJump(path, params)) return
 
-  if (isIosWebview() || isHarmonyWebview() || isNativeShell()) {
-    void postJumpWhenPortReady(path, params).then((ok) => {
+  if (isIosWebview()) {
+    openInNativeShell(fallbackH5Path)
+    return
+  }
+
+  if (isHarmonyWebview() || isNativeShell()) {
+    void postJumpWhenHarmonyPortReady(path, params).then((ok) => {
       if (!ok) openInNativeShell(fallbackH5Path)
     })
     return
@@ -345,7 +463,7 @@ export function openLibraryDetailInShell(libraryId: number): void {
 
 /**
  * 返回上一页；可选通知壳刷新。
- * Uni：postMessage + navigateBack；鸿蒙/iOS：back / BackAndReload。
+ * Uni：postMessage + navigateBack；iOS：WK；鸿蒙：MessagePort。
  */
 export function navigateBackInShell(options: { reload?: boolean } = {}): boolean {
   if (!import.meta.client) return false
@@ -389,8 +507,14 @@ export function navigateBackInShell(options: { reload?: boolean } = {}): boolean
     return true
   }
 
-  if (isIosWebview() || isHarmonyWebview() || isNativeShell()) {
-    void waitForPort(500).then((port) => {
+  if (isIosWebview()) {
+    // 桥未挂上时退回 history
+    window.history.back()
+    return true
+  }
+
+  if (isHarmonyWebview() || isNativeShell()) {
+    void waitForHarmonyPort(500).then((port) => {
       if (!port) {
         window.history.back()
         return

@@ -6,6 +6,8 @@ import { useNotification } from '~/composables/useNotification'
 import { hasNotice } from '@/api/message_center'
 import type { UniWebviewJsModule } from '@/stores/config'
 import {
+  handleNativeInboundPayload,
+  installIosNativeBridge,
   isIosWebview,
   isNativeAppShell,
   markHarmonyShell,
@@ -130,25 +132,32 @@ const preventZoom = (e: TouchEvent) => {
     e.preventDefault();
   }
 };
+function applyNativeInbound(raw: unknown) {
+  handleNativeInboundPayload(raw, {
+    onSetTheme: (data) => {
+      if (data === 1) themeStore.setTheme('dark')
+      else themeStore.setTheme('light')
+    },
+  })
+}
+
 const handleInit = (event: MessageEvent) => {
-  if (event.data === "__init_port__") {
-    const [port] = event.ports
-    configStore.setPort(port)
+  if (event.data !== '__init_port__') return
+
+  // iOS 不走 MessagePort：忽略建连，通信见 installIosNativeBridge
+  if (isIosWebview()) {
+    markIosShell()
     isFromMobie.value = true
-    // 供跳转逻辑在 port 尚未挂上 computed 前也能识别鸿蒙 / iOS 壳
-    markHarmonyShell()
-    if (isIosWebview()) markIosShell()
-    // 监听应用发来的消息
-    port.onmessage = (e) => {
-      const message = JSON.parse(e.data)
-      if (message.type === 'setTheme') {
-        if (message.data === 1) { 
-          themeStore.setTheme('dark')
-        } else {
-          themeStore.setTheme('light')
-        }
-      }
-    }
+    return
+  }
+
+  const [port] = event.ports
+  if (!port) return
+  configStore.setPort(port)
+  isFromMobie.value = true
+  markHarmonyShell()
+  port.onmessage = (e) => {
+    applyNativeInbound(e.data)
   }
 }
 // WebSocket 通知系统
@@ -191,6 +200,14 @@ onMounted(async () => {
    * 否则刷新/手机 WebView 会卡在 await import，页面长时间白屏。
    */
   layoutReady.value = true
+  // iOS：尽早挂 WK 桥回调（不依赖 MessagePort / uni 脚本）
+  if (isIosWebview()) {
+    markIosShell()
+    isFromMobie.value = true
+    installIosNativeBridge({
+      onInbound: (raw) => applyNativeInbound(raw),
+    })
+  }
   const isInUniApp =
     process.client &&
     typeof window !== 'undefined' &&
