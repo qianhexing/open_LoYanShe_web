@@ -101,22 +101,94 @@ const preventZoom = (e: TouchEvent) => {
     e.preventDefault();
   }
 };
-const handleInit = (event: MessageEvent) => {
-  if (event.data === "__init_port__") {
-    const [port] = event.ports
-    configStore.setPort(port)
-    isFromMobie.value = true
-    // 监听应用发来的消息
-    port.onmessage = (e) => {
-      const message = JSON.parse(e.data)
+/** 壳 → H5 下行（setTheme 等）；鸿蒙 MessagePort / iOS 桥假 port 共用 */
+const bindPortOnMessage = (port: { onmessage: ((e: MessageEvent) => void) | null }) => {
+  port.onmessage = (e) => {
+    try {
+      const raw = typeof e.data === 'string' ? e.data : JSON.stringify(e.data)
+      const message = JSON.parse(raw)
       if (message.type === 'setTheme') {
-        if (message.data === 1) { 
+        if (message.data === 1) {
           themeStore.setTheme('dark')
         } else {
           themeStore.setTheme('light')
         }
       }
+    } catch (err) {
+      console.warn('[layout] native port message parse failed', err)
     }
+  }
+}
+
+/**
+ * iOS 原生外链：不发 `__init_port__`，直接走 ArkWebView / LoYanSheNative 桥。
+ * 装一个假 port，让现有 `port.postMessage(JSON.stringify({type:'jump'|...}))` 原样可用。
+ */
+const installIosBridgePort = () => {
+  if (!process.client || typeof window === 'undefined') return false
+  if (configStore.getPort()) return true
+  const w = window as Window & {
+    __LOYANSHE_CLIENT__?: string
+    __LOYANSHE_PORT__?: {
+      __bridge?: boolean
+      postMessage: (data: string) => void
+      onmessage: ((e: MessageEvent) => void) | null
+    }
+    ArkWebView?: { postMessage?: (data: string) => void }
+    LoYanSheNative?: { postMessage?: (data: string) => void }
+  }
+  const q = route.query?.client
+  const clientQ = Array.isArray(q) ? q[0] : q
+  const isIosShell =
+    clientQ === 'ios' ||
+    w.__LOYANSHE_CLIENT__ === 'ios' ||
+    (typeof sessionStorage !== 'undefined' && sessionStorage.getItem('ios_webview') === '1') ||
+    !!w.ArkWebView?.postMessage ||
+    !!w.LoYanSheNative?.postMessage
+  if (!isIosShell) return false
+
+  const postViaBridge = (data: string) => {
+    const raw = typeof data === 'string' ? data : JSON.stringify(data)
+    if (w.ArkWebView?.postMessage) {
+      w.ArkWebView.postMessage(raw)
+      return
+    }
+    if (w.LoYanSheNative?.postMessage) {
+      w.LoYanSheNative.postMessage(raw)
+      return
+    }
+    if (w.__LOYANSHE_PORT__?.__bridge && w.__LOYANSHE_PORT__.postMessage) {
+      w.__LOYANSHE_PORT__.postMessage(raw)
+    }
+  }
+
+  const bridgePort = w.__LOYANSHE_PORT__?.__bridge
+    ? w.__LOYANSHE_PORT__
+    : {
+        __bridge: true,
+        postMessage: postViaBridge,
+        onmessage: null as ((e: MessageEvent) => void) | null
+      }
+  // 统一走桥；避免仍指向空 onmessage 的注入对象
+  bridgePort.postMessage = postViaBridge
+  bindPortOnMessage(bridgePort)
+  w.__LOYANSHE_PORT__ = bridgePort
+  // Pinia 侧类型是 MessagePort；运行时只要有 postMessage/onmessage 即可
+  configStore.setPort(bridgePort as unknown as MessagePort)
+  isFromMobie.value = true
+  try {
+    sessionStorage.setItem('ios_webview', '1')
+  } catch (_) {}
+  return true
+}
+
+const handleInit = (event: MessageEvent) => {
+  if (event.data === "__init_port__") {
+    const [port] = event.ports
+    configStore.setPort(port)
+    isFromMobie.value = true
+    // 鸿蒙：MessagePort 下行
+    bindPortOnMessage(port)
   }
 }
 // WebSocket 通知系统
@@ -188,7 +260,19 @@ onMounted(async () => {
   document.addEventListener('gesturestart', (e) => e.preventDefault());
 
   // themeStore.loadFromLocalStorage()
+  // iOS：直接桥，不依赖 `__init_port__`；鸿蒙仍听 message
+  installIosBridgePort()
+  // 注入脚本可能稍晚于 Vue mount，短延迟再试一次
+  setTimeout(() => { installIosBridgePort() }, 300)
   window.addEventListener('message', handleInit)
+  // iOS 桥下行：原生 evaluateJS 会派发 loyanshe-native
+  window.addEventListener('loyanshe-native', ((ev: Event) => {
+    const detail = (ev as CustomEvent).detail
+    const port = configStore.getPort() as { onmessage?: ((e: MessageEvent) => void) | null } | null
+    if (!port?.onmessage) return
+    const raw = typeof detail === 'string' ? detail : JSON.stringify(detail)
+    port.onmessage({ data: raw } as MessageEvent)
+  }) as EventListener)
 })
 
 // 监听 token 变化，重新连接或断开连接
