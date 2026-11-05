@@ -46,9 +46,13 @@
       class="journal-neu-toolbar flex justify-between items-center sticky z-10 mb-4 rounded-2xl px-2 py-2"
       :style="{ top: `${10 + (configStore.statusBarHeight || 0)}px` }"
     >
-      <div class="flex flex-wrap items-center gap-2">
+      <div
+        class="flex flex-wrap items-center gap-2"
+        :class="isIosShell ? 'pl-11' : ''"
+      >
         <template v-if="isOwnJournal">
           <QhxJellyButton>
+            <!-- iOS 左侧留一个返回按钮占位，避免与原生返回重叠 -->
             <div
               class="text-center px-1 cursor-pointer"
               @click="(e: MouseEvent) => goNewJournalPost(e)"
@@ -1233,6 +1237,7 @@ import {
   pickArTargetFromSceneJson
 } from '@/utils/ar/sceneArTarget'
 import { useConfigStore } from '@/stores/config'
+import { isIosWebview } from '@/utils/nativeShell'
 import {
   openLibraryWebPath,
   openLibraryDetailTab,
@@ -1256,6 +1261,8 @@ const layoutReady = inject('layoutReady') as Ref<boolean>
 const userStore = useUserStore()
 const configStore = useConfigStore()
 const toast = useToast()
+/** iOS：新增/关联按钮右移一个返回按钮占位 */
+const isIosShell = computed(() => isIosWebview())
 
 const getImageParams = () => configStore.config?.image_params || ''
 

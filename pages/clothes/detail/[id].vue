@@ -39,7 +39,11 @@ import PhysicsDrop from '@/components/PhysicsDrop.client.vue'
 import type { MaterialForeign, Material } from '@/types/api'
 import { getLibraryVideo } from '@/api/library'
 import { buildHumanPlatformNav } from '@/utils/humanPlatformNav'
-import { navigateBackInShell, openInNativeShell } from '@/utils/nativeShell'
+import {
+  isIosWebview,
+  navigateBackInShell,
+  openInNativeShell,
+} from '@/utils/nativeShell'
 import { openMatchingDetailTab } from '@/composables/useLibraryDetailNavigation'
 let uni: any;
 const configStore = useConfigStore()
@@ -972,6 +976,9 @@ const isInUniAppShell = computed(
     typeof navigator !== 'undefined' &&
     navigator.userAgent.includes('Html5Plus')
 )
+
+/** iOS 壳：隐藏返回按钮外观，保留占位（原生自带返回） */
+const hideBackBtnVisual = computed(() => isIosWebview())
 
 const clothesBackBtnStyle = computed(() => ({
   top:
@@ -2016,8 +2023,11 @@ const showEditPlan = (e?: MouseEvent) => {
       v-if="detail"
       type="button"
       class="clothes-back-btn fixed z-[55] flex h-9 w-9 items-center justify-center rounded-full bg-black/55 text-white shadow-lg backdrop-blur-md transition-opacity hover:bg-black/65 hover:opacity-90 active:scale-95 dark:bg-white/20 dark:hover:bg-white/30"
+      :class="hideBackBtnVisual && 'invisible pointer-events-none'"
       :style="clothesBackBtnStyle"
       aria-label="返回"
+      :aria-hidden="hideBackBtnVisual"
+      :tabindex="hideBackBtnVisual ? -1 : 0"
       @click="goBack"
     >
       <UIcon name="i-heroicons-arrow-left" class="text-[18px]" />

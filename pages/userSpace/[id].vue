@@ -191,9 +191,9 @@
                 </div>
               </div>
 
-              <!-- 功能栏：快捷入口，横向滚动隐藏滚动条 -->
+              <!-- 功能栏：快捷入口，仅横向滚动；纵向交给页面，避免按钮被裁切 -->
               <div class="hero-action-bar mt-3 -mx-1 px-1">
-                <div class="hero-action-bar__scroll flex items-center gap-2 overflow-x-auto overscroll-x-contain py-1.5">
+                <div class="hero-action-bar__scroll flex items-center gap-2">
                   <button
                     type="button"
                     class="hero-action-bar__item modal-capsule-btn modal-capsule-btn--sm shrink-0"
@@ -1933,15 +1933,23 @@ useHead({
   min-height: 1.5rem;
 }
 
-/* Hero 功能栏：横向滚动，隐藏滚动条；上下留白避免阴影/字高被 overflow-x 裁切 */
+/* Hero 功能栏：仅横向滚动；overflow-y 显式 hidden，避免手机端纵向微滚裁切按钮 */
 .hero-action-bar__scroll {
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  overscroll-behavior-y: none;
+  -webkit-overflow-scrolling: touch;
   scrollbar-width: none;
   -ms-overflow-style: none;
-  -webkit-overflow-scrolling: touch;
+  /* 上下留白：阴影 / active:scale 不被裁切 */
+  padding-block: 0.5rem;
 }
 
 .hero-action-bar__scroll::-webkit-scrollbar {
   display: none;
+  width: 0;
+  height: 0;
 }
 
 /* 胶囊按钮（对齐衣服详情 / 时间管道等页） */

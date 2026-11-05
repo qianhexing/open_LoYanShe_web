@@ -23,6 +23,11 @@ import { useWardrobeToolbar } from '~/composables/useWardrobeToolbar'
 import { getWardrobeToolbarTool } from '~/utils/wardrobeToolbarConfig'
 import { BASE_IMG } from '@/utils/ipConfig'
 import {
+  isIosWebview,
+  navigateBackInShell,
+  openInNativeShell,
+} from '@/utils/nativeShell'
+import {
   isCommunityLivePath,
   toAbsoluteMediaUrl,
   toCommunityLivePosterPath,
@@ -2274,8 +2279,14 @@ const isInUniAppShell = computed(
     navigator.userAgent.includes('Html5Plus')
 )
 
-/** 左上角返回：UniApp navigateBack / 鸿蒙 port / 浏览器 history */
+/** iOS 壳：隐藏返回按钮外观，保留占位（原生自带返回） */
+const isIosShell = computed(() => isIosWebview())
+const hideBackBtnVisual = computed(() => isIosShell.value)
+
+/** 左上角返回：UniApp navigateBack / iOS·鸿蒙桥 / 浏览器 history */
 function goBack() {
+  if (hideBackBtnVisual.value) return
+
   if (isInUniAppShell.value) {
     const uniApi = configStore.uniWebviewJs ?? uni
     if (uniApi && typeof uniApi.navigateBack === 'function') {
@@ -2284,10 +2295,7 @@ function goBack() {
     }
   }
 
-  if (port.value) {
-    port.value.postMessage(JSON.stringify({ type: 'back' }))
-    return
-  }
+  if (navigateBackInShell()) return
 
   if (import.meta.client && window.history.length > 1) {
     router.back()
@@ -2891,18 +2899,24 @@ const jumpToClothes = (item: WardrobeClothes) => {
   const clothesDetailUrl = buildClothesDetailUrl(item.clothes_id)
   const clothesDetailAbsoluteUrl = `https://lolitalibrary.com${clothesDetailUrl}`
   const isInUniApp =
-		typeof window !== 'undefined' &&
-		navigator.userAgent.includes('Html5Plus');
-	if (isInUniApp && typeof uni !== 'undefined' && uni.navigateTo) {
-		// UniApp WebView 环境
-		uni.navigateTo({
-			url: `/pages/common/outerLink2?url=${clothesDetailAbsoluteUrl}`,
-			fail: () => {
-				console.log('跳转错误')
-			}
-		});
+    typeof window !== 'undefined' &&
+    navigator.userAgent.includes('Html5Plus')
+
+  if (isInUniApp && typeof uni !== 'undefined' && uni.navigateTo) {
+    uni.navigateTo({
+      url: `/pages/common/outerLink2?url=${clothesDetailAbsoluteUrl}`,
+      fail: () => {
+        console.log('跳转错误')
+      },
+    })
     return
-	}
+  }
+
+  // iOS：走原生 Outlink 桥（与 Uni 新开一层一致）
+  if (isIosWebview()) {
+    openInNativeShell(clothesDetailAbsoluteUrl)
+    return
+  }
 
   // 鸿蒙壳：port 异步注入，不能只靠 port；statusBar / session 标记也视为 App WebView
   const harmonyMarked =
@@ -5538,6 +5552,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
           :class="[
             !customStyle?.btnColor && 'bg-black/55 hover:bg-black/65 dark:bg-white/20 dark:hover:bg-white/30',
             !customStyle?.btnFontColor && 'text-white',
+            hideBackBtnVisual && 'invisible pointer-events-none',
           ]"
           :style="{
             top: `${(configStore.statusBarHeight || 0) + 10}px`,
@@ -5545,6 +5560,8 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
             ...customBtnStyle,
           }"
           aria-label="返回"
+          :aria-hidden="hideBackBtnVisual"
+          :tabindex="hideBackBtnVisual ? -1 : 0"
           @click="goBack"
         >
           <UIcon name="i-heroicons-arrow-left" class="text-[18px]" />
@@ -5565,9 +5582,12 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
             :class="[
               !customStyle?.btnColor && 'bg-black/55 hover:bg-black/65 dark:bg-white/20 dark:hover:bg-white/30',
               !customStyle?.btnFontColor && 'text-white',
+              hideBackBtnVisual && 'invisible pointer-events-none',
             ]"
             :style="customBtnStyle"
             aria-label="返回"
+            :aria-hidden="hideBackBtnVisual"
+            :tabindex="hideBackBtnVisual ? -1 : 0"
             @click="goBack"
           >
             <UIcon name="i-heroicons-arrow-left" class="text-[18px]" />

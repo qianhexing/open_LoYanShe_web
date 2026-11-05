@@ -13,9 +13,12 @@
       class="flex justify-between items-center sticky z-10 mb-4"
       :style="{ top: `${10 + (configStore.statusBarHeight || 0)}px` }"
     >
-      <div class="flex flex-wrap items-center gap-2">
+      <div
+        class="flex flex-wrap items-center gap-2"
+        :class="isIosShell ? 'pl-11' : ''"
+      >
         <QhxJellyButton>
-          <!-- h-[40px] -->
+          <!-- h-[40px]；iOS 左侧留一个返回按钮占位，避免与原生返回重叠 -->
           <div class=" text-center px-1 cursor-pointer" @click="(e: MouseEvent) => openAddPlan(e)">
             <div class="m-[5px] text-white rounded-[50%] h-[30px] w-[30px] flex items-center justify-center bg-qhx-primary shadow-[0_4px_10px_rgba(255,158,181,0.35)]">
               <UIcon name="material-symbols:add-2" class="text-[22px] text-[#ffffff]" />
@@ -402,6 +405,7 @@ import EmailBindModal from '@/components/user/EmailBindModal.vue'
 // biome-ignore lint/style/useImportType: 组件在 template 中使用
 import WardrobeClothesChoose from '@/components/Wardrobe/WardrobeClothesChoose.vue'
 import PlanListItem from '@/components/Plan/PlanListItem.vue'
+import { isIosWebview } from '@/utils/nativeShell'
 
 /**
  * 本地就绪态，不依赖 layout 的 layoutReady。
@@ -416,6 +420,8 @@ const userStore = useUserStore()
 const configStore = useConfigStore()
 const toast = useToast()
 const port = computed(() => configStore.getPort())
+/** iOS：新增按钮右移一个返回按钮占位 */
+const isIosShell = computed(() => isIosWebview())
 
 // biome-ignore lint/suspicious/noExplicitAny: uni-webview-js 类型声明缺失
 let uni: any
