@@ -9,6 +9,11 @@ export const useCopyCurrentUrl = () => {
         urlObj.searchParams.delete('token');
         urlObj.searchParams.delete('theme');
         urlObj.searchParams.delete('statusbar');
+        urlObj.searchParams.delete('tabbar');
+        urlObj.searchParams.delete('tabBar');
+        urlObj.searchParams.delete('tabbarHeight');
+        urlObj.searchParams.delete('client');
+        urlObj.searchParams.delete('type');
         currentUrl = urlObj.toString();
   
         // 兼容性写法：优先使用 Clipboard API

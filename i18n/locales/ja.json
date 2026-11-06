@@ -331,5 +331,9 @@
 	"addPhysicalShop.add_success": "登録成功",
 	"addPhysicalShop.submit_failed": "送信に失敗しました",
 	"addPhysicalShop.page_title_add": "実店舗を登録",
-	"addPhysicalShop.page_title_edit": "実店舗を編集"
+	"addPhysicalShop.page_title_edit": "実店舗を編集",
+
+	"contentI18n.translate": "翻訳",
+	"contentI18n.translating": "翻訳中…",
+	"contentI18n.translate_failed": "翻訳に失敗しました。しばらくしてから再試行してください。"
 }

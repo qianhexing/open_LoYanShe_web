@@ -13,9 +13,11 @@ import {
   markHarmonyShell,
   markIosShell,
 } from '@/utils/nativeShell'
+import { normalizeAppLocale } from '@/stores/language'
 const themeStore = useThemeStore()
 const userStore = useUserStore()
 const configStore = useConfigStore()
+const languageStore = useLanguageStore()
 const layoutReady = ref(false)
 const HarmonyOS = ref<string | null>(null)
 const isFromMobie = ref(true)
@@ -51,10 +53,31 @@ function readQueryClient(): string {
 if (route.query?.token) {
   useUserStore().setToken(route.query.token.toString())
 }
+// Uni / iOS / 鸿蒙外链：?lang=en|zh|ja（亦接受 locale）→ localStorage.lang + cookie，供请求头注入
+{
+  const raw = route.query?.lang ?? route.query?.locale
+  const v = Array.isArray(raw) ? raw[0] : raw
+  if (v != null && String(v).trim() !== '') {
+    languageStore.setLocale(normalizeAppLocale(v))
+  } else {
+    languageStore.initLocale()
+  }
+}
 if (route.query?.statusbar) {
   const statusBarHeight = Number(route.query.statusbar)
   if (!Number.isNaN(statusBarHeight) && statusBarHeight >= 0) {
     configStore.setStatusBarHeight(statusBarHeight <= 5 ? 50 : statusBarHeight)
+  }
+}
+// iOS Tab 内嵌外链：底部 Tab 高度（含安全区），供 H5 留底；盖层二级页不带此参数
+{
+  const raw = route.query?.tabbar ?? route.query?.tabBar ?? route.query?.tabbarHeight
+  const v = Array.isArray(raw) ? raw[0] : raw
+  if (v != null && String(v).trim() !== '') {
+    const tabBarHeight = Number(v)
+    if (!Number.isNaN(tabBarHeight) && tabBarHeight >= 0) {
+      configStore.setTabBarHeight(tabBarHeight)
+    }
   }
 }
 // iOS 原生外链：首屏即隐藏上下栏，并写入 session 供站内跳转保持
@@ -109,6 +132,37 @@ const judgeIsHome = () => {
   }
 }
 judgeIsHome()
+
+async function applyShellLocale(raw: unknown) {
+  const fromObj =
+    raw && typeof raw === 'object' && !Array.isArray(raw)
+      ? (raw as { lang?: unknown; locale?: unknown }).lang ??
+        (raw as { lang?: unknown; locale?: unknown }).locale
+      : raw
+  const lang = normalizeAppLocale(fromObj)
+  languageStore.setLocale(lang)
+  try {
+    const i18n = useI18n()
+    if (i18n.locale.value !== lang) {
+      await i18n.setLocale(lang)
+    }
+  } catch {
+    /* i18n 未就绪 */
+  }
+}
+
+function applyNativeInbound(raw: unknown) {
+  handleNativeInboundPayload(raw, {
+    onSetTheme: (data) => {
+      if (data === 1) themeStore.setTheme('dark')
+      else themeStore.setTheme('light')
+    },
+    onSetLang: (data) => {
+      void applyShellLocale(data)
+    },
+  })
+}
+
 watch(
   () => route.path,
   (newPath, oldPath) => {
@@ -127,19 +181,19 @@ watch(
     }
   },
 )
+watch(
+  () => route.query.lang ?? route.query.locale,
+  (raw) => {
+    const v = Array.isArray(raw) ? raw[0] : raw
+    if (v == null || String(v).trim() === '') return
+    void applyShellLocale(v)
+  },
+)
 const preventZoom = (e: TouchEvent) => {
   if (e.touches.length > 1) {
     e.preventDefault();
   }
 };
-function applyNativeInbound(raw: unknown) {
-  handleNativeInboundPayload(raw, {
-    onSetTheme: (data) => {
-      if (data === 1) themeStore.setTheme('dark')
-      else themeStore.setTheme('light')
-    },
-  })
-}
 
 const handleInit = (event: MessageEvent) => {
   if (event.data !== '__init_port__') return
@@ -195,6 +249,15 @@ const initNotificationSystem = () => {
 // 组件会自动导入
 onMounted(async () => {
   colorMode.value = 'light'
+  // 壳 query / localStorage 已写入 languageStore，再同步到 nuxt i18n UI 文案
+  try {
+    const i18n = useI18n()
+    if (i18n.locale.value !== languageStore.locale) {
+      await i18n.setLocale(languageStore.locale)
+    }
+  } catch {
+    /* ignore */
+  }
   /**
    * 先标记 layoutReady，再异步加载 uni-webview-js。
    * 否则刷新/手机 WebView 会卡在 await import，页面长时间白屏。

@@ -151,7 +151,7 @@
           v-model="topicInput"
           type="text"
           class="w-full px-4 py-2 mb-6 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-pink-500 dark:text-gray-200"
-          placeholder="请输入话题内容"
+          placeholder="请输入话题内容，如：日常"
           @keyup.enter="confirmInsertTopic"
         />
         <div class="flex justify-end gap-3">
@@ -241,6 +241,7 @@
         <ShopChoose ref="shopChooseRef" :multiple="false" @choose="onShopInternalLinkChosen" />
         <SceneChoose ref="sceneChooseRef" :multiple="false" @choose="onSceneInternalLinkChosen" />
         <AlbumChoose ref="albumChooseRef" :multiple="false" @choose="onAlbumInternalLinkChosen" />
+        <MiniToolChoose ref="miniToolChooseRef" @choose="onMiniToolInternalLinkChosen" />
       </div>
     </ClientOnly>
   </div>
@@ -274,7 +275,8 @@ import ShopChoose from '@/components/shop/ShopChoose.vue'
 import WardrobeChoose from '@/components/Wardrobe/WardrobeChoose.vue'
 import SceneChoose from '@/components/scene/SceneChoose.vue'
 import AlbumChoose from '@/components/Album/AlbumChoose.vue'
-import type { Album, Community, Library, Scene, Shop, User, Wardrobe } from '@/types/api'
+import MiniToolChoose from '@/components/features/MiniToolChoose.vue'
+import type { Album, Community, Library, MiniTool, Scene, Shop, User, Wardrobe } from '@/types/api'
 
 /** 工具栏按钮；传 `toolbar` 时仅渲染列表中的项（不传则粗体/斜体/删除线默认显示，其余由 enable* 控制） */
 export type RichTextToolbarItem =
@@ -441,9 +443,18 @@ const wikiOptionsChooseRef = ref<InstanceType<typeof WikiOptionsChoose> | null>(
 const shopChooseRef = ref<InstanceType<typeof ShopChoose> | null>(null)
 const sceneChooseRef = ref<InstanceType<typeof SceneChoose> | null>(null)
 const albumChooseRef = ref<InstanceType<typeof AlbumChoose> | null>(null)
+const miniToolChooseRef = ref<InstanceType<typeof MiniToolChoose> | null>(null)
 
 /** 站内链接第一步：可选类型（按需在此数组末尾追加一项即可扩展） */
-type RichTextInternalLinkKind = 'community' | 'library' | 'wardrobe' | 'shop' | 'wiki' | 'scene' | 'album'
+type RichTextInternalLinkKind =
+  | 'community'
+  | 'library'
+  | 'wardrobe'
+  | 'shop'
+  | 'wiki'
+  | 'scene'
+  | 'album'
+  | 'miniTool'
 
 const internalLinkPickerOptions = [
   {
@@ -494,6 +505,13 @@ const internalLinkPickerOptions = [
     subtitle: '链到成就簿详情页',
     icon: 'material-symbols:trophy-rounded',
     iconBg: 'bg-amber-500 dark:bg-amber-600',
+  },
+  {
+    kind: 'miniTool' as const,
+    title: '小工具',
+    subtitle: '链到小工具容器页',
+    icon: 'i-heroicons-sparkles',
+    iconBg: 'bg-cyan-500 dark:bg-cyan-600',
   },
 ] satisfies readonly { kind: RichTextInternalLinkKind; title: string; subtitle: string; icon: string; iconBg: string }[]
 
@@ -644,14 +662,30 @@ async function buildMentionUserItems(query: string): Promise<MentionListItem[]> 
   return localFallbackMentionNicknames(raw)
 }
 
+/** 话题正文不含触发符 #，展示时再拼上，避免出现 ## */
+function normalizeTopicLabel(raw: string): string {
+  return raw.trim().replace(/^#+/, '')
+}
+
+function formatTopicDisplayLabel(raw: string): string {
+  const t = normalizeTopicLabel(raw)
+  return t ? `#${t}` : '#'
+}
+
 function buildTopicSuggestionRows(query: string): MentionListItem[] {
-  const q = query.trim().toLowerCase()
+  const q = query.trim().toLowerCase().replace(/^#+/, '')
   const defaultTopics = ['日常', '提问', '晒图']
   const topics = props.topicSuggestions.length > 0 ? props.topicSuggestions : defaultTopics
   return topics
-    .filter((t) => (!q ? true : t.toLowerCase().includes(q)))
+    .filter((t) => {
+      const bare = normalizeTopicLabel(t).toLowerCase()
+      return !q ? true : bare.includes(q)
+    })
     .slice(0, 8)
-    .map((t) => ({ id: t, label: t }))
+    .map((t) => {
+      const bare = normalizeTopicLabel(t)
+      return { id: bare, label: formatTopicDisplayLabel(bare) }
+    })
 }
 
 const userMentionSuggestion = () => ({
@@ -665,6 +699,25 @@ const topicSuggestionConfig = () => ({
   char: '#' as const,
   items: ({ query }: { query: string }) => buildTopicSuggestionRows(query),
   render: createMentionListPopupRenderer(),
+  command: ({
+    editor: ed,
+    range,
+    props: item,
+  }: {
+    editor: { chain: () => any }
+    range: unknown
+    props: MentionListItem
+  }) => {
+    const bare = normalizeTopicLabel(String(item.label || item.id || ''))
+    if (!bare) return
+    ed.chain()
+      .focus()
+      .insertContentAt(range, [
+        { type: 'topic', attrs: { id: bare, label: bare } },
+        { type: 'text', text: ' ' },
+      ])
+      .run()
+  },
 })
 
 // Emoji 标签节点：<a href="#emoji/{id}"><img /></a>，宽高 50px
@@ -724,12 +777,12 @@ const TopicMention = Mention.extend({
       },
       renderText({ node, suggestion }) {
         const ch = suggestion?.char ?? '#'
-        const lb = (node.attrs.label || node.attrs.id) ?? ''
+        const lb = normalizeTopicLabel(String((node.attrs.label || node.attrs.id) ?? ''))
         return `${ch}${lb}`
       },
       renderHTML({ node, suggestion, options }) {
         const ch = suggestion?.char ?? '#'
-        const lb = (node.attrs.label || node.attrs.id) ?? ''
+        const lb = normalizeTopicLabel(String((node.attrs.label || node.attrs.id) ?? ''))
         return [
           'span',
           mergeAttributes(
@@ -737,7 +790,7 @@ const TopicMention = Mention.extend({
             options.HTMLAttributes,
             {
               'data-id': String(node.attrs.id ?? lb),
-              'data-label': String(node.attrs.label ?? lb),
+              'data-label': lb,
             }
           ),
           `${ch}${lb}`,
@@ -826,7 +879,7 @@ const openEmojiModal = (e?: MouseEvent) => {
 }
 
 const confirmInsertTopic = () => {
-  const value = topicInput.value.trim()
+  const value = normalizeTopicLabel(topicInput.value)
   if (!value || !editor.value) return
 
   editor.value.chain().focus().insertContent({
@@ -978,6 +1031,9 @@ function pickInternalLinkKind(kind: RichTextInternalLinkKind, e: MouseEvent) {
       case 'album':
         albumChooseRef.value?.showModel(e)
         break
+      case 'miniTool':
+        miniToolChooseRef.value?.showModel(e)
+        break
     }
   })
 }
@@ -998,10 +1054,12 @@ const onLibraryInternalLinkChosen = (list: Library[]) => {
 
 const onWardrobeInternalLinkChosen = (list: Wardrobe[]) => {
   const item = list[0]
-  const id = item?.wardrobe_id
-  if (id == null || !Number.isFinite(Number(id))) return
+  const wardrobeId = item?.wardrobe_id
+  if (wardrobeId == null || !Number.isFinite(Number(wardrobeId))) return
+  const userId = item?.user_id ?? userStore.user?.user_id
+  if (userId == null || !Number.isFinite(Number(userId)) || Number(userId) <= 0) return
   const label = (item.wardrobe_name ?? '').trim() || '衣柜'
-  insertEditorLink(`/wardrobe/detail/${id}`, label)
+  insertEditorLink(`/wardrobe/detail/${userId}?wardrobe_id=${wardrobeId}`, label)
 }
 
 const onShopInternalLinkChosen = (list: Shop[]) => {
@@ -1051,6 +1109,15 @@ const onWikiInternalLinkChosen = (list: { wiki_id?: number | string; wiki_name?:
       return true
     })
     .run()
+}
+
+const onMiniToolInternalLinkChosen = (list: MiniTool[]) => {
+  const item = list[0]
+  const id = Number(item?.tool_id)
+  if (!Number.isFinite(id) || id <= 0) return
+  const label = (item.tool_name ?? '').trim() || `小工具${id}`
+  // 与社区关联小工具一致：独立容器页
+  insertEditorLink(`/pc/tool/?id=${id}`, label)
 }
 
 // 获取内容

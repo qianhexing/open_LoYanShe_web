@@ -17,6 +17,11 @@ interface configState {
   isMobile: boolean
   windowWidth: number
   statusBarHeight: number
+  /**
+   * iOS Tab 内嵌外链底部留白（pt，含安全区）。
+   * 来自 query `tabbar`；盖层二级页不带，保持 0。
+   */
+  tabBarHeight: number
   /** 仅在 Html5Plus 环境下由 layout 注入，普通浏览器为 null */
   uniWebviewJs: UniWebviewJsModule | null
 }
@@ -29,6 +34,7 @@ export const useConfigStore = defineStore('config', {
     isMobile: false,
     windowWidth: typeof window !== 'undefined' ? window.innerWidth : 1024,
     statusBarHeight: 0,
+    tabBarHeight: 0,
     uniWebviewJs: null
   }),
   
@@ -81,6 +87,12 @@ export const useConfigStore = defineStore('config', {
     },
     getStatusBarHeight() {
       return this.statusBarHeight
+    },
+    setTabBarHeight(height: number) {
+      this.tabBarHeight = height > 0 ? height : 0
+    },
+    getTabBarHeight() {
+      return this.tabBarHeight
     },
     setUniWebviewJs(mod: UniWebviewJsModule | null) {
       this.uniWebviewJs = mod

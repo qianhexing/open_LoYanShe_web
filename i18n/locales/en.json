@@ -331,5 +331,9 @@
 	"addPhysicalShop.add_success": "Added successfully",
 	"addPhysicalShop.submit_failed": "Submit failed",
 	"addPhysicalShop.page_title_add": "Add Physical Store",
-	"addPhysicalShop.page_title_edit": "Edit Physical Store"
+	"addPhysicalShop.page_title_edit": "Edit Physical Store",
+
+	"contentI18n.translate": "Translate",
+	"contentI18n.translating": "Translating…",
+	"contentI18n.translate_failed": "Translation failed. Please try again."
 }

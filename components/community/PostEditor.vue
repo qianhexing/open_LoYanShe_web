@@ -275,8 +275,8 @@ const props = withDefaults(defineProps<Props>(), {
 const DEFAULT_COMMUNITY_TYPE = '日常交流'
 /** 非正式居民唯一可选类型 */
 const NEWBIE_COMMUNITY_TYPE = '萌新报道'
-/** 发帖页不展示的类型 */
-const HIDDEN_COMMUNITY_TYPES = new Set(['上新图透', '种草推广'])
+/** 发帖页不展示的类型（含配置里的 IOS，不对 iOS 端单独开放） */
+const HIDDEN_COMMUNITY_TYPES = new Set(['上新图透', '种草推广', 'IOS', 'ios', 'iOS'])
 const FALLBACK_TYPE_OPTIONS: optionsInterface[] = [
   { label: '日常交流', value: DEFAULT_COMMUNITY_TYPE }
 ]

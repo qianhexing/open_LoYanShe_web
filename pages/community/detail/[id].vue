@@ -4,7 +4,9 @@ definePageMeta({
 })
 
 import type { Comment, Community, UserDeco } from '@/types/api'
+import { ContentI18nPkType } from '@/api/content_i18n'
 import { getCommunityDetail, deleteCommunity } from '@/api/community'
+import { useContentTranslate } from '@/composables/useContentTranslate'
 import { getBrowTimeOne, insertBrowTime } from '@/api/brow_time'
 import { getCommentList } from '@/api/comment'
 import { getUserDecoBadges } from '@/api/user'
@@ -350,6 +352,33 @@ watch(
   },
   { immediate: true },
 )
+
+const { t } = useI18n()
+const { needsTranslate, runTranslate, translating: contentTranslating } =
+  useContentTranslate()
+const showPostTranslateBtn = computed(() => needsTranslate(detail.value))
+
+async function onTranslatePost() {
+  if (!detail.value?.community_id) return
+  try {
+    const result = await runTranslate({
+      pkType: ContentI18nPkType.Community,
+      pkId: detail.value.community_id,
+      sourceLang: detail.value.content_lang || detail.value.lang || undefined,
+    })
+    if (!result?.payload) return
+    if (typeof result.payload.title === 'string') {
+      detail.value.title = result.payload.title
+    }
+    if (typeof result.payload.content === 'string') {
+      detail.value.content = result.payload.content
+    }
+    detail.value.has_i18n = true
+    detail.value.i18n_lang = result.lang
+  } catch (err) {
+    console.error(err)
+  }
+}
 
 const communityCarouselItems = computed(() => {
   const alt = detail.value?.title || 'Lo研社'
@@ -736,6 +765,15 @@ useHead({
                 <div v-if="richText" class="leading-[1.8]">
                   <SafeRichText :nodes="richText"></SafeRichText>
                 </div>
+                <button
+                  v-if="showPostTranslateBtn"
+                  type="button"
+                  class="mt-2 text-xs text-qhx-primary hover:underline disabled:opacity-60"
+                  :disabled="contentTranslating"
+                  @click="onTranslatePost"
+                >
+                  {{ contentTranslating ? t('contentI18n.translating') : t('contentI18n.translate') }}
+                </button>
                 <ClientOnly>
                   <CommunityDetailForeignSection
                     v-if="foreignSectionReady && detail.foreign_list?.length"
@@ -867,6 +905,15 @@ useHead({
               <div v-if="richText" class=" leading-[1.8]">
                 <SafeRichText :nodes="richText"></SafeRichText>
               </div>
+              <button
+                v-if="showPostTranslateBtn"
+                type="button"
+                class="mt-2 text-xs text-qhx-primary hover:underline disabled:opacity-60"
+                :disabled="contentTranslating"
+                @click="onTranslatePost"
+              >
+                {{ contentTranslating ? t('contentI18n.translating') : t('contentI18n.translate') }}
+              </button>
               <ClientOnly>
                 <CommunityDetailForeignSection
                   v-if="foreignSectionReady && detail.foreign_list?.length"

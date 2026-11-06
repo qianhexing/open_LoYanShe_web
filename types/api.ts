@@ -576,7 +576,19 @@ export interface CommentJsonData {
   position?: [number, number, number] | number[]
 }
 
-export interface Comment {
+/** 列表/详情只读 i18n 覆盖后附带的语种标记（见 lolita-node ContentI18nService） */
+export interface ContentI18nFields {
+  /** 主表原文语种 */
+  lang?: string | null
+  /** 规范化后的原文语种 */
+  content_lang?: string | null
+  /** 本次响应是否已用译文覆盖正文 */
+  has_i18n?: boolean
+  /** 覆盖所用目标语；无覆盖为 null */
+  i18n_lang?: string | null
+}
+
+export interface Comment extends ContentI18nFields {
   bad_num:number
   comment_content: string
   comment_id: number
@@ -598,7 +610,7 @@ export interface Comment {
   isCheck?: boolean
 }
 
-export interface Community {
+export interface Community extends ContentI18nFields {
   community_id: number
   type?: string | null
   title?: string | null

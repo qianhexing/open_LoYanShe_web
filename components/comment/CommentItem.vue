@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import type { Comment } from '@/types/api'
 import dayjs from 'dayjs'
+import { ContentI18nPkType } from '@/api/content_i18n'
+import { useContentTranslate } from '@/composables/useContentTranslate'
+import { formatRich, parseRichText, type RichNode } from '@/utils/public'
 
 function formatCommentDateForDisplay(raw: Comment['date'] | undefined): string {
   if (raw == null) return '未知'
@@ -40,6 +43,9 @@ const props = withDefaults(defineProps<Props>(), {
   isNewHighlight: false
 })
 
+const { t } = useI18n()
+const { needsTranslate, runTranslate, translating } = useContentTranslate()
+
 const commentTimeDisplay = computed(() => formatCommentDateForDisplay(props.item.date))
 const commentIpDisplay = computed(() => {
   const s = props.item.ip_location?.trim()
@@ -47,26 +53,65 @@ const commentIpDisplay = computed(() => {
 })
 
 const richText = ref<RichNode[] | null>(null)
-const { item, need_bottom, ui } = props
-const user = useUserStore()
 const image = ref<Array<string>>([])
 const text = ref('')
-if (item?.comment_content) {
-  const rich_res = formatRich(item.comment_content)
+const user = useUserStore()
+
+function applyCommentContent(raw: string | undefined | null) {
+  image.value = []
+  text.value = ''
+  richText.value = null
+  if (!raw) return
+  const rich_res = formatRich(raw)
   if (rich_res.image.length > 0) {
-    image.value = rich_res.image.map((src) => { return src.replace('https://www.lolitalibrary.com/ali/', '')})
+    image.value = rich_res.image.map((src) => {
+      return src.replace('https://www.lolitalibrary.com/ali/', '')
+    })
   }
   text.value = rich_res.text
+  if (props.item?.mount_img) {
+    image.value = [...image.value, ...props.item.mount_img.split(',')]
+  }
+  richText.value = parseRichText(text.value)
 }
-if (item?.mount_img) {
-  image.value = [...image.value, ...item.mount_img.split(',')]
+
+watch(
+  () => [props.item.comment_content, props.item.mount_img] as const,
+  ([content]) => {
+    applyCommentContent(content)
+  },
+  { immediate: true },
+)
+
+const showTranslateBtn = computed(() => needsTranslate(props.item))
+
+async function onTranslate(e: MouseEvent) {
+  e.stopPropagation()
+  const pkId = Number(props.item.comment_id || props.item.id)
+  if (!pkId) return
+  try {
+    const result = await runTranslate({
+      pkType: ContentI18nPkType.Comment,
+      pkId,
+      sourceLang: props.item.content_lang || props.item.lang || undefined,
+    })
+    if (!result?.payload) return
+    const next = result.payload.comment_content
+    if (typeof next === 'string') {
+      props.item.comment_content = next
+      props.item.has_i18n = true
+      props.item.i18n_lang = result.lang
+    }
+  } catch (err) {
+    console.error(err)
+  }
 }
 
 const showReply = () => {
-  emit('showReply', item)
+  emit('showReply', props.item)
 }
 const reply = (e: MouseEvent) => {
-  emit('reply', item, e)
+  emit('reply', props.item, e)
 }
 
 const isOwnComment = computed(() => {
@@ -79,11 +124,6 @@ const onDelete = (e: MouseEvent) => {
   e.stopPropagation()
   emit('delete', props.item, e)
 }
-onMounted(() => {
-  if (item.comment_content) {
-    richText.value = parseRichText(text.value)
-  }
-})
 </script>
 <template>
   <div
@@ -125,6 +165,14 @@ onMounted(() => {
             <span>IP：{{ commentIpDisplay }}</span>
           </div>
           <div class="flex shrink-0 items-center justify-end gap-3">
+            <div
+              v-if="showTranslateBtn"
+              class="cursor-pointer text-qhx-primary hover:underline"
+              :class="{ 'pointer-events-none opacity-60': translating }"
+              @click.stop="onTranslate($event)"
+            >
+              {{ translating ? t('contentI18n.translating') : t('contentI18n.translate') }}
+            </div>
             <div
               v-if="isOwnComment"
               class="cursor-pointer text-red-500 hover:underline dark:text-red-400"

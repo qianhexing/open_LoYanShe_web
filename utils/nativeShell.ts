@@ -238,12 +238,14 @@ function postJumpWhenHarmonyPortReady(
 }
 
 /**
- * 解析并分发原生 → H5 下行消息（setTheme / reload 等）
+ * 解析并分发原生 → H5 下行消息（setTheme / setLang / reload 等）
  */
 export function handleNativeInboundPayload(
   raw: unknown,
   handlers: {
     onSetTheme?: (data: unknown) => void
+    /** 壳内切换语言：data 为 zh/en/ja 或 { lang } */
+    onSetLang?: (data: unknown) => void
     onReload?: () => void
     onMessage?: (msg: NativeBridgeMessage) => void
   } = {},
@@ -254,6 +256,10 @@ export function handleNativeInboundPayload(
     handlers.onMessage?.(message)
     if (message.type === 'setTheme') {
       handlers.onSetTheme?.(message.data)
+      return
+    }
+    if (message.type === 'setLang' || message.type === 'setLocale') {
+      handlers.onSetLang?.(message.data ?? message.params)
       return
     }
     if (message.type === 'reload') {

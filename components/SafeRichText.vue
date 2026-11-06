@@ -45,6 +45,24 @@ function mentionSpanDisplay(node: RichNode): string {
   return '@用户'
 }
 
+function isTopicSpan(node: RichNode): boolean {
+  if (node.name !== 'span') return false
+  if (node.attrs?.['data-type'] === 'topic') return true
+  const cls = String(node.attrs?.class ?? '')
+  return cls.split(/\s+/).includes('topic-mention')
+}
+
+/** 话题展示统一带 #（兼容历史正文无前缀） */
+function topicSpanDisplay(node: RichNode): string {
+  const fromAttr = String(node.attrs?.['data-label'] ?? node.attrs?.['data-id'] ?? '')
+    .trim()
+    .replace(/^#+/, '')
+  if (fromAttr) return `#${fromAttr}`
+  const t = node.text?.trim() ?? ''
+  if (!t) return '#'
+  return t.startsWith('#') ? t : `#${t}`
+}
+
 /** 富文中站内图床域名统一走 CDN（与 CommentItem、Community 等处一致） */
 function rewriteAliImageSrc(src: string): string {
   const prefixes = [
@@ -139,6 +157,13 @@ function isSafeTag(tag: string) {
     >
       {{ mentionSpanDisplay(node) }}
     </a>
+
+    <span
+      v-else-if="isTopicSpan(node)"
+      class="topic-mention inline font-bold rounded px-1 text-[#ff9eb5] bg-pink-500/10"
+    >
+      {{ topicSpanDisplay(node) }}
+    </span>
 
     <div
       v-else-if="node.name === 'vote'"

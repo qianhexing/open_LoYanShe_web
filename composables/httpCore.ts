@@ -138,6 +138,33 @@ function payloadMessage(payload: unknown, fallback: string): string {
   return fallback
 }
 
+/** 内容列表/详情只读译文：与后端 resolveRequestLang 对齐，读 headers.lang */
+function resolveContentLangHeader(): string {
+  try {
+    if (typeof useLanguageStore === 'function') {
+      const locale = useLanguageStore().locale
+      if (locale) return String(locale)
+    }
+  } catch {
+    /* Pinia / Nuxt 上下文外 */
+  }
+  try {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      const stored = localStorage.getItem('lang')
+      if (stored) return String(stored).trim().toLowerCase().split(/[-_]/)[0] || 'zh'
+    }
+  } catch {
+    /* private mode */
+  }
+  try {
+    const cookie = useCookie<'zh' | 'en' | 'ja' | string | null>('i18n_redirected')
+    if (cookie.value) return String(cookie.value)
+  } catch {
+    /* SSR / 非 Nuxt 调用 */
+  }
+  return 'zh'
+}
+
 function handleRequest(options: RequestOptions) {
   let token = null as null | string
   if (typeof window !== 'undefined' && useUserStore) {
@@ -147,6 +174,7 @@ function handleRequest(options: RequestOptions) {
   options.headers = {
     ...options.headers,
     Authorization: `${token}`,
+    lang: resolveContentLangHeader(),
   }
 }
 

@@ -6,7 +6,7 @@ definePageMeta({
 import type { Wardrobe, WardrobeClothes, UserDeco } from '@/types/api';
 import { getUserDecoBadges, getUserSpace } from '@/api/user'
 import type { UserDecoBadgeItem } from '@/api/user'
-import { getWardrobeList, getClothesList, getClothesListAllFallback, getClothesDetail, sortClothee, changeWardrobeClothes, changeWardrobeClothesBatch, deleteClothesByIds, updateClothesIds, batchUpdateClothesTags, sortClothesTags, deleteClothesTag, checkWadrobePassword, sortWardrobe, updateWardrobe, deleteWardrobe, insertWardrobe } from '@/api/wardrobe'
+import { getWardrobeList, getClothesList, getClothesListAllFallback, getClothesDetail, sortClothee, changeWardrobeClothes, changeWardrobeClothesBatch, deleteClothesByIds, updateClothesIds, batchUpdateClothesTags, sortClothesTags, deleteClothesTag, checkWadrobePassword, sortWardrobe, updateWardrobe, deleteWardrobe, insertWardrobe, insertClothesMultiple, type ClothesBatchInsertItem } from '@/api/wardrobe'
 import { getPlanListWardrobe, planComplete } from '@/api/plan'
 import type { ClothesAllParams, ClothesParams } from '@/api/wardrobe'
 import { useCopyCurrentUrl } from '~/composables/useCopyCurrentUrl';
@@ -111,6 +111,9 @@ const WardrobeSearch = defineAsyncComponent(
 )
 const WardrobeChoose = defineAsyncComponent(
   () => import('@/components/Wardrobe/WardrobeChoose.vue'),
+)
+const YearlySummaryLoginModal = defineAsyncComponent(
+  () => import('@/components/yearlySummary/LoginModal.vue'),
 )
 
 const wardrobeStore = useWardrobeStore()
@@ -230,6 +233,10 @@ const tutorialCacheVersion = ref(0)
 const matchingMode = ref(false)
 // 多选模式：与排序、搭配、编辑互斥，开启后服饰卡片右上角显示选择框，可批量操作
 const selectMode = ref(false)
+/** 访客复制导入：复用 selectMode 勾选 UI，底部栏仅提供「导入到我的衣柜」 */
+const isVisitorCopyMode = computed(() => selectMode.value && !isPageOwner.value)
+const showLoginModal = ref(false)
+const copyImportLoading = ref(false)
 // 编辑模式：与排序、搭配、多选互斥，开启后服饰卡片右上角显示编辑按钮，可快速修改
 const editMode = ref(false)
 /** 时间轴全屏视图：列表按加入衣柜时间排序 */
@@ -845,6 +852,8 @@ const handlePlanTimelineComplete = async () => {
 const addEditWardrobeRef = ref<InstanceType<typeof WardrobeAddEditType> | null>(null)
 const wardrobeSearchRef = ref<InstanceType<typeof WardrobeSearchType> | null>(null)
 const wardrobeChooseRef = ref<InstanceType<typeof WardrobeChooseType> | null>(null)
+/** 访客复制导入：选择自己的目标衣柜 */
+const wardrobeCopyChooseRef = ref<InstanceType<typeof WardrobeChooseType> | null>(null)
 const matchingAddEditRef = ref<InstanceType<typeof MatchingAddEditType> | null>(null)
 const matchingBtnRef = ref<HTMLElement | null>(null)
 const { flyToTarget } = useFlyToButton()
@@ -3531,10 +3540,19 @@ function persistToolbarBtnSize(size: ToolbarBtnSize) {
   }
 }
 
+/** iOS Tab 内嵌：底部留白（query.tabbar → configStore） */
+const tabBarInsetPx = computed(() => {
+  const n = Number(configStore.tabBarHeight || 0)
+  return Number.isFinite(n) && n > 0 ? n : 0
+})
+
 const wardrobePageStyle = computed(() => ({
   ...(pageContentStyle.value ?? {}),
   '--wardrobe-card-fs': `${getClothesCardFontPx()}px`,
   '--wardrobe-card-lh': `${getClothesCardLineHeightPx()}px`,
+  ...(tabBarInsetPx.value > 0
+    ? { '--wardrobe-tabbar-inset': `${tabBarInsetPx.value}px` }
+    : {}),
 }))
 
 const toolbarBtnSizeOptions: { id: ToolbarBtnSize; label: string }[] = [
@@ -3668,15 +3686,17 @@ const toggleTimelineMode = async () => {
   await fetchClothesList(1, TIMELINE_PAGE_SIZE)
 }
 
-/** 衣柜统计：App（UniApp WebView）走原生页；网页端进入 ECharts 统计页 */
+/** 衣柜统计：Uni / iOS 走原生外链新开一层；网页端进入 ECharts 统计页 */
 const openWardrobeStatistics = () => {
+  const statisticsPath = `/wardrobe/statistics/${id}`
+  const statisticsAbsoluteUrl = `https://lolitalibrary.com${statisticsPath}`
   const isInUniApp =
     typeof window !== 'undefined' &&
     navigator.userAgent.includes('Html5Plus')
 
   if (isInUniApp && typeof uni !== 'undefined' && uni.navigateTo) {
     uni.navigateTo({
-      url: `/pages/common/outerLink2?url=https://lolitalibrary.com/wardrobe/statistics/${id}`,
+      url: `/pages/common/outerLink2?url=${statisticsAbsoluteUrl}`,
       fail: () => {
         console.log('跳转衣柜统计失败')
       },
@@ -3684,7 +3704,13 @@ const openWardrobeStatistics = () => {
     return
   }
 
-  router.push(`/wardrobe/statistics/${id}`)
+  // iOS：走原生 Outlink 桥（盖住底栏，与服饰详情一致）
+  if (isIosWebview()) {
+    openInNativeShell(statisticsAbsoluteUrl)
+    return
+  }
+
+  router.push(statisticsPath)
 }
 
 const exitTimelineMode = async () => {
@@ -3987,7 +4013,9 @@ function requireClothesForMode(): boolean {
   if (hasWardrobeClothes()) return true
   toast.add({
     title: '暂无服饰',
-    description: '请先至少添加一条服饰后再使用此功能',
+    description: isPageOwner.value
+      ? '请先至少添加一条服饰后再使用此功能'
+      : '当前衣柜暂无可复制的服饰',
     icon: 'i-heroicons-information-circle',
     color: 'amber',
   })
@@ -4291,6 +4319,149 @@ const toggleSelectMode = () => {
     showSelectGuide.value = false
   }
 }
+
+/** 访客：进入/退出复制模式（多选后导入到自己的衣柜） */
+const toggleVisitorCopyMode = () => {
+  if (!isWardrobeUserLoggedIn()) {
+    showLoginModal.value = true
+    return
+  }
+  if (!selectMode.value && !requireClothesForMode()) return
+  selectMode.value = !selectMode.value
+  if (selectMode.value) {
+    sortMode.value = false
+    matchingMode.value = false
+    editMode.value = false
+    selectedClothesIds.value = new Set()
+    closeAllModeGuides()
+  } else {
+    selectedClothesIds.value = new Set()
+  }
+}
+
+/** 登录成功后自动进入复制模式（仍在他人衣柜页） */
+const onVisitorCopyLoginSuccess = () => {
+  showLoginModal.value = false
+  nextTick(() => {
+    if (isPageOwner.value || selectMode.value) return
+    if (!requireClothesForMode()) return
+    selectMode.value = true
+    sortMode.value = false
+    matchingMode.value = false
+    editMode.value = false
+    selectedClothesIds.value = new Set()
+  })
+}
+
+/** 将他人服饰映射为批量入库基础字段（封面/备注/尺码/价格等） */
+function clothesToBatchCopyItem(item: WardrobeClothes): ClothesBatchInsertItem | null {
+  const rawImg = typeof item.clothes_img === 'string' ? item.clothes_img.trim() : ''
+  if (!rawImg) return null
+  const clothes_img = rawImg.replace(BASE_IMG, '')
+  if (!clothes_img) return null
+
+  const mapped: ClothesBatchInsertItem = { clothes_img }
+  const note = item.clothes_note?.trim()
+  if (note) mapped.clothes_note = note
+  if (item.library_id != null && Number(item.library_id) > 0) {
+    mapped.library_id = Number(item.library_id)
+  }
+  const size = item.size?.trim()
+  if (size) mapped.size = size
+  if (item.color) mapped.color = item.color
+  if (item.color_text) mapped.color_text = item.color_text
+  if (item.season) mapped.season = item.season
+  if (item.origin != null && String(item.origin).trim() !== '') {
+    mapped.origin = item.origin
+  }
+
+  // 主人隐藏单件价格时，不把价格抄到访客衣柜
+  if (info.value?.show_price !== 2) {
+    if (item.price != null && Number(item.price) !== 0) mapped.price = Number(item.price)
+    if (item.original_price != null) mapped.original_price = item.original_price
+    if (item.offer_price != null) mapped.offer_price = item.offer_price
+  }
+  return mapped
+}
+
+/** 打开自己的衣柜选择，准备批量复制导入 */
+const onSelectModeCopyImport = async () => {
+  if (selectedClothesIds.value.size === 0 || copyImportLoading.value) return
+  if (!isWardrobeUserLoggedIn()) {
+    showLoginModal.value = true
+    return
+  }
+  const uid = user.user?.user_id
+  if (uid == null) {
+    showLoginModal.value = true
+    return
+  }
+  try {
+    const res = await getWardrobeList({ user_id: uid, page: 1, pageSize: 1 })
+    if (!(res.rows?.length)) {
+      await insertWardrobe({ wardrobe_name: '默认衣柜' })
+    }
+  } catch {
+    toast.add({
+      title: '无法加载你的衣柜',
+      description: '请稍后重试',
+      icon: 'i-heroicons-exclamation-circle',
+      color: 'red',
+    })
+    return
+  }
+  wardrobeCopyChooseRef.value?.showModel()
+}
+
+const onWardrobeChooseForCopyImport = async (wards: Wardrobe[]) => {
+  const target = wards[0]
+  if (!target?.wardrobe_id || selectedClothesIds.value.size === 0) return
+  if (copyImportLoading.value) return
+
+  const selected = list.value.filter(
+    (item) => item.clothes_id != null && selectedClothesIds.value.has(item.clothes_id),
+  )
+  const clothes_list = selected
+    .map(clothesToBatchCopyItem)
+    .filter((item): item is ClothesBatchInsertItem => item != null)
+
+  if (!clothes_list.length) {
+    toast.add({
+      title: '无法导入',
+      description: '所选服饰均无封面，请至少选择一件有封面的服饰',
+      icon: 'i-heroicons-information-circle',
+      color: 'amber',
+    })
+    return
+  }
+
+  copyImportLoading.value = true
+  try {
+    await insertClothesMultiple({
+      wardrobe_id: target.wardrobe_id,
+      clothes_list,
+    })
+    const skipped = selected.length - clothes_list.length
+    toast.add({
+      title: `已导入 ${clothes_list.length} 件到「${target.wardrobe_name || '我的衣柜'}」`,
+      description: skipped > 0 ? `已跳过 ${skipped} 件无封面服饰` : '仅复制封面、尺码、价格等基础信息',
+      icon: 'i-heroicons-check-circle',
+      color: 'green',
+    })
+    selectedClothesIds.value = new Set()
+    selectMode.value = false
+  } catch {
+    toast.add({
+      title: '导入失败',
+      description: '请稍后重试',
+      icon: 'i-heroicons-exclamation-circle',
+      color: 'red',
+    })
+  } finally {
+    copyImportLoading.value = false
+  }
+}
+
 const toggleClothesSelection = (item: WardrobeClothes) => {
   const id = item.clothes_id
   if (id == null) return
@@ -5530,7 +5701,10 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
       </button>
     </Transition>
 
-    <div class="relative w-full min-h-[100dvh]">
+    <div
+      class="relative w-full min-h-[100dvh]"
+      :style="tabBarInsetPx > 0 ? { paddingBottom: `${tabBarInsetPx}px` } : undefined"
+    >
       <div
         class="grid w-full transition-[grid-template-rows] duration-350 ease-[cubic-bezier(0.4,0,0.2,1)] overflow-hidden"
         :style="{ gridTemplateRows: timelineMode ? '0fr' : '1fr' }"
@@ -6197,6 +6371,30 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
             </div>
           </div>
         </div>
+        <!-- 访客：复制模式（多选导入基础信息到自己的衣柜） -->
+        <div
+          v-else-if="!timelineMode"
+          class="flex flex-col sticky z-10 gap-1"
+          :style="{ top: `${(configStore.statusBarHeight || 0) + 10}px` }"
+        >
+          <div class="flex flex-wrap gap-1">
+            <QhxJellyButton>
+              <div
+                class="h-[56px] flex flex-col items-center justify-center px-1 cursor-pointer"
+                @click="toggleVisitorCopyMode"
+              >
+                <div
+                  class="wardrobe-neu-tool-orb m-[3px] rounded-[50%] h-[32px] w-[32px] flex items-center justify-center"
+                  :class="selectMode ? [!hasCustomBtnBg && 'bg-qhx-primary', !hasCustomBtnFont && 'text-white'] : [!hasCustomBtnBg && 'bg-qhx-info', !hasCustomBtnFont && 'text-white']"
+                  :style="selectMode ? customBtnStyle : {}"
+                >
+                  <UIcon name="material-symbols:content-copy-outline" class="text-[20px]" />
+                </div>
+                <div class="text-sm text-qhx-text">{{ selectMode ? '取消复制' : '复制模式' }}</div>
+              </div>
+            </QhxJellyButton>
+          </div>
+        </div>
         <div v-if="sortedTagList.length > 0" class="flex items-center gap-2 min-w-0 my-1.5 px-6 max-md:px-2">
           <div
             ref="tagScrollRef"
@@ -6274,7 +6472,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
                 />
               </div>
               <div
-                v-if="selectMode && getClothesDisplaySortNo(element)"
+                v-if="selectMode && isPageOwner && getClothesDisplaySortNo(element)"
                 class="wardrobe-select-sort-mask absolute inset-0 z-[5] flex items-center justify-center pointer-events-none rounded-lg"
                 :class="isClothesSelected(element.clothes_id) ? 'wardrobe-select-sort-mask--selected' : ''"
               >
@@ -6458,7 +6656,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
                   @load="markWardrobeImgLoaded(element.clothes_img)"
                 />
                 <div
-                  v-if="selectMode && getClothesDisplaySortNo(element)"
+                  v-if="selectMode && isPageOwner && getClothesDisplaySortNo(element)"
                   class="wardrobe-select-sort-mask absolute inset-0 z-[5] flex items-center justify-center pointer-events-none rounded-xl"
                   :class="isClothesSelected(element.clothes_id) ? 'wardrobe-select-sort-mask--selected' : ''"
                 >
@@ -6602,7 +6800,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
                     @load="onClothesCardImgLoad(element.clothes_img)"
                   />
                   <div
-                    v-if="selectMode && getClothesDisplaySortNo(element)"
+                    v-if="selectMode && isPageOwner && getClothesDisplaySortNo(element)"
                     class="wardrobe-select-sort-mask absolute inset-0 z-[5] flex items-center justify-center pointer-events-none"
                     :class="isClothesSelected(element.clothes_id) ? 'wardrobe-select-sort-mask--selected' : ''"
                   >
@@ -7534,7 +7732,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
       :wardrobe-list="wardrobeList"
       :can-choose="false"
     />
-    <!-- 多选模式：切换衣柜选择 -->
+    <!-- 多选模式：切换衣柜选择（主人） -->
     <WardrobeChoose
       v-if="user.user?.user_id === Number.parseInt(id)"
       ref="wardrobeChooseRef"
@@ -7542,120 +7740,170 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
       :multiple="false"
       @choose="onWardrobeChooseForMove"
     />
+    <!-- 复制模式：选择自己的目标衣柜（访客） -->
+    <WardrobeChoose
+      v-if="!isPageOwner && user.user?.user_id"
+      ref="wardrobeCopyChooseRef"
+      :user_id="user.user.user_id"
+      :multiple="false"
+      @choose="onWardrobeChooseForCopyImport"
+    />
+    <ClientOnly>
+      <YearlySummaryLoginModal v-model="showLoginModal" @success="onVisitorCopyLoginSuccess" />
+    </ClientOnly>
 
-    <!-- 多选模式底部悬浮功能栏 -->
+    <!-- 多选 / 复制模式底部悬浮功能栏；iOS Tab 内嵌时抬高避开底栏 -->
     <Transition name="select-bar">
       <div
         v-if="selectMode && !timelineMode"
         id="wardrobe-guide-select-bar"
         class="wardrobe-neu-select-bar fixed bottom-0 left-0 right-0 z-50 flex flex-wrap items-center justify-center gap-2 px-3 py-3 bg-white/95 dark:bg-gray-900/95 backdrop-blur-md safe-area-pb"
+        :style="tabBarInsetPx > 0 ? { bottom: `${tabBarInsetPx}px` } : undefined"
       >
-        <QhxJellyButton>
-          <div class="h-[46px] text-center px-0.5 cursor-pointer" @click="onSelectModeSwitchWardrobe">
+        <template v-if="!isVisitorCopyMode">
+          <QhxJellyButton>
+            <div class="h-[46px] text-center px-0.5 cursor-pointer" @click="onSelectModeSwitchWardrobe">
+              <div
+                class="wardrobe-neu-tool-orb m-[3px] rounded-[50%] h-[24px] w-[24px] flex items-center justify-center mx-auto"
+                :class="[!hasCustomBtnBg && 'bg-qhx-info', !hasCustomBtnFont && 'text-white']"
+              >
+                <UIcon name="material-symbols:swap-horiz" class="text-[16px]" />
+              </div>
+              <div class="text-xs text-qhx-text">切换衣柜</div>
+            </div>
+          </QhxJellyButton>
+          <QhxJellyButton>
             <div
-              class="wardrobe-neu-tool-orb m-[3px] rounded-[50%] h-[24px] w-[24px] flex items-center justify-center mx-auto"
-              :class="[!hasCustomBtnBg && 'bg-qhx-info', !hasCustomBtnFont && 'text-white']"
+              class="h-[46px] text-center px-0.5 cursor-pointer"
+              :class="selectedClothesIds.size === 0 ? 'cursor-not-allowed opacity-60' : ''"
+              @click="selectedClothesIds.size > 0 && openBatchTagsModal()"
             >
-              <UIcon name="material-symbols:swap-horiz" class="text-[16px]" />
+              <div
+                class="wardrobe-neu-tool-orb m-[3px] rounded-[50%] h-[24px] w-[24px] flex items-center justify-center mx-auto"
+                :class="selectedClothesIds.size > 0 ? [!hasCustomBtnBg && 'bg-emerald-500', !hasCustomBtnFont && 'text-white'] : [!hasCustomBtnBg && 'bg-qhx-info', !hasCustomBtnFont && 'text-white']"
+                :style="selectedClothesIds.size > 0 ? customBtnStyle : {}"
+              >
+                <UIcon name="i-heroicons-plus-circle-20-solid" class="text-[16px]" />
+              </div>
+              <div class="text-xs text-qhx-text">
+                添加tag
+                <span v-if="selectedClothesIds.size > 0">({{ selectedClothesIds.size }})</span>
+              </div>
             </div>
-            <div class="text-xs text-qhx-text">切换衣柜</div>
-          </div>
-        </QhxJellyButton>
-        <QhxJellyButton>
-          <div
-            class="h-[46px] text-center px-0.5 cursor-pointer"
-            :class="selectedClothesIds.size === 0 ? 'cursor-not-allowed opacity-60' : ''"
-            @click="selectedClothesIds.size > 0 && openBatchTagsModal()"
-          >
+          </QhxJellyButton>
+          <QhxJellyButton>
             <div
-              class="wardrobe-neu-tool-orb m-[3px] rounded-[50%] h-[24px] w-[24px] flex items-center justify-center mx-auto"
-              :class="selectedClothesIds.size > 0 ? [!hasCustomBtnBg && 'bg-emerald-500', !hasCustomBtnFont && 'text-white'] : [!hasCustomBtnBg && 'bg-qhx-info', !hasCustomBtnFont && 'text-white']"
-              :style="selectedClothesIds.size > 0 ? customBtnStyle : {}"
+              class="h-[46px] text-center px-0.5 cursor-pointer"
+              :class="selectedClothesIds.size === 0 ? 'cursor-not-allowed opacity-60' : ''"
+              @click="selectedClothesIds.size > 0 && openBatchStatusModal()"
             >
-              <UIcon name="i-heroicons-plus-circle-20-solid" class="text-[16px]" />
+              <div
+                class="wardrobe-neu-tool-orb m-[3px] rounded-[50%] h-[24px] w-[24px] flex items-center justify-center mx-auto"
+                :class="selectedClothesIds.size > 0 ? [!hasCustomBtnBg && 'bg-amber-500', !hasCustomBtnFont && 'text-white'] : [!hasCustomBtnBg && 'bg-qhx-info', !hasCustomBtnFont && 'text-white']"
+                :style="selectedClothesIds.size > 0 ? customBtnStyle : {}"
+              >
+                <UIcon name="i-heroicons-tag-20-solid" class="text-[16px]" />
+              </div>
+              <div class="text-xs text-qhx-text">
+                批量状态
+                <span v-if="selectedClothesIds.size > 0">({{ selectedClothesIds.size }})</span>
+              </div>
             </div>
-            <div class="text-xs text-qhx-text">
-              添加tag
-              <span v-if="selectedClothesIds.size > 0">({{ selectedClothesIds.size }})</span>
-            </div>
-          </div>
-        </QhxJellyButton>
-        <QhxJellyButton>
-          <div
-            class="h-[46px] text-center px-0.5 cursor-pointer"
-            :class="selectedClothesIds.size === 0 ? 'cursor-not-allowed opacity-60' : ''"
-            @click="selectedClothesIds.size > 0 && openBatchStatusModal()"
-          >
+          </QhxJellyButton>
+          <QhxJellyButton>
             <div
-              class="wardrobe-neu-tool-orb m-[3px] rounded-[50%] h-[24px] w-[24px] flex items-center justify-center mx-auto"
-              :class="selectedClothesIds.size > 0 ? [!hasCustomBtnBg && 'bg-amber-500', !hasCustomBtnFont && 'text-white'] : [!hasCustomBtnBg && 'bg-qhx-info', !hasCustomBtnFont && 'text-white']"
-              :style="selectedClothesIds.size > 0 ? customBtnStyle : {}"
+              class="h-[46px] text-center px-0.5 cursor-pointer"
+              :class="selectedClothesIds.size === 0 ? 'cursor-not-allowed opacity-60' : ''"
+              @click="selectedClothesIds.size > 0 && openBatchLastDressModal()"
             >
-              <UIcon name="i-heroicons-tag-20-solid" class="text-[16px]" />
+              <div
+                class="wardrobe-neu-tool-orb m-[3px] rounded-[50%] h-[24px] w-[24px] flex items-center justify-center mx-auto"
+                :class="selectedClothesIds.size > 0 ? [!hasCustomBtnBg && 'bg-violet-500', !hasCustomBtnFont && 'text-white'] : [!hasCustomBtnBg && 'bg-qhx-info', !hasCustomBtnFont && 'text-white']"
+                :style="selectedClothesIds.size > 0 ? customBtnStyle : {}"
+              >
+                <UIcon name="i-heroicons-calendar-days" class="text-[16px]" />
+              </div>
+              <div class="text-xs text-qhx-text">
+                穿着时间
+                <span v-if="selectedClothesIds.size > 0">({{ selectedClothesIds.size }})</span>
+              </div>
             </div>
-            <div class="text-xs text-qhx-text">
-              批量状态
-              <span v-if="selectedClothesIds.size > 0">({{ selectedClothesIds.size }})</span>
-            </div>
-          </div>
-        </QhxJellyButton>
-        <QhxJellyButton>
-          <div
-            class="h-[46px] text-center px-0.5 cursor-pointer"
-            :class="selectedClothesIds.size === 0 ? 'cursor-not-allowed opacity-60' : ''"
-            @click="selectedClothesIds.size > 0 && openBatchLastDressModal()"
-          >
+          </QhxJellyButton>
+          <QhxJellyButton>
             <div
-              class="wardrobe-neu-tool-orb m-[3px] rounded-[50%] h-[24px] w-[24px] flex items-center justify-center mx-auto"
-              :class="selectedClothesIds.size > 0 ? [!hasCustomBtnBg && 'bg-violet-500', !hasCustomBtnFont && 'text-white'] : [!hasCustomBtnBg && 'bg-qhx-info', !hasCustomBtnFont && 'text-white']"
-              :style="selectedClothesIds.size > 0 ? customBtnStyle : {}"
+              class="h-[46px] text-center px-0.5 cursor-pointer"
+              :class="selectedClothesIds.size === 0 ? 'cursor-not-allowed opacity-60' : ''"
+              @click="selectedClothesIds.size > 0 && openBatchSortModal()"
             >
-              <UIcon name="i-heroicons-calendar-days" class="text-[16px]" />
+              <div
+                class="wardrobe-neu-tool-orb m-[3px] rounded-[50%] h-[24px] w-[24px] flex items-center justify-center mx-auto"
+                :class="selectedClothesIds.size > 0 ? [!hasCustomBtnBg && 'bg-qhx-primary', !hasCustomBtnFont && 'text-white'] : [!hasCustomBtnBg && 'bg-qhx-info', !hasCustomBtnFont && 'text-white']"
+                :style="selectedClothesIds.size > 0 ? customBtnStyle : {}"
+              >
+                <UIcon name="icon-park-outline:sort-two" class="text-[16px]" />
+              </div>
+              <div class="text-xs text-qhx-text">
+                批量排序
+                <span v-if="selectedClothesIds.size > 0">({{ selectedClothesIds.size }})</span>
+              </div>
             </div>
-            <div class="text-xs text-qhx-text">
-              穿着时间
-              <span v-if="selectedClothesIds.size > 0">({{ selectedClothesIds.size }})</span>
-            </div>
-          </div>
-        </QhxJellyButton>
-        <QhxJellyButton>
-          <div
-            class="h-[46px] text-center px-0.5 cursor-pointer"
-            :class="selectedClothesIds.size === 0 ? 'cursor-not-allowed opacity-60' : ''"
-            @click="selectedClothesIds.size > 0 && openBatchSortModal()"
-          >
+          </QhxJellyButton>
+          <QhxJellyButton>
             <div
-              class="wardrobe-neu-tool-orb m-[3px] rounded-[50%] h-[24px] w-[24px] flex items-center justify-center mx-auto"
-              :class="selectedClothesIds.size > 0 ? [!hasCustomBtnBg && 'bg-qhx-primary', !hasCustomBtnFont && 'text-white'] : [!hasCustomBtnBg && 'bg-qhx-info', !hasCustomBtnFont && 'text-white']"
-              :style="selectedClothesIds.size > 0 ? customBtnStyle : {}"
+              class="h-[46px] text-center px-0.5 cursor-pointer"
+              :class="selectedClothesIds.size === 0 ? 'cursor-not-allowed opacity-60' : ''"
+              @click="selectedClothesIds.size > 0 && onSelectModeBatchDelete()"
             >
-              <UIcon name="icon-park-outline:sort-two" class="text-[16px]" />
+              <div
+                class="wardrobe-neu-tool-orb m-[3px] rounded-[50%] h-[24px] w-[24px] flex items-center justify-center mx-auto"
+                :class="selectedClothesIds.size > 0 ? [!hasCustomBtnBg && 'bg-red-500', !hasCustomBtnFont && 'text-white'] : [!hasCustomBtnBg && 'bg-qhx-info', !hasCustomBtnFont && 'text-white']"
+                :style="selectedClothesIds.size > 0 ? customBtnStyle : {}"
+              >
+                <UIcon name="i-heroicons-trash" class="text-[16px]" />
+              </div>
+              <div class="text-xs text-qhx-text">
+                批量删除
+                <span v-if="selectedClothesIds.size > 0">({{ selectedClothesIds.size }})</span>
+              </div>
             </div>
-            <div class="text-xs text-qhx-text">
-              批量排序
-              <span v-if="selectedClothesIds.size > 0">({{ selectedClothesIds.size }})</span>
-            </div>
-          </div>
-        </QhxJellyButton>
-        <QhxJellyButton>
-          <div
-            class="h-[46px] text-center px-0.5 cursor-pointer"
-            :class="selectedClothesIds.size === 0 ? 'cursor-not-allowed opacity-60' : ''"
-            @click="selectedClothesIds.size > 0 && onSelectModeBatchDelete()"
-          >
+          </QhxJellyButton>
+        </template>
+        <template v-else>
+          <QhxJellyButton>
             <div
-              class="wardrobe-neu-tool-orb m-[3px] rounded-[50%] h-[24px] w-[24px] flex items-center justify-center mx-auto"
-              :class="selectedClothesIds.size > 0 ? [!hasCustomBtnBg && 'bg-red-500', !hasCustomBtnFont && 'text-white'] : [!hasCustomBtnBg && 'bg-qhx-info', !hasCustomBtnFont && 'text-white']"
-              :style="selectedClothesIds.size > 0 ? customBtnStyle : {}"
+              class="h-[46px] text-center px-0.5 cursor-pointer"
+              :class="selectedClothesIds.size === 0 || copyImportLoading ? 'cursor-not-allowed opacity-60' : ''"
+              @click="selectedClothesIds.size > 0 && !copyImportLoading && onSelectModeCopyImport()"
             >
-              <UIcon name="i-heroicons-trash" class="text-[16px]" />
+              <div
+                class="wardrobe-neu-tool-orb m-[3px] rounded-[50%] h-[24px] w-[24px] flex items-center justify-center mx-auto"
+                :class="selectedClothesIds.size > 0 ? [!hasCustomBtnBg && 'bg-qhx-primary', !hasCustomBtnFont && 'text-white'] : [!hasCustomBtnBg && 'bg-qhx-info', !hasCustomBtnFont && 'text-white']"
+                :style="selectedClothesIds.size > 0 ? customBtnStyle : {}"
+              >
+                <UIcon
+                  :name="copyImportLoading ? 'i-heroicons-arrow-path' : 'material-symbols:download-2-outline'"
+                  class="text-[16px]"
+                  :class="copyImportLoading ? 'animate-spin' : ''"
+                />
+              </div>
+              <div class="text-xs text-qhx-text">
+                {{ copyImportLoading ? '导入中' : '导入到我的衣柜' }}
+                <span v-if="selectedClothesIds.size > 0 && !copyImportLoading">({{ selectedClothesIds.size }})</span>
+              </div>
             </div>
-            <div class="text-xs text-qhx-text">
-              批量删除
-              <span v-if="selectedClothesIds.size > 0">({{ selectedClothesIds.size }})</span>
+          </QhxJellyButton>
+          <QhxJellyButton>
+            <div class="h-[46px] text-center px-0.5 cursor-pointer" @click="toggleVisitorCopyMode">
+              <div
+                class="wardrobe-neu-tool-orb m-[3px] rounded-[50%] h-[24px] w-[24px] flex items-center justify-center mx-auto"
+                :class="[!hasCustomBtnBg && 'bg-qhx-info', !hasCustomBtnFont && 'text-white']"
+              >
+                <UIcon name="i-heroicons-x-mark" class="text-[16px]" />
+              </div>
+              <div class="text-xs text-qhx-text">取消</div>
             </div>
-          </div>
-        </QhxJellyButton>
+          </QhxJellyButton>
+        </template>
       </div>
     </Transition>
 
@@ -7665,8 +7913,8 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
       class="pointer-events-none fixed inset-x-0 top-0 z-[110] overflow-hidden"
       :class="
         selectMode && !timelineMode
-          ? 'bottom-[calc(4.5rem+env(safe-area-inset-bottom,0px)+10px)]'
-          : 'bottom-[10px]'
+          ? 'bottom-[calc(4.5rem+env(safe-area-inset-bottom,0px)+10px+var(--wardrobe-tabbar-inset,0px))]'
+          : 'bottom-[calc(10px+var(--wardrobe-tabbar-inset,0px))]'
       "
       aria-hidden="true"
     >
@@ -8366,19 +8614,23 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
     inset 0 1px 0 rgba(255, 255, 255, 0.07);
 }
 
-/* iOS 浏览器 100vh 滚动条修复：使用 dvh 和 -webkit-fill-available */
+/* iOS 浏览器 100vh 滚动条修复：使用 dvh 和 -webkit-fill-available；Tab 内嵌再扣底栏 */
 .wardrobe-list-height {
   height: 100vh;
   height: 100dvh;
+  height: calc(100dvh - var(--wardrobe-tabbar-inset, 0px));
   min-height: 100vh;
   min-height: 100dvh;
+  min-height: calc(100dvh - var(--wardrobe-tabbar-inset, 0px));
 }
 
 .content-area-height {
   height: 100vh;
   height: 100dvh;
+  height: calc(100dvh - var(--wardrobe-tabbar-inset, 0px));
   min-height: 100vh;
   min-height: 100dvh;
+  min-height: calc(100dvh - var(--wardrobe-tabbar-inset, 0px));
   scrollbar-width: none;
   -ms-overflow-style: none;
   -webkit-overflow-scrolling: touch;

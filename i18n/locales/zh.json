@@ -331,5 +331,9 @@
 	"addPhysicalShop.add_success": "收录成功",
 	"addPhysicalShop.submit_failed": "提交失败",
 	"addPhysicalShop.page_title_add": "收录实体店",
-	"addPhysicalShop.page_title_edit": "修改实体店"
+	"addPhysicalShop.page_title_edit": "修改实体店",
+
+	"contentI18n.translate": "翻译",
+	"contentI18n.translating": "翻译中…",
+	"contentI18n.translate_failed": "翻译失败，请稍后重试"
 }
