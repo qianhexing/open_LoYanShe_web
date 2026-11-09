@@ -115,7 +115,8 @@ const { data: userInfo } = await useAsyncData('user-info', async () => {
 })
 const judgeIsHome = () => {
   console.log('当前路由', route.path)
-  colorMode.value = 'light'
+  // preference 才会真正关掉 system 跟随；只写 value 挡不住 iOS 暗色
+  colorMode.preference = 'light'
   const is_blank = blank_list.find((path) => {
     return route.path.includes(path)
   })
@@ -154,8 +155,8 @@ async function applyShellLocale(raw: unknown) {
 function applyNativeInbound(raw: unknown) {
   handleNativeInboundPayload(raw, {
     onSetTheme: (data) => {
-      if (data === 1) themeStore.setTheme('dark')
-      else themeStore.setTheme('light')
+      // if (data === 1) themeStore.setTheme('dark')
+      // else themeStore.setTheme('light')
     },
     onSetLang: (data) => {
       void applyShellLocale(data)
@@ -248,7 +249,7 @@ const initNotificationSystem = () => {
 
 // 组件会自动导入
 onMounted(async () => {
-  colorMode.value = 'light'
+  colorMode.preference = 'light'
   // 壳 query / localStorage 已写入 languageStore，再同步到 nuxt i18n UI 文案
   try {
     const i18n = useI18n()

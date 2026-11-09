@@ -4739,29 +4739,29 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
     <MatchingAddEdit ref="matchingAddEditRef" @success="matchingDraftStore.clear" />
     <QhxModal v-model="showShareModal">
       <div
-        class="flex max-h-[90vh] w-[min(94vw,440px)] flex-col overflow-hidden rounded-2xl bg-[#ebe3e8] shadow-2xl dark:bg-[#241d26]"
+        class="flex max-h-[90vh] w-[min(94vw,440px)] flex-col overflow-hidden rounded-2xl bg-[#ebe3e8] shadow-2xl"
       >
         <div
-          class="flex shrink-0 items-center justify-between gap-2 border-b border-pink-200/40 px-4 py-3 dark:border-pink-900/35"
+          class="flex shrink-0 items-center justify-between gap-2 border-b border-pink-200/40 px-4 py-3"
         >
-          <span class="text-sm font-semibold text-[#4a2f3d] dark:text-pink-50">衣柜分享图</span>
+          <span class="text-sm font-semibold text-[#4a2f3d]">衣柜分享图</span>
           <button
             type="button"
-            class="flex h-9 w-9 items-center justify-center rounded-xl text-[#8a6f7d] outline-none transition hover:bg-black/5 dark:text-pink-300/85 dark:hover:bg-white/10"
+            class="flex h-9 w-9 items-center justify-center rounded-xl text-[#8a6f7d] outline-none transition hover:bg-black/5"
             aria-label="关闭"
             @click="showShareModal = false"
           >
             <UIcon name="i-heroicons-x-mark-20-solid" class="h-5 w-5" />
           </button>
         </div>
-        <div class="shrink-0 border-b border-pink-200/30 px-3 py-2 dark:border-pink-900/30 sm:px-4">
-          <div class="flex gap-2 rounded-xl bg-black/[0.04] p-1 dark:bg-white/[0.06]">
+        <div class="shrink-0 border-b border-pink-200/30 px-3 py-2 sm:px-4">
+          <div class="flex gap-2 rounded-xl bg-black/[0.04] p-1">
             <button
               type="button"
               class="flex-1 rounded-lg px-3 py-2 text-xs font-medium transition sm:text-sm"
               :class="shareImageType === 'long'
-                ? 'bg-white text-[#5e3a4b] shadow-sm dark:bg-[#3d2f38] dark:text-pink-50'
-                : 'text-[#8a6f7d] hover:text-[#5e3a4b] dark:text-pink-300/75 dark:hover:text-pink-50'"
+                ? 'bg-white text-[#5e3a4b] shadow-sm'
+                : 'text-[#8a6f7d] hover:text-[#5e3a4b]'"
               @click="shareImageType = 'long'"
             >
               长图
@@ -4770,8 +4770,8 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
               type="button"
               class="flex-1 rounded-lg px-3 py-2 text-xs font-medium transition sm:text-sm"
               :class="shareImageType === 'favorite'
-                ? 'bg-white text-[#5e3a4b] shadow-sm dark:bg-[#3d2f38] dark:text-pink-50'
-                : 'text-[#8a6f7d] hover:text-[#5e3a4b] dark:text-pink-300/75 dark:hover:text-pink-50'"
+                ? 'bg-white text-[#5e3a4b] shadow-sm'
+                : 'text-[#8a6f7d] hover:text-[#5e3a4b]'"
               @click="shareImageType = 'favorite'"
             >
               评级分享图
@@ -4810,7 +4810,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
           padding: { xs: 'px-4 py-2' },
           color: {
             white: {
-              outline: 'bg-gray-50 dark:bg-gray-800 ring-1 ring-gray-300 dark:ring-gray-600 focus:ring-2 focus:ring-qhx-primary'
+              outline: 'bg-gray-50 ring-1 ring-gray-300 focus:ring-2 focus:ring-qhx-primary'
             }
           }
         }" />
@@ -4832,9 +4832,9 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
     />
     <QrcodeList ref="qrcodeListRef" />
     <QhxModal v-model="showSwitchCustomSortModal">
-      <div class="p-6 w-[min(94vw,420px)] bg-white dark:bg-gray-800 rounded-[10px] shadow-lg">
-        <h3 class="text-base font-bold mb-4 text-gray-800 dark:text-gray-200">无法手动排序</h3>
-        <p class="text-gray-700 dark:text-gray-300 mb-4">
+      <div class="p-6 w-[min(94vw,420px)] bg-white rounded-[10px] shadow-lg">
+        <h3 class="text-base font-bold mb-4 text-gray-800">无法手动排序</h3>
+        <p class="text-gray-700 mb-4">
           当前为「{{ formatSortType(info?.sort_type) }}」，仅「自定义」排序可手动调整顺序。是否改为自定义排序并开启排序？
         </p>
         <div class="flex justify-end gap-2">
@@ -4860,9 +4860,9 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
       </div>
     </QhxModal>
     <QhxModal v-model="showDeleteModal">
-      <div class="p-6 w-[min(94vw,420px)] bg-white dark:bg-gray-800 rounded-[10px] shadow-lg">
-        <h3 class="text-base font-bold mb-4 text-gray-800 dark:text-gray-200">操作确认</h3>
-        <p class="text-gray-700 dark:text-gray-300 mb-4">确定要删除这个衣柜吗？删除后将无法恢复。</p>
+      <div class="p-6 w-[min(94vw,420px)] bg-white rounded-[10px] shadow-lg">
+        <h3 class="text-base font-bold mb-4 text-gray-800">操作确认</h3>
+        <p class="text-gray-700 mb-4">确定要删除这个衣柜吗？删除后将无法恢复。</p>
         <div class="flex justify-end gap-2">
           <UButton
             color="gray"
@@ -4884,9 +4884,9 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
       </div>
     </QhxModal>
     <QhxModal v-model="showBatchDeleteModal">
-      <div class="p-6 w-[min(94vw,420px)] bg-white dark:bg-gray-800 rounded-[10px] shadow-lg">
-        <h3 class="text-base font-bold mb-4 text-gray-800 dark:text-gray-200">批量删除确认</h3>
-        <p class="text-gray-700 dark:text-gray-300 mb-4">确定要删除选中的 {{ selectedClothesIds.size }} 件服饰吗？删除后将无法恢复。</p>
+      <div class="p-6 w-[min(94vw,420px)] bg-white rounded-[10px] shadow-lg">
+        <h3 class="text-base font-bold mb-4 text-gray-800">批量删除确认</h3>
+        <p class="text-gray-700 mb-4">确定要删除选中的 {{ selectedClothesIds.size }} 件服饰吗？删除后将无法恢复。</p>
         <div class="flex justify-end gap-2">
           <UButton
             color="gray"
@@ -4908,9 +4908,9 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
       </div>
     </QhxModal>
     <QhxModal v-model="showBatchLastDressModal">
-      <div class="p-6 w-[min(94vw,420px)] max-h-[85vh] overflow-y-auto bg-white dark:bg-gray-800 rounded-[10px] shadow-lg">
-        <h3 class="text-base font-bold mb-4 text-gray-800 dark:text-gray-200">批量修改穿着时间</h3>
-        <p class="text-sm text-gray-600 dark:text-gray-400 mb-4">
+      <div class="p-6 w-[min(94vw,420px)] max-h-[85vh] overflow-y-auto bg-white rounded-[10px] shadow-lg">
+        <h3 class="text-base font-bold mb-4 text-gray-800">批量修改穿着时间</h3>
+        <p class="text-sm text-gray-600 mb-4">
           已选 {{ selectedClothesIds.size }} 件服饰，将统一设置最后穿着时间。可清除为空。
         </p>
         <UFormGroup label="最后穿着时间">
@@ -4944,9 +4944,9 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
       </div>
     </QhxModal>
     <QhxModal v-model="showBatchStatusModal">
-      <div class="p-6 w-[min(94vw,420px)] max-h-[85vh] overflow-y-auto bg-white dark:bg-gray-800 rounded-[10px] shadow-lg">
-        <h3 class="text-base font-bold mb-4 text-gray-800 dark:text-gray-200">批量修改拥有状态</h3>
-        <p class="text-sm text-gray-600 dark:text-gray-400 mb-4">
+      <div class="p-6 w-[min(94vw,420px)] max-h-[85vh] overflow-y-auto bg-white rounded-[10px] shadow-lg">
+        <h3 class="text-base font-bold mb-4 text-gray-800">批量修改拥有状态</h3>
+        <p class="text-sm text-gray-600 mb-4">
           已选 {{ selectedClothesIds.size }} 件服饰，请选择要统一设置的拥有状态。
         </p>
         <UFormGroup label="拥有状态">
@@ -5004,9 +5004,9 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
       </div>
     </QhxModal>
     <QhxModal v-model="showBatchTagsModal">
-      <div class="p-6 w-[min(94vw,420px)] max-h-[85vh] overflow-y-auto bg-white dark:bg-gray-800 rounded-[10px] shadow-lg">
-        <h3 class="text-base font-bold mb-4 text-gray-800 dark:text-gray-200">批量添加标签</h3>
-        <p class="text-sm text-gray-600 dark:text-gray-400 mb-4">
+      <div class="p-6 w-[min(94vw,420px)] max-h-[85vh] overflow-y-auto bg-white rounded-[10px] shadow-lg">
+        <h3 class="text-base font-bold mb-4 text-gray-800">批量添加标签</h3>
+        <p class="text-sm text-gray-600 mb-4">
           已选 {{ selectedClothesIds.size }} 件服饰，新标签将追加到原有标签（自动去重）。
         </p>
         <UFormGroup label="要追加的标签">
@@ -5062,12 +5062,12 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
       </div>
     </QhxModal>
     <QhxModal v-model="showTagManageModal">
-      <div class="p-6 w-[min(94vw,420px)] max-h-[85vh] overflow-y-auto bg-white dark:bg-gray-800 rounded-[10px] shadow-lg">
-        <h3 class="text-base font-bold mb-2 text-gray-800 dark:text-gray-200">标签管理</h3>
-        <p class="text-sm text-gray-600 dark:text-gray-400 mb-4">
+      <div class="p-6 w-[min(94vw,420px)] max-h-[85vh] overflow-y-auto bg-white rounded-[10px] shadow-lg">
+        <h3 class="text-base font-bold mb-2 text-gray-800">标签管理</h3>
+        <p class="text-sm text-gray-600 mb-4">
           拖拽调整展示顺序；删除后将从本衣柜全部服饰中移除该标签。
         </p>
-        <div v-if="tagManageDraft.length === 0" class="py-8 text-center text-sm text-gray-500 dark:text-gray-400">
+        <div v-if="tagManageDraft.length === 0" class="py-8 text-center text-sm text-gray-500">
           暂无标签
         </div>
         <QhxSortableList
@@ -5079,19 +5079,19 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
           item-class="mb-2"
         >
           <template #item="{ element: tag, index }">
-            <div class="flex items-center gap-2 rounded-lg border border-gray-200/80 bg-gray-50/90 px-2 py-2 dark:border-gray-700/80 dark:bg-gray-800/80">
+            <div class="flex items-center gap-2 rounded-lg border border-gray-200/80 bg-gray-50/90 px-2 py-2">
               <button
                 type="button"
-                class="shrink-0 flex items-center justify-center w-6 h-8 rounded text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 cursor-grab active:cursor-grabbing touch-none"
+                class="shrink-0 flex items-center justify-center w-6 h-8 rounded text-gray-400 hover:text-gray-600 cursor-grab active:cursor-grabbing touch-none"
                 title="拖拽排序"
                 aria-label="拖拽排序"
               >
                 <UIcon name="material-symbols:drag-indicator" class="text-base" />
               </button>
-              <span class="shrink-0 inline-flex items-center justify-center min-w-[1.25rem] h-5 px-1 text-[10px] font-bold tabular-nums text-gray-500 dark:text-gray-400">
+              <span class="shrink-0 inline-flex items-center justify-center min-w-[1.25rem] h-5 px-1 text-[10px] font-bold tabular-nums text-gray-500">
                 {{ index + 1 }}
               </span>
-              <span class="flex-1 min-w-0 truncate text-sm font-medium text-gray-800 dark:text-gray-200">
+              <span class="flex-1 min-w-0 truncate text-sm font-medium text-gray-800">
                 {{ tag }}
               </span>
               <QhxJellyButton
@@ -5126,32 +5126,32 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
       </div>
     </QhxModal>
     <QhxModal v-model="showStatusColorManageModal">
-      <div class="p-6 w-[min(94vw,420px)] max-h-[85vh] overflow-y-auto bg-white dark:bg-gray-800 rounded-[10px] shadow-lg">
-        <h3 class="text-base font-bold mb-2 text-gray-800 dark:text-gray-200">状态颜色</h3>
-        <p class="text-sm text-gray-600 dark:text-gray-400 mb-4">
+      <div class="p-6 w-[min(94vw,420px)] max-h-[85vh] overflow-y-auto bg-white rounded-[10px] shadow-lg">
+        <h3 class="text-base font-bold mb-2 text-gray-800">状态颜色</h3>
+        <p class="text-sm text-gray-600 mb-4">
           为各拥有状态设置角标与图例颜色，保存后写入本衣柜配置。
         </p>
-        <div v-if="statusColorManageDraft.length === 0" class="py-8 text-center text-sm text-gray-500 dark:text-gray-400">
+        <div v-if="statusColorManageDraft.length === 0" class="py-8 text-center text-sm text-gray-500">
           暂无状态
         </div>
         <div v-else class="space-y-2">
           <div
             v-for="item in statusColorManageDraft"
             :key="`status-color-${item.label}`"
-            class="flex items-center gap-2 rounded-lg border border-gray-200/80 bg-gray-50/90 px-2 py-2 dark:border-gray-700/80 dark:bg-gray-800/80"
+            class="flex items-center gap-2 rounded-lg border border-gray-200/80 bg-gray-50/90 px-2 py-2"
           >
             <button
               type="button"
-              class="shrink-0 h-8 w-8 rounded-full border-2 border-white shadow-sm ring-1 ring-black/10 dark:border-gray-700 dark:ring-white/15"
+              class="shrink-0 h-8 w-8 rounded-full border-2 border-white shadow-sm ring-1 ring-black/10"
               :style="{ backgroundColor: item.color }"
               :title="`选择「${item.label}」颜色`"
               :aria-label="`选择${item.label}颜色`"
               @click="openStatusColorPicker(item.label, $event)"
             />
-            <span class="min-w-0 flex-1 truncate text-sm font-medium text-gray-800 dark:text-gray-200">
+            <span class="min-w-0 flex-1 truncate text-sm font-medium text-gray-800">
               {{ item.label }}
             </span>
-            <span class="shrink-0 font-mono text-[10px] tabular-nums text-gray-500 dark:text-gray-400">
+            <span class="shrink-0 font-mono text-[10px] tabular-nums text-gray-500">
               {{ item.color }}
             </span>
             <UButton
@@ -5189,9 +5189,9 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
     </QhxModal>
     <QhxColorPicker ref="statusColorPickerRef" @choose="onStatusColorChoose" />
     <QhxModal v-model="showDeleteWardrobeTagModal">
-      <div class="p-6 w-[min(94vw,420px)] bg-white dark:bg-gray-800 rounded-[10px] shadow-lg">
-        <h3 class="text-base font-bold mb-2 text-gray-800 dark:text-gray-200">删除标签</h3>
-        <p class="text-sm text-gray-600 dark:text-gray-400 mb-6">
+      <div class="p-6 w-[min(94vw,420px)] bg-white rounded-[10px] shadow-lg">
+        <h3 class="text-base font-bold mb-2 text-gray-800">删除标签</h3>
+        <p class="text-sm text-gray-600 mb-6">
           确定删除标签「{{ pendingDeleteWardrobeTag }}」？将从本衣柜全部服饰中移除；若曾设置过标签排序，也会从排序列表中移除。
         </p>
         <div class="flex justify-end gap-2">
@@ -5213,9 +5213,9 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
       </div>
     </QhxModal>
     <QhxModal v-model="showBatchSortModal">
-      <div class="p-6 w-[min(94vw,420px)] bg-white dark:bg-gray-800 rounded-[10px] shadow-lg">
-        <h3 class="text-base font-bold mb-2 text-gray-800 dark:text-gray-200">批量排序</h3>
-        <p class="text-sm text-gray-600 dark:text-gray-400 mb-4">
+      <div class="p-6 w-[min(94vw,420px)] bg-white rounded-[10px] shadow-lg">
+        <h3 class="text-base font-bold mb-2 text-gray-800">批量排序</h3>
+        <p class="text-sm text-gray-600 mb-4">
           已选 {{ selectedClothesIds.size }} 件，将作为整体移动到封面所示序号。
         </p>
         <UFormGroup label="移动到序号">
@@ -5231,7 +5231,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
               padding: { xs: 'px-4 py-2' },
               color: {
                 white: {
-                  outline: 'bg-gray-50 dark:bg-gray-800 ring-1 ring-gray-300 dark:ring-gray-600 focus:ring-2 focus:ring-qhx-primary',
+                  outline: 'bg-gray-50 ring-1 ring-gray-300 focus:ring-2 focus:ring-qhx-primary',
                 },
               },
             }"
@@ -5259,9 +5259,9 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
       </div>
     </QhxModal>
     <QhxModal v-model="planCompleteModal">
-      <div class="p-6 w-[min(94vw,420px)] bg-white dark:bg-gray-800 rounded-[10px] shadow-lg">
-        <h3 class="text-base font-bold mb-4 text-gray-800 dark:text-gray-200">操作确认</h3>
-        <p class="text-gray-700 dark:text-gray-300 mb-4">确定要完成该计划吗？</p>
+      <div class="p-6 w-[min(94vw,420px)] bg-white rounded-[10px] shadow-lg">
+        <h3 class="text-base font-bold mb-4 text-gray-800">操作确认</h3>
+        <p class="text-gray-700 mb-4">确定要完成该计划吗？</p>
         <div class="flex justify-end gap-2">
           <UButton
             color="gray"
@@ -5284,12 +5284,12 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
       </div>
     </QhxModal>
     <QhxModal v-model="showWardrobeHomeUpdateModal">
-      <div class="p-6 w-[min(94vw,420px)] bg-white dark:bg-gray-800 rounded-[10px] shadow-lg">
-        <h3 class="text-base font-bold mb-3 text-gray-800 dark:text-gray-200">设为首页</h3>
-        <p class="text-sm text-gray-700 dark:text-gray-300 mb-4 leading-relaxed">
+      <div class="p-6 w-[min(94vw,420px)] bg-white rounded-[10px] shadow-lg">
+        <h3 class="text-base font-bold mb-3 text-gray-800">设为首页</h3>
+        <p class="text-sm text-gray-700 mb-4 leading-relaxed">
           设置首页需要最新 1.6.5 版本 App，请复制下方链接到浏览器中打开并更新。
         </p>
-        <p class="text-xs break-all rounded-lg bg-gray-50 dark:bg-gray-900/60 px-3 py-2 text-gray-600 dark:text-gray-400 mb-4">
+        <p class="text-xs break-all rounded-lg bg-gray-50 px-3 py-2 text-gray-600 mb-4">
           https://a.app.qq.com/o/simple.jsp?pkgname=uni.lolita
         </p>
         <div class="flex justify-end gap-2">
@@ -5307,13 +5307,13 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
       </div>
     </QhxModal>
     <QhxModal v-model="showMoreMenu" :trigger-position="moreMenuPosition">
-      <div class="p-4 w-[200px] bg-white dark:bg-gray-800 rounded-[10px] shadow-lg">
-        <h3 class="text-sm font-bold mb-3 text-gray-800 dark:text-gray-200">更多选项</h3>
+      <div class="p-4 w-[200px] bg-white rounded-[10px] shadow-lg">
+        <h3 class="text-sm font-bold mb-3 text-gray-800">更多选项</h3>
 
         <button
           v-for="(tool, index) in moreToolbarTools"
           :key="tool.id"
-          class="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors text-left group"
+          class="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 transition-colors text-left group"
           :class="index > 0 && 'mt-2'"
           @click="runToolbarAction(tool.id)"
         >
@@ -5328,19 +5328,19 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
             <UIcon :name="tool.icon" class="text-base" :class="!hasCustomBtnFont && 'text-white'" />
           </div>
           <div class="flex-1">
-            <div class="text-sm font-medium text-gray-800 dark:text-gray-200">{{ tool.label }}</div>
-            <div v-if="tool.moreDescription" class="text-xs text-gray-500 dark:text-gray-400">{{ tool.moreDescription }}</div>
+            <div class="text-sm font-medium text-gray-800">{{ tool.label }}</div>
+            <div v-if="tool.moreDescription" class="text-xs text-gray-500">{{ tool.moreDescription }}</div>
           </div>
         </button>
       </div>
     </QhxModal>
     <QhxModal v-if="isPageOwner" v-model="showTutorialFirstAskModal">
-      <div class="p-6 w-[min(94vw,400px)] bg-white dark:bg-gray-800 rounded-[10px] shadow-lg">
-        <h3 class="text-base font-bold mb-2 text-gray-800 dark:text-gray-200">开启弹窗教程？</h3>
-        <p class="text-sm text-gray-600 dark:text-gray-300 mb-1 leading-relaxed">
+      <div class="p-6 w-[min(94vw,400px)] bg-white rounded-[10px] shadow-lg">
+        <h3 class="text-base font-bold mb-2 text-gray-800">开启弹窗教程？</h3>
+        <p class="text-sm text-gray-600 mb-1 leading-relaxed">
           如果是第一次使用，建议开启学习一下哦。
         </p>
-        <p class="text-xs text-gray-500 dark:text-gray-400 mb-5 leading-relaxed">
+        <p class="text-xs text-gray-500 mb-5 leading-relaxed">
           开启后，将先带你快速了解衣柜常用功能；之后使用排序等功能时，还会弹出对应的详细引导。
         </p>
         <div class="flex justify-end gap-2">
@@ -5362,15 +5362,15 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
       </div>
     </QhxModal>
     <QhxModal v-if="isPageOwner" v-model="showTutorialModal">
-      <div class="p-5 w-[min(94vw,400px)] bg-white dark:bg-gray-800 rounded-[10px] shadow-lg">
-        <h3 class="text-base font-bold text-gray-800 dark:text-gray-200">功能教程</h3>
-        <p class="text-xs text-gray-500 dark:text-gray-400 mt-1 mb-4">
+      <div class="p-5 w-[min(94vw,400px)] bg-white rounded-[10px] shadow-lg">
+        <h3 class="text-base font-bold text-gray-800">功能教程</h3>
+        <p class="text-xs text-gray-500 mt-1 mb-4">
           开启后，首次使用相关功能时会自动弹出步骤引导
         </p>
         <div class="flex items-center justify-between gap-3 mb-4">
           <div class="min-w-0">
-            <div class="text-sm font-medium text-gray-800 dark:text-gray-200">开启弹窗教程</div>
-            <div class="text-xs text-gray-500 dark:text-gray-400">关闭后所有功能教程均不再自动弹出</div>
+            <div class="text-sm font-medium text-gray-800">开启弹窗教程</div>
+            <div class="text-xs text-gray-500">关闭后所有功能教程均不再自动弹出</div>
           </div>
           <UToggle
             v-model="wardrobeTutorialPopupToggle"
@@ -5378,17 +5378,17 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
             @update:model-value="handleWardrobeTutorialPopupChange"
           />
         </div>
-        <div class="h-px bg-gray-200 dark:bg-gray-700 mb-3" />
+        <div class="h-px bg-gray-200 mb-3" />
         <div class="space-y-2">
           <div
             v-for="item in wardrobeTutorialList"
             :key="item.id"
-            class="rounded-xl border border-gray-200/80 bg-gray-50/80 px-3 py-2.5 dark:border-gray-700/80 dark:bg-gray-900/40"
+            class="rounded-xl border border-gray-200/80 bg-gray-50/80 px-3 py-2.5"
           >
             <div class="flex items-start gap-3">
               <div class="min-w-0 flex-1">
-                <div class="text-sm font-medium text-gray-800 dark:text-gray-200">{{ item.title }}</div>
-                <div class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{{ item.description }}</div>
+                <div class="text-sm font-medium text-gray-800">{{ item.title }}</div>
+                <div class="text-xs text-gray-500 mt-0.5">{{ item.description }}</div>
               </div>
               <UButton
                 size="xs"
@@ -5400,10 +5400,10 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
                 查看
               </UButton>
             </div>
-            <div class="flex items-center justify-between gap-3 mt-2.5 pt-2.5 border-t border-gray-200/60 dark:border-gray-700/60">
+            <div class="flex items-center justify-between gap-3 mt-2.5 pt-2.5 border-t border-gray-200/60">
               <div class="min-w-0">
-                <div class="text-xs font-medium text-gray-700 dark:text-gray-300">不再提示</div>
-                <div class="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">
+                <div class="text-xs font-medium text-gray-700">不再提示</div>
+                <div class="text-[11px] text-gray-500 mt-0.5">
                   {{ !wardrobeTutorialPopupToggle
                     ? '请先开启弹窗教程'
                     : item.status === 'dismissed'
@@ -5422,44 +5422,44 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
       </div>
     </QhxModal>
     <QhxModal v-model="showLayoutModal">
-      <div class="p-5 w-[min(94vw,360px)] max-h-[min(85dvh,640px)] overflow-y-auto bg-white dark:bg-gray-800 rounded-[10px] shadow-lg">
-        <h3 class="text-base font-bold text-gray-800 dark:text-gray-200">布局设置</h3>
-        <p class="text-xs text-gray-500 dark:text-gray-400 mt-1 mb-4">
+      <div class="p-5 w-[min(94vw,360px)] max-h-[min(85dvh,640px)] overflow-y-auto bg-white rounded-[10px] shadow-lg">
+        <h3 class="text-base font-bold text-gray-800">布局设置</h3>
+        <p class="text-xs text-gray-500 mt-1 mb-4">
           偏好将自动保存；侧栏、详情收起按钮仍可独立操作
         </p>
         <div class="space-y-4">
           <div class="flex items-center justify-between gap-3">
             <div class="min-w-0">
-              <div class="text-sm font-medium text-gray-800 dark:text-gray-200">收起衣柜详情</div>
-              <div class="text-xs text-gray-500 dark:text-gray-400">隐藏顶部衣柜详情信息区</div>
+              <div class="text-sm font-medium text-gray-800">收起衣柜详情</div>
+              <div class="text-xs text-gray-500">隐藏顶部衣柜详情信息区</div>
             </div>
             <UToggle v-model="headerCollapsed" />
           </div>
           <div class="flex items-center justify-between gap-3">
             <div class="min-w-0">
-              <div class="text-sm font-medium text-gray-800 dark:text-gray-200">收起左侧列表</div>
-              <div class="text-xs text-gray-500 dark:text-gray-400">隐藏左侧衣柜切换栏</div>
+              <div class="text-sm font-medium text-gray-800">收起左侧列表</div>
+              <div class="text-xs text-gray-500">隐藏左侧衣柜切换栏</div>
             </div>
             <UToggle v-model="sidebarCollapsed" />
           </div>
-          <div class="h-px bg-gray-200 dark:bg-gray-700" />
+          <div class="h-px bg-gray-200" />
           <div class="flex items-center justify-between gap-3">
             <div class="min-w-0">
-              <div class="text-sm font-medium text-gray-800 dark:text-gray-200">左上角工具栏</div>
-              <div class="text-xs text-gray-500 dark:text-gray-400">自定义侧栏与「更多」菜单显示项</div>
+              <div class="text-sm font-medium text-gray-800">左上角工具栏</div>
+              <div class="text-xs text-gray-500">自定义侧栏与「更多」菜单显示项</div>
             </div>
             <button
               type="button"
-              class="shrink-0 rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-700 transition-colors hover:border-qhx-primary hover:text-qhx-primary dark:border-gray-600 dark:text-gray-300 dark:hover:border-qhx-primary"
+              class="shrink-0 rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-700 transition-colors hover:border-qhx-primary hover:text-qhx-primary"
               @click="showToolbarConfigModal = true"
             >
               配置
             </button>
           </div>
-          <div class="h-px bg-gray-200 dark:bg-gray-700" />
+          <div class="h-px bg-gray-200" />
           <div>
-            <div class="text-sm font-medium text-gray-800 dark:text-gray-200 mb-1">服饰列表布局</div>
-            <div class="text-xs text-gray-500 dark:text-gray-400 mb-2">
+            <div class="text-sm font-medium text-gray-800 mb-1">服饰列表布局</div>
+            <div class="text-xs text-gray-500 mb-2">
               网格等宽排列；瀑布流按图片高度错落；列表一行一件；按部位分组展示（加载全部服饰）
             </div>
             <div class="grid grid-cols-2 gap-2">
@@ -5468,7 +5468,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
                 class="flex flex-col items-center gap-1.5 rounded-lg border px-2 py-2.5 transition-colors"
                 :class="clothesListLayout === 'grid'
                   ? 'border-qhx-primary bg-qhx-primary/10 text-qhx-primary'
-                  : 'border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:border-gray-300 dark:hover:border-gray-500'"
+                  : 'border-gray-200 text-gray-600 hover:border-gray-300'"
                 @click="clothesListLayout = 'grid'"
               >
                 <UIcon name="i-heroicons-squares-2x2" class="text-xl" />
@@ -5479,7 +5479,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
                 class="flex flex-col items-center gap-1.5 rounded-lg border px-2 py-2.5 transition-colors"
                 :class="clothesListLayout === 'waterfall'
                   ? 'border-qhx-primary bg-qhx-primary/10 text-qhx-primary'
-                  : 'border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:border-gray-300 dark:hover:border-gray-500'"
+                  : 'border-gray-200 text-gray-600 hover:border-gray-300'"
                 @click="clothesListLayout = 'waterfall'"
               >
                 <UIcon name="i-heroicons-view-columns" class="text-xl" />
@@ -5490,7 +5490,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
                 class="flex flex-col items-center gap-1.5 rounded-lg border px-2 py-2.5 transition-colors"
                 :class="clothesListLayout === 'list'
                   ? 'border-qhx-primary bg-qhx-primary/10 text-qhx-primary'
-                  : 'border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:border-gray-300 dark:hover:border-gray-500'"
+                  : 'border-gray-200 text-gray-600 hover:border-gray-300'"
                 @click="clothesListLayout = 'list'"
               >
                 <UIcon name="i-heroicons-list-bullet" class="text-xl" />
@@ -5501,7 +5501,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
                 class="flex flex-col items-center gap-1.5 rounded-lg border px-2 py-2.5 transition-colors"
                 :class="clothesListLayout === 'part'
                   ? 'border-qhx-primary bg-qhx-primary/10 text-qhx-primary'
-                  : 'border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:border-gray-300 dark:hover:border-gray-500'"
+                  : 'border-gray-200 text-gray-600 hover:border-gray-300'"
                 @click="clothesListLayout = 'part'"
               >
                 <UIcon name="i-heroicons-rectangle-group" class="text-xl" />
@@ -5509,10 +5509,10 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
               </button>
             </div>
           </div>
-          <div class="h-px bg-gray-200 dark:bg-gray-700" />
+          <div class="h-px bg-gray-200" />
           <div>
-            <div class="text-sm font-medium text-gray-800 dark:text-gray-200 mb-1">功能按钮大小</div>
-            <div class="text-xs text-gray-500 dark:text-gray-400 mb-2">
+            <div class="text-sm font-medium text-gray-800 mb-1">功能按钮大小</div>
+            <div class="text-xs text-gray-500 mb-2">
               顶部添加、排序等工具按钮的尺寸
             </div>
             <div class="grid grid-cols-3 gap-2">
@@ -5523,7 +5523,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
                 class="rounded-lg border px-2 py-2 text-xs font-medium transition-colors"
                 :class="toolbarBtnSize === opt.id
                   ? 'border-qhx-primary bg-qhx-primary/10 text-qhx-primary'
-                  : 'border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:border-gray-300 dark:hover:border-gray-500'"
+                  : 'border-gray-200 text-gray-600 hover:border-gray-300'"
                 @click="toolbarBtnSize = opt.id"
               >
                 {{ opt.label }}
@@ -5533,8 +5533,8 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
           <div>
             <div class="flex items-center justify-between gap-3">
               <div class="min-w-0">
-                <div class="text-sm font-medium text-gray-800 dark:text-gray-200">卡片字号</div>
-                <div class="text-xs text-gray-500 dark:text-gray-400">
+                <div class="text-sm font-medium text-gray-800">卡片字号</div>
+                <div class="text-xs text-gray-500">
                   备注与价格文字大小，会重新校准列表高度
                 </div>
               </div>
@@ -5547,32 +5547,32 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
               />
             </div>
           </div>
-          <div class="h-px bg-gray-200 dark:bg-gray-700" />
+          <div class="h-px bg-gray-200" />
           <div class="flex items-center justify-between gap-3">
             <div class="min-w-0">
-              <div class="text-sm font-medium text-gray-800 dark:text-gray-200">显示服饰备注</div>
-              <div class="text-xs text-gray-500 dark:text-gray-400">网格卡片下方展示服饰备注</div>
+              <div class="text-sm font-medium text-gray-800">显示服饰备注</div>
+              <div class="text-xs text-gray-500">网格卡片下方展示服饰备注</div>
             </div>
             <UToggle v-model="showClothesNote" />
           </div>
           <div class="flex items-center justify-between gap-3">
             <div class="min-w-0">
-              <div class="text-sm font-medium text-gray-800 dark:text-gray-200">显示服饰价格</div>
-              <div class="text-xs text-gray-500 dark:text-gray-400">网格卡片下方展示单价</div>
+              <div class="text-sm font-medium text-gray-800">显示服饰价格</div>
+              <div class="text-xs text-gray-500">网格卡片下方展示单价</div>
             </div>
             <UToggle v-model="showClothesPrice" />
           </div>
           <div class="flex items-center justify-between gap-3">
             <div class="min-w-0">
-              <div class="text-sm font-medium text-gray-800 dark:text-gray-200">显示服饰状态</div>
-              <div class="text-xs text-gray-500 dark:text-gray-400">网格卡片左上角展示拥有状态</div>
+              <div class="text-sm font-medium text-gray-800">显示服饰状态</div>
+              <div class="text-xs text-gray-500">网格卡片左上角展示拥有状态</div>
             </div>
             <UToggle v-model="showClothesStatus" />
           </div>
           <div class="flex items-center justify-between gap-3">
             <div class="min-w-0">
-              <div class="text-sm font-medium text-gray-800 dark:text-gray-200">显示喜爱评级</div>
-              <div class="text-xs text-gray-500 dark:text-gray-400">网格卡片展示数字 + 星评级</div>
+              <div class="text-sm font-medium text-gray-800">显示喜爱评级</div>
+              <div class="text-xs text-gray-500">网格卡片展示数字 + 星评级</div>
             </div>
             <UToggle v-model="showClothesFavorite" />
           </div>
@@ -5580,9 +5580,9 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
       </div>
     </QhxModal>
     <QhxModal v-model="showToolbarConfigModal">
-      <div class="p-5 w-[min(94vw,360px)] max-h-[min(80dvh,560px)] flex flex-col bg-white dark:bg-gray-800 rounded-[10px] shadow-lg">
-        <h3 class="text-base font-bold text-gray-800 dark:text-gray-200">工具栏配置</h3>
-        <p class="text-xs text-gray-500 dark:text-gray-400 mt-1 shrink-0">
+      <div class="p-5 w-[min(94vw,360px)] max-h-[min(80dvh,560px)] flex flex-col bg-white rounded-[10px] shadow-lg">
+        <h3 class="text-base font-bold text-gray-800">工具栏配置</h3>
+        <p class="text-xs text-gray-500 mt-1 shrink-0">
           长按拖动调整顺序；选择显示在侧栏或收入「更多」；偏好自动保存
         </p>
         <div class="mt-3 overflow-y-auto overscroll-contain min-h-0 flex-1 -mx-1 px-1">
@@ -5602,11 +5602,11 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
               <template #item="{ element }">
                 <div
                   v-if="getWardrobeToolbarTool(element.id)"
-                  class="flex items-center gap-2 rounded-lg border border-gray-200 dark:border-gray-600 px-2 py-2"
+                  class="flex items-center gap-2 rounded-lg border border-gray-200 px-2 py-2"
                 >
                   <button
                     type="button"
-                    class="toolbar-config-drag-handle flex h-8 w-6 shrink-0 cursor-grab items-center justify-center rounded text-gray-400 active:cursor-grabbing hover:text-gray-600 dark:hover:text-gray-300"
+                    class="toolbar-config-drag-handle flex h-8 w-6 shrink-0 cursor-grab items-center justify-center rounded text-gray-400 active:cursor-grabbing hover:text-gray-600"
                     aria-label="拖动排序"
                   >
                     <UIcon name="i-heroicons-bars-3-20-solid" class="text-base" />
@@ -5619,20 +5619,20 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
                     >
                       <UIcon :name="getWardrobeToolbarTool(element.id)!.icon" class="text-sm" />
                     </div>
-                    <span class="truncate text-sm text-gray-800 dark:text-gray-200">
+                    <span class="truncate text-sm text-gray-800">
                       {{ getWardrobeToolbarTool(element.id)!.label }}
                     </span>
                   </div>
                   <div
                     v-if="!getWardrobeToolbarTool(element.id)!.placementLocked"
-                    class="grid shrink-0 grid-cols-2 gap-1 rounded-lg bg-gray-100 p-0.5 dark:bg-gray-700/80"
+                    class="grid shrink-0 grid-cols-2 gap-1 rounded-lg bg-gray-100 p-0.5"
                   >
                     <button
                       type="button"
                       class="rounded-md px-2 py-1 text-[11px] font-medium transition-colors"
                       :class="getToolbarPlacement(element.id) === 'sidebar'
-                        ? 'bg-white text-qhx-primary shadow-sm dark:bg-gray-600 dark:text-qhx-primary'
-                        : 'text-gray-500 dark:text-gray-400'"
+                        ? 'bg-white text-qhx-primary shadow-sm'
+                        : 'text-gray-500'"
                       @click="setToolbarPlacement(element.id, 'sidebar')"
                     >
                       侧栏
@@ -5641,8 +5641,8 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
                       type="button"
                       class="rounded-md px-2 py-1 text-[11px] font-medium transition-colors"
                       :class="getToolbarPlacement(element.id) === 'more'
-                        ? 'bg-white text-qhx-primary shadow-sm dark:bg-gray-600 dark:text-qhx-primary'
-                        : 'text-gray-500 dark:text-gray-400'"
+                        ? 'bg-white text-qhx-primary shadow-sm'
+                        : 'text-gray-500'"
                       @click="setToolbarPlacement(element.id, 'more')"
                     >
                       更多
@@ -5650,7 +5650,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
                   </div>
                   <span
                     v-else
-                    class="shrink-0 rounded-md bg-gray-100 px-2 py-1 text-[11px] text-gray-500 dark:bg-gray-700 dark:text-gray-400"
+                    class="shrink-0 rounded-md bg-gray-100 px-2 py-1 text-[11px] text-gray-500"
                   >
                     固定侧栏
                   </span>
@@ -5658,7 +5658,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
               </template>
             </Draggable>
             <template #fallback>
-              <div class="py-8 text-center text-xs text-gray-500 dark:text-gray-400">加载排序组件中…</div>
+              <div class="py-8 text-center text-xs text-gray-500">加载排序组件中…</div>
             </template>
           </ClientOnly>
         </div>
@@ -5687,7 +5687,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
         type="button"
         class="fixed left-3 z-[55] flex items-center gap-1.5 rounded-full px-3 py-2 text-sm shadow-lg backdrop-blur-md"
         :class="[
-          !customStyle?.btnColor && 'bg-black/55 hover:bg-black/65 dark:bg-white/20 dark:hover:bg-white/30',
+          !customStyle?.btnColor && 'bg-black/55 hover:bg-black/65',
           !customStyle?.btnFontColor && 'text-white',
         ]"
         :style="{
@@ -5724,7 +5724,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
           type="button"
           class="wardrobe-back-btn fixed z-[55] flex h-9 w-9 items-center justify-center rounded-full shadow-lg backdrop-blur-md"
           :class="[
-            !customStyle?.btnColor && 'bg-black/55 hover:bg-black/65 dark:bg-white/20 dark:hover:bg-white/30',
+            !customStyle?.btnColor && 'bg-black/55 hover:bg-black/65',
             !customStyle?.btnFontColor && 'text-white',
             hideBackBtnVisual && 'invisible pointer-events-none',
           ]"
@@ -5754,7 +5754,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
             type="button"
             class="wardrobe-back-btn flex h-9 w-9 items-center justify-center rounded-full shadow-lg backdrop-blur-md transition-opacity hover:opacity-90 active:scale-95"
             :class="[
-              !customStyle?.btnColor && 'bg-black/55 hover:bg-black/65 dark:bg-white/20 dark:hover:bg-white/30',
+              !customStyle?.btnColor && 'bg-black/55 hover:bg-black/65',
               !customStyle?.btnFontColor && 'text-white',
               hideBackBtnVisual && 'invisible pointer-events-none',
             ]"
@@ -6432,12 +6432,12 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
           <div
             v-if="isListLayout"
             :id="getClothesGuideTargetId(element)"
-            class="wardrobe-clothes-list-row group flex items-stretch gap-3 rounded-xl border border-gray-200/70 bg-white/90 p-2.5 shadow-sm transition hover:ring-2 hover:ring-qhx-primary/20 dark:border-gray-700/70 dark:bg-gray-900/50 max-md:gap-2 max-md:p-2"
+            class="wardrobe-clothes-list-row group flex items-stretch gap-3 rounded-xl border border-gray-200/70 bg-white/90 p-2.5 shadow-sm transition hover:ring-2 hover:ring-qhx-primary/20 max-md:gap-2 max-md:p-2"
             @mousedown="opearClothesId = element.clothes_id"
             @touchstart.passive="opearClothesId = element.clothes_id"
             @click="selectMode ? toggleClothesSelection(element) : jumpToClothes(element)"
           >
-            <div class="relative h-[96px] w-[96px] shrink-0 overflow-hidden rounded-lg border border-gray-200 dark:border-gray-700 max-md:h-[80px] max-md:w-[80px]">
+            <div class="relative h-[96px] w-[96px] shrink-0 overflow-hidden rounded-lg border border-gray-200 max-md:h-[80px] max-md:w-[80px]">
               <WardrobeClothesLiveCover
                 :clothes-img="element.clothes_img"
                 img-class="wardrobe-detail-img absolute inset-0 block h-full w-full object-cover"
@@ -6467,7 +6467,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
                 <div
                   v-for="(c, ci) in element.color.split(',')"
                   :key="ci"
-                  class="h-2.5 w-2.5 shrink-0 rounded-full border border-white/50 shadow-sm dark:border-gray-700/50"
+                  class="h-2.5 w-2.5 shrink-0 rounded-full border border-white/50 shadow-sm"
                   :style="{ backgroundColor: c.trim() }"
                 />
               </div>
@@ -6482,10 +6482,10 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
               </div>
             </div>
             <div class="flex min-w-0 flex-1 flex-col justify-center py-0.5">
-              <div class="line-clamp-2 wardrobe-card-meta-text font-medium text-gray-900 dark:text-gray-100">
+              <div class="line-clamp-2 wardrobe-card-meta-text font-medium text-gray-900">
                 {{ element.clothes_note?.trim() || '暂无备注' }}
               </div>
-              <div class="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 text-xs text-gray-600 dark:text-gray-400">
+              <div class="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 text-xs text-gray-600">
                 <span class="tabular-nums">穿着次数：{{ element.times ?? 0 }}</span>
                 <span v-if="hasClothesPrice(element)">
                   价格：￥{{ info?.show_price === 2 ? '***' : (element.price || 0) }}
@@ -6506,7 +6506,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
                   {{ season.trim() }}
                 </QhxTag>
               </div>
-              <div v-if="element.tags?.trim()" class="mt-1 line-clamp-1 text-[11px] text-gray-500 dark:text-gray-500">
+              <div v-if="element.tags?.trim()" class="mt-1 line-clamp-1 text-[11px] text-gray-500">
                 标签：{{ element.tags }}
               </div>
             </div>
@@ -6518,7 +6518,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
               >
                 <div
                   class="wardrobe-neu-clothes-check flex h-6 w-6 items-center justify-center rounded-md border-2 transition-all duration-200"
-                  :class="isClothesSelected(element.clothes_id) ? (hasCustomBtnBg ? 'border-transparent' : 'bg-qhx-primary border-qhx-primary') : 'border-gray-400 bg-white/80 dark:bg-gray-700/80'"
+                  :class="isClothesSelected(element.clothes_id) ? (hasCustomBtnBg ? 'border-transparent' : 'bg-qhx-primary border-qhx-primary') : 'border-gray-400 bg-white/80'"
                   :style="isClothesSelected(element.clothes_id) && hasCustomBtnBg ? { ...customBtnStyle, borderColor: customStyle?.btnColor } : {}"
                 >
                   <UIcon v-if="isClothesSelected(element.clothes_id)" name="i-heroicons-check" class="text-sm" :class="!hasCustomBtnFont && 'text-white'" />
@@ -6602,7 +6602,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
               >
                 <div
                   class="wardrobe-neu-clothes-check w-6 h-6 rounded-md border-2 flex items-center justify-center transition-all duration-200"
-                  :class="isClothesSelected(element.clothes_id) ? (hasCustomBtnBg ? 'border-transparent' : 'bg-qhx-primary border-qhx-primary') : 'border-gray-400 bg-white/80 dark:bg-gray-700/80'"
+                  :class="isClothesSelected(element.clothes_id) ? (hasCustomBtnBg ? 'border-transparent' : 'bg-qhx-primary border-qhx-primary') : 'border-gray-400 bg-white/80'"
                   :style="isClothesSelected(element.clothes_id) && hasCustomBtnBg ? { ...customBtnStyle, borderColor: customStyle?.btnColor } : {}"
                 >
                   <UIcon v-if="isClothesSelected(element.clothes_id)" name="i-heroicons-check" class="text-sm" :class="!hasCustomBtnFont && 'text-white'" />
@@ -6644,7 +6644,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
                 <div
                   v-for="(c, ci) in element.color.split(',')"
                   :key="ci"
-                  class="w-3 h-3 rounded-full shadow-sm border border-white/50 dark:border-gray-700/50 shrink-0"
+                  class="w-3 h-3 rounded-full shadow-sm border border-white/50 shrink-0"
                   :style="{ backgroundColor: c.trim() }"
                 />
               </div>
@@ -6706,7 +6706,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
             @click="selectMode ? toggleClothesSelection(element) : jumpToClothes(element)"
           >
             <div
-              class="wardrobe-clothes-card wardrobe-neu-item w-full overflow-hidden rounded-2xl border border-gray-200/50 dark:border-gray-600/45"
+              class="wardrobe-clothes-card wardrobe-neu-item w-full overflow-hidden rounded-2xl border border-gray-200/50"
             >
               <div
                 class="wardrobe-clothes-card-cover wardrobe-waterfall-item relative w-full"
@@ -6745,7 +6745,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
                 >
                   <div
                     class="wardrobe-neu-clothes-check w-5 h-5 rounded-md border-2 flex items-center justify-center transition-all duration-200"
-                    :class="isClothesSelected(element.clothes_id) ? (hasCustomBtnBg ? 'border-transparent' : 'bg-qhx-primary border-qhx-primary') : 'border-gray-400 bg-white/80 dark:bg-gray-700/80'"
+                    :class="isClothesSelected(element.clothes_id) ? (hasCustomBtnBg ? 'border-transparent' : 'bg-qhx-primary border-qhx-primary') : 'border-gray-400 bg-white/80'"
                     :style="isClothesSelected(element.clothes_id) && hasCustomBtnBg ? { ...customBtnStyle, borderColor: customStyle?.btnColor } : {}"
                   >
                     <UIcon v-if="isClothesSelected(element.clothes_id)" name="i-heroicons-check" class="text-xs" :class="!hasCustomBtnFont && 'text-white'" />
@@ -6787,7 +6787,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
                   <div
                     v-for="(c, ci) in element.color.split(',')"
                     :key="ci"
-                    class="w-2.5 h-2.5 rounded-full shadow-sm border border-white/50 dark:border-gray-700/50 shrink-0"
+                    class="w-2.5 h-2.5 rounded-full shadow-sm border border-white/50 shrink-0"
                     :style="{ backgroundColor: c.trim() }"
                   />
                 </div>
@@ -6818,11 +6818,11 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
               </div>
               <div
                 v-if="shouldShowClothesCardMeta(element)"
-                class="wardrobe-clothes-card-body border-t border-gray-200/40 px-1.5 pt-1 pb-0.5 dark:border-gray-500/35 max-md:px-1 max-md:pt-0.5 max-md:pb-0.5"
+                class="wardrobe-clothes-card-body border-t border-gray-200/40 px-1.5 pt-1 pb-0.5 max-md:px-1 max-md:pt-0.5 max-md:pb-0.5"
               >
                 <div
                   v-if="shouldShowClothesNote(element)"
-                class="wardrobe-card-meta-text line-clamp-2 overflow-hidden font-medium text-gray-800 dark:text-gray-100"
+                class="wardrobe-card-meta-text line-clamp-2 overflow-hidden font-medium text-gray-800"
               >
                 {{ element.clothes_note }}
               </div>
@@ -6896,16 +6896,16 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
             >
               <template #item="{ element: group }">
                 <div class="mt-1 flex items-center gap-2 px-1.5 max-md:px-1">
-                  <h4 class="min-w-0 flex-1 truncate text-sm font-semibold text-gray-800 dark:text-gray-100">
+                  <h4 class="min-w-0 flex-1 truncate text-sm font-semibold text-gray-800">
                     {{ group.part }}
                   </h4>
-                  <span class="shrink-0 text-xs tabular-nums text-gray-400 dark:text-gray-500">
+                  <span class="shrink-0 text-xs tabular-nums text-gray-400">
                     {{ group.items.length }}
                   </span>
                   <button
                     v-if="isPageOwner"
                     type="button"
-                    class="part-group-drag-handle shrink-0 flex h-7 w-7 items-center justify-center rounded text-gray-400 touch-none cursor-grab active:cursor-grabbing hover:text-gray-600 dark:hover:text-gray-300"
+                    class="part-group-drag-handle shrink-0 flex h-7 w-7 items-center justify-center rounded text-gray-400 touch-none cursor-grab active:cursor-grabbing hover:text-gray-600"
                     title="拖拽调整部位顺序"
                     aria-label="拖拽调整部位顺序"
                   >
@@ -6929,10 +6929,10 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
               class="wardrobe-clothes-part-group min-w-0"
             >
               <div class="mt-1 flex items-baseline gap-2 px-1.5 max-md:px-1">
-                <h4 class="text-sm font-semibold text-gray-800 dark:text-gray-100">
+                <h4 class="text-sm font-semibold text-gray-800">
                   {{ ungroupedPartGroup.part }}
                 </h4>
-                <span class="text-xs tabular-nums text-gray-400 dark:text-gray-500">
+                <span class="text-xs tabular-nums text-gray-400">
                   {{ ungroupedPartGroup.items.length }}
                 </span>
               </div>
@@ -6948,7 +6948,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
             </section>
             <div
               v-if="!isLoading && sortablePartGroups.length === 0 && !ungroupedPartGroup"
-              class="py-16 text-center text-sm text-gray-400 dark:text-gray-500"
+              class="py-16 text-center text-sm text-gray-400"
             >
               暂无服饰
             </div>
@@ -7006,7 +7006,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
       <!-- v-if：非时间轴时必须卸载整层。仅用 opacity-0 + 父级 pointer-events-none 时，子元素 .wardrobe-img-touch-shield 的 pointer-events:auto 仍会参与命中，导致误点 -->
       <div
         v-if="timelineMode"
-        class="absolute inset-0 z-[25] flex min-h-[100dvh] flex-col overflow-x-hidden bg-gradient-to-b from-neutral-50/98 via-white/95 to-neutral-100/90 transition-opacity duration-350 ease-[cubic-bezier(0.4,0,0.2,1)] dark:from-neutral-950 dark:via-neutral-950 dark:to-black/95"
+        class="absolute inset-0 z-[25] flex min-h-[100dvh] flex-col overflow-x-hidden bg-gradient-to-b from-neutral-50/98 via-white/95 to-neutral-100/90 transition-opacity duration-350 ease-[cubic-bezier(0.4,0,0.2,1)]"
         :class="preferLiteEffects ? '' : 'backdrop-blur-sm'"
       >
         <div
@@ -7019,7 +7019,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
             <Transition name="timeline-deck-backdrop">
               <div
                 v-if="timelineExpandedDeckKey"
-                class="pointer-events-auto absolute inset-x-0 top-0 bottom-0 z-[1] bg-black/16 backdrop-blur-[0.5px] dark:bg-black/42"
+                class="pointer-events-auto absolute inset-x-0 top-0 bottom-0 z-[1] bg-black/16 backdrop-blur-[0.5px]"
                 aria-hidden="true"
                 @click="timelineExpandedDeckKey = null"
               />
@@ -7028,11 +7028,11 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
             <!-- 时间轴汇总：总条数、总价、日均（有入柜时间的金额 / 首末入柜日天数） -->
             <div
               v-if="timelineMode"
-              class="timeline-summary mb-4 max-w-3xl rounded-xl border border-neutral-200/85 bg-white/75 px-3 py-3 shadow-sm dark:border-neutral-700/85 dark:bg-neutral-900/55"
+              class="timeline-summary mb-4 max-w-3xl rounded-xl border border-neutral-200/85 bg-white/75 px-3 py-3 shadow-sm"
             >
               <div
                 v-if="isLoading && list.length === 0"
-                class="text-center text-sm text-neutral-500 dark:text-neutral-400"
+                class="text-center text-sm text-neutral-500"
               >
                 统计与列表加载中…
               </div>
@@ -7041,26 +7041,26 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
                 class="grid grid-cols-3 gap-2 text-center sm:gap-4 sm:text-left"
               >
                 <div>
-                  <p class="text-[10px] font-medium text-neutral-500 dark:text-neutral-400">总条数</p>
-                  <p class="mt-0.5 font-mono text-base font-semibold tabular-nums text-neutral-900 dark:text-neutral-100">
+                  <p class="text-[10px] font-medium text-neutral-500">总条数</p>
+                  <p class="mt-0.5 font-mono text-base font-semibold tabular-nums text-neutral-900">
                     {{ timelineStats.count }}
                   </p>
                 </div>
                 <div>
-                  <p class="text-[10px] font-medium text-neutral-500 dark:text-neutral-400">总价</p>
-                  <p class="mt-0.5 font-mono text-base font-semibold tabular-nums text-neutral-900 dark:text-neutral-100">
+                  <p class="text-[10px] font-medium text-neutral-500">总价</p>
+                  <p class="mt-0.5 font-mono text-base font-semibold tabular-nums text-neutral-900">
                     ￥ {{ info?.show_price === 1 ? Math.round(timelineStats.totalPrice) : '***' }}
                   </p>
                 </div>
                 <div>
-                  <p class="text-[10px] font-medium text-neutral-500 dark:text-neutral-400">日均成本</p>
+                  <p class="text-[10px] font-medium text-neutral-500">日均成本</p>
                   <p
                     v-if="timelineStats.datedCount > 0"
-                    class="mt-0.5 text-[9px] leading-tight text-neutral-500/90 dark:text-neutral-500"
+                    class="mt-0.5 text-[9px] leading-tight text-neutral-500/90"
                   >
                     有入柜 {{ timelineStats.datedCount }} 件 · {{ timelineStats.daySpan }} 天
                   </p>
-                  <p class="mt-0.5 font-mono text-base font-semibold tabular-nums text-neutral-900 dark:text-neutral-100">
+                  <p class="mt-0.5 font-mono text-base font-semibold tabular-nums text-neutral-900">
                     <template v-if="info?.show_price !== 1">***</template>
                     <template v-else-if="timelineStats.dailyAvg === null">—</template>
                     <template v-else>￥ {{ timelineStats.dailyAvg.toFixed(2) }}</template>
@@ -7084,7 +7084,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
             <template v-else>
               <div class="timeline-history relative w-full max-w-3xl pl-4 md:pl-5">
                 <div
-                  class="timeline-spine pointer-events-none absolute bottom-4 left-[7px] top-0 w-[0.5px] bg-gradient-to-b from-neutral-300/90 via-neutral-400/70 to-neutral-300/40 dark:from-neutral-600/50 dark:via-neutral-500/40 dark:to-neutral-700/30 md:left-[9px]"
+                  class="timeline-spine pointer-events-none absolute bottom-4 left-[7px] top-0 w-[0.5px] bg-gradient-to-b from-neutral-300/90 via-neutral-400/70 to-neutral-300/40 md:left-[9px]"
                   aria-hidden="true"
                 />
                 <article
@@ -7094,27 +7094,27 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
                   :class="isTimelineNodeFanExpanded(node.key) ? 'z-[90] isolate' : ''"
                 >
                   <div
-                    class="timeline-node-dot absolute left-[5px] top-1 z-[2] h-1.5 w-1.5 rounded-full border border-neutral-800 bg-white shadow-sm dark:border-neutral-300 dark:bg-neutral-800 md:left-[6px] md:h-2 md:w-2"
+                    class="timeline-node-dot absolute left-[5px] top-1 z-[2] h-1.5 w-1.5 rounded-full border border-neutral-800 bg-white shadow-sm md:left-[6px] md:h-2 md:w-2"
                     aria-hidden="true"
                   />
                   <div class="mb-3 flex flex-col gap-1 pr-0.5">
                     <header class="flex flex-row flex-wrap items-baseline justify-between gap-x-2 gap-y-0.5">
                       <time
-                        class="font-mono text-xs font-semibold tabular-nums tracking-tight text-neutral-900 dark:text-neutral-100 md:text-sm"
+                        class="font-mono text-xs font-semibold tabular-nums tracking-tight text-neutral-900 md:text-sm"
                         :datetime="node.key === '__unknown__' ? undefined : node.key"
                       >
                         {{ node.dateLabel }}
                       </time>
                       <span
                         v-if="node.daysInCabinetText"
-                        class="shrink-0 text-[10px] leading-none text-neutral-500 dark:text-neutral-400"
+                        class="shrink-0 text-[10px] leading-none text-neutral-500"
                       >
                         {{ node.daysInCabinetText }}
                       </span>
                     </header>
-                    <p class="text-[10px] leading-snug text-neutral-500 dark:text-neutral-500">
+                    <p class="text-[10px] leading-snug text-neutral-500">
                       当日总价
-                      <span class="ml-1 font-mono text-neutral-700 dark:text-neutral-300">
+                      <span class="ml-1 font-mono text-neutral-700">
                         ￥ {{ info?.show_price === 1 ? (node.dayTotal || 0) : '***' }}
                       </span>
                     </p>
@@ -7140,7 +7140,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
                               alt=""
                               @contextmenu.prevent
                             />
-                            <div v-else class="flex h-full w-full items-center justify-center bg-neutral-200/40 text-neutral-400 dark:bg-neutral-800/50 dark:text-neutral-500">
+                            <div v-else class="flex h-full w-full items-center justify-center bg-neutral-200/40 text-neutral-400">
                               <UIcon name="material-symbols:dresser-outline" class="text-2xl opacity-70" />
                             </div>
                             <div class="timeline-tarot-vignette" />
@@ -7151,18 +7151,18 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
                             />
                           </div>
                           <div class="timeline-tarot-caption">
-                            <p class="line-clamp-2 font-serif text-[10px] font-medium leading-snug text-neutral-900 dark:text-neutral-100">
+                            <p class="line-clamp-2 font-serif text-[10px] font-medium leading-snug text-neutral-900">
                               {{ node.items[0].clothes_note || '未命名' }}
                             </p>
                             <p
                               v-if="node.items[0].price"
-                              class="mt-0.5 font-mono text-[9px] text-neutral-700 dark:text-neutral-300"
+                              class="mt-0.5 font-mono text-[9px] text-neutral-700"
                             >
                               ￥ {{ info?.show_price === 2 ? '***' : (node.items[0].price || 0) }}
                             </p>
                             <p
                               v-if="formatTimelineItemDailyAvg(node.items[0]) !== null"
-                              class="mt-0.5 font-mono text-[9px] leading-tight text-neutral-600 dark:text-neutral-400"
+                              class="mt-0.5 font-mono text-[9px] leading-tight text-neutral-600"
                             >
                               日均 ￥ {{ info?.show_price === 2 ? '***' : formatTimelineItemDailyAvg(node.items[0]) }}
                             </p>
@@ -7205,7 +7205,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
                                   alt=""
                                   @contextmenu.prevent
                                 />
-                                <div v-else class="flex h-full w-full items-center justify-center bg-neutral-200/40 text-neutral-400 dark:bg-neutral-800/50 dark:text-neutral-500">
+                                <div v-else class="flex h-full w-full items-center justify-center bg-neutral-200/40 text-neutral-400">
                                   <UIcon name="material-symbols:dresser-outline" class="text-2xl opacity-70" />
                                 </div>
                                 <div class="timeline-tarot-vignette" />
@@ -7216,18 +7216,18 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
                                 />
                               </div>
                               <div class="timeline-tarot-caption">
-                                <p class="line-clamp-2 font-serif text-[10px] font-medium leading-snug text-neutral-900 dark:text-neutral-100">
+                                <p class="line-clamp-2 font-serif text-[10px] font-medium leading-snug text-neutral-900">
                                   {{ deck[0].clothes_note || '未命名' }}
                                 </p>
                                 <p
                                   v-if="deck[0].price"
-                                  class="mt-0.5 font-mono text-[9px] text-neutral-700 dark:text-neutral-300"
+                                  class="mt-0.5 font-mono text-[9px] text-neutral-700"
                                 >
                                   ￥ {{ info?.show_price === 2 ? '***' : (deck[0].price || 0) }}
                                 </p>
                                 <p
                                   v-if="formatTimelineItemDailyAvg(deck[0]) !== null"
-                                  class="mt-0.5 font-mono text-[9px] leading-tight text-neutral-600 dark:text-neutral-400"
+                                  class="mt-0.5 font-mono text-[9px] leading-tight text-neutral-600"
                                 >
                                   日均 ￥ {{ info?.show_price === 2 ? '***' : formatTimelineItemDailyAvg(deck[0]) }}
                                 </p>
@@ -7248,8 +7248,8 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
                           :class="isTimelineDeckExpanded(node.key, dIdx) ? 'z-[130]' : 'z-10'"
                         >
                           <div
-                            class="cursor-pointer rounded-lg outline-none transition-[transform,box-shadow] duration-300 ease-out focus-visible:ring-2 focus-visible:ring-neutral-400/80 dark:focus-visible:ring-neutral-500"
-                            :class="isTimelineDeckExpanded(node.key, dIdx) ? 'ring-2 ring-amber-400/35 ring-offset-2 ring-offset-neutral-50 dark:ring-amber-300/25 dark:ring-offset-neutral-950' : ''"
+                            class="cursor-pointer rounded-lg outline-none transition-[transform,box-shadow] duration-300 ease-out focus-visible:ring-2 focus-visible:ring-neutral-400/80"
+                            :class="isTimelineDeckExpanded(node.key, dIdx) ? 'ring-2 ring-amber-400/35 ring-offset-2 ring-offset-neutral-50' : ''"
                             role="button"
                             tabindex="0"
                             @click="toggleTimelineDeckExpand(node.key, dIdx)"
@@ -7294,7 +7294,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
                                         alt=""
                                         @contextmenu.prevent
                                       />
-                                      <div v-else class="flex h-full w-full items-center justify-center bg-neutral-200/40 text-neutral-400 dark:bg-neutral-800/50 dark:text-neutral-500">
+                                      <div v-else class="flex h-full w-full items-center justify-center bg-neutral-200/40 text-neutral-400">
                                         <UIcon name="material-symbols:dresser-outline" class="text-lg opacity-70" />
                                       </div>
                                       <div class="timeline-tarot-vignette" />
@@ -7305,18 +7305,18 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
                                       />
                                     </div>
                                     <div class="timeline-tarot-caption timeline-tarot-caption--deck">
-                                      <p class="line-clamp-2 font-serif text-[10px] font-medium leading-snug text-neutral-900 dark:text-neutral-100">
+                                      <p class="line-clamp-2 font-serif text-[10px] font-medium leading-snug text-neutral-900">
                                         {{ item.clothes_note || '未命名' }}
                                       </p>
                                       <p
                                         v-if="item.price"
-                                        class="mt-0.5 font-mono text-[9px] text-neutral-700 dark:text-neutral-300"
+                                        class="mt-0.5 font-mono text-[9px] text-neutral-700"
                                       >
                                         ￥ {{ info?.show_price === 2 ? '***' : (item.price || 0) }}
                                       </p>
                                       <p
                                         v-if="formatTimelineItemDailyAvg(item) !== null"
-                                        class="mt-0.5 font-mono text-[9px] leading-tight text-neutral-600 dark:text-neutral-400"
+                                        class="mt-0.5 font-mono text-[9px] leading-tight text-neutral-600"
                                       >
                                         日均 ￥ {{ info?.show_price === 2 ? '***' : formatTimelineItemDailyAvg(item) }}
                                       </p>
@@ -7352,30 +7352,30 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
       <div class="flex flex-col h-full">
         <!-- 标题栏 -->
         <div class="flex items-center justify-between mb-2 px-4 pt-2 flex-shrink-0">
-          <h3 class="text-base font-bold text-gray-800 dark:text-gray-200">筛选</h3>
+          <h3 class="text-base font-bold text-gray-800">筛选</h3>
           <button
             type="button"
             @click="closeFilterDrawer"
             class="w-8 h-8 flex items-center justify-center rounded-full transition-colors group"
-            :class="!hasCustomBtnBg && 'hover:bg-gray-100 dark:hover:bg-gray-700'"
+            :class="!hasCustomBtnBg && 'hover:bg-gray-100'"
             :style="customBtnStyle"
           >
             <UIcon
               name="i-heroicons-x-mark"
               class="transition-colors"
-              :class="!hasCustomBtnFont && 'text-gray-500 dark:text-gray-400 group-hover:text-gray-700 dark:group-hover:text-gray-200'"
+              :class="!hasCustomBtnFont && 'text-gray-500 group-hover:text-gray-700'"
             />
           </button>
         </div>
         
         <!-- 可滚动内容区域 -->
         <div class="flex-1 overflow-y-auto px-4">
-          <div class="mb-4 p-3 bg-yellow-50 dark:bg-yellow-900/20 rounded-lg border border-yellow-200 dark:border-yellow-800">
-            <p class="text-sm text-yellow-800 dark:text-yellow-200">注意: 该筛选会影响总价等统计数据</p>
+          <div class="mb-4 p-3 bg-yellow-50 rounded-lg border border-yellow-200">
+            <p class="text-sm text-yellow-800">注意: 该筛选会影响总价等统计数据</p>
           </div>
           
           <div class="mb-4">
-            <div class="text-sm font-semibold mb-2 text-gray-800 dark:text-gray-200">服饰名字：</div>
+            <div class="text-sm font-semibold mb-2 text-gray-800">服饰名字：</div>
             <UInput 
               v-model="filter_list.clothes_note" 
               placeholder="请输入服饰名字进行筛选"
@@ -7386,7 +7386,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
                 padding: { xs: 'px-4 py-2' },
                 color: {
                   white: {
-                    outline: 'bg-gray-50 dark:bg-gray-800 ring-1 ring-gray-300 dark:ring-gray-600 focus:ring-2 focus:ring-qhx-primary'
+                    outline: 'bg-gray-50 ring-1 ring-gray-300 focus:ring-2 focus:ring-qhx-primary'
                   }
                 }
               }"
@@ -7394,7 +7394,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
           </div>
           
           <div class="mb-4">
-            <div class="text-sm font-semibold mb-3 text-gray-800 dark:text-gray-200">状态：</div>
+            <div class="text-sm font-semibold mb-3 text-gray-800">状态：</div>
             <div class="flex flex-wrap gap-2">
               <QhxTag
                 v-for="(status, index) in wardrobeStatusOptions"
@@ -7409,7 +7409,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
           </div>
 
           <div v-if="clothesPartFilterOptions.length > 0" class="mb-4">
-            <div class="text-sm font-semibold mb-3 text-gray-800 dark:text-gray-200">部位：</div>
+            <div class="text-sm font-semibold mb-3 text-gray-800">部位：</div>
             <div class="flex flex-wrap gap-2">
               <QhxTag
                 v-for="(part, index) in clothesPartFilterOptions"
@@ -7424,7 +7424,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
           </div>
 
           <div v-if="sizeFilterOptions.length > 0" class="mb-2">
-            <div class="text-sm font-semibold mb-3 text-gray-800 dark:text-gray-200">尺码：</div>
+            <div class="text-sm font-semibold mb-3 text-gray-800">尺码：</div>
             <div class="flex flex-wrap gap-2">
               <QhxTag
                 v-for="(size, index) in sizeFilterOptions"
@@ -7440,7 +7440,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
         </div>
         
         <!-- 固定在底部的按钮 -->
-        <div class="flex justify-end gap-2 px-4 pb-4 pt-2 border-t border-gray-200 dark:border-gray-700 flex-shrink-0">
+        <div class="flex justify-end gap-2 px-4 pb-4 pt-2 border-t border-gray-200 flex-shrink-0">
           <UButton
             color="gray"
             variant="outline"
@@ -7658,12 +7658,12 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
       <QhxBottomDrawer v-if="showMatchingDrawer" :direction="isMobile ? 'bottom' : 'right'" :default-size="isMobile ? 450 : 400">
         <div class="flex flex-col h-full">
           <div class="flex items-center justify-between mb-2 px-4 pt-2 flex-shrink-0">
-            <h3 class="text-base font-bold text-gray-800 dark:text-gray-200">搭配草稿 ({{ matchingDraftStore.count }})</h3>
+            <h3 class="text-base font-bold text-gray-800">搭配草稿 ({{ matchingDraftStore.count }})</h3>
             <button
               type="button"
               @click="showMatchingDrawer = false"
               class="w-8 h-8 flex items-center justify-center rounded-full transition-colors"
-              :class="!hasCustomBtnBg && 'hover:bg-gray-100 dark:hover:bg-gray-700'"
+              :class="!hasCustomBtnBg && 'hover:bg-gray-100'"
               :style="customBtnStyle"
             >
               <UIcon name="i-heroicons-x-mark" :class="!hasCustomBtnFont && 'text-gray-500'" />
@@ -7677,9 +7677,9 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
               <div
                 v-for="item in matchingDraftStore.list"
                 :key="item.clothes_id"
-                class="flex items-center gap-3 p-2 rounded-xl bg-gray-50 dark:bg-gray-800/50 hover:bg-gray-100 dark:hover:bg-gray-700/50 transition-colors"
+                class="flex items-center gap-3 p-2 rounded-xl bg-gray-50 hover:bg-gray-100 transition-colors"
               >
-                <div class="relative w-14 h-14 flex-shrink-0 overflow-hidden rounded-lg bg-gray-200 dark:bg-gray-700">
+                <div class="relative w-14 h-14 flex-shrink-0 overflow-hidden rounded-lg bg-gray-200">
                   <img
                     :src="wardrobeClothesPosterSrc(item.clothes_img)"
                     class="wardrobe-detail-img h-full w-full object-cover"
@@ -7694,7 +7694,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
                   />
                 </div>
                 <div class="flex-1 min-w-0">
-                  <div class="text-sm font-medium text-gray-800 dark:text-gray-200 line-clamp-2">{{ item.clothes_note || '未命名' }}</div>
+                  <div class="text-sm font-medium text-gray-800 line-clamp-2">{{ item.clothes_note || '未命名' }}</div>
                   <div v-if="item.price" class="text-xs text-qhx-primary mt-0.5">￥{{ item.price }}</div>
                 </div>
                 <button
@@ -7709,7 +7709,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
               </div>
             </div>
           </div>
-          <div class="flex justify-center px-4 pb-4 pt-2 border-t border-gray-200 dark:border-gray-700 flex-shrink-0">
+          <div class="flex justify-center px-4 pb-4 pt-2 border-t border-gray-200 flex-shrink-0">
             <UButton
               block
               :class="[
@@ -7757,7 +7757,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
       <div
         v-if="selectMode && !timelineMode"
         id="wardrobe-guide-select-bar"
-        class="wardrobe-neu-select-bar fixed bottom-0 left-0 right-0 z-50 flex flex-wrap items-center justify-center gap-2 px-3 py-3 bg-white/95 dark:bg-gray-900/95 backdrop-blur-md safe-area-pb"
+        class="wardrobe-neu-select-bar fixed bottom-0 left-0 right-0 z-50 flex flex-wrap items-center justify-center gap-2 px-3 py-3 bg-white/95 backdrop-blur-md safe-area-pb"
         :style="tabBarInsetPx > 0 ? { bottom: `${tabBarInsetPx}px` } : undefined"
       >
         <template v-if="!isVisitorCopyMode">
@@ -8134,12 +8134,6 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
   --ward-neu-inset: rgba(255, 255, 255, 0.4);
 }
 
-.dark .wardrobe-page-neu {
-  --ward-neu-soft: rgba(255, 255, 255, 0.07);
-  --ward-neu-deep: rgba(0, 0, 0, 0.5);
-  --ward-neu-inset: rgba(255, 255, 255, 0.06);
-}
-
 /* —— 左侧整栏：带右缘层次的软面板 —— */
 .wardrobe-page-neu .wardrobe-neu-sidebar {
   box-shadow:
@@ -8148,15 +8142,6 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
     inset 0 1px 0 rgba(255, 255, 255, 0.22),
     inset 1px 0 0 rgba(255, 255, 255, 0.12),
     inset -1px 0 2px rgba(0, 0, 0, 0.03);
-}
-
-.dark .wardrobe-page-neu .wardrobe-neu-sidebar {
-  box-shadow:
-    4px 4px 12px rgba(0, 0, 0, 0.28),
-    -2px -2px 8px rgba(255, 255, 255, 0.04),
-    inset 0 1px 0 rgba(255, 255, 255, 0.04),
-    inset 1px 0 0 rgba(255, 255, 255, 0.03),
-    inset -1px 0 2px rgba(0, 0, 0, 0.18);
 }
 
 /* —— 区域收缩/展开小按钮 —— */
@@ -8236,11 +8221,6 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
   }
 }
 
-.dark .wardrobe-page-neu .wardrobe-collapse-toggle {
-  background: rgba(40, 40, 44, 0.88);
-  color: rgba(255, 255, 255, 0.75);
-}
-
 /* 列表格：滚动时跳过屏外绘制（旧 iOS 滚动卡顿主要优化之一）。
    用 :global 以便同时作用于「浏览态虚拟网格(页面渲染)」与「排序态 QhxSortableList(子组件渲染)」的格子。 */
 :global(.wardrobe-clothes-cell) {
@@ -8287,9 +8267,6 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
   background: rgba(255, 255, 255, 0.52);
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
-}
-.dark .wardrobe-clothes-card.wardrobe-neu-item {
-  background: rgba(30, 35, 45, 0.55);
 }
 .wardrobe-clothes-card-cover .wardrobe-neu-photo {
   border-radius: 0;
@@ -8346,13 +8323,6 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
   transition: none;
 }
 
-.dark .wardrobe-perf-lite.wardrobe-page-neu .wardrobe-neu-photo,
-.dark .wardrobe-perf-lite.wardrobe-page-neu .group:hover .wardrobe-neu-photo {
-  box-shadow:
-    inset 1px 1px 4px rgba(0, 0, 0, 0.28),
-    inset -1px -1px 3px rgba(255, 255, 255, 0.05);
-}
-
 .wardrobe-perf-lite .wardrobe-neu-tool-orb {
   transition: none;
 }
@@ -8374,16 +8344,8 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
   background: color-mix(in srgb, var(--status-c, #8b5cf6) 18%, rgba(255, 255, 255, 0.94));
 }
 
-.dark .wardrobe-perf-lite .wardrobe-clothes-status-badge--tonal {
-  background: color-mix(in srgb, var(--status-c, #8b5cf6) 28%, rgba(44, 46, 54, 0.94));
-}
-
 .wardrobe-perf-lite .wardrobe-clothes-fav-badge {
   background: rgba(255, 251, 235, 0.96);
-}
-
-.dark .wardrobe-perf-lite .wardrobe-clothes-fav-badge {
-  background: rgba(69, 45, 12, 0.92);
 }
 
 /* 弱机：多选蒙版的 backdrop-blur 同样昂贵，去掉模糊仅保留半透明遮罩。 */
@@ -8399,22 +8361,10 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
   transition: box-shadow 0.28s ease;
 }
 
-.dark .wardrobe-page-neu .wardrobe-neu-photo {
-  box-shadow:
-    inset 2px 2px 10px rgba(0, 0, 0, 0.4),
-    inset -1px -1px 5px rgba(255, 255, 255, 0.06);
-}
-
 .wardrobe-page-neu .group:hover .wardrobe-neu-photo {
   box-shadow:
     inset 2px 2px 9px rgba(0, 0, 0, 0.09),
     inset -2px -2px 8px rgba(255, 255, 255, 0.38);
-}
-
-.dark .wardrobe-page-neu .group:hover .wardrobe-neu-photo {
-  box-shadow:
-    inset 2px 2px 11px rgba(0, 0, 0, 0.42),
-    inset -1px -1px 5px rgba(255, 255, 255, 0.07);
 }
 
 /* —— 服饰状态 / 喜爱评级角标：参考展馆 scene-link-detail-tag —— */
@@ -8437,11 +8387,6 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
   color: var(--status-c, #8b5cf6);
   background: color-mix(in srgb, var(--status-c, #8b5cf6) 14%, rgba(255, 255, 255, 0.78));
   border-color: color-mix(in srgb, var(--status-c, #8b5cf6) 26%, transparent);
-}
-
-.dark .wardrobe-page-neu .wardrobe-clothes-status-badge--tonal {
-  background: color-mix(in srgb, var(--status-c, #8b5cf6) 28%, rgba(44, 46, 54, 0.82));
-  border-color: color-mix(in srgb, var(--status-c, #8b5cf6) 32%, transparent);
 }
 
 /* 详情区拥有状态图例圆点 */
@@ -8475,11 +8420,6 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
   transition: transform 0.16s ease, box-shadow 0.18s ease;
 }
 
-.dark .wardrobe-page-neu .wardrobe-clothes-fav-badge {
-  background: color-mix(in srgb, #d97706 26%, rgba(44, 46, 54, 0.82));
-  border-color: color-mix(in srgb, #f59e0b 34%, transparent);
-}
-
 .wardrobe-page-neu .group:hover .wardrobe-clothes-fav-badge {
   transform: scale(1.04);
   box-shadow:
@@ -8493,10 +8433,6 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
   line-height: 1;
   font-variant-numeric: tabular-nums;
   color: rgb(180 83 9);
-}
-
-.dark .wardrobe-page-neu .wardrobe-clothes-fav-badge__num {
-  color: rgb(252 211 77);
 }
 
 .wardrobe-page-neu .wardrobe-clothes-fav-badge__star {
@@ -8527,11 +8463,6 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
   }
 }
 
-.dark .wardrobe-page-neu .wardrobe-clothes-fav-badge__star {
-  color: rgb(252 211 77);
-  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.35));
-}
-
 .wardrobe-perf-lite .group:hover .wardrobe-clothes-fav-badge {
   transform: none;
 }
@@ -8542,12 +8473,6 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
     3px 3px 8px rgba(0, 0, 0, 0.12),
     -2px -2px 7px rgba(255, 255, 255, 0.88),
     inset 0 1px 0 rgba(255, 255, 255, 0.95);
-}
-
-.dark .wardrobe-page-neu .wardrobe-neu-clothes-check {
-  box-shadow:
-    3px 4px 10px rgba(0, 0, 0, 0.45),
-    inset 0 1px 0 rgba(255, 255, 255, 0.1);
 }
 
 .wardrobe-page-neu .wardrobe-neu-clothes-check.bg-qhx-primary {
@@ -8568,25 +8493,11 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
   transition: box-shadow 0.2s ease, transform 0.18s ease;
 }
 
-.dark .wardrobe-page-neu .wardrobe-neu-tool-orb {
-  box-shadow:
-    4px 5px 14px rgba(0, 0, 0, 0.52),
-    -2px -2px 7px rgba(255, 255, 255, 0.06),
-    inset 0 1.5px 0 rgba(255, 255, 255, 0.12),
-    inset 0 -1px 0 rgba(0, 0, 0, 0.28);
-}
-
 .wardrobe-page-neu .wardrobe-neu-tool-orb:active {
   box-shadow:
     inset 3px 3px 9px rgba(0, 0, 0, 0.24),
     inset -2px -2px 7px rgba(255, 255, 255, 0.12);
   transform: scale(0.94);
-}
-
-.dark .wardrobe-page-neu .wardrobe-neu-tool-orb:active {
-  box-shadow:
-    inset 3px 3px 11px rgba(0, 0, 0, 0.48),
-    inset -1px -1px 4px rgba(255, 255, 255, 0.06);
 }
 
 .wardrobe-page-neu .wardrobe-neu-tool-badge {
@@ -8595,23 +8506,11 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
     inset 0 1px 0 rgba(255, 255, 255, 0.35);
 }
 
-.dark .wardrobe-page-neu .wardrobe-neu-tool-badge {
-  box-shadow:
-    2px 3px 8px rgba(0, 0, 0, 0.45),
-    inset 0 1px 0 rgba(255, 255, 255, 0.12);
-}
-
 /* 多选底栏：轻量顶高光即可 */
 .wardrobe-page-neu .wardrobe-neu-select-bar {
   box-shadow:
     0 -8px 22px rgba(0, 0, 0, 0.08),
     inset 0 1px 0 rgba(255, 255, 255, 0.5);
-}
-
-.dark .wardrobe-page-neu .wardrobe-neu-select-bar {
-  box-shadow:
-    0 -10px 26px rgba(0, 0, 0, 0.42),
-    inset 0 1px 0 rgba(255, 255, 255, 0.07);
 }
 
 /* iOS 浏览器 100vh 滚动条修复：使用 dvh 和 -webkit-fill-available；Tab 内嵌再扣底栏 */
@@ -8670,12 +8569,6 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
     radial-gradient(ellipse 70% 35% at 85% 55%, rgba(0, 0, 0, 0.025), transparent 42%);
 }
 
-.dark .timeline-scroll {
-  background-image:
-    radial-gradient(ellipse 100% 45% at 50% -8%, rgba(255, 255, 255, 0.03), transparent 52%),
-    radial-gradient(ellipse 70% 35% at 85% 55%, rgba(255, 255, 255, 0.02), transparent 42%);
-}
-
 /* 固定 3:4 画幅，整体略缩小更精致 */
 .timeline-tarot--sm {
   width: 84px;
@@ -8701,16 +8594,6 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
     inset 0 1px 0 rgba(255, 255, 255, 0.45);
 }
 
-.dark .timeline-tarot-frame {
-  border-color: #ffffff;
-  border-width: 1.5px;
-  background: #171717;
-  box-shadow:
-    5px 6px 16px rgba(0, 0, 0, 0.55),
-    -3px -3px 10px rgba(255, 255, 255, 0.04),
-    inset 0 1px 0 rgba(255, 255, 255, 0.07);
-}
-
 /* 卡组：多层外阴影 + 轻微内缘高光，叠放时更有厚度 */
 .timeline-tarot-frame--deck {
   transition: box-shadow 0.22s ease;
@@ -8721,22 +8604,10 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
     0 0 0 1px rgba(0, 0, 0, 0.04) inset;
 }
 
-.dark .timeline-tarot-frame--deck {
-  box-shadow:
-    0 1px 2px rgba(0, 0, 0, 0.55),
-    0 6px 18px rgba(0, 0, 0, 0.55),
-    0 14px 36px rgba(0, 0, 0, 0.45),
-    0 0 0 1px rgba(255, 255, 255, 0.06) inset;
-}
-
 .timeline-tarot-inner {
   overflow: hidden;
   border-radius: 5px;
   background: #ffffff;
-}
-
-.dark .timeline-tarot-inner {
-  background: #171717;
 }
 
 .timeline-tarot-image-wrap {
@@ -8832,21 +8703,11 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
   box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.18);
 }
 
-.dark .timeline-tarot-vignette {
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.2);
-}
-
 .timeline-tarot-caption {
   border-top: 1px solid #000000;
   padding: 4px 5px 5px;
   background: #fafafa;
   box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.04);
-}
-
-.dark .timeline-tarot-caption {
-  border-top-color: #ffffff;
-  background: #262626;
-  box-shadow: inset 0 2px 5px rgba(0, 0, 0, 0.25);
 }
 
 .timeline-tarot-caption--deck {
@@ -8868,14 +8729,6 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
     0 8px 18px rgba(0, 0, 0, 0.14),
     0 16px 36px rgba(0, 0, 0, 0.16),
     0 0 0 1px rgba(0, 0, 0, 0.05) inset;
-}
-
-.dark .timeline-deck-card:hover .timeline-tarot-frame--deck {
-  box-shadow:
-    0 2px 4px rgba(0, 0, 0, 0.65),
-    0 10px 28px rgba(0, 0, 0, 0.65),
-    0 22px 48px rgba(0, 0, 0, 0.5),
-    0 0 0 1px rgba(255, 255, 255, 0.08) inset;
 }
 
 /* 扇形展开：尺寸固定，扇形由 transform 溢出；展开层用 fixed + 占位，不再在此处放大容器 */
@@ -8928,18 +8781,6 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
   color: var(--plan-neu-text);
 }
 
-.dark .plan-neu-drawer {
-  --plan-neu-bg: #262d3a;
-  --plan-neu-bg-mid: #222933;
-  --plan-neu-bg-deep: #181d26;
-  --plan-neu-highlight: rgba(255, 255, 255, 0.06);
-  --plan-neu-text: rgb(229 231 235);
-  box-shadow:
-    inset 1px 0 0 rgba(255, 255, 255, 0.05),
-    inset 0 1px 0 rgba(255, 255, 255, 0.04);
-  color: var(--plan-neu-text);
-}
-
 .plan-neu-header {
   padding: 6px 6px 4px;
   margin: 0;
@@ -8976,14 +8817,6 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
     3px 3px 8px rgba(163, 177, 198, 0.38),
     -2px -2px 7px rgba(255, 255, 255, 0.75),
     inset 0 1px 0 rgba(255, 255, 255, 0.55);
-}
-
-.dark .plan-neu-stat {
-  background: linear-gradient(145deg, var(--plan-neu-bg), var(--plan-neu-bg-mid));
-  box-shadow:
-    3px 3px 10px rgba(0, 0, 0, 0.32),
-    -2px -2px 6px rgba(255, 255, 255, 0.03),
-    inset 0 1px 0 rgba(255, 255, 255, 0.05);
 }
 
 .plan-neu-stat-label {
@@ -9033,12 +8866,6 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
     inset -1px -1px 3px rgba(255, 255, 255, 0.28);
 }
 
-.dark .plan-neu-rail {
-  box-shadow:
-    inset 1.5px 1.5px 5px rgba(0, 0, 0, 0.5),
-    inset -1px -1px 3px rgba(255, 255, 255, 0.05);
-}
-
 .plan-neu-node-col {
   width: 20px;
   min-width: 20px;
@@ -9055,13 +8882,6 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
     -1.5px -1.5px 4px rgba(255, 255, 255, 0.85);
   z-index: 1;
   flex-shrink: 0;
-}
-
-.dark .plan-neu-node {
-  background: radial-gradient(circle at 30% 30%, rgba(255, 255, 255, 0.08), var(--plan-neu-bg));
-  box-shadow:
-    2px 2px 6px rgba(0, 0, 0, 0.38),
-    -1.5px -1.5px 4px rgba(255, 255, 255, 0.04);
 }
 
 .plan-neu-node--done {
@@ -9089,20 +8909,6 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
     inset 0 1px 0 rgba(255, 255, 255, 0.55);
 }
 
-.dark .plan-neu-card {
-  box-shadow:
-    3px 3px 11px rgba(0, 0, 0, 0.32),
-    -2px -2px 7px rgba(255, 255, 255, 0.03),
-    inset 0 1px 0 rgba(255, 255, 255, 0.05);
-}
-
-.dark .plan-neu-card:hover {
-  box-shadow:
-    4px 4px 14px rgba(0, 0, 0, 0.38),
-    -2px -2px 8px rgba(255, 255, 255, 0.04),
-    inset 0 1px 0 rgba(255, 255, 255, 0.06);
-}
-
 .plan-neu-thumb {
   border-radius: 8px;
   box-shadow:
@@ -9120,10 +8926,6 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
 /* 已开始：标题与时间（红字，与 planRowHasStarted 一致） */
 .plan-neu-started-text {
   color: #dc2626 !important;
-}
-
-.dark .plan-neu-started-text {
-  color: #f87171 !important;
 }
 
 /* 未完成：尾款倒计时条（拟态凹槽 + 紧迫色） */
@@ -9202,42 +9004,6 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
     inset -1px -1px 3px rgba(255, 255, 255, 0.25);
 }
 
-.dark .plan-neu-balance {
-  color: #93c5fd;
-  background: linear-gradient(
-    165deg,
-    rgba(30, 58, 138, 0.35),
-    rgba(37, 99, 235, 0.15)
-  );
-  box-shadow:
-    inset 2px 2px 8px rgba(0, 0, 0, 0.35),
-    inset -1px -1px 3px rgba(255, 255, 255, 0.05);
-}
-
-.dark .plan-neu-balance--urgent {
-  color: #fcd34d;
-  background: linear-gradient(
-    165deg,
-    rgba(120, 53, 15, 0.45),
-    rgba(180, 83, 9, 0.22)
-  );
-  box-shadow:
-    inset 2px 2px 8px rgba(0, 0, 0, 0.4),
-    0 0 0 1px rgba(245, 158, 11, 0.18);
-}
-
-.dark .plan-neu-balance--muted {
-  opacity: 0.65;
-  color: var(--plan-neu-text);
-}
-
-.dark .plan-neu-balance-date {
-  background: rgba(0, 0, 0, 0.2);
-  box-shadow:
-    inset 1px 1px 2px rgba(0, 0, 0, 0.25),
-    0 1px 0 rgba(255, 255, 255, 0.05);
-}
-
 .plan-neu-badge {
   font-size: 9px;
   font-weight: 700;
@@ -9249,11 +9015,6 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
   box-shadow:
     inset 1px 1px 2px rgba(0, 0, 0, 0.06),
     1px 1px 2px rgba(255, 255, 255, 0.2);
-}
-
-.dark .plan-neu-badge {
-  color: #6ee7b7;
-  background: linear-gradient(145deg, rgba(16, 185, 129, 0.2), var(--plan-neu-bg-deep));
 }
 
 .plan-neu-loadmore {
@@ -9281,18 +9042,6 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
   cursor: not-allowed;
 }
 
-.dark .plan-neu-loadmore {
-  box-shadow:
-    3px 3px 10px rgba(0, 0, 0, 0.32),
-    -2px -2px 6px rgba(255, 255, 255, 0.03);
-}
-
-.dark .plan-neu-loadmore:active:not(:disabled) {
-  box-shadow:
-    inset 2px 2px 6px rgba(0, 0, 0, 0.45),
-    inset -1px -1px 3px rgba(255, 255, 255, 0.04);
-}
-
 .plan-neu-icon-btn {
   width: 30px;
   height: 30px;
@@ -9313,18 +9062,6 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
   box-shadow:
     inset 2px 2px 5px rgba(163, 177, 198, 0.42),
     inset -1px -1px 3px rgba(255, 255, 255, 0.45);
-}
-
-.dark .plan-neu-icon-btn {
-  box-shadow:
-    3px 3px 10px rgba(0, 0, 0, 0.32),
-    -2px -2px 6px rgba(255, 255, 255, 0.03);
-}
-
-.dark .plan-neu-icon-btn:active {
-  box-shadow:
-    inset 2px 2px 6px rgba(0, 0, 0, 0.45),
-    inset -1px -1px 3px rgba(255, 255, 255, 0.04);
 }
 
 :global(.toolbar-config-ghost) {

@@ -138,62 +138,69 @@ const stagesFromPlanList = (
   return out
 }
 
-// 计算总金额
+// 计算总金额（有阶段时母计划金额 = 各阶段之和）
 const getListLength = computed(() => {
   if (list.value.length > 0) {
     let money = 0
     list.value.forEach((child) => {
-      money += parseInt(String(child.need_money || 0))
+      money += Number(child.need_money) || 0
     })
     form.value.need_money = money
   }
   return list.value.length
 })
 
-// 监听弹窗显示，初始化数据
-watch(show, (newValue) => {
-  if (newValue) {
-    if (props.enableLinkClothes) {
-      syncLinkedClothesFromPlan()
-    } else {
-      selectedLinkedClothes.value = null
-    }
-    if (props.planList) {
-      type.value = 1
-      const { plan_cover, plan_name, need_money, plan_note, have_money, end_time } = props.planList
-      
-      form.value.need_money = need_money || 0
-      form.value.plan_name = plan_name || ''
-      form.value.plan_note = plan_note || ''
-      form.value.have_money = have_money || 0
-      form.value.end_time = normalizeEndTime(end_time)
-      form.value.plan_cover = plan_cover || ''
-
-      nextTick(() => {
-        imagePickerRef.value?.clear()
-        const paths = parsePlanCoverPaths(plan_cover)
-        if (paths.length) {
-          imagePickerRef.value?.seedFromPaths(paths)
-        }
-      })
-
-      list.value = stagesFromPlanList(props.planList.plan_list, props.planList.list_id)
-    } else {
-      type.value = 0
-      form.value = {
-        plan_name: '',
-        need_money: props.initialNeedMoney > 0 ? props.initialNeedMoney : 0,
-        plan_note: '',
-        plan_cover: '',
-        have_money: 0,
-        end_time: null
-      }
-      list.value = []
-      nextTick(() => {
-        imagePickerRef.value?.clear()
-      })
-    }
+/** 按当前 props 初始化表单；须在父组件 planList 同步后再调用，避免编辑被当成新增 */
+const initFormFromProps = () => {
+  if (props.enableLinkClothes) {
+    syncLinkedClothesFromPlan()
+  } else {
+    selectedLinkedClothes.value = null
   }
+  if (props.planList) {
+    type.value = 1
+    const { plan_cover, plan_name, need_money, plan_note, have_money, end_time } = props.planList
+
+    form.value.need_money = need_money || 0
+    form.value.plan_name = plan_name || ''
+    form.value.plan_note = plan_note || ''
+    form.value.have_money = have_money || 0
+    form.value.end_time = normalizeEndTime(end_time)
+    form.value.plan_cover = plan_cover || ''
+
+    nextTick(() => {
+      imagePickerRef.value?.clear()
+      const paths = parsePlanCoverPaths(plan_cover)
+      if (paths.length) {
+        imagePickerRef.value?.seedFromPaths(paths)
+      }
+    })
+
+    list.value = stagesFromPlanList(props.planList.plan_list, props.planList.list_id)
+  } else {
+    type.value = 0
+    form.value = {
+      plan_name: '',
+      need_money: props.initialNeedMoney > 0 ? props.initialNeedMoney : 0,
+      plan_note: '',
+      plan_cover: '',
+      have_money: 0,
+      end_time: null
+    }
+    list.value = []
+    nextTick(() => {
+      imagePickerRef.value?.clear()
+    })
+  }
+}
+
+// 弹窗打开时等下一帧再读 props.planList（父组件常同步赋值后再 showModel）
+watch(show, (newValue) => {
+  if (!newValue) return
+  nextTick(() => {
+    if (!show.value) return
+    initFormFromProps()
+  })
 })
 
 // 删除阶段

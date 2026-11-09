@@ -9,6 +9,7 @@
     "build": "nuxt build",
     "generate": "nuxt generate",
     "preview": "nuxt preview",
+    "deploy:assets": "node ./scripts/upload-nuxt-assets-to-oss.mjs",
     "postinstall": "nuxt prepare"
   },
   "dependencies": {

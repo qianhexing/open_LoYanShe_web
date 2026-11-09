@@ -1509,19 +1509,17 @@ const scrollToStatistics = () => {
 }
 
 // 打开添加计划弹窗
-const openAddPlan = (event?: MouseEvent) => {
+const openAddPlan = async (event?: MouseEvent) => {
   editPlanData.value = null
-  if (planAddEditRef.value) {
-    planAddEditRef.value.showModel(event)
-  }
+  await nextTick()
+  planAddEditRef.value?.showModel(event)
 }
 
-// 编辑计划
-const editPlan = (item: PlanList) => {
+// 编辑计划（先写入 planList 再打开弹窗，避免子组件读到旧 props）
+const editPlan = async (item: PlanList) => {
   editPlanData.value = item
-  if (planAddEditRef.value) {
-    planAddEditRef.value.showModel()
-  }
+  await nextTick()
+  planAddEditRef.value?.showModel()
 }
 
 // 处理计划点击
@@ -1784,23 +1782,85 @@ const getTimeDifferenceText = (endTime: Date | string | undefined): string => {
 let planSuccessTimer: ReturnType<typeof setTimeout> | null = null
 let pendingPlanAfterMutation: PlanList | null = null
 
-const applyPlanContextAfterMutation = (plan?: PlanList | null) => {
-  if (!plan?.end_time || viewMode.value === 'all') return
-
+/** 新增/更新后写入当前年份的月份缓存（不影响选中态） */
+const upsertIntoMonthPlanList = (plan: PlanList) => {
+  if (!plan.end_time || !plan.list_id) return
   const end = dayjs(plan.end_time)
-  yearSelect.value = end.year()
+  if (end.year() !== yearSelect.value) return
+  const month = end.month() + 1
+  const current = monthPlanList.value[month]
+  if (!current) return
 
-  if (viewMode.value === 'month') {
-    const month = end.month() + 1
-    expandedMonth.value = month
-    dayMonthSelect.value = month
-  } else if (viewMode.value === 'day') {
-    dayMonthSelect.value = end.month() + 1
-    expandedDay.value = end.date()
+  const withParentMeta = (child: PlanList): PlanList => ({
+    ...child,
+    parent_id: plan.list_id,
+    parent_plan: {
+      list_id: plan.list_id,
+      plan_name: plan.plan_name,
+      plan_cover: plan.plan_cover,
+      need_money: plan.need_money,
+      have_money: plan.have_money,
+      end_time: plan.end_time
+    }
+  })
+
+  let next = [...current]
+  if (plan.plan_list?.length) {
+    // 按月接口只返回叶子：有子计划时写入/更新子项
+    for (const child of plan.plan_list) {
+      if (!child.list_id) continue
+      const row = withParentMeta(child)
+      const idx = next.findIndex((item) => item.list_id === child.list_id)
+      if (idx >= 0) next[idx] = mergePlanUpdate(next[idx], row)
+      else next = [row, ...next]
+    }
+    // 母计划本身不应出现在叶子列表
+    next = next.filter((item) => item.list_id !== plan.list_id)
+  } else {
+    const idx = next.findIndex((item) => item.list_id === plan.list_id)
+    if (idx >= 0) next[idx] = mergePlanUpdate(next[idx], plan)
+    else next = [plan, ...next]
   }
+  monthPlanList.value = { ...monthPlanList.value, [month]: next }
 }
 
-// 计划添加/编辑成功后的回调
+/** 新增/编辑成功后就地更新本地列表，不强制跳月份 */
+const applyLocalPlanMutation = (plan: PlanList) => {
+  if (!plan.list_id) return
+
+  const existing = findPlanByIdInAll(plan.list_id)
+  if (existing) {
+    applyPlanPatch(plan.list_id, (item) => mergePlanUpdate(item, plan))
+    if (plan.plan_list?.length) {
+      for (const child of plan.plan_list) {
+        if (!child.list_id) continue
+        applyPlanPatch(child.list_id, (item) => mergePlanUpdate(item, child))
+      }
+    }
+    syncParentAfterChildMutation(plan.list_id, plan)
+    upsertIntoMonthPlanList(plan)
+    return
+  }
+
+  // 新增顶级计划
+  if (!plan.parent_id || Number(plan.parent_id) === 0) {
+    planList.value = [plan, ...planList.value]
+    total.value += 1
+    bumpStatistics({
+      total_plan: (statistics.value?.total_plan || 0) + 1,
+      need_money: (statistics.value?.need_money || 0) + (Number(plan.need_money) || 0),
+      have_money: (statistics.value?.have_money || 0) + (Number(plan.have_money) || 0)
+    })
+    if (plan.list_id && hasChildren(plan)) {
+      const next = new Set(expandedPlans.value)
+      next.add(plan.list_id)
+      expandedPlans.value = next
+    }
+  }
+  upsertIntoMonthPlanList(plan)
+}
+
+// 计划添加/编辑成功后的回调：就地更新 + 静默同步汇总，保留当前月份/日期选中
 const handlePlanSuccess = (plan?: PlanList) => {
   editPlanData.value = null
   if (plan?.list_id) {
@@ -1812,8 +1872,21 @@ const handlePlanSuccess = (plan?: PlanList) => {
     planSuccessTimer = null
     const latestPlan = pendingPlanAfterMutation
     pendingPlanAfterMutation = null
-    applyPlanContextAfterMutation(latestPlan)
-    await refreshAfterMutation()
+
+    if (latestPlan?.list_id) {
+      applyLocalPlanMutation(latestPlan)
+    }
+
+    // 不清空选中月份；仅静默刷新汇总，并刷新当前可见列表数据
+    void syncCalendarTotalsSilently()
+    if (hasCalendarSelection.value) {
+      await refreshFilteredPlans()
+    } else if (viewMode.value === 'all') {
+      await fetchPlanList(false, true)
+    } else {
+      // 月/日视图未选中时展示的是主列表，后台对齐一次即可
+      void fetchPlanList(false, true)
+    }
   }, 0)
 }
 

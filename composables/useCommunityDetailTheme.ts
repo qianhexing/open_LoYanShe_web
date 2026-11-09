@@ -68,9 +68,12 @@ export function useCommunityDetailTheme(detail: Ref<CustomThemeEntity | null | u
     backgroundPosition: 'center',
   }))
 
-  const pageContentStyle = computed(() => ({
-    color: customStyle.value?.fontColor || 'inherit',
-  }))
+  // 仅在配置了 fontColor 时写入；勿用 inherit 内联覆盖 text-qhx-text，
+  // 否则 iOS 暗色下会继承 UA 默认浅色字，把衣柜字色一起改掉
+  const pageContentStyle = computed(() => {
+    const fontColor = customStyle.value?.fontColor
+    return fontColor ? { color: fontColor } : {}
+  })
 
   return {
     customStyle,

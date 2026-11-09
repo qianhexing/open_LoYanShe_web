@@ -60,6 +60,7 @@ export default defineNuxtConfig({
 	nitro: {
 		routeRules: {
 			'/wardrobe/**': { ssr: false },
+			'/clothes/detail/**': { ssr: false },
 			'/community/detail/**': { ssr: false },
 			'/community/post': { ssr: false },
 			'/node/**': {
@@ -91,12 +92,19 @@ export default defineNuxtConfig({
 		}
 	},
 	app: {
+		// 生产构建后把 .output/public 同步到 OSS 前缀 tool/nuxt/，与本 CDN 对齐
+		cdnURL: process.env.NUXT_APP_CDN_URL
+			|| (process.env.NODE_ENV === 'production'
+				? 'https://image.lolitalibrary.com/tool/nuxt/'
+				: ''),
     head: {
 			meta: [
         { 
           name: 'viewport', 
           content: 'width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no, viewport-fit=cover' 
-        }
+        },
+        // 阻止 iOS Safari / WKWebView 在系统暗色下改写默认文字色与表单控件色
+        { name: 'color-scheme', content: 'light only' },
       ],
       script: [
         // 只在生产环境加载百度统计
@@ -150,7 +158,8 @@ export default defineNuxtConfig({
 		dirs: ['stores', 'directives']
   },
 	colorMode: {
-		preference: 'system',
+		// 全站强制浅色：勿用 system，否则 iOS 暗色会挂 .dark 并改写字体色
+		preference: 'light',
 		fallback: 'light',
 		classSuffix: ''
 	},

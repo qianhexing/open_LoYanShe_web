@@ -4,6 +4,9 @@
 
 /* 全局滚动条 —— 与主题色、深色模式一致 */
 :root {
+	/* only light：禁止 WebKit 在系统暗色下覆盖默认文字/背景色 */
+	color-scheme: only light;
+	supported-color-schemes: light;
 	--scrollbar-size: 8px;
 	--scrollbar-track: rgb(243 244 246 / 0.85);
 	--scrollbar-thumb: rgb(209 213 219 / 0.95);

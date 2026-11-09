@@ -1,4 +1,8 @@
 <script setup lang="ts">
+definePageMeta({
+  ssr: false,
+})
+
 import { nextTick } from 'vue'
 import type { WardrobeClothes, Library, Shop, Wardrobe, Scene, Community } from '@/types/api'
 
@@ -766,17 +770,17 @@ const favoriteLevelDisplay = computed(() => {
 
 /** 详情区喜爱星级：新拟态容器 */
 const favoriteNeuPanel =
-  'inline-flex items-center gap-0.5 rounded-2xl border border-white/55 bg-[#e8eaf0] px-2 py-1 shadow-[4px_4px_10px_rgb(163_177_198/0.45),-3px_-3px_10px_rgb(255_255_255/0.9),inset_0_1px_1px_rgb(255_255_255/0.8)] dark:border-white/[0.08] dark:bg-[#3d4354] dark:shadow-[5px_5px_12px_rgb(0_0_0/0.45),-4px_-4px_12px_rgb(255_255_255/0.05),inset_0_1px_1px_rgb(255_255_255/0.06)]'
+  'inline-flex items-center gap-0.5 rounded-2xl border border-white/55 bg-[#e8eaf0] px-2 py-1 shadow-[4px_4px_10px_rgb(163_177_198/0.45),-3px_-3px_10px_rgb(255_255_255/0.9),inset_0_1px_1px_rgb(255_255_255/0.8)]'
 
 const favoriteNeuMiniBtn =
-  'rounded-xl border border-white/50 bg-[#e8eaf0] px-2.5 py-1 text-xs font-medium text-gray-600 shadow-[3px_3px_8px_rgb(163_177_198/0.4),-2px_-2px_8px_rgb(255_255_255/0.85)] transition-all hover:text-gray-800 active:shadow-[inset_2px_2px_6px_rgb(163_177_198/0.45)] dark:border-white/[0.08] dark:bg-[#3d4354] dark:text-gray-300 dark:shadow-[4px_4px_10px_rgb(0_0_0/0.4),-3px_-3px_10px_rgb(255_255_255/0.04)] dark:hover:text-gray-100 dark:active:shadow-[inset_2px_2px_8px_rgb(0_0_0/0.35)]'
+  'rounded-xl border border-white/50 bg-[#e8eaf0] px-2.5 py-1 text-xs font-medium text-gray-600 shadow-[3px_3px_8px_rgb(163_177_198/0.4),-2px_-2px_8px_rgb(255_255_255/0.85)] transition-all hover:text-gray-800 active:shadow-[inset_2px_2px_6px_rgb(163_177_198/0.45)]'
 
 /** 铭牌排版（参考数字展馆）：仅字体/字距/行高，不改布局与配色 */
 const clothesPlateTitle = 'font-serif tracking-wide leading-snug'
-const clothesPlateLabelMuted = 'text-sm shrink-0 font-serif tracking-wider text-gray-600 dark:text-gray-400'
+const clothesPlateLabelMuted = 'text-sm shrink-0 font-serif tracking-wider text-gray-600'
 const clothesPlateLabel = 'text-sm shrink-0 font-serif tracking-wider'
 const clothesPlateRow = 'text-sm leading-relaxed'
-const clothesPlateSectionSm = 'text-sm font-semibold font-serif tracking-wide text-gray-700 dark:text-gray-300'
+const clothesPlateSectionSm = 'text-sm font-semibold font-serif tracking-wide text-gray-700'
 const clothesPlateSectionLg = 'text-lg font-semibold font-serif tracking-wide mb-3'
 const clothesPlateName = 'font-semibold font-serif leading-snug'
 
@@ -2022,7 +2026,7 @@ const showEditPlan = (e?: MouseEvent) => {
     <button
       v-if="detail"
       type="button"
-      class="clothes-back-btn fixed z-[55] flex h-9 w-9 items-center justify-center rounded-full bg-black/55 text-white shadow-lg backdrop-blur-md transition-opacity hover:bg-black/65 hover:opacity-90 active:scale-95 dark:bg-white/20 dark:hover:bg-white/30"
+      class="clothes-back-btn fixed z-[55] flex h-9 w-9 items-center justify-center rounded-full bg-black/55 text-white shadow-lg backdrop-blur-md transition-opacity hover:bg-black/65 hover:opacity-90 active:scale-95"
       :class="hideBackBtnVisual && 'invisible pointer-events-none'"
       :style="clothesBackBtnStyle"
       aria-label="返回"
@@ -2114,15 +2118,15 @@ const showEditPlan = (e?: MouseEvent) => {
 
     <QhxModal v-model="showMemoryListModal">
       <div
-        class="w-[95vw] max-w-3xl h-[90vh] max-h-[90vh] bg-white dark:bg-gray-800 rounded-2xl shadow-2xl overflow-hidden flex flex-col border border-gray-200/50 dark:border-gray-700/50 backdrop-blur-xl"
+        class="w-[95vw] max-w-3xl h-[90vh] max-h-[90vh] bg-white rounded-2xl shadow-2xl overflow-hidden flex flex-col border border-gray-200/50 backdrop-blur-xl"
       >
         <div
-          class="flex items-center justify-between px-4 py-3 md:px-6 md:py-4 border-b border-gray-200 dark:border-gray-700 flex-shrink-0 bg-gradient-to-r from-pink-50/90 to-purple-50/80 dark:from-gray-800 dark:to-gray-800"
+          class="flex items-center justify-between px-4 py-3 md:px-6 md:py-4 border-b border-gray-200 flex-shrink-0 bg-gradient-to-r from-pink-50/90 to-purple-50/80"
         >
-          <h3 class="text-base md:text-lg font-semibold text-gray-900 dark:text-gray-100">记忆</h3>
+          <h3 class="text-base md:text-lg font-semibold text-gray-900">记忆</h3>
           <button
             type="button"
-            class="w-9 h-9 flex items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500"
+            class="w-9 h-9 flex items-center justify-center rounded-full hover:bg-gray-100 text-gray-500"
             aria-label="关闭"
             @click="showMemoryListModal = false"
           >
@@ -2130,7 +2134,7 @@ const showEditPlan = (e?: MouseEvent) => {
           </button>
         </div>
         <div class="p-2 md:p-6 overflow-y-auto flex-1 min-h-0">
-          <p class="text-sm text-gray-500 dark:text-gray-400 text-center mb-3">
+          <p class="text-sm text-gray-500 text-center mb-3">
             发帖记录你与小裙子之间的美好记忆
           </p>
           <div class="flex flex-wrap gap-2 justify-center mb-4">
@@ -2171,15 +2175,15 @@ const showEditPlan = (e?: MouseEvent) => {
 
     <QhxModal v-model="showMatchingListModal">
       <div
-        class="w-[95vw] max-w-3xl h-[90vh] max-h-[90vh] bg-white dark:bg-gray-800 rounded-2xl shadow-2xl overflow-hidden flex flex-col border border-gray-200/50 dark:border-gray-700/50 backdrop-blur-xl"
+        class="w-[95vw] max-w-3xl h-[90vh] max-h-[90vh] bg-white rounded-2xl shadow-2xl overflow-hidden flex flex-col border border-gray-200/50 backdrop-blur-xl"
       >
         <div
-          class="flex items-center justify-between px-4 py-3 md:px-6 md:py-4 border-b border-gray-200 dark:border-gray-700 flex-shrink-0 bg-gradient-to-r from-purple-50/90 to-pink-50/80 dark:from-gray-800 dark:to-gray-800"
+          class="flex items-center justify-between px-4 py-3 md:px-6 md:py-4 border-b border-gray-200 flex-shrink-0 bg-gradient-to-r from-purple-50/90 to-pink-50/80"
         >
-          <h3 class="text-base md:text-lg font-semibold text-gray-900 dark:text-gray-100">搭配</h3>
+          <h3 class="text-base md:text-lg font-semibold text-gray-900">搭配</h3>
           <button
             type="button"
-            class="w-9 h-9 flex items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500"
+            class="w-9 h-9 flex items-center justify-center rounded-full hover:bg-gray-100 text-gray-500"
             aria-label="关闭"
             @click="showMatchingListModal = false"
           >
@@ -2187,7 +2191,7 @@ const showEditPlan = (e?: MouseEvent) => {
           </button>
         </div>
         <div class="p-2 md:p-6 overflow-y-auto flex-1 min-h-0">
-          <p class="text-sm text-gray-500 dark:text-gray-400 text-center mb-3">
+          <p class="text-sm text-gray-500 text-center mb-3">
             包含本条裙子的搭配清单
           </p>
           <div class="flex flex-wrap gap-2 justify-center mb-4">
@@ -2210,7 +2214,7 @@ const showEditPlan = (e?: MouseEvent) => {
           </div>
           <div
             v-else-if="matchingListItems.length === 0"
-            class="text-center py-12 text-sm text-gray-500 dark:text-gray-400"
+            class="text-center py-12 text-sm text-gray-500"
           >
             暂无包含本条裙子的搭配
           </div>
@@ -2218,10 +2222,10 @@ const showEditPlan = (e?: MouseEvent) => {
             <div
               v-for="item in matchingListItems"
               :key="item.matching_id"
-              class="group flex items-stretch gap-3 p-3 rounded-2xl bg-white/80 dark:bg-gray-900/40 border border-gray-200/70 dark:border-gray-700/60 cursor-pointer transition-all duration-200 hover:border-qhx-primary/35 hover:shadow-md hover:shadow-qhx-primary/10 dark:hover:border-pink-400/30"
+              class="group flex items-stretch gap-3 p-3 rounded-2xl bg-white/80 border border-gray-200/70 cursor-pointer transition-all duration-200 hover:border-qhx-primary/35 hover:shadow-md hover:shadow-qhx-primary/10"
               @click="jumpToMatchingDetail(item)"
             >
-              <div class="relative w-[4.5rem] h-[4.5rem] shrink-0 rounded-xl overflow-hidden bg-gray-100 dark:bg-gray-700 ring-1 ring-black/5 dark:ring-white/10">
+              <div class="relative w-[4.5rem] h-[4.5rem] shrink-0 rounded-xl overflow-hidden bg-gray-100 ring-1 ring-black/5">
                 <img
                   v-if="getMatchingCover(item)"
                   :src="`${BASE_IMG}${getMatchingCover(item)}?x-oss-process=image/quality,q_80/resize,w_200`"
@@ -2236,13 +2240,13 @@ const showEditPlan = (e?: MouseEvent) => {
                 </div>
               </div>
               <div class="flex-1 min-w-0 flex flex-col justify-center gap-1 py-0.5">
-                <div class="font-medium text-[15px] text-gray-900 dark:text-gray-100 line-clamp-1">
+                <div class="font-medium text-[15px] text-gray-900 line-clamp-1">
                   {{ item.note || '未命名搭配' }}
                 </div>
-                <div v-if="item.main_style" class="text-xs text-qhx-primary/90 dark:text-pink-300/90 line-clamp-1">
+                <div v-if="item.main_style" class="text-xs text-qhx-primary/90 line-clamp-1">
                   {{ item.main_style.split(',').map((s) => `★${s}`).join(' ') }}
                 </div>
-                <div v-if="item.user_name" class="text-xs text-gray-400 dark:text-gray-500 line-clamp-1">
+                <div v-if="item.user_name" class="text-xs text-gray-400 line-clamp-1">
                   {{ item.user_name }}
                 </div>
                 <div
@@ -2261,7 +2265,7 @@ const showEditPlan = (e?: MouseEvent) => {
               <button
                 v-if="isMyMatchingItem(item)"
                 type="button"
-                class="shrink-0 self-center w-8 h-8 flex items-center justify-center rounded-full text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+                class="shrink-0 self-center w-8 h-8 flex items-center justify-center rounded-full text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors"
                 aria-label="删除搭配"
                 @click.stop="openDeleteMatchingConfirm(item)"
               >
@@ -2486,7 +2490,7 @@ const showEditPlan = (e?: MouseEvent) => {
                   <!-- 信息内容 -->
                   <div class="clothes-detail-plate space-y-3">
                     <!-- 笔记 -->
-                    <div v-if="detail.note" :class="[clothesPlateRow, 'text-gray-600 dark:text-gray-400']">
+                    <div v-if="detail.note" :class="[clothesPlateRow, 'text-gray-600']">
                       笔记：{{ detail.note }}
                     </div>
 
@@ -2496,11 +2500,11 @@ const showEditPlan = (e?: MouseEvent) => {
                       <div v-if="isOwner" class="flex flex-wrap items-center gap-2">
                         <div :class="favoriteNeuPanel">
                           <button v-for="s in 5" :key="s" type="button"
-                            class="text-2xl leading-none rounded-lg p-1 transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-qhx-primary active:shadow-[inset_2px_2px_6px_rgb(163_177_198/0.5)] dark:active:shadow-[inset_2px_2px_8px_rgb(0_0_0/0.35)]"
+                            class="text-2xl leading-none rounded-lg p-1 transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-qhx-primary active:shadow-[inset_2px_2px_6px_rgb(163_177_198/0.5)]"
                             :aria-label="`设为 ${s} 星`" @click="setFavoriteLevel(s)">
                             <UIcon
                               :name="favoriteLevelDisplay >= s ? 'i-heroicons-star-solid' : 'i-heroicons-star'"
-                              :class="favoriteLevelDisplay >= s ? 'text-amber-500 dark:text-amber-400' : 'text-[#a3adbd] dark:text-gray-500'" />
+                              :class="favoriteLevelDisplay >= s ? 'text-amber-500' : 'text-[#a3adbd]'" />
                           </button>
                         </div>
                         <button v-if="favoriteLevelDisplay > 0" type="button" :class="favoriteNeuMiniBtn"
@@ -2512,8 +2516,8 @@ const showEditPlan = (e?: MouseEvent) => {
                         <UIcon v-for="s in 5" :key="s"
                           :name="favoriteLevelDisplay >= s ? 'i-heroicons-star-solid' : 'i-heroicons-star'"
                           class="text-xl"
-                          :class="favoriteLevelDisplay >= s ? 'text-amber-500 dark:text-amber-400' : 'text-[#a3adbd] dark:text-gray-500'" />
-                        <span class="text-sm text-gray-700 dark:text-gray-200">（{{ favoriteLevelDisplay }} 星）</span>
+                          :class="favoriteLevelDisplay >= s ? 'text-amber-500' : 'text-[#a3adbd]'" />
+                        <span class="text-sm text-gray-700">（{{ favoriteLevelDisplay }} 星）</span>
                       </div>
                     </div>
 
@@ -2567,7 +2571,7 @@ const showEditPlan = (e?: MouseEvent) => {
                       <template v-if="detail.price">价格：￥{{ detail.price }}</template>
                       <div
                         v-if="planPriceDisplay"
-                        class="text-gray-500 dark:text-gray-400"
+                        class="text-gray-500"
                         :class="{ 'mt-0.5': detail.price }"
                       >
                         <template v-if="planPriceDisplay.kind === 'breakdown'">
@@ -2674,7 +2678,7 @@ const showEditPlan = (e?: MouseEvent) => {
                           v-if="isOwner"
                           type="button"
                           class="clothes-detail-sort-toggle text-xs px-2 py-1 rounded transition-colors"
-                          :class="sortMode ? 'bg-red-500 text-white' : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600'"
+                          :class="sortMode ? 'bg-red-500 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'"
                           @click="sortMode = !sortMode">
                           {{ sortMode ? '退出排序' : '排序模式' }}
                         </button>
@@ -2683,7 +2687,7 @@ const showEditPlan = (e?: MouseEvent) => {
                         <li
                           v-for="(item, index) in detail.include"
                           :key="item.clothes_id"
-                          class="flex items-center gap-3 p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800/50 transition-colors"
+                          class="flex items-center gap-3 p-2 rounded-lg hover:bg-gray-100 transition-colors"
                           :class="{ 'cursor-pointer': !sortMode }"
                           @click="!sortMode && jumpToClothes(item)">
                           <img
@@ -2702,20 +2706,20 @@ const showEditPlan = (e?: MouseEvent) => {
                               <button
                                 v-if="index !== 0"
                                 type="button"
-                                class="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700"
+                                class="p-1 rounded hover:bg-gray-200"
                                 @click.stop="upItem(index)">
                                 <UIcon name="i-heroicons-chevron-up" class="w-4 h-4" />
                               </button>
                               <button
                                 v-if="index < detail.include.length - 1"
                                 type="button"
-                                class="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700"
+                                class="p-1 rounded hover:bg-gray-200"
                                 @click.stop="downItem(index)">
                                 <UIcon name="i-heroicons-chevron-down" class="w-4 h-4" />
                               </button>
                               <button
                                 type="button"
-                                class="p-1 rounded hover:bg-red-100 dark:hover:bg-red-900/30 text-red-500"
+                                class="p-1 rounded hover:bg-red-100 text-red-500"
                                 @click.stop="selectedClothes = item; showDeleteLinkModal = true">
                                 <UIcon name="i-heroicons-x-mark" class="w-4 h-4" />
                               </button>
@@ -2727,16 +2731,16 @@ const showEditPlan = (e?: MouseEvent) => {
                     </div>
                     <div
                       v-if="includeOutfitPriceBreakdown"
-                      class="rounded-lg bg-gradient-to-r from-qhx-primary/20 via-orange-50 to-amber-50 py-1 text-sm font-semibold font-serif leading-snug text-gray-900 dark:from-qhx-primary/35 dark:via-amber-950/50 dark:to-orange-950/40 dark:text-gray-50"
+                      class="rounded-lg bg-gradient-to-r from-qhx-primary/20 via-orange-50 to-amber-50 py-1 text-sm font-semibold font-serif leading-snug text-gray-900"
                     >
                       <template v-if="includeOutfitPriceBreakdown.segmentPrices.length">
                         总价：<template v-for="(p, i) in includeOutfitPriceBreakdown.segmentPrices" :key="i">
                           <template v-if="i > 0"> + </template>
-                          <span class="text-qhx-primary dark:text-qhx-primary">￥{{ p }}</span>
+                          <span class="text-qhx-primary">￥{{ p }}</span>
                         </template>
-                        <span class="text-qhx-primary dark:text-qhx-primary"> = ￥{{ includeOutfitPriceBreakdown.total }}</span>
+                        <span class="text-qhx-primary"> = ￥{{ includeOutfitPriceBreakdown.total }}</span>
                       </template>
-                      <template v-else><span class="text-qhx-primary dark:text-qhx-primary">总价：￥0</span></template>
+                      <template v-else><span class="text-qhx-primary">总价：￥0</span></template>
                     </div>
                     <!-- 来源 -->
                     <div v-if="!detail.library && !detail.origin_shop && detail.origin" :class="clothesPlateRow">
@@ -2746,8 +2750,8 @@ const showEditPlan = (e?: MouseEvent) => {
                     <!-- 尾款计划 -->
                     <div v-if="detail.plan_id || detail.plan" class="border-t pt-3 mt-3">
                       <div class="flex items-center gap-2 mb-2">
-                        <UIcon name="material-symbols:savings-rounded" class="text-amber-500 dark:text-amber-400 text-lg" />
-                        <span class="text-sm font-semibold font-serif tracking-wide text-amber-700 dark:text-amber-300">尾款计划</span>
+                        <UIcon name="material-symbols:savings-rounded" class="text-amber-500 text-lg" />
+                        <span class="text-sm font-semibold font-serif tracking-wide text-amber-700">尾款计划</span>
                         <!-- 计划操作按钮（仅所有者） -->
                         <div v-if="isOwner" class="flex items-center gap-1 ml-auto">
                           <template v-if="detail.plan?.is_complete !== 1">
@@ -2760,7 +2764,7 @@ const showEditPlan = (e?: MouseEvent) => {
                             </button>
                             <button
                               type="button"
-                              class="p-1 rounded text-amber-600 hover:bg-amber-100 dark:hover:bg-amber-900/30"
+                              class="p-1 rounded text-amber-600 hover:bg-amber-100"
                               title="编辑"
                               @click="showEditPlan"
                             >
@@ -2768,7 +2772,7 @@ const showEditPlan = (e?: MouseEvent) => {
                             </button>
                             <button
                               type="button"
-                              class="p-1 rounded text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20"
+                              class="p-1 rounded text-red-500 hover:bg-red-50"
                               title="移除"
                               @click="confirmRemovePlan"
                             >
@@ -2777,7 +2781,7 @@ const showEditPlan = (e?: MouseEvent) => {
                           </template>
                           <button
                             type="button"
-                            class="p-1 rounded text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20"
+                            class="p-1 rounded text-red-500 hover:bg-red-50"
                             title="删除计划"
                             @click="confirmDeletePlan"
                           >
@@ -2785,29 +2789,29 @@ const showEditPlan = (e?: MouseEvent) => {
                           </button>
                         </div>
                       </div>
-                      <div class="p-3 rounded-xl bg-amber-50/80 dark:bg-amber-900/20 border border-amber-200/60 dark:border-amber-700/50 space-y-2">
+                      <div class="p-3 rounded-xl bg-amber-50/80 border border-amber-200/60 space-y-2">
                         <div class="flex items-center justify-between">
-                          <span class="text-sm text-gray-600 dark:text-gray-400">{{ detail.plan?.plan_name || '尾款计划' }}</span>
-                          <span class="text-base font-bold text-amber-600 dark:text-amber-400">￥{{ detail.plan?.need_money ?? 0 }}</span>
+                          <span class="text-sm text-gray-600">{{ detail.plan?.plan_name || '尾款计划' }}</span>
+                          <span class="text-base font-bold text-amber-600">￥{{ detail.plan?.need_money ?? 0 }}</span>
                         </div>
-                        <div v-if="detail.plan?.have_money != null" class="text-xs text-gray-500 dark:text-gray-400">
+                        <div v-if="detail.plan?.have_money != null" class="text-xs text-gray-500">
                           已攒：￥{{ detail.plan.have_money }}
                         </div>
-                        <div v-if="detail.plan?.end_time" class="text-xs text-gray-500 dark:text-gray-400">
+                        <div v-if="detail.plan?.end_time" class="text-xs text-gray-500">
                           尾款时间：{{ formatDate(detail.plan.end_time) }}
                         </div>
                         <!-- 子计划列表 -->
                         <div
                           v-if="detail.plan?.plan_list && detail.plan.plan_list.length > 0"
-                          class="ml-2 pl-2 border-l-2 border-amber-200/60 dark:border-amber-600/40 space-y-1 mt-2"
+                          class="ml-2 pl-2 border-l-2 border-amber-200/60 space-y-1 mt-2"
                         >
                           <div
                             v-for="(child, idx) in detail.plan.plan_list"
                             :key="child.list_id ?? idx"
                             class="flex items-center justify-between gap-2 text-xs"
                           >
-                            <span class="text-gray-600 dark:text-gray-400 flex-1 truncate">{{ child.plan_note || `阶段 ${idx + 1}` }}</span>
-                            <span class="text-amber-600 dark:text-amber-400 font-medium flex-shrink-0">￥{{ child.need_money ?? 0 }}</span>
+                            <span class="text-gray-600 flex-1 truncate">{{ child.plan_note || `阶段 ${idx + 1}` }}</span>
+                            <span class="text-amber-600 font-medium flex-shrink-0">￥{{ child.need_money ?? 0 }}</span>
                             <button
                               v-if="isOwner && child.is_complete !== 1"
                               type="button"
@@ -2822,7 +2826,7 @@ const showEditPlan = (e?: MouseEvent) => {
                         <!-- <NuxtLink
                           v-if="detail.plan?.list_id"
                           :to="`/user/plan`"
-                          class="inline-flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400 hover:underline"
+                          class="inline-flex items-center gap-1 text-xs text-amber-600 hover:underline"
                         >
                           查看计划详情
                           <UIcon name="i-heroicons-arrow-right" class="text-xs" />
@@ -2832,8 +2836,8 @@ const showEditPlan = (e?: MouseEvent) => {
                     <!-- 无计划时显示添加按钮 -->
                     <div v-else-if="isOwner" class="border-t pt-3 mt-3">
                       <div class="flex items-center gap-2 mb-2">
-                        <UIcon name="material-symbols:savings-rounded" class="text-amber-500 dark:text-amber-400 text-lg" />
-                        <span class="text-sm font-semibold font-serif tracking-wide text-amber-700 dark:text-amber-300">尾款计划</span>
+                        <UIcon name="material-symbols:savings-rounded" class="text-amber-500 text-lg" />
+                        <span class="text-sm font-semibold font-serif tracking-wide text-amber-700">尾款计划</span>
                       </div>
                       <button
                         type="button"
@@ -2895,7 +2899,7 @@ const showEditPlan = (e?: MouseEvent) => {
                     <!-- 来源店铺 -->
                     <div v-if="detail.origin_shop" class="border-t pt-3 mt-3">
                       <h3 :class="clothesPlateSectionLg">来源店铺</h3>
-                      <div class="clothes-scene-glass-panel flex items-center gap-3 cursor-pointer p-3 rounded-lg transition-colors hover:bg-white/30 dark:hover:bg-white/10"
+                      <div class="clothes-scene-glass-panel flex items-center gap-3 cursor-pointer p-3 rounded-lg transition-colors hover:bg-white/30"
                         @click="jumpToShop(detail.origin_shop!.shop_id)">
                         <img :src="BASE_IMG + detail.origin_shop.shop_logo" class="w-12 h-12 rounded-full object-cover"
                           :alt="detail.origin_shop.shop_name" />
@@ -2970,18 +2974,18 @@ const showEditPlan = (e?: MouseEvent) => {
                           {{ isShared ? '已共享' : '未共享' }}
                         </span>
                       </div>
-                      <p v-if="isShared" class="mt-2 text-xs text-amber-600 dark:text-amber-400">
+                      <p v-if="isShared" class="mt-2 text-xs text-amber-600">
                         当前为共享状态，服饰数据公开，其他用户可以直接导入
                       </p>
-                      <p v-else class="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                      <p v-else class="mt-2 text-xs text-gray-500">
                         开启后可以向其他用户共享该服饰数据！
                       </p>
-                      <div v-if="isShared" class="flex items-center gap-6 mt-3 pt-3 border-t border-gray-100 dark:border-gray-700">
-                        <span class="inline-flex items-center gap-1.5 text-sm text-gray-600 dark:text-gray-400">
+                      <div v-if="isShared" class="flex items-center gap-6 mt-3 pt-3 border-t border-gray-100">
+                        <span class="inline-flex items-center gap-1.5 text-sm text-gray-600">
                           <UIcon name="i-heroicons-heart" class="text-red-500" />
                           赞数 {{ displayGoodCount }}
                         </span>
-                        <span class="inline-flex items-center gap-1.5 text-sm text-gray-600 dark:text-gray-400">
+                        <span class="inline-flex items-center gap-1.5 text-sm text-gray-600">
                           <UIcon name="i-heroicons-link" class="text-qhx-primary" />
                           引用数 {{ displayCitationCount }}
                         </span>
@@ -3053,12 +3057,12 @@ const showEditPlan = (e?: MouseEvent) => {
                                 <UIcon name="i-heroicons-x-mark" class="text-xs font-bold" />
                               </div>
                               <div v-if="isOwner && sortMode && index < detail.include.length - 1"
-                                class="absolute top-1/2 -right-0.5 -translate-y-1/2 w-6 h-6 rounded-full bg-white/95 dark:bg-gray-800/95 backdrop-blur-sm text-qhx-primary flex items-center justify-center cursor-pointer z-10 shadow-md ring-1 ring-black/5 transition-all hover:scale-110 hover:shadow-lg"
+                                class="absolute top-1/2 -right-0.5 -translate-y-1/2 w-6 h-6 rounded-full bg-white/95 backdrop-blur-sm text-qhx-primary flex items-center justify-center cursor-pointer z-10 shadow-md ring-1 ring-black/5 transition-all hover:scale-110 hover:shadow-lg"
                                 @click.stop="downItem(index)">
                                 <UIcon name="i-heroicons-chevron-right" class="text-sm font-bold" />
                               </div>
                               <div v-if="isOwner && sortMode && index !== 0"
-                                class="absolute top-1/2 -left-0.5 -translate-y-1/2 w-6 h-6 rounded-full bg-white/95 dark:bg-gray-800/95 backdrop-blur-sm text-qhx-primary flex items-center justify-center cursor-pointer z-10 shadow-md ring-1 ring-black/5 transition-all hover:scale-110 hover:shadow-lg"
+                                class="absolute top-1/2 -left-0.5 -translate-y-1/2 w-6 h-6 rounded-full bg-white/95 backdrop-blur-sm text-qhx-primary flex items-center justify-center cursor-pointer z-10 shadow-md ring-1 ring-black/5 transition-all hover:scale-110 hover:shadow-lg"
                                 @click.stop="upItem(index)">
                                 <UIcon name="i-heroicons-chevron-left" class="text-sm font-bold" />
                               </div>
@@ -3087,12 +3091,12 @@ const showEditPlan = (e?: MouseEvent) => {
                               <UIcon name="i-heroicons-x-mark" class="text-xs font-bold" />
                             </div>
                             <div v-if="isOwner && sortMode && index + 3 < detail.include.length - 1"
-                              class="absolute top-1/2 -right-0.5 -translate-y-1/2 w-6 h-6 rounded-full bg-white/95 dark:bg-gray-800/95 backdrop-blur-sm text-qhx-primary flex items-center justify-center cursor-pointer z-10 shadow-md ring-1 ring-black/5 transition-all hover:scale-110 hover:shadow-lg"
+                              class="absolute top-1/2 -right-0.5 -translate-y-1/2 w-6 h-6 rounded-full bg-white/95 backdrop-blur-sm text-qhx-primary flex items-center justify-center cursor-pointer z-10 shadow-md ring-1 ring-black/5 transition-all hover:scale-110 hover:shadow-lg"
                               @click.stop="downItem(index + 3)">
                               <UIcon name="i-heroicons-chevron-right" class="text-sm font-bold" />
                             </div>
                             <div v-if="isOwner && sortMode"
-                              class="absolute top-1/2 -left-0.5 -translate-y-1/2 w-6 h-6 rounded-full bg-white/95 dark:bg-gray-800/95 backdrop-blur-sm text-qhx-primary flex items-center justify-center cursor-pointer z-10 shadow-md ring-1 ring-black/5 transition-all hover:scale-110 hover:shadow-lg"
+                              class="absolute top-1/2 -left-0.5 -translate-y-1/2 w-6 h-6 rounded-full bg-white/95 backdrop-blur-sm text-qhx-primary flex items-center justify-center cursor-pointer z-10 shadow-md ring-1 ring-black/5 transition-all hover:scale-110 hover:shadow-lg"
                               @click.stop="upItem(index + 3)">
                               <UIcon name="i-heroicons-chevron-left" class="text-sm font-bold" />
                             </div>
@@ -3282,7 +3286,7 @@ const showEditPlan = (e?: MouseEvent) => {
                       </h2>
 
                     <!-- 笔记 -->
-                    <div v-if="detail.note" :class="[clothesPlateRow, 'text-gray-600 dark:text-gray-400']">
+                    <div v-if="detail.note" :class="[clothesPlateRow, 'text-gray-600']">
                       笔记：{{ detail.note }}
                     </div>
 
@@ -3292,11 +3296,11 @@ const showEditPlan = (e?: MouseEvent) => {
                       <div v-if="isOwner" class="flex flex-wrap items-center gap-2">
                         <div :class="favoriteNeuPanel">
                           <button v-for="s in 5" :key="s" type="button"
-                            class="text-2xl leading-none rounded-lg p-1 transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-qhx-primary active:shadow-[inset_2px_2px_6px_rgb(163_177_198/0.5)] dark:active:shadow-[inset_2px_2px_8px_rgb(0_0_0/0.35)]"
+                            class="text-2xl leading-none rounded-lg p-1 transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-qhx-primary active:shadow-[inset_2px_2px_6px_rgb(163_177_198/0.5)]"
                             :aria-label="`设为 ${s} 星`" @click="setFavoriteLevel(s)">
                             <UIcon
                               :name="favoriteLevelDisplay >= s ? 'i-heroicons-star-solid' : 'i-heroicons-star'"
-                              :class="favoriteLevelDisplay >= s ? 'text-amber-500 dark:text-amber-400' : 'text-[#a3adbd] dark:text-gray-500'" />
+                              :class="favoriteLevelDisplay >= s ? 'text-amber-500' : 'text-[#a3adbd]'" />
                           </button>
                         </div>
                         <button v-if="favoriteLevelDisplay > 0" type="button" :class="favoriteNeuMiniBtn"
@@ -3308,8 +3312,8 @@ const showEditPlan = (e?: MouseEvent) => {
                         <UIcon v-for="s in 5" :key="s"
                           :name="favoriteLevelDisplay >= s ? 'i-heroicons-star-solid' : 'i-heroicons-star'"
                           class="text-xl"
-                          :class="favoriteLevelDisplay >= s ? 'text-amber-500 dark:text-amber-400' : 'text-[#a3adbd] dark:text-gray-500'" />
-                        <span class="text-sm text-gray-700 dark:text-gray-200">（{{ favoriteLevelDisplay }} 星）</span>
+                          :class="favoriteLevelDisplay >= s ? 'text-amber-500' : 'text-[#a3adbd]'" />
+                        <span class="text-sm text-gray-700">（{{ favoriteLevelDisplay }} 星）</span>
                       </div>
                     </div>
 
@@ -3363,7 +3367,7 @@ const showEditPlan = (e?: MouseEvent) => {
                       <template v-if="detail.price">价格：￥{{ detail.price }}</template>
                       <div
                         v-if="planPriceDisplay"
-                        class="text-gray-500 dark:text-gray-400"
+                        class="text-gray-500"
                         :class="{ 'mt-0.5': detail.price }"
                       >
                         <template v-if="planPriceDisplay.kind === 'breakdown'">
@@ -3474,7 +3478,7 @@ const showEditPlan = (e?: MouseEvent) => {
                           v-if="isOwner"
                           type="button"
                           class="clothes-detail-sort-toggle text-xs px-2 py-1 rounded transition-colors"
-                          :class="sortMode ? 'bg-red-500 text-white' : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600'"
+                          :class="sortMode ? 'bg-red-500 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'"
                           @click="sortMode = !sortMode">
                           {{ sortMode ? '退出排序' : '排序模式' }}
                         </button>
@@ -3483,7 +3487,7 @@ const showEditPlan = (e?: MouseEvent) => {
                         <li
                           v-for="(item, index) in detail.include"
                           :key="item.clothes_id"
-                          class="flex items-center gap-3 p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800/50 transition-colors"
+                          class="flex items-center gap-3 p-2 rounded-lg hover:bg-gray-100 transition-colors"
                           :class="{ 'cursor-pointer': !sortMode }"
                           @click="!sortMode && jumpToClothes(item)">
                           <img
@@ -3502,20 +3506,20 @@ const showEditPlan = (e?: MouseEvent) => {
                               <button
                                 v-if="index !== 0"
                                 type="button"
-                                class="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700"
+                                class="p-1 rounded hover:bg-gray-200"
                                 @click.stop="upItem(index)">
                                 <UIcon name="i-heroicons-chevron-up" class="w-4 h-4" />
                               </button>
                               <button
                                 v-if="index < detail.include.length - 1"
                                 type="button"
-                                class="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700"
+                                class="p-1 rounded hover:bg-gray-200"
                                 @click.stop="downItem(index)">
                                 <UIcon name="i-heroicons-chevron-down" class="w-4 h-4" />
                               </button>
                               <button
                                 type="button"
-                                class="p-1 rounded hover:bg-red-100 dark:hover:bg-red-900/30 text-red-500"
+                                class="p-1 rounded hover:bg-red-100 text-red-500"
                                 @click.stop="selectedClothes = item; showDeleteLinkModal = true">
                                 <UIcon name="i-heroicons-x-mark" class="w-4 h-4" />
                               </button>
@@ -3527,22 +3531,22 @@ const showEditPlan = (e?: MouseEvent) => {
                     </div>
                     <div
                       v-if="includeOutfitPriceBreakdown"
-                      class="rounded-lg bg-gradient-to-r from-qhx-primary/20 via-orange-50 to-amber-50 py-1 text-sm font-semibold font-serif leading-snug text-gray-900 dark:from-qhx-primary/35 dark:via-amber-950/50 dark:to-orange-950/40 dark:text-gray-50"
+                      class="rounded-lg bg-gradient-to-r from-qhx-primary/20 via-orange-50 to-amber-50 py-1 text-sm font-semibold font-serif leading-snug text-gray-900"
                     >
                       <template v-if="includeOutfitPriceBreakdown.segmentPrices.length">
                         总价：<template v-for="(p, i) in includeOutfitPriceBreakdown.segmentPrices" :key="i">
                           <template v-if="i > 0"> + </template>
-                          <span class="text-qhx-primary dark:text-qhx-primary">￥{{ p }}</span>
+                          <span class="text-qhx-primary">￥{{ p }}</span>
                         </template>
-                        <span class="text-qhx-primary dark:text-qhx-primary"> = ￥{{ includeOutfitPriceBreakdown.total }}</span>
+                        <span class="text-qhx-primary"> = ￥{{ includeOutfitPriceBreakdown.total }}</span>
                       </template>
-                      <template v-else><span class="text-qhx-primary dark:text-qhx-primary">总价：￥0</span></template>
+                      <template v-else><span class="text-qhx-primary">总价：￥0</span></template>
                     </div>
                     <!-- 尾款计划 -->
                     <div v-if="detail.plan_id || detail.plan" class="border-t pt-3 mt-3">
                       <div class="flex items-center gap-2 mb-2">
-                        <UIcon name="material-symbols:savings-rounded" class="text-amber-500 dark:text-amber-400 text-lg" />
-                        <span class="text-sm font-semibold font-serif tracking-wide text-amber-700 dark:text-amber-300">尾款计划</span>
+                        <UIcon name="material-symbols:savings-rounded" class="text-amber-500 text-lg" />
+                        <span class="text-sm font-semibold font-serif tracking-wide text-amber-700">尾款计划</span>
                         <!-- 计划操作按钮（仅所有者） -->
                         <div v-if="isOwner" class="flex items-center gap-1 ml-auto">
                           <template v-if="detail.plan?.is_complete !== 1">
@@ -3555,7 +3559,7 @@ const showEditPlan = (e?: MouseEvent) => {
                             </button>
                             <button
                               type="button"
-                              class="p-1 rounded text-amber-600 hover:bg-amber-100 dark:hover:bg-amber-900/30"
+                              class="p-1 rounded text-amber-600 hover:bg-amber-100"
                               title="编辑"
                               @click="showEditPlan"
                             >
@@ -3563,7 +3567,7 @@ const showEditPlan = (e?: MouseEvent) => {
                             </button>
                             <button
                               type="button"
-                              class="p-1 rounded text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20"
+                              class="p-1 rounded text-red-500 hover:bg-red-50"
                               title="移除"
                               @click="confirmRemovePlan"
                             >
@@ -3572,7 +3576,7 @@ const showEditPlan = (e?: MouseEvent) => {
                           </template>
                           <button
                             type="button"
-                            class="p-1 rounded text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20"
+                            class="p-1 rounded text-red-500 hover:bg-red-50"
                             title="删除计划"
                             @click="confirmDeletePlan"
                           >
@@ -3580,29 +3584,29 @@ const showEditPlan = (e?: MouseEvent) => {
                           </button>
                         </div>
                       </div>
-                      <div class="p-3 rounded-xl bg-amber-50/80 dark:bg-amber-900/20 border border-amber-200/60 dark:border-amber-700/50 space-y-2">
+                      <div class="p-3 rounded-xl bg-amber-50/80 border border-amber-200/60 space-y-2">
                         <div class="flex items-center justify-between">
-                          <span class="text-sm text-gray-600 dark:text-gray-400">{{ detail.plan?.plan_name || '尾款计划' }}</span>
-                          <span class="text-base font-bold text-amber-600 dark:text-amber-400">￥{{ detail.plan?.need_money ?? 0 }}</span>
+                          <span class="text-sm text-gray-600">{{ detail.plan?.plan_name || '尾款计划' }}</span>
+                          <span class="text-base font-bold text-amber-600">￥{{ detail.plan?.need_money ?? 0 }}</span>
                         </div>
-                        <div v-if="detail.plan?.have_money != null" class="text-xs text-gray-500 dark:text-gray-400">
+                        <div v-if="detail.plan?.have_money != null" class="text-xs text-gray-500">
                           已攒：￥{{ detail.plan.have_money }}
                         </div>
-                        <div v-if="detail.plan?.end_time" class="text-xs text-gray-500 dark:text-gray-400">
+                        <div v-if="detail.plan?.end_time" class="text-xs text-gray-500">
                           尾款时间：{{ formatDate(detail.plan.end_time) }}
                         </div>
                         <!-- 子计划列表 -->
                         <div
                           v-if="detail.plan?.plan_list && detail.plan.plan_list.length > 0"
-                          class="ml-2 pl-2 border-l-2 border-amber-200/60 dark:border-amber-600/40 space-y-1 mt-2"
+                          class="ml-2 pl-2 border-l-2 border-amber-200/60 space-y-1 mt-2"
                         >
                           <div
                             v-for="(child, idx) in detail.plan.plan_list"
                             :key="child.list_id ?? idx"
                             class="flex items-center justify-between gap-2 text-xs"
                           >
-                            <span class="text-gray-600 dark:text-gray-400 flex-1 truncate">{{ child.plan_note || child.plan_name || `阶段 ${idx + 1}` }}</span>
-                            <span class="text-amber-600 dark:text-amber-400 font-medium flex-shrink-0">￥{{ child.need_money ?? 0 }}</span>
+                            <span class="text-gray-600 flex-1 truncate">{{ child.plan_note || child.plan_name || `阶段 ${idx + 1}` }}</span>
+                            <span class="text-amber-600 font-medium flex-shrink-0">￥{{ child.need_money ?? 0 }}</span>
                             <button
                               v-if="isOwner && child.is_complete !== 1"
                               type="button"
@@ -3617,7 +3621,7 @@ const showEditPlan = (e?: MouseEvent) => {
                         <!-- <NuxtLink
                           v-if="detail.plan?.list_id"
                           :to="`/user/plan`"
-                          class="inline-flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400 hover:underline"
+                          class="inline-flex items-center gap-1 text-xs text-amber-600 hover:underline"
                         >
                           查看计划详情
                           <UIcon name="i-heroicons-arrow-right" class="text-xs" />
@@ -3627,8 +3631,8 @@ const showEditPlan = (e?: MouseEvent) => {
                     <!-- 无计划时显示添加按钮 -->
                     <div v-else-if="isOwner" class="border-t pt-3 mt-3">
                       <div class="flex items-center gap-2 mb-2">
-                        <UIcon name="material-symbols:savings-rounded" class="text-amber-500 dark:text-amber-400 text-lg" />
-                        <span class="text-sm font-semibold font-serif tracking-wide text-amber-700 dark:text-amber-300">尾款计划</span>
+                        <UIcon name="material-symbols:savings-rounded" class="text-amber-500 text-lg" />
+                        <span class="text-sm font-semibold font-serif tracking-wide text-amber-700">尾款计划</span>
                       </div>
                       <button
                         type="button"
@@ -3780,18 +3784,18 @@ const showEditPlan = (e?: MouseEvent) => {
                           {{ isShared ? '已共享' : '未共享' }}
                         </span>
                       </div>
-                      <p v-if="isShared" class="mt-2 text-xs text-amber-600 dark:text-amber-400">
+                      <p v-if="isShared" class="mt-2 text-xs text-amber-600">
                         当前为共享状态，服饰数据公开，其他用户可以直接导入衣柜
                       </p>
-                      <p v-else class="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                      <p v-else class="mt-2 text-xs text-gray-500">
                         开启可以与其他用户共享数据
                       </p>
-                      <div v-if="isShared" class="flex items-center gap-6 mt-3 pt-3 border-t border-gray-100 dark:border-gray-700">
-                    <span class="inline-flex items-center gap-1.5 text-sm text-gray-600 dark:text-gray-400">
+                      <div v-if="isShared" class="flex items-center gap-6 mt-3 pt-3 border-t border-gray-100">
+                    <span class="inline-flex items-center gap-1.5 text-sm text-gray-600">
                       <UIcon name="i-heroicons-heart" class="text-red-500" />
                       赞数 {{ displayGoodCount }}
                     </span>
-                    <span class="inline-flex items-center gap-1.5 text-sm text-gray-600 dark:text-gray-400">
+                    <span class="inline-flex items-center gap-1.5 text-sm text-gray-600">
                       <UIcon name="i-heroicons-link" class="text-qhx-primary" />
                       引用数 {{ displayCitationCount }}
                     </span>
@@ -3804,15 +3808,15 @@ const showEditPlan = (e?: MouseEvent) => {
       
       <!-- 场景选择对话框 -->
       <QhxModal v-model="showSceneChooseModal" :trigger-position="sceneChooseClickPosition" @close="handleSceneChooseClose">
-        <div class="w-[90vw] max-w-md bg-white dark:bg-gray-800 rounded-2xl shadow-2xl overflow-hidden flex flex-col backdrop-blur-xl border border-gray-200/50 dark:border-gray-700/50">
+        <div class="w-[90vw] max-w-md bg-white rounded-2xl shadow-2xl overflow-hidden flex flex-col backdrop-blur-xl border border-gray-200/50">
           <!-- 头部 -->
-          <div class="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-700 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-gray-800 dark:to-gray-800 flex-shrink-0">
-            <h3 class="text-lg font-semibold text-gray-900 dark:text-gray-100">选择场景方式</h3>
+          <div class="flex items-center justify-between px-6 py-4 border-b border-gray-200 bg-gradient-to-r from-blue-50 to-indigo-50 flex-shrink-0">
+            <h3 class="text-lg font-semibold text-gray-900">选择场景方式</h3>
             <button
               @click="handleSceneChooseClose"
-              class="w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors group"
+              class="w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100 transition-colors group"
             >
-              <UIcon name="i-heroicons-x-mark" class="text-gray-500 dark:text-gray-400 group-hover:text-gray-700 dark:group-hover:text-gray-200 transition-colors" />
+              <UIcon name="i-heroicons-x-mark" class="text-gray-500 group-hover:text-gray-700 transition-colors" />
             </button>
           </div>
 
@@ -3821,16 +3825,16 @@ const showEditPlan = (e?: MouseEvent) => {
             <!-- 套用模版 -->
             <!-- <div
               @click="chooseTemplate"
-              class="flex items-center gap-4 p-4 rounded-xl border-2 border-gray-200 dark:border-gray-600 cursor-pointer transition-all duration-200 hover:border-blue-400 dark:hover:border-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 hover:shadow-md group"
+              class="flex items-center gap-4 p-4 rounded-xl border-2 border-gray-200 cursor-pointer transition-all duration-200 hover:border-blue-400 hover:bg-blue-50 hover:shadow-md group"
             >
               <div class="flex-shrink-0 w-12 h-12 rounded-full bg-gradient-to-r from-purple-500 to-pink-500 flex items-center justify-center group-hover:scale-110 transition-transform">
                 <UIcon name="material-symbols:auto-awesome-rounded" class="text-2xl text-white" />
               </div>
               <div class="flex-1 min-w-0">
-                <h4 class="text-base font-semibold text-gray-900 dark:text-gray-100 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
+                <h4 class="text-base font-semibold text-gray-900 group-hover:text-blue-600 transition-colors">
                   套用模版
                 </h4>
-                <p class="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                <p class="text-sm text-gray-500 mt-1">
                   从预设模版中选择场景
                 </p>
               </div>
@@ -3840,16 +3844,16 @@ const showEditPlan = (e?: MouseEvent) => {
             <!-- 现有场景 -->
             <div
               @click="chooseExistingScene"
-              class="flex items-center gap-4 p-4 rounded-xl border-2 border-gray-200 dark:border-gray-600 cursor-pointer transition-all duration-200 hover:border-blue-400 dark:hover:border-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 hover:shadow-md group"
+              class="flex items-center gap-4 p-4 rounded-xl border-2 border-gray-200 cursor-pointer transition-all duration-200 hover:border-blue-400 hover:bg-blue-50 hover:shadow-md group"
             >
               <div class="flex-shrink-0 w-12 h-12 rounded-full bg-gradient-to-r from-blue-500 to-indigo-500 flex items-center justify-center group-hover:scale-110 transition-transform">
                 <UIcon name="material-symbols:scatter-plot-rounded" class="text-2xl text-white" />
               </div>
               <div class="flex-1 min-w-0">
-                <h4 class="text-base font-semibold text-gray-900 dark:text-gray-100 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
+                <h4 class="text-base font-semibold text-gray-900 group-hover:text-blue-600 transition-colors">
                   现有场景
                 </h4>
-                <p class="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                <p class="text-sm text-gray-500 mt-1">
                   从已创建的场景中选择
                 </p>
               </div>
@@ -4025,7 +4029,7 @@ const showEditPlan = (e?: MouseEvent) => {
     >
       <button
         @click="togglePhysicsDrop"
-        class="pointer-events-auto bg-gray-900/80 dark:bg-white/80 backdrop-blur-md text-white dark:text-gray-900 px-4 py-2 rounded-full shadow-2xl flex items-center gap-1.5 transform transition-all duration-300 hover:scale-105 active:scale-95 group"
+        class="pointer-events-auto bg-gray-900/80 backdrop-blur-md text-white px-4 py-2 rounded-full shadow-2xl flex items-center gap-1.5 transform transition-all duration-300 hover:scale-105 active:scale-95 group"
       >
         <UIcon
           :name="isPhysicsDropVisible ? 'weui:eyes-on-filled' : 'weui:eyes-off-filled'"
@@ -4052,11 +4056,6 @@ const showEditPlan = (e?: MouseEvent) => {
   background-color: rgba(255, 255, 255, 0.22);
   -webkit-backdrop-filter: blur(10px);
   backdrop-filter: blur(10px);
-}
-
-:root.dark .clothes-scene-glass-panel,
-.dark .clothes-scene-glass-panel {
-  background-color: rgba(38, 38, 38, 0.38);
 }
 
 .clothes-slide-forward-enter-active,
@@ -4122,29 +4121,6 @@ const showEditPlan = (e?: MouseEvent) => {
     inset -2px -2px 6px rgba(255, 252, 254, 0.65);
 }
 
-.dark .clothes-sibling-neu-btn {
-  color: rgba(251, 207, 232, 0.82);
-  background: #241d26;
-  box-shadow:
-    4px 4px 12px rgba(0, 0, 0, 0.45),
-    -3px -3px 10px rgba(120, 80, 100, 0.08),
-    inset 0 1px 0 rgba(255, 210, 230, 0.06);
-}
-
-.dark .clothes-sibling-neu-btn:hover {
-  color: rgba(252, 220, 236, 0.92);
-  box-shadow:
-    5px 5px 14px rgba(0, 0, 0, 0.5),
-    -4px -4px 11px rgba(130, 90, 110, 0.1),
-    inset 0 1px 0 rgba(255, 210, 230, 0.08);
-}
-
-.dark .clothes-sibling-neu-btn:active {
-  box-shadow:
-    inset 3px 3px 10px rgba(0, 0, 0, 0.55),
-    inset -2px -2px 8px rgba(140, 100, 120, 0.06);
-}
-
 /* 缩略图 1:1，避免手机端网格内因原图尺寸导致高度不齐 */
 .clothes-thumb-grid :deep(img) {
   aspect-ratio: 1 / 1;
@@ -4173,14 +4149,6 @@ const showEditPlan = (e?: MouseEvent) => {
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.65),
     0 2px 8px rgba(0, 0, 0, 0.05);
-}
-
-.dark .clothes-layout-capsule {
-  border-color: color-mix(in srgb, var(--primary-color, #ff9eb5) 45%, rgba(255, 255, 255, 0.1));
-  background: color-mix(in srgb, var(--primary-color, #ff9eb5) 10%, rgba(17, 24, 39, 0.72));
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.06),
-    0 2px 10px rgba(0, 0, 0, 0.28);
 }
 
 .clothes-layout-capsule__btn {
@@ -4224,22 +4192,6 @@ const showEditPlan = (e?: MouseEvent) => {
     0 2px 8px color-mix(in srgb, var(--primary-color, #ff9eb5) 22%, transparent);
 }
 
-.dark .clothes-layout-capsule__btn {
-  color: color-mix(in srgb, var(--primary-color, #ff9eb5) 70%, #e5e7eb);
-}
-
-.dark .clothes-layout-capsule__btn--active {
-  background: linear-gradient(
-    135deg,
-    color-mix(in srgb, var(--primary-color, #ff9eb5) 75%, #831843) 0%,
-    color-mix(in srgb, var(--primary-color, #ff9eb5) 58%, #4c0519) 100%
-  );
-  color: #fce7f3;
-  box-shadow:
-    inset 0 1px 0 rgb(255 255 255 / 0.12),
-    0 2px 10px color-mix(in srgb, var(--primary-color, #ff9eb5) 28%, transparent);
-}
-
 /* 手机端滑动引导：轻遮罩、无卡片无模糊，低存在感 */
 .clothes-swipe-guide-root {
   isolation: isolate;
@@ -4250,10 +4202,6 @@ const showEditPlan = (e?: MouseEvent) => {
   inset: 0;
   z-index: 0;
   background: rgba(0, 0, 0, 0.38);
-}
-
-.dark .clothes-swipe-guide-backdrop {
-  background: rgba(0, 0, 0, 0.42);
 }
 
 .clothes-swipe-guide-enter-active {
@@ -4336,19 +4284,6 @@ const showEditPlan = (e?: MouseEvent) => {
 
 .clothes-fab-btn:active {
   transform: scale(0.97);
-}
-
-.dark .clothes-fab-btn {
-  background: color-mix(in srgb, var(--primary-color, #ff9eb5) 10%, rgba(17, 24, 39, 0.72));
-  border-color: color-mix(in srgb, var(--primary-color, #ff9eb5) 58%, rgba(255, 255, 255, 0.12));
-  color: color-mix(in srgb, var(--primary-color, #ff9eb5) 78%, #fce7f3);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.08),
-    0 2px 10px rgba(0, 0, 0, 0.28);
-}
-
-.dark .clothes-fab-btn:hover {
-  background: color-mix(in srgb, var(--primary-color, #ff9eb5) 16%, rgba(17, 24, 39, 0.78));
 }
 
 .clothes-fab-btn--toggle {
@@ -4516,16 +4451,6 @@ const showEditPlan = (e?: MouseEvent) => {
   box-shadow: none;
 }
 
-.dark .modal-capsule-btn {
-  border-color: color-mix(in srgb, var(--primary-color, #ff9eb5) 55%, rgb(255 255 255 / 0.15));
-  background: linear-gradient(
-    135deg,
-    color-mix(in srgb, var(--primary-color, #ff9eb5) 75%, #831843) 0%,
-    color-mix(in srgb, var(--primary-color, #ff9eb5) 58%, #4c0519) 100%
-  );
-  color: #fce7f3;
-}
-
 .modal-capsule-btn--ghost {
   border-color: rgb(209 213 219 / 0.95);
   background: rgb(249 250 251 / 0.95);
@@ -4555,23 +4480,6 @@ const showEditPlan = (e?: MouseEvent) => {
   box-shadow:
     inset 0 1px 0 rgb(255 255 255 / 0.32),
     0 4px 14px rgb(239 68 68 / 0.34);
-}
-
-.dark .modal-capsule-btn--ghost {
-  border-color: rgb(75 85 99 / 0.75);
-  background: rgb(31 41 55 / 0.82);
-  color: #d1d5db;
-}
-
-.dark .modal-capsule-btn--ghost:hover:not(:disabled) {
-  background: rgb(55 65 81 / 0.88);
-  border-color: rgb(107 114 128 / 0.75);
-}
-
-.dark .modal-capsule-btn--danger {
-  border-color: color-mix(in srgb, #f87171 55%, rgb(255 255 255 / 0.12));
-  background: linear-gradient(135deg, rgb(185 28 28 / 0.92) 0%, rgb(127 29 29 / 0.95) 100%);
-  color: #fecaca;
 }
 
 .modal-capsule-btn--soft {
@@ -4606,23 +4514,6 @@ const showEditPlan = (e?: MouseEvent) => {
     0 4px 14px rgb(245 158 11 / 0.32);
 }
 
-.dark .modal-capsule-btn--soft {
-  border-color: rgb(75 85 99 / 0.7);
-  background: linear-gradient(180deg, rgb(55 65 81 / 0.72) 0%, rgb(31 41 55 / 0.82) 100%);
-  color: #d1d5db;
-}
-
-.dark .modal-capsule-btn--soft:hover:not(:disabled) {
-  background: linear-gradient(180deg, rgb(75 85 99 / 0.78) 0%, rgb(55 65 81 / 0.88) 100%);
-  color: #f3f4f6;
-}
-
-.dark .modal-capsule-btn--amber {
-  border-color: color-mix(in srgb, #fbbf24 50%, rgb(255 255 255 / 0.1));
-  background: linear-gradient(145deg, rgb(180 83 9 / 0.92) 0%, rgb(154 52 18 / 0.95) 100%);
-  color: #fef3c7;
-}
-
 /* 确认弹窗卡片 */
 .capsule-confirm-card {
   width: min(calc(100vw - 2rem), 360px);
@@ -4637,14 +4528,6 @@ const showEditPlan = (e?: MouseEvent) => {
   -webkit-backdrop-filter: blur(12px);
 }
 
-.dark .capsule-confirm-card {
-  border-color: rgb(255 255 255 / 0.08);
-  background: linear-gradient(165deg, rgb(31 41 55 / 0.96) 0%, rgb(17 24 39 / 0.98) 100%);
-  box-shadow:
-    0 16px 40px rgb(0 0 0 / 0.35),
-    inset 0 1px 0 rgb(255 255 255 / 0.06);
-}
-
 .capsule-confirm-card__title {
   font-size: 1rem;
   font-weight: 600;
@@ -4652,19 +4535,11 @@ const showEditPlan = (e?: MouseEvent) => {
   color: #111827;
 }
 
-.dark .capsule-confirm-card__title {
-  color: #f9fafb;
-}
-
 .capsule-confirm-card__desc {
   margin-top: 0.5rem;
   font-size: 0.875rem;
   line-height: 1.6;
   color: #6b7280;
-}
-
-.dark .capsule-confirm-card__desc {
-  color: #9ca3af;
 }
 
 .capsule-confirm-card__actions {
@@ -4729,35 +4604,6 @@ const showEditPlan = (e?: MouseEvent) => {
   border-color: rgb(209 213 219 / 0.8);
 }
 
-.dark .matching-season-capsule--spring {
-  background: linear-gradient(135deg, rgb(6 78 59 / 0.55) 0%, rgb(131 24 67 / 0.45) 100%);
-  color: #a7f3d0;
-  border-color: rgb(52 211 153 / 0.35);
-}
-
-.dark .matching-season-capsule--summer {
-  background: linear-gradient(135deg, rgb(120 53 15 / 0.55) 0%, rgb(154 52 18 / 0.5) 100%);
-  color: #fde68a;
-  border-color: rgb(251 191 36 / 0.35);
-}
-
-.dark .matching-season-capsule--autumn {
-  background: linear-gradient(135deg, rgb(124 45 18 / 0.55) 0%, rgb(154 52 18 / 0.5) 100%);
-  color: #fdba74;
-  border-color: rgb(251 146 60 / 0.35);
-}
-
-.dark .matching-season-capsule--winter {
-  background: linear-gradient(135deg, rgb(30 58 138 / 0.55) 0%, rgb(49 46 129 / 0.5) 100%);
-  color: #bfdbfe;
-  border-color: rgb(96 165 250 / 0.35);
-}
-
-.dark .matching-season-capsule--default {
-  background: rgb(31 41 55 / 0.75);
-  color: #d1d5db;
-  border-color: rgb(75 85 99 / 0.65);
-}
 </style>
 
 <style>
@@ -4766,12 +4612,6 @@ const showEditPlan = (e?: MouseEvent) => {
   --ward-neu-soft: rgba(255, 255, 255, 0.62);
   --ward-neu-deep: rgba(0, 0, 0, 0.14);
   --ward-neu-inset: rgba(255, 255, 255, 0.4);
-}
-
-.dark .wardrobe-page-neu {
-  --ward-neu-soft: rgba(255, 255, 255, 0.07);
-  --ward-neu-deep: rgba(0, 0, 0, 0.5);
-  --ward-neu-inset: rgba(255, 255, 255, 0.06);
 }
 
 .wardrobe-page-neu .wardrobe-collapse-toggle {
@@ -4804,11 +4644,6 @@ const showEditPlan = (e?: MouseEvent) => {
   transform: scale(0.95);
 }
 
-.dark .wardrobe-page-neu .wardrobe-collapse-toggle {
-  background: rgba(40, 40, 44, 0.88);
-  color: rgba(255, 255, 255, 0.75);
-}
-
 .wardrobe-page-neu .wardrobe-neu-tool-orb {
   box-shadow:
     4px 5px 11px rgba(0, 0, 0, 0.2),
@@ -4818,14 +4653,6 @@ const showEditPlan = (e?: MouseEvent) => {
   transition: box-shadow 0.2s ease, transform 0.18s ease;
 }
 
-.dark .wardrobe-page-neu .wardrobe-neu-tool-orb {
-  box-shadow:
-    4px 5px 14px rgba(0, 0, 0, 0.52),
-    -2px -2px 7px rgba(255, 255, 255, 0.06),
-    inset 0 1.5px 0 rgba(255, 255, 255, 0.12),
-    inset 0 -1px 0 rgba(0, 0, 0, 0.28);
-}
-
 .wardrobe-page-neu .wardrobe-neu-tool-orb:active {
   box-shadow:
     inset 3px 3px 9px rgba(0, 0, 0, 0.24),
@@ -4833,9 +4660,4 @@ const showEditPlan = (e?: MouseEvent) => {
   transform: scale(0.94);
 }
 
-.dark .wardrobe-page-neu .wardrobe-neu-tool-orb:active {
-  box-shadow:
-    inset 3px 3px 11px rgba(0, 0, 0, 0.48),
-    inset -1px -1px 4px rgba(255, 255, 255, 0.06);
-}
 </style>
