@@ -13,30 +13,28 @@ export function hasCompletedWardrobeSortGuide(): boolean {
   }
 }
 
+/** title/description 存 i18n key，页面侧用 t() 本地化 */
 export const WARDROBE_SORT_GUIDE_STEPS: StepGuideItem[] = [
   {
     id: 'wardrobe-list',
-    title: '长按衣柜可排序',
-    description:
-      '左侧衣柜列表支持长按后拖动，调整多个衣柜的显示顺序，松手后会自动保存。',
+    title: 'wardrobe.guide.sort.list.title',
+    description: 'wardrobe.guide.sort.list.desc',
     targetId: 'wardrobe-guide-sidebar-list',
     placement: 'right',
     padding: 6,
   },
   {
     id: 'clothes-list',
-    title: '长按服饰可排序',
-    description:
-      '排序模式下，长按第一件服饰卡片并拖动即可调整顺序；其他服饰同样支持拖动。若无法拖动，请先在衣柜设置中将排序模式改为「自定义」。',
+    title: 'wardrobe.guide.sort.clothes.title',
+    description: 'wardrobe.guide.sort.clothes.desc',
     targetId: WARDROBE_GUIDE_FIRST_CLOTHES_ID,
     placement: 'top',
     padding: 8,
   },
   {
     id: 'move-to-wardrobe',
-    title: '拖拽服饰可切换衣柜',
-    description:
-      '排序模式下，将服饰拖到左侧其他衣柜名称上松手，即可把该服饰切换到目标衣柜。',
+    title: 'wardrobe.guide.sort.move.title',
+    description: 'wardrobe.guide.sort.move.desc',
     targetId: 'wardrobe-guide-sidebar-list',
     placement: 'right',
     padding: 6,

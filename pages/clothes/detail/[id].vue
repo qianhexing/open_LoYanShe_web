@@ -49,6 +49,13 @@ import {
   openInNativeShell,
 } from '@/utils/nativeShell'
 import { openMatchingDetailTab } from '@/composables/useLibraryDetailNavigation'
+import {
+  mapConfigStatusOptions,
+  wardrobePartLabel,
+  wardrobeSeasonLabel,
+  wardrobeStatusLabel,
+  wardrobeStatusOptions as buildWardrobeStatusOptions,
+} from '@/utils/wardrobeDisplayI18n'
 let uni: any;
 const configStore = useConfigStore()
 const port = computed(() => configStore.getPort())
@@ -64,6 +71,7 @@ const config = useConfigStore()
 const wardrobeStore = useWardrobeStore()
 const user = useUserStore()
 const toast = useToast()
+const { t, locale } = useI18n()
 const clothesRouteId = computed(() => String(route.params.id ?? ''))
 
 const buildAccessQueryParams = (): { qrcode?: string; password?: string } => {
@@ -540,7 +548,7 @@ const fetchClothesDetail = async () => {
   } catch (error) {
     console.error('获取服饰详情失败:', error)
     toast.add({
-      title: '获取详情失败',
+      title: t('clothes.detail.get_failed'),
       icon: 'i-heroicons-exclamation-circle',
       color: 'red'
     })
@@ -741,7 +749,7 @@ const confirmDelete = async () => {
       clothes_id: detail.value.clothes_id
     })
     toast.add({
-      title: '删除成功',
+      title: t('clothes.detail.delete_success'),
       icon: 'i-heroicons-check-circle',
       color: 'green'
     })
@@ -751,7 +759,7 @@ const confirmDelete = async () => {
     }
   } catch (error) {
     toast.add({
-      title: '删除失败',
+      title: t('clothes.detail.delete_failed'),
       icon: 'i-heroicons-exclamation-circle',
       color: 'red'
     })
@@ -796,13 +804,13 @@ const setFavoriteLevel = async (level: number) => {
       detail.value.is_favorite = next
     }
     toast.add({
-      title: next === 0 ? '已设为无星级' : `已设为 ${next} 星`,
+      title: next === 0 ? t('clothes.detail.star_cleared') : t('clothes.detail.star_set', { n: next }),
       icon: 'i-heroicons-check-circle',
       color: 'green'
     })
   } catch (error) {
     toast.add({
-      title: '操作失败',
+      title: t('common.failed'),
       icon: 'i-heroicons-exclamation-circle',
       color: 'red'
     })
@@ -892,28 +900,25 @@ const lastDressInput = computed({
   },
 })
 
-/** 拥有状态：与 ClothesAdd / 衣柜批量改状态一致 */
-const wardrobe_status_defaults: optionsInterface[] = [
-  { value: '已拥有', label: '已拥有' },
-  { value: '待补款', label: '待补款' },
-  { value: '已出', label: '已出' },
-]
-const wardrobe_status_options = ref<optionsInterface[]>([...wardrobe_status_defaults])
+/** 拥有状态：与 ClothesAdd / 衣柜批量改状态一致（API 值为中文，展示走 i18n） */
+const wardrobe_status_options = ref<optionsInterface[]>(buildWardrobeStatusOptions(t))
 
 function refreshWardrobeStatusOptions() {
+  const defaults = buildWardrobeStatusOptions(t)
   if (wardrobeStore.config?.wardrobe_status?.length) {
-    const fromConfig = wardrobeStore.config.wardrobe_status.map((child) => ({
-      value: child,
-      label: child,
-    }))
+    const fromConfig = mapConfigStatusOptions(t, wardrobeStore.config.wardrobe_status)
     wardrobe_status_options.value = [
-      ...wardrobe_status_defaults,
-      ...fromConfig.filter((o) => !wardrobe_status_defaults.some((d) => d.label === o.label)),
+      ...defaults,
+      ...fromConfig.filter((o) => !defaults.some((d) => d.value === o.value)),
     ]
   } else {
-    wardrobe_status_options.value = [...wardrobe_status_defaults]
+    wardrobe_status_options.value = [...defaults]
   }
 }
+
+watch(locale, () => {
+  refreshWardrobeStatusOptions()
+})
 
 const updateWardrobeStatus = async (wardrobe_status: string | null) => {
   if (!detail.value || !isOwner.value) return
@@ -931,7 +936,7 @@ const updateWardrobeStatus = async (wardrobe_status: string | null) => {
 }
 
 const onWardrobeStatusSelect = (select: optionsInterface) => {
-  void updateWardrobeStatus(select.label)
+  void updateWardrobeStatus(select.value)
 }
 
 const openWardrobeStatusPicker = (e: MouseEvent) => {
@@ -1118,74 +1123,74 @@ const clothesShareSource = computed((): ClothesShareSource | null => {
 
   const sections: ClothesShareSource['infoSections'] = []
 
-  if (d.note?.trim()) sections.push({ key: 'note', title: '笔记', lines: [d.note.trim()] })
+  if (d.note?.trim()) sections.push({ key: 'note', title: t('clothes.field.note'), lines: [d.note.trim()] })
   if (d.num !== undefined && d.num !== null) {
-    sections.push({ key: 'num', title: '拥有数量', text: String(d.num) })
+    sections.push({ key: 'num', title: t('clothes.field.quantity'), text: String(d.num) })
   }
   if (d.main_style_list?.length) {
     sections.push({
       key: 'main_style',
-      title: '风格',
+      title: t('clothes.field.style'),
       tags: d.main_style_list.map((s) => s.label).filter(Boolean),
     })
   }
-  if (d.price) sections.push({ key: 'price', title: '价格', text: `￥${d.price}` })
-  if (d.original_price) sections.push({ key: 'original_price', title: '原价', text: `￥${d.original_price}` })
-  if (d.offer_price) sections.push({ key: 'offer_price', title: '出物价', text: `￥${d.offer_price}` })
-  if (d.size?.trim()) sections.push({ key: 'size', title: '尺码', text: d.size.trim() })
+  if (d.price) sections.push({ key: 'price', title: t('clothes.field.price'), text: `￥${d.price}` })
+  if (d.original_price) sections.push({ key: 'original_price', title: t('clothes.field.original_price'), text: `￥${d.original_price}` })
+  if (d.offer_price) sections.push({ key: 'offer_price', title: t('clothes.field.offer_price'), text: `￥${d.offer_price}` })
+  if (d.size?.trim()) sections.push({ key: 'size', title: t('clothes.field.size'), text: d.size.trim() })
   if (d.times !== undefined && d.times !== null) {
-    sections.push({ key: 'times', title: '穿着次数', text: String(d.times) })
+    sections.push({ key: 'times', title: t('clothes.field.wear_times'), text: String(d.times) })
   }
   if (d.last_dress) {
-    sections.push({ key: 'last_dress', title: '最后穿着', text: formatDateTime(d.last_dress) })
+    sections.push({ key: 'last_dress', title: t('clothes.field.last_wear'), text: formatDateTime(d.last_dress) })
   }
   const costPerWear = calcCostPerWear(d.price, d.offer_price, d.times)
   if (costPerWear) {
     sections.push({
       key: 'cost_per_wear',
-      title: '次均价格',
+      title: t('clothes.field.avg_price'),
       text: `￥${costPerWear}`,
     })
   }
   if (d.color?.trim()) {
     sections.push({
       key: 'color',
-      title: '颜色',
+      title: t('clothes.field.color'),
       tags: d.color.split(',').map((c) => c.trim()).filter(Boolean),
     })
   }
   if (d.color_text?.trim()) {
     sections.push({
       key: 'color_text',
-      title: '颜色(文本)',
+      title: t('clothes.field.color_text'),
       tags: d.color_text.split(',').map((c) => c.trim()).filter(Boolean),
     })
   }
   if (d.clothes_part?.trim()) {
     sections.push({
       key: 'clothes_part',
-      title: '部位',
-      tags: d.clothes_part.split(',').map((p) => p.trim()).filter(Boolean),
+      title: t('clothes.field.part'),
+      tags: d.clothes_part.split(',').map((p) => p.trim()).filter(Boolean).map((part) => wardrobePartLabel(t, part) || part),
     })
   }
   if (d.tags?.trim()) {
     sections.push({
       key: 'tags',
-      title: '标签',
-      tags: d.tags.split(',').map((t) => t.trim()).filter(Boolean),
+      title: t('clothes.field.tags'),
+      tags: d.tags.split(',').map((tag) => tag.trim()).filter(Boolean),
     })
   }
-  if (d.position?.trim()) sections.push({ key: 'position', title: '收纳', text: d.position.trim() })
+  if (d.position?.trim()) sections.push({ key: 'position', title: t('clothes.field.storage'), text: d.position.trim() })
   if (d.season?.trim()) {
     sections.push({
       key: 'season',
-      title: '季节',
-      tags: d.season.split(',').map((s) => s.trim()).filter(Boolean),
+      title: t('clothes.field.season'),
+      tags: d.season.split(',').map((s) => s.trim()).filter(Boolean).map((season) => wardrobeSeasonLabel(t, season) || season),
     })
   }
-  if (d.add_time) sections.push({ key: 'add_time', title: '购入时间', text: formatDate(d.add_time) })
+  if (d.add_time) sections.push({ key: 'add_time', title: t('clothes.field.buy_time'), text: formatDate(d.add_time) })
   if (!d.origin_shop && d.origin?.trim()) {
-    sections.push({ key: 'origin', title: '来源', text: d.origin.trim() })
+    sections.push({ key: 'origin', title: t('clothes.field.origin'), text: d.origin.trim() })
   }
 
   let libraryBlock: ClothesShareSource['libraryBlock'] | undefined
@@ -1194,13 +1199,13 @@ const clothesShareSource = computed((): ClothesShareSource | null => {
     const tagGroups: { label: string; tags: string[] }[] = []
     if (lib.pattern_elements) {
       tagGroups.push({
-        label: '柄图',
+        label: t('clothes.field.pattern'),
         tags: lib.pattern_elements.split(',').map((s) => s.trim()).filter(Boolean),
       })
     }
     if (lib.design_elements) {
       tagGroups.push({
-        label: '设计',
+        label: t('clothes.field.design'),
         tags: lib.design_elements.split(',').map((s) => s.trim()).filter(Boolean),
       })
     }
@@ -1242,7 +1247,7 @@ const clothesShareSource = computed((): ClothesShareSource | null => {
       .map((item) => {
         const ext = item as ExtendedWardrobeClothes
         return {
-          name: item.clothes_note || ext.library?.name || '未命名',
+          name: item.clothes_note || ext.library?.name || t('plan.list.unnamed'),
           cover: item.clothes_img || '',
           priceText: item.price != null ? `￥${item.price}` : undefined,
         }
@@ -1256,17 +1261,19 @@ const clothesShareSource = computed((): ClothesShareSource | null => {
     if (breakdown.segmentPrices.length) {
       outfitTotalText = `总价：${breakdown.segmentPrices.map((p) => `￥${p}`).join(' + ')} = ￥${breakdown.total}`
     } else {
-      outfitTotalText = '总价：￥0'
+      outfitTotalText = t('clothes.detail.total_zero')
     }
   }
 
   return {
-    name: d.clothes_note || '暂无名称',
+    name: d.clothes_note || t('community.unnamed'),
     cover: d.clothes_img,
     clothesId: d.clothes_id,
     wardrobeName: d.wardrobe?.wardrobe_name?.trim() || undefined,
     favoriteStars: d.is_favorite !== undefined ? favoriteLevelDisplay.value : undefined,
-    wardrobeStatus: d.wardrobe_status?.trim() || undefined,
+    wardrobeStatus: d.wardrobe_status?.trim()
+      ? wardrobeStatusLabel(t, d.wardrobe_status.trim()) || d.wardrobe_status.trim()
+      : undefined,
     infoSections: sections,
     includeList,
     libraryBlock,
@@ -1285,7 +1292,7 @@ const clothesShareSource = computed((): ClothesShareSource | null => {
 // 打开关联服饰选择
 const openLinkClothesChoose = (e?: MouseEvent) => {
   if (linkClothesRemainingSlots.value <= 0) {
-    toast.add({ title: '最多关联10条', icon: 'i-heroicons-exclamation-circle', color: 'red' })
+    toast.add({ title: t('clothes.toast.max_link'), icon: 'i-heroicons-exclamation-circle', color: 'red' })
     return
   }
   wardrobeClothesChooseRef.value?.showModel(e)
@@ -1297,7 +1304,7 @@ const handleLinkClothesChoose = async (clothesList: WardrobeClothes[]) => {
   const selfId = detail.value.clothes_id
   const currentInclude = parseIncludeClothesIds(detail.value.include_clothes)
   if (currentInclude.length >= 10) {
-    toast.add({ title: '最多关联10条', icon: 'i-heroicons-exclamation-circle', color: 'red' })
+    toast.add({ title: t('clothes.toast.max_link'), icon: 'i-heroicons-exclamation-circle', color: 'red' })
     return
   }
   const remainingSlots = 10 - currentInclude.length
@@ -1308,13 +1315,13 @@ const handleLinkClothesChoose = async (clothesList: WardrobeClothes[]) => {
     return true
   })
   if (!toLink.length) {
-    toast.add({ title: '没有可关联的服饰', icon: 'i-heroicons-exclamation-circle', color: 'red' })
+    toast.add({ title: t('clothes.toast.no_linkable'), icon: 'i-heroicons-exclamation-circle', color: 'red' })
     return
   }
   const actualLink = toLink.slice(0, remainingSlots)
   if (actualLink.length < toLink.length) {
     toast.add({
-      title: `最多再关联 ${remainingSlots} 条，已选取前 ${actualLink.length} 条`,
+      title: t('clothes.toast.max_link_partial', { remaining: remainingSlots, actual: actualLink.length }),
       icon: 'i-heroicons-exclamation-circle',
       color: 'amber'
     })
@@ -1342,12 +1349,12 @@ const handleLinkClothesChoose = async (clothesList: WardrobeClothes[]) => {
     }
     await fetchClothesDetail()
     toast.add({
-      title: actualLink.length > 1 ? `成功关联 ${actualLink.length} 件服饰` : '关联成功',
+      title: actualLink.length > 1 ? `成功关联 ${actualLink.length} 件服饰` : t('plan.link_success'),
       icon: 'i-heroicons-check-circle',
       color: 'green'
     })
   } catch {
-    toast.add({ title: '关联失败', icon: 'i-heroicons-exclamation-circle', color: 'red' })
+    toast.add({ title: t('clothes.toast.link_failed'), icon: 'i-heroicons-exclamation-circle', color: 'red' })
   } finally {
     linkClothesLoading.value = false
   }
@@ -1368,14 +1375,14 @@ const deleteLinkClothes = async () => {
       })
       await fetchClothesDetail()
       toast.add({
-        title: '取消关联成功',
+        title: t('clothes.toast.unlink_success'),
         icon: 'i-heroicons-check-circle',
         color: 'green'
       })
     }
   } catch (error) {
     toast.add({
-      title: '操作失败',
+      title: t('common.failed'),
       icon: 'i-heroicons-exclamation-circle',
       color: 'red'
     })
@@ -1476,7 +1483,7 @@ const memoryPostForeignForModal = computed((): CommunityPostForeignContext | nul
 function openMemoryChooseCommunity(e?: MouseEvent) {
   if (!user.token) {
     toast.add({
-      title: '请先登录',
+      title: t('common.please_login'),
       icon: 'i-heroicons-exclamation-circle',
       color: 'orange'
     })
@@ -1497,7 +1504,7 @@ async function onMemoryCommunityChosen(item: Community) {
       pk_id: pkId
     })
     toast.add({
-      title: '已关联到本条裙子记忆',
+      title: t('clothes.toast.linked_memory'),
       icon: 'i-heroicons-check-circle',
       color: 'green'
     })
@@ -1505,9 +1512,9 @@ async function onMemoryCommunityChosen(item: Community) {
     void fetchMemoryListCount()
   } catch (error: unknown) {
     console.error('关联记忆帖子失败:', error)
-    const msg = error instanceof Error ? error.message : '请稍后重试'
+    const msg = error instanceof Error ? error.message : t('common.retry')
     toast.add({
-      title: '关联失败',
+      title: t('clothes.toast.link_failed'),
       description: msg,
       icon: 'i-heroicons-x-circle',
       color: 'red'
@@ -1520,7 +1527,7 @@ async function onMemoryCommunityChosen(item: Community) {
 function goNewMemoryPost(e?: MouseEvent) {
   if (!user.token) {
     toast.add({
-      title: '请先登录',
+      title: t('common.please_login'),
       icon: 'i-heroicons-exclamation-circle',
       color: 'orange'
     })
@@ -1639,7 +1646,7 @@ const fetchMatchingList = async (reset = false) => {
     }
   } catch {
     toast.add({
-      title: '加载搭配列表失败',
+      title: t('clothes.toast.load_matching_failed'),
       icon: 'i-heroicons-exclamation-circle',
       color: 'red'
     })
@@ -1663,7 +1670,7 @@ const jumpToMatchingDetail = (item: MatchingListItem) => {
 function openNewMatching(e?: MouseEvent) {
   if (!user.token) {
     toast.add({
-      title: '请先登录',
+      title: t('common.please_login'),
       icon: 'i-heroicons-exclamation-circle',
       color: 'orange'
     })
@@ -1708,7 +1715,7 @@ async function confirmDeleteMatching() {
   matchingDeleteLoading.value = true
   try {
     await deleteMatchingList({ matching_id: item.matching_id })
-    toast.add({ title: '删除成功', icon: 'i-heroicons-check-circle', color: 'green' })
+    toast.add({ title: t('clothes.detail.delete_success'), icon: 'i-heroicons-check-circle', color: 'green' })
     matchingListItems.value = matchingListItems.value.filter(
       (i) => i.matching_id !== item.matching_id
     )
@@ -1716,7 +1723,7 @@ async function confirmDeleteMatching() {
     onMatchingCountChange(matchingListTotal.value)
     matchingListRefreshKey.value += 1
   } catch {
-    toast.add({ title: '删除失败', icon: 'i-heroicons-exclamation-circle', color: 'red' })
+    toast.add({ title: t('clothes.detail.delete_failed'), icon: 'i-heroicons-exclamation-circle', color: 'red' })
   } finally {
     matchingDeleteLoading.value = false
     showDeleteMatchingModal.value = false
@@ -1766,19 +1773,21 @@ watch(showMatchingListModal, (open) => {
   }
 })
 
-useHead({
-  title: detail.value?.clothes_note || '服饰详情',
-  meta: [
-    {
-      name: 'keywords',
-      content: `${detail.value?.clothes_note || ''} Lo研社,Lolita服饰,Lolita衣柜`
-    },
-    {
-      name: 'description',
-      content: detail.value?.clothes_note || 'Lolita服饰详情'
-    }
-  ]
-})
+useHead(
+  computed(() => ({
+    title: detail.value?.clothes_note || t('clothes.detail.title'),
+    meta: [
+      {
+        name: 'keywords',
+        content: `${detail.value?.clothes_note || ''} Lo研社,Lolita服饰,Lolita衣柜`,
+      },
+      {
+        name: 'description',
+        content: detail.value?.clothes_note || t('clothes.detail.seo_title'),
+      },
+    ],
+  })),
+)
 const jumpToScene = (sence_id: number) => {
   openInNativeShell(`/scene/detail/${sence_id}?edit=1`, { fullScreen: true })
 }
@@ -1855,7 +1864,7 @@ const chooseScene = async (list: Scene[]) => {
         detail.value.sence_id = selectedScene.sence_id
       }
       toast.add({
-        title: '关联场景成功',
+        title: t('clothes.toast.link_scene_success'),
         icon: 'i-heroicons-check-circle',
         color: 'green'
       })
@@ -1863,7 +1872,7 @@ const chooseScene = async (list: Scene[]) => {
       await fetchClothesDetail()
     } catch (error) {
       toast.add({
-        title: '关联场景失败',
+        title: t('clothes.toast.link_scene_failed'),
         icon: 'i-heroicons-exclamation-circle',
         color: 'red'
       })
@@ -1945,12 +1954,12 @@ const handleCompletePlan = async () => {
   planCompleteLoading.value = true
   try {
     await planComplete({ list_id: listId })
-    toast.add({ title: '计划已完成', icon: 'i-heroicons-check-circle', color: 'green' })
+    toast.add({ title: t('clothes.toast.plan_done'), icon: 'i-heroicons-check-circle', color: 'green' })
     showCompletePlanModal.value = false
     completePlanListId.value = null
     await fetchClothesDetail()
   } catch (error) {
-    toast.add({ title: '完成失败', icon: 'i-heroicons-exclamation-circle', color: 'red' })
+    toast.add({ title: t('clothes.toast.complete_failed'), icon: 'i-heroicons-exclamation-circle', color: 'red' })
   } finally {
     planCompleteLoading.value = false
   }
@@ -1966,11 +1975,11 @@ const handleRemovePlan = async () => {
   planRemoveLoading.value = true
   try {
     await updateClothes({ clothes_id: detail.value.clothes_id, plan_id: null })
-    toast.add({ title: '已移除计划', icon: 'i-heroicons-check-circle', color: 'green' })
+    toast.add({ title: t('clothes.toast.plan_removed'), icon: 'i-heroicons-check-circle', color: 'green' })
     showRemovePlanModal.value = false
     await fetchClothesDetail()
   } catch (error) {
-    toast.add({ title: '移除失败', icon: 'i-heroicons-exclamation-circle', color: 'red' })
+    toast.add({ title: t('clothes.toast.remove_failed'), icon: 'i-heroicons-exclamation-circle', color: 'red' })
   } finally {
     planRemoveLoading.value = false
   }
@@ -1988,11 +1997,11 @@ const handleDeletePlan = async () => {
   try {
     await deletePlanList({ list_id: listId })
     await updateClothes({ clothes_id: detail.value.clothes_id, plan_id: null })
-    toast.add({ title: '删除成功', icon: 'i-heroicons-check-circle', color: 'green' })
+    toast.add({ title: t('clothes.detail.delete_success'), icon: 'i-heroicons-check-circle', color: 'green' })
     showDeletePlanModal.value = false
     await fetchClothesDetail()
   } catch (error) {
-    toast.add({ title: '删除失败', icon: 'i-heroicons-exclamation-circle', color: 'red' })
+    toast.add({ title: t('clothes.detail.delete_failed'), icon: 'i-heroicons-exclamation-circle', color: 'red' })
   } finally {
     planDeleteLoading.value = false
   }
@@ -2007,10 +2016,10 @@ const onPlanAddSuccess = async (data: { list_id?: number }) => {
   if (!detail.value?.clothes_id || !data?.list_id) return
   try {
     await updateClothes({ clothes_id: detail.value.clothes_id, plan_id: data.list_id })
-    toast.add({ title: '关联计划成功', icon: 'i-heroicons-check-circle', color: 'green' })
+    toast.add({ title: t('clothes.toast.link_plan_success'), icon: 'i-heroicons-check-circle', color: 'green' })
     await fetchClothesDetail()
   } catch (error) {
-    toast.add({ title: '关联失败', icon: 'i-heroicons-exclamation-circle', color: 'red' })
+    toast.add({ title: t('clothes.toast.link_failed'), icon: 'i-heroicons-exclamation-circle', color: 'red' })
   }
 }
 
@@ -2029,7 +2038,7 @@ const showEditPlan = (e?: MouseEvent) => {
       class="clothes-back-btn fixed z-[55] flex h-9 w-9 items-center justify-center rounded-full bg-black/55 text-white shadow-lg backdrop-blur-md transition-opacity hover:bg-black/65 hover:opacity-90 active:scale-95"
       :class="hideBackBtnVisual && 'invisible pointer-events-none'"
       :style="clothesBackBtnStyle"
-      aria-label="返回"
+      :aria-label="t('common.back')"
       :aria-hidden="hideBackBtnVisual"
       :tabindex="hideBackBtnVisual ? -1 : 0"
       @click="goBack"
@@ -2045,7 +2054,7 @@ const showEditPlan = (e?: MouseEvent) => {
         type="button"
         class="clothes-fab-btn clothes-fab-btn--toggle"
         :aria-expanded="fabActionsExpanded"
-        :aria-label="fabActionsExpanded ? '收起记忆与搭配' : '展开记忆与搭配'"
+        :aria-label="fabActionsExpanded ? t('clothes.detail.collapse_fab') : t('clothes.detail.expand_fab')"
         @click="toggleFabActions"
       >
         <UIcon
@@ -2070,7 +2079,7 @@ const showEditPlan = (e?: MouseEvent) => {
           >
             <span class="clothes-fab-btn__inner">
               <UIcon name="i-heroicons-sparkles" class="clothes-fab-btn__icon" />
-              <span class="clothes-fab-btn__label">记忆</span>
+              <span class="clothes-fab-btn__label">{{ t('clothes.detail.memory') }}</span>
               <span
                 v-if="memoryCount > 0"
                 class="clothes-fab-badge clothes-fab-badge--corner"
@@ -2084,7 +2093,7 @@ const showEditPlan = (e?: MouseEvent) => {
           >
             <span class="clothes-fab-btn__inner">
               <UIcon name="material-symbols:style" class="clothes-fab-btn__icon" />
-              <span class="clothes-fab-btn__label">搭配</span>
+              <span class="clothes-fab-btn__label">{{ t('clothes.detail.matching') }}</span>
               <span
                 v-if="matchingCount > 0"
                 class="clothes-fab-badge clothes-fab-badge--corner"
@@ -2123,11 +2132,11 @@ const showEditPlan = (e?: MouseEvent) => {
         <div
           class="flex items-center justify-between px-4 py-3 md:px-6 md:py-4 border-b border-gray-200 flex-shrink-0 bg-gradient-to-r from-pink-50/90 to-purple-50/80"
         >
-          <h3 class="text-base md:text-lg font-semibold text-gray-900">记忆</h3>
+          <h3 class="text-base md:text-lg font-semibold text-gray-900">{{ t('clothes.detail.memory') }}</h3>
           <button
             type="button"
             class="w-9 h-9 flex items-center justify-center rounded-full hover:bg-gray-100 text-gray-500"
-            aria-label="关闭"
+            :aria-label="t('common.close')"
             @click="showMemoryListModal = false"
           >
             <UIcon name="i-heroicons-x-mark" class="w-5 h-5" />
@@ -2148,7 +2157,7 @@ const showEditPlan = (e?: MouseEvent) => {
                 :name="memoryForeignLinkLoading ? 'i-heroicons-arrow-path' : 'i-heroicons-link'"
                 :class="['w-4 h-4 shrink-0', memoryForeignLinkLoading && 'animate-spin']"
               />
-              <span>关联已有帖子</span>
+              <span>{{ t('clothes.detail.link_post') }}</span>
             </button>
             <button
               type="button"
@@ -2157,7 +2166,7 @@ const showEditPlan = (e?: MouseEvent) => {
               @click="goNewMemoryPost($event)"
             >
               <UIcon name="i-heroicons-pencil-square" class="w-4 h-4 shrink-0" />
-              <span>写新记忆</span>
+              <span>{{ t('clothes.detail.write_memory') }}</span>
             </button>
           </div>
           <CommunityForeignList
@@ -2180,11 +2189,11 @@ const showEditPlan = (e?: MouseEvent) => {
         <div
           class="flex items-center justify-between px-4 py-3 md:px-6 md:py-4 border-b border-gray-200 flex-shrink-0 bg-gradient-to-r from-purple-50/90 to-pink-50/80"
         >
-          <h3 class="text-base md:text-lg font-semibold text-gray-900">搭配</h3>
+          <h3 class="text-base md:text-lg font-semibold text-gray-900">{{ t('clothes.detail.matching') }}</h3>
           <button
             type="button"
             class="w-9 h-9 flex items-center justify-center rounded-full hover:bg-gray-100 text-gray-500"
-            aria-label="关闭"
+            :aria-label="t('common.close')"
             @click="showMatchingListModal = false"
           >
             <UIcon name="i-heroicons-x-mark" class="w-5 h-5" />
@@ -2202,7 +2211,7 @@ const showEditPlan = (e?: MouseEvent) => {
               @click="openNewMatching($event)"
             >
               <UIcon name="i-heroicons-plus" class="w-4 h-4 shrink-0" />
-              <span>新建搭配</span>
+              <span>{{ t('clothes.detail.new_matching') }}</span>
             </button>
           </div>
           <div
@@ -2210,7 +2219,7 @@ const showEditPlan = (e?: MouseEvent) => {
             class="flex flex-col items-center justify-center gap-3 py-16 text-gray-500"
           >
             <UIcon name="i-heroicons-arrow-path" class="w-8 h-8 animate-spin" />
-            <span class="text-sm">加载中…</span>
+            <span class="text-sm">{{ t('common.loading') }}</span>
           </div>
           <div
             v-else-if="matchingListItems.length === 0"
@@ -2229,7 +2238,7 @@ const showEditPlan = (e?: MouseEvent) => {
                 <img
                   v-if="getMatchingCover(item)"
                   :src="`${BASE_IMG}${getMatchingCover(item)}?x-oss-process=image/quality,q_80/resize,w_200`"
-                  :alt="item.note || '搭配'"
+                  :alt="item.note || t('clothes.detail.matching')"
                   class="w-full h-full object-cover transition-transform duration-300 group-hover:scale-[1.03]"
                 />
                 <div
@@ -2241,7 +2250,7 @@ const showEditPlan = (e?: MouseEvent) => {
               </div>
               <div class="flex-1 min-w-0 flex flex-col justify-center gap-1 py-0.5">
                 <div class="font-medium text-[15px] text-gray-900 line-clamp-1">
-                  {{ item.note || '未命名搭配' }}
+                  {{ item.note || t('clothes.detail.unnamed_matching') }}
                 </div>
                 <div v-if="item.main_style" class="text-xs text-qhx-primary/90 line-clamp-1">
                   {{ item.main_style.split(',').map((s) => `★${s}`).join(' ') }}
@@ -2258,7 +2267,7 @@ const showEditPlan = (e?: MouseEvent) => {
                     :key="`${item.matching_id}-season-${seasonIndex}`"
                     :class="getMatchingSeasonCapsuleClass(seasonItem)"
                   >
-                    {{ seasonItem }}
+                    {{ wardrobeSeasonLabel(t, seasonItem) || seasonItem }}
                   </span>
                 </div>
               </div>
@@ -2266,7 +2275,7 @@ const showEditPlan = (e?: MouseEvent) => {
                 v-if="isMyMatchingItem(item)"
                 type="button"
                 class="shrink-0 self-center w-8 h-8 flex items-center justify-center rounded-full text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors"
-                aria-label="删除搭配"
+                :aria-label="t('clothes.detail.delete_matching')"
                 @click.stop="openDeleteMatchingConfirm(item)"
               >
                 <UIcon name="i-heroicons-trash" class="w-4 h-4" />
@@ -2284,7 +2293,7 @@ const showEditPlan = (e?: MouseEvent) => {
                   name="i-heroicons-arrow-path"
                   class="w-4 h-4 shrink-0 animate-spin"
                 />
-                <span>加载更多</span>
+                <span>{{ t('clothes.detail.load_more') }}</span>
               </button>
             </div>
           </div>
@@ -2295,8 +2304,8 @@ const showEditPlan = (e?: MouseEvent) => {
     <CommunityChoose
       ref="memoryCommunityChooseRef"
       :only-mine="true"
-      title="选择要关联的帖子"
-      placeholder="搜索我的帖子..."
+      :title="t('clothes.detail.select_post')"
+      :placeholder="t('clothes.detail.search_posts')"
       @choose="onMemoryCommunityChosen"
     />
 
@@ -2307,9 +2316,9 @@ const showEditPlan = (e?: MouseEvent) => {
       :close-on-backdrop="!matchingDeleteLoading"
     >
       <div class="capsule-confirm-card">
-        <h3 class="capsule-confirm-card__title">操作确认</h3>
+        <h3 class="capsule-confirm-card__title">{{ t('clothes.detail.confirm_title') }}</h3>
         <p class="capsule-confirm-card__desc">
-          确定要删除该搭配吗？删除后将无法恢复。
+          {{ t('compilations.confirm_delete_matching') }}
         </p>
         <div class="capsule-confirm-card__actions">
           <button
@@ -2318,7 +2327,7 @@ const showEditPlan = (e?: MouseEvent) => {
             :disabled="matchingDeleteLoading"
             @click="showDeleteMatchingModal = false"
           >
-            取消
+            {{ t('common.cancel') }}
           </button>
           <button
             type="button"
@@ -2331,7 +2340,7 @@ const showEditPlan = (e?: MouseEvent) => {
               name="i-heroicons-arrow-path"
               class="w-4 h-4 shrink-0 animate-spin"
             />
-            <span>确定删除</span>
+            <span>{{ t('clothes.detail.confirm_delete') }}</span>
           </button>
         </div>
       </div>
@@ -2341,7 +2350,7 @@ const showEditPlan = (e?: MouseEvent) => {
       ref="clothesMemoryPostModalRef"
       v-model="showClothesMemoryPostModal"
       :foreign-pk="memoryPostForeignForModal"
-      modal-title="写新记忆"
+      :modal-title="t('clothes.detail.write_memory')"
       :skip-summary-link="true"
       :success-redirect="false"
       :persist-is-open-key="CLOTHES_MEMORY_IS_OPEN_STORAGE_KEY"
@@ -2407,7 +2416,7 @@ const showEditPlan = (e?: MouseEvent) => {
                           <div class="wardrobe-neu-tool-orb m-[3px] rounded-[50%] h-[24px] w-[24px] flex items-center justify-center bg-red-500 text-white">
                             <UIcon name="i-heroicons-trash" class="text-[16px]" />
                           </div>
-                          <div class="text-xs text-qhx-text">移除场景</div>
+                          <div class="text-xs text-qhx-text">{{ t('clothes.detail.remove_scene') }}</div>
                         </div>
                       </QhxJellyButton>
                       <QhxJellyButton>
@@ -2415,7 +2424,7 @@ const showEditPlan = (e?: MouseEvent) => {
                           <div class="wardrobe-neu-tool-orb m-[3px] rounded-[50%] h-[24px] w-[24px] flex items-center justify-center bg-qhx-primary text-white">
                             <UIcon name="i-heroicons-pencil-square" class="text-[16px]" />
                           </div>
-                          <div class="text-xs text-qhx-text">编辑场景</div>
+                          <div class="text-xs text-qhx-text">{{ t('clothes.detail.edit_scene') }}</div>
                         </div>
                       </QhxJellyButton>
                       <QhxJellyButton>
@@ -2423,7 +2432,7 @@ const showEditPlan = (e?: MouseEvent) => {
                           <div class="wardrobe-neu-tool-orb m-[3px] rounded-[50%] h-[24px] w-[24px] flex items-center justify-center bg-qhx-primary text-white">
                             <UIcon name="i-heroicons-document-duplicate" class="text-[16px]" />
                           </div>
-                          <div class="text-xs text-qhx-text">复制</div>
+                          <div class="text-xs text-qhx-text">{{ t('clothes.detail.copy') }}</div>
                         </div>
                       </QhxJellyButton>
                       <QhxJellyButton>
@@ -2431,7 +2440,7 @@ const showEditPlan = (e?: MouseEvent) => {
                           <div class="wardrobe-neu-tool-orb m-[3px] rounded-[50%] h-[24px] w-[24px] flex items-center justify-center bg-qhx-primary text-white">
                             <UIcon name="i-heroicons-pencil-square" class="text-[16px]" />
                           </div>
-                          <div class="text-xs text-qhx-text">修改</div>
+                          <div class="text-xs text-qhx-text">{{ t('clothes.detail.modify') }}</div>
                         </div>
                       </QhxJellyButton>
                       <QhxJellyButton>
@@ -2442,7 +2451,7 @@ const showEditPlan = (e?: MouseEvent) => {
                           >
                             <UIcon name="i-heroicons-link" class="text-[16px]" />
                           </div>
-                          <div class="text-xs text-qhx-text">关联服饰</div>
+                          <div class="text-xs text-qhx-text">{{ t('clothes.detail.link_clothes') }}</div>
                         </div>
                       </QhxJellyButton>
                       <QhxJellyButton>
@@ -2450,7 +2459,7 @@ const showEditPlan = (e?: MouseEvent) => {
                           <div class="wardrobe-neu-tool-orb m-[3px] rounded-[50%] h-[24px] w-[24px] flex items-center justify-center bg-red-500 text-white">
                             <UIcon name="i-heroicons-trash" class="text-[16px]" />
                           </div>
-                          <div class="text-xs text-qhx-text">删除</div>
+                          <div class="text-xs text-qhx-text">{{ t('common.delete') }}</div>
                         </div>
                       </QhxJellyButton>
                         </div>
@@ -2462,8 +2471,8 @@ const showEditPlan = (e?: MouseEvent) => {
                     <button
                       type="button"
                       class="wardrobe-collapse-toggle"
-                      :title="headerCollapsed ? '展开功能栏' : '收起功能栏'"
-                      :aria-label="headerCollapsed ? '展开功能栏' : '收起功能栏'"
+                      :title="headerCollapsed ? t('clothes.detail.expand_bar') : t('clothes.detail.collapse_bar')"
+                      :aria-label="headerCollapsed ? t('clothes.detail.expand_bar') : t('clothes.detail.collapse_bar')"
                       @click="toggleHeaderCollapsed"
                     >
                       <UIcon
@@ -2475,8 +2484,8 @@ const showEditPlan = (e?: MouseEvent) => {
                       v-if="headerCollapsed"
                       type="button"
                       class="wardrobe-collapse-toggle"
-                      title="分享图"
-                      aria-label="分享图"
+                      :title="t('clothes.detail.share_img')"
+                      :aria-label="t('clothes.detail.share_img')"
                       @click="openClothesShareFromCollapse"
                     >
                       <UIcon name="i-heroicons-photo-20-solid" class="text-[16px]" />
@@ -2484,24 +2493,24 @@ const showEditPlan = (e?: MouseEvent) => {
                   </div>
                   <div class="space-y-3">
                     <h2 :class="['text-xl font-bold min-w-0 max-md:pt-0', clothesPlateTitle]">
-                      {{ detail.clothes_note || '暂无名称' }}
+                      {{ detail.clothes_note || t('community.unnamed') }}
                     </h2>
 
                   <!-- 信息内容 -->
                   <div class="clothes-detail-plate space-y-3">
                     <!-- 笔记 -->
                     <div v-if="detail.note" :class="[clothesPlateRow, 'text-gray-600']">
-                      笔记：{{ detail.note }}
+                      {{ t('clothes.field.note') }}：{{ detail.note }}
                     </div>
 
                     <!-- 喜爱级别（0–5 星） -->
                     <div v-if="detail.is_favorite !== undefined" class="flex flex-wrap items-center gap-2">
-                      <span :class="clothesPlateLabelMuted">喜爱级别：</span>
+                      <span :class="clothesPlateLabelMuted">{{ t('clothes.detail.favorite_level') }}</span>
                       <div v-if="isOwner" class="flex flex-wrap items-center gap-2">
                         <div :class="favoriteNeuPanel">
                           <button v-for="s in 5" :key="s" type="button"
                             class="text-2xl leading-none rounded-lg p-1 transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-qhx-primary active:shadow-[inset_2px_2px_6px_rgb(163_177_198/0.5)]"
-                            :aria-label="`设为 ${s} 星`" @click="setFavoriteLevel(s)">
+                            :aria-label="t('clothes.detail.set_star', { n: s })" @click="setFavoriteLevel(s)">
                             <UIcon
                               :name="favoriteLevelDisplay >= s ? 'i-heroicons-star-solid' : 'i-heroicons-star'"
                               :class="favoriteLevelDisplay >= s ? 'text-amber-500' : 'text-[#a3adbd]'" />
@@ -2509,7 +2518,7 @@ const showEditPlan = (e?: MouseEvent) => {
                         </div>
                         <button v-if="favoriteLevelDisplay > 0" type="button" :class="favoriteNeuMiniBtn"
                           @click="setFavoriteLevel(0)">
-                          清空
+                          {{ t('wardrobe.search.clear') }}
                         </button>
                       </div>
                       <div v-else :class="['inline-flex items-center gap-2', favoriteNeuPanel]">
@@ -2523,7 +2532,7 @@ const showEditPlan = (e?: MouseEvent) => {
 
                     <!-- 拥有状态 -->
                     <div v-if="isOwner || detail.wardrobe_status" class="flex flex-wrap items-center gap-2">
-                      <span :class="clothesPlateLabelMuted">拥有状态：</span>
+                      <span :class="clothesPlateLabelMuted">{{ t('clothes.detail.ownership') }}</span>
                       <template v-if="isOwner">
                         <button
                           v-if="detail.wardrobe_status"
@@ -2531,10 +2540,10 @@ const showEditPlan = (e?: MouseEvent) => {
                           class="cursor-pointer rounded-lg transition-opacity hover:opacity-80 focus:outline-none focus-visible:ring-2 focus-visible:ring-qhx-primary"
                           @click="openWardrobeStatusPicker($event)"
                         >
-                          <QhxTag :active="true">{{ detail.wardrobe_status }}</QhxTag>
+                          <QhxTag :active="true">{{ wardrobeStatusLabel(t, detail.wardrobe_status) || detail.wardrobe_status }}</QhxTag>
                         </button>
                         <button v-else type="button" :class="favoriteNeuMiniBtn" @click="openWardrobeStatusPicker($event)">
-                          选择状态
+                          {{ t('wardrobe.search.select_status') }}
                         </button>
                         <button
                           v-if="detail.wardrobe_status"
@@ -2542,15 +2551,15 @@ const showEditPlan = (e?: MouseEvent) => {
                           :class="favoriteNeuMiniBtn"
                           @click="clearWardrobeStatus"
                         >
-                          清空
+                          {{ t('wardrobe.search.clear') }}
                         </button>
                       </template>
-                      <span v-else class="text-sm">{{ detail.wardrobe_status }}</span>
+                      <span v-else class="text-sm">{{ wardrobeStatusLabel(t, detail.wardrobe_status) || detail.wardrobe_status }}</span>
                     </div>
 
                     <!-- 拥有数量 -->
                     <div v-if="detail.num !== undefined && detail.num !== null" class="flex items-center gap-2">
-                      <span :class="clothesPlateLabel">拥有数量：</span>
+                      <span :class="clothesPlateLabel">{{ t('clothes.detail.quantity') }}</span>
                       <div v-if="isOwner" class="flex items-center gap-2">
                         <QhxNumberStepper v-model="detail.num" :min="1" @change="updateNum" />
                       </div>
@@ -2560,7 +2569,7 @@ const showEditPlan = (e?: MouseEvent) => {
                     <!-- 风格 -->
                     <div v-if="detail.main_style_list && detail.main_style_list.length > 0"
                       class="flex items-center gap-2 flex-wrap">
-                      <span :class="clothesPlateLabel">风格：</span>
+                      <span :class="clothesPlateLabel">{{ t('clothes.detail.style') }}</span>
                       <QhxTag v-for="(style, index) in detail.main_style_list" :key="index" :active="true">
                         {{ style.label }}
                       </QhxTag>
@@ -2568,7 +2577,7 @@ const showEditPlan = (e?: MouseEvent) => {
 
                     <!-- 价格 -->
                     <div v-if="detail.price || planPriceDisplay" :class="clothesPlateRow">
-                      <template v-if="detail.price">价格：￥{{ detail.price }}</template>
+                      <template v-if="detail.price">{{ t('clothes.detail.price', { price: detail.price }) }}</template>
                       <div
                         v-if="planPriceDisplay"
                         class="text-gray-500"
@@ -2580,29 +2589,29 @@ const showEditPlan = (e?: MouseEvent) => {
                           </template>
                           <span> = ￥{{ planPriceDisplay.total }}</span>
                         </template>
-                        <template v-else>定尾：￥{{ planPriceDisplay.amount }}</template>
+                        <template v-else>{{ t('clothes.detail.deposit_balance', { amount: planPriceDisplay.amount }) }}</template>
                       </div>
                     </div>
                     <div v-if="detail.original_price" :class="clothesPlateRow">
-                      原价：￥{{ detail.original_price }}
+                      {{ t('clothes.field.original_price') }}：￥{{ detail.original_price }}
                     </div>
                     <div v-if="detail.offer_price" :class="clothesPlateRow">
-                      出物价：￥{{ detail.offer_price }}
+                      {{ t('clothes.field.offer_price') }}：￥{{ detail.offer_price }}
                     </div>
 
                     <!-- 次均价格 -->
                     <div v-if="costPerWearDisplay" :class="clothesPlateRow">
-                      次均价格：￥{{ costPerWearDisplay }}
+                      {{ t('clothes.field.avg_price') }}：￥{{ costPerWearDisplay }}
                     </div>
 
                     <!-- 尺码 -->
                     <div v-if="detail.size" :class="clothesPlateRow">
-                      尺码：{{ detail.size }}
+                      {{ t('clothes.field.size') }}：{{ detail.size }}
                     </div>
 
                     <!-- 穿着次数 -->
                     <div v-if="detail.times !== undefined && detail.times !== null" class="flex items-center gap-2">
-                      <span :class="clothesPlateLabel">穿着次数：</span>
+                      <span :class="clothesPlateLabel">{{ t('clothes.detail.wear_times') }}</span>
                       <div v-if="isOwner" class="flex items-center gap-2">
                         <QhxNumberStepper v-model="detail.times" :min="0" @change="updateTimes" />
                       </div>
@@ -2611,14 +2620,14 @@ const showEditPlan = (e?: MouseEvent) => {
 
                     <!-- 最后穿着时间：次数 +1 时服务端会自动更新，主人也可手动改 -->
                     <div v-if="isOwner || detail.last_dress" class="flex items-center gap-2 flex-wrap">
-                      <span :class="clothesPlateLabel">最后穿着：</span>
+                      <span :class="clothesPlateLabel">{{ t('clothes.detail.last_wear') }}</span>
                       <div v-if="isOwner" class="w-full max-w-[16rem]">
                         <QhxDateTimePicker
                           v-model="lastDressInput"
                           mode="date"
                           :enable-time-picker="true"
                           format="YYYY-MM-DD HH:mm:ss"
-                          placeholder="选择最后穿着时间"
+                          :placeholder="t('clothes.detail.select_last_wear')"
                         />
                       </div>
                       <span v-else class="text-sm">{{ formatDateTime(detail.last_dress) }}</span>
@@ -2626,12 +2635,12 @@ const showEditPlan = (e?: MouseEvent) => {
 
                     <!-- 颜色 -->
                     <div v-if="detail.color" class="flex items-center gap-2 flex-wrap">
-                      <span :class="clothesPlateLabel">颜色：</span>
+                      <span :class="clothesPlateLabel">{{ t('clothes.detail.color') }}</span>
                       <div v-for="(color, index) in detail.color.split(',')" :key="index"
                         class="w-8 h-8 rounded-full border-2 border-gray-300" :style="{ background: color }"></div>
                     </div>
                     <div v-if="detail.color_text" class="flex items-center gap-2 flex-wrap">
-                      <span :class="clothesPlateLabel">颜色(文本)：</span>
+                      <span :class="clothesPlateLabel">{{ t('clothes.detail.color_text') }}</span>
                       <QhxTag v-for="(name, index) in detail.color_text.split(',')" :key="index" :active="true">
                         {{ name }}
                       </QhxTag>
@@ -2639,15 +2648,15 @@ const showEditPlan = (e?: MouseEvent) => {
 
                     <!-- 部位 -->
                     <div v-if="detail.clothes_part" class="flex items-center gap-2 flex-wrap">
-                      <span :class="clothesPlateLabel">部位：</span>
+                      <span :class="clothesPlateLabel">{{ t('clothes.detail.part') }}</span>
                       <QhxTag v-for="(part, index) in detail.clothes_part.split(',')" :key="index" :active="true">
-                        {{ part }}
+                        {{ wardrobePartLabel(t, part) || part }}
                       </QhxTag>
                     </div>
 
                     <!-- 标签 -->
                     <div v-if="detail.tags" class="flex items-center gap-2 flex-wrap">
-                      <span :class="clothesPlateLabel">标签：</span>
+                      <span :class="clothesPlateLabel">{{ t('clothes.detail.tags') }}</span>
                       <QhxTag v-for="(tag, index) in detail.tags.split(',')" :key="index" :active="true">
                         {{ tag }}
                       </QhxTag>
@@ -2655,32 +2664,32 @@ const showEditPlan = (e?: MouseEvent) => {
 
                     <!-- 收纳 -->
                     <div v-if="detail.position" :class="clothesPlateRow">
-                      收纳：{{ detail.position }}
+                      {{ t('clothes.field.storage') }}：{{ detail.position }}
                     </div>
 
                     <!-- 季节 -->
                     <div v-if="detail.season" class="flex items-center gap-2 flex-wrap">
-                      <span :class="clothesPlateLabel">季节：</span>
+                      <span :class="clothesPlateLabel">{{ t('clothes.detail.season') }}</span>
                       <QhxTag v-for="(season, index) in detail.season.split(',')" :key="index" :active="true">
-                        {{ season }}
+                        {{ wardrobeSeasonLabel(t, season) || season }}
                       </QhxTag>
                     </div>
 
                     <!-- 购入时间 -->
                     <div v-if="detail.add_time" :class="clothesPlateRow">
-                      购入：{{ formatDate(detail.add_time) }}
+                      {{ t('clothes.field.buy_time') }}：{{ formatDate(detail.add_time) }}
                     </div>
                     <!-- 关联服饰 -->
                     <div v-if="detail.include && detail.include.length > 0" class="border-t pt-3 mt-3">
                       <div class="flex items-center justify-between mb-2">
-                        <h3 :class="clothesPlateSectionSm">关联服饰</h3>
+                        <h3 :class="clothesPlateSectionSm">{{ t('clothes.detail.linked_clothes') }}</h3>
                         <button
                           v-if="isOwner"
                           type="button"
                           class="clothes-detail-sort-toggle text-xs px-2 py-1 rounded transition-colors"
                           :class="sortMode ? 'bg-red-500 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'"
                           @click="sortMode = !sortMode">
-                          {{ sortMode ? '退出排序' : '排序模式' }}
+                          {{ sortMode ? t('clothes.detail.exit_sort') : '排序模式' }}
                         </button>
                       </div>
                       <ul class="space-y-2">
@@ -2695,7 +2704,7 @@ const showEditPlan = (e?: MouseEvent) => {
                             class="w-10 h-10 rounded-lg object-cover flex-shrink-0"
                             :alt="item.clothes_note" />
                           <div class="min-w-0 flex-1 flex flex-col gap-0.5 justify-center">
-                            <span class="text-sm font-serif leading-snug truncate">{{ item.clothes_note || item.library?.name || '未命名' }}</span>
+                            <span class="text-sm font-serif leading-snug truncate">{{ item.clothes_note || item.library?.name || t('plan.list.unnamed') }}</span>
                             <span
                               v-if="item.price !== undefined && item.price !== null && item.price !== ''"
                               class="text-xs font-semibold tabular-nums text-qhx-primary"
@@ -2740,18 +2749,18 @@ const showEditPlan = (e?: MouseEvent) => {
                         </template>
                         <span class="text-qhx-primary"> = ￥{{ includeOutfitPriceBreakdown.total }}</span>
                       </template>
-                      <template v-else><span class="text-qhx-primary">总价：￥0</span></template>
+                      <template v-else><span class="text-qhx-primary">{{ t('clothes.detail.total_zero') }}</span></template>
                     </div>
                     <!-- 来源 -->
                     <div v-if="!detail.library && !detail.origin_shop && detail.origin" :class="clothesPlateRow">
-                      来源：{{ detail.origin }}
+                      {{ t('clothes.field.origin') }}：{{ detail.origin }}
                     </div>
 
                     <!-- 尾款计划 -->
                     <div v-if="detail.plan_id || detail.plan" class="border-t pt-3 mt-3">
                       <div class="flex items-center gap-2 mb-2">
                         <UIcon name="material-symbols:savings-rounded" class="text-amber-500 text-lg" />
-                        <span class="text-sm font-semibold font-serif tracking-wide text-amber-700">尾款计划</span>
+                        <span class="text-sm font-semibold font-serif tracking-wide text-amber-700">{{ t('clothes.detail.balance_plan') }}</span>
                         <!-- 计划操作按钮（仅所有者） -->
                         <div v-if="isOwner" class="flex items-center gap-1 ml-auto">
                           <template v-if="detail.plan?.is_complete !== 1">
@@ -2760,12 +2769,12 @@ const showEditPlan = (e?: MouseEvent) => {
                               class="px-2 py-0.5 text-xs bg-qhx-primary hover:bg-qhx-primary/80 text-white rounded"
                               @click="confirmCompletePlan"
                             >
-                              完成
+                              {{ t('plan.stats_complete') }}
                             </button>
                             <button
                               type="button"
                               class="p-1 rounded text-amber-600 hover:bg-amber-100"
-                              title="编辑"
+                              :title="t('common.edit')"
                               @click="showEditPlan"
                             >
                               <UIcon name="i-heroicons-pencil" class="w-3.5 h-3.5" />
@@ -2818,9 +2827,9 @@ const showEditPlan = (e?: MouseEvent) => {
                               class="px-2 py-0.5 text-[10px] bg-qhx-primary hover:bg-qhx-primary/80 text-white rounded flex-shrink-0"
                               @click="confirmCompleteChildPlan(child)"
                             >
-                              完成
+                              {{ t('plan.stats_complete') }}
                             </button>
-                            <span v-else-if="child.is_complete === 1" class="text-gray-400 text-[10px] flex-shrink-0">已完成</span>
+                            <span v-else-if="child.is_complete === 1" class="text-gray-400 text-[10px] flex-shrink-0">{{ t('clothes.detail.completed') }}</span>
                           </div>
                         </div>
                         <!-- <NuxtLink
@@ -2837,7 +2846,7 @@ const showEditPlan = (e?: MouseEvent) => {
                     <div v-else-if="isOwner" class="border-t pt-3 mt-3">
                       <div class="flex items-center gap-2 mb-2">
                         <UIcon name="material-symbols:savings-rounded" class="text-amber-500 text-lg" />
-                        <span class="text-sm font-semibold font-serif tracking-wide text-amber-700">尾款计划</span>
+                        <span class="text-sm font-semibold font-serif tracking-wide text-amber-700">{{ t('clothes.detail.balance_plan') }}</span>
                       </div>
                       <button
                         type="button"
@@ -2845,7 +2854,7 @@ const showEditPlan = (e?: MouseEvent) => {
                         @click="showAddPlan"
                       >
                         <UIcon name="i-heroicons-plus" class="w-4 h-4 shrink-0" />
-                        <span>添加尾款计划</span>
+                        <span>{{ t('clothes.detail.add_balance_plan') }}</span>
                       </button>
                     </div>
 
@@ -2898,7 +2907,7 @@ const showEditPlan = (e?: MouseEvent) => {
 
                     <!-- 来源店铺 -->
                     <div v-if="detail.origin_shop" class="border-t pt-3 mt-3">
-                      <h3 :class="clothesPlateSectionLg">来源店铺</h3>
+                      <h3 :class="clothesPlateSectionLg">{{ t('clothes.detail.source_shop') }}</h3>
                       <div class="clothes-scene-glass-panel flex items-center gap-3 cursor-pointer p-3 rounded-lg transition-colors hover:bg-white/30"
                         @click="jumpToShop(detail.origin_shop!.shop_id)">
                         <img :src="BASE_IMG + detail.origin_shop.shop_logo" class="w-12 h-12 rounded-full object-cover"
@@ -2922,7 +2931,7 @@ const showEditPlan = (e?: MouseEvent) => {
                             :aria-pressed="detailImageLayout === 'thumb'"
                             @click="setDetailImageLayout('thumb')"
                           >
-                            缩略图
+                            {{ t('library.thumbnails') }}
                           </button>
                           <button
                             type="button"
@@ -2931,7 +2940,7 @@ const showEditPlan = (e?: MouseEvent) => {
                             :aria-pressed="detailImageLayout === 'long'"
                             @click="setDetailImageLayout('long')"
                           >
-                            长图
+                            {{ t('library.long_image') }}
                           </button>
                         </div>
                       </div>
@@ -2963,7 +2972,7 @@ const showEditPlan = (e?: MouseEvent) => {
                     <!-- 是否共享 -->
                     <div class="border-t pt-3 mt-3">
                       <div class="flex items-center justify-between gap-3">
-                        <span :class="clothesPlateLabelMuted">是否共享</span>
+                        <span :class="clothesPlateLabelMuted">{{ t('clothes.detail.is_shared') }}</span>
                         <UToggle
                           v-if="isOwner"
                           :model-value="isShared"
@@ -3205,7 +3214,7 @@ const showEditPlan = (e?: MouseEvent) => {
                                 >
                                   <UIcon name="icon-park-outline:sort-two" class="text-[16px]" />
                                 </div>
-                                <div class="text-xs text-qhx-text">{{ sortMode ? '退出排序' : '排序模式' }}</div>
+                                <div class="text-xs text-qhx-text">{{ sortMode ? t('clothes.detail.exit_sort') : '排序模式' }}</div>
                               </div>
                             </QhxJellyButton>
                             <QhxJellyButton>
@@ -3213,7 +3222,7 @@ const showEditPlan = (e?: MouseEvent) => {
                                 <div class="wardrobe-neu-tool-orb m-[3px] rounded-[50%] h-[24px] w-[24px] flex items-center justify-center bg-qhx-primary text-white">
                                   <UIcon name="garden:box-3d-fill-12" class="text-[16px]" />
                                 </div>
-                                <div class="text-xs text-qhx-text">关联3D</div>
+                                <div class="text-xs text-qhx-text">{{ t('clothes.detail.link_3d') }}</div>
                               </div>
                             </QhxJellyButton>
                             <QhxJellyButton>
@@ -3221,7 +3230,7 @@ const showEditPlan = (e?: MouseEvent) => {
                                 <div class="wardrobe-neu-tool-orb m-[3px] rounded-[50%] h-[24px] w-[24px] flex items-center justify-center bg-qhx-primary text-white">
                                   <UIcon name="i-heroicons-document-duplicate" class="text-[16px]" />
                                 </div>
-                                <div class="text-xs text-qhx-text">复制</div>
+                                <div class="text-xs text-qhx-text">{{ t('clothes.detail.copy') }}</div>
                               </div>
                             </QhxJellyButton>
                             <QhxJellyButton>
@@ -3229,7 +3238,7 @@ const showEditPlan = (e?: MouseEvent) => {
                                 <div class="wardrobe-neu-tool-orb m-[3px] rounded-[50%] h-[24px] w-[24px] flex items-center justify-center bg-qhx-primary text-white">
                                   <UIcon name="i-heroicons-pencil-square" class="text-[16px]" />
                                 </div>
-                                <div class="text-xs text-qhx-text">编辑</div>
+                                <div class="text-xs text-qhx-text">{{ t('common.edit') }}</div>
                               </div>
                             </QhxJellyButton>
                             <QhxJellyButton>
@@ -3240,7 +3249,7 @@ const showEditPlan = (e?: MouseEvent) => {
                                 >
                                   <UIcon name="i-heroicons-link" class="text-[16px]" />
                                 </div>
-                                <div class="text-xs text-qhx-text">关联服饰</div>
+                                <div class="text-xs text-qhx-text">{{ t('clothes.detail.link_clothes') }}</div>
                               </div>
                             </QhxJellyButton>
                             <QhxJellyButton>
@@ -3248,7 +3257,7 @@ const showEditPlan = (e?: MouseEvent) => {
                                 <div class="wardrobe-neu-tool-orb m-[3px] rounded-[50%] h-[24px] w-[24px] flex items-center justify-center bg-red-500 text-white">
                                   <UIcon name="i-heroicons-trash" class="text-[16px]" />
                                 </div>
-                                <div class="text-xs text-qhx-text">删除</div>
+                                <div class="text-xs text-qhx-text">{{ t('common.delete') }}</div>
                               </div>
                             </QhxJellyButton>
                           </div>
@@ -3260,8 +3269,8 @@ const showEditPlan = (e?: MouseEvent) => {
                       <button
                         type="button"
                         class="wardrobe-collapse-toggle"
-                        :title="headerCollapsed ? '展开功能栏' : '收起功能栏'"
-                        :aria-label="headerCollapsed ? '展开功能栏' : '收起功能栏'"
+                        :title="headerCollapsed ? t('clothes.detail.expand_bar') : t('clothes.detail.collapse_bar')"
+                        :aria-label="headerCollapsed ? t('clothes.detail.expand_bar') : t('clothes.detail.collapse_bar')"
                         @click="toggleHeaderCollapsed"
                       >
                         <UIcon
@@ -3273,8 +3282,8 @@ const showEditPlan = (e?: MouseEvent) => {
                         v-if="headerCollapsed"
                         type="button"
                         class="wardrobe-collapse-toggle"
-                        title="分享图"
-                        aria-label="分享图"
+                        :title="t('clothes.detail.share_img')"
+                        :aria-label="t('clothes.detail.share_img')"
                         @click="openClothesShareFromCollapse"
                       >
                         <UIcon name="i-heroicons-photo-20-solid" class="text-[16px]" />
@@ -3282,22 +3291,22 @@ const showEditPlan = (e?: MouseEvent) => {
                     </div>
                     <div class="space-y-3">
                       <h2 :class="['text-xl font-bold min-w-0', clothesPlateTitle]">
-                        {{ detail.clothes_note || '暂无名称' }}
+                        {{ detail.clothes_note || t('community.unnamed') }}
                       </h2>
 
                     <!-- 笔记 -->
                     <div v-if="detail.note" :class="[clothesPlateRow, 'text-gray-600']">
-                      笔记：{{ detail.note }}
+                      {{ t('clothes.field.note') }}：{{ detail.note }}
                     </div>
 
                     <!-- 喜爱级别（0–5 星） -->
                     <div v-if="detail.is_favorite !== undefined" class="flex flex-wrap items-center gap-2">
-                      <span :class="clothesPlateLabelMuted">喜爱级别：</span>
+                      <span :class="clothesPlateLabelMuted">{{ t('clothes.detail.favorite_level') }}</span>
                       <div v-if="isOwner" class="flex flex-wrap items-center gap-2">
                         <div :class="favoriteNeuPanel">
                           <button v-for="s in 5" :key="s" type="button"
                             class="text-2xl leading-none rounded-lg p-1 transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-qhx-primary active:shadow-[inset_2px_2px_6px_rgb(163_177_198/0.5)]"
-                            :aria-label="`设为 ${s} 星`" @click="setFavoriteLevel(s)">
+                            :aria-label="t('clothes.detail.set_star', { n: s })" @click="setFavoriteLevel(s)">
                             <UIcon
                               :name="favoriteLevelDisplay >= s ? 'i-heroicons-star-solid' : 'i-heroicons-star'"
                               :class="favoriteLevelDisplay >= s ? 'text-amber-500' : 'text-[#a3adbd]'" />
@@ -3305,7 +3314,7 @@ const showEditPlan = (e?: MouseEvent) => {
                         </div>
                         <button v-if="favoriteLevelDisplay > 0" type="button" :class="favoriteNeuMiniBtn"
                           @click="setFavoriteLevel(0)">
-                          清空
+                          {{ t('wardrobe.search.clear') }}
                         </button>
                       </div>
                       <div v-else :class="['inline-flex items-center gap-2', favoriteNeuPanel]">
@@ -3319,7 +3328,7 @@ const showEditPlan = (e?: MouseEvent) => {
 
                     <!-- 拥有状态 -->
                     <div v-if="isOwner || detail.wardrobe_status" class="flex flex-wrap items-center gap-2">
-                      <span :class="clothesPlateLabelMuted">拥有状态：</span>
+                      <span :class="clothesPlateLabelMuted">{{ t('clothes.detail.ownership') }}</span>
                       <template v-if="isOwner">
                         <button
                           v-if="detail.wardrobe_status"
@@ -3327,10 +3336,10 @@ const showEditPlan = (e?: MouseEvent) => {
                           class="cursor-pointer rounded-lg transition-opacity hover:opacity-80 focus:outline-none focus-visible:ring-2 focus-visible:ring-qhx-primary"
                           @click="openWardrobeStatusPicker($event)"
                         >
-                          <QhxTag :active="true">{{ detail.wardrobe_status }}</QhxTag>
+                          <QhxTag :active="true">{{ wardrobeStatusLabel(t, detail.wardrobe_status) || detail.wardrobe_status }}</QhxTag>
                         </button>
                         <button v-else type="button" :class="favoriteNeuMiniBtn" @click="openWardrobeStatusPicker($event)">
-                          选择状态
+                          {{ t('wardrobe.search.select_status') }}
                         </button>
                         <button
                           v-if="detail.wardrobe_status"
@@ -3338,15 +3347,15 @@ const showEditPlan = (e?: MouseEvent) => {
                           :class="favoriteNeuMiniBtn"
                           @click="clearWardrobeStatus"
                         >
-                          清空
+                          {{ t('wardrobe.search.clear') }}
                         </button>
                       </template>
-                      <span v-else class="text-sm">{{ detail.wardrobe_status }}</span>
+                      <span v-else class="text-sm">{{ wardrobeStatusLabel(t, detail.wardrobe_status) || detail.wardrobe_status }}</span>
                     </div>
 
                     <!-- 拥有数量 -->
                     <div v-if="detail.num !== undefined && detail.num !== null" class="flex items-center gap-2">
-                      <span :class="clothesPlateLabel">拥有数量：</span>
+                      <span :class="clothesPlateLabel">{{ t('clothes.detail.quantity') }}</span>
                       <div v-if="isOwner" class="flex items-center gap-2">
                         <QhxNumberStepper v-model="detail.num" :min="1" @change="updateNum" />
                       </div>
@@ -3356,7 +3365,7 @@ const showEditPlan = (e?: MouseEvent) => {
                     <!-- 风格 -->
                     <div v-if="detail.main_style_list && detail.main_style_list.length > 0"
                       class="flex items-center gap-2 flex-wrap">
-                      <span :class="clothesPlateLabel">风格：</span>
+                      <span :class="clothesPlateLabel">{{ t('clothes.detail.style') }}</span>
                       <QhxTag v-for="(style, index) in detail.main_style_list" :key="index" :active="true">
                         {{ style.label }}
                       </QhxTag>
@@ -3364,7 +3373,7 @@ const showEditPlan = (e?: MouseEvent) => {
 
                     <!-- 价格 -->
                     <div v-if="detail.price || planPriceDisplay" :class="clothesPlateRow">
-                      <template v-if="detail.price">价格：￥{{ detail.price }}</template>
+                      <template v-if="detail.price">{{ t('clothes.detail.price', { price: detail.price }) }}</template>
                       <div
                         v-if="planPriceDisplay"
                         class="text-gray-500"
@@ -3376,29 +3385,29 @@ const showEditPlan = (e?: MouseEvent) => {
                           </template>
                           <span> = ￥{{ planPriceDisplay.total }}</span>
                         </template>
-                        <template v-else>定尾：￥{{ planPriceDisplay.amount }}</template>
+                        <template v-else>{{ t('clothes.detail.deposit_balance', { amount: planPriceDisplay.amount }) }}</template>
                       </div>
                     </div>
                     <div v-if="detail.original_price" :class="clothesPlateRow">
-                      原价：￥{{ detail.original_price }}
+                      {{ t('clothes.field.original_price') }}：￥{{ detail.original_price }}
                     </div>
                     <div v-if="detail.offer_price" :class="clothesPlateRow">
-                      出物价：￥{{ detail.offer_price }}
+                      {{ t('clothes.field.offer_price') }}：￥{{ detail.offer_price }}
                     </div>
 
                     <!-- 次均价格 -->
                     <div v-if="costPerWearDisplay" :class="clothesPlateRow">
-                      次均价格：￥{{ costPerWearDisplay }}
+                      {{ t('clothes.field.avg_price') }}：￥{{ costPerWearDisplay }}
                     </div>
 
                     <!-- 尺码 -->
                     <div v-if="detail.size" :class="clothesPlateRow">
-                      尺码：{{ detail.size }}
+                      {{ t('clothes.field.size') }}：{{ detail.size }}
                     </div>
 
                     <!-- 穿着次数 -->
                     <div v-if="detail.times !== undefined && detail.times !== null" class="flex items-center gap-2">
-                      <span :class="clothesPlateLabel">穿着次数：</span>
+                      <span :class="clothesPlateLabel">{{ t('clothes.detail.wear_times') }}</span>
                       <div v-if="isOwner" class="flex items-center gap-2">
                         <QhxNumberStepper v-model="detail.times" :min="0" @change="updateTimes" />
                       </div>
@@ -3407,14 +3416,14 @@ const showEditPlan = (e?: MouseEvent) => {
 
                     <!-- 最后穿着时间：次数 +1 时服务端会自动更新，主人也可手动改 -->
                     <div v-if="isOwner || detail.last_dress" class="flex items-center gap-2 flex-wrap">
-                      <span :class="clothesPlateLabel">最后穿着：</span>
+                      <span :class="clothesPlateLabel">{{ t('clothes.detail.last_wear') }}</span>
                       <div v-if="isOwner" class="w-full max-w-[16rem]">
                         <QhxDateTimePicker
                           v-model="lastDressInput"
                           mode="date"
                           :enable-time-picker="true"
                           format="YYYY-MM-DD HH:mm:ss"
-                          placeholder="选择最后穿着时间"
+                          :placeholder="t('clothes.detail.select_last_wear')"
                         />
                       </div>
                       <span v-else class="text-sm">{{ formatDateTime(detail.last_dress) }}</span>
@@ -3422,12 +3431,12 @@ const showEditPlan = (e?: MouseEvent) => {
 
                     <!-- 颜色 -->
                     <div v-if="detail.color" class="flex items-center gap-2 flex-wrap">
-                      <span :class="clothesPlateLabel">颜色：</span>
+                      <span :class="clothesPlateLabel">{{ t('clothes.detail.color') }}</span>
                       <div v-for="(color, index) in detail.color.split(',')" :key="index"
                         class="w-8 h-8 rounded-full border-2 border-gray-300" :style="{ background: color }"></div>
                     </div>
                     <div v-if="detail.color_text" class="flex items-center gap-2 flex-wrap">
-                      <span :class="clothesPlateLabel">颜色(文本)：</span>
+                      <span :class="clothesPlateLabel">{{ t('clothes.detail.color_text') }}</span>
                       <QhxTag v-for="(name, index) in detail.color_text.split(',')" :key="index" :active="true">
                         {{ name }}
                       </QhxTag>
@@ -3435,15 +3444,15 @@ const showEditPlan = (e?: MouseEvent) => {
 
                     <!-- 部位 -->
                     <div v-if="detail.clothes_part" class="flex items-center gap-2 flex-wrap">
-                      <span :class="clothesPlateLabel">部位：</span>
+                      <span :class="clothesPlateLabel">{{ t('clothes.detail.part') }}</span>
                       <QhxTag v-for="(part, index) in detail.clothes_part.split(',')" :key="index" :active="true">
-                        {{ part }}
+                        {{ wardrobePartLabel(t, part) || part }}
                       </QhxTag>
                     </div>
 
                     <!-- 标签 -->
                     <div v-if="detail.tags" class="flex items-center gap-2 flex-wrap">
-                      <span :class="clothesPlateLabel">标签：</span>
+                      <span :class="clothesPlateLabel">{{ t('clothes.detail.tags') }}</span>
                       <QhxTag v-for="(tag, index) in detail.tags.split(',')" :key="index" :active="true">
                         {{ tag }}
                       </QhxTag>
@@ -3451,36 +3460,36 @@ const showEditPlan = (e?: MouseEvent) => {
 
                     <!-- 收纳 -->
                     <div v-if="detail.position" :class="clothesPlateRow">
-                      收纳：{{ detail.position }}
+                      {{ t('clothes.field.storage') }}：{{ detail.position }}
                     </div>
 
                     <!-- 季节 -->
                     <div v-if="detail.season" class="flex items-center gap-2 flex-wrap">
-                      <span :class="clothesPlateLabel">季节：</span>
+                      <span :class="clothesPlateLabel">{{ t('clothes.detail.season') }}</span>
                       <QhxTag v-for="(season, index) in detail.season.split(',')" :key="index" :active="true">
-                        {{ season }}
+                        {{ wardrobeSeasonLabel(t, season) || season }}
                       </QhxTag>
                     </div>
 
                     <!-- 购入时间 -->
                     <div v-if="detail.add_time" :class="clothesPlateRow">
-                      购入：{{ formatDate(detail.add_time) }}
+                      {{ t('clothes.field.buy_time') }}：{{ formatDate(detail.add_time) }}
                     </div>
                     <!-- 来源 -->
                     <div v-if="!detail.origin_shop && detail.origin" :class="clothesPlateRow">
-                      来源：{{ detail.origin }}
+                      {{ t('clothes.field.origin') }}：{{ detail.origin }}
                     </div>
                     <!-- 关联服饰 -->
                     <div v-if="detail.include && detail.include.length > 0" class="border-t pt-3 mt-3">
                       <div class="flex items-center justify-between mb-2">
-                        <h3 :class="clothesPlateSectionSm">关联服饰</h3>
+                        <h3 :class="clothesPlateSectionSm">{{ t('clothes.detail.linked_clothes') }}</h3>
                         <button
                           v-if="isOwner"
                           type="button"
                           class="clothes-detail-sort-toggle text-xs px-2 py-1 rounded transition-colors"
                           :class="sortMode ? 'bg-red-500 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'"
                           @click="sortMode = !sortMode">
-                          {{ sortMode ? '退出排序' : '排序模式' }}
+                          {{ sortMode ? t('clothes.detail.exit_sort') : '排序模式' }}
                         </button>
                       </div>
                       <ul class="space-y-2">
@@ -3495,7 +3504,7 @@ const showEditPlan = (e?: MouseEvent) => {
                             class="w-10 h-10 rounded-lg object-cover flex-shrink-0"
                             :alt="item.clothes_note" />
                           <div class="min-w-0 flex-1 flex flex-col gap-0.5 justify-center">
-                            <span class="text-sm font-serif leading-snug truncate">{{ item.clothes_note || item.library?.name || '未命名' }}</span>
+                            <span class="text-sm font-serif leading-snug truncate">{{ item.clothes_note || item.library?.name || t('plan.list.unnamed') }}</span>
                             <span
                               v-if="item.price !== undefined && item.price !== null && item.price !== ''"
                               class="text-xs font-semibold tabular-nums text-qhx-primary"
@@ -3540,13 +3549,13 @@ const showEditPlan = (e?: MouseEvent) => {
                         </template>
                         <span class="text-qhx-primary"> = ￥{{ includeOutfitPriceBreakdown.total }}</span>
                       </template>
-                      <template v-else><span class="text-qhx-primary">总价：￥0</span></template>
+                      <template v-else><span class="text-qhx-primary">{{ t('clothes.detail.total_zero') }}</span></template>
                     </div>
                     <!-- 尾款计划 -->
                     <div v-if="detail.plan_id || detail.plan" class="border-t pt-3 mt-3">
                       <div class="flex items-center gap-2 mb-2">
                         <UIcon name="material-symbols:savings-rounded" class="text-amber-500 text-lg" />
-                        <span class="text-sm font-semibold font-serif tracking-wide text-amber-700">尾款计划</span>
+                        <span class="text-sm font-semibold font-serif tracking-wide text-amber-700">{{ t('clothes.detail.balance_plan') }}</span>
                         <!-- 计划操作按钮（仅所有者） -->
                         <div v-if="isOwner" class="flex items-center gap-1 ml-auto">
                           <template v-if="detail.plan?.is_complete !== 1">
@@ -3555,12 +3564,12 @@ const showEditPlan = (e?: MouseEvent) => {
                               class="px-2 py-0.5 text-xs bg-qhx-primary hover:bg-qhx-primary/80 text-white rounded"
                               @click="confirmCompletePlan"
                             >
-                              完成
+                              {{ t('plan.stats_complete') }}
                             </button>
                             <button
                               type="button"
                               class="p-1 rounded text-amber-600 hover:bg-amber-100"
-                              title="编辑"
+                              :title="t('common.edit')"
                               @click="showEditPlan"
                             >
                               <UIcon name="i-heroicons-pencil" class="w-3.5 h-3.5" />
@@ -3613,9 +3622,9 @@ const showEditPlan = (e?: MouseEvent) => {
                               class="px-2 py-0.5 text-[10px] bg-qhx-primary hover:bg-qhx-primary/80 text-white rounded flex-shrink-0"
                               @click="confirmCompleteChildPlan(child)"
                             >
-                              完成
+                              {{ t('plan.stats_complete') }}
                             </button>
-                            <span v-else-if="child.is_complete === 1" class="text-gray-400 text-[10px] flex-shrink-0">已完成</span>
+                            <span v-else-if="child.is_complete === 1" class="text-gray-400 text-[10px] flex-shrink-0">{{ t('clothes.detail.completed') }}</span>
                           </div>
                         </div>
                         <!-- <NuxtLink
@@ -3632,7 +3641,7 @@ const showEditPlan = (e?: MouseEvent) => {
                     <div v-else-if="isOwner" class="border-t pt-3 mt-3">
                       <div class="flex items-center gap-2 mb-2">
                         <UIcon name="material-symbols:savings-rounded" class="text-amber-500 text-lg" />
-                        <span class="text-sm font-semibold font-serif tracking-wide text-amber-700">尾款计划</span>
+                        <span class="text-sm font-semibold font-serif tracking-wide text-amber-700">{{ t('clothes.detail.balance_plan') }}</span>
                       </div>
                       <button
                         type="button"
@@ -3640,7 +3649,7 @@ const showEditPlan = (e?: MouseEvent) => {
                         @click="showAddPlan"
                       >
                         <UIcon name="i-heroicons-plus" class="w-4 h-4 shrink-0" />
-                        <span>添加尾款计划</span>
+                        <span>{{ t('clothes.detail.add_balance_plan') }}</span>
                       </button>
                     </div>
 
@@ -3695,7 +3704,7 @@ const showEditPlan = (e?: MouseEvent) => {
                     <!-- <div v-if="isOwner && detail.include && detail.include.length < 10" class="mt-4">
                     <button type="button" class="modal-capsule-btn" @click="showAddClothesModal = true">
                       <UIcon name="i-heroicons-plus" class="w-4 h-4 shrink-0" />
-                      <span>关联服饰</span>
+                      <span>{{ t('clothes.detail.link_clothes') }}</span>
                     </button>
                   </div>
                   <div v-else-if="isOwner && detail.include && detail.include.length >= 10"
@@ -3715,7 +3724,7 @@ const showEditPlan = (e?: MouseEvent) => {
 
                 <!-- 来源店铺 -->
                 <div v-if="detail.origin_shop" class="border-t pt-4 mt-4">
-                  <h3 :class="clothesPlateSectionLg">来源店铺</h3>
+                  <h3 :class="clothesPlateSectionLg">{{ t('clothes.detail.source_shop') }}</h3>
                   <div class="flex items-center gap-3 cursor-pointer p-3 bg-gray-50 rounded-lg hover:bg-gray-100"
                     @click="jumpToShop(detail.origin_shop!.shop_id)">
                     <img :src="BASE_IMG + detail.origin_shop.shop_logo" class="w-12 h-12 rounded-full object-cover"
@@ -3739,7 +3748,7 @@ const showEditPlan = (e?: MouseEvent) => {
                         :aria-pressed="detailImageLayout === 'thumb'"
                         @click="setDetailImageLayout('thumb')"
                       >
-                        缩略图
+                        {{ t('library.thumbnails') }}
                       </button>
                       <button
                         type="button"
@@ -3748,7 +3757,7 @@ const showEditPlan = (e?: MouseEvent) => {
                         :aria-pressed="detailImageLayout === 'long'"
                         @click="setDetailImageLayout('long')"
                       >
-                        长图
+                        {{ t('library.long_image') }}
                       </button>
                     </div>
                   </div>
@@ -3773,7 +3782,7 @@ const showEditPlan = (e?: MouseEvent) => {
                 <!-- 是否共享 -->
                 <div class="border-t pt-3 mt-3">
                   <div class="flex items-center justify-between gap-3">
-                    <span :class="clothesPlateLabelMuted">是否共享</span>
+                    <span :class="clothesPlateLabelMuted">{{ t('clothes.detail.is_shared') }}</span>
                     <UToggle
                       v-if="isOwner"
                       :model-value="isShared"
@@ -3902,14 +3911,14 @@ const showEditPlan = (e?: MouseEvent) => {
     <!-- 删除确认弹窗 -->
     <QhxModal v-model="showDeleteModal">
       <div class="capsule-confirm-card">
-        <h3 class="capsule-confirm-card__title">操作确认</h3>
+        <h3 class="capsule-confirm-card__title">{{ t('clothes.detail.confirm_title') }}</h3>
         <p class="capsule-confirm-card__desc">确定要删除吗？</p>
         <div class="capsule-confirm-card__actions">
           <button type="button" class="modal-capsule-btn modal-capsule-btn--ghost w-full min-w-0 sm:flex-1" @click="showDeleteModal = false">
-            取消
+            {{ t('common.cancel') }}
           </button>
           <button type="button" class="modal-capsule-btn modal-capsule-btn--danger w-full min-w-0 sm:flex-1" @click="confirmDelete">
-            确定
+            {{ t('common.confirm') }}
           </button>
         </div>
       </div>
@@ -3918,14 +3927,14 @@ const showEditPlan = (e?: MouseEvent) => {
       <!-- 移除场景确认弹窗 -->
       <QhxModal v-model="showRemoveSceneModal">
         <div class="capsule-confirm-card">
-          <h3 class="capsule-confirm-card__title">操作确认</h3>
+          <h3 class="capsule-confirm-card__title">{{ t('clothes.detail.confirm_title') }}</h3>
           <p class="capsule-confirm-card__desc">确定要移除当前关联的场景吗？</p>
           <div class="capsule-confirm-card__actions">
             <button type="button" class="modal-capsule-btn modal-capsule-btn--ghost w-full min-w-0 sm:flex-1" @click="showRemoveSceneModal = false">
-              取消
+              {{ t('common.cancel') }}
             </button>
             <button type="button" class="modal-capsule-btn modal-capsule-btn--danger w-full min-w-0 sm:flex-1" @click="removeScene">
-              确定
+              {{ t('common.confirm') }}
             </button>
           </div>
         </div>
@@ -3934,11 +3943,11 @@ const showEditPlan = (e?: MouseEvent) => {
       <!-- 完成计划确认弹窗 -->
       <QhxModal v-model="showCompletePlanModal">
         <div class="capsule-confirm-card">
-          <h3 class="capsule-confirm-card__title">操作确认</h3>
-          <p class="capsule-confirm-card__desc">确定要完成该计划吗？</p>
+          <h3 class="capsule-confirm-card__title">{{ t('clothes.detail.confirm_title') }}</h3>
+          <p class="capsule-confirm-card__desc">{{ t('plan.complete_confirm') }}</p>
           <div class="capsule-confirm-card__actions">
             <button type="button" class="modal-capsule-btn modal-capsule-btn--ghost w-full min-w-0 sm:flex-1" @click="showCompletePlanModal = false; completePlanListId = null">
-              取消
+              {{ t('common.cancel') }}
             </button>
             <button
               type="button"
@@ -3947,7 +3956,7 @@ const showEditPlan = (e?: MouseEvent) => {
               @click="handleCompletePlan"
             >
               <UIcon v-if="planCompleteLoading" name="i-heroicons-arrow-path" class="w-4 h-4 shrink-0 animate-spin" />
-              <span>确认完成</span>
+              <span>{{ t('plan.confirm_complete_btn') }}</span>
             </button>
           </div>
         </div>
@@ -3956,11 +3965,11 @@ const showEditPlan = (e?: MouseEvent) => {
       <!-- 移除计划确认弹窗 -->
       <QhxModal v-model="showRemovePlanModal">
         <div class="capsule-confirm-card">
-          <h3 class="capsule-confirm-card__title">操作确认</h3>
+          <h3 class="capsule-confirm-card__title">{{ t('clothes.detail.confirm_title') }}</h3>
           <p class="capsule-confirm-card__desc">确定要移除该计划与服饰的关联吗？计划仍将保留在计划列表中。</p>
           <div class="capsule-confirm-card__actions">
             <button type="button" class="modal-capsule-btn modal-capsule-btn--ghost w-full min-w-0 sm:flex-1" @click="showRemovePlanModal = false">
-              取消
+              {{ t('common.cancel') }}
             </button>
             <button
               type="button"
@@ -3978,11 +3987,11 @@ const showEditPlan = (e?: MouseEvent) => {
       <!-- 删除计划确认弹窗 -->
       <QhxModal v-model="showDeletePlanModal">
         <div class="capsule-confirm-card">
-          <h3 class="capsule-confirm-card__title">操作确认</h3>
-          <p class="capsule-confirm-card__desc">确定要删除该计划吗？删除后将无法恢复。</p>
+          <h3 class="capsule-confirm-card__title">{{ t('clothes.detail.confirm_title') }}</h3>
+          <p class="capsule-confirm-card__desc">{{ t('plan.delete_confirm') }}</p>
           <div class="capsule-confirm-card__actions">
             <button type="button" class="modal-capsule-btn modal-capsule-btn--ghost w-full min-w-0 sm:flex-1" @click="showDeletePlanModal = false">
-              取消
+              {{ t('common.cancel') }}
             </button>
             <button
               type="button"
@@ -3991,7 +4000,7 @@ const showEditPlan = (e?: MouseEvent) => {
               @click="handleDeletePlan"
             >
               <UIcon v-if="planDeleteLoading" name="i-heroicons-arrow-path" class="w-4 h-4 shrink-0 animate-spin" />
-              <span>确认删除</span>
+              <span>{{ t('plan.confirm_delete_btn') }}</span>
             </button>
           </div>
         </div>
@@ -4000,14 +4009,14 @@ const showEditPlan = (e?: MouseEvent) => {
       <!-- 删除关联确认弹窗 -->
       <QhxModal v-model="showDeleteLinkModal">
         <div class="capsule-confirm-card">
-          <h3 class="capsule-confirm-card__title">操作确认</h3>
+          <h3 class="capsule-confirm-card__title">{{ t('clothes.detail.confirm_title') }}</h3>
           <p class="capsule-confirm-card__desc">确定要取消关联吗？</p>
           <div class="capsule-confirm-card__actions">
             <button type="button" class="modal-capsule-btn modal-capsule-btn--ghost w-full min-w-0 sm:flex-1" @click="showDeleteLinkModal = false">
-              取消
+              {{ t('common.cancel') }}
             </button>
             <button type="button" class="modal-capsule-btn modal-capsule-btn--danger w-full min-w-0 sm:flex-1" @click="deleteLinkClothes">
-              确定
+              {{ t('common.confirm') }}
             </button>
           </div>
         </div>

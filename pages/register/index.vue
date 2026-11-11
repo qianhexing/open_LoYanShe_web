@@ -128,7 +128,7 @@
               <NuxtLink to="/terms" class="text-qhx-primary hover:underline">
                 {{ $t('register.terms') }}
               </NuxtLink>
-              和
+              {{ $t('common.and') }}
               <NuxtLink to="/privacy" class="text-qhx-primary hover:underline">
                 {{ $t('register.privacy') }}
               </NuxtLink>
@@ -164,7 +164,7 @@
       <div class="mt-8 text-center">
         <div class="flex items-center justify-center space-x-4 text-gray-400 dark:text-gray-600">
           <div class="w-16 h-px bg-gray-300 dark:bg-gray-600"></div>
-          <span class="text-sm">Lo研社</span>
+          <span class="text-sm">{{ $t('common.brand') }}</span>
           <div class="w-16 h-px bg-gray-300 dark:bg-gray-600"></div>
         </div>
       </div>
@@ -180,9 +180,9 @@
 
 <script setup lang="ts">
 import { checkUserExist, checkUserName } from '@/api/user'
-// 设置页面标题
+const { t } = useI18n()
 useHead({
-  title: 'Lo研社 - 注册'
+  title: () => t('register.page_title')
 })
 
 const userStore = useUserStore()
@@ -241,9 +241,9 @@ const phoneCodeOptions = computed(() => {
   // 默认选项
   if (codeList.length === 0) {
     codeList.push(
-      { label: '中国 +86', value: '+86' },
-      { label: '美国 +1', value: '+1' },
-      { label: '日本 +81', value: '+81' }
+      { label: t('login.phone_code_cn'), value: '+86' },
+      { label: t('login.phone_code_us'), value: '+1' },
+      { label: t('login.phone_code_jp'), value: '+81' }
     )
   }
   return codeList
@@ -264,7 +264,7 @@ const canSendCode = computed(() => {
 const sendVerificationCode = async () => {
   if (!canSendCode.value) {
     toast.add({
-      title: '请先输入有效的手机号',
+      title: t('register.phone_required_toast'),
       icon: 'i-heroicons-exclamation-triangle',
       color: 'orange'
     })
@@ -276,7 +276,7 @@ const sendVerificationCode = async () => {
     await userStore.sendCode(form.phone, form.phone_code)
     codeSent.value = true
     toast.add({
-      title: '验证码已发送',
+      title: t('register.code_sent'),
       icon: 'i-heroicons-check-circle',
       color: 'green'
     })
@@ -291,8 +291,8 @@ const sendVerificationCode = async () => {
     }, 1000)
   } catch (error: unknown) {
     toast.add({
-      title: '发送失败',
-      description: getErrorMessage(error) || '请稍后重试',
+      title: t('register.send_failed'),
+      description: getErrorMessage(error) || t('common.retry'),
       icon: 'i-heroicons-x-circle',
       color: 'red'
     })
@@ -306,39 +306,39 @@ const validate = (state: RegisterFormState) => {
   const errors: ValidationError[] = []
   
   if (!state.phone) {
-    errors.push({ path: 'phone', message: '请输入手机号' })
+    errors.push({ path: 'phone', message: t('register.enter_phone') })
   } else if (!/^1[3-9]\d{9}$/.test(state.phone) && state.phone_code === '+86') {
-    errors.push({ path: 'phone', message: '请输入有效的手机号' })
+    errors.push({ path: 'phone', message: t('register.invalid_phone') })
   } else if (phoneTaken.value) {
-    errors.push({ path: 'phone', message: '该手机号已注册' })
+    errors.push({ path: 'phone', message: t('register.phone_registered') })
   }
   
   if (!state.verification_code) {
-    errors.push({ path: 'verification_code', message: '请输入验证码' })
+    errors.push({ path: 'verification_code', message: t('register.enter_code_required') })
   }
   
   if (!state.username) {
-    errors.push({ path: 'username', message: '请输入用户名' })
+    errors.push({ path: 'username', message: t('register.enter_username_required') })
   } else if (state.username.length < 2) {
-    errors.push({ path: 'username', message: '用户名至少2个字符' })
+    errors.push({ path: 'username', message: t('register.username_min') })
   } else if (usernameTaken.value) {
-    errors.push({ path: 'username', message: '用户名已被占用' })
+    errors.push({ path: 'username', message: t('register.username_taken') })
   }
   
   if (!state.password) {
-    errors.push({ path: 'password', message: '请输入密码' })
+    errors.push({ path: 'password', message: t('register.enter_password') })
   } else if (state.password.length < 6) {
-    errors.push({ path: 'password', message: '密码至少6个字符' })
+    errors.push({ path: 'password', message: t('register.password_min') })
   }
   
   if (!state.confirmPassword) {
-    errors.push({ path: 'confirmPassword', message: '请确认密码' })
+    errors.push({ path: 'confirmPassword', message: t('register.confirm_required') })
   } else if (state.password !== state.confirmPassword) {
-    errors.push({ path: 'confirmPassword', message: '两次输入的密码不一致' })
+    errors.push({ path: 'confirmPassword', message: t('register.password_mismatch') })
   }
   
   if (!state.agreeTerms) {
-    errors.push({ path: 'agreeTerms', message: '请同意用户协议和隐私政策' })
+    errors.push({ path: 'agreeTerms', message: t('register.agree_terms') })
   }
   
   return errors
@@ -414,8 +414,8 @@ const onSubmit = async () => {
     })
     
     toast.add({
-      title: '注册成功',
-      description: '欢迎加入Lo研社！',
+      title: t('register.success'),
+      description: t('register.success_desc'),
       icon: 'i-heroicons-check-circle',
       color: 'green'
     })
@@ -423,8 +423,8 @@ const onSubmit = async () => {
     await navigateAfterLogin()
   } catch (error: unknown) {
     toast.add({
-      title: '注册失败',
-      description: getErrorMessage(error) || '请检查输入信息',
+      title: t('register.failed'),
+      description: getErrorMessage(error) || t('register.check_input'),
       icon: 'i-heroicons-x-circle',
       color: 'red'
     })

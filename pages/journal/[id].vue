@@ -48,11 +48,11 @@
     >
       <div
         class="flex flex-wrap items-center gap-2"
-        :class="isIosShell ? 'pl-11' : ''"
+        :class="needsNativeBackSlot ? 'pl-11' : ''"
       >
         <template v-if="isOwnJournal">
           <QhxJellyButton>
-            <!-- iOS 左侧留一个返回按钮占位，避免与原生返回重叠 -->
+            <!-- iOS / Android 左侧留一个返回按钮占位，避免与原生返回重叠 -->
             <div
               class="text-center px-1 cursor-pointer"
               @click="(e: MouseEvent) => goNewJournalPost(e)"
@@ -1237,7 +1237,7 @@ import {
   pickArTargetFromSceneJson
 } from '@/utils/ar/sceneArTarget'
 import { useConfigStore } from '@/stores/config'
-import { isIosWebview } from '@/utils/nativeShell'
+import { needsNativeBackSlot as checkNativeBackSlot } from '@/utils/nativeShell'
 import {
   openLibraryWebPath,
   openLibraryDetailTab,
@@ -1261,8 +1261,8 @@ const layoutReady = inject('layoutReady') as Ref<boolean>
 const userStore = useUserStore()
 const configStore = useConfigStore()
 const toast = useToast()
-/** iOS：新增/关联按钮右移一个返回按钮占位 */
-const isIosShell = computed(() => isIosWebview())
+/** iOS / Android：新增/关联按钮右移一个返回按钮占位 */
+const needsNativeBackSlot = computed(() => checkNativeBackSlot())
 
 const getImageParams = () => configStore.config?.image_params || ''
 

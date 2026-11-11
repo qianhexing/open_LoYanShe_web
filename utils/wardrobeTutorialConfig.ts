@@ -15,40 +15,40 @@ export type WardrobeTutorialPopupStatus = 'disabled' | 'will_show' | 'dismissed'
 
 export interface WardrobeTutorialItem {
   id: WardrobeTutorialId
-  title: string
-  description: string
+  titleKey: string
+  descriptionKey: string
   storageKey: string
 }
 
 export const WARDROBE_TUTORIAL_ITEMS: WardrobeTutorialItem[] = [
   {
     id: 'overview',
-    title: '整体简介',
-    description: '衣柜常用功能一览与上手引导',
+    titleKey: 'wardrobe.tutorial.overview.title',
+    descriptionKey: 'wardrobe.tutorial.overview.desc',
     storageKey: WARDROBE_OVERVIEW_GUIDE_STORAGE_KEY,
   },
   {
     id: 'sort',
-    title: '排序',
-    description: '长按衣柜列表与服饰卡片可调整显示顺序',
+    titleKey: 'wardrobe.tutorial.sort.title',
+    descriptionKey: 'wardrobe.tutorial.sort.desc',
     storageKey: WARDROBE_SORT_GUIDE_STORAGE_KEY,
   },
   {
     id: 'edit',
-    title: '编辑模式',
-    description: '在列表中快速修改服饰信息',
+    titleKey: 'wardrobe.tutorial.edit.title',
+    descriptionKey: 'wardrobe.tutorial.edit.desc',
     storageKey: WARDROBE_EDIT_GUIDE_STORAGE_KEY,
   },
   {
     id: 'matching',
-    title: '搭配模式',
-    description: '点选服饰加入搭配草稿并保存搭配',
+    titleKey: 'wardrobe.tutorial.matching.title',
+    descriptionKey: 'wardrobe.tutorial.matching.desc',
     storageKey: WARDROBE_MATCHING_GUIDE_STORAGE_KEY,
   },
   {
     id: 'select',
-    title: '多选模式',
-    description: '批量选中服饰进行移动、打标签或删除',
+    titleKey: 'wardrobe.tutorial.select.title',
+    descriptionKey: 'wardrobe.tutorial.select.desc',
     storageKey: WARDROBE_SELECT_GUIDE_STORAGE_KEY,
   },
 ]
@@ -110,13 +110,13 @@ export function setWardrobeTutorialDismissed(storageKey: string, dismissed: bool
   }
 }
 
-export function wardrobeTutorialStatusLabel(status: WardrobeTutorialPopupStatus): string {
+export function wardrobeTutorialStatusLabelKey(status: WardrobeTutorialPopupStatus): string {
   switch (status) {
     case 'disabled':
-      return '已关闭'
+      return 'wardrobe.tutorial.status.disabled'
     case 'dismissed':
-      return '不再提示'
+      return 'wardrobe.tutorial.status.dismissed'
     default:
-      return '将弹出'
+      return 'wardrobe.tutorial.status.will_show'
   }
 }

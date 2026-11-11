@@ -26,16 +26,6 @@ const emit = defineEmits<{
     <div
       class="library-detail-action-capsule pointer-events-auto flex max-w-full items-stretch gap-0.5 overflow-x-auto"
     >
-      <button
-        type="button"
-        class="library-detail-action-item"
-        aria-label="写评论"
-        @click="emit('comment')"
-      >
-        <UIcon name="i-heroicons-chat-bubble-left-ellipsis" class="library-detail-action-item__icon" />
-        <span class="library-detail-action-item__label">写评论</span>
-      </button>
-
       <UserGoodBtn
         :pk_type="2"
         :pk_id="libraryId"
@@ -91,6 +81,16 @@ const emit = defineEmits<{
       </button>
 
       <LibraryShareImage :payload="sharePayload" variant="capsule" />
+
+      <button
+        type="button"
+        class="library-detail-action-item"
+        aria-label="写评论"
+        @click="emit('comment')"
+      >
+        <UIcon name="i-heroicons-chat-bubble-left-ellipsis" class="library-detail-action-item__icon" />
+        <span class="library-detail-action-item__label">写评论</span>
+      </button>
     </div>
   </div>
 </template>

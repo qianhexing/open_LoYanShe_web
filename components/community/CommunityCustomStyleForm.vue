@@ -1,9 +1,9 @@
 <template>
   <div>
     <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-      自定义主题
+      {{ t('community.style.title') }}
       <span class="text-gray-500 dark:text-gray-400 font-normal text-xs ml-1.5">
-        可选 · 背景与配色
+        {{ t('community.style.hint') }}
       </span>
     </label>
 
@@ -11,7 +11,7 @@
       type="button"
       class="group w-full flex items-center gap-3 rounded-full border border-gray-200 dark:border-gray-600 bg-gray-50/90 dark:bg-gray-700/40 px-4 py-2.5 text-left outline-none transition-all duration-200 hover:border-pink-300/95 dark:hover:border-pink-500/35 hover:bg-white dark:hover:bg-gray-700/90 hover:shadow-md hover:shadow-gray-900/[0.04] dark:hover:shadow-none focus-visible:ring-2 focus-visible:ring-pink-400/55 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-gray-800"
       :aria-expanded="expanded"
-      :aria-label="`自定义主题：${summaryText}`"
+      :aria-label="t('community.style.aria', { summary: summaryText })"
       @click="expanded = !expanded"
     >
       <div
@@ -22,7 +22,7 @@
       </div>
       <div class="min-w-0 flex-1 py-0.5">
         <p class="text-sm font-semibold text-gray-900 dark:text-gray-100 truncate leading-snug tracking-tight">
-          {{ expanded ? '收起主题设置' : summaryTitle }}
+          {{ expanded ? t('community.style.collapse') : summaryTitle }}
         </p>
         <p class="text-xs text-gray-500 dark:text-gray-400 mt-0.5 leading-snug line-clamp-1">
           {{ summaryText }}
@@ -54,8 +54,8 @@
         <!-- 主题模版 -->
         <div>
           <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-            主题模版
-            <span class="text-gray-500 dark:text-gray-400 font-normal text-xs ml-1.5">可选 · 一键带入配色</span>
+            {{ t('community.style.template') }}
+            <span class="text-gray-500 dark:text-gray-400 font-normal text-xs ml-1.5">{{ t('community.style.template_hint') }}</span>
           </label>
           <div class="flex flex-wrap items-center gap-2">
             <button
@@ -64,7 +64,7 @@
               @click="showTemplateModal = true"
             >
               <UIcon name="i-heroicons-squares-2x2" class="h-4 w-4" />
-              {{ selectedTemplateTitle ?? '选择模版' }}
+              {{ selectedTemplateTitle ?? t('community.style.select_template') }}
             </button>
             <button
               v-if="selectedTemplateTitle"
@@ -72,7 +72,7 @@
               class="inline-flex items-center gap-1 rounded-full px-3 py-2 text-xs font-medium text-gray-500 transition-colors hover:bg-red-50 hover:text-red-500 dark:text-gray-400 dark:hover:bg-red-950/40 dark:hover:text-red-400"
               @click="clearTemplateSelection"
             >
-              清除模版
+              {{ t('community.style.clear_template') }}
             </button>
           </div>
         </div>
@@ -80,8 +80,8 @@
         <!-- 背景图 -->
         <div>
           <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-            背景图
-            <span class="text-gray-500 dark:text-gray-400 font-normal text-xs ml-1.5">{{ backgroundHint }}</span>
+            {{ t('community.style.background') }}
+            <span class="text-gray-500 dark:text-gray-400 font-normal text-xs ml-1.5">{{ resolvedBackgroundHint }}</span>
           </label>
           <QhxImagePicker
             ref="backgroundPickerRef"
@@ -92,7 +92,7 @@
 
         <!-- 背景显示 -->
         <div>
-          <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">背景显示</label>
+          <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">{{ t('community.style.back_mode_label') }}</label>
           <div class="flex flex-wrap gap-2">
             <button
               v-for="opt in backModeOptions"
@@ -132,20 +132,20 @@
               <button
                 type="button"
                 class="flex h-6 w-6 items-center justify-center rounded-full text-gray-400 transition-colors hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-950/40"
-                :aria-label="`清除${field.label}`"
+                :aria-label="t('community.style.clear_field', { label: field.label })"
                 @click="model[field.key] = null"
               >
                 <UIcon name="i-heroicons-x-mark" class="h-3.5 w-3.5" />
               </button>
             </div>
-            <span v-else class="text-xs text-gray-400 dark:text-gray-500">未设置</span>
+            <span v-else class="text-xs text-gray-400 dark:text-gray-500">{{ t('community.style.unset') }}</span>
             <button
               type="button"
               class="inline-flex items-center gap-1.5 rounded-full border border-gray-200 dark:border-gray-600 bg-white px-4 py-2 text-sm font-medium text-gray-700 transition-all duration-200 hover:border-pink-300 hover:text-pink-600 dark:bg-gray-700/50 dark:text-gray-200 dark:hover:border-pink-500/35 dark:hover:text-pink-300"
               @click="showColorPicker(field.key)"
             >
               <UIcon name="i-heroicons-swatch" class="h-4 w-4" />
-              {{ model[field.key] ? '更换颜色' : '选择颜色' }}
+              {{ model[field.key] ? t('community.style.change_color') : t('community.style.pick_color') }}
             </button>
           </div>
         </div>
@@ -153,7 +153,7 @@
         <!-- 背景透明度 -->
         <div>
           <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-            背景透明度
+            {{ t('community.style.opacity') }}
             <span class="text-gray-500 dark:text-gray-400 font-normal text-xs ml-1.5">
               {{ model.back_opacity.toFixed(1) }}
             </span>
@@ -195,13 +195,13 @@
           class="flex items-center justify-between gap-3 px-4 py-3 border-b border-gray-200 dark:border-gray-700 flex-shrink-0"
         >
           <div class="min-w-0">
-            <h3 class="text-base font-semibold text-gray-900 dark:text-gray-100">选择主题模版</h3>
-            <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">选择后将自动带入背景与配色</p>
+            <h3 class="text-base font-semibold text-gray-900 dark:text-gray-100">{{ t('community.style.pick_template_title') }}</h3>
+            <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">{{ t('community.style.pick_template_desc') }}</p>
           </div>
           <button
             type="button"
             class="w-9 h-9 shrink-0 flex items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500"
-            aria-label="关闭"
+            :aria-label="t('community.style.close')"
             @click="showTemplateModal = false"
           >
             <UIcon name="i-heroicons-x-mark" class="w-5 h-5" />
@@ -229,6 +229,8 @@ import {
   type CommunityCustomStyle
 } from '@/utils/communityCustomStyle'
 
+const { t } = useI18n()
+
 const props = withDefaults(
   defineProps<{
     /** 背景图说明文案 */
@@ -237,9 +239,13 @@ const props = withDefaults(
     templatePkType?: number
   }>(),
   {
-    backgroundHint: '详情页背景',
+    backgroundHint: '',
     templatePkType: 1,
   }
+)
+
+const resolvedBackgroundHint = computed(
+  () => props.backgroundHint || t('community.style.background_hint'),
 )
 
 const model = defineModel<CommunityCustomStyle>({ required: true })
@@ -256,36 +262,36 @@ const backColorPickerRef = ref<InstanceType<typeof QhxColorPicker> | null>(null)
 
 type ColorKey = 'btnColor' | 'btnFontColor' | 'fontColor' | 'backColor'
 
-const backModeOptions = [
-  { label: '平铺背景', value: 'tile' as const },
-  { label: '拉伸填充', value: 'cover' as const },
-  { label: '完整显示', value: 'contain' as const }
-]
+const backModeOptions = computed(() => [
+  { label: t('community.style.back_mode.tile'), value: 'tile' as const },
+  { label: t('community.style.back_mode.cover'), value: 'cover' as const },
+  { label: t('community.style.back_mode.contain'), value: 'contain' as const },
+])
 
-const colorFields: { key: ColorKey; label: string; hint: string }[] = [
-  { key: 'btnColor', label: '按钮颜色', hint: '互动按钮底色' },
-  { key: 'btnFontColor', label: '按钮字体颜色', hint: '按钮文字色' },
-  { key: 'fontColor', label: '字体颜色', hint: '正文与标题文字' },
-  { key: 'backColor', label: '背景颜色', hint: '背景遮罩或纯色' }
-]
+const colorFields = computed(() => [
+  { key: 'btnColor' as const, label: t('community.style.btn_color'), hint: t('community.style.btn_color_hint') },
+  { key: 'btnFontColor' as const, label: t('community.style.btn_font_color'), hint: t('community.style.btn_font_color_hint') },
+  { key: 'fontColor' as const, label: t('community.style.font_color'), hint: t('community.style.font_color_hint') },
+  { key: 'backColor' as const, label: t('community.style.back_color'), hint: t('community.style.back_color_hint') },
+])
 
 const hasConfig = computed(() => hasCommunityCustomStyle(model.value))
 
 const summaryTitle = computed(() =>
-  hasConfig.value ? '已配置自定义主题' : '使用默认主题'
+  hasConfig.value ? t('community.style.configured') : t('community.style.default'),
 )
 
 const summaryText = computed(() => {
   if (selectedTemplateTitle.value) {
-    return `模版：${selectedTemplateTitle.value}`
+    return t('community.style.template_prefix', { name: selectedTemplateTitle.value })
   }
-  if (!hasConfig.value) return '点击展开，设置背景图与配色'
+  if (!hasConfig.value) return t('community.style.expand_hint')
   const parts: string[] = []
-  if (model.value.background) parts.push('背景图')
-  if (model.value.backColor) parts.push('背景色')
-  if (model.value.fontColor) parts.push('字体色')
-  if (model.value.btnColor) parts.push('按钮色')
-  return parts.length ? parts.join(' · ') : '已调整显示参数'
+  if (model.value.background) parts.push(t('community.style.part.background'))
+  if (model.value.backColor) parts.push(t('community.style.part.back_color'))
+  if (model.value.fontColor) parts.push(t('community.style.part.font_color'))
+  if (model.value.btnColor) parts.push(t('community.style.part.btn_color'))
+  return parts.length ? parts.join(' · ') : t('community.style.adjusted')
 })
 
 const themeUi = computed(() => {
@@ -334,15 +340,15 @@ function onChooseTemplate(item: TemplateInterface) {
     expanded.value = true
     showTemplateModal.value = false
     toast.add({
-      title: '模版已应用',
+      title: t('community.style.template_applied'),
       description: item.title,
       icon: 'i-heroicons-check-circle',
       color: 'green'
     })
   } catch (error: unknown) {
-    const msg = error instanceof Error ? error.message : '模版数据无效'
+    const msg = error instanceof Error ? error.message : t('community.style.template_invalid')
     toast.add({
-      title: '模版加载失败',
+      title: t('community.style.template_load_failed'),
       description: msg,
       icon: 'i-heroicons-x-circle',
       color: 'red'

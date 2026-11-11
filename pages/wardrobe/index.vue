@@ -14,7 +14,7 @@
         <div class="w-16 h-16 border-4 border-pink-100 rounded-full"></div>
         <div class="absolute top-0 left-0 w-16 h-16 border-4 border-pink-400 rounded-full border-t-transparent animate-spin"></div>
       </div>
-      <p class="mt-4 text-pink-400 dark:text-pink-300 tracking-widest text-sm uppercase">加载中...</p>
+      <p class="mt-4 text-pink-400 dark:text-pink-300 tracking-widest text-sm uppercase">{{ t('common.loading') }}</p>
     </div>
 
     <!-- 快速登录弹窗 -->
@@ -36,6 +36,7 @@ import { ref, onMounted } from 'vue'
 import { getUserMy } from '@/api/user'
 import { getWardrobeList, insertWardrobe } from '@/api/wardrobe'
 
+const { t } = useI18n()
 const router = useRouter()
 const toast = useToast()
 
@@ -51,7 +52,7 @@ const ensureAtLeastOneWardrobe = async (userId: number) => {
   })
   const rows = res.rows ?? []
   if (rows.length === 0) {
-    await insertWardrobe({ wardrobe_name: '默认衣柜' })
+    await insertWardrobe({ wardrobe_name: t('wardrobe.default_name') })
   }
 }
 
@@ -109,7 +110,7 @@ const handleLoginSuccess = async () => {
   } catch (error) {
     console.error('获取用户信息失败:', error)
     toast.add({
-      title: '获取用户信息失败',
+      title: t('wardrobe.get_user_failed'),
       icon: 'i-heroicons-x-circle',
       color: 'red'
     })
@@ -121,7 +122,7 @@ onMounted(() => {
 })
 
 useHead({
-  title: '我的衣柜 - Lo研社',
+  title: () => t('wardrobe.title'),
 })
 </script>
 

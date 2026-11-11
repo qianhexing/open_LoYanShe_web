@@ -8,7 +8,7 @@
     <img
       v-if="item.is_complete === 1"
       :src="`${BASE_IMG}/static/plan/complete.png`"
-      alt="已完成"
+      :alt="$t('plan.list.completed_alt')"
       class="absolute right-[24px] top-[24px] w-10 h-10 z-10 opacity-90 pointer-events-none"
     />
     <div class="flex items-center gap-2">
@@ -25,11 +25,11 @@
       <div class="flex-1 min-w-0">
         <div class="flex items-center justify-between gap-1">
           <span class="font-medium truncate">
-            {{ item.plan_note || '未备注' }}
+            {{ item.plan_note || $t('plan.list.no_note') }}
             <span v-if="item.parent_plan?.plan_name" class="text-gray-400 font-normal"> · {{ item.parent_plan.plan_name }}</span>
           </span>
           <div class="flex items-center gap-1.5 flex-shrink-0">
-            <span v-if="item.end_time && item.is_complete !== 1" class="text-orange-600 dark:text-orange-400 font-semibold">尾款：{{ formatEndTime(item.end_time) }}</span>
+            <span v-if="item.end_time && item.is_complete !== 1" class="text-orange-600 dark:text-orange-400 font-semibold">{{ $t('plan.list.balance_suffix') }}{{ formatEndTime(item.end_time) }}</span>
             <span class="text-gray-600 dark:text-gray-400">￥{{ formatMoney(item.have_money || 0) }}/{{ formatMoney(item.need_money || 0) }}</span>
           </div>
         </div>
@@ -42,19 +42,19 @@
           </template>
           <div class="flex gap-1 flex-shrink-0 items-center flex-1" :class="{ 'ml-auto': isChildPlan }">
             <div class="flex gap-1 flex-1">
-              <button v-if="item.is_complete !== 1 && (isChildPlan || (item.have_money ?? 0) >= (item.need_money ?? 0))" class="px-1.5 py-0.5 text-[10px] bg-qhx-primary text-white rounded" @click.stop="$emit('complete', item.list_id)">完成</button>
+              <button v-if="item.is_complete !== 1 && (isChildPlan || (item.have_money ?? 0) >= (item.need_money ?? 0))" class="px-1.5 py-0.5 text-[10px] bg-qhx-primary text-white rounded" @click.stop="$emit('complete', item.list_id)">{{ $t('plan.list.complete_btn') }}</button>
               <button v-if="item.is_complete !== 1 && !isChildPlan && (!item.plan_list || item.plan_list.length === 0)" class="flex items-center gap-0.5 px-1.5 py-0.5 text-[10px] bg-qhx-primary text-white rounded" @click.stop="openAddModal($event)">
-                <UIcon name="i-heroicons-plus" class="w-2.5 h-2.5" />添加
+                <UIcon name="i-heroicons-plus" class="w-2.5 h-2.5" />{{ $t('common.add') }}
               </button>
               <button
                 v-if="item.is_complete !== 1 && !isChildPlan && !hasLinkedClothes"
                 class="flex items-center gap-0.5 px-1.5 py-0.5 text-[10px] border border-qhx-primary text-qhx-primary rounded hover:bg-qhx-primary/5"
                 @click.stop="$emit('link-clothes')"
               >
-                <UIcon name="i-heroicons-link" class="w-2.5 h-2.5" />关联
+                <UIcon name="i-heroicons-link" class="w-2.5 h-2.5" />{{ $t('plan.list.link_btn') }}
               </button>
             </div>
-            <button v-if="!isChildPlan" class="p-0.5 text-red-500 ml-auto" title="删除" @click.stop="$emit('delete', item.list_id)"><UIcon name="i-heroicons-trash" class="w-3 h-3" /></button>
+            <button v-if="!isChildPlan" class="p-0.5 text-red-500 ml-auto" :title="$t('common.delete')" @click.stop="$emit('delete', item.list_id)"><UIcon name="i-heroicons-trash" class="w-3 h-3" /></button>
           </div>
         </div>
       </div>
@@ -69,10 +69,10 @@
       </div>
       <div class="flex items-center justify-between gap-1.5 text-[10px] text-gray-400">
         <span>
-          <span v-if="item.parent_plan?.end_time" class="text-orange-600 dark:text-orange-400 font-semibold mr-1">尾款：{{ formatEndTime(item.parent_plan.end_time) }}</span>
-          母计划 ￥{{ formatMoney(item.parent_plan.have_money ?? 0) }}/￥{{ formatMoney(item.parent_plan.need_money ?? 0) }}
+          <span v-if="item.parent_plan?.end_time" class="text-orange-600 dark:text-orange-400 font-semibold mr-1">{{ $t('plan.list.balance_suffix') }}{{ formatEndTime(item.parent_plan.end_time) }}</span>
+          {{ $t('plan.list.parent_plan') }} ￥{{ formatMoney(item.parent_plan.have_money ?? 0) }}/￥{{ formatMoney(item.parent_plan.need_money ?? 0) }}
         </span>
-        <button class="p-0.5 text-red-500 flex-shrink-0" title="删除母计划" @click.stop="$emit('delete', item.parent_plan?.list_id)"><UIcon name="i-heroicons-trash" class="w-3 h-3" /></button>
+        <button class="p-0.5 text-red-500 flex-shrink-0" :title="$t('plan.list.delete_parent_title')" @click.stop="$emit('delete', item.parent_plan?.list_id)"><UIcon name="i-heroicons-trash" class="w-3 h-3" /></button>
       </div>
     </div>
     <!-- 关联服饰 -->
@@ -84,7 +84,7 @@
       <div class="w-4 h-4 rounded overflow-hidden flex-shrink-0 border border-gray-200 dark:border-gray-600">
         <img :src="getClothesImgSrc()" class="w-full h-full object-cover" loading="lazy" alt="" />
       </div>
-      <span class="text-[10px] text-gray-500 truncate">{{ wardrobeClothes.clothes_note || '关联服饰' }}</span>
+      <span class="text-[10px] text-gray-500 truncate">{{ wardrobeClothes.clothes_note || $t('plan.list.linked_clothes') }}</span>
     </div>
   </div>
 
@@ -97,7 +97,7 @@
     <img
       v-if="item.is_complete === 1"
       :src="`${BASE_IMG}/static/plan/complete.png`"
-      alt="已完成"
+      :alt="$t('plan.list.completed_alt')"
       class="absolute right-2 top-[30px] w-10 h-10 z-5 opacity-90"
     />
     <div class="px-3 py-2" :class="isMultiCover ? 'space-y-1.5' : 'flex gap-2'">
@@ -112,7 +112,7 @@
           :key="`${src}-${i}`"
           class="w-9 h-9 rounded-md overflow-hidden border border-gray-200 dark:border-gray-700 flex-shrink-0"
         >
-          <img :src="src" :alt="item.plan_name || '封面'" class="w-full h-full object-cover" loading="lazy" />
+          <img :src="src" :alt="item.plan_name || $t('plan.list.cover_alt')" class="w-full h-full object-cover" loading="lazy" />
         </div>
       </div>
       <!-- 单封面：与标题同一行左侧 -->
@@ -122,7 +122,7 @@
         @click="$emit('cover', getPlanCoverSrcList())"
       >
         <div class="w-9 h-9 rounded-md overflow-hidden border border-gray-200 dark:border-gray-700">
-          <img :src="planCoverThumbSrcs[0]" :alt="item.plan_name || '封面'" class="w-full h-full object-cover" loading="lazy" />
+          <img :src="planCoverThumbSrcs[0]" :alt="item.plan_name || $t('plan.list.cover_alt')" class="w-full h-full object-cover" loading="lazy" />
         </div>
       </div>
       <div class="flex-1 min-w-0">
@@ -136,14 +136,14 @@
               <UIcon :name="isExpanded ? 'i-heroicons-chevron-down' : 'i-heroicons-chevron-right'" class="text-gray-500 w-3.5 h-3.5" />
             </button>
             <h3 class="text-xs font-medium text-gray-800 dark:text-gray-100 truncate cursor-pointer" @click="$emit('click', item)">
-              {{ item.plan_name || '未命名' }}
+              {{ item.plan_name || $t('plan.list.unnamed') }}
             </h3>
           </div>
           <div class="flex items-center gap-1 flex-shrink-0 relative z-6">
-            <button v-if="item.is_complete !== 1" @click.stop="$emit('edit', item)" class="w-6 h-6 rounded-full bg-qhx-primary hover:bg-qhx-primaryHover flex items-center justify-center text-white" title="编辑">
+            <button v-if="item.is_complete !== 1" @click.stop="$emit('edit', item)" class="w-6 h-6 rounded-full bg-qhx-primary hover:bg-qhx-primaryHover flex items-center justify-center text-white" :title="$t('common.edit')">
               <UIcon name="i-heroicons-pencil" class="w-3 h-3" />
             </button>
-            <button @click.stop="$emit('delete', item.list_id)" class="w-6 h-6 rounded-full bg-red-500 hover:bg-red-600 flex items-center justify-center text-white" title="删除">
+            <button @click.stop="$emit('delete', item.list_id)" class="w-6 h-6 rounded-full bg-red-500 hover:bg-red-600 flex items-center justify-center text-white" :title="$t('common.delete')">
               <UIcon name="i-heroicons-trash" class="w-3 h-3" />
             </button>
           </div>
@@ -157,21 +157,21 @@
         </div>
         <div class="flex items-center gap-2 my-1">
           <button v-if="item.is_complete !== 1 && (!item.plan_list || item.plan_list.length === 0)" @click="openAddModal($event)" class="flex items-center gap-0.5 px-2 py-0.5 bg-qhx-primary hover:bg-qhx-primaryHover text-white text-xs rounded">
-            <UIcon name="i-heroicons-plus" class="w-3 h-3" />添加
+            <UIcon name="i-heroicons-plus" class="w-3 h-3" />{{ $t('common.add') }}
           </button>
-          <button v-if="item.is_complete !== 1" @click="$emit('complete', item.list_id)" class="px-2 py-0.5 text-xs bg-qhx-primary hover:bg-qhx-primaryHover text-white rounded">完成</button>
+          <button v-if="item.is_complete !== 1" @click="$emit('complete', item.list_id)" class="px-2 py-0.5 text-xs bg-qhx-primary hover:bg-qhx-primaryHover text-white rounded">{{ $t('plan.list.complete_btn') }}</button>
           <button
             v-if="item.is_complete !== 1 && !hasLinkedClothes"
             @click.stop="$emit('link-clothes')"
             class="flex items-center gap-0.5 px-2 py-0.5 text-xs border border-qhx-primary text-qhx-primary hover:bg-qhx-primary/5 rounded"
           >
-            <UIcon name="i-heroicons-link" class="w-3 h-3" />关联服饰
+            <UIcon name="i-heroicons-link" class="w-3 h-3" />{{ $t('plan.list.link_clothes_btn') }}
           </button>
         </div>
 
         <div v-if="item.plan_note" class="text-xs text-gray-500 truncate mt-0.5">{{ item.plan_note }}</div>
         <div class="flex items-center gap-2 text-[10px] text-gray-400 mt-0.5">
-          <span v-if="item.end_time && item.is_complete !== 1" class="text-orange-600 dark:text-orange-400 font-semibold">尾款：{{ formatEndTime(item.end_time) }} {{ getTimeDifferenceText(item.end_time) }}</span>
+          <span v-if="item.end_time && item.is_complete !== 1" class="text-orange-600 dark:text-orange-400 font-semibold">{{ $t('plan.list.balance_suffix') }}{{ formatEndTime(item.end_time) }} {{ getTimeDifferenceText(item.end_time) }}</span>
           <span> {{ formatDate(item.create_time) }}</span>
         </div>
       </div>
@@ -183,9 +183,9 @@
           <div class="w-6 h-6 rounded-full overflow-hidden flex-shrink-0">
             <img :src="getClothesImgSrc()" class="w-full h-full object-cover" loading="lazy" />
           </div>
-          <span class="text-xs text-gray-600 dark:text-gray-400 truncate">{{ wardrobeClothes?.clothes_note || '关联服饰' }}</span>
+          <span class="text-xs text-gray-600 dark:text-gray-400 truncate">{{ wardrobeClothes?.clothes_note || $t('plan.list.linked_clothes') }}</span>
         </div>
-        <button v-if="item.is_complete !== 1" @click.stop="$emit('unlink-clothes')" class="w-6 h-6 flex items-center justify-center rounded-full text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 flex-shrink-0" title="取消关联">
+        <button v-if="item.is_complete !== 1" @click.stop="$emit('unlink-clothes')" class="w-6 h-6 flex items-center justify-center rounded-full text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 flex-shrink-0" :title="$t('plan.list.unlink_title')">
           <UIcon name="i-heroicons-trash" class="w-3.5 h-3.5" />
         </button>
       </div>
@@ -196,11 +196,11 @@
           <div class="w-0.5 h-4 bg-blue-400 rounded flex-shrink-0"></div>
           <span class="font-medium">￥{{ formatMoney(child.need_money || 0) }}</span>
           <span v-if="child.plan_note" class="text-gray-500 truncate">{{ child.plan_note }}</span>
-          <span v-if="child.end_time && child.is_complete !== 1" class="text-orange-600 dark:text-orange-400 font-semibold">尾款：{{  formatEndTime(child.end_time) }}</span>
-          <span v-else-if="child.end_time" class="text-gray-400">尾款：{{ formatEndTime(child.end_time) }}</span>
+          <span v-if="child.end_time && child.is_complete !== 1" class="text-orange-600 dark:text-orange-400 font-semibold">{{ $t('plan.list.balance_suffix') }}{{ formatEndTime(child.end_time) }}</span>
+          <span v-else-if="child.end_time" class="text-gray-400">{{ $t('plan.list.balance_suffix') }}{{ formatEndTime(child.end_time) }}</span>
         </div>
-        <button v-if="child.is_complete !== 1" @click="$emit('complete', child.list_id)" class="px-2 py-0.5 text-xs bg-qhx-primary text-white rounded flex-shrink-0">完成</button>
-        <span v-else class="text-gray-400 text-xs flex-shrink-0 w-10 h-10">已完成</span>
+        <button v-if="child.is_complete !== 1" @click="$emit('complete', child.list_id)" class="px-2 py-0.5 text-xs bg-qhx-primary text-white rounded flex-shrink-0">{{ $t('plan.list.complete_btn') }}</button>
+        <span v-else class="text-gray-400 text-xs flex-shrink-0 w-10 h-10">{{ $t('plan.list.completed_label') }}</span>
       </div>
     </div>
   </div>
@@ -208,12 +208,12 @@
   <!-- 金额加减弹窗：正数加、负数减（compact 和 full 共用） -->
   <QhxModal v-model="showAddModal" :trigger-position="addModalClickPosition" @close="addMoneyInput = ''">
     <div class="p-6 w-[320px] max-md:w-[90vw] bg-white dark:bg-gray-800 rounded-2xl shadow-xl border border-gray-200/50 dark:border-gray-700/50">
-      <h3 class="text-sm font-semibold text-gray-800 dark:text-gray-100 mb-3">金额加减</h3>
-      <p class="text-xs text-gray-500 dark:text-gray-400 mb-2">正数增加，负数减少</p>
-      <UInput v-model="addMoneyInput" type="number" placeholder="输入金额，如 100 或 -50" size="sm" class="mb-4" :ui="{ padding: { sm: 'px-3 py-2' } }" />
+      <h3 class="text-sm font-semibold text-gray-800 dark:text-gray-100 mb-3">{{ $t('plan.list.money_adjust_title') }}</h3>
+      <p class="text-xs text-gray-500 dark:text-gray-400 mb-2">{{ $t('plan.list.money_adjust_hint') }}</p>
+      <UInput v-model="addMoneyInput" type="number" :placeholder="$t('plan.list.money_input_placeholder')" size="sm" class="mb-4" :ui="{ padding: { sm: 'px-3 py-2' } }" />
       <div class="flex gap-2">
-        <UButton class="flex-1" color="gray" variant="ghost" @click="showAddModal = false">取消</UButton>
-        <UButton class="flex-1" color="primary" :loading="addLoading" :disabled="!addMoneyNum" @click="handleAddMoney">确定</UButton>
+        <UButton class="flex-1" color="gray" variant="ghost" @click="showAddModal = false">{{ $t('common.cancel') }}</UButton>
+        <UButton class="flex-1" color="primary" :loading="addLoading" :disabled="!addMoneyNum" @click="handleAddMoney">{{ $t('common.confirm') }}</UButton>
       </div>
     </div>
   </QhxModal>
@@ -230,6 +230,8 @@ import {
   firstPlanCoverPath,
   parsePlanCoverPaths,
 } from '@/utils/planCover'
+
+const { t } = useI18n()
 
 const props = withDefaults(
   defineProps<{
@@ -392,8 +394,8 @@ const getTimeDifferenceText = (endTime: Date | string | undefined): string => {
     const end = dayjs(endTime)
     const now = dayjs()
     const diffDays = end.diff(now, 'day', true)
-    if (diffDays > 0) return `${diffDays.toFixed(1)} 天`
-    return '已经开始'
+    if (diffDays > 0) return t('plan.days_remaining', { n: diffDays.toFixed(1) })
+    return t('plan.already_started')
   } catch {
     return ''
   }

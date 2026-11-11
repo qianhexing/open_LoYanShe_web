@@ -19,6 +19,8 @@ import {
   toRelativeClothesImg,
 } from '@/utils/clothesExtract'
 
+const { t } = useI18n()
+
 const props = defineProps<{
   item: ClothesExtractItem
   index: number
@@ -161,7 +163,7 @@ const toggleSelected = () => {
             v-if="inserted"
             class="shrink-0 text-[11px] px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300"
           >
-            已入库
+            {{ t('clothes.extract.inserted') }}
           </span>
         </div>
         <p
@@ -184,7 +186,7 @@ const toggleSelected = () => {
 
     <div v-if="libraries.length" class="space-y-2">
       <p class="text-xs font-medium text-gray-500 dark:text-gray-400">
-        图鉴候选<span class="font-normal text-gray-400 dark:text-gray-500"> · 可不选，再点一次取消</span>
+        {{ t('clothes.extract.library_candidates') }}<span class="font-normal text-gray-400 dark:text-gray-500">{{ t('clothes.extract.library_candidates_hint') }}</span>
       </p>
       <div class="extract-lib-grid">
         <button
@@ -208,7 +210,7 @@ const toggleSelected = () => {
     </div>
 
     <div v-if="shops.length" class="space-y-1.5">
-      <p class="text-xs font-medium text-gray-500 dark:text-gray-400">店铺候选</p>
+      <p class="text-xs font-medium text-gray-500 dark:text-gray-400">{{ t('clothes.extract.shop_candidates') }}</p>
       <div class="flex flex-wrap gap-1.5">
         <button
           v-for="(candidate, shopIndex) in shops"
@@ -233,7 +235,7 @@ const toggleSelected = () => {
         :disabled="inserted || inserting || disabled"
         @click="emit('fill')"
       >
-        填入表单
+        {{ t('clothes.extract.fill_form') }}
       </UButton>
       <UButton
         size="xs"
@@ -243,7 +245,7 @@ const toggleSelected = () => {
         :disabled="inserted || disabled"
         @click="emit('insert')"
       >
-        {{ inserted ? '已入库' : '直接入库' }}
+        {{ inserted ? t('clothes.extract.inserted') : t('clothes.extract.insert_direct') }}
       </UButton>
     </div>
   </div>

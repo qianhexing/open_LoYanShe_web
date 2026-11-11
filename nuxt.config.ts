@@ -121,6 +121,14 @@ export default defineNuxtConfig({
   },
 	compatibilityDate: '2024-11-01',
 	devtools: { enabled: true },
+	// 关掉 NuxtLink 视口预取，避免导航栏/列表链接触发上百个路由 chunk 请求
+	experimental: {
+		defaults: {
+			nuxtLink: {
+				prefetch: false,
+			},
+		},
+	},
 	i18n: {
     locales: [
 			{
@@ -145,6 +153,8 @@ export default defineNuxtConfig({
     // strategy: 'prefix_except_default', // URL 前缀策略
 
 		strategy: 'no_prefix',
+		// 相对 i18n/ 目录（restructureDir），即 i18n/i18n.config.ts
+		vueI18n: 'i18n.config.ts',
     detectBrowserLanguage: {
       cookieKey: 'i18n_redirected',
 			useCookie: false,      // 不自动跳转

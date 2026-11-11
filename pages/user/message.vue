@@ -11,8 +11,8 @@
     <div class="container mx-auto p-4 max-w-4xl">
       <!-- 页面标题 -->
       <div class="mb-6">
-        <h1 class="text-2xl font-bold text-gray-800 dark:text-gray-100 mb-2">我的通知</h1>
-        <p class="text-sm text-gray-500 dark:text-gray-400">查看您收到的所有通知消息</p>
+        <h1 class="text-2xl font-bold text-gray-800 dark:text-gray-100 mb-2">{{ $t('user.message.title') }}</h1>
+        <p class="text-sm text-gray-500 dark:text-gray-400">{{ $t('user.message.subtitle') }}</p>
       </div>
 
       <!-- 通知列表 -->
@@ -60,7 +60,7 @@
                 <div class="flex-1 min-w-0">
                   <div class="flex items-center justify-between mb-2">
                     <span class="text-xs text-gray-500 dark:text-gray-400">
-                      {{ item.type === 0 ? '全体通知' : '个人通知' }}
+                      {{ item.type === 0 ? $t('user.message.type_broadcast') : $t('user.message.type_personal') }}
                     </span>
                     <span v-if="item.date" class="text-xs text-gray-400 dark:text-gray-500">
                       {{ formatDate(item.date) }}
@@ -84,6 +84,8 @@ import { getNoticeList } from '@/api/message_center'
 import type QhxWaterList from '@/components/Qhx/WaterList.vue'
 import dayjs from 'dayjs'
 import { parseRichText } from '@/utils/public'
+
+const { t } = useI18n()
 
 // 禁用 SSR
 definePageMeta({
@@ -117,15 +119,15 @@ watch(layoutReady, (newVal) => {
 
 // SEO 配置
 useHead({
-  title: '我的通知 - Lo研社',
+  title: () => t('user.message.page_title'),
   meta: [
     {
       name: 'keywords',
-      content: 'Lo研社,通知,消息'
+      content: () => t('user.message.meta_keywords')
     },
     {
       name: 'description',
-      content: '查看您收到的所有通知消息'
+      content: () => t('user.message.meta_description')
     }
   ]
 })

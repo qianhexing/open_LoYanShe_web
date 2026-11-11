@@ -36,9 +36,9 @@
       <div class="items-center flex-wrap h-full flex">
         <div class="w-full mb-3 home-about shadow-lg">
           <div class="px-2 py-3 bg-qhx-bg-card text-qhx-textBg rounded-[18px]">
-            <h3 class="text-center">一个Lolita Fashion服饰数据库</h3>
+            <h3 class="text-center">{{ $t('home.tagline') }}</h3>
             <div class="text-center">
-              <p class="p-2">合作可以联系QQ 3292658709</p>
+              <p class="p-2">{{ $t('home.coop_qq') }}</p>
             </div>
           </div>
         </div>

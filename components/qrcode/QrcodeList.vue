@@ -19,6 +19,7 @@ import {
 } from '@/utils/wardrobeQrcodeShareCanvas'
 import dayjs from 'dayjs'
 
+const { t } = useI18n()
 const toast = useToast()
 const { saving: savingToAlbum, saveToAlbum } = useSaveNetworkImageToAlbum()
 const isAppWebView = computed(() => isHtml5PlusWebView())
@@ -53,15 +54,15 @@ const lightboxVisible = ref(false)
 const lightboxIndex = ref(0)
 const lightboxImgs = ref<Array<{ src: string; title?: string }>>([])
 
-const expiryOptions: optionsInterface[] = [
-  { label: '永久有效', value: 'permanent' },
-  { label: '30 分钟', value: 30 },
-  { label: '1 小时', value: 60 },
-  { label: '8 小时', value: 480 },
-  { label: '1 天', value: 60 * 24 },
-  { label: '15 天', value: 60 * 24 * 15 },
-  { label: '1 个月', value: 60 * 24 * 30 },
-]
+const expiryOptions = computed((): optionsInterface[] => [
+  { label: t('qrcode.expiry.permanent'), value: 'permanent' },
+  { label: t('qrcode.expiry.m30'), value: 30 },
+  { label: t('qrcode.expiry.h1'), value: 60 },
+  { label: t('qrcode.expiry.h8'), value: 480 },
+  { label: t('qrcode.expiry.d1'), value: 60 * 24 },
+  { label: t('qrcode.expiry.d15'), value: 60 * 24 * 15 },
+  { label: t('qrcode.expiry.m1'), value: 60 * 24 * 30 },
+])
 
 const formatDate = (value?: string | null) => {
   if (!value) return '—'
@@ -69,11 +70,13 @@ const formatDate = (value?: string | null) => {
   return d.isValid() ? d.format('YYYY-MM-DD HH:mm') : '—'
 }
 
-const getRemainingDays = (expiresTime?: string | null) => {
+const getRemainingLabel = (expiresTime?: string | null) => {
   if (!expiresTime) return null
   const diffDays = dayjs(expiresTime).diff(dayjs(), 'day', true)
-  if (diffDays <= 0) return '已过期'
-  return `${diffDays.toFixed(2)} 天`
+  if (diffDays <= 0) return t('qrcode.list.expired')
+  return t('qrcode.list.remaining', {
+    days: t('qrcode.list.days', { n: diffDays.toFixed(2) }),
+  })
 }
 
 const reload = () => {
@@ -97,7 +100,7 @@ const fetchList = async () => {
     const rows = res.rows ?? []
     list.value = page.value === 1 ? rows : [...list.value, ...rows]
   } catch {
-    toast.add({ title: '加载失败', icon: 'i-heroicons-x-circle', color: 'red' })
+    toast.add({ title: t('qrcode.list.load_failed'), icon: 'i-heroicons-x-circle', color: 'red' })
   } finally {
     loading.value = false
   }
@@ -119,7 +122,7 @@ const open = (params: {
   pkId.value = params.pk_id
   codeContent.value = params.code_content?.trim() || null
   shareWardrobe.value = params.wardrobe ?? null
-  shareUserName.value = params.userName?.trim() || 'Lo娘'
+  shareUserName.value = params.userName?.trim() || t('qrcode.list.default_user')
   shareUserFace.value = params.userFace ?? null
   sharePreviewClothes.value = params.previewClothes ?? []
   sharePreviewItems.value = (params.previewItems ?? [])
@@ -163,10 +166,10 @@ const handleInsert = async () => {
       pk_type: pkType.value,
       ...(codeContent.value ? { code_content: codeContent.value } : {}),
     })
-    toast.add({ title: '生成成功', icon: 'i-heroicons-check-circle', color: 'green' })
+    toast.add({ title: t('qrcode.list.generate_ok'), icon: 'i-heroicons-check-circle', color: 'green' })
     reload()
   } catch {
-    toast.add({ title: '生成失败', icon: 'i-heroicons-x-circle', color: 'red' })
+    toast.add({ title: t('qrcode.list.generate_fail'), icon: 'i-heroicons-x-circle', color: 'red' })
   } finally {
     inserting.value = false
   }
@@ -183,10 +186,10 @@ const onExpiryChange = async (option: optionsInterface) => {
   const expiresTime = option.value === 'permanent' ? null : Number(option.value)
   try {
     await updateQrCode({ code_id: item.code_id, expires_time: expiresTime })
-    toast.add({ title: '已更新有效期', icon: 'i-heroicons-check-circle', color: 'green' })
+    toast.add({ title: t('qrcode.list.expiry_updated'), icon: 'i-heroicons-check-circle', color: 'green' })
     reload()
   } catch {
-    toast.add({ title: '更新失败', icon: 'i-heroicons-x-circle', color: 'red' })
+    toast.add({ title: t('qrcode.list.update_fail'), icon: 'i-heroicons-x-circle', color: 'red' })
   } finally {
     editingItem.value = null
   }
@@ -202,18 +205,18 @@ const confirmDelete = async () => {
   if (!item?.code_id) return
   try {
     await deleteQrCode({ code_id: item.code_id })
-    toast.add({ title: '已删除', icon: 'i-heroicons-check-circle', color: 'green' })
+    toast.add({ title: t('qrcode.list.deleted'), icon: 'i-heroicons-check-circle', color: 'green' })
     showDeleteConfirm.value = false
     deleteTarget.value = null
     reload()
   } catch {
-    toast.add({ title: '删除失败', icon: 'i-heroicons-x-circle', color: 'red' })
+    toast.add({ title: t('qrcode.list.delete_fail'), icon: 'i-heroicons-x-circle', color: 'red' })
   }
 }
 
 const previewQr = (item: QrCode) => {
   if (!item.code_url) return
-  lightboxImgs.value = [{ src: `${BASE_IMG}${item.code_url}`, title: '衣柜二维码' }]
+  lightboxImgs.value = [{ src: `${BASE_IMG}${item.code_url}`, title: t('qrcode.list.lightbox_title') }]
   lightboxIndex.value = 0
   lightboxVisible.value = true
 }
@@ -224,7 +227,7 @@ const loadMore = () => {
   if (page.value < maxPage) {
     void fetchList()
   } else {
-    toast.add({ title: '没有更多了', icon: 'i-heroicons-information-circle', color: 'amber' })
+    toast.add({ title: t('qrcode.list.no_more'), icon: 'i-heroicons-information-circle', color: 'amber' })
   }
 }
 
@@ -245,7 +248,7 @@ async function generateSharePoster(item: QrCode) {
     sharePreviewItems.value,
   )
   if (!payload) {
-    toast.add({ title: '缺少二维码图片', color: 'amber', icon: 'i-heroicons-exclamation-triangle' })
+    toast.add({ title: t('qrcode.list.missing_image'), color: 'amber', icon: 'i-heroicons-exclamation-triangle' })
     return
   }
 
@@ -261,22 +264,22 @@ async function generateSharePoster(item: QrCode) {
       canvas.toBlob((b) => resolve(b), 'image/jpeg', 0.95),
     )
     if (!blob) {
-      shareErrorMsg.value = '生成图片失败'
+      shareErrorMsg.value = t('qrcode.list.image_fail')
       return
     }
     const file = new File([blob], `wardrobe-qrcode-share-${Date.now()}.jpg`, { type: 'image/jpeg' })
     const res = await uploadImageToTemp(file)
     if (!res?.file_url) {
-      shareErrorMsg.value = '上传失败'
+      shareErrorMsg.value = t('qrcode.list.upload_fail')
       return
     }
     sharePreviewUrl.value = res.file_url
     showSharePreviewModal.value = true
-    toast.add({ title: '分享图已生成', color: 'green', icon: 'i-heroicons-check-circle' })
+    toast.add({ title: t('qrcode.list.share_ok'), color: 'green', icon: 'i-heroicons-check-circle' })
   } catch (e) {
     console.error(e)
-    shareErrorMsg.value = '生成分享图失败，请稍后重试'
-    toast.add({ title: '生成失败', color: 'red', icon: 'i-heroicons-x-circle' })
+    shareErrorMsg.value = t('qrcode.list.share_fail')
+    toast.add({ title: t('qrcode.list.generate_fail'), color: 'red', icon: 'i-heroicons-x-circle' })
   } finally {
     generatingShareId.value = null
   }
@@ -287,11 +290,11 @@ async function saveShareToAlbum() {
   if (!url) return
   try {
     await saveToAlbum(url, { docFilename: `_doc/wardrobe_qrcode_share_${Date.now()}.jpg` })
-    toast.add({ title: '已保存到相册', color: 'green', icon: 'i-heroicons-check-circle' })
+    toast.add({ title: t('qrcode.list.saved_album'), color: 'green', icon: 'i-heroicons-check-circle' })
   } catch (e) {
     console.error(e)
     toast.add({
-      title: '保存失败，请长按图片或右键另存',
+      title: t('qrcode.list.save_fail'),
       color: 'red',
       icon: 'i-heroicons-x-circle',
     })
@@ -315,13 +318,13 @@ defineExpose({ open })
           </div>
           <div class="min-w-0 pt-0.5">
             <h3 class="text-base font-bold tracking-tight text-[#4a2f3d] dark:text-pink-50 sm:text-[17px]">
-              二维码列表
+              {{ t('qrcode.list.title') }}
             </h3>
             <p class="mt-0.5 text-[11px] leading-snug text-[#8a6f7d] dark:text-pink-300/80 sm:text-xs">
               {{
                 pkType === 1
-                  ? '无限制网页 · 扫码打开衣柜地址页'
-                  : '生成后可扫码访问本衣柜'
+                  ? t('qrcode.list.desc_web')
+                  : t('qrcode.list.desc_default')
               }}
             </p>
           </div>
@@ -329,7 +332,7 @@ defineExpose({ open })
         <button
           type="button"
           class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-[#8a6f7d] transition hover:bg-black/5 dark:text-pink-300/85 dark:hover:bg-white/10"
-          aria-label="关闭"
+          :aria-label="t('qrcode.list.close')"
           @click="close"
         >
           <UIcon name="i-heroicons-x-mark-20-solid" class="h-5 w-5" />
@@ -348,12 +351,12 @@ defineExpose({ open })
             :class="inserting ? 'animate-spin' : ''"
             class="text-base"
           />
-          {{ inserting ? '生成中…' : '生成二维码' }}
+          {{ inserting ? t('qrcode.list.generating') : t('qrcode.list.generate') }}
         </button>
 
         <div v-if="loading && list.length === 0" class="flex flex-col items-center justify-center gap-3 py-12">
           <UIcon name="i-heroicons-arrow-path" class="h-8 w-8 animate-spin text-[#9d6080] dark:text-pink-300" />
-          <p class="text-sm text-[#7a5f6f] dark:text-pink-300/85">加载中…</p>
+          <p class="text-sm text-[#7a5f6f] dark:text-pink-300/85">{{ t('qrcode.list.loading') }}</p>
         </div>
 
         <div
@@ -365,12 +368,12 @@ defineExpose({ open })
           >
             <UIcon name="material-symbols:qr-code-2" class="text-2xl" />
           </div>
-          <p class="text-sm font-medium text-[#5e3a4b] dark:text-pink-100">暂无二维码</p>
+          <p class="text-sm font-medium text-[#5e3a4b] dark:text-pink-100">{{ t('qrcode.list.empty') }}</p>
           <p class="max-w-[240px] text-xs leading-relaxed text-[#8a6f7d] dark:text-pink-300/75">
             {{
               pkType === 1
-                ? '点击上方按钮生成，扫码打开衣柜地址页'
-                : '点击上方按钮生成，扫码即可访问本衣柜'
+                ? t('qrcode.list.empty_hint_web')
+                : t('qrcode.list.empty_hint_default')
             }}
           </p>
         </div>
@@ -389,23 +392,23 @@ defineExpose({ open })
               <img
                 v-if="item.code_url"
                 :src="`${BASE_IMG}${item.code_url}`"
-                alt="二维码"
+                :alt="t('qrcode.list.lightbox_title')"
                 class="h-[70px] w-[70px] object-cover"
                 loading="lazy"
               />
             </button>
             <div class="min-w-0 flex-1 space-y-1 text-xs text-[#5e3a4b] dark:text-pink-100">
               <p>
-                过期时间：
+                {{ t('qrcode.list.expires') }}
                 <span class="font-medium">
-                  {{ item.expires_time == null ? '永久有效' : formatDate(item.expires_time) }}
+                  {{ item.expires_time == null ? t('qrcode.list.permanent') : formatDate(item.expires_time) }}
                 </span>
               </p>
               <p v-if="item.expires_time != null" class="text-red-500 dark:text-red-400">
-                剩余 {{ getRemainingDays(item.expires_time) }}
+                {{ getRemainingLabel(item.expires_time) }}
               </p>
               <p class="text-[#8a6f7d] dark:text-pink-300/75">
-                创建时间：{{ formatDate(item.create_time) }}
+                {{ t('qrcode.list.created', { date: formatDate(item.create_time) }) }}
               </p>
             </div>
             <div class="flex shrink-0 flex-col items-center gap-1.5">
@@ -424,7 +427,7 @@ defineExpose({ open })
                       :class="{ 'animate-spin': generatingShareId === item.code_id }"
                     />
                   </div>
-                  <div class="text-[11px] text-[#5e3a4b] dark:text-pink-100">分享</div>
+                  <div class="text-[11px] text-[#5e3a4b] dark:text-pink-100">{{ t('qrcode.list.share') }}</div>
                 </div>
               </QhxJellyButton>
               <QhxJellyButton>
@@ -437,7 +440,7 @@ defineExpose({ open })
                   >
                     <UIcon name="i-heroicons-pencil-square" class="text-[16px]" />
                   </div>
-                  <div class="text-[11px] text-[#5e3a4b] dark:text-pink-100">编辑</div>
+                  <div class="text-[11px] text-[#5e3a4b] dark:text-pink-100">{{ t('qrcode.list.edit') }}</div>
                 </div>
               </QhxJellyButton>
               <QhxJellyButton>
@@ -450,7 +453,7 @@ defineExpose({ open })
                   >
                     <UIcon name="i-heroicons-trash" class="text-[16px]" />
                   </div>
-                  <div class="text-[11px] text-[#5e3a4b] dark:text-pink-100">删除</div>
+                  <div class="text-[11px] text-[#5e3a4b] dark:text-pink-100">{{ t('qrcode.list.delete') }}</div>
                 </div>
               </QhxJellyButton>
             </div>
@@ -479,11 +482,11 @@ defineExpose({ open })
       <div
         class="share-preview-modal__head flex shrink-0 items-center justify-between gap-2 px-4 py-3"
       >
-        <span class="text-sm font-semibold text-[#4a2f3d] dark:text-pink-50">分享海报预览</span>
+        <span class="text-sm font-semibold text-[#4a2f3d] dark:text-pink-50">{{ t('qrcode.list.preview_title') }}</span>
         <button
           type="button"
           class="flex h-9 w-9 items-center justify-center rounded-xl text-[#8a6f7d] outline-none transition hover:bg-black/5 dark:text-pink-300/85 dark:hover:bg-white/10"
-          aria-label="关闭"
+          :aria-label="t('qrcode.list.close')"
           @click="showSharePreviewModal = false"
         >
           <UIcon name="i-heroicons-x-mark-20-solid" class="h-5 w-5" />
@@ -492,13 +495,13 @@ defineExpose({ open })
       <div class="flex min-h-0 flex-1 flex-col overflow-hidden">
         <div class="share-preview-modal__body min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 pb-3 pt-1">
           <p class="mb-2 text-center text-[11px] text-[#8a6f7d] dark:text-pink-300/85">
-            4K · 固定比例 3:4 · 含衣柜信息与二维码
+            {{ t('qrcode.list.preview_hint') }}
           </p>
           <div class="overflow-hidden rounded-xl">
             <img
               v-if="previewShareSrc"
               :src="previewShareSrc"
-              alt="衣柜二维码分享海报"
+              :alt="t('qrcode.list.preview_alt')"
               class="share-preview-modal__img mx-auto h-auto w-full max-w-full object-contain"
               loading="lazy"
               draggable="true"
@@ -517,9 +520,9 @@ defineExpose({ open })
           >
             <span v-if="savingToAlbum" class="inline-flex items-center justify-center gap-2">
               <UIcon name="i-heroicons-arrow-path" class="h-4 w-4 animate-spin" />
-              保存中…
+              {{ t('qrcode.list.saving') }}
             </span>
-            <span v-else>保存到相册</span>
+            <span v-else>{{ t('qrcode.list.save_album') }}</span>
           </button>
         </div>
       </div>
@@ -534,11 +537,11 @@ defineExpose({ open })
 
   <QhxModal v-model="showDeleteConfirm">
     <div class="p-6 w-[min(94vw,420px)] bg-white dark:bg-gray-800 rounded-[10px] shadow-lg">
-      <h3 class="text-base font-bold mb-4 text-gray-800 dark:text-gray-200">操作确认</h3>
-      <p class="text-gray-700 dark:text-gray-300 mb-4">确定要删除这个二维码吗？</p>
+      <h3 class="text-base font-bold mb-4 text-gray-800 dark:text-gray-200">{{ t('qrcode.list.confirm_title') }}</h3>
+      <p class="text-gray-700 dark:text-gray-300 mb-4">{{ t('qrcode.list.delete_confirm') }}</p>
       <div class="flex justify-end gap-2">
-        <UButton color="gray" @click="showDeleteConfirm = false">取消</UButton>
-        <UButton color="red" @click="confirmDelete">确定删除</UButton>
+        <UButton color="gray" @click="showDeleteConfirm = false">{{ t('common.cancel') }}</UButton>
+        <UButton color="red" @click="confirmDelete">{{ t('qrcode.list.confirm_delete') }}</UButton>
       </div>
     </div>
   </QhxModal>

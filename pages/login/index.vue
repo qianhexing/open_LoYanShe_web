@@ -90,7 +90,7 @@
       <div class="mt-8 text-center">
         <div class="flex items-center justify-center space-x-4 text-gray-400 dark:text-gray-600">
           <div class="w-16 h-px bg-gray-300 dark:bg-gray-600"></div>
-          <span class="text-sm">Lo研社</span>
+          <span class="text-sm">{{ $t('common.brand') }}</span>
           <div class="w-16 h-px bg-gray-300 dark:bg-gray-600"></div>
         </div>
       </div>
@@ -104,8 +104,9 @@
 </template>
 
 <script setup lang="ts">
+const { t } = useI18n()
 useHead({
-  title: 'Lo研社 - 登录'
+  title: () => t('login.page_title')
 })
 
 const userStore = useUserStore()
@@ -145,9 +146,9 @@ const phoneCodeOptions = computed(() => {
   }
   if (codeList.length === 0) {
     codeList.push(
-      { label: '中国 +86', value: '+86' },
-      { label: '美国 +1', value: '+1' },
-      { label: '日本 +81', value: '+81' }
+      { label: t('login.phone_code_cn'), value: '+86' },
+      { label: t('login.phone_code_us'), value: '+1' },
+      { label: t('login.phone_code_jp'), value: '+81' }
     )
   }
   return codeList
@@ -165,13 +166,13 @@ const validate = (state: LoginFormState) => {
   const errors: ValidationError[] = []
 
   if (!state.phone) {
-    errors.push({ path: 'phone', message: '请输入手机号' })
+    errors.push({ path: 'phone', message: t('login.enter_phone') })
   } else if (!/^1[3-9]\d{9}$/.test(state.phone) && state.phone_code === '+86') {
-    errors.push({ path: 'phone', message: '请输入有效的手机号' })
+    errors.push({ path: 'phone', message: t('login.invalid_phone') })
   }
 
   if (!state.password) {
-    errors.push({ path: 'password', message: '请输入密码' })
+    errors.push({ path: 'password', message: t('login.enter_password') })
   }
 
   return errors
@@ -185,15 +186,15 @@ const onSubmit = async () => {
     }
     await userStore.login(fullPhone.value, form.password)
     toast.add({
-      title: '登录成功',
+      title: t('login.success'),
       icon: 'i-heroicons-check-circle',
       color: 'green'
     })
     await navigateAfterLogin()
   } catch (error: unknown) {
     toast.add({
-      title: '登录失败',
-      description: getErrorMessage(error) || '请检查账号和密码',
+      title: t('login.failed'),
+      description: getErrorMessage(error) || t('login.check_credentials'),
       icon: 'i-heroicons-x-circle',
       color: 'red'
     })

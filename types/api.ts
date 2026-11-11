@@ -518,22 +518,65 @@ export interface CommunityForeign {
   sort: number
 }
 
+/** foreign_list 的 kind（与正文 href 解析一致） */
+export type CommunityForeignKind =
+  | 'clothes'
+  | 'miniTool'
+  | 'library'
+  | 'community'
+  | 'wardrobe'
+  | 'shop'
+  | 'wiki'
+  | 'scene'
+  | 'album'
+  | 'matching'
+  | 'physical'
+
+/** 搭配 foreign 关联项（服饰 / 图鉴统一列表） */
+export type MatchingForeignRelatedItem = {
+  name?: string | null
+  cover?: string | null
+  type: 'clothes' | 'library' | string
+  id: number
+}
+
 /**
- * 帖子详情接口 `foreign_list` 单项：`pk_type` 含义与 {@link CommunityForeign} 一致，
- * 结构常与 {@link Library} 类似（封面、店铺、library_id / shop_id 等）。
- * pk_type=8 小工具时另含 path / tool_desc / use_count / icon 等。
+ * 帖子详情 / 评论列表 `foreign_list` 单项。
+ * 跳转只认 `url`；有对应原表 object 时做类型展示，否则用 title/cover 兜底。
+ * 仅 `kind === 'matching'` 额外带 `items`。
  */
-export type CommunityDetailForeignItem = Partial<Library> & {
-  pk_type: number
-  pk_id: number
+export type CommunityDetailForeignItem = {
   title?: string | null
+  cover?: string | null
+  /** Web 相对跳转 = 正文 href；无则不可点 */
+  url?: string | null
+  kind?: CommunityForeignKind | string | null
+  pk_id?: number
+  /** 旧 community_foreign 兼容 */
+  pk_type?: number | null
+  /** 仅 matching：服饰 + 图鉴统一列表 */
+  items?: MatchingForeignRelatedItem[] | null
+  /** 原表数据：有则按类型展示 */
+  wardrobe_clothes?: WardrobeClothes | null
+  mini_tool?: MiniTool | null
+  library?: Library | null
+  community?: Community | null
+  wardrobe?: Wardrobe | null
+  shop?: Shop | null
+  wiki?: Wiki | null
+  /** 场景表字段名仍为 sence */
+  sence?: Scene | null
+  album?: Album | null
+  matching_list?: MatchingListItem | null
+  physical_shop?: PhysicalShop | null
+  /** 兜底/旧扁平字段 */
   square_cover?: string | null
-  /** 小工具访问路径/URL（pk_type=8） */
-  path?: string | null
-  tool_desc?: string | null
+  name?: string | null
   tool_name?: string | null
+  tool_desc?: string | null
   icon?: string | null
-  use_count?: number | null
+  library_type?: string | null
+  state?: string | null
 }
 
 /** 小工具板块 */
@@ -586,6 +629,11 @@ export interface ContentI18nFields {
   has_i18n?: boolean
   /** 覆盖所用目标语；无覆盖为 null */
   i18n_lang?: string | null
+  /**
+   * 当前展示语种（帖子/评论统一）。
+   * 有译文= i18n_lang，无译文= content_lang。前端只据此判断是否显示「翻译」。
+   */
+  display_lang?: string | null
 }
 
 export interface Comment extends ContentI18nFields {
@@ -598,7 +646,10 @@ export interface Comment extends ContentI18nFields {
   id: number
   ip_location?: string
   is_enable?: number
+  /** @deprecated 优先用 foreign_list；等同于其中 pk_type===7 的子集 */
   library_list?: Library[]
+  /** 评论关联实体（图鉴/服饰/清单等），与帖子详情同结构 */
+  foreign_list?: CommunityDetailForeignItem[]
   mount_img?: string
   mount_library?: Library[]
   json_data?: CommentJsonData | Record<string, unknown> | string

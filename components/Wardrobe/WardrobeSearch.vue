@@ -8,7 +8,7 @@
     <div class="flex flex-col h-full">
       <!-- 标题栏 -->
       <div class="flex items-center justify-between mb-2 px-2 pt-2 flex-shrink-0 border-b border-gray-200 dark:border-gray-700 pb-3">
-        <h3 class="text-lg font-bold text-gray-800 dark:text-gray-200">搜索衣柜</h3>
+        <h3 class="text-lg font-bold text-gray-800 dark:text-gray-200">{{ t('wardrobe.search.title') }}</h3>
         <button
           @click="closeModel"
           class="w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors group"
@@ -21,7 +21,7 @@
       <div class="flex-1 overflow-y-auto px-2 py-2">
         <!-- 所属衣柜 -->
         <div v-if="wardrobeList.length > 0" class="mb-3 flex items-start gap-3">
-          <div class="text-sm font-semibold text-gray-800 dark:text-gray-200 flex-shrink-0 w-20">所属衣柜：</div>
+          <div class="text-sm font-semibold text-gray-800 dark:text-gray-200 flex-shrink-0 w-20">{{ t('wardrobe.search.belong') }}</div>
           <div class="flex-1 flex flex-wrap gap-2">
             <QhxTag
               v-for="(item, index) in filter_list.wardrobe_id"
@@ -36,17 +36,17 @@
               </div>
             </QhxTag>
             <QhxTag class="cursor-pointer" @click="openWardrobeSelect">
-              选择衣柜
+              {{ t('wardrobe.search.select_wardrobe') }}
             </QhxTag>
           </div>
         </div>
 
         <!-- 搜索名称 -->
         <div class="mb-3 flex items-center gap-3">
-          <div class="text-sm font-semibold text-gray-800 dark:text-gray-200 flex-shrink-0 w-20">搜索名称：</div>
+          <div class="text-sm font-semibold text-gray-800 dark:text-gray-200 flex-shrink-0 w-20">{{ t('wardrobe.search.name') }}</div>
           <UInput 
             v-model="filter_list.clothes_note" 
-            placeholder="搜索名称"
+            :placeholder="t('wardrobe.search.name_placeholder')"
             class="flex-1"
             :ui="{
               base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
@@ -63,10 +63,10 @@
 
         <!-- 搜索笔记 -->
         <div class="mb-3 flex items-center gap-3">
-          <div class="text-sm font-semibold text-gray-800 dark:text-gray-200 flex-shrink-0 w-20">搜索笔记：</div>
+          <div class="text-sm font-semibold text-gray-800 dark:text-gray-200 flex-shrink-0 w-20">{{ t('wardrobe.search.note') }}</div>
           <UInput 
             v-model="filter_list.note" 
-            placeholder="搜索笔记"
+            :placeholder="t('wardrobe.search.note_placeholder')"
             class="flex-1"
             :ui="{
               base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
@@ -83,10 +83,10 @@
 
         <!-- 搜索尺码 -->
         <div class="mb-3 flex items-center gap-3">
-          <div class="text-sm font-semibold text-gray-800 dark:text-gray-200 flex-shrink-0 w-20">搜索尺码：</div>
+          <div class="text-sm font-semibold text-gray-800 dark:text-gray-200 flex-shrink-0 w-20">{{ t('wardrobe.search.size') }}</div>
           <UInput
             v-model="filter_list.size"
-            placeholder="搜索尺码，如 S / 均码"
+            :placeholder="t('wardrobe.search.size_placeholder')"
             class="flex-1"
             :ui="{
               base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
@@ -103,13 +103,13 @@
 
         <!-- 来源搜索 -->
         <div class="mb-3 flex items-center gap-3">
-          <div class="text-sm font-semibold text-gray-800 dark:text-gray-200 flex-shrink-0 w-20">来源搜索：</div>
+          <div class="text-sm font-semibold text-gray-800 dark:text-gray-200 flex-shrink-0 w-20">{{ t('wardrobe.search.origin') }}</div>
           <div class="flex-1 flex items-center">
             <USelectMenu
               v-model="origin_shop"
               :loading="loading"
               :searchable="fetchShopOptiosns"
-              placeholder="搜索店铺..."
+              :placeholder="t('wardrobe.search.shop_placeholder')"
               option-attribute="shop_name"
               creatable
               :multiple="false"
@@ -139,7 +139,7 @@
 
         <!-- 筛选颜色 -->
         <div class="mb-3 flex items-start gap-3">
-          <div class="text-sm font-semibold text-gray-800 dark:text-gray-200 flex-shrink-0 w-20">筛选颜色：</div>
+          <div class="text-sm font-semibold text-gray-800 dark:text-gray-200 flex-shrink-0 w-20">{{ t('wardrobe.search.color') }}</div>
           <div class="flex-1 flex flex-wrap gap-2">
             <div
               v-for="(color, index) in filter_list.color"
@@ -155,14 +155,14 @@
               </button>
             </div>
             <QhxTag class="cursor-pointer" @click="showColorChoose = true">
-              颜色选择
+              {{ t('wardrobe.search.select_color') }}
             </QhxTag>
           </div>
         </div>
 
         <!-- 拥有状态 -->
         <div class="mb-3 flex items-start gap-3">
-          <div class="text-sm font-semibold text-gray-800 dark:text-gray-200 flex-shrink-0 w-20">拥有状态：</div>
+          <div class="text-sm font-semibold text-gray-800 dark:text-gray-200 flex-shrink-0 w-20">{{ t('wardrobe.search.status') }}</div>
           <div class="flex-1 flex flex-wrap gap-2">
             <QhxTag
               v-for="(item, index) in filter_list.wardrobe_status"
@@ -171,7 +171,7 @@
             >
               <div class="flex items-center gap-1">
                 {{ item.label }}
-                <button @click="deleteRemote(item.label, 'wardrobeStatus')" class="ml-1">
+                <button @click="deleteRemote(item.value, 'wardrobeStatus')" class="ml-1">
                   <UIcon name="i-heroicons-x-mark" class="w-3 h-3" />
                 </button>
               </div>
@@ -181,14 +181,14 @@
               variant="outline"
               @click="openStatusSelect"
             >
-              选择状态
+              {{ t('wardrobe.search.select_status') }}
             </UButton>
           </div>
         </div>
 
         <!-- 版型部位 -->
         <div class="mb-3 flex items-start gap-3">
-          <div class="text-sm font-semibold text-gray-800 dark:text-gray-200 flex-shrink-0 w-20">版型部位：</div>
+          <div class="text-sm font-semibold text-gray-800 dark:text-gray-200 flex-shrink-0 w-20">{{ t('wardrobe.search.part') }}</div>
           <div class="flex-1 flex flex-wrap gap-2">
             <QhxTag
               v-for="(item, index) in filter_list.clothes_part"
@@ -197,7 +197,7 @@
             >
               <div class="flex items-center gap-1">
                 {{ item.label }}
-                <button @click="deleteRemote(item.label, 'clothesPart')" class="ml-1">
+                <button @click="deleteRemote(item.value, 'clothesPart')" class="ml-1">
                   <UIcon name="i-heroicons-x-mark" class="w-3 h-3" />
                 </button>
               </div>
@@ -207,19 +207,19 @@
               variant="outline"
               @click="openClothesPartSelect"
             >
-              选择部位
+              {{ t('wardrobe.search.select_part') }}
             </UButton>
           </div>
         </div>
 
         <!-- 价格区间 -->
         <div class="mb-3 flex items-center gap-3">
-          <div class="text-sm font-semibold text-gray-800 dark:text-gray-200 flex-shrink-0 w-20">价格区间：</div>
+          <div class="text-sm font-semibold text-gray-800 dark:text-gray-200 flex-shrink-0 w-20">{{ t('wardrobe.search.price') }}</div>
           <div class="flex-1 flex items-center gap-2">
             <UInput
               v-model="filter_list.price.start_price"
               type="number"
-              placeholder="起"
+              :placeholder="t('wardrobe.search.price_start')"
               class="flex-1"
               :ui="{
                 base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
@@ -232,11 +232,11 @@
                 }
               }"
             />
-            <span class="text-gray-600 dark:text-gray-400 text-sm">到</span>
+            <span class="text-gray-600 dark:text-gray-400 text-sm">{{ t('wardrobe.search.price_to') }}</span>
             <UInput
               v-model="filter_list.price.end_price"
               type="number"
-              placeholder="末"
+              :placeholder="t('wardrobe.search.price_end')"
               class="flex-1"
               :ui="{
                 base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
@@ -254,12 +254,12 @@
 
         <!-- 原价：起末相同为精确值，不同为区间 -->
         <div class="mb-3 flex items-center gap-3">
-          <div class="text-sm font-semibold text-gray-800 dark:text-gray-200 flex-shrink-0 w-20">原价：</div>
+          <div class="text-sm font-semibold text-gray-800 dark:text-gray-200 flex-shrink-0 w-20">{{ t('wardrobe.search.original_price') }}</div>
           <div class="flex-1 flex items-center gap-2">
             <UInput
               v-model="filter_list.original_price.start"
               type="number"
-              placeholder="起 / 精确"
+              :placeholder="t('wardrobe.search.price_exact')"
               class="flex-1"
               :ui="{
                 base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
@@ -272,11 +272,11 @@
                 }
               }"
             />
-            <span class="text-gray-600 dark:text-gray-400 text-sm">到</span>
+            <span class="text-gray-600 dark:text-gray-400 text-sm">{{ t('wardrobe.search.price_to') }}</span>
             <UInput
               v-model="filter_list.original_price.end"
               type="number"
-              placeholder="末"
+              :placeholder="t('wardrobe.search.price_end')"
               class="flex-1"
               :ui="{
                 base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
@@ -294,12 +294,12 @@
 
         <!-- 出物价：起末相同为精确值，不同为区间 -->
         <div class="mb-3 flex items-center gap-3">
-          <div class="text-sm font-semibold text-gray-800 dark:text-gray-200 flex-shrink-0 w-20">出物价：</div>
+          <div class="text-sm font-semibold text-gray-800 dark:text-gray-200 flex-shrink-0 w-20">{{ t('wardrobe.search.offer_price') }}</div>
           <div class="flex-1 flex items-center gap-2">
             <UInput
               v-model="filter_list.offer_price.start"
               type="number"
-              placeholder="起 / 精确"
+              :placeholder="t('wardrobe.search.price_exact')"
               class="flex-1"
               :ui="{
                 base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
@@ -312,11 +312,11 @@
                 }
               }"
             />
-            <span class="text-gray-600 dark:text-gray-400 text-sm">到</span>
+            <span class="text-gray-600 dark:text-gray-400 text-sm">{{ t('wardrobe.search.price_to') }}</span>
             <UInput
               v-model="filter_list.offer_price.end"
               type="number"
-              placeholder="末"
+              :placeholder="t('wardrobe.search.price_end')"
               class="flex-1"
               :ui="{
                 base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
@@ -334,12 +334,12 @@
 
         <!-- 穿着次数 -->
         <div class="mb-3 flex items-center gap-3">
-          <div class="text-sm font-semibold text-gray-800 dark:text-gray-200 flex-shrink-0 w-20">穿着次数：</div>
+          <div class="text-sm font-semibold text-gray-800 dark:text-gray-200 flex-shrink-0 w-20">{{ t('wardrobe.search.times') }}</div>
           <div class="flex-1 flex items-center gap-2">
             <UInput
               v-model="filter_list.times.start_times"
               type="number"
-              placeholder="起"
+              :placeholder="t('wardrobe.search.price_start')"
               class="flex-1"
               :ui="{
                 base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
@@ -352,11 +352,11 @@
                 }
               }"
             />
-            <span class="text-gray-600 dark:text-gray-400 text-sm">到</span>
+            <span class="text-gray-600 dark:text-gray-400 text-sm">{{ t('wardrobe.search.price_to') }}</span>
             <UInput
               v-model="filter_list.times.end_times"
               type="number"
-              placeholder="末"
+              :placeholder="t('wardrobe.search.price_end')"
               class="flex-1"
               :ui="{
                 base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
@@ -374,7 +374,7 @@
 
         <!-- 适宜季节 -->
         <div class="mb-3 flex items-start gap-3">
-          <div class="text-sm font-semibold text-gray-800 dark:text-gray-200 flex-shrink-0 w-20">适宜季节：</div>
+          <div class="text-sm font-semibold text-gray-800 dark:text-gray-200 flex-shrink-0 w-20">{{ t('wardrobe.search.season') }}</div>
           <div class="flex-1 flex flex-wrap gap-2">
             <QhxTag
               v-for="(item, index) in filter_list.season"
@@ -389,14 +389,14 @@
               </div>
             </QhxTag>
             <QhxTag class="cursor-pointer" @click="openSeasonSelect">
-              选择季节
+              {{ t('wardrobe.search.select_season') }}
             </QhxTag>
           </div>
         </div>
 
         <!-- 搜索标签 -->
         <div class="mb-3 flex items-start gap-3">
-          <div class="text-sm font-semibold text-gray-800 dark:text-gray-200 flex-shrink-0 w-20">搜索标签：</div>
+          <div class="text-sm font-semibold text-gray-800 dark:text-gray-200 flex-shrink-0 w-20">{{ t('wardrobe.search.tags') }}</div>
           <div class="flex-1 flex flex-wrap gap-2">
             <QhxTag
               v-for="(item, index) in filter_list.tags"
@@ -405,7 +405,7 @@
             >
               <div class="flex items-center gap-1">
                 {{ item.label }}
-                <button @click="deleteRemote(item.label, 'tags')" class="ml-1">
+                <button @click="deleteRemote(item.value, 'tags')" class="ml-1">
                   <UIcon name="i-heroicons-x-mark" class="w-3 h-3" />
                 </button>
               </div>
@@ -415,7 +415,7 @@
               variant="outline"
               @click="openTagsSelect"
             >
-              选择标签
+              {{ t('wardrobe.search.select_tags') }}
             </UButton>
           </div>
         </div>
@@ -425,17 +425,19 @@
           <UButton
             color="primary"
             class="flex-1"
+            :ui="capsuleBtnUi"
             @click="handleSearch"
           >
-            搜索
+            {{ t('common.search') }}
           </UButton>
           <UButton
             color="gray"
             variant="outline"
             class="flex-1"
+            :ui="capsuleBtnUi"
             @click="clearFilter"
           >
-            清空
+            {{ t('wardrobe.search.clear') }}
           </UButton>
         </div>
 
@@ -453,29 +455,29 @@
               >
                 <img
                   :src="BASE_IMG + item.clothes_img"
-                  :alt="item.clothes_note || '服饰图片'"
+                  :alt="item.clothes_note || t('wardrobe.search.clothes_alt')"
                   class="w-[100px] h-[100px] object-cover rounded-lg"
                   loading="lazy"
                 />
               </div>
               <div class="flex-1 min-w-0" @click.stop="jumpToClothes(item)">
                 <div class="text-sm font-medium text-gray-900 dark:text-gray-100 mb-1">
-                  {{ item.clothes_note || '暂无笔记' }}
+                  {{ item.clothes_note || t('wardrobe.search.no_note') }}
                 </div>
                 <div v-if="item.price" class="text-xs text-gray-600 dark:text-gray-400 mb-1">
-                  价格：{{ item.price }}
+                  {{ t('wardrobe.search.price_label') }}{{ item.price }}
                 </div>
                 <div v-if="item.original_price" class="text-xs text-gray-500 dark:text-gray-400 mb-1">
-                  原价：{{ item.original_price }}
+                  {{ t('wardrobe.search.original_label') }}{{ item.original_price }}
                 </div>
                 <div v-if="item.offer_price" class="text-xs text-rose-500 dark:text-rose-400 mb-1">
-                  出物价：{{ item.offer_price }}
+                  {{ t('wardrobe.search.offer_label') }}{{ item.offer_price }}
                 </div>
                 <div v-if="item.times !== undefined && item.times !== null" class="text-xs text-gray-600 dark:text-gray-400 mb-1">
-                  穿着次数：{{ item.times }}
+                  {{ t('wardrobe.search.times_label') }}{{ item.times }}
                 </div>
                 <div v-if="item.color" class="flex items-center gap-1 mb-1">
-                  <span class="text-xs text-gray-600 dark:text-gray-400">颜色：</span>
+                  <span class="text-xs text-gray-600 dark:text-gray-400">{{ t('wardrobe.search.color_label') }}</span>
                   <div
                     v-for="(color, colorIndex) in item.color.split(',')"
                     :key="colorIndex"
@@ -484,22 +486,22 @@
                   />
                 </div>
                 <div v-if="item.season" class="flex flex-wrap gap-1 mb-1 items-center">
-                  <span class="text-xs text-gray-600 dark:text-gray-400">季节：</span>
+                  <span class="text-xs text-gray-600 dark:text-gray-400">{{ t('wardrobe.search.season_label') }}</span>
                   <QhxTag
                     v-for="(season, seasonIndex) in item.season.split(',')"
                     :key="seasonIndex"
                   >
-                    {{ season }}
+                    {{ wardrobeSeasonLabel(t, season) }}
                   </QhxTag>
                 </div>
                 <div v-if="item.wardrobe_status" class="text-xs text-gray-600 dark:text-gray-400 mb-1">
-                  状态：{{ item.wardrobe_status }}
+                  {{ t('wardrobe.search.status_label') }}{{ wardrobeStatusLabel(t, item.wardrobe_status) }}
                 </div>
                 <div v-if="item.size" class="text-xs text-gray-600 dark:text-gray-400 mb-1">
-                  尺码：{{ item.size }}
+                  {{ t('wardrobe.search.size_label') }}{{ item.size }}
                 </div>
                 <div v-if="item.clothes_part" class="text-xs text-gray-600 dark:text-gray-400 mb-1">
-                  部位：{{ item.clothes_part }}
+                  {{ t('wardrobe.search.part_label') }}{{ wardrobePartLabel(t, item.clothes_part) }}
                 </div>
                 <div class="text-xs text-gray-500 dark:text-gray-500 mt-2 text-right">
                   {{ formatDate(item.date) }}
@@ -523,9 +525,9 @@
     <!-- 季节选择 -->
     <QhxOptionsChoose
       ref="seasonSelectRef"
-      title="选择季节"
+      :title="t('wardrobe.search.choose_season_title')"
       :options="seasonOptions"
-      empty-confirm-message="请选择季节"
+      :empty-confirm-message="t('wardrobe.search.choose_season_empty')"
       @select="confirmSeason"
     />
 
@@ -540,11 +542,11 @@
     <!-- 状态选择 -->
     <QhxOptionsChoose
       ref="statusSelectRef"
-      title="选择状态"
+      :title="t('wardrobe.search.choose_status_title')"
       :options="wardrobeStatusOptions"
       :can-customize="true"
       :undeletable-values="['已拥有', '待补款', '已出']"
-      empty-confirm-message="请选择状态"
+      :empty-confirm-message="t('wardrobe.search.choose_status_empty')"
       @select="confirmStatus"
       @delete="(item) => onDeleteConfigOption('wardrobe_status', item)"
     />
@@ -552,10 +554,10 @@
     <!-- 部位选择 -->
     <QhxOptionsChoose
       ref="clothesPartSelectRef"
-      title="选择版型"
+      :title="t('wardrobe.search.choose_part_title')"
       :options="clothesPartOptions"
       :can-customize="true"
-      empty-confirm-message="请选择版型"
+      :empty-confirm-message="t('wardrobe.search.choose_part_empty')"
       @select="confirmClothesPart"
       @delete="(item) => onDeleteConfigOption('clothes_part', item)"
     />
@@ -563,10 +565,10 @@
     <!-- 标签选择 -->
     <QhxOptionsChoose
       ref="tagsSelectRef"
-      title="选择标签"
+      :title="t('wardrobe.search.choose_tags_title')"
       :options="tagsOptions"
       :can-customize="true"
-      empty-confirm-message="请选择标签"
+      :empty-confirm-message="t('wardrobe.search.choose_tags_empty')"
       @select="confirmTags"
       @delete="(item) => onDeleteConfigOption('tags', item)"
     />
@@ -576,7 +578,7 @@
       <UCard>
         <template #header>
           <div class="flex items-center justify-between">
-            <h3 class="text-lg font-semibold">选择颜色</h3>
+            <h3 class="text-lg font-semibold">{{ t('wardrobe.search.choose_color_title') }}</h3>
             <UButton
               color="gray"
               variant="ghost"
@@ -586,7 +588,7 @@
           </div>
         </template>
         <div class="p-2">
-          <p class="text-sm text-gray-600 dark:text-gray-400 mb-4">为了方便检索，请优先选择衣柜内已有的颜色</p>
+          <p class="text-sm text-gray-600 dark:text-gray-400 mb-4">{{ t('wardrobe.search.choose_color_hint') }}</p>
           <div class="flex flex-wrap gap-2">
             <div
               v-for="(color, index) in wardrobeColors"
@@ -596,7 +598,7 @@
               @click="colorChoose(color)"
             />
             <div v-if="wardrobeColors.length === 0" class="text-sm text-gray-500">
-              衣柜内暂无颜色
+              {{ t('wardrobe.search.no_colors') }}
             </div>
           </div>
         </div>
@@ -619,7 +621,17 @@ import {
   deleteClothesConfigOptionThenReload,
   type ClothesConfigOptionKind,
 } from '@/utils/clothesConfigOption'
+import {
+  mapConfigStatusOptions,
+  wardrobePartLabel,
+  wardrobeSeasonLabel,
+  wardrobeSeasonOptions,
+  wardrobeStatusLabel,
+} from '@/utils/wardrobeDisplayI18n'
 import dayjs from 'dayjs'
+
+const { t } = useI18n()
+const capsuleBtnUi = { rounded: 'rounded-full' } as const
 
 interface Props {
   wardrobeList?: Wardrobe[]
@@ -655,13 +667,8 @@ const isMobile = computed(() => {
   return window.innerWidth < 768
 })
 
-// 季节选项
-const seasonOptions = [
-  { value: '春', label: '春' },
-  { value: '夏', label: '夏' },
-  { value: '秋', label: '秋' },
-  { value: '冬', label: '冬' }
-]
+// 季节选项（value 保持库内中文，label 随语言）
+const seasonOptions = computed(() => wardrobeSeasonOptions(t))
 
 // 衣柜选项
 const wardrobeOptions = computed(() => {
@@ -674,19 +681,14 @@ const wardrobeOptions = computed(() => {
 // 衣柜状态选项
 const wardrobeStatusOptions = computed(() => {
   if (!wardrobeStore.config?.wardrobe_status) return []
-  return wardrobeStore.config.wardrobe_status
-    .filter((status: string) => status !== '自定义')
-    .map((status: string) => ({
-      label: status,
-      value: status
-    }))
+  return mapConfigStatusOptions(t, wardrobeStore.config.wardrobe_status)
 })
 
 // 版型部位选项
 const clothesPartOptions = computed(() => {
   if (!wardrobeStore.config?.clothes_part) return []
   return wardrobeStore.config.clothes_part.map((part: string) => ({
-    label: part,
+    label: wardrobePartLabel(t, part),
     value: part
   }))
 })
@@ -699,8 +701,8 @@ const tagsOptions = computed(() => {
   for (const item of raw) {
     if (typeof item !== 'string') continue
     for (const part of item.split(',')) {
-      const t = part.trim()
-      if (t) labels.push(t)
+      const label = part.trim()
+      if (label) labels.push(label)
     }
   }
   return [...new Set(labels)].map((label) => ({ value: label, label }))
@@ -823,20 +825,20 @@ const deleteArr = (arr: any[], index: number) => {
   arr.splice(index, 1)
 }
 
-// 删除远程选择项
+// 删除远程选择项（按 value 匹配，避免翻译后的 label 对不上）
 const deleteRemote = (str: string, type: 'wardrobeStatus' | 'clothesPart' | 'tags') => {
   if (type === 'wardrobeStatus') {
-    const index = filter_list.value.wardrobe_status.findIndex(item => item.label === str)
+    const index = filter_list.value.wardrobe_status.findIndex(item => item.value === str)
     if (index !== -1) {
       filter_list.value.wardrobe_status.splice(index, 1)
     }
   } else if (type === 'clothesPart') {
-    const index = filter_list.value.clothes_part.findIndex(item => item.label === str)
+    const index = filter_list.value.clothes_part.findIndex(item => item.value === str)
     if (index !== -1) {
       filter_list.value.clothes_part.splice(index, 1)
     }
   } else if (type === 'tags') {
-    const index = filter_list.value.tags.findIndex(item => item.label === str)
+    const index = filter_list.value.tags.findIndex(item => item.value === str)
     if (index !== -1) {
       filter_list.value.tags.splice(index, 1)
     }
@@ -863,7 +865,7 @@ const confirmWardrobe = (v: { value: number | string; label: string }) => {
     filter_list.value.wardrobe_id.push(v)
   } else {
     toast.add({
-      title: '重复添加',
+      title: t('addShop.duplicate_add'),
       type: 'warning'
     })
   }
@@ -883,24 +885,24 @@ const confirmTags = (list: optionsInterface[]) => {
 }
 
 async function onDeleteConfigOption(kind: ClothesConfigOptionKind, item: optionsInterface) {
-  const label = item.label?.trim()
-  if (!label) return
+  const term = String(item.value ?? item.label ?? '').trim()
+  if (!term) return
   try {
-    const { updated } = await deleteClothesConfigOptionThenReload(kind, label)
+    const { updated } = await deleteClothesConfigOptionThenReload(kind, term)
     if (kind === 'wardrobe_status') {
       filter_list.value.wardrobe_status = filter_list.value.wardrobe_status.filter(
-        (row) => row.label.trim() !== label,
+        (row) => row.value.trim() !== term,
       )
     } else if (kind === 'clothes_part') {
       filter_list.value.clothes_part = filter_list.value.clothes_part.filter(
-        (row) => row.label.trim() !== label,
+        (row) => row.value.trim() !== term,
       )
     } else if (kind === 'tags') {
-      filter_list.value.tags = filter_list.value.tags.filter((row) => row.label.trim() !== label)
+      filter_list.value.tags = filter_list.value.tags.filter((row) => row.value.trim() !== term)
     }
     toast.add({ title: clothesTermDeletedMessage(updated), color: 'green', icon: 'i-heroicons-check-circle' })
   } catch {
-    toast.add({ title: '删除失败', color: 'red', icon: 'i-heroicons-exclamation-circle' })
+    toast.add({ title: t('wardrobe.toast.delete_failed'), color: 'red', icon: 'i-heroicons-exclamation-circle' })
   }
 }
 
@@ -911,7 +913,7 @@ const colorChoose = (hex: string) => {
     filter_list.value.color.push(hex)
   } else {
     toast.add({
-      title: '重复添加',
+      title: t('addShop.duplicate_add'),
       type: 'warning'
     })
   }
@@ -1059,12 +1061,12 @@ const formatFilterList = () => {
     }
   }
 
-  // 状态
+  // 状态（API 仍用库内中文 value）
   if (filter_list.value.wardrobe_status.length > 0) {
     filterList.push({
       field: 'wardrobe_status',
       op: 'and',
-      value: filter_list.value.wardrobe_status.map(v => v.label).join(',')
+      value: filter_list.value.wardrobe_status.map(v => v.value).join(',')
     })
   }
 
@@ -1073,7 +1075,7 @@ const formatFilterList = () => {
     filterList.push({
       field: 'tags',
       op: 'and',
-      value: filter_list.value.tags.map(v => v.label).join(',')
+      value: filter_list.value.tags.map(v => v.value).join(',')
     })
   }
 
@@ -1082,7 +1084,7 @@ const formatFilterList = () => {
     filterList.push({
       field: 'clothes_part',
       op: 'and',
-      value: filter_list.value.clothes_part.map(v => v.label).join(',')
+      value: filter_list.value.clothes_part.map(v => v.value).join(',')
     })
   }
 
@@ -1091,7 +1093,7 @@ const formatFilterList = () => {
     filterList.push({
       field: 'season',
       op: 'and',
-      value: filter_list.value.season.map(v => v.label).join(',')
+      value: filter_list.value.season.map(v => v.value).join(',')
     })
   }
 
@@ -1142,7 +1144,7 @@ const clearFilter = () => {
 const loadMore = () => {
   if (loading.value) {
     toast.add({
-      title: '正在加载',
+      title: t('wardrobe.square.loading_toast'),
       type: 'warning'
     })
     return
@@ -1153,7 +1155,7 @@ const loadMore = () => {
     getClothesSearchData()
   } else {
     toast.add({
-      title: '没有更多',
+      title: t('wardrobe.square.no_more'),
       type: 'info'
     })
   }

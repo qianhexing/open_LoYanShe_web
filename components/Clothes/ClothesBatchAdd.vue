@@ -23,6 +23,7 @@ interface DraftRow {
   preview: PreviewItem
 }
 
+const { t } = useI18n()
 const toast = useToast()
 const show = ref(false)
 const loading = ref(false)
@@ -87,7 +88,7 @@ const closeModel = () => {
 const showModel = (item: Wardrobe | null, event?: MouseEvent) => {
   if (!item?.wardrobe_id) {
     toast.add({
-      title: '请先选择衣柜',
+      title: t('clothes.batch.select_wardrobe_first'),
       icon: 'i-heroicons-exclamation-circle',
       color: 'amber',
     })
@@ -109,7 +110,7 @@ const showModel = (item: Wardrobe | null, event?: MouseEvent) => {
 const submit = async () => {
   if (!draftList.value.length) {
     toast.add({
-      title: '请至少选择一张封面',
+      title: t('clothes.batch.select_cover_first'),
       icon: 'i-heroicons-exclamation-circle',
       color: 'amber',
     })
@@ -132,7 +133,7 @@ const submit = async () => {
     }
     if (!clothes_list.length) {
       toast.add({
-        title: '图片上传失败',
+        title: t('clothes.batch.upload_failed'),
         icon: 'i-heroicons-exclamation-circle',
         color: 'red',
       })
@@ -143,7 +144,7 @@ const submit = async () => {
       wardrobe_id: wardrobe.value?.wardrobe_id,
     })
     toast.add({
-      title: `已批量新增 ${clothes_list.length} 件服饰`,
+      title: t('clothes.batch.created', { count: clothes_list.length }),
       icon: 'i-heroicons-check-circle',
       color: 'green',
     })
@@ -151,7 +152,7 @@ const submit = async () => {
     closeModel()
   } catch {
     toast.add({
-      title: '批量新增失败',
+      title: t('clothes.batch.create_failed'),
       icon: 'i-heroicons-exclamation-circle',
       color: 'red',
     })
@@ -172,9 +173,9 @@ defineExpose({ showModel })
         class="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-700 shrink-0"
       >
         <div>
-          <h2 class="text-lg font-bold text-gray-900 dark:text-gray-100">批量新增服饰</h2>
+          <h2 class="text-lg font-bold text-gray-900 dark:text-gray-100">{{ t('clothes.batch.create_title') }}</h2>
           <p v-if="wardrobe?.wardrobe_name" class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-            衣柜：{{ wardrobe.wardrobe_name }}
+            {{ t('clothes.batch.wardrobe', { name: wardrobe.wardrobe_name }) }}
           </p>
         </div>
         <button
@@ -188,15 +189,15 @@ defineExpose({ showModel })
 
       <div class="flex-1 overflow-y-auto p-6 space-y-4">
         <p class="text-sm text-gray-500 dark:text-gray-400">
-          多选服饰封面后，在下方为每张图填写名称并批量创建。
+          {{ t('clothes.batch.create_hint') }}
         </p>
-        <UFormGroup label="服饰封面（可多选）">
+        <UFormGroup :label="t('clothes.batch.covers')">
           <QhxImagePicker allow-live ref="coverPickerRef" :multiple="true" />
         </UFormGroup>
 
         <div v-if="draftList.length" class="space-y-2">
           <p class="text-sm font-medium text-gray-700 dark:text-gray-300">
-            服饰信息（{{ draftList.length }}）
+            {{ t('clothes.batch.info_count', { count: draftList.length }) }}
           </p>
           <div class="space-y-2 max-h-[40vh] overflow-y-auto pr-1">
             <div
@@ -210,10 +211,10 @@ defineExpose({ showModel })
                 alt=""
                 class="w-14 h-14 rounded-lg object-cover shrink-0 border border-gray-200 dark:border-gray-600"
               />
-              <UFormGroup label="服饰名称" class="flex-1 min-w-0 mb-0">
+              <UFormGroup :label="t('clothes.batch.name')" class="flex-1 min-w-0 mb-0">
                 <UInput
                   v-model="row.clothes_note"
-                  placeholder="选填，如：草莓柄jsk"
+                  :placeholder="t('clothes.batch.name_placeholder')"
                   class="w-full"
                 />
               </UFormGroup>
@@ -225,9 +226,9 @@ defineExpose({ showModel })
       <div
         class="flex justify-end gap-2 px-6 py-4 border-t border-gray-200 dark:border-gray-700 shrink-0"
       >
-        <UButton color="gray" variant="ghost" :ui="capsuleBtnUi" :disabled="loading" @click="closeModel">取消</UButton>
+        <UButton color="gray" variant="ghost" :ui="capsuleBtnUi" :disabled="loading" @click="closeModel">{{ t('common.cancel') }}</UButton>
         <UButton color="primary" :ui="capsuleBtnUi" :loading="loading" :disabled="!draftList.length" @click="submit">
-          确认批量新增
+          {{ t('clothes.batch.confirm_create') }}
         </UButton>
       </div>
     </div>

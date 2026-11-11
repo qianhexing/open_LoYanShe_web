@@ -14,20 +14,20 @@
         <div class="w-16 h-16 border-4 border-pink-100 rounded-full"></div>
         <div class="absolute top-0 left-0 w-16 h-16 border-4 border-pink-400 rounded-full border-t-transparent animate-spin"></div>
       </div>
-      <p class="mt-4 text-pink-400 dark:text-pink-300 tracking-widest text-sm uppercase">加载中...</p>
+      <p class="mt-4 text-pink-400 dark:text-pink-300 tracking-widest text-sm uppercase">{{ $t('common.loading') }}</p>
     </div>
 
     <!-- 未登录时显示登录提示 -->
     <div v-else-if="!user" class="relative z-10 flex-1 flex flex-col items-center justify-center p-6">
       <div class="text-center mb-6">
         <div class="text-6xl mb-4">👤</div>
-        <h2 class="text-xl font-bold text-gray-800 dark:text-gray-100 mb-2">请先登录</h2>
-        <p class="text-sm text-gray-500 dark:text-gray-400 mb-6">登录后即可使用快捷入口服务</p>
+        <h2 class="text-xl font-bold text-gray-800 dark:text-gray-100 mb-2">{{ $t('common.please_login') }}</h2>
+        <p class="text-sm text-gray-500 dark:text-gray-400 mb-6">{{ $t('user.center.login_hint_subtitle') }}</p>
         <button
           @click="showLoginModal = true"
           class="px-8 py-3 bg-qhx-primary hover:bg-qhx-primaryHover text-white rounded-full font-bold transition-colors shadow-lg"
         >
-          去登录
+          {{ $t('user.center.go_login') }}
         </button>
       </div>
     </div>
@@ -45,7 +45,7 @@
               loading="lazy"
             />
             <div class="flex-1 min-w-0">
-              <div class="text-xl font-semibold text-gray-800 dark:text-gray-100 truncate">{{ user.user_name || '未登录' }}</div>
+              <div class="text-xl font-semibold text-gray-800 dark:text-gray-100 truncate">{{ user.user_name || $t('user.center.not_logged_in') }}</div>
               <div class="text-sm text-gray-500 dark:text-gray-400 mt-1">ID: {{ user.user_id || '-' }}</div>
             </div>
           </div>
@@ -54,11 +54,11 @@
           <div v-if="user.exp !== undefined && levelConfig.length > 0" class="mt-4">
             <div class="flex items-center justify-between mb-2">
               <div class="flex items-center gap-2">
-                <span class="text-sm font-medium text-gray-700 dark:text-gray-300">等级</span>
+                <span class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ $t('user.center.level') }}</span>
                 <span class="text-lg font-bold text-pink-600">Lv.{{ user.level || 0 }}</span>
               </div>
               <div v-if="user.star_coin !== undefined" class="flex items-center gap-1.5 bg-yellow-50 dark:bg-yellow-900/30 rounded-md px-2 py-1 border border-yellow-200 dark:border-yellow-700">
-                <span class="text-sm font-bold text-yellow-600 dark:text-yellow-400">星星币</span>
+                <span class="text-sm font-bold text-yellow-600 dark:text-yellow-400">{{ $t('user.center.star_coin') }}</span>
                 <svg class="w-4 h-4 text-yellow-500" fill="currentColor" viewBox="0 0 20 20">
                   <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
                 </svg>
@@ -83,10 +83,10 @@
                 <span class="text-gray-400"> / {{ nextLevelExp }}</span>
               </div>
               <div class="text-xs text-gray-500 dark:text-gray-500" v-if="!isMaxLevel">
-                距离下一级还需 {{ Math.max(0, nextLevelExp - (user.exp || 0)) }} 经验
+                {{ $t('user.center.exp_to_next', { n: Math.max(0, nextLevelExp - (user.exp || 0)) }) }}
               </div>
               <div class="text-xs text-pink-600 text-right font-medium" v-else>
-                已满级！
+                {{ $t('user.center.max_level') }}
               </div>
             </div>
           </div>
@@ -105,8 +105,8 @@
                 </svg>
               </div>
               <div>
-                <div class="font-medium text-gray-800 dark:text-gray-200">我的空间</div>
-                <div class="text-xs text-gray-500 dark:text-gray-400">个人主页</div>
+                <div class="font-medium text-gray-800 dark:text-gray-200">{{ $t('user.center.my_space') }}</div>
+                <div class="text-xs text-gray-500 dark:text-gray-400">{{ $t('user.center.my_space_desc') }}</div>
               </div>
             </button>
 
@@ -118,8 +118,8 @@
                 <UIcon name="hugeicons:wardrobe-04" class="text-[20px] text-purple-600 dark:text-purple-400" />
               </div>
               <div>
-                <div class="font-medium text-gray-800 dark:text-gray-200">我的衣柜</div>
-                <div class="text-xs text-gray-500 dark:text-gray-400">服饰管理</div>
+                <div class="font-medium text-gray-800 dark:text-gray-200">{{ $t('user.center.my_wardrobe') }}</div>
+                <div class="text-xs text-gray-500 dark:text-gray-400">{{ $t('user.center.my_wardrobe_desc') }}</div>
               </div>
             </button>
 
@@ -133,8 +133,8 @@
                 </svg>
               </div>
               <div>
-                <div class="font-medium text-gray-800 dark:text-gray-200">定尾计划</div>
-                <div class="text-xs text-gray-500 dark:text-gray-400">定金尾款管理</div>
+                <div class="font-medium text-gray-800 dark:text-gray-200">{{ $t('user.center.my_plan') }}</div>
+                <div class="text-xs text-gray-500 dark:text-gray-400">{{ $t('user.center.my_plan_desc') }}</div>
               </div>
             </button>
 
@@ -148,8 +148,8 @@
                 </svg>
               </div>
               <div>
-                <div class="font-medium text-gray-800 dark:text-gray-200">补充图鉴</div>
-                <div class="text-xs text-gray-500 dark:text-gray-400">添加图鉴</div>
+                <div class="font-medium text-gray-800 dark:text-gray-200">{{ $t('user.center.add_library') }}</div>
+                <div class="text-xs text-gray-500 dark:text-gray-400">{{ $t('user.center.add_library_desc') }}</div>
               </div>
             </button>
 
@@ -163,8 +163,8 @@
                 </svg>
               </div>
               <div>
-                <div class="font-medium text-gray-800 dark:text-gray-200">我上传的图鉴</div>
-                <div class="text-xs text-gray-500 dark:text-gray-400">图鉴管理</div>
+                <div class="font-medium text-gray-800 dark:text-gray-200">{{ $t('user.center.my_library') }}</div>
+                <div class="text-xs text-gray-500 dark:text-gray-400">{{ $t('user.center.my_library_desc') }}</div>
               </div>
             </button>
 
@@ -178,8 +178,8 @@
                 </svg>
               </div>
               <div>
-                <div class="font-medium text-gray-800 dark:text-gray-200">3D场景</div>
-                <div class="text-xs text-gray-500 dark:text-gray-400">场景管理</div>
+                <div class="font-medium text-gray-800 dark:text-gray-200">{{ $t('user.center.scene_3d') }}</div>
+                <div class="text-xs text-gray-500 dark:text-gray-400">{{ $t('user.center.scene_3d_desc') }}</div>
               </div>
             </button>
 
@@ -193,8 +193,8 @@
                 </svg>
               </div>
               <div>
-                <div class="font-medium text-gray-800 dark:text-gray-200">成就簿</div>
-                <div class="text-xs text-gray-500 dark:text-gray-400">成就记录</div>
+                <div class="font-medium text-gray-800 dark:text-gray-200">{{ $t('user.center.album') }}</div>
+                <div class="text-xs text-gray-500 dark:text-gray-400">{{ $t('user.center.album_desc') }}</div>
               </div>
             </button>
           </div>
@@ -208,7 +208,7 @@
               <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
               </svg>
-              <span>退出登录</span>
+              <span>{{ $t('user.center.logout') }}</span>
             </button>
           </div>
         </div>
@@ -216,7 +216,7 @@
 
       <!-- 添加到主屏幕提示（可选，Safari 用户） -->
       <p class="text-center text-xs text-gray-400 dark:text-gray-500 mt-6">
-        在 Safari 中点击分享 → 添加到主屏幕，即可快速访问
+        {{ $t('user.center.safari_pwa_hint') }}
       </p>
     </div>
 
@@ -235,6 +235,8 @@ import { BASE_IMG } from '@/utils/ipConfig'
 import { useConfigStore } from '@/stores/config'
 import { getUserMy } from '@/api/user'
 import YearlySummaryLoginModal from '@/components/yearlySummary/LoginModal.vue'
+
+const { t } = useI18n()
 
 const userStore = storeToRefs(useUserStore())
 const { user } = userStore
@@ -363,7 +365,7 @@ const handleLoginSuccess = async () => {
   } catch (error) {
     console.error('获取用户信息失败:', error)
     toast.add({
-      title: '获取用户信息失败',
+      title: t('user.center.fetch_user_failed'),
       icon: 'i-heroicons-x-circle',
       color: 'red'
     })
@@ -377,7 +379,7 @@ onMounted(() => {
 })
 
 useHead({
-  title: '快捷入口 - Lo研社',
+  title: () => t('user.center.page_title'),
 })
 </script>
 

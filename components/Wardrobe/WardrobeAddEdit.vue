@@ -4,14 +4,14 @@
       <!-- 头部 -->
       <div class="flex justify-between items-center px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
         <h2 class="text-lg font-semibold">
-          {{ type === 0 ? '新增衣柜' : '编辑衣柜' }}
+          {{ type === 0 ? t('wardrobe.add_edit.create') : t('wardrobe.add_edit.edit') }}
         </h2>
         <UButton color="gray" variant="ghost" icon="i-heroicons-x-mark" @click="closeModel" />
-      </div>
+    </div>
       <div class="space-y-6 max-h-[60vh] overflow-y-auto p-6 flex-1">
         <!-- 衣柜名称 -->
-        <UFormGroup label="衣柜名称">
-          <UInput v-model="form.wardrobe_name" placeholder="请输入衣柜名称" class="flex-1 focus:ring-0" :ui="{
+        <UFormGroup :label="t('wardrobe.add_edit.name')">
+          <UInput v-model="form.wardrobe_name" :placeholder="t('wardrobe.add_edit.name_placeholder')" class="flex-1 focus:ring-0" :ui="{
             base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
             rounded: 'rounded-full',
             padding: { xs: 'px-4 py-2' },
@@ -24,13 +24,13 @@
         </UFormGroup>
 
         <!-- 衣柜封面 -->
-        <UFormGroup label="衣柜封面">
+        <UFormGroup :label="t('wardrobe.add_edit.cover')">
           <QhxImagePicker :multiple="false" @update:files="onUpdateCoverFiles" ref="wardrobeCoverRef" />
         </UFormGroup>
 
         <!-- 衣柜描述 -->
-        <UFormGroup label="衣柜描述">
-          <UTextarea v-model="form.wardrobe_desc" placeholder="请输入衣柜描述" :rows="3" class="flex-1 focus:ring-0" :ui="{
+        <UFormGroup :label="t('wardrobe.add_edit.desc')">
+          <UTextarea v-model="form.wardrobe_desc" :placeholder="t('wardrobe.add_edit.desc_placeholder')" :rows="3" class="flex-1 focus:ring-0" :ui="{
             base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
             rounded: 'rounded-[10px]',
             padding: { xs: 'px-4 py-2' },
@@ -43,17 +43,17 @@
         </UFormGroup>
 
         <!-- 是否私密 -->
-        <UFormGroup label="是否私密">
+        <UFormGroup :label="t('wardrobe.add_edit.private')">
           <div class="flex items-center gap-2">
             <UToggle v-model="form.is_private" />
-            <span class="text-sm text-gray-600 dark:text-gray-400">{{ form.is_private ? '当前私密' : '当前公开' }}</span>
+            <span class="text-sm text-gray-600 dark:text-gray-400">{{ form.is_private ? t('wardrobe.add_edit.private_on') : t('wardrobe.add_edit.private_off') }}</span>
           </div>
-          <p class="text-xs text-gray-500 mt-1" v-if="!form.is_private">非私有衣柜将对其他用户开放</p>
+          <p class="text-xs text-gray-500 mt-1" v-if="!form.is_private">{{ t('wardrobe.add_edit.private_hint') }}</p>
         </UFormGroup>
 
         <!-- 访问密码 -->
-        <UFormGroup label="访问密码" v-if="form.is_private">
-          <UInput v-model="form.password" type="text" placeholder="设置密码后需要密码才能访问" class="flex-1 focus:ring-0" :ui="{
+        <UFormGroup :label="t('wardrobe.add_edit.password')" v-if="form.is_private">
+          <UInput v-model="form.password" type="text" :placeholder="t('wardrobe.add_edit.password_placeholder')" class="flex-1 focus:ring-0" :ui="{
             base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
             rounded: 'rounded-[10px]',
             padding: { xs: 'px-4 py-2' },
@@ -63,11 +63,11 @@
               }
             }
           }" />
-          <p class="text-xs text-gray-500 mt-1" v-if="form.password">可通过输入正确密码访问衣柜</p>
+          <p class="text-xs text-gray-500 mt-1" v-if="form.password">{{ t('wardrobe.add_edit.password_hint') }}</p>
         </UFormGroup>
 
         <!-- 排序类型 -->
-        <UFormGroup label="排序类型">
+        <UFormGroup :label="t('wardrobe.add_edit.sort_type')">
           <div class="flex flex-wrap items-center gap-2">
             <span class="text-sm text-gray-900 dark:text-gray-100">{{ currentSortTypeLabel }}</span>
             <UButton
@@ -76,7 +76,7 @@
               class="bg-qhx-primary text-qhx-inverted hover:bg-qhx-primaryHover"
               @click="openSortTypeSelect($event)"
             >
-              选择排序
+              {{ t('wardrobe.add_edit.select_sort') }}
             </UButton>
           </div>
           <QhxSelect
@@ -96,9 +96,9 @@
             @click="toggleCustomSection"
           >
             <div class="min-w-0">
-              <div class="text-sm font-medium text-gray-800 dark:text-gray-200">自定义衣柜</div>
+              <div class="text-sm font-medium text-gray-800 dark:text-gray-200">{{ t('wardrobe.add_edit.custom_section') }}</div>
               <div class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                开放弹幕、自定义主题、显示总价等
+                {{ t('wardrobe.add_edit.custom_section_hint') }}
               </div>
             </div>
             <UIcon
@@ -111,23 +111,23 @@
             class="space-y-6 px-4 pb-4 pt-2 border-t border-gray-200 dark:border-gray-700"
           >
             <!-- 开放弹幕 -->
-            <UFormGroup label="开放弹幕">
+            <UFormGroup :label="t('wardrobe.add_edit.open_danmu')">
               <div class="flex items-center gap-2">
                 <UToggle v-model="form.config.open_danmu" />
-                <span class="text-sm text-gray-600 dark:text-gray-400">{{ form.config.open_danmu ? '开启' : '关闭' }}</span>
+                <span class="text-sm text-gray-600 dark:text-gray-400">{{ form.config.open_danmu ? t('wardrobe.add_edit.on') : t('wardrobe.add_edit.off') }}</span>
               </div>
-              <p class="text-xs text-gray-500 mt-1">开启后访客可在衣柜页面发送弹幕</p>
+              <p class="text-xs text-gray-500 mt-1">{{ t('wardrobe.add_edit.danmu_hint') }}</p>
             </UFormGroup>
 
             <!-- 自定义主题（与帖子对齐） -->
             <CommunityCustomStyleForm
               ref="customStyleFormRef"
               v-model="customStyle"
-              background-hint="衣柜详情页背景"
+              :background-hint="t('wardrobe.add_edit.bg_hint')"
             />
 
             <!-- 显示价格 -->
-            <UFormGroup label="显示价格">
+            <UFormGroup :label="t('wardrobe.add_edit.show_price')">
               <div class="flex flex-wrap items-center gap-2">
                 <span class="text-sm text-gray-900 dark:text-gray-100">{{ currentShowPriceLabel }}</span>
                 <UButton
@@ -136,7 +136,7 @@
                   class="bg-qhx-primary text-qhx-inverted hover:bg-qhx-primaryHover"
                   @click="openShowPriceSelect($event)"
                 >
-                  选择模式
+                  {{ t('wardrobe.add_edit.select_mode') }}
                 </UButton>
               </div>
               <QhxSelect
@@ -151,10 +151,10 @@
       </div>
       <!-- 底部 -->
       <div class="flex justify-end gap-2 px-6 py-4 border-t border-gray-200 dark:border-gray-700 flex-shrink-0">
-        <UButton color="gray" @click="closeModel">取消</UButton>
+        <UButton color="gray" @click="closeModel">{{ t('common.cancel') }}</UButton>
         <UButton :loading="loading" size="xs" class="bg-qhx-primary text-qhx-inverted hover:bg-qhx-primaryHover"
           @click="insert">
-          {{ type === 1 ? '确认修改' : '确认添加' }}
+          {{ type === 1 ? t('wardrobe.add_edit.confirm_update') : t('wardrobe.add_edit.confirm_add') }}
         </UButton>
       </div>
     </div>
@@ -178,6 +178,8 @@ import {
   serializeCommunityCustomStyle,
   type CommunityCustomStyle,
 } from '@/utils/communityCustomStyle'
+
+const { t } = useI18n()
 
 const WARDROBE_CUSTOM_SECTION_KEY = 'wardrobe-add-edit-custom-section-expanded'
 
@@ -240,26 +242,26 @@ const form = ref<{
   },
 })
 
-const sortTypeOptions: optionsInterface[] = [
-  { label: '自定义', value: 0 },
-  { label: '购入倒叙', value: 1 },
-  { label: '购入正序', value: 2 },
-  { label: '价格倒叙', value: 3 },
-  { label: '价格正序', value: 4 },
-  { label: '穿着次数倒叙', value: 5 },
-  { label: '穿着次数正序', value: 11 },
-  { label: '穿着时间倒叙', value: 9 },
-  { label: '穿着时间正序', value: 10 },
-]
+const sortTypeOptions = computed((): optionsInterface[] => [
+  { label: t('wardrobe.sort.custom'), value: 0 },
+  { label: t('wardrobe.sort.buy_desc'), value: 1 },
+  { label: t('wardrobe.sort.buy_asc'), value: 2 },
+  { label: t('wardrobe.sort.price_desc'), value: 3 },
+  { label: t('wardrobe.sort.price_asc'), value: 4 },
+  { label: t('wardrobe.sort.wear_count_desc'), value: 5 },
+  { label: t('wardrobe.sort.wear_count_asc'), value: 11 },
+  { label: t('wardrobe.sort.wear_time_desc'), value: 9 },
+  { label: t('wardrobe.sort.wear_time_asc'), value: 10 },
+])
 
 const defaultSortTypeForSelect = computed(
   (): optionsInterface =>
-    sortTypeOptions.find((o) => Number(o.value) === form.value.sort_type)
-    ?? sortTypeOptions[0]
+    sortTypeOptions.value.find((o) => Number(o.value) === form.value.sort_type)
+    ?? sortTypeOptions.value[0]
 )
 
 const currentSortTypeLabel = computed(
-  () => sortTypeOptions.find((o) => Number(o.value) === form.value.sort_type)?.label ?? '自定义'
+  () => sortTypeOptions.value.find((o) => Number(o.value) === form.value.sort_type)?.label ?? t('wardrobe.sort.custom')
 )
 
 function openSortTypeSelect(e: MouseEvent) {
@@ -273,20 +275,20 @@ function onSortTypeSelect(sel: optionsInterface | { label: string; value: string
   }
 }
 
-const showPriceOptions: optionsInterface[] = [
-  { label: '显示总价', value: 1 },
-  { label: '隐藏总价', value: 0 },
-  { label: '隐藏所有', value: 2 },
-]
+const showPriceOptions = computed((): optionsInterface[] => [
+  { label: t('wardrobe.show_price.total'), value: 1 },
+  { label: t('wardrobe.show_price.hide_total'), value: 0 },
+  { label: t('wardrobe.show_price.hide_all'), value: 2 },
+])
 
 const defaultShowPriceForSelect = computed(
   (): optionsInterface =>
-    showPriceOptions.find((o) => Number(o.value) === form.value.show_price)
-    ?? showPriceOptions[0]
+    showPriceOptions.value.find((o) => Number(o.value) === form.value.show_price)
+    ?? showPriceOptions.value[0]
 )
 
 const currentShowPriceLabel = computed(
-  () => showPriceOptions.find((o) => Number(o.value) === form.value.show_price)?.label ?? '显示总价'
+  () => showPriceOptions.value.find((o) => Number(o.value) === form.value.show_price)?.label ?? t('wardrobe.show_price.total')
 )
 
 function openShowPriceSelect(e: MouseEvent) {
@@ -370,7 +372,7 @@ const fetchUpload = async (file: { file?: File; url: string }) => {
   } catch (error) {
     console.error(error)
     toast.add({
-      title: '图片上传失败',
+      title: t('wardrobe.add_edit.upload_failed'),
       icon: 'i-heroicons-exclamation-circle',
       color: 'red'
     })
@@ -387,7 +389,7 @@ const onUpdateCoverFiles = (files: File[]) => {
 const insert = async () => {
   if (!form.value.wardrobe_name.trim()) {
     toast.add({
-      title: '请输入衣柜名称',
+      title: t('wardrobe.add_edit.name_required'),
       icon: 'i-heroicons-exclamation-circle',
       color: 'yellow'
     })
@@ -447,7 +449,7 @@ const insert = async () => {
     if (type.value === 0) {
       await insertWardrobe(params)
       toast.add({
-        title: '添加成功',
+        title: t('wardrobe.add_edit.add_success'),
         icon: 'i-heroicons-check-circle',
         color: 'green'
       })
@@ -456,7 +458,7 @@ const insert = async () => {
     } else {
       if (!wardrobe_id.value) {
         toast.add({
-          title: '衣柜ID不存在',
+          title: t('wardrobe.add_edit.id_missing'),
           icon: 'i-heroicons-exclamation-circle',
           color: 'red'
         })
@@ -465,7 +467,7 @@ const insert = async () => {
       params.wardrobe_id = wardrobe_id.value
       await updateWardrobe(params)
       toast.add({
-        title: '修改成功',
+        title: t('wardrobe.add_edit.update_success'),
         icon: 'i-heroicons-check-circle',
         color: 'green'
       })
@@ -475,7 +477,7 @@ const insert = async () => {
   } catch (error) {
     console.error('操作失败:', error)
     toast.add({
-      title: '操作失败',
+      title: t('common.failed'),
       icon: 'i-heroicons-exclamation-circle',
       color: 'red'
     })

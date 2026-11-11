@@ -13,6 +13,7 @@ interface Props {
   size?: string  // 尺寸 mini small mid big
   needJump?: boolean // 是否需要跳转
 }
+const { t } = useI18n()
 const image = ref<Array<string>>([])
 const text = ref('')
 const props = withDefaults(defineProps<Props>(), {
@@ -32,7 +33,7 @@ if (item?.img_list) {
 
 /** 列表缩略：封面 jpg + LIVE；preview 带 videoSrc 供 Lightbox 播放 */
 const previewMediaList = computed(() => {
-  const alt = item.title || 'Lo研社'
+  const alt = item.title || t('common.brand')
   const fromContent = (item?.content ? formatRich(item.content).image : []).map((img) => ({
     src: withOssImageProcess(normalizeRawImgPath(img), 'image/quality,q_100/resize,w_200,h_200'),
     alt,
@@ -46,7 +47,7 @@ const previewMediaList = computed(() => {
 })
 
 const previewLightboxList = computed(() => {
-  const alt = item.title || 'Lo研社'
+  const alt = item.title || t('common.brand')
   const fromContent = (item?.content ? formatRich(item.content).image : []).map((img) => ({
     src: normalizeRawImgPath(img),
     alt,
@@ -72,7 +73,8 @@ const load = () => {
 /** 将 HTML 中的 iframe 替换为「进入详情页查看」占位符 */
 function filterIframePlaceholder(html: string): string {
   if (!html) return ''
-  const placeholder = '<span class="community-iframe-placeholder inline-block px-2 py-1 rounded bg-pink-100 dark:bg-gray-700 text-pink-600 dark:text-pink-400 text-sm cursor-pointer my-1">进入详情页查看</span>'
+  const label = t('community.enter_detail_placeholder')
+  const placeholder = `<span class="community-iframe-placeholder inline-block px-2 py-1 rounded bg-pink-100 dark:bg-gray-700 text-pink-600 dark:text-pink-400 text-sm cursor-pointer my-1">${label}</span>`
   return html
     .replace(/<iframe[\s\S]*?<\/iframe>/gi, placeholder)
     .replace(/<iframe[^>]*\/?>/gi, placeholder)

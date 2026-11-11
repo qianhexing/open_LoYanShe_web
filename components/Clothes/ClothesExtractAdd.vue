@@ -26,6 +26,7 @@ const emit = defineEmits<{
 }>()
 
 const capsuleBtnUi = { rounded: 'rounded-full' } as const
+const { t } = useI18n()
 const toast = useQhxToast()
 
 const show = shallowRef(false)
@@ -84,7 +85,7 @@ const closeModel = () => {
 const showModel = (item: Wardrobe | null, event?: MouseEvent) => {
   if (!item?.wardrobe_id) {
     toast.add({
-      title: '请先选择衣柜',
+      title: t('clothes.extract.select_wardrobe_first'),
       icon: 'i-heroicons-exclamation-circle',
       color: 'amber',
     })
@@ -125,8 +126,8 @@ const extract = async () => {
   const count = pickerRef.value?.previewImages?.length ?? 0
   if (!count) {
     toast.add({
-      title: '请先选择图片',
-      description: `最多 ${maxImages} 张订单/详情截图`,
+      title: t('clothes.extract.select_images_first'),
+      description: t('clothes.extract.max_images_desc', { max: maxImages }),
       icon: 'i-heroicons-exclamation-circle',
       color: 'amber',
     })
@@ -134,7 +135,7 @@ const extract = async () => {
   }
   if (count > maxImages) {
     toast.add({
-      title: `最多 ${maxImages} 张图`,
+      title: t('clothes.extract.max_images', { max: maxImages }),
       icon: 'i-heroicons-exclamation-circle',
       color: 'amber',
     })
@@ -148,7 +149,7 @@ const extract = async () => {
     } catch (error) {
       const message = error instanceof Error ? error.message : '图片上传失败'
       toast.add({
-        title: '上传失败',
+        title: t('clothes.extract.upload_failed'),
         description: message,
         icon: 'i-heroicons-exclamation-circle',
         color: 'red',
@@ -157,7 +158,7 @@ const extract = async () => {
     }
     if (!urls.length) {
       toast.add({
-        title: '请至少上传一张图片',
+        title: t('clothes.extract.upload_one'),
         icon: 'i-heroicons-exclamation-circle',
         color: 'amber',
       })
@@ -207,7 +208,7 @@ const fillItem = async (draft: ClothesExtractDraft) => {
       draft.item.clothes_img = await uploadCoverFile(preview.file)
     } catch {
       toast.add({
-        title: '封面上传失败',
+        title: t('clothes.extract.cover_failed'),
         icon: 'i-heroicons-exclamation-circle',
         color: 'red',
       })
@@ -243,7 +244,7 @@ const insertOne = async (draft: ClothesExtractDraft) => {
   try {
     await insertDraft(draft)
     toast.add({
-      title: '已入库',
+      title: t('clothes.extract.saved'),
       icon: 'i-heroicons-check-circle',
       color: 'green',
     })
@@ -270,14 +271,14 @@ const insertSelected = async () => {
     }
     if (ok) {
       toast.add({
-        title: `已入库 ${ok} 件`,
+        title: t('clothes.extract.saved_count', { count: ok }),
         icon: 'i-heroicons-check-circle',
         color: 'green',
       })
       emit('success')
     } else {
       toast.add({
-        title: '入库失败',
+        title: t('clothes.extract.save_failed'),
         icon: 'i-heroicons-exclamation-circle',
         color: 'red',
       })
@@ -320,10 +321,10 @@ defineExpose({ showModel, markInserted })
           </button>
           <div class="min-w-0">
             <h2 class="text-lg font-bold text-gray-900 dark:text-gray-100">
-              {{ step === 'review' ? '识图结果' : '识图添加' }}
+              {{ step === 'review' ? t('clothes.extract.result') : t('clothes.extract.title') }}
             </h2>
             <p v-if="wardrobeName" class="text-xs text-gray-500 dark:text-gray-400 mt-0.5 truncate">
-              衣柜：{{ wardrobeName }}
+              {{ t('clothes.extract.wardrobe', { name: wardrobeName }) }}
             </p>
           </div>
         </div>
@@ -339,16 +340,16 @@ defineExpose({ showModel, markInserted })
       <div class="flex-1 overflow-y-auto p-6 space-y-4">
         <div v-show="step === 'pick'" class="space-y-4">
           <p class="text-sm text-gray-500 dark:text-gray-400">
-            上传订单或商品截图，最多 {{ maxImages }} 张。同一账号 5 分钟最多 20 次。
+            {{ t('clothes.extract.hint', { max: maxImages }) }}
           </p>
-          <UFormGroup :label="`识别图片（${previewCount}/${maxImages}）`">
+          <UFormGroup :label="t('clothes.extract.images', { current: previewCount, max: maxImages })">
             <QhxImagePicker ref="pickerRef" :multiple="true" :max="maxImages" />
           </UFormGroup>
         </div>
 
         <div v-if="step === 'review'" class="space-y-3">
           <p class="text-sm text-gray-500 dark:text-gray-400">
-            共 {{ drafts.length }} 条，可改封面后直接入库或填入表单。
+            {{ t('clothes.extract.review_hint', { count: drafts.length }) }}
           </p>
           <div v-if="drafts.length" class="space-y-3">
             <ClothesExtractResultItem
@@ -368,7 +369,7 @@ defineExpose({ showModel, markInserted })
             />
           </div>
           <p v-else class="text-sm text-gray-500 dark:text-gray-400">
-            未识别到服饰条目，可返回重新选图。
+            {{ t('clothes.extract.empty') }}
           </p>
         </div>
       </div>
@@ -377,7 +378,7 @@ defineExpose({ showModel, markInserted })
         class="flex justify-end gap-2 px-6 py-4 border-t border-gray-200 dark:border-gray-700 shrink-0"
       >
         <UButton color="gray" variant="ghost" :ui="capsuleBtnUi" :disabled="loading || batchLoading" @click="closeModel">
-          {{ step === 'review' ? '完成' : '取消' }}
+          {{ step === 'review' ? t('clothes.extract.done') : t('common.cancel') }}
         </UButton>
         <UButton
           v-if="step === 'review'"
@@ -387,7 +388,7 @@ defineExpose({ showModel, markInserted })
           :disabled="!canBatchInsert"
           @click="insertSelected"
         >
-          入库选中{{ selectedDrafts.length ? `（${selectedDrafts.length}）` : '' }}
+          {{ selectedDrafts.length ? t('clothes.extract.save_selected', { count: selectedDrafts.length }) : t('clothes.extract.save_selected_empty') }}
         </UButton>
         <UButton
           v-if="step === 'pick'"
@@ -396,7 +397,7 @@ defineExpose({ showModel, markInserted })
           :loading="loading"
           @click="extract"
         >
-          开始识别
+          {{ t('clothes.extract.start') }}
         </UButton>
       </div>
     </div>

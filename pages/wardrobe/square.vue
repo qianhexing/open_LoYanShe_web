@@ -5,9 +5,11 @@ definePageMeta({
 
 import WardrobeSquare from '@/components/Wardrobe/WardrobeSquare.vue'
 
+const { t } = useI18n()
+
 useSeoMeta({
-  title: '逛逛',
-  description: '随机翻看公开衣柜',
+  title: t('wardrobe.square.title'),
+  description: t('wardrobe.square.description'),
 })
 </script>
 

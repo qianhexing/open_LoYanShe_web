@@ -29,24 +29,35 @@ import rightContent from '@/components/home/rightContent.vue'
 import middleContent from '@/components/home/middleContent.vue'
 import type { App, Component } from 'vue';
 import { createApp  } from 'vue'
+const { t } = useI18n()
 useHead({
-	title: 'Lo研社 Lolita图书馆',
+	title: () => t('home.title'),
 	meta: [
 		{
 			name: 'keywords',
-			content: 'Lo研社,洛丽塔图书馆,Lolita,Lolita汇总'
+			content: () => t('home.keywords')
 		},
 		{
 			name: 'description',
-			content: 'Lo研社 Lolita服饰与文化研习社'
+			content: () => t('home.description')
 		}
 	]
 })
+const nuxtApp = useNuxtApp()
 const creatDomUi = (className: string, component: Component): CSS3DObject => {
 	const scale = calcCss3dScale()
 	const divElement: HTMLElement = document.createElement('div');
 	divElement.className = className
 	const app: App = createApp(component)
+	// CSS3D 侧是独立 createApp，需手动挂上主应用的 i18n，否则模板 $t 会报错导致整页黑屏
+	const i18n = nuxtApp.$i18n as { t: (...args: unknown[]) => string }
+	app.config.globalProperties.$t = ((...args: unknown[]) => i18n.t(...args)) as typeof i18n.t
+	app.config.globalProperties.$i18n = i18n
+	const i18nSymbol = Object.getOwnPropertySymbols(nuxtApp.vueApp._context.provides)
+		.find((s) => String(s).includes('vue-i18n'))
+	if (i18nSymbol) {
+		app._context.provides[i18nSymbol] = nuxtApp.vueApp._context.provides[i18nSymbol]
+	}
 	app.mount(divElement) // 挂载 Vue 组件
 	// divElement.style.backgroundColor = hexToRgba(theme.themeCss.primary, 0.4)
 	const css3dObject = threeCore.createCSS3DObject(divElement);

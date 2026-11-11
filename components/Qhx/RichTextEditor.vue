@@ -242,6 +242,11 @@
         <SceneChoose ref="sceneChooseRef" :multiple="false" @choose="onSceneInternalLinkChosen" />
         <AlbumChoose ref="albumChooseRef" :multiple="false" @choose="onAlbumInternalLinkChosen" />
         <MiniToolChoose ref="miniToolChooseRef" @choose="onMiniToolInternalLinkChosen" />
+        <MatchingChoose
+          ref="matchingChooseRef"
+          :filter-list="matchingOwnFilterList"
+          @choose="onMatchingInternalLinkChosen"
+        />
       </div>
     </ClientOnly>
   </div>
@@ -276,6 +281,8 @@ import WardrobeChoose from '@/components/Wardrobe/WardrobeChoose.vue'
 import SceneChoose from '@/components/scene/SceneChoose.vue'
 import AlbumChoose from '@/components/Album/AlbumChoose.vue'
 import MiniToolChoose from '@/components/features/MiniToolChoose.vue'
+import MatchingChoose from '@/components/matching/MatchingChoose.vue'
+import type { MatchingListItem } from '@/api/matching_list'
 import type { Album, Community, Library, MiniTool, Scene, Shop, User, Wardrobe } from '@/types/api'
 
 /** 工具栏按钮；传 `toolbar` 时仅渲染列表中的项（不传则粗体/斜体/删除线默认显示，其余由 enable* 控制） */
@@ -444,6 +451,14 @@ const shopChooseRef = ref<InstanceType<typeof ShopChoose> | null>(null)
 const sceneChooseRef = ref<InstanceType<typeof SceneChoose> | null>(null)
 const albumChooseRef = ref<InstanceType<typeof AlbumChoose> | null>(null)
 const miniToolChooseRef = ref<InstanceType<typeof MiniToolChoose> | null>(null)
+const matchingChooseRef = ref<InstanceType<typeof MatchingChoose> | null>(null)
+
+/** 仅列出当前用户自己的搭配 */
+const matchingOwnFilterList = computed(() => {
+  const uid = userStore.user?.user_id
+  if (!uid) return []
+  return [{ field: 'user_id', op: 'eq', value: uid }]
+})
 
 /** 站内链接第一步：可选类型（按需在此数组末尾追加一项即可扩展） */
 type RichTextInternalLinkKind =
@@ -455,6 +470,7 @@ type RichTextInternalLinkKind =
   | 'scene'
   | 'album'
   | 'miniTool'
+  | 'matching'
 
 const internalLinkPickerOptions = [
   {
@@ -477,6 +493,13 @@ const internalLinkPickerOptions = [
     subtitle: '链到衣柜详情页',
     icon: 'hugeicons:wardrobe-04',
     iconBg: 'bg-violet-500 dark:bg-violet-600',
+  },
+  {
+    kind: 'matching' as const,
+    title: '搭配',
+    subtitle: '插入自己的搭配清单',
+    icon: 'material-symbols:style-rounded',
+    iconBg: 'bg-fuchsia-500 dark:bg-fuchsia-600',
   },
   {
     kind: 'shop' as const,
@@ -1034,6 +1057,19 @@ function pickInternalLinkKind(kind: RichTextInternalLinkKind, e: MouseEvent) {
       case 'miniTool':
         miniToolChooseRef.value?.showModel(e)
         break
+      case 'matching': {
+        if (!userStore.user?.user_id) {
+          toast.add({
+            title: '请先登录',
+            description: '登录后才能插入自己的搭配',
+            icon: 'i-heroicons-information-circle',
+            color: 'amber',
+          })
+          break
+        }
+        matchingChooseRef.value?.showModel(e)
+        break
+      }
     }
   })
 }
@@ -1118,6 +1154,13 @@ const onMiniToolInternalLinkChosen = (list: MiniTool[]) => {
   const label = (item.tool_name ?? '').trim() || `小工具${id}`
   // 与社区关联小工具一致：独立容器页
   insertEditorLink(`/pc/tool/?id=${id}`, label)
+}
+
+const onMatchingInternalLinkChosen = (item: MatchingListItem) => {
+  const id = Number(item?.matching_id)
+  if (!Number.isFinite(id) || id <= 0) return
+  const label = (item.note ?? '').trim() || `搭配${id}`
+  insertEditorLink(`/matching/detail/${id}`, label)
 }
 
 // 获取内容

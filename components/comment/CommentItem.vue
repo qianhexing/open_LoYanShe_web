@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import type { Comment } from '@/types/api'
+import type { Comment, CommunityDetailForeignItem } from '@/types/api'
 import dayjs from 'dayjs'
 import { ContentI18nPkType } from '@/api/content_i18n'
 import { useContentTranslate } from '@/composables/useContentTranslate'
 import { formatRich, parseRichText, type RichNode } from '@/utils/public'
+import CommunityDetailForeignSection from '@/components/community/CommunityDetailForeignSection.vue'
 
 function formatCommentDateForDisplay(raw: Comment['date'] | undefined): string {
   if (raw == null) return '未知'
@@ -44,12 +45,43 @@ const props = withDefaults(defineProps<Props>(), {
 })
 
 const { t } = useI18n()
-const { needsTranslate, runTranslate, translating } = useContentTranslate()
+const {
+  needsTranslate,
+  runTranslate,
+  translating,
+  applyTranslateMeta,
+  resolveSourceLang,
+} = useContentTranslate()
 
 const commentTimeDisplay = computed(() => formatCommentDateForDisplay(props.item.date))
 const commentIpDisplay = computed(() => {
   const s = props.item.ip_location?.trim()
   return s || '未知'
+})
+
+/** 优先 foreign_list；兼容旧字段 library_list（图鉴子集） */
+const foreignList = computed((): CommunityDetailForeignItem[] | null => {
+  const fromApi = props.item.foreign_list
+  if (fromApi?.length) return fromApi
+  const libs = props.item.library_list
+  if (!libs?.length) return null
+  return libs
+    .map((lib) => {
+      const id = Number(lib.library_id)
+      if (!Number.isFinite(id)) return null
+      const cover =
+        (lib as { square_cover?: string }).square_cover || lib.cover || null
+      return {
+        kind: 'library',
+        pk_type: 7,
+        pk_id: id,
+        title: lib.name ?? null,
+        cover,
+        url: `/library/detail/${id}`,
+        library: lib,
+      } satisfies CommunityDetailForeignItem
+    })
+    .filter((x): x is CommunityDetailForeignItem => x != null)
 })
 
 const richText = ref<RichNode[] | null>(null)
@@ -93,14 +125,13 @@ async function onTranslate(e: MouseEvent) {
     const result = await runTranslate({
       pkType: ContentI18nPkType.Comment,
       pkId,
-      sourceLang: props.item.content_lang || props.item.lang || undefined,
+      sourceLang: resolveSourceLang(props.item),
     })
     if (!result?.payload) return
     const next = result.payload.comment_content
     if (typeof next === 'string') {
       props.item.comment_content = next
-      props.item.has_i18n = true
-      props.item.i18n_lang = result.lang
+      applyTranslateMeta(props.item, result.lang)
     }
   } catch (err) {
     console.error(err)
@@ -146,6 +177,11 @@ const onDelete = (e: MouseEvent) => {
             :className="'w-[calc(100%/3-8px)] shadow-lg m-1 object-cover aspect-[1/1] rounded-[10px]'">
           </QhxPreviewImage>
         </div>
+        <CommunityDetailForeignSection
+          v-if="foreignList?.length"
+          compact
+          :items="foreignList"
+        />
         <div class="mb-2 flex w-full justify-end" v-show="!item.isCheck && need_bottom">
           <div
             v-if="item.r_count && item.r_count > 0"
@@ -209,4 +245,5 @@ const onDelete = (e: MouseEvent) => {
     transform: scale(1.008);
   }
 }
+
 </style>

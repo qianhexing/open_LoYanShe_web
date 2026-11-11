@@ -11,6 +11,7 @@ const emit = defineEmits<{
 
 type EntryStep = 'menu' | 'import'
 
+const { t } = useI18n()
 const toast = useToast()
 const show = ref(false)
 const step = ref<EntryStep>('menu')
@@ -47,7 +48,7 @@ const closeModel = () => {
 const ensureWardrobe = (item: Wardrobe | null): item is Wardrobe & { wardrobe_id: number } => {
   if (!item?.wardrobe_id) {
     toast.add({
-      title: '请先选择衣柜',
+      title: t('clothes.batch.select_wardrobe_first'),
       icon: 'i-heroicons-exclamation-circle',
       color: 'amber',
     })
@@ -144,7 +145,7 @@ const submitImport = async () => {
   const withCover = importLibraries.value.filter((lib) => lib.cover)
   if (!withCover.length) {
     toast.add({
-      title: '请至少选择一条有封面的图鉴',
+      title: t('clothes.batch.select_library_cover'),
       icon: 'i-heroicons-exclamation-circle',
       color: 'amber',
     })
@@ -158,7 +159,7 @@ const submitImport = async () => {
       clothes_list: withCover.map(libraryToBatchItem),
     })
     toast.add({
-      title: `已批量导入 ${withCover.length} 件服饰`,
+      title: t('clothes.batch.imported', { count: withCover.length }),
       icon: 'i-heroicons-check-circle',
       color: 'green',
     })
@@ -166,7 +167,7 @@ const submitImport = async () => {
     closeModel()
   } catch {
     toast.add({
-      title: '批量导入失败',
+      title: t('clothes.batch.import_failed'),
       icon: 'i-heroicons-exclamation-circle',
       color: 'red',
     })
@@ -189,9 +190,9 @@ defineExpose({ showModel })
           class="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-700 shrink-0"
         >
           <div>
-            <h2 class="text-lg font-bold text-gray-900 dark:text-gray-100">批量添加服饰</h2>
+            <h2 class="text-lg font-bold text-gray-900 dark:text-gray-100">{{ t('clothes.batch.title') }}</h2>
             <p v-if="wardrobe?.wardrobe_name" class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-              衣柜：{{ wardrobe.wardrobe_name }}
+              {{ t('clothes.batch.wardrobe', { name: wardrobe.wardrobe_name }) }}
             </p>
           </div>
           <button
@@ -214,9 +215,9 @@ defineExpose({ showModel })
               <UIcon name="i-heroicons-book-open" class="text-2xl" />
             </div>
             <div class="min-w-0">
-              <div class="font-semibold text-gray-900 dark:text-gray-100">批量导入</div>
+              <div class="font-semibold text-gray-900 dark:text-gray-100">{{ t('clothes.batch.import_title') }}</div>
               <div class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                从图鉴多选后导入衣柜，可继续增删
+                {{ t('clothes.batch.import_desc') }}
               </div>
             </div>
           </button>
@@ -231,9 +232,9 @@ defineExpose({ showModel })
               <UIcon name="i-heroicons-squares-plus" class="text-2xl" />
             </div>
             <div class="min-w-0">
-              <div class="font-semibold text-gray-900 dark:text-gray-100">批量添加</div>
+              <div class="font-semibold text-gray-900 dark:text-gray-100">{{ t('clothes.batch.add_title') }}</div>
               <div class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                多选图片上传并填写名称
+                {{ t('clothes.batch.add_desc') }}
               </div>
             </div>
           </button>
@@ -254,9 +255,9 @@ defineExpose({ showModel })
               <UIcon name="i-heroicons-arrow-left" class="text-gray-500" />
             </button>
             <div class="min-w-0">
-              <h2 class="text-lg font-bold text-gray-900 dark:text-gray-100 truncate">批量导入</h2>
+              <h2 class="text-lg font-bold text-gray-900 dark:text-gray-100 truncate">{{ t('clothes.batch.import_title') }}</h2>
               <p class="text-xs text-gray-500 dark:text-gray-400">
-                已选 {{ importLibraries.length }} 条图鉴
+                {{ t('clothes.batch.selected_libraries', { count: importLibraries.length }) }}
               </p>
             </div>
           </div>
@@ -277,7 +278,7 @@ defineExpose({ showModel })
             icon="i-heroicons-plus"
             @click="openMoreLibrary"
           >
-            继续选择图鉴
+            {{ t('clothes.batch.continue_select') }}
           </UButton>
 
           <div v-if="importLibraries.length" class="space-y-2">
@@ -301,21 +302,21 @@ defineExpose({ showModel })
             </div>
           </div>
           <div v-else class="text-center py-10 text-gray-400 dark:text-gray-500 text-sm">
-            暂未选择图鉴，点击上方按钮添加
+            {{ t('clothes.batch.empty_library') }}
           </div>
         </div>
 
         <div
           class="flex justify-end gap-2 px-6 py-4 border-t border-gray-200 dark:border-gray-700 shrink-0"
         >
-          <UButton color="gray" variant="ghost" :disabled="loading" @click="closeModel">取消</UButton>
+          <UButton color="gray" variant="ghost" :disabled="loading" @click="closeModel">{{ t('common.cancel') }}</UButton>
           <UButton
             color="primary"
             :loading="loading"
             :disabled="!importLibraries.length"
             @click="submitImport"
           >
-            确认导入
+            {{ t('clothes.batch.confirm_import') }}
           </UButton>
         </div>
       </template>

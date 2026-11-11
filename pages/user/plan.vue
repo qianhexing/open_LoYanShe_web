@@ -15,10 +15,10 @@
     >
       <div
         class="flex flex-wrap items-center gap-2"
-        :class="isIosShell ? 'pl-11' : ''"
+        :class="needsNativeBackSlot ? 'pl-11' : ''"
       >
         <QhxJellyButton>
-          <!-- h-[40px]；iOS 左侧留一个返回按钮占位，避免与原生返回重叠 -->
+          <!-- h-[40px]；iOS / Android 左侧留一个返回按钮占位，避免与原生返回重叠 -->
           <div class=" text-center px-1 cursor-pointer" @click="(e: MouseEvent) => openAddPlan(e)">
             <div class="m-[5px] text-white rounded-[50%] h-[30px] w-[30px] flex items-center justify-center bg-qhx-primary shadow-[0_4px_10px_rgba(255,158,181,0.35)]">
               <UIcon name="material-symbols:add-2" class="text-[22px] text-[#ffffff]" />
@@ -34,7 +34,7 @@
             :class="viewMode === 'month' ? 'bg-qhx-primary text-white' : 'bg-transparent text-[#9a858a] hover:bg-qhx-primary/10'"
             @click="switchViewMode('month')"
           >
-            按月
+            {{ $t('plan.tab_month') }}
           </button>
           <button
             type="button"
@@ -42,7 +42,7 @@
             :class="viewMode === 'day' ? 'bg-qhx-primary text-white' : 'bg-transparent text-[#9a858a] hover:bg-qhx-primary/10'"
             @click="switchViewMode('day')"
           >
-            按日
+            {{ $t('plan.tab_day') }}
           </button>
           <button
             type="button"
@@ -50,7 +50,7 @@
             :class="viewMode === 'all' ? 'bg-qhx-primary text-white' : 'bg-transparent text-[#9a858a] hover:bg-qhx-primary/10'"
             @click="switchViewMode('all')"
           >
-            统计
+            {{ $t('plan.tab_stats') }}
           </button>
         </div>
       </div>
@@ -60,7 +60,7 @@
           color="primary"
           @update:model-value="handleEmailNoticeChange"
         />
-        <span class="text-xs text-[#9a858a]">订阅邮件通知</span>
+        <span class="text-xs text-[#9a858a]">{{ $t('plan.email_subscribe') }}</span>
       </div>
       <!-- <div class="flex flex-wrap">
         <QhxJellyButton>
@@ -76,24 +76,24 @@
 
     <!-- 统计卡片区域 -->
     <div ref="statisticsRef" v-if="pageReady && !authBootstrapping && userStore.user && viewMode === 'all'" class="mb-4 space-y-3">
-      <h2 class="plan-stats-section-title px-1">概览</h2>
-      <div v-if="isLoading && planList.length === 0" class="text-center py-6 text-[#9a858a] text-xs">加载中...</div>
+      <h2 class="plan-stats-section-title px-1">{{ $t('plan.overview') }}</h2>
+      <div v-if="isLoading && planList.length === 0" class="text-center py-6 text-[#9a858a] text-xs">{{ $t('common.loading') }}</div>
       <template v-else>
       <div class="grid grid-cols-2 gap-2.5">
         <div class="plan-stats-metric">
           <div class="plan-stats-metric-icon">
             <UIcon name="i-heroicons-heart" class="w-4 h-4" />
           </div>
-          <div class="plan-stats-metric-title">完成</div>
-          <div class="plan-stats-metric-sub">计划进度</div>
+          <div class="plan-stats-metric-title">{{ $t('plan.stats_complete') }}</div>
+          <div class="plan-stats-metric-sub">{{ $t('plan.stats_complete_sub') }}</div>
           <div class="plan-stats-metric-value">{{ displayStatistics.is_complete || 0 }} / {{ displayStatistics.total_plan || 0 }}</div>
         </div>
         <div class="plan-stats-metric">
           <div class="plan-stats-metric-icon">
             <UIcon name="i-heroicons-moon" class="w-4 h-4" />
           </div>
-          <div class="plan-stats-metric-title">攒钱</div>
-          <div class="plan-stats-metric-sub">资金进度</div>
+          <div class="plan-stats-metric-title">{{ $t('plan.stats_saving') }}</div>
+          <div class="plan-stats-metric-sub">{{ $t('plan.stats_saving_sub') }}</div>
           <div class="plan-stats-metric-value">￥{{ formatMoney(displayStatistics.have_money || 0) }}</div>
         </div>
       </div>
@@ -104,8 +104,8 @@
             <UIcon name="material-symbols:ecg-heart" class="w-4 h-4" />
           </div>
           <div>
-            <div class="plan-stats-metric-title leading-none">Pulse</div>
-            <div class="plan-stats-metric-sub mt-1">攒钱状态</div>
+            <div class="plan-stats-metric-title leading-none">{{ $t('plan.pulse_title') }}</div>
+            <div class="plan-stats-metric-sub mt-1">{{ $t('plan.pulse_sub') }}</div>
           </div>
         </div>
         <div class="space-y-3.5">
@@ -119,7 +119,7 @@
         </div>
         <div v-if="remainMoney > 0" class="plan-stats-pulse-foot">
           <span class="plan-stats-pulse-cross" aria-hidden="true">+</span>
-          <span>注意尾款 · 还需 ￥{{ formatMoney(remainMoney) }}</span>
+          <span>{{ $t('plan.pulse_remain', { amount: formatMoney(remainMoney) }) }}</span>
           <span class="plan-stats-pulse-cross" aria-hidden="true">+</span>
         </div>
       </div>
@@ -128,8 +128,8 @@
       <div class="plan-stats-years">
         <div class="flex items-center justify-between gap-2 mb-3 px-0.5">
           <div>
-            <div class="plan-stats-metric-title leading-none">年统计</div>
-            <div class="plan-stats-metric-sub mt-1">Year archive</div>
+            <div class="plan-stats-metric-title leading-none">{{ $t('plan.year_stats') }}</div>
+            <div class="plan-stats-metric-sub mt-1">{{ $t('plan.year_archive') }}</div>
           </div>
           <div class="flex items-center gap-1">
             <button
@@ -149,7 +149,7 @@
             </button>
           </div>
         </div>
-        <div v-if="yearsTotalLoading" class="text-center py-6 text-[#9a858a] text-xs">加载中...</div>
+        <div v-if="yearsTotalLoading" class="text-center py-6 text-[#9a858a] text-xs">{{ $t('common.loading') }}</div>
         <div v-else class="grid grid-cols-3 gap-2">
           <div
             v-for="y in yearRangeBlocks"
@@ -157,8 +157,8 @@
             class="plan-stats-year-cell"
           >
             <span class="text-xs text-[#9a858a]">{{ y.year }}</span>
-            <span class="plan-stats-year-have" :class="{ 'has-value': y.have_money > 0 }">已补￥{{ formatMoney(y.have_money) }}</span>
-            <span class="plan-stats-year-unpaid" :class="{ 'has-value': y.unpaid_money > 0 }">未补￥{{ formatMoney(y.unpaid_money) }}</span>
+            <span class="plan-stats-year-have" :class="{ 'has-value': y.have_money > 0 }">{{ $t('plan.paid_short', { amount: formatMoney(y.have_money) }) }}</span>
+            <span class="plan-stats-year-unpaid" :class="{ 'has-value': y.unpaid_money > 0 }">{{ $t('plan.unpaid_short', { amount: formatMoney(y.unpaid_money) }) }}</span>
           </div>
         </div>
       </div>
@@ -176,7 +176,7 @@
         >
           <UIcon name="i-heroicons-chevron-left" class="w-3.5 h-3.5 text-[#9a858a]" />
         </button>
-        <span class="text-xs font-semibold text-[#4f3f43] min-w-[52px] text-center">{{ yearSelect }}年</span>
+        <span class="text-xs font-semibold text-[#4f3f43] min-w-[52px] text-center">{{ $t('plan.year_suffix', { year: yearSelect }) }}</span>
         <button
           type="button"
           class="w-7 h-7 flex items-center justify-center rounded-md bg-[#fffbfc] border border-qhx-primary/20 hover:bg-qhx-primary/10"
@@ -186,7 +186,7 @@
         </button>
       </div>
       <!-- 月度汇总：12个月按块分布，无数据补0 -->
-      <div v-if="monthTotalLoading" class="text-center py-6 text-[#9a858a] text-xs">加载中...</div>
+      <div v-if="monthTotalLoading" class="text-center py-6 text-[#9a858a] text-xs">{{ $t('common.loading') }}</div>
       <div v-else class="space-y-1">
         <div
           v-for="(row, rowIndex) in monthRowChunks"
@@ -201,9 +201,9 @@
             :class="{ 'ring-1 ring-qhx-primary border-qhx-primary': expandedMonth === m.month }"
             @click="toggleMonthExpand(m.month)"
           >
-            <span class="text-xs leading-tight text-[#9a858a]">{{ m.month }}月</span>
-            <span class="text-[10px] leading-tight tabular-nums truncate w-full" :class="m.have_money > 0 ? 'text-[#6f9474]' : 'text-[#c4b4b7]'">已补￥{{ formatMoney(m.have_money) }}</span>
-            <span class="text-[10px] leading-tight tabular-nums truncate w-full" :class="m.unpaid_money > 0 ? 'text-[#e05353]' : 'text-[#c4b4b7]'">未补￥{{ formatMoney(m.unpaid_money) }}</span>
+            <span class="text-xs leading-tight text-[#9a858a]">{{ $t('plan.month_suffix', { month: m.month }) }}</span>
+            <span class="text-[10px] leading-tight tabular-nums truncate w-full" :class="m.have_money > 0 ? 'text-[#6f9474]' : 'text-[#c4b4b7]'">{{ $t('plan.paid_short', { amount: formatMoney(m.have_money) }) }}</span>
+            <span class="text-[10px] leading-tight tabular-nums truncate w-full" :class="m.unpaid_money > 0 ? 'text-[#e05353]' : 'text-[#c4b4b7]'">{{ $t('plan.unpaid_short', { amount: formatMoney(m.unpaid_money) }) }}</span>
           </button>
         </div>
       </div>
@@ -217,7 +217,7 @@
           <button type="button" class="w-7 h-7 flex items-center justify-center rounded-md bg-[#fffbfc] border border-qhx-primary/20 hover:bg-qhx-primary/10" @click="yearSelect = yearSelect - 1; fetchDayTotal()">
             <UIcon name="i-heroicons-chevron-left" class="w-3.5 h-3.5 text-[#9a858a]" />
           </button>
-          <span class="text-xs font-semibold text-[#4f3f43] min-w-[44px] text-center">{{ yearSelect }}年</span>
+          <span class="text-xs font-semibold text-[#4f3f43] min-w-[44px] text-center">{{ $t('plan.year_suffix', { year: yearSelect }) }}</span>
           <button type="button" class="w-7 h-7 flex items-center justify-center rounded-md bg-[#fffbfc] border border-qhx-primary/20 hover:bg-qhx-primary/10" @click="yearSelect = yearSelect + 1; fetchDayTotal()">
             <UIcon name="i-heroicons-chevron-right" class="w-3.5 h-3.5 text-[#9a858a]" />
           </button>
@@ -226,14 +226,14 @@
           <button type="button" class="w-7 h-7 flex items-center justify-center rounded-md bg-[#fffbfc] border border-qhx-primary/20 hover:bg-qhx-primary/10" @click="dayMonthSelect = Math.max(1, dayMonthSelect - 1); fetchDayTotal()">
             <UIcon name="i-heroicons-chevron-left" class="w-3.5 h-3.5 text-[#9a858a]" />
           </button>
-          <span class="text-xs font-semibold text-[#4f3f43] min-w-[32px] text-center">{{ dayMonthSelect }}月</span>
+          <span class="text-xs font-semibold text-[#4f3f43] min-w-[32px] text-center">{{ $t('plan.month_suffix', { month: dayMonthSelect }) }}</span>
           <button type="button" class="w-7 h-7 flex items-center justify-center rounded-md bg-[#fffbfc] border border-qhx-primary/20 hover:bg-qhx-primary/10" @click="dayMonthSelect = Math.min(12, dayMonthSelect + 1); fetchDayTotal()">
             <UIcon name="i-heroicons-chevron-right" class="w-3.5 h-3.5 text-[#9a858a]" />
           </button>
         </div>
       </div>
       <!-- 日块：7 列网格 -->
-      <div v-if="dayTotalLoading" class="text-center py-6 text-[#9a858a] text-xs">加载中...</div>
+      <div v-if="dayTotalLoading" class="text-center py-6 text-[#9a858a] text-xs">{{ $t('common.loading') }}</div>
       <div v-else>
         <div class="grid grid-cols-7 gap-0.5">
           <button
@@ -244,9 +244,9 @@
             :class="{ 'ring-1 ring-qhx-primary border-qhx-primary': expandedDay === d.day }"
             @click="toggleDayExpand(d.day)"
           >
-            <span class="text-[10px] leading-tight text-[#9a858a]">{{ d.day }}日</span>
-            <span class="text-[9px] leading-tight tabular-nums truncate w-full" :class="d.have_money > 0 ? 'text-[#6f9474]' : 'text-[#c4b4b7]'">已补￥{{ formatMoney(d.have_money) }}</span>
-            <span class="text-[9px] leading-tight tabular-nums truncate w-full" :class="d.unpaid_money > 0 ? 'text-[#e05353]' : 'text-[#c4b4b7]'">未补￥{{ formatMoney(d.unpaid_money) }}</span>
+            <span class="text-[10px] leading-tight text-[#9a858a]">{{ $t('plan.day_suffix', { day: d.day }) }}</span>
+            <span class="text-[9px] leading-tight tabular-nums truncate w-full" :class="d.have_money > 0 ? 'text-[#6f9474]' : 'text-[#c4b4b7]'">{{ $t('plan.paid_short', { amount: formatMoney(d.have_money) }) }}</span>
+            <span class="text-[9px] leading-tight tabular-nums truncate w-full" :class="d.unpaid_money > 0 ? 'text-[#e05353]' : 'text-[#c4b4b7]'">{{ $t('plan.unpaid_short', { amount: formatMoney(d.unpaid_money) }) }}</span>
           </button>
         </div>
       </div>
@@ -270,16 +270,16 @@
           class="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs tabular-nums"
         >
           <span :class="selectedPeriodMoneySummary.have_money > 0 ? 'text-[#6f9474]' : 'text-[#9a858a]'">
-            已补总数 ￥{{ formatMoney(selectedPeriodMoneySummary.have_money) }}
+            {{ $t('plan.paid_total', { amount: formatMoney(selectedPeriodMoneySummary.have_money) }) }}
           </span>
           <span :class="selectedPeriodMoneySummary.unpaid_money > 0 ? 'text-[#e05353]' : 'text-[#9a858a]'">
-            需补总数 ￥{{ formatMoney(selectedPeriodMoneySummary.unpaid_money) }}
+            {{ $t('plan.unpaid_total', { amount: formatMoney(selectedPeriodMoneySummary.unpaid_money) }) }}
           </span>
         </div>
       </div>
       <div :class="hasCalendarSelection ? 'px-2 py-2' : ''">
-        <div v-if="isListLoading" class="text-center py-6 text-[#9a858a] text-xs">加载中...</div>
-        <div v-else-if="activeDisplayPlans.length === 0" class="text-center py-12 text-[#9a858a] text-xs">暂无计划</div>
+        <div v-if="isListLoading" class="text-center py-6 text-[#9a858a] text-xs">{{ $t('common.loading') }}</div>
+        <div v-else-if="activeDisplayPlans.length === 0" class="text-center py-12 text-[#9a858a] text-xs">{{ $t('plan.empty_list') }}</div>
         <div v-else class="space-y-2">
           <div v-for="item in activeDisplayPlans" :key="item.list_id" class="px-1">
             <PlanListItem
@@ -310,7 +310,7 @@
             variant="outline"
             :loading="isLoadingMore"
           >
-            加载更多
+            {{ $t('plan.load_more') }}
           </UButton>
         </div>
       </div>
@@ -318,10 +318,10 @@
 
     <!-- 空状态 -->
     <div v-if="!pageReady || authBootstrapping" class="text-center py-12">
-      <div class="text-[#9a858a]">加载中...</div>
+      <div class="text-[#9a858a]">{{ $t('common.loading') }}</div>
     </div>
     <div v-else-if="!userStore.user" class="text-center py-12">
-      <div class="text-[#9a858a]">请先登录后查看定尾计划</div>
+      <div class="text-[#9a858a]">{{ $t('plan.login_required') }}</div>
     </div>
   </div>
 
@@ -338,15 +338,15 @@
   <UModal v-model="deleteModal" :ui="{ width: 'max-w-md' }">
     <UCard>
       <template #header>
-        <h3 class="text-lg font-semibold">操作确认</h3>
+        <h3 class="text-lg font-semibold">{{ $t('plan.confirm_title') }}</h3>
       </template>
       <div class="py-4">
-        <p class="text-gray-600 dark:text-gray-400">确定要删除该计划吗？</p>
+        <p class="text-gray-600 dark:text-gray-400">{{ $t('plan.delete_confirm') }}</p>
       </div>
       <template #footer>
         <div class="flex gap-2 justify-end">
-          <UButton color="gray" variant="outline" @click="deleteModal = false">取消</UButton>
-          <UButton color="red" @click="handleDelete" :loading="deleteLoading">确认删除</UButton>
+          <UButton color="gray" variant="outline" @click="deleteModal = false">{{ $t('common.cancel') }}</UButton>
+          <UButton color="red" @click="handleDelete" :loading="deleteLoading">{{ $t('plan.confirm_delete_btn') }}</UButton>
         </div>
       </template>
     </UCard>
@@ -356,15 +356,15 @@
   <UModal v-model="completeModal" :ui="{ width: 'max-w-md' }">
     <UCard>
       <template #header>
-        <h3 class="text-lg font-semibold">操作确认</h3>
+        <h3 class="text-lg font-semibold">{{ $t('plan.confirm_title') }}</h3>
       </template>
       <div class="py-4">
-        <p class="text-gray-600 dark:text-gray-400">确定要完成该计划吗？</p>
+        <p class="text-gray-600 dark:text-gray-400">{{ $t('plan.complete_confirm') }}</p>
       </div>
       <template #footer>
         <div class="flex gap-2 justify-end">
-          <UButton color="gray" variant="outline" @click="completeModal = false">取消</UButton>
-          <UButton color="primary" @click="handleComplete" :loading="completeLoading">确认完成</UButton>
+          <UButton color="gray" variant="outline" @click="completeModal = false">{{ $t('common.cancel') }}</UButton>
+          <UButton color="primary" @click="handleComplete" :loading="completeLoading">{{ $t('plan.confirm_complete_btn') }}</UButton>
         </div>
       </template>
     </UCard>
@@ -373,7 +373,7 @@
   <!-- 封面预览（支持逗号多图） -->
   <QhxImageLightbox
     :visible="coverLightboxVisible"
-    :imgs="coverPreview.map((src) => ({ src, alt: '计划封面' }))"
+    :imgs="coverPreview.map((src) => ({ src, alt: t('plan.cover_alt') }))"
     :index="0"
     @hide="coverLightboxVisible = false"
   />
@@ -405,7 +405,9 @@ import EmailBindModal from '@/components/user/EmailBindModal.vue'
 // biome-ignore lint/style/useImportType: 组件在 template 中使用
 import WardrobeClothesChoose from '@/components/Wardrobe/WardrobeClothesChoose.vue'
 import PlanListItem from '@/components/Plan/PlanListItem.vue'
-import { isIosWebview } from '@/utils/nativeShell'
+import { needsNativeBackSlot as checkNativeBackSlot } from '@/utils/nativeShell'
+
+const { t } = useI18n()
 
 /**
  * 本地就绪态，不依赖 layout 的 layoutReady。
@@ -420,8 +422,8 @@ const userStore = useUserStore()
 const configStore = useConfigStore()
 const toast = useToast()
 const port = computed(() => configStore.getPort())
-/** iOS：新增按钮右移一个返回按钮占位 */
-const isIosShell = computed(() => isIosWebview())
+/** iOS / Android：新增按钮右移一个返回按钮占位 */
+const needsNativeBackSlot = computed(() => checkNativeBackSlot())
 
 // biome-ignore lint/suspicious/noExplicitAny: uni-webview-js 类型声明缺失
 let uni: any
@@ -523,10 +525,10 @@ const hasCalendarSelection = computed(() => {
 
 const filteredListTitle = computed(() => {
   if (viewMode.value === 'month' && expandedMonth.value !== null) {
-    return `${yearSelect.value}年${expandedMonth.value}月 计划列表`
+    return t('plan.filtered_list_month', { year: yearSelect.value, month: expandedMonth.value })
   }
   if (viewMode.value === 'day' && expandedDay.value !== null) {
-    return `${yearSelect.value}年${dayMonthSelect.value}月${expandedDay.value}日 计划列表`
+    return t('plan.filtered_list_day', { year: yearSelect.value, dayMonth: dayMonthSelect.value, day: expandedDay.value })
   }
   return ''
 })
@@ -629,10 +631,10 @@ const pulseRows = computed(() => {
   const toDec = (n: number) => `.${String(Math.min(99, Math.round(n))).padStart(2, '0')}`
 
   return [
-    { label: '完成率', percent: completeRate, display: toDec(completeRate) },
-    { label: '攒钱进度', percent: moneyRate, display: toDec(moneyRate) },
-    { label: '待完成', percent: pendingRate, display: toDec(pendingRate) },
-    { label: '剩余占比', percent: remainRate, display: toDec(remainRate) }
+    { label: t('plan.pulse_rate_complete'), percent: completeRate, display: toDec(completeRate) },
+    { label: t('plan.pulse_rate_money'), percent: moneyRate, display: toDec(moneyRate) },
+    { label: t('plan.pulse_rate_pending'), percent: pendingRate, display: toDec(pendingRate) },
+    { label: t('plan.pulse_rate_remain'), percent: remainRate, display: toDec(remainRate) }
   ]
 })
 
@@ -688,7 +690,7 @@ const handleEmailNoticeChange = async (value: boolean) => {
       })
       emailNotice.value = value
       toast.add({
-        title: '已开启订阅邮件通知',
+        title: t('plan.subscribe_on'),
         icon: 'i-heroicons-check-circle',
         color: 'green'
       })
@@ -696,8 +698,8 @@ const handleEmailNoticeChange = async (value: boolean) => {
       console.error('保存订阅状态失败:', error)
       emailNotice.value = false
       toast.add({
-        title: '保存订阅状态失败',
-        description: error instanceof Error ? error.message : '未知错误',
+        title: t('plan.subscribe_save_failed'),
+        description: error instanceof Error ? error.message : t('plan.unknown_error'),
         icon: 'i-heroicons-x-circle',
         color: 'red'
       })
@@ -713,7 +715,7 @@ const handleEmailNoticeChange = async (value: boolean) => {
       })
       emailNotice.value = value
       toast.add({
-        title: '已关闭订阅邮件通知',
+        title: t('plan.subscribe_off'),
         icon: 'i-heroicons-information-circle',
         color: 'gray'
       })
@@ -721,8 +723,8 @@ const handleEmailNoticeChange = async (value: boolean) => {
       console.error('保存订阅状态失败:', error)
       emailNotice.value = !value
       toast.add({
-        title: '保存订阅状态失败',
-        description: error instanceof Error ? error.message : '未知错误',
+        title: t('plan.subscribe_save_failed'),
+        description: error instanceof Error ? error.message : t('plan.unknown_error'),
         icon: 'i-heroicons-x-circle',
         color: 'red'
       })
@@ -743,7 +745,7 @@ const handleEmailBindSuccess = async () => {
       })
       emailNotice.value = true
       toast.add({
-        title: '已开启订阅邮件通知',
+        title: t('plan.subscribe_on'),
         icon: 'i-heroicons-check-circle',
         color: 'green'
       })
@@ -844,7 +846,7 @@ const fetchPlanList = async (isLoadMore = false, force = false) => {
   } catch (error) {
     console.error('获取计划列表失败:', error)
     toast.add({
-      title: '获取计划列表失败',
+      title: t('plan.fetch_list_failed'),
       icon: 'i-heroicons-exclamation-circle',
       color: 'red'
     })
@@ -1021,7 +1023,7 @@ const ensureYearMonthPlansLoaded = async (force = false) => {
         monthPlanList.value[month] = []
       }
     }
-    toast.add({ title: '获取年度计划失败', icon: 'i-heroicons-exclamation-circle', color: 'red' })
+    toast.add({ title: t('plan.fetch_year_plans_failed'), icon: 'i-heroicons-exclamation-circle', color: 'red' })
   } finally {
     for (const month of months) {
       monthPlanLoading.value[month] = false
@@ -1064,8 +1066,8 @@ const fetchYearsTotal = async () => {
   } catch (error) {
     console.error('获取年统计失败:', error)
     toast.add({
-      title: '获取年统计失败',
-      description: '请确认后端已提供 /plan/list/totalByYears 接口',
+      title: t('plan.fetch_years_stats_failed'),
+      description: t('plan.fetch_years_stats_hint'),
       icon: 'i-heroicons-exclamation-circle',
       color: 'red'
     })
@@ -1092,7 +1094,7 @@ const fetchYearTotal = async (options?: { preserveSelection?: boolean; forcePlan
     monthTotals.value = buildMonthTotals(apiTotals)
   } catch (error) {
     console.error('获取年度汇总失败:', error)
-    toast.add({ title: '获取年度汇总失败', icon: 'i-heroicons-exclamation-circle', color: 'red' })
+    toast.add({ title: t('plan.fetch_year_total_failed'), icon: 'i-heroicons-exclamation-circle', color: 'red' })
   } finally {
     monthTotalLoading.value = false
   }
@@ -1108,7 +1110,7 @@ const loadMonthPlans = async (month: number, force = false) => {
   } catch (error) {
     console.error('获取月度计划失败:', error)
     monthPlanList.value[month] = []
-    toast.add({ title: '获取月度计划失败', icon: 'i-heroicons-exclamation-circle', color: 'red' })
+    toast.add({ title: t('plan.fetch_month_plans_failed'), icon: 'i-heroicons-exclamation-circle', color: 'red' })
   } finally {
     monthPlanLoading.value[month] = false
   }
@@ -1145,7 +1147,7 @@ const fetchDayTotal = async (options?: { preserveSelection?: boolean; forcePlans
     dayTotals.value = buildDayTotals(apiTotals, month, yearSelect.value)
   } catch (error) {
     console.error('获取日度汇总失败:', error)
-    toast.add({ title: '获取日度汇总失败', icon: 'i-heroicons-exclamation-circle', color: 'red' })
+    toast.add({ title: t('plan.fetch_day_total_failed'), icon: 'i-heroicons-exclamation-circle', color: 'red' })
   } finally {
     dayTotalLoading.value = false
   }
@@ -1543,7 +1545,7 @@ const handleDelete = async () => {
   try {
     await deletePlanList({ list_id: deleteId.value })
     toast.add({
-      title: '删除成功',
+      title: t('plan.delete_success'),
       icon: 'i-heroicons-check-circle',
       color: 'green'
     })
@@ -1556,7 +1558,7 @@ const handleDelete = async () => {
   } catch (error) {
     console.error('删除计划失败:', error)
     toast.add({
-      title: '删除失败',
+      title: t('plan.delete_failed'),
       icon: 'i-heroicons-exclamation-circle',
       color: 'red'
     })
@@ -1580,7 +1582,7 @@ const handleComplete = async () => {
   try {
     const updated = await planComplete({ list_id: completeId.value })
     toast.add({
-      title: '计划完成',
+      title: t('plan.complete_success'),
       icon: 'i-heroicons-check-circle',
       color: 'green'
     })
@@ -1594,7 +1596,7 @@ const handleComplete = async () => {
   } catch (error) {
     console.error('完成计划失败:', error)
     toast.add({
-      title: '完成失败',
+      title: t('plan.complete_failed'),
       icon: 'i-heroicons-exclamation-circle',
       color: 'red'
     })
@@ -1608,7 +1610,7 @@ const addHaveMoney = async (id: number | undefined, money: number) => {
   if (!id || addLoading.value) return
   if (!money || money === 0) {
     toast.add({
-      title: '请输入有效金额',
+      title: t('plan.invalid_amount'),
       icon: 'i-heroicons-exclamation-circle',
       color: 'orange'
     })
@@ -1619,7 +1621,7 @@ const addHaveMoney = async (id: number | undefined, money: number) => {
   try {
     const updated = await updatePlanMoney({ list_id: id, add_money: money })
     toast.add({
-      title: money > 0 ? '添加成功' : '减少成功',
+      title: money > 0 ? t('plan.add_money_success') : t('plan.reduce_money_success'),
       icon: 'i-heroicons-check-circle',
       color: 'green'
     })
@@ -1630,7 +1632,7 @@ const addHaveMoney = async (id: number | undefined, money: number) => {
   } catch (error) {
     console.error('添加金额失败:', error)
     toast.add({
-      title: '添加失败',
+      title: t('plan.add_money_failed'),
       icon: 'i-heroicons-exclamation-circle',
       color: 'red'
     })
@@ -1697,7 +1699,7 @@ const handleClothesChoose = async (clothes: WardrobeClothes) => {
   try {
     await planListRelate({ list_id: plan.list_id, clothes_id: clothes.clothes_id })
     toast.add({
-      title: '关联成功',
+      title: t('plan.link_success'),
       icon: 'i-heroicons-check-circle',
       color: 'green'
     })
@@ -1706,7 +1708,7 @@ const handleClothesChoose = async (clothes: WardrobeClothes) => {
   } catch (error) {
     console.error('关联失败:', error)
     toast.add({
-      title: '关联失败',
+      title: t('plan.link_failed'),
       icon: 'i-heroicons-exclamation-circle',
       color: 'red'
     })
@@ -1722,7 +1724,7 @@ const handleUnlinkClothes = async (item: PlanList) => {
   try {
     const updated = await planListRelate({ list_id: item.list_id, clothes_id: null })
     toast.add({
-      title: '已取消关联',
+      title: t('plan.unlink_success'),
       icon: 'i-heroicons-check-circle',
       color: 'green'
     })
@@ -1734,7 +1736,7 @@ const handleUnlinkClothes = async (item: PlanList) => {
   } catch (error) {
     console.error('取消关联失败:', error)
     toast.add({
-      title: '取消关联失败',
+      title: t('plan.unlink_failed'),
       icon: 'i-heroicons-exclamation-circle',
       color: 'red'
     })
@@ -1770,9 +1772,9 @@ const getTimeDifferenceText = (endTime: Date | string | undefined): string => {
     const diffDays = end.diff(now, 'day', true)
     
     if (diffDays > 0) {
-      return `${diffDays.toFixed(1)} 天`
+      return t('plan.days_remaining', { n: diffDays.toFixed(1) })
     }
-    return '已经开始'
+    return t('plan.already_started')
   } catch {
     return ''
   }
@@ -1967,15 +1969,15 @@ watch(
 
 // SEO 配置
 useHead({
-  title: '我的计划',
+  title: () => t('plan.page_title'),
   meta: [
     {
       name: 'keywords',
-      content: '攒钱计划,Lo研社,计划列表'
+      content: () => t('plan.meta_keywords')
     },
     {
       name: 'description',
-      content: '管理您的攒钱计划列表'
+      content: () => t('plan.meta_description')
     }
   ]
 })

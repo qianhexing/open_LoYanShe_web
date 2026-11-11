@@ -81,6 +81,13 @@ import {
   WARDROBE_TUTORIAL_POPUP_KEY,
   type WardrobeTutorialId,
 } from '@/utils/wardrobeTutorialConfig'
+import {
+  mapConfigStatusOptions,
+  wardrobePartLabel,
+  wardrobeSeasonLabel,
+  wardrobeStatusLabel,
+  wardrobeStatusOptions as buildDefaultWardrobeStatusOptions,
+} from '@/utils/wardrobeDisplayI18n'
 
 const Draggable = defineAsyncComponent(() => import('vuedraggable'))
 const WardrobeClothesLongShare = defineAsyncComponent(
@@ -115,6 +122,8 @@ const WardrobeChoose = defineAsyncComponent(
 const YearlySummaryLoginModal = defineAsyncComponent(
   () => import('@/components/yearlySummary/LoginModal.vue'),
 )
+
+const { t } = useI18n()
 
 const wardrobeStore = useWardrobeStore()
 const user = useUserStore()
@@ -210,19 +219,27 @@ const show = ref(true)
 const sortMode = ref(false)
 const showSortGuide = ref(false)
 const sortGuideRef = ref<InstanceType<typeof QhxStepGuide> | null>(null)
-const wardrobeSortGuideSteps = WARDROBE_SORT_GUIDE_STEPS
 const showEditGuide = ref(false)
 const editGuideRef = ref<InstanceType<typeof QhxStepGuide> | null>(null)
-const wardrobeEditGuideSteps = WARDROBE_EDIT_GUIDE_STEPS
 const showMatchingGuide = ref(false)
 const matchingGuideRef = ref<InstanceType<typeof QhxStepGuide> | null>(null)
-const wardrobeMatchingGuideSteps = WARDROBE_MATCHING_GUIDE_STEPS
 const showSelectGuide = ref(false)
 const selectGuideRef = ref<InstanceType<typeof QhxStepGuide> | null>(null)
-const wardrobeSelectGuideSteps = WARDROBE_SELECT_GUIDE_STEPS
 const showOverviewGuide = ref(false)
 const overviewGuideRef = ref<InstanceType<typeof QhxStepGuide> | null>(null)
-const wardrobeOverviewGuideSteps = WARDROBE_OVERVIEW_GUIDE_STEPS
+
+function localizeGuideSteps(steps: typeof WARDROBE_OVERVIEW_GUIDE_STEPS) {
+  return steps.map((step) => ({
+    ...step,
+    title: t(step.title),
+    description: t(step.description),
+  }))
+}
+const wardrobeSortGuideSteps = computed(() => localizeGuideSteps(WARDROBE_SORT_GUIDE_STEPS))
+const wardrobeEditGuideSteps = computed(() => localizeGuideSteps(WARDROBE_EDIT_GUIDE_STEPS))
+const wardrobeMatchingGuideSteps = computed(() => localizeGuideSteps(WARDROBE_MATCHING_GUIDE_STEPS))
+const wardrobeSelectGuideSteps = computed(() => localizeGuideSteps(WARDROBE_SELECT_GUIDE_STEPS))
+const wardrobeOverviewGuideSteps = computed(() => localizeGuideSteps(WARDROBE_OVERVIEW_GUIDE_STEPS))
 const showTutorialModal = ref(false)
 const showTutorialFirstAskModal = ref(false)
 const tutorialFirstAskTriggered = ref(false)
@@ -324,24 +341,21 @@ const getClothesDisplaySortNo = (item: WardrobeClothes) => {
 /** 批量修改拥有状态：与 ClothesAdd 表单项 wardrobe_status 一致 */
 const batchMultipleFormWardrobeStatus = ref<string | null>(null)
 const batchStatusChooseRef = ref<InstanceType<typeof QhxOptionsChoose> | null>(null)
-const wardrobe_status_defaults: optionsInterface[] = [
-  { value: '已拥有', label: '已拥有' },
-  { value: '待补款', label: '待补款' },
-  { value: '已出', label: '已出' },
-]
-const batchWardrobeStatusOptions = ref<optionsInterface[]>([...wardrobe_status_defaults])
+const wardrobeStatusDefaultOptions = computed(() => buildDefaultWardrobeStatusOptions(t))
+const batchWardrobeStatusOptions = ref<optionsInterface[]>([...wardrobeStatusDefaultOptions.value])
 function refreshBatchWardrobeStatusOptions() {
+  const defaults = wardrobeStatusDefaultOptions.value
   if (wardrobeStore.config?.wardrobe_status?.length) {
     const fromConfig = wardrobeStore.config.wardrobe_status.map((child) => ({
       value: child,
-      label: child,
+      label: wardrobeStatusLabel(t, child),
     }))
     batchWardrobeStatusOptions.value = [
-      ...wardrobe_status_defaults,
-      ...fromConfig.filter((o) => !wardrobe_status_defaults.some((d) => d.label === o.label)),
+      ...defaults,
+      ...fromConfig.filter((o) => !defaults.some((d) => d.value === o.value)),
     ]
   } else {
-    batchWardrobeStatusOptions.value = [...wardrobe_status_defaults]
+    batchWardrobeStatusOptions.value = [...defaults]
   }
 }
 const openBatchStatusModal = () => {
@@ -351,32 +365,38 @@ const openBatchStatusModal = () => {
   showBatchStatusModal.value = true
 }
 const openBatchStatusPicker = (e: MouseEvent) => {
-  const selected = batchMultipleFormWardrobeStatus.value
-    ? [{ value: batchMultipleFormWardrobeStatus.value, label: batchMultipleFormWardrobeStatus.value }]
+  const v = batchMultipleFormWardrobeStatus.value
+  const selected = v
+    ? [{ value: v, label: wardrobeStatusLabel(t, v) }]
     : []
   batchStatusChooseRef.value?.showPicker(e, selected)
 }
 const onBatchWardrobeStatusChoose = (list: optionsInterface[]) => {
-  const label = list[0]?.label?.trim()
-  if (!label) return
-  batchMultipleFormWardrobeStatus.value = label
-  if (!batchWardrobeStatusOptions.value.some((o) => o.label === label)) {
-    batchWardrobeStatusOptions.value.push({ value: label, label })
+  const raw = list[0]?.value
+  const value = typeof raw === 'string' ? raw.trim() : raw != null ? String(raw).trim() : ''
+  if (!value) return
+  batchMultipleFormWardrobeStatus.value = value
+  if (!batchWardrobeStatusOptions.value.some((o) => o.value === value)) {
+    batchWardrobeStatusOptions.value.push({
+      value,
+      label: wardrobeStatusLabel(t, value),
+    })
   }
 }
 const onDeleteBatchStatusOption = async (item: optionsInterface) => {
-  const label = item.label?.trim()
-  if (!label) return
+  const raw = item.value
+  const value = typeof raw === 'string' ? raw.trim() : raw != null ? String(raw).trim() : ''
+  if (!value) return
   try {
-    const { updated } = await deleteClothesConfigOptionThenReload('wardrobe_status', label)
+    const { updated } = await deleteClothesConfigOptionThenReload('wardrobe_status', value)
     refreshBatchWardrobeStatusOptions()
-    if (batchMultipleFormWardrobeStatus.value === label) {
+    if (batchMultipleFormWardrobeStatus.value === value) {
       batchMultipleFormWardrobeStatus.value = null
     }
-    stripTermFromClothesList('wardrobe_status', label)
+    stripTermFromClothesList('wardrobe_status', value)
     toast.add({ title: clothesTermDeletedMessage(updated), color: 'green', icon: 'i-heroicons-check-circle' })
   } catch {
-    toast.add({ title: '删除失败', color: 'red', icon: 'i-heroicons-exclamation-circle' })
+    toast.add({ title: t('wardrobe.toast.delete_failed'), color: 'red', icon: 'i-heroicons-exclamation-circle' })
   }
 }
 const confirmBatchStatus = async () => {
@@ -384,7 +404,7 @@ const confirmBatchStatus = async () => {
   if (ids.length === 0) return
   const wardrobe_status = batchMultipleFormWardrobeStatus.value
   if (wardrobe_status == null || wardrobe_status === '') {
-    toast.add({ title: '请先选择拥有状态', color: 'amber', icon: 'i-heroicons-information-circle' })
+    toast.add({ title: t('wardrobe.toast.select_status_first'), color: 'amber', icon: 'i-heroicons-information-circle' })
     return
   }
   try {
@@ -392,7 +412,7 @@ const confirmBatchStatus = async () => {
       clothes_id: ids.join(','),
       wardrobe_status,
     })
-    toast.add({ title: '状态已更新', icon: 'i-heroicons-check-circle', color: 'green' })
+    toast.add({ title: t('wardrobe.toast.status_updated'), icon: 'i-heroicons-check-circle', color: 'green' })
     for (const cid of ids) {
       const idx = list.value.findIndex((item) => item.clothes_id === cid)
       if (idx !== -1) {
@@ -402,7 +422,7 @@ const confirmBatchStatus = async () => {
     selectedClothesIds.value = new Set()
     showBatchStatusModal.value = false
   } catch {
-    toast.add({ title: '更新失败', icon: 'i-heroicons-exclamation-circle', color: 'red' })
+    toast.add({ title: t('wardrobe.toast.update_failed'), icon: 'i-heroicons-exclamation-circle', color: 'red' })
   }
 }
 
@@ -434,7 +454,7 @@ const confirmBatchLastDress = async () => {
       last_dress,
     })
     toast.add({
-      title: `已更新 ${res?.updated ?? ids.length} 件服饰穿着时间`,
+      title: t('wardrobe.toast.wear_time_updated', { count: res?.updated ?? ids.length }),
       icon: 'i-heroicons-check-circle',
       color: 'green',
     })
@@ -447,7 +467,7 @@ const confirmBatchLastDress = async () => {
     selectedClothesIds.value = new Set()
     showBatchLastDressModal.value = false
   } catch {
-    toast.add({ title: '更新失败', icon: 'i-heroicons-exclamation-circle', color: 'red' })
+    toast.add({ title: t('wardrobe.toast.update_failed'), icon: 'i-heroicons-exclamation-circle', color: 'red' })
   } finally {
     batchLastDressSaving.value = false
   }
@@ -490,7 +510,7 @@ const onDeleteBatchTagOption = async (item: optionsInterface) => {
     stripTermFromClothesList('tags', label)
     toast.add({ title: clothesTermDeletedMessage(updated), color: 'green', icon: 'i-heroicons-check-circle' })
   } catch {
-    toast.add({ title: '删除失败', color: 'red', icon: 'i-heroicons-exclamation-circle' })
+    toast.add({ title: t('wardrobe.toast.delete_failed'), color: 'red', icon: 'i-heroicons-exclamation-circle' })
   }
 }
 function mergeClothesTagsString(existing?: string | null, append: string[] = []): string {
@@ -567,10 +587,10 @@ const confirmTagManageSort = async () => {
   try {
     await sortClothesTags({ wardrobe_id: wid, sort: filterEmptyTags(tagManageDraft.value) })
     patchWardrobeConfigTags(filterEmptyTags(tagManageDraft.value))
-    toast.add({ title: '标签排序已保存', icon: 'i-heroicons-check-circle', color: 'green' })
+    toast.add({ title: t('wardrobe.toast.tag_sort_saved'), icon: 'i-heroicons-check-circle', color: 'green' })
     showTagManageModal.value = false
   } catch {
-    toast.add({ title: '保存排序失败', icon: 'i-heroicons-exclamation-circle', color: 'red' })
+    toast.add({ title: t('wardrobe.toast.save_sort_failed'), icon: 'i-heroicons-exclamation-circle', color: 'red' })
   } finally {
     tagManageSaving.value = false
   }
@@ -596,12 +616,12 @@ const confirmDeleteWardrobeTag = async () => {
     const filterIdx = filter_list.value.tags.indexOf(tag)
     if (filterIdx !== -1) filter_list.value.tags.splice(filterIdx, 1)
     stripTagFromClothesList(tag)
-    toast.add({ title: '标签已删除', icon: 'i-heroicons-check-circle', color: 'green' })
+    toast.add({ title: t('wardrobe.toast.tag_deleted'), icon: 'i-heroicons-check-circle', color: 'green' })
     showDeleteWardrobeTagModal.value = false
     pendingDeleteWardrobeTag.value = null
     if (tagList.value.length === 0) showTagManageModal.value = false
   } catch {
-    toast.add({ title: '删除标签失败', icon: 'i-heroicons-exclamation-circle', color: 'red' })
+    toast.add({ title: t('wardrobe.toast.delete_tag_failed'), icon: 'i-heroicons-exclamation-circle', color: 'red' })
   } finally {
     deleteWardrobeTagLoading.value = false
   }
@@ -612,14 +632,14 @@ const confirmBatchTags = async () => {
   if (ids.length === 0) return
   const tagsToAdd = filterEmptyTags(batchTagsToAdd.value)
   if (tagsToAdd.length === 0) {
-    toast.add({ title: '请先添加标签', color: 'amber', icon: 'i-heroicons-information-circle' })
+    toast.add({ title: t('wardrobe.toast.add_tag_first'), color: 'amber', icon: 'i-heroicons-information-circle' })
     return
   }
   const tags = tagsToAdd.join(',')
   try {
     const { updated } = await batchUpdateClothesTags({ ids: ids.join(','), tags })
     toast.add({
-      title: `已为 ${updated} 件服饰添加标签`,
+      title: t('wardrobe.toast.tags_added', { count: updated }),
       icon: 'i-heroicons-check-circle',
       color: 'green',
     })
@@ -636,7 +656,7 @@ const confirmBatchTags = async () => {
     selectedClothesIds.value = new Set()
     showBatchTagsModal.value = false
   } catch {
-    toast.add({ title: '添加标签失败', icon: 'i-heroicons-exclamation-circle', color: 'red' })
+    toast.add({ title: t('wardrobe.toast.add_tag_failed'), icon: 'i-heroicons-exclamation-circle', color: 'red' })
   }
 }
 
@@ -831,7 +851,7 @@ const handlePlanTimelineComplete = async () => {
   try {
     await planComplete({ list_id: planCompleteListId.value })
     toast.add({
-      title: '计划完成',
+      title: t('wardrobe.toast.plan_done'),
       icon: 'i-heroicons-check-circle',
       color: 'green',
     })
@@ -840,7 +860,7 @@ const handlePlanTimelineComplete = async () => {
     await loadPlanTimeline(true)
   } catch {
     toast.add({
-      title: '完成失败',
+      title: t('wardrobe.toast.complete_failed'),
       icon: 'i-heroicons-exclamation-circle',
       color: 'red',
     })
@@ -1242,7 +1262,7 @@ async function onPartGroupsDragEnd() {
   } catch {
     // 失败时回退到 computed 顺序
     sortablePartGroups.value = clothesPartGroups.value.filter((g) => g.part !== CLOTHES_PART_UNGROUPED)
-    toast.add({ title: '部位排序保存失败', icon: 'i-heroicons-exclamation-circle', color: 'red' })
+    toast.add({ title: t('wardrobe.toast.part_sort_failed'), icon: 'i-heroicons-exclamation-circle', color: 'red' })
   } finally {
     partGroupsSorting.value = false
   }
@@ -1514,10 +1534,11 @@ const statusColorPickerEditingLabel = ref<string | null>(null)
 function listWardrobeStatusLabels(): string[] {
   const seen = new Set<string>()
   const labels: string[] = []
-  for (const opt of wardrobe_status_defaults) {
-    if (seen.has(opt.label)) continue
-    seen.add(opt.label)
-    labels.push(opt.label)
+  for (const opt of wardrobeStatusDefaultOptions.value) {
+    const v = typeof opt.value === 'string' ? opt.value.trim() : String(opt.value ?? '').trim()
+    if (!v || seen.has(v)) continue
+    seen.add(v)
+    labels.push(v)
   }
   for (const raw of wardrobeStore.config?.wardrobe_status ?? []) {
     const label = typeof raw === 'string' ? raw.trim() : ''
@@ -1580,31 +1601,27 @@ const confirmStatusColorManage = async () => {
       },
     })
     patchWardrobeConfigStatusColors(colors)
-    toast.add({ title: '状态颜色已保存', icon: 'i-heroicons-check-circle', color: 'green' })
+    toast.add({ title: t('wardrobe.toast.status_color_saved'), icon: 'i-heroicons-check-circle', color: 'green' })
     showStatusColorManageModal.value = false
   } catch {
-    toast.add({ title: '保存状态颜色失败', icon: 'i-heroicons-exclamation-circle', color: 'red' })
+    toast.add({ title: t('wardrobe.toast.status_color_failed'), icon: 'i-heroicons-exclamation-circle', color: 'red' })
   } finally {
     statusColorManageSaving.value = false
   }
 }
 
-// 衣柜状态选项
+// 衣柜状态选项（筛选等：value 为 API 中文，label 随语言）
 const wardrobeStatusOptions = computed(() => {
   if (!wardrobeStore.config?.wardrobe_status) return []
-  return wardrobeStore.config.wardrobe_status
-    .filter((status: string) => status !== '自定义')
-    .map((status: string) => ({
-      label: status,
-      value: status
-    }))
+  return mapConfigStatusOptions(t, wardrobeStore.config.wardrobe_status)
 })
 
 /** 详情区图例：默认状态 + 配置自定义状态 */
 const wardrobeStatusLegendItems = computed(() =>
-  listWardrobeStatusLabels().map((label) => ({
-    label,
-    color: resolveWardrobeStatusColor(label),
+  listWardrobeStatusLabels().map((statusValue) => ({
+    statusValue,
+    label: wardrobeStatusLabel(t, statusValue),
+    color: resolveWardrobeStatusColor(statusValue),
   })),
 )
 
@@ -1620,7 +1637,10 @@ const clothesPartFilterOptions = computed(() => {
     const t = p?.trim()
     if (t) set.add(t)
   }
-  return [...set].map((part) => ({ label: part, value: part }))
+  return [...set].map((part) => ({
+    value: part,
+    label: wardrobePartLabel(t, part),
+  }))
 })
 
 /** `/clothes/config` 中含 `total_price` 时展示「全衣柜总价」，与当前衣柜「总价」同样受 `show_price` 控制 */
@@ -1960,13 +1980,13 @@ const copyUrl = async () => {
   try {
     await copyCurrentUrl()
     toast.add({
-      title: '复制成功',
+      title: t('wardrobe.toast.copy_success'),
       icon: 'i-heroicons-check-circle',
       color: 'green'
     })
   } catch (error) {
     toast.add({
-      title: '复制失败',
+      title: t('wardrobe.toast.copy_failed'),
       icon: 'i-heroicons-exclamation-circle',
       color: 'red'
     })
@@ -1979,7 +1999,7 @@ const qrcodeListRef = ref<InstanceType<typeof QrcodeListType> | null>(null)
 const showQRCodeList = () => {
   const wid = currentWardrobe.value?.wardrobe_id
   if (wid == null) {
-    toast.add({ title: '请先选择衣柜', color: 'amber', icon: 'i-heroicons-information-circle' })
+    toast.add({ title: t('wardrobe.toast.select_wardrobe_first'), color: 'amber', icon: 'i-heroicons-information-circle' })
     return
   }
   qrcodeListRef.value?.open({
@@ -2031,7 +2051,7 @@ const fetchWardrobeClothes = async (clothesId: number, wardrobeId: number) => {
   })
   if (response) {
     toast.add({
-      title: '服饰已移动到其他衣柜',
+      title: t('wardrobe.toast.clothes_moved'),
       icon: 'i-heroicons-check-circle',
       color: 'green'
     })
@@ -2198,7 +2218,7 @@ const updateWardrobeSetting = async (field: 'sort_type' | 'is_private' | 'show_p
       await fetchClothesList(1, pageSize)
     }
     toast.add({
-      title: '修改成功',
+      title: t('wardrobe.toast.update_success'),
       icon: 'i-heroicons-check-circle',
       color: 'green'
     })
@@ -2206,7 +2226,7 @@ const updateWardrobeSetting = async (field: 'sort_type' | 'is_private' | 'show_p
   } catch (error) {
     console.error('更新失败:', error)
     toast.add({
-      title: '修改失败',
+      title: t('wardrobe.toast.update_failed2'),
       icon: 'i-heroicons-exclamation-circle',
       color: 'red'
     })
@@ -2217,44 +2237,45 @@ const updateWardrobeSetting = async (field: 'sort_type' | 'is_private' | 'show_p
     }, 300)
   }
 }
+const SORT_TYPE_I18N: Record<number, string> = {
+  0: 'wardrobe.sort.custom',
+  1: 'wardrobe.sort.buy_desc',
+  2: 'wardrobe.sort.buy_asc',
+  3: 'wardrobe.sort.price_desc',
+  4: 'wardrobe.sort.price_asc',
+  5: 'wardrobe.sort.wear_count_desc',
+  11: 'wardrobe.sort.wear_count_asc',
+  7: 'wardrobe.sort.score_desc',
+  8: 'wardrobe.sort.score_asc',
+  9: 'wardrobe.sort.wear_time_desc',
+  10: 'wardrobe.sort.wear_time_asc',
+}
 // 格式化排序类型显示
 const formatSortType = (index: number | undefined) => {
-  if (index === undefined || index === null) return '自定义'
-  const sortTypeMap: Record<number, string> = {
-    0: '自定义',
-    1: '购入倒叙',
-    2: '购入正序',
-    3: '价格倒叙',
-    4: '价格正序',
-    5: '穿着次数倒叙',
-    11: '穿着次数正序',
-    7: '评分倒叙',
-    8: '评分正序',
-    9: '穿着时间倒叙',
-    10: '穿着时间正序'
-  }
-  return sortTypeMap[index] || '自定义'
+  if (index === undefined || index === null) return t('wardrobe.sort.custom')
+  const key = SORT_TYPE_I18N[index]
+  return key ? t(key) : t('wardrobe.sort.custom')
 }
 // 价格显示模式选项
-const priceTypeOptions = [
-  { label: '显示总价', value: 1 },
-  { label: '隐藏总价', value: 0 },
-  { label: '隐藏所有', value: 2 }
-]
+const priceTypeOptions = computed(() => [
+  { label: t('wardrobe.show_price.total'), value: 1 },
+  { label: t('wardrobe.show_price.hide_total'), value: 0 },
+  { label: t('wardrobe.show_price.hide_all'), value: 2 },
+])
 // 排序模式选项
-const sortTypeOptions = [
-  { label: '自定义', value: 0 },
-  { label: '购入倒叙', value: 1 },
-  { label: '购入正序', value: 2 },
-  { label: '价格倒叙', value: 3 },
-  { label: '价格正序', value: 4 },
-  { label: '穿着次数倒叙', value: 5 },
-  { label: '穿着次数正序', value: 11 },
-  { label: '穿着时间倒叙', value: 9 },
-  { label: '穿着时间正序', value: 10 },
-  { label: '评分倒叙', value: 7 },
-  { label: '评分正序', value: 8 }
-]
+const sortTypeOptions = computed(() => [
+  { label: t('wardrobe.sort.custom'), value: 0 },
+  { label: t('wardrobe.sort.buy_desc'), value: 1 },
+  { label: t('wardrobe.sort.buy_asc'), value: 2 },
+  { label: t('wardrobe.sort.price_desc'), value: 3 },
+  { label: t('wardrobe.sort.price_asc'), value: 4 },
+  { label: t('wardrobe.sort.wear_count_desc'), value: 5 },
+  { label: t('wardrobe.sort.wear_count_asc'), value: 11 },
+  { label: t('wardrobe.sort.wear_time_desc'), value: 9 },
+  { label: t('wardrobe.sort.wear_time_asc'), value: 10 },
+  { label: t('wardrobe.sort.score_desc'), value: 7 },
+  { label: t('wardrobe.sort.score_asc'), value: 8 },
+])
 // 选择价格显示模式
 const showPriceSelect = ref(false)
 const priceSelectRef = ref<InstanceType<typeof QhxSelect> | null>(null)
@@ -2369,6 +2390,8 @@ const wardrobeTutorialList = computed(() => {
   const globalEnabled = wardrobeTutorialPopupToggle.value
   return WARDROBE_TUTORIAL_ITEMS.map((item) => ({
     ...item,
+    title: t(item.titleKey),
+    description: t(item.descriptionKey),
     status: getWardrobeTutorialPopupStatus(item.id, globalEnabled),
   }))
 })
@@ -2412,7 +2435,7 @@ async function confirmTutorialFirstAsk(enable: boolean) {
   } catch (e) {
     const msg = e instanceof Error ? e.message : '保存失败'
     toast.add({
-      title: '保存失败',
+      title: t('wardrobe.toast.save_failed'),
       description: msg,
       icon: 'i-heroicons-x-circle',
       color: 'red',
@@ -2449,7 +2472,7 @@ async function handleWardrobeTutorialPopupChange(value: boolean) {
     const msg = e instanceof Error ? e.message : '保存失败'
     wardrobeTutorialPopupToggle.value = !value
     toast.add({
-      title: '保存失败',
+      title: t('wardrobe.toast.save_failed'),
       description: msg,
       icon: 'i-heroicons-x-circle',
       color: 'red',
@@ -2492,8 +2515,8 @@ function replayWardrobeTutorial(id: WardrobeTutorialId) {
   if (id === 'sort') {
     if (!hasWardrobeClothes()) {
       toast.add({
-        title: '暂无服饰',
-        description: '请先至少添加一条服饰后再查看该教程',
+        title: t('wardrobe.toast.no_clothes'),
+        description: t('wardrobe.toast.tutorial_need_clothes'),
         icon: 'i-heroicons-information-circle',
         color: 'amber',
       })
@@ -2504,8 +2527,8 @@ function replayWardrobeTutorial(id: WardrobeTutorialId) {
   }
   if (!hasWardrobeClothes()) {
     toast.add({
-      title: '暂无服饰',
-      description: '请先至少添加一条服饰后再查看该教程',
+      title: t('wardrobe.toast.no_clothes'),
+      description: t('wardrobe.toast.tutorial_need_clothes'),
       icon: 'i-heroicons-information-circle',
       color: 'amber',
     })
@@ -2555,7 +2578,7 @@ async function handleWardrobeAsHomeChange(value: boolean) {
   if (!isWardrobeUserLoggedIn()) {
     wardrobeAsHomeToggle.value = false
     toast.add({
-      title: '请先登录',
+      title: t('common.please_login'),
       icon: 'i-heroicons-information-circle',
       color: 'gray'
     })
@@ -2575,7 +2598,7 @@ async function handleWardrobeAsHomeChange(value: boolean) {
       showWardrobeHomeUpdateModal.value = true
     } else {
       toast.add({
-        title: '已取消设为首页',
+        title: t('wardrobe.toast.unset_home'),
         icon: 'i-heroicons-information-circle',
         color: 'gray'
       })
@@ -2584,7 +2607,7 @@ async function handleWardrobeAsHomeChange(value: boolean) {
     const msg = e instanceof Error ? e.message : '保存失败'
     wardrobeAsHomeToggle.value = !value
     toast.add({
-      title: '保存失败',
+      title: t('wardrobe.toast.save_failed'),
       description: msg,
       icon: 'i-heroicons-x-circle',
       color: 'red'
@@ -2692,7 +2715,7 @@ const confirmDeleteWardrobe = async () => {
       wardrobe_id: currentWardrobe.value.wardrobe_id
     })
     toast.add({
-      title: '删除成功',
+      title: t('wardrobe.toast.delete_success'),
       icon: 'i-heroicons-check-circle',
       color: 'green'
     })
@@ -2719,7 +2742,7 @@ const confirmDeleteWardrobe = async () => {
   } catch (error) {
     console.error('删除失败:', error)
     toast.add({
-      title: '删除失败',
+      title: t('wardrobe.toast.delete_failed'),
       icon: 'i-heroicons-exclamation-circle',
       color: 'red'
     })
@@ -2743,14 +2766,14 @@ const onWardrobeDragEnd = async () => {
 
     await sortWardrobe(params);
     toast.add({
-      title: '排序已更新',
+      title: t('wardrobe.toast.sort_updated'),
       icon: 'i-heroicons-check-circle',
       color: 'green'
     })
   } catch (error) {
     console.error("排序更新失败:", error);
     toast.add({
-      title: '排序更新失败',
+      title: t('wardrobe.toast.sort_update_failed'),
       icon: 'i-heroicons-exclamation-circle',
       color: 'red'
     })
@@ -3264,18 +3287,17 @@ onMounted(() => {
   })
 })
 useHead({
-  title: 'Lolita衣柜',
+  title: () => t('wardrobe.page_title'),
   meta: [
     {
       name: 'keywords',
-      content: 'Lo研社,Lolita合集,Lolita图书馆'
+      content: () => t('wardrobe.keywords'),
     },
     {
       name: 'description',
-      content: '洛丽塔图书馆汇总,Lolita图书馆'
+      content: () => t('wardrobe.description'),
     },
-  ]
-
+  ],
 })
 const enableDrag = () => {
   if (!requireClothesForMode()) return
@@ -3555,11 +3577,11 @@ const wardrobePageStyle = computed(() => ({
     : {}),
 }))
 
-const toolbarBtnSizeOptions: { id: ToolbarBtnSize; label: string }[] = [
-  { id: 'sm', label: '小' },
-  { id: 'md', label: '中' },
-  { id: 'lg', label: '大' },
-]
+const toolbarBtnSizeOptions = computed((): { id: ToolbarBtnSize; label: string }[] => [
+  { id: 'sm', label: t('wardrobe.size.sm') },
+  { id: 'md', label: t('wardrobe.size.md') },
+  { id: 'lg', label: t('wardrobe.size.lg') },
+])
 
 const toggleSidebarCollapsed = () => {
   sidebarCollapsed.value = !sidebarCollapsed.value
@@ -3715,6 +3737,7 @@ const openWardrobeStatistics = () => {
 
 const exitTimelineMode = async () => {
   timelineExpandedDeckKey.value = null
+  timelineCollapsedMonths.value = new Set()
   timelineMode.value = false
   page.value = 1
   await fetchClothesList(1, pageSize)
@@ -3730,8 +3753,27 @@ function chunkTimelineItems<T>(arr: T[], size: number): T[][] {
   return out
 }
 
+type TimelineDayNode = {
+  key: string
+  dateLabel: string
+  daysInCabinetText: string
+  dayTotal: number
+  items: WardrobeClothes[]
+  /** 每组最多 3 张 */
+  decks: WardrobeClothes[][]
+}
+
+type TimelineMonthGroup = {
+  key: string
+  monthLabel: string
+  monthTotal: number
+  itemCount: number
+  dayCount: number
+  days: TimelineDayNode[]
+}
+
 /** 时间轴：按「日」为历史节点；同日多件按最多 3 张一组拆成多副扇形卡组 */
-const timelineNodes = computed(() => {
+const timelineNodes = computed((): TimelineDayNode[] => {
   const sorted = sortListByAddTimeAsc(list.value)
   const map = new Map<string, WardrobeClothes[]>()
   for (const item of sorted) {
@@ -3760,8 +3802,35 @@ const timelineNodes = computed(() => {
       daysInCabinetText,
       dayTotal,
       items,
-      /** 每组最多 3 张 */
       decks: chunkTimelineItems(items, TIMELINE_DECK_MAX),
+    }
+  })
+})
+
+/** 时间轴：按月聚合（同一条轴上包住按日节点，可折叠） */
+const timelineMonthGroups = computed((): TimelineMonthGroup[] => {
+  const map = new Map<string, TimelineDayNode[]>()
+  for (const day of timelineNodes.value) {
+    const monthKey = day.key === '__unknown__' ? '__unknown__' : day.key.slice(0, 7)
+    if (!map.has(monthKey)) map.set(monthKey, [])
+    map.get(monthKey)?.push(day)
+  }
+  const keys = [...map.keys()].sort((a, b) => {
+    if (a === '__unknown__') return 1
+    if (b === '__unknown__') return -1
+    return a.localeCompare(b)
+  })
+  return keys.map((key) => {
+    const days = map.get(key) ?? []
+    const monthTotal = days.reduce((s, d) => s + d.dayTotal, 0)
+    const itemCount = days.reduce((s, d) => s + d.items.length, 0)
+    return {
+      key,
+      monthLabel: key === '__unknown__' ? '日期待完善' : dayjs(`${key}-01`).format('YYYY年M月'),
+      monthTotal,
+      itemCount,
+      dayCount: days.length,
+      days,
     }
   })
 })
@@ -3865,6 +3934,29 @@ const timelineDeckFanStyle = (idx: number, total: number) => {
 /** 时间轴卡组扇形展开；@@ 避免与日期 key 中的下划线冲突 */
 const timelineExpandedDeckKey = ref<string | null>(null)
 const timelineDeckKey = (nodeKey: string, dIdx: number) => `${nodeKey}@@${dIdx}`
+
+/** 已折叠的月份 key；默认全部展开 */
+const timelineCollapsedMonths = ref<Set<string>>(new Set())
+
+const isTimelineMonthCollapsed = (monthKey: string) =>
+  timelineCollapsedMonths.value.has(monthKey)
+
+const toggleTimelineMonthCollapse = (monthKey: string) => {
+  const next = new Set(timelineCollapsedMonths.value)
+  if (next.has(monthKey)) {
+    next.delete(monthKey)
+  } else {
+    next.add(monthKey)
+    // 收起时关掉该月内扇形展开，避免被 overflow 裁切
+    const expanded = timelineExpandedDeckKey.value
+    if (expanded) {
+      const dayKey = expanded.split('@@')[0] ?? ''
+      const dayMonth = dayKey === '__unknown__' ? '__unknown__' : dayKey.slice(0, 7)
+      if (dayMonth === monthKey) timelineExpandedDeckKey.value = null
+    }
+  }
+  timelineCollapsedMonths.value = next
+}
 
 const isTimelineDeckExpanded = (nodeKey: string, dIdx: number) =>
   timelineExpandedDeckKey.value === timelineDeckKey(nodeKey, dIdx)
@@ -4001,7 +4093,10 @@ onUnmounted(() => {
 })
 
 watch(timelineMode, (on) => {
-  if (!on) timelineExpandedDeckKey.value = null
+  if (!on) {
+    timelineExpandedDeckKey.value = null
+    timelineCollapsedMonths.value = new Set()
+  }
 })
 
 // 搭配模式、排序、多选、编辑互斥
@@ -4012,10 +4107,10 @@ function hasWardrobeClothes(): boolean {
 function requireClothesForMode(): boolean {
   if (hasWardrobeClothes()) return true
   toast.add({
-    title: '暂无服饰',
+    title: t('wardrobe.toast.no_clothes'),
     description: isPageOwner.value
-      ? '请先至少添加一条服饰后再使用此功能'
-      : '当前衣柜暂无可复制的服饰',
+      ? t('wardrobe.toast.feature_need_clothes')
+      : t('wardrobe.toast.no_copyable'),
     icon: 'i-heroicons-information-circle',
     color: 'amber',
   })
@@ -4242,7 +4337,7 @@ function openOverviewGuide() {
 }
 
 function onOverviewGuideStepChange(index: number) {
-  const step = wardrobeOverviewGuideSteps[index]
+  const step = wardrobeOverviewGuideSteps.value[index]
   prepareOverviewGuideLayout(step?.targetId)
   nextTick(() => {
     requestAnimationFrame(() => overviewGuideRef.value?.refreshLayout())
@@ -4295,8 +4390,8 @@ const openEditClothes = async (item: WardrobeClothes, event?: MouseEvent) => {
     )
   } catch {
     toast.add({
-      title: '无法加载服饰详情',
-      description: '请稍后重试',
+      title: t('wardrobe.toast.load_clothes_failed'),
+      description: t('common.retry'),
       color: 'red',
       icon: 'i-heroicons-exclamation-circle',
     })
@@ -4399,12 +4494,12 @@ const onSelectModeCopyImport = async () => {
   try {
     const res = await getWardrobeList({ user_id: uid, page: 1, pageSize: 1 })
     if (!(res.rows?.length)) {
-      await insertWardrobe({ wardrobe_name: '默认衣柜' })
+      await insertWardrobe({ wardrobe_name: t('wardrobe.default_name') })
     }
   } catch {
     toast.add({
-      title: '无法加载你的衣柜',
-      description: '请稍后重试',
+      title: t('wardrobe.toast.load_wardrobe_failed'),
+      description: t('common.retry'),
       icon: 'i-heroicons-exclamation-circle',
       color: 'red',
     })
@@ -4427,8 +4522,8 @@ const onWardrobeChooseForCopyImport = async (wards: Wardrobe[]) => {
 
   if (!clothes_list.length) {
     toast.add({
-      title: '无法导入',
-      description: '所选服饰均无封面，请至少选择一件有封面的服饰',
+      title: t('wardrobe.toast.cannot_import'),
+      description: t('wardrobe.toast.need_cover'),
       icon: 'i-heroicons-information-circle',
       color: 'amber',
     })
@@ -4443,8 +4538,14 @@ const onWardrobeChooseForCopyImport = async (wards: Wardrobe[]) => {
     })
     const skipped = selected.length - clothes_list.length
     toast.add({
-      title: `已导入 ${clothes_list.length} 件到「${target.wardrobe_name || '我的衣柜'}」`,
-      description: skipped > 0 ? `已跳过 ${skipped} 件无封面服饰` : '仅复制封面、尺码、价格等基础信息',
+      title: t('wardrobe.toast.imported', {
+        count: clothes_list.length,
+        name: target.wardrobe_name || t('wardrobe.my_wardrobe'),
+      }),
+      description:
+        skipped > 0
+          ? t('wardrobe.toast.skip_no_cover', { count: skipped })
+          : t('wardrobe.toast.copy_basic_only'),
       icon: 'i-heroicons-check-circle',
       color: 'green',
     })
@@ -4452,8 +4553,8 @@ const onWardrobeChooseForCopyImport = async (wards: Wardrobe[]) => {
     selectMode.value = false
   } catch {
     toast.add({
-      title: '导入失败',
-      description: '请稍后重试',
+      title: t('wardrobe.toast.import_failed'),
+      description: t('common.retry'),
       icon: 'i-heroicons-exclamation-circle',
       color: 'red',
     })
@@ -4498,14 +4599,14 @@ const onWardrobeChooseForMove = async (wards: Wardrobe[]) => {
   const ids = Array.from(selectedClothesIds.value)
   try {
     await changeWardrobeClothesBatch({ ids: ids.join(','), wardrobe_id: target.wardrobe_id })
-    toast.add({ title: '已移动到目标衣柜', icon: 'i-heroicons-check-circle', color: 'green' })
+    toast.add({ title: t('wardrobe.toast.moved_to_target'), icon: 'i-heroicons-check-circle', color: 'green' })
     for (const id of ids) {
       const idx = list.value.findIndex((item) => item.clothes_id === id)
       if (idx !== -1) list.value.splice(idx, 1)
     }
     selectedClothesIds.value = new Set()
   } catch {
-    toast.add({ title: '移动失败', icon: 'i-heroicons-exclamation-circle', color: 'red' })
+    toast.add({ title: t('wardrobe.toast.move_failed'), icon: 'i-heroicons-exclamation-circle', color: 'red' })
   }
 }
 // 多选模式底部栏：批量删除，调用 clothes/delete/ids
@@ -4518,14 +4619,14 @@ const confirmBatchDelete = async () => {
   if (ids.length === 0) return
   try {
     await deleteClothesByIds({ ids: ids.join(',') })
-    toast.add({ title: '删除成功', icon: 'i-heroicons-check-circle', color: 'green' })
+    toast.add({ title: t('wardrobe.toast.delete_success'), icon: 'i-heroicons-check-circle', color: 'green' })
     for (const id of ids) {
       const idx = list.value.findIndex((item) => item.clothes_id === id)
       if (idx !== -1) list.value.splice(idx, 1)
     }
     selectedClothesIds.value = new Set()
   } catch {
-    toast.add({ title: '删除失败', icon: 'i-heroicons-exclamation-circle', color: 'red' })
+    toast.add({ title: t('wardrobe.toast.delete_failed'), icon: 'i-heroicons-exclamation-circle', color: 'red' })
   } finally {
     showBatchDeleteModal.value = false
   }
@@ -4535,8 +4636,8 @@ const openBatchSortModal = () => {
   if (selectedClothesIds.value.size === 0) return
   if (!isCustomSortMode.value) {
     toast.add({
-      title: '当前为自动排序',
-      description: '请先在衣柜设置中将排序模式改为「自定义」',
+      title: t('wardrobe.toast.auto_sort'),
+      description: t('wardrobe.toast.auto_sort_hint'),
       color: 'amber',
       icon: 'i-heroicons-information-circle',
     })
@@ -4619,7 +4720,7 @@ const confirmBatchSort = async () => {
   const targetNo = parseBatchSortTargetNo(batchSortTargetNo.value)
   if (!Number.isFinite(targetNo) || targetNo < 1 || targetNo > max) {
     toast.add({
-      title: `请输入 1～${max} 之间的序号`,
+      title: t('wardrobe.toast.index_range', { max }),
       color: 'amber',
       icon: 'i-heroicons-information-circle',
     })
@@ -4629,7 +4730,7 @@ const confirmBatchSort = async () => {
   const unchanged = list.value.every((item, i) => item.clothes_id === newList[i]?.clothes_id)
   if (unchanged) {
     toast.add({
-      title: '位置未变化',
+      title: t('wardrobe.toast.position_unchanged'),
       color: 'gray',
       icon: 'i-heroicons-information-circle',
     })
@@ -4640,11 +4741,11 @@ const confirmBatchSort = async () => {
   isSorting.value = true
   try {
     await applyListReorderAndSave(newList)
-    toast.add({ title: '排序已更新', icon: 'i-heroicons-check-circle', color: 'green' })
+    toast.add({ title: t('wardrobe.toast.sort_updated'), icon: 'i-heroicons-check-circle', color: 'green' })
     showBatchSortModal.value = false
   } catch (error) {
     console.error('批量排序失败:', error)
-    toast.add({ title: '排序更新失败', icon: 'i-heroicons-exclamation-circle', color: 'red' })
+    toast.add({ title: t('wardrobe.toast.sort_update_failed'), icon: 'i-heroicons-exclamation-circle', color: 'red' })
     await reload()
   } finally {
     isSorting.value = false
@@ -4656,7 +4757,7 @@ const shareImageType = ref<'long' | 'favorite'>('long')
 
 function openShareModal(type: 'long' | 'favorite' = 'long') {
   if (!currentWardrobe.value?.wardrobe_id || !info.value) {
-    toast.add({ title: '请先选择衣柜', color: 'amber', icon: 'i-heroicons-information-circle' })
+    toast.add({ title: t('wardrobe.toast.select_wardrobe_first'), color: 'amber', icon: 'i-heroicons-information-circle' })
     return
   }
   shareImageType.value = type
@@ -4703,10 +4804,10 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
       aria-hidden="true"
     />
     <div v-if="isSorting || isWardrobeSorting" class="absolute inset-0 bg-white/50 flex z-10 items-center justify-center">
-      <span class="text-gray-600">正在保存排序……</span>
+      <span class="text-gray-600">{{ t('wardrobe.detail.saving_sort') }}</span>
     </div>
     <div v-if="isLoading && page === 1" class="absolute inset-0 bg-white/50 flex z-10 items-center justify-center">
-      <span class="text-gray-600">加载中……</span>
+      <span class="text-gray-600">{{ t('wardrobe.detail.loading') }}</span>
     </div>
     <!-- 弹幕组件：仅当开放弹幕时显示（时间轴空白模式下隐藏） -->
     <div
@@ -4744,7 +4845,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
         <div
           class="flex shrink-0 items-center justify-between gap-2 border-b border-pink-200/40 px-4 py-3"
         >
-          <span class="text-sm font-semibold text-[#4a2f3d]">衣柜分享图</span>
+          <span class="text-sm font-semibold text-[#4a2f3d]">{{ t('wardrobe.detail.share_image') }}</span>
           <button
             type="button"
             class="flex h-9 w-9 items-center justify-center rounded-xl text-[#8a6f7d] outline-none transition hover:bg-black/5"
@@ -4804,7 +4905,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
 
     <QhxModal @close="password = ''" v-model="showPassword" :trigger-position="clickPosition">
       <div class="p-6 w-[400px] bg-white rounded-[10px] max-h-[50vh] overflow-y-auto">
-        <UInput v-model="password" :placeholder="'请输入密码'" class="flex-1 focus:ring-0" :ui="{
+        <UInput v-model="password" :placeholder="t('wardrobe.detail.password_placeholder')" class="flex-1 focus:ring-0" :ui="{
           base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
           rounded: 'rounded-[10px]',
           padding: { xs: 'px-4 py-2' },
@@ -4822,7 +4923,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
           ]"
           :style="customBtnStyle"
           @click="checkPassword(record.wardrobe_id)">
-          确定
+          {{ t('common.confirm') }}
         </UButton>
       </div>
     </QhxModal>
@@ -4833,9 +4934,12 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
     <QrcodeList ref="qrcodeListRef" />
     <QhxModal v-model="showSwitchCustomSortModal">
       <div class="p-6 w-[min(94vw,420px)] bg-white rounded-[10px] shadow-lg">
-        <h3 class="text-base font-bold mb-4 text-gray-800">无法手动排序</h3>
+        <h3 class="text-base font-bold mb-4 text-gray-800">{{ t('wardrobe.detail.cannot_manual_sort') }}</h3>
         <p class="text-gray-700 mb-4">
-          当前为「{{ formatSortType(info?.sort_type) }}」，仅「自定义」排序可手动调整顺序。是否改为自定义排序并开启排序？
+          {{ t('wardrobe.detail.switch_custom_sort_hint', {
+            mode: formatSortType(info?.sort_type),
+            custom: t('wardrobe.sort.custom'),
+          }) }}
         </p>
         <div class="flex justify-end gap-2">
           <UButton
@@ -4845,7 +4949,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
             :disabled="loadingController.sort_type"
             @click="showSwitchCustomSortModal = false"
           >
-            取消
+            {{ t('common.cancel') }}
           </UButton>
           <UButton
             color="primary"
@@ -4854,15 +4958,15 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
             :style="customBtnStyle"
             @click="confirmSwitchToCustomSort"
           >
-            改为自定义并排序
+            {{ t('wardrobe.detail.switch_custom_sort_btn') }}
           </UButton>
         </div>
       </div>
     </QhxModal>
     <QhxModal v-model="showDeleteModal">
       <div class="p-6 w-[min(94vw,420px)] bg-white rounded-[10px] shadow-lg">
-        <h3 class="text-base font-bold mb-4 text-gray-800">操作确认</h3>
-        <p class="text-gray-700 mb-4">确定要删除这个衣柜吗？删除后将无法恢复。</p>
+        <h3 class="text-base font-bold mb-4 text-gray-800">{{ t('wardrobe.detail.confirm_title') }}</h3>
+        <p class="text-gray-700 mb-4">{{ t('wardrobe.detail.delete_wardrobe_confirm') }}</p>
         <div class="flex justify-end gap-2">
           <UButton
             color="gray"
@@ -4885,7 +4989,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
     </QhxModal>
     <QhxModal v-model="showBatchDeleteModal">
       <div class="p-6 w-[min(94vw,420px)] bg-white rounded-[10px] shadow-lg">
-        <h3 class="text-base font-bold mb-4 text-gray-800">批量删除确认</h3>
+        <h3 class="text-base font-bold mb-4 text-gray-800">{{ t('wardrobe.detail.batch_delete_confirm') }}</h3>
         <p class="text-gray-700 mb-4">确定要删除选中的 {{ selectedClothesIds.size }} 件服饰吗？删除后将无法恢复。</p>
         <div class="flex justify-end gap-2">
           <UButton
@@ -4909,17 +5013,17 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
     </QhxModal>
     <QhxModal v-model="showBatchLastDressModal">
       <div class="p-6 w-[min(94vw,420px)] max-h-[85vh] overflow-y-auto bg-white rounded-[10px] shadow-lg">
-        <h3 class="text-base font-bold mb-4 text-gray-800">批量修改穿着时间</h3>
+        <h3 class="text-base font-bold mb-4 text-gray-800">{{ t('wardrobe.detail.batch_wear_time') }}</h3>
         <p class="text-sm text-gray-600 mb-4">
           已选 {{ selectedClothesIds.size }} 件服饰，将统一设置最后穿着时间。可清除为空。
         </p>
-        <UFormGroup label="最后穿着时间">
+        <UFormGroup :label="t('wardrobe.detail.last_wear_time')">
           <QhxDateTimePicker
             v-model="batchLastDressValue"
             mode="date"
             :enable-time-picker="true"
             format="YYYY-MM-DD HH:mm:ss"
-            placeholder="选择穿着时间"
+            :placeholder="t('wardrobe.detail.select_wear_time')"
           />
         </UFormGroup>
         <div class="flex justify-end gap-2 mt-6">
@@ -4945,11 +5049,11 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
     </QhxModal>
     <QhxModal v-model="showBatchStatusModal">
       <div class="p-6 w-[min(94vw,420px)] max-h-[85vh] overflow-y-auto bg-white rounded-[10px] shadow-lg">
-        <h3 class="text-base font-bold mb-4 text-gray-800">批量修改拥有状态</h3>
+        <h3 class="text-base font-bold mb-4 text-gray-800">{{ t('wardrobe.detail.batch_status') }}</h3>
         <p class="text-sm text-gray-600 mb-4">
           已选 {{ selectedClothesIds.size }} 件服饰，请选择要统一设置的拥有状态。
         </p>
-        <UFormGroup label="拥有状态">
+        <UFormGroup :label="t('wardrobe.detail.ownership_status')">
           <div v-if="batchMultipleFormWardrobeStatus">
             <QhxTag>
               <div class="flex">
@@ -4959,7 +5063,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
                 >
                   <UIcon name="ant-design:close-outlined" class="text-[14px] text-[#ffffff]" />
                 </QhxJellyButton>
-                <div>{{ batchMultipleFormWardrobeStatus }}</div>
+                <div>{{ wardrobeStatusLabel(t, batchMultipleFormWardrobeStatus) }}</div>
               </div>
             </QhxTag>
           </div>
@@ -4969,16 +5073,16 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
             class="bg-qhx-primary text-qhx-inverted hover:bg-qhx-primaryHover mt-2"
             @click="(e: MouseEvent) => openBatchStatusPicker(e)"
           >
-            选择状态
+            {{ t('wardrobe.search.select_status') }}
           </UButton>
           <QhxOptionsChoose
             ref="batchStatusChooseRef"
-            title="选择状态"
+            :title="t('wardrobe.search.choose_status_title')"
             :options="batchWardrobeStatusOptions"
             :multiple="false"
             :can-customize="true"
-            :undeletable-values="wardrobe_status_defaults.map((item) => item.value)"
-            empty-confirm-message="请选择状态"
+            :undeletable-values="wardrobeStatusDefaultOptions.map((item) => item.value)"
+            :empty-confirm-message="t('wardrobe.search.choose_status_empty')"
             @select="onBatchWardrobeStatusChoose"
             @delete="onDeleteBatchStatusOption"
           />
@@ -5005,11 +5109,11 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
     </QhxModal>
     <QhxModal v-model="showBatchTagsModal">
       <div class="p-6 w-[min(94vw,420px)] max-h-[85vh] overflow-y-auto bg-white rounded-[10px] shadow-lg">
-        <h3 class="text-base font-bold mb-4 text-gray-800">批量添加标签</h3>
+        <h3 class="text-base font-bold mb-4 text-gray-800">{{ t('wardrobe.detail.batch_tags') }}</h3>
         <p class="text-sm text-gray-600 mb-4">
           已选 {{ selectedClothesIds.size }} 件服饰，新标签将追加到原有标签（自动去重）。
         </p>
-        <UFormGroup label="要追加的标签">
+        <UFormGroup :label="t('wardrobe.detail.tags_to_add')">
           <div v-if="batchTagsToAdd.length > 0" class="flex flex-wrap gap-2 mb-2">
             <QhxTag v-for="(tag, index) in batchTagsToAdd" :key="`${tag}-${index}`">
               <div class="flex">
@@ -5029,14 +5133,14 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
             class="bg-qhx-primary text-qhx-inverted hover:bg-qhx-primaryHover mt-2"
             @click="(e: MouseEvent) => openBatchTagPicker(e)"
           >
-            选择标签
+            {{ t('wardrobe.search.select_tags') }}
           </UButton>
           <QhxOptionsChoose
             ref="batchTagChooseRef"
-            title="选择标签"
+            :title="t('wardrobe.search.choose_tags_title')"
             :options="batchTagOptions"
             :can-customize="true"
-            empty-confirm-message="请选择标签"
+            :empty-confirm-message="t('wardrobe.search.choose_tags_empty')"
             @select="onBatchTagsChoose"
             @delete="onDeleteBatchTagOption"
           />
@@ -5063,12 +5167,12 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
     </QhxModal>
     <QhxModal v-model="showTagManageModal">
       <div class="p-6 w-[min(94vw,420px)] max-h-[85vh] overflow-y-auto bg-white rounded-[10px] shadow-lg">
-        <h3 class="text-base font-bold mb-2 text-gray-800">标签管理</h3>
+        <h3 class="text-base font-bold mb-2 text-gray-800">{{ t('wardrobe.detail.tag_manage') }}</h3>
         <p class="text-sm text-gray-600 mb-4">
-          拖拽调整展示顺序；删除后将从本衣柜全部服饰中移除该标签。
+          {{ t('wardrobe.detail.tag_manage_hint') }}
         </p>
         <div v-if="tagManageDraft.length === 0" class="py-8 text-center text-sm text-gray-500">
-          暂无标签
+          {{ t('wardrobe.detail.no_tags') }}
         </div>
         <QhxSortableList
           v-else
@@ -5083,8 +5187,8 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
               <button
                 type="button"
                 class="shrink-0 flex items-center justify-center w-6 h-8 rounded text-gray-400 hover:text-gray-600 cursor-grab active:cursor-grabbing touch-none"
-                title="拖拽排序"
-                aria-label="拖拽排序"
+                :title="t('wardrobe.detail.drag_sort')"
+                :aria-label="t('wardrobe.detail.drag_sort')"
               >
                 <UIcon name="material-symbols:drag-indicator" class="text-base" />
               </button>
@@ -5110,7 +5214,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
             :style="customBtnStyle"
             @click="showTagManageModal = false"
           >
-            取消
+            {{ t('common.cancel') }}
           </UButton>
           <UButton
             color="primary"
@@ -5120,19 +5224,19 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
             :style="customBtnStyle"
             @click="confirmTagManageSort"
           >
-            保存排序
+            {{ t('wardrobe.detail.save_sort') }}
           </UButton>
         </div>
       </div>
     </QhxModal>
     <QhxModal v-model="showStatusColorManageModal">
       <div class="p-6 w-[min(94vw,420px)] max-h-[85vh] overflow-y-auto bg-white rounded-[10px] shadow-lg">
-        <h3 class="text-base font-bold mb-2 text-gray-800">状态颜色</h3>
+        <h3 class="text-base font-bold mb-2 text-gray-800">{{ t('wardrobe.detail.status_color') }}</h3>
         <p class="text-sm text-gray-600 mb-4">
-          为各拥有状态设置角标与图例颜色，保存后写入本衣柜配置。
+          {{ t('wardrobe.detail.status_color_hint') }}
         </p>
         <div v-if="statusColorManageDraft.length === 0" class="py-8 text-center text-sm text-gray-500">
-          暂无状态
+          {{ t('wardrobe.detail.no_status') }}
         </div>
         <div v-else class="space-y-2">
           <div
@@ -5144,8 +5248,8 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
               type="button"
               class="shrink-0 h-8 w-8 rounded-full border-2 border-white shadow-sm ring-1 ring-black/10"
               :style="{ backgroundColor: item.color }"
-              :title="`选择「${item.label}」颜色`"
-              :aria-label="`选择${item.label}颜色`"
+              :title="t('wardrobe.detail.pick_status_color', { label: item.label })"
+              :aria-label="t('wardrobe.detail.pick_status_color', { label: item.label })"
               @click="openStatusColorPicker(item.label, $event)"
             />
             <span class="min-w-0 flex-1 truncate text-sm font-medium text-gray-800">
@@ -5161,7 +5265,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
               class="shrink-0"
               @click="resetStatusColorDraftItem(item.label)"
             >
-              默认
+              {{ t('common.default') }}
             </UButton>
           </div>
         </div>
@@ -5172,7 +5276,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
             :style="customBtnStyle"
             @click="showStatusColorManageModal = false"
           >
-            取消
+            {{ t('common.cancel') }}
           </UButton>
           <UButton
             color="primary"
@@ -5182,7 +5286,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
             :style="customBtnStyle"
             @click="confirmStatusColorManage"
           >
-            保存
+            {{ t('common.save') }}
           </UButton>
         </div>
       </div>
@@ -5190,9 +5294,9 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
     <QhxColorPicker ref="statusColorPickerRef" @choose="onStatusColorChoose" />
     <QhxModal v-model="showDeleteWardrobeTagModal">
       <div class="p-6 w-[min(94vw,420px)] bg-white rounded-[10px] shadow-lg">
-        <h3 class="text-base font-bold mb-2 text-gray-800">删除标签</h3>
+        <h3 class="text-base font-bold mb-2 text-gray-800">{{ t('wardrobe.detail.delete_tag') }}</h3>
         <p class="text-sm text-gray-600 mb-6">
-          确定删除标签「{{ pendingDeleteWardrobeTag }}」？将从本衣柜全部服饰中移除；若曾设置过标签排序，也会从排序列表中移除。
+          {{ t('wardrobe.detail.delete_tag_confirm', { tag: pendingDeleteWardrobeTag }) }}
         </p>
         <div class="flex justify-end gap-2">
           <UButton
@@ -5200,30 +5304,30 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
             :disabled="deleteWardrobeTagLoading"
             @click="showDeleteWardrobeTagModal = false"
           >
-            取消
+            {{ t('common.cancel') }}
           </UButton>
           <UButton
             color="red"
             :loading="deleteWardrobeTagLoading"
             @click="confirmDeleteWardrobeTag"
           >
-            确定删除
+            {{ t('clothes.detail.confirm_delete') }}
           </UButton>
         </div>
       </div>
     </QhxModal>
     <QhxModal v-model="showBatchSortModal">
       <div class="p-6 w-[min(94vw,420px)] bg-white rounded-[10px] shadow-lg">
-        <h3 class="text-base font-bold mb-2 text-gray-800">批量排序</h3>
+        <h3 class="text-base font-bold mb-2 text-gray-800">{{ t('wardrobe.detail.batch_sort') }}</h3>
         <p class="text-sm text-gray-600 mb-4">
           已选 {{ selectedClothesIds.size }} 件，将作为整体移动到封面所示序号。
         </p>
-        <UFormGroup label="移动到序号">
+        <UFormGroup :label="t('wardrobe.detail.move_to_index')">
           <UInput
             v-model="batchSortTargetNo"
             type="number"
             inputmode="numeric"
-            placeholder="请输入 1～列表总数"
+            :placeholder="t('wardrobe.detail.move_to_index_hint')"
             class="w-full"
             :ui="{
               base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
@@ -5260,8 +5364,8 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
     </QhxModal>
     <QhxModal v-model="planCompleteModal">
       <div class="p-6 w-[min(94vw,420px)] bg-white rounded-[10px] shadow-lg">
-        <h3 class="text-base font-bold mb-4 text-gray-800">操作确认</h3>
-        <p class="text-gray-700 mb-4">确定要完成该计划吗？</p>
+        <h3 class="text-base font-bold mb-4 text-gray-800">{{ t('wardrobe.detail.confirm_title') }}</h3>
+        <p class="text-gray-700 mb-4">{{ t('wardrobe.detail.complete_plan_confirm') }}</p>
         <div class="flex justify-end gap-2">
           <UButton
             color="gray"
@@ -5278,14 +5382,14 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
             :loading="planCompleteLoading"
             @click="handlePlanTimelineComplete"
           >
-            确认完成
+            {{ t('plan.confirm_complete_btn') }}
           </UButton>
         </div>
       </div>
     </QhxModal>
     <QhxModal v-model="showWardrobeHomeUpdateModal">
       <div class="p-6 w-[min(94vw,420px)] bg-white rounded-[10px] shadow-lg">
-        <h3 class="text-base font-bold mb-3 text-gray-800">设为首页</h3>
+        <h3 class="text-base font-bold mb-3 text-gray-800">{{ t('wardrobe.detail.set_home') }}</h3>
         <p class="text-sm text-gray-700 mb-4 leading-relaxed">
           设置首页需要最新 1.6.5 版本 App，请复制下方链接到浏览器中打开并更新。
         </p>
@@ -5293,12 +5397,12 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
           https://a.app.qq.com/o/simple.jsp?pkgname=uni.lolita
         </p>
         <div class="flex justify-end gap-2">
-          <UButton color="gray" @click="showWardrobeHomeUpdateModal = false">知道了</UButton>
+          <UButton color="gray" @click="showWardrobeHomeUpdateModal = false">{{ t('wardrobe.detail.got_it') }}</UButton>
           <!-- <UButton
             color="primary"
             @click="async () => {
               await navigator.clipboard.writeText('https://a.app.qq.com/o/simple.jsp?pkgname=uni.lolita')
-              toast.add({ title: '链接已复制', icon: 'i-heroicons-check-circle', color: 'green' })
+              toast.add({ title: t('wardrobe.toast.link_copied'), icon: 'i-heroicons-check-circle', color: 'green' })
             }"
           >
             复制链接
@@ -5308,7 +5412,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
     </QhxModal>
     <QhxModal v-model="showMoreMenu" :trigger-position="moreMenuPosition">
       <div class="p-4 w-[200px] bg-white rounded-[10px] shadow-lg">
-        <h3 class="text-sm font-bold mb-3 text-gray-800">更多选项</h3>
+        <h3 class="text-sm font-bold mb-3 text-gray-800">{{ t('wardrobe.detail.more_options') }}</h3>
 
         <button
           v-for="(tool, index) in moreToolbarTools"
@@ -5336,12 +5440,12 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
     </QhxModal>
     <QhxModal v-if="isPageOwner" v-model="showTutorialFirstAskModal">
       <div class="p-6 w-[min(94vw,400px)] bg-white rounded-[10px] shadow-lg">
-        <h3 class="text-base font-bold mb-2 text-gray-800">开启弹窗教程？</h3>
+        <h3 class="text-base font-bold mb-2 text-gray-800">{{ t('wardrobe.detail.enable_tutorial_q') }}</h3>
         <p class="text-sm text-gray-600 mb-1 leading-relaxed">
-          如果是第一次使用，建议开启学习一下哦。
+          {{ t('wardrobe.detail.tutorial_first_hint') }}
         </p>
         <p class="text-xs text-gray-500 mb-5 leading-relaxed">
-          开启后，将先带你快速了解衣柜常用功能；之后使用排序等功能时，还会弹出对应的详细引导。
+          {{ t('wardrobe.detail.tutorial_first_hint2') }}
         </p>
         <div class="flex justify-end gap-2">
           <UButton
@@ -5349,28 +5453,28 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
             :disabled="savingTutorialPopup"
             @click="confirmTutorialFirstAsk(false)"
           >
-            暂不开启
+            {{ t('wardrobe.detail.tutorial_skip') }}
           </UButton>
           <UButton
             color="primary"
             :disabled="savingTutorialPopup"
             @click="confirmTutorialFirstAsk(true)"
           >
-            开启教程
+            {{ t('wardrobe.detail.tutorial_enable_btn') }}
           </UButton>
         </div>
       </div>
     </QhxModal>
     <QhxModal v-if="isPageOwner" v-model="showTutorialModal">
       <div class="p-5 w-[min(94vw,400px)] bg-white rounded-[10px] shadow-lg">
-        <h3 class="text-base font-bold text-gray-800">功能教程</h3>
+        <h3 class="text-base font-bold text-gray-800">{{ t('wardrobe.detail.feature_tutorial') }}</h3>
         <p class="text-xs text-gray-500 mt-1 mb-4">
-          开启后，首次使用相关功能时会自动弹出步骤引导
+          {{ t('wardrobe.detail.tutorial_modal_hint') }}
         </p>
         <div class="flex items-center justify-between gap-3 mb-4">
           <div class="min-w-0">
-            <div class="text-sm font-medium text-gray-800">开启弹窗教程</div>
-            <div class="text-xs text-gray-500">关闭后所有功能教程均不再自动弹出</div>
+            <div class="text-sm font-medium text-gray-800">{{ t('wardrobe.detail.enable_tutorial') }}</div>
+            <div class="text-xs text-gray-500">{{ t('wardrobe.detail.enable_tutorial_hint') }}</div>
           </div>
           <UToggle
             v-model="wardrobeTutorialPopupToggle"
@@ -5397,18 +5501,18 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
                 class="shrink-0"
                 @click="replayWardrobeTutorial(item.id)"
               >
-                查看
+                {{ t('wardrobe.detail.tutorial_view') }}
               </UButton>
             </div>
             <div class="flex items-center justify-between gap-3 mt-2.5 pt-2.5 border-t border-gray-200/60">
               <div class="min-w-0">
-                <div class="text-xs font-medium text-gray-700">不再提示</div>
+                <div class="text-xs font-medium text-gray-700">{{ t('wardrobe.detail.dont_show_again') }}</div>
                 <div class="text-[11px] text-gray-500 mt-0.5">
                   {{ !wardrobeTutorialPopupToggle
-                    ? '请先开启弹窗教程'
+                    ? t('wardrobe.detail.tutorial_need_enable')
                     : item.status === 'dismissed'
-                      ? '已关闭该教程的自动弹出'
-                      : '开启后将不再自动弹出' }}
+                      ? t('wardrobe.detail.tutorial_dismissed_hint')
+                      : t('wardrobe.detail.tutorial_dismiss_hint') }}
                 </div>
               </div>
               <UToggle
@@ -5423,30 +5527,30 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
     </QhxModal>
     <QhxModal v-model="showLayoutModal">
       <div class="p-5 w-[min(94vw,360px)] max-h-[min(85dvh,640px)] overflow-y-auto bg-white rounded-[10px] shadow-lg">
-        <h3 class="text-base font-bold text-gray-800">布局设置</h3>
+        <h3 class="text-base font-bold text-gray-800">{{ t('wardrobe.detail.layout_settings') }}</h3>
         <p class="text-xs text-gray-500 mt-1 mb-4">
-          偏好将自动保存；侧栏、详情收起按钮仍可独立操作
+          {{ t('wardrobe.detail.layout_prefs_hint') }}
         </p>
         <div class="space-y-4">
           <div class="flex items-center justify-between gap-3">
             <div class="min-w-0">
-              <div class="text-sm font-medium text-gray-800">收起衣柜详情</div>
-              <div class="text-xs text-gray-500">隐藏顶部衣柜详情信息区</div>
+              <div class="text-sm font-medium text-gray-800">{{ t('wardrobe.detail.collapse_detail') }}</div>
+              <div class="text-xs text-gray-500">{{ t('wardrobe.detail.collapse_detail_hint') }}</div>
             </div>
             <UToggle v-model="headerCollapsed" />
           </div>
           <div class="flex items-center justify-between gap-3">
             <div class="min-w-0">
-              <div class="text-sm font-medium text-gray-800">收起左侧列表</div>
-              <div class="text-xs text-gray-500">隐藏左侧衣柜切换栏</div>
+              <div class="text-sm font-medium text-gray-800">{{ t('wardrobe.detail.collapse_sidebar') }}</div>
+              <div class="text-xs text-gray-500">{{ t('wardrobe.detail.collapse_sidebar_hint') }}</div>
             </div>
             <UToggle v-model="sidebarCollapsed" />
           </div>
           <div class="h-px bg-gray-200" />
           <div class="flex items-center justify-between gap-3">
             <div class="min-w-0">
-              <div class="text-sm font-medium text-gray-800">左上角工具栏</div>
-              <div class="text-xs text-gray-500">自定义侧栏与「更多」菜单显示项</div>
+              <div class="text-sm font-medium text-gray-800">{{ t('wardrobe.detail.toolbar') }}</div>
+              <div class="text-xs text-gray-500">{{ t('wardrobe.detail.toolbar_hint') }}</div>
             </div>
             <button
               type="button"
@@ -5458,7 +5562,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
           </div>
           <div class="h-px bg-gray-200" />
           <div>
-            <div class="text-sm font-medium text-gray-800 mb-1">服饰列表布局</div>
+            <div class="text-sm font-medium text-gray-800 mb-1">{{ t('wardrobe.detail.list_layout') }}</div>
             <div class="text-xs text-gray-500 mb-2">
               网格等宽排列；瀑布流按图片高度错落；列表一行一件；按部位分组展示（加载全部服饰）
             </div>
@@ -5472,7 +5576,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
                 @click="clothesListLayout = 'grid'"
               >
                 <UIcon name="i-heroicons-squares-2x2" class="text-xl" />
-                <span class="text-xs font-medium">网格</span>
+                <span class="text-xs font-medium">{{ t('wardrobe.detail.layout_grid') }}</span>
               </button>
               <button
                 type="button"
@@ -5483,7 +5587,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
                 @click="clothesListLayout = 'waterfall'"
               >
                 <UIcon name="i-heroicons-view-columns" class="text-xl" />
-                <span class="text-xs font-medium">瀑布流</span>
+                <span class="text-xs font-medium">{{ t('wardrobe.detail.layout_waterfall') }}</span>
               </button>
               <button
                 type="button"
@@ -5494,7 +5598,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
                 @click="clothesListLayout = 'list'"
               >
                 <UIcon name="i-heroicons-list-bullet" class="text-xl" />
-                <span class="text-xs font-medium">列表</span>
+                <span class="text-xs font-medium">{{ t('wardrobe.detail.layout_list') }}</span>
               </button>
               <button
                 type="button"
@@ -5505,13 +5609,13 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
                 @click="clothesListLayout = 'part'"
               >
                 <UIcon name="i-heroicons-rectangle-group" class="text-xl" />
-                <span class="text-xs font-medium">按部位</span>
+                <span class="text-xs font-medium">{{ t('wardrobe.detail.layout_by_part') }}</span>
               </button>
             </div>
           </div>
           <div class="h-px bg-gray-200" />
           <div>
-            <div class="text-sm font-medium text-gray-800 mb-1">功能按钮大小</div>
+            <div class="text-sm font-medium text-gray-800 mb-1">{{ t('wardrobe.detail.btn_size') }}</div>
             <div class="text-xs text-gray-500 mb-2">
               顶部添加、排序等工具按钮的尺寸
             </div>
@@ -5533,7 +5637,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
           <div>
             <div class="flex items-center justify-between gap-3">
               <div class="min-w-0">
-                <div class="text-sm font-medium text-gray-800">卡片字号</div>
+                <div class="text-sm font-medium text-gray-800">{{ t('wardrobe.detail.card_font') }}</div>
                 <div class="text-xs text-gray-500">
                   备注与价格文字大小，会重新校准列表高度
                 </div>
@@ -5550,29 +5654,29 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
           <div class="h-px bg-gray-200" />
           <div class="flex items-center justify-between gap-3">
             <div class="min-w-0">
-              <div class="text-sm font-medium text-gray-800">显示服饰备注</div>
-              <div class="text-xs text-gray-500">网格卡片下方展示服饰备注</div>
+              <div class="text-sm font-medium text-gray-800">{{ t('wardrobe.detail.show_note') }}</div>
+              <div class="text-xs text-gray-500">{{ t('wardrobe.detail.show_note_hint') }}</div>
             </div>
             <UToggle v-model="showClothesNote" />
           </div>
           <div class="flex items-center justify-between gap-3">
             <div class="min-w-0">
-              <div class="text-sm font-medium text-gray-800">显示服饰价格</div>
-              <div class="text-xs text-gray-500">网格卡片下方展示单价</div>
+              <div class="text-sm font-medium text-gray-800">{{ t('wardrobe.detail.show_price_card') }}</div>
+              <div class="text-xs text-gray-500">{{ t('wardrobe.detail.show_price_card_hint') }}</div>
             </div>
             <UToggle v-model="showClothesPrice" />
           </div>
           <div class="flex items-center justify-between gap-3">
             <div class="min-w-0">
-              <div class="text-sm font-medium text-gray-800">显示服饰状态</div>
-              <div class="text-xs text-gray-500">网格卡片左上角展示拥有状态</div>
+              <div class="text-sm font-medium text-gray-800">{{ t('wardrobe.detail.show_status_card') }}</div>
+              <div class="text-xs text-gray-500">{{ t('wardrobe.detail.show_status_card_hint') }}</div>
             </div>
             <UToggle v-model="showClothesStatus" />
           </div>
           <div class="flex items-center justify-between gap-3">
             <div class="min-w-0">
-              <div class="text-sm font-medium text-gray-800">显示喜爱评级</div>
-              <div class="text-xs text-gray-500">网格卡片展示数字 + 星评级</div>
+              <div class="text-sm font-medium text-gray-800">{{ t('wardrobe.detail.show_favorite') }}</div>
+              <div class="text-xs text-gray-500">{{ t('wardrobe.detail.show_favorite_hint') }}</div>
             </div>
             <UToggle v-model="showClothesFavorite" />
           </div>
@@ -5581,7 +5685,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
     </QhxModal>
     <QhxModal v-model="showToolbarConfigModal">
       <div class="p-5 w-[min(94vw,360px)] max-h-[min(80dvh,560px)] flex flex-col bg-white rounded-[10px] shadow-lg">
-        <h3 class="text-base font-bold text-gray-800">工具栏配置</h3>
+        <h3 class="text-base font-bold text-gray-800">{{ t('wardrobe.detail.toolbar_config') }}</h3>
         <p class="text-xs text-gray-500 mt-1 shrink-0">
           长按拖动调整顺序；选择显示在侧栏或收入「更多」；偏好自动保存
         </p>
@@ -5658,7 +5762,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
               </template>
             </Draggable>
             <template #fallback>
-              <div class="py-8 text-center text-xs text-gray-500">加载排序组件中…</div>
+              <div class="py-8 text-center text-xs text-gray-500">{{ t('wardrobe.detail.loading_sort') }}</div>
             </template>
           </ClientOnly>
         </div>
@@ -5733,7 +5837,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
             left: '12px',
             ...customBtnStyle,
           }"
-          aria-label="返回"
+          :aria-label="t('common.back')"
           :aria-hidden="hideBackBtnVisual"
           :tabindex="hideBackBtnVisual ? -1 : 0"
           @click="goBack"
@@ -5759,7 +5863,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
               hideBackBtnVisual && 'invisible pointer-events-none',
             ]"
             :style="customBtnStyle"
-            aria-label="返回"
+            :aria-label="t('common.back')"
             :aria-hidden="hideBackBtnVisual"
             :tabindex="hideBackBtnVisual ? -1 : 0"
             @click="goBack"
@@ -5794,7 +5898,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
               >
                 <UIcon name="material-symbols:more-horiz" class="text-[16px]" />
               </div>
-              <div class="text-xs text-qhx-text">更多</div>
+              <div class="text-xs text-qhx-text">{{ t('common.more') }}</div>
             </div>
           </QhxJellyButton>
         </div>
@@ -5830,7 +5934,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
                       class="plan-timeline-hint mb-3 text-[11px] font-medium tracking-wide opacity-90 hover:opacity-100 transition-opacity underline-offset-2 hover:underline select-none"
                       aria-hidden="true"
                     >
-                      点我
+                      {{ t('wardrobe.detail.tap_me') }}
                     </span>
                   </div>
                 </div>
@@ -5860,8 +5964,8 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
           sidebarCollapsed ? 'is-collapsed' : 'is-expanded',
           !sidebarTransitionEnabled && 'is-no-transition',
         ]"
-        :title="sidebarCollapsed ? '展开衣柜列表' : '收起衣柜列表'"
-        :aria-label="sidebarCollapsed ? '展开衣柜列表' : '收起衣柜列表'"
+        :title="sidebarCollapsed ? t('wardrobe.detail.expand_list') : t('wardrobe.detail.collapse_list')"
+        :aria-label="sidebarCollapsed ? t('wardrobe.detail.expand_list') : t('wardrobe.detail.collapse_list')"
         @click="toggleSidebarCollapsed"
       >
         <span class="wardrobe-collapse-toggle wardrobe-collapse-toggle--float-left pointer-events-none">
@@ -5897,7 +6001,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
                     >
                       <UIcon name="material-symbols:museum-outline" class="text-[16px]" />
                     </div>
-                    <div class="text-xs whitespace-nowrap">展馆</div>
+                    <div class="text-xs whitespace-nowrap">{{ t('wardrobe.detail.gallery') }}</div>
                   </div>
                 </QhxJellyButton>
                 <QhxJellyButton v-if="isInUniAppShell">
@@ -5910,7 +6014,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
                         @update:model-value="handleWardrobeAsHomeChange"
                       />
                     </div>
-                    <div class="text-xs whitespace-nowrap">设为首页</div>
+                    <div class="text-xs whitespace-nowrap">{{ t('wardrobe.detail.set_home') }}</div>
                   </div>
                 </QhxJellyButton>
                 <QhxJellyButton>
@@ -5923,7 +6027,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
                     >
                       <UIcon name="i-heroicons-sparkles" class="text-[16px]" />
                     </div>
-                    <div class="text-xs">根据衣柜推荐</div>
+                    <div class="text-xs">{{ t('wardrobe.detail.recommend') }}</div>
                   </div>
                 </QhxJellyButton>
                 <QhxJellyButton v-if="isWardrobeOwner">
@@ -5936,7 +6040,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
                     >
                       <UIcon name="i-heroicons-cog-6-tooth" class="text-[16px]" />
                     </div>
-                    <div class="text-xs">徽章</div>
+                    <div class="text-xs">{{ t('wardrobe.detail.badge') }}</div>
                   </div>
                 </QhxJellyButton>
                 <QhxJellyButton v-if="isWardrobeOwner">
@@ -5949,7 +6053,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
                     >
                       <UIcon name="material-symbols:qr-code-2" class="text-[16px]" />
                     </div>
-                    <div class="text-xs">二维码</div>
+                    <div class="text-xs">{{ t('wardrobe.detail.qrcode') }}</div>
                   </div>
                 </QhxJellyButton>
                 <QhxJellyButton>
@@ -5962,7 +6066,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
                     >
                       <UIcon name="ic:round-share" class="text-[16px]" />
                     </div>
-                    <div class="text-xs">分享</div>
+                    <div class="text-xs">{{ t('wardrobe.detail.share') }}</div>
                   </div>
                 </QhxJellyButton>
                 <QhxJellyButton v-if="isWardrobeOwner">
@@ -5975,7 +6079,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
                     >
                       <UIcon name="i-heroicons-pencil-square" class="text-[16px]" />
                     </div>
-                    <div class="text-xs">编辑</div>
+                    <div class="text-xs">{{ t('common.edit') }}</div>
                   </div>
                 </QhxJellyButton>
                 <QhxJellyButton v-if="isWardrobeOwner">
@@ -5988,7 +6092,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
                     >
                       <UIcon name="i-heroicons-trash" class="text-[16px]" />
                     </div>
-                    <div class="text-xs">删除</div>
+                    <div class="text-xs">{{ t('common.delete') }}</div>
                   </div>
                 </QhxJellyButton>
               </div>
@@ -6001,10 +6105,14 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
               {{ info.wardrobe_desc }}
             </p>
             <p class="text-sm">
-              衣柜收纳: {{ info.total_count || 0 }} 条 · 穿着 {{ info.total_times ?? 0 }}次 · {{ info.total_community || 0 }}条回忆
+              {{ t('wardrobe.detail.stats_line', {
+                count: info.total_count || 0,
+                times: info.total_times ?? 0,
+                memories: info.total_community || 0,
+              }) }}
             </p>
             <p class="text-sm flex items-center">
-              <span>衣柜总价: ￥ </span>
+              <span>{{ t('wardrobe.detail.total_price') }}</span>
               <span>{{ info.show_price !== 1 ? '***' : (info.total_price || 0) }}</span>
               <span v-if="isWardrobeOwner" class="flex items-center ml-2 cursor-pointer" @click="showChoosePrice">
                 <QhxJellyButton v-if="isWardrobeOwner" @click="showChoosePrice">
@@ -6017,17 +6125,17 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
                   </div>
                 </QhxJellyButton>
                 <span class="text-xs ml-1 text-qhx-text">
-                  {{ info.show_price === 0 ? '隐藏总价' : info.show_price === 2 ? '隐藏所有' : '' }}
+                  {{ info.show_price === 0 ? t('wardrobe.show_price.hide_total') : info.show_price === 2 ? t('wardrobe.show_price.hide_all') : '' }}
                 </span>
               </span>
             </p>
             <p v-if="hasConfigAllWardrobesTotalPrice" class="text-sm flex items-center">
-              <span>全衣柜总价: ￥ </span>
+              <span>{{ t('wardrobe.detail.all_total_price') }}</span>
               <span>{{ info.show_price !== 1 ? '***' : (wardrobeStore.config?.total_price || '0.00') }}</span>
             </p>
             <!-- 是否私密（仅拥有者可见） -->
             <div v-if="isWardrobeOwner" class="flex items-center justify-between text-sm">
-              <span class="text-qhx-text">是否私密:</span>
+              <span class="text-qhx-text">{{ t('wardrobe.detail.is_private') }}</span>
               <div class="flex items-center">
                 <UToggle 
                   :model-value="(info.is_private ?? 0) === 1" 
@@ -6036,14 +6144,14 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
                   :disabled="loadingController.is_private"
                 />
                 <span class="text-xs ml-2 text-qhx-text">
-                  {{ (info.is_private ?? 0) === 1 ? '私密' : '开放' }}
+                  {{ (info.is_private ?? 0) === 1 ? t('wardrobe.add_edit.private_on') : t('wardrobe.add_edit.private_off') }}
                 </span>
               </div>
             </div>
             
             <!-- 排序模式（仅拥有者可见） -->
             <p class="text-sm flex items-center">
-              <span>排序模式: {{ formatSortType(info.sort_type) }}</span>
+              <span>{{ t('wardrobe.detail.sort_mode', { mode: formatSortType(info.sort_type) }) }}</span>
               <QhxJellyButton v-if="isWardrobeOwner" @click="showChooseSort">
                 <div
                   class="wardrobe-neu-tool-orb cursor-pointer m-[3px] rounded-[50%] h-[24px] w-[24px] flex items-center justify-center"
@@ -6079,7 +6187,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
               <div class="wardrobe-status-legend flex min-w-0 flex-1 flex-nowrap items-center gap-x-2.5 overflow-x-auto">
                 <span
                   v-for="item in wardrobeStatusLegendItems"
-                  :key="`status-legend-${item.label}`"
+                  :key="`status-legend-${item.statusValue}`"
                   class="inline-flex shrink-0 items-center gap-1 whitespace-nowrap text-xs text-qhx-text"
                 >
                   <span
@@ -6096,14 +6204,14 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
                   :active="true"
                   @click="openStatusColorManageModal"
                 >
-                  管理
+                  {{ t('wardrobe.detail.manage') }}
                 </QhxTag>
               </QhxJellyButton>
             </div>
 
             <div class="flex items-center space-x-3">
               <div>
-                <p class="text-xs">创建于 {{ dayjs(info.create_date).format('YYYY-MM-DD') }}</p>
+                <p class="text-xs">{{ t('wardrobe.detail.created_at', { date: dayjs(info.create_date).format('YYYY-MM-DD') }) }}</p>
               </div>
             </div>
           </div>
@@ -6114,8 +6222,8 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
             id="wardrobe-guide-header-toggle"
             type="button"
             class="wardrobe-collapse-toggle"
-            :title="headerCollapsed ? '展开衣柜详情' : '收起衣柜详情'"
-            :aria-label="headerCollapsed ? '展开衣柜详情' : '收起衣柜详情'"
+            :title="headerCollapsed ? t('wardrobe.detail.expand_header') : t('wardrobe.detail.collapse_header')"
+            :aria-label="headerCollapsed ? t('wardrobe.detail.expand_header') : t('wardrobe.detail.collapse_header')"
             @click="toggleHeaderCollapsed"
           >
             <UIcon
@@ -6127,8 +6235,8 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
             v-if="headerCollapsed"
             type="button"
             class="wardrobe-collapse-toggle"
-            title="根据衣柜推荐"
-            aria-label="根据衣柜推荐"
+            :title="t('wardrobe.detail.recommend')"
+            :aria-label="t('wardrobe.detail.recommend')"
             @click="wardrobeSimilarRecommendRef?.open()"
           >
             <UIcon name="i-heroicons-sparkles" class="text-[16px]" />
@@ -6137,8 +6245,8 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
             v-if="headerCollapsed"
             type="button"
             class="wardrobe-collapse-toggle"
-            title="分享"
-            aria-label="分享"
+            :title="t('wardrobe.detail.share')"
+            :aria-label="t('wardrobe.detail.share')"
             @click="copyUrl()"
           >
             <UIcon name="ic:round-share" class="text-[16px]" />
@@ -6146,8 +6254,8 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
           <button
             type="button"
             class="wardrobe-collapse-toggle"
-            title="布局设置"
-            aria-label="布局设置"
+            :title="t('wardrobe.detail.layout_settings')"
+            :aria-label="t('wardrobe.detail.layout_settings')"
             @click="openLayoutModal"
           >
             <UIcon name="material-symbols:dashboard-customize-outline" class="text-[16px]" />
@@ -6173,7 +6281,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
                   >
                     <UIcon name="material-symbols:add-2" class="text-[20px]" />
                   </div>
-                  <div class="text-sm text-qhx-text">添加</div>
+                  <div class="text-sm text-qhx-text">{{ t('common.add') }}</div>
                 </div>
               </QhxJellyButton>
               <QhxJellyButton>
@@ -6189,7 +6297,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
                   >
                     <UIcon name="i-heroicons-squares-plus" class="text-[20px]" />
                   </div>
-                  <div class="text-sm text-qhx-text">批量添加</div>
+                  <div class="text-sm text-qhx-text">{{ t('wardrobe.detail.batch_add') }}</div>
                 </div>
               </QhxJellyButton>
               <QhxJellyButton>
@@ -6205,7 +6313,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
                   >
                     <UIcon name="material-symbols:document-scanner-outline" class="text-[20px]" />
                   </div>
-                  <div class="text-sm text-qhx-text">识图添加</div>
+                  <div class="text-sm text-qhx-text">{{ t('wardrobe.detail.extract_add') }}</div>
                 </div>
               </QhxJellyButton>
               <QhxJellyButton>
@@ -6225,7 +6333,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
                       :class="toolbarCollapsed && !overviewGuideToolbarExpanded ? '' : 'rotate-180'"
                     />
                   </div>
-                  <div class="text-sm text-qhx-text">{{ toolbarCollapsed ? '展开' : '收起' }}</div>
+                  <div class="text-sm text-qhx-text">{{ toolbarCollapsed ? t('clothes.detail.expand_bar') : t('clothes.detail.collapse_bar') }}</div>
                 </div>
               </QhxJellyButton>
             </div>
@@ -6242,7 +6350,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
                   >
                     <UIcon name="material-symbols:school-outline" class="text-[20px]" />
                   </div>
-                  <div class="text-sm text-qhx-text">教程</div>
+                  <div class="text-sm text-qhx-text">{{ t('wardrobe.detail.tutorial') }}</div>
                 </div>
               </QhxJellyButton>
             </div>
@@ -6274,7 +6382,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
                     >
                       <UIcon name="icon-park-outline:sort-two" class="text-[16px]" />
                     </div>
-                    <div class="text-xs text-qhx-text">排序</div>
+                    <div class="text-xs text-qhx-text">{{ t('wardrobe.detail.sort') }}</div>
                   </div>
                 </QhxJellyButton>
                 <QhxJellyButton>
@@ -6290,7 +6398,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
                     >
                       <UIcon name="i-heroicons-pencil-square" class="text-[16px]" />
                     </div>
-                    <div class="text-xs text-qhx-text">编辑模式</div>
+                    <div class="text-xs text-qhx-text">{{ t('wardrobe.detail.edit_mode') }}</div>
                   </div>
                 </QhxJellyButton>
                 <QhxJellyButton>
@@ -6306,7 +6414,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
                     >
                       <UIcon name="material-symbols:add-shopping-cart-rounded" class="text-[16px]" />
                     </div>
-                    <div class="text-xs text-qhx-text">搭配模式</div>
+                    <div class="text-xs text-qhx-text">{{ t('wardrobe.detail.match_mode') }}</div>
                   </div>
                 </QhxJellyButton>
                 <QhxJellyButton>
@@ -6322,7 +6430,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
                     >
                       <UIcon name="material-symbols:checklist" class="text-[16px]" />
                     </div>
-                    <div class="text-xs text-qhx-text">多选</div>
+                    <div class="text-xs text-qhx-text">{{ t('wardrobe.detail.multi_select') }}</div>
                   </div>
                 </QhxJellyButton>
                 <QhxJellyButton>
@@ -6333,7 +6441,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
                     >
                       <UIcon name="i-heroicons-photo-20-solid" class="text-[16px]" />
                     </div>
-                    <div class="text-xs text-qhx-text">分享图</div>
+                    <div class="text-xs text-qhx-text">{{ t('wardrobe.detail.share_img') }}</div>
                   </div>
                 </QhxJellyButton>
                 <QhxJellyButton>
@@ -6344,7 +6452,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
                     >
                       <UIcon name="material-symbols:dashboard-customize-outline" class="text-[16px]" />
                     </div>
-                    <div class="text-xs text-qhx-text">布局</div>
+                    <div class="text-xs text-qhx-text">{{ t('wardrobe.detail.layout') }}</div>
                   </div>
                 </QhxJellyButton>
                 <QhxJellyButton>
@@ -6364,7 +6472,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
                         {{ filterCount > 99 ? '99+' : filterCount }}
                       </span>
                     </div>
-                    <div class="text-xs text-qhx-text">筛选</div>
+                    <div class="text-xs text-qhx-text">{{ t('wardrobe.detail.filter') }}</div>
                   </div>
                 </QhxJellyButton>
               </div>
@@ -6390,7 +6498,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
                 >
                   <UIcon name="material-symbols:content-copy-outline" class="text-[20px]" />
                 </div>
-                <div class="text-sm text-qhx-text">{{ selectMode ? '取消复制' : '复制模式' }}</div>
+                <div class="text-sm text-qhx-text">{{ selectMode ? t('wardrobe.detail.cancel_copy') : t('wardrobe.detail.copy_mode') }}</div>
               </div>
             </QhxJellyButton>
           </div>
@@ -6422,7 +6530,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
               :active="true"
               @click="openTagManageModal"
             >
-              管理
+              {{ t('wardrobe.detail.manage') }}
             </QhxTag>
           </QhxJellyButton>
         </div>
@@ -6450,7 +6558,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
                 :class="getWardrobeStatusBadgeClass()"
                 :style="getWardrobeStatusBadgeStyle(element.wardrobe_status)"
               >
-                {{ element.wardrobe_status }}
+                {{ wardrobeStatusLabel(t, element.wardrobe_status) }}
               </div>
               <div
                 v-if="shouldShowClothesFavoriteBadge(element)"
@@ -6486,16 +6594,16 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
                 {{ element.clothes_note?.trim() || '暂无备注' }}
               </div>
               <div class="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 text-xs text-gray-600">
-                <span class="tabular-nums">穿着次数：{{ element.times ?? 0 }}</span>
+                <span class="tabular-nums">{{ t('wardrobe.detail.wear_times', { count: element.times ?? 0 }) }}</span>
                 <span v-if="hasClothesPrice(element)">
                   价格：￥{{ info?.show_price === 2 ? '***' : (element.price || 0) }}
                 </span>
                 <span v-if="element.original_price">
                   原价：￥{{ info?.show_price === 2 ? '***' : element.original_price }}
                 </span>
-                <span v-if="element.size?.trim()">尺码：{{ element.size }}</span>
-                <span v-if="element.clothes_part?.trim()">部位：{{ element.clothes_part }}</span>
-                <span v-if="formatClothesListDate(element)">入柜：{{ formatClothesListDate(element) }}</span>
+                <span v-if="element.size?.trim()">{{ t('wardrobe.detail.size', { size: element.size }) }}</span>
+                <span v-if="element.clothes_part?.trim()">{{ t('wardrobe.detail.part', { part: element.clothes_part }) }}</span>
+                <span v-if="formatClothesListDate(element)">{{ t('wardrobe.detail.added_on', { date: formatClothesListDate(element) }) }}</span>
               </div>
               <div v-if="element.season?.trim()" class="mt-1.5 flex flex-wrap items-center gap-1">
                 <QhxTag
@@ -6503,7 +6611,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
                   :key="`${element.clothes_id}-season-${seasonIndex}`"
                   class="!text-[10px]"
                 >
-                  {{ season.trim() }}
+                  {{ wardrobeSeasonLabel(t, season.trim()) }}
                 </QhxTag>
               </div>
               <div v-if="element.tags?.trim()" class="mt-1 line-clamp-1 text-[11px] text-gray-500">
@@ -6579,7 +6687,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
                   :class="getWardrobeStatusBadgeClass()"
                   :style="getWardrobeStatusBadgeStyle(element.wardrobe_status)"
                 >
-                  {{ element.wardrobe_status }}
+                  {{ wardrobeStatusLabel(t, element.wardrobe_status) }}
                 </div>
                 <div
                   v-if="shouldShowClothesFavoriteBadge(element)"
@@ -6722,7 +6830,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
                     :class="getWardrobeStatusBadgeClass()"
                     :style="getWardrobeStatusBadgeStyle(element.wardrobe_status)"
                   >
-                    {{ element.wardrobe_status }}
+                    {{ wardrobeStatusLabel(t, element.wardrobe_status) }}
                   </div>
                   <div
                     v-if="shouldShowClothesFavoriteBadge(element)"
@@ -6897,7 +7005,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
               <template #item="{ element: group }">
                 <div class="mt-1 flex items-center gap-2 px-1.5 max-md:px-1">
                   <h4 class="min-w-0 flex-1 truncate text-sm font-semibold text-gray-800">
-                    {{ group.part }}
+                    {{ wardrobePartLabel(t, group.part) }}
                   </h4>
                   <span class="shrink-0 text-xs tabular-nums text-gray-400">
                     {{ group.items.length }}
@@ -7041,19 +7149,19 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
                 class="grid grid-cols-3 gap-2 text-center sm:gap-4 sm:text-left"
               >
                 <div>
-                  <p class="text-[10px] font-medium text-neutral-500">总条数</p>
+                  <p class="text-[10px] font-medium text-neutral-500">{{ t('wardrobe.detail.count_total') }}</p>
                   <p class="mt-0.5 font-mono text-base font-semibold tabular-nums text-neutral-900">
                     {{ timelineStats.count }}
                   </p>
                 </div>
                 <div>
-                  <p class="text-[10px] font-medium text-neutral-500">总价</p>
+                  <p class="text-[10px] font-medium text-neutral-500">{{ t('wardrobe.detail.price_total') }}</p>
                   <p class="mt-0.5 font-mono text-base font-semibold tabular-nums text-neutral-900">
                     ￥ {{ info?.show_price === 1 ? Math.round(timelineStats.totalPrice) : '***' }}
                   </p>
                 </div>
                 <div>
-                  <p class="text-[10px] font-medium text-neutral-500">日均成本</p>
+                  <p class="text-[10px] font-medium text-neutral-500">{{ t('wardrobe.detail.daily_cost') }}</p>
                   <p
                     v-if="timelineStats.datedCount > 0"
                     class="mt-0.5 text-[9px] leading-tight text-neutral-500/90"
@@ -7072,14 +7180,14 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
               v-if="isLoading && list.length === 0"
               class="flex min-h-[40vh] items-center justify-center font-serif text-neutral-500"
             >
-              <span class="text-sm">卷轴展开中…</span>
+              <span class="text-sm">{{ t('wardrobe.detail.scroll_expanding') }}</span>
             </div>
             <div
               v-else-if="!isLoading && list.length === 0"
               class="flex min-h-[40vh] flex-col items-center justify-center gap-2 text-center text-neutral-500"
             >
               <UIcon name="material-symbols:auto-stories-outline" class="text-4xl opacity-40" />
-              <p class="text-sm font-serif">暂无记录</p>
+              <p class="text-sm font-serif">{{ t('wardrobe.detail.no_records') }}</p>
             </div>
             <template v-else>
               <div class="timeline-history relative w-full max-w-3xl pl-4 md:pl-5">
@@ -7087,207 +7195,181 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
                   class="timeline-spine pointer-events-none absolute bottom-4 left-[7px] top-0 w-[0.5px] bg-gradient-to-b from-neutral-300/90 via-neutral-400/70 to-neutral-300/40 md:left-[9px]"
                   aria-hidden="true"
                 />
-                <article
-                  v-for="node in timelineNodes"
-                  :key="node.key"
-                  class="timeline-node relative pb-8 pl-3 md:pb-10 md:pl-5"
-                  :class="isTimelineNodeFanExpanded(node.key) ? 'z-[90] isolate' : ''"
+                <section
+                  v-for="month in timelineMonthGroups"
+                  :key="month.key"
+                  class="timeline-month relative pb-2 md:pb-3"
                 >
                   <div
-                    class="timeline-node-dot absolute left-[5px] top-1 z-[2] h-1.5 w-1.5 rounded-full border border-neutral-800 bg-white shadow-sm md:left-[6px] md:h-2 md:w-2"
+                    class="timeline-month-dot absolute left-[3px] top-1.5 z-[3] h-2.5 w-2.5 rounded-full border-[1.5px] border-neutral-900 bg-neutral-100 shadow-sm md:left-[4px] md:h-3 md:w-3"
                     aria-hidden="true"
                   />
-                  <div class="mb-3 flex flex-col gap-1 pr-0.5">
-                    <header class="flex flex-row flex-wrap items-baseline justify-between gap-x-2 gap-y-0.5">
-                      <time
-                        class="font-mono text-xs font-semibold tabular-nums tracking-tight text-neutral-900 md:text-sm"
-                        :datetime="node.key === '__unknown__' ? undefined : node.key"
-                      >
-                        {{ node.dateLabel }}
-                      </time>
-                      <span
-                        v-if="node.daysInCabinetText"
-                        class="shrink-0 text-[10px] leading-none text-neutral-500"
-                      >
-                        {{ node.daysInCabinetText }}
-                      </span>
-                    </header>
-                    <p class="text-[10px] leading-snug text-neutral-500">
-                      当日总价
-                      <span class="ml-1 font-mono text-neutral-700">
-                        ￥ {{ info?.show_price === 1 ? (node.dayTotal || 0) : '***' }}
-                      </span>
-                    </p>
-                  </div>
+                  <button
+                    type="button"
+                    class="timeline-month-toggle group mb-2 flex w-full items-start gap-2 rounded-lg py-1 pl-3 pr-1 text-left outline-none transition-colors hover:bg-neutral-900/[0.03] focus-visible:ring-2 focus-visible:ring-neutral-400/70 md:pl-5"
+                    :aria-expanded="!isTimelineMonthCollapsed(month.key)"
+                    :aria-controls="`timeline-month-days-${month.key}`"
+                    @click="toggleTimelineMonthCollapse(month.key)"
+                  >
+                    <div class="min-w-0 flex-1">
+                      <header class="flex flex-row flex-wrap items-baseline justify-between gap-x-2 gap-y-0.5">
+                        <time
+                          class="font-serif text-sm font-semibold tracking-tight text-neutral-900 md:text-base"
+                          :datetime="month.key === '__unknown__' ? undefined : month.key"
+                        >
+                          {{ month.monthLabel }}
+                        </time>
+                        <span class="shrink-0 text-[10px] leading-none text-neutral-500">
+                          {{ month.itemCount }} 件 · {{ month.dayCount }} 天
+                        </span>
+                      </header>
+                      <p class="mt-1 text-[10px] leading-snug text-neutral-500">
+                        当月总价
+                        <span class="ml-1 font-mono text-neutral-800">
+                          ￥ {{ info?.show_price === 1 ? (month.monthTotal || 0) : '***' }}
+                        </span>
+                      </p>
+                    </div>
+                    <span
+                      class="timeline-month-chevron mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-neutral-500 transition-transform duration-300 ease-[cubic-bezier(0.4,0,0.2,1)] group-hover:text-neutral-800"
+                      :class="isTimelineMonthCollapsed(month.key) ? '-rotate-90' : 'rotate-0'"
+                      aria-hidden="true"
+                    >
+                      <UIcon name="material-symbols:expand-more" class="text-lg" />
+                    </span>
+                  </button>
 
-                  <!-- 单日仅 1 件：小塔罗单卡 -->
                   <div
-                    v-if="node.items.length === 1 && node.items[0]"
-                    class="inline-flex w-fit max-w-full justify-start pl-0 md:pl-2"
+                    class="grid transition-[grid-template-rows] duration-350 ease-[cubic-bezier(0.4,0,0.2,1)]"
+                    :class="isTimelineMonthCollapsed(month.key) ? 'overflow-hidden' : 'overflow-visible'"
+                    :style="{
+                      gridTemplateRows: isTimelineMonthCollapsed(month.key) ? '0fr' : '1fr',
+                    }"
                   >
                     <div
-                      class="timeline-tarot timeline-tarot--sm group text-left"
+                      :id="`timeline-month-days-${month.key}`"
+                      class="min-h-0"
+                      :class="isTimelineMonthCollapsed(month.key)
+                        ? 'pointer-events-none overflow-hidden opacity-0'
+                        : 'overflow-visible opacity-100'"
+                      :style="{
+                        transform: isTimelineMonthCollapsed(month.key) ? 'translateY(-6px)' : 'translateY(0)',
+                        transition: 'opacity 0.28s ease, transform 0.32s cubic-bezier(0.4, 0, 0.2, 1)',
+                        transitionDelay: isTimelineMonthCollapsed(month.key) ? '0s' : '0.05s',
+                      }"
                     >
-                      <div class="timeline-tarot-frame">
-                        <div class="timeline-tarot-inner">
-                          <div class="timeline-tarot-image-wrap">
-                            <img
-                              v-if="node.items[0].clothes_img"
-                              :src="wardrobeClothesPosterSrc(node.items[0].clothes_img)"
-                              class="timeline-tarot-img"
-                              draggable="false"
-                              loading="lazy"
-                              alt=""
-                              @contextmenu.prevent
-                            />
-                            <div v-else class="flex h-full w-full items-center justify-center bg-neutral-200/40 text-neutral-400">
-                              <UIcon name="material-symbols:dresser-outline" class="text-2xl opacity-70" />
-                            </div>
-                            <div class="timeline-tarot-vignette" />
-                            <div
-                              class="wardrobe-img-touch-shield"
-                              aria-hidden="true"
-                              @contextmenu.prevent
-                            />
-                          </div>
-                          <div class="timeline-tarot-caption">
-                            <p class="line-clamp-2 font-serif text-[10px] font-medium leading-snug text-neutral-900">
-                              {{ node.items[0].clothes_note || '未命名' }}
-                            </p>
-                            <p
-                              v-if="node.items[0].price"
-                              class="mt-0.5 font-mono text-[9px] text-neutral-700"
+                      <article
+                        v-for="node in month.days"
+                        :key="node.key"
+                        class="timeline-node relative pb-8 pl-3 md:pb-10 md:pl-5"
+                        :class="isTimelineNodeFanExpanded(node.key) ? 'z-[90] isolate' : ''"
+                      >
+                        <div
+                          class="timeline-node-dot absolute left-[5px] top-1 z-[2] h-1.5 w-1.5 rounded-full border border-neutral-800 bg-white shadow-sm md:left-[6px] md:h-2 md:w-2"
+                          aria-hidden="true"
+                        />
+                        <div class="mb-3 flex flex-col gap-1 pr-0.5">
+                          <header class="flex flex-row flex-wrap items-baseline justify-between gap-x-2 gap-y-0.5">
+                            <time
+                              class="font-mono text-xs font-semibold tabular-nums tracking-tight text-neutral-900 md:text-sm"
+                              :datetime="node.key === '__unknown__' ? undefined : node.key"
                             >
-                              ￥ {{ info?.show_price === 2 ? '***' : (node.items[0].price || 0) }}
-                            </p>
-                            <p
-                              v-if="formatTimelineItemDailyAvg(node.items[0]) !== null"
-                              class="mt-0.5 font-mono text-[9px] leading-tight text-neutral-600"
+                              {{ node.dateLabel }}
+                            </time>
+                            <span
+                              v-if="node.daysInCabinetText"
+                              class="shrink-0 text-[10px] leading-none text-neutral-500"
                             >
-                              日均 ￥ {{ info?.show_price === 2 ? '***' : formatTimelineItemDailyAvg(node.items[0]) }}
-                            </p>
-                          </div>
+                              {{ node.daysInCabinetText }}
+                            </span>
+                          </header>
+                          <p class="text-[10px] leading-snug text-neutral-500">
+                            当日总价
+                            <span class="ml-1 font-mono text-neutral-700">
+                              ￥ {{ info?.show_price === 1 ? (node.dayTotal || 0) : '***' }}
+                            </span>
+                          </p>
                         </div>
-                      </div>
-                    </div>
-                  </div>
 
-                  <!-- 同日多件：手机端每行 3 组；PC 横向 flex；多卡扇形展开见 timelineDeckFanStyle -->
-                  <div
-                    v-else
-                    :id="`timeline-node-decks-${node.key}`"
-                    class="timeline-node-decks relative w-full overflow-visible pl-0 md:pl-2"
-                  >
-                  <div
-                    class="grid grid-cols-3 gap-x-1.5 gap-y-6 items-end justify-items-start pl-0 md:flex md:flex-row md:flex-wrap md:content-start md:items-end md:justify-start md:gap-x-5 md:gap-y-8 md:pl-0"
-                  >
-                    <template
-                      v-for="(deck, dIdx) in node.decks"
-                      :key="`${node.key}-deck-${dIdx}`"
-                    >
-                      <!-- 副内仅 1 张（如第 4 件单独成副） -->
-                      <div
-                        v-if="deck.length === 1 && deck[0]"
-                        class="inline-flex w-fit max-w-full min-w-0 shrink-0 justify-start"
-                      >
+                        <!-- 单日仅 1 件：小塔罗单卡 -->
                         <div
-                          class="timeline-tarot timeline-tarot--sm group text-left"
-                        >
-                          <div class="timeline-tarot-frame">
-                            <div class="timeline-tarot-inner">
-                              <div class="timeline-tarot-image-wrap">
-                                <img
-                                  v-if="deck[0].clothes_img"
-                                  :src="wardrobeClothesPosterSrc(deck[0].clothes_img)"
-                                  class="timeline-tarot-img"
-                                  draggable="false"
-                                  loading="lazy"
-                                  alt=""
-                                  @contextmenu.prevent
-                                />
-                                <div v-else class="flex h-full w-full items-center justify-center bg-neutral-200/40 text-neutral-400">
-                                  <UIcon name="material-symbols:dresser-outline" class="text-2xl opacity-70" />
-                                </div>
-                                <div class="timeline-tarot-vignette" />
-                                <div
-                                  class="wardrobe-img-touch-shield"
-                                  aria-hidden="true"
-                                  @contextmenu.prevent
-                                />
-                              </div>
-                              <div class="timeline-tarot-caption">
-                                <p class="line-clamp-2 font-serif text-[10px] font-medium leading-snug text-neutral-900">
-                                  {{ deck[0].clothes_note || '未命名' }}
-                                </p>
-                                <p
-                                  v-if="deck[0].price"
-                                  class="mt-0.5 font-mono text-[9px] text-neutral-700"
-                                >
-                                  ￥ {{ info?.show_price === 2 ? '***' : (deck[0].price || 0) }}
-                                </p>
-                                <p
-                                  v-if="formatTimelineItemDailyAvg(deck[0]) !== null"
-                                  class="mt-0.5 font-mono text-[9px] leading-tight text-neutral-600"
-                                >
-                                  日均 ￥ {{ info?.show_price === 2 ? '***' : formatTimelineItemDailyAvg(deck[0]) }}
-                                </p>
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                      <!-- 副内 2～3 张：左下叠放；点击原地扇形展开（塔罗选牌） -->
-                      <div
-                        v-else
-                        class="relative border-none min-w-0 shrink-0 origin-bottom-left py-1 max-md:scale-[0.9] md:w-auto md:scale-100"
-                        :class="isTimelineDeckExpanded(node.key, dIdx) ? 'z-[120] isolate' : ''"
-                      >
-                        <div
-                          class="timeline-deck-wrap relative"
-                          :id="`timeline-deck-wrap-${timelineDeckKey(node.key, dIdx)}`"
-                          :class="isTimelineDeckExpanded(node.key, dIdx) ? 'z-[130]' : 'z-10'"
+                          v-if="node.items.length === 1 && node.items[0]"
+                          class="inline-flex w-fit max-w-full justify-start pl-0 md:pl-2"
                         >
                           <div
-                            class="cursor-pointer rounded-lg outline-none transition-[transform,box-shadow] duration-300 ease-out focus-visible:ring-2 focus-visible:ring-neutral-400/80"
-                            :class="isTimelineDeckExpanded(node.key, dIdx) ? 'ring-2 ring-amber-400/35 ring-offset-2 ring-offset-neutral-50' : ''"
-                            role="button"
-                            tabindex="0"
-                            @click="toggleTimelineDeckExpand(node.key, dIdx)"
-                            @keydown.enter.prevent="toggleTimelineDeckExpand(node.key, dIdx)"
+                            class="timeline-tarot timeline-tarot--sm group text-left"
                           >
+                            <div class="timeline-tarot-frame">
+                              <div class="timeline-tarot-inner">
+                                <div class="timeline-tarot-image-wrap">
+                                  <img
+                                    v-if="node.items[0].clothes_img"
+                                    :src="wardrobeClothesPosterSrc(node.items[0].clothes_img)"
+                                    class="timeline-tarot-img"
+                                    draggable="false"
+                                    loading="lazy"
+                                    alt=""
+                                    @contextmenu.prevent
+                                  />
+                                  <div v-else class="flex h-full w-full items-center justify-center bg-neutral-200/40 text-neutral-400">
+                                    <UIcon name="material-symbols:dresser-outline" class="text-2xl opacity-70" />
+                                  </div>
+                                  <div class="timeline-tarot-vignette" />
+                                  <div
+                                    class="wardrobe-img-touch-shield"
+                                    aria-hidden="true"
+                                    @contextmenu.prevent
+                                  />
+                                </div>
+                                <div class="timeline-tarot-caption">
+                                  <p class="line-clamp-2 font-serif text-[10px] font-medium leading-snug text-neutral-900">
+                                    {{ node.items[0].clothes_note || '未命名' }}
+                                  </p>
+                                  <p
+                                    v-if="node.items[0].price"
+                                    class="mt-0.5 font-mono text-[9px] text-neutral-700"
+                                  >
+                                    ￥ {{ info?.show_price === 2 ? '***' : (node.items[0].price || 0) }}
+                                  </p>
+                                  <p
+                                    v-if="formatTimelineItemDailyAvg(node.items[0]) !== null"
+                                    class="mt-0.5 font-mono text-[9px] leading-tight text-neutral-600"
+                                  >
+                                    日均 ￥ {{ info?.show_price === 2 ? '***' : formatTimelineItemDailyAvg(node.items[0]) }}
+                                  </p>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+
+                        <!-- 同日多件：手机端每行 3 组；PC 横向 flex；多卡扇形展开见 timelineDeckFanStyle -->
+                        <div
+                          v-else
+                          :id="`timeline-node-decks-${node.key}`"
+                          class="timeline-node-decks relative w-full overflow-visible pl-0 md:pl-2"
+                        >
+                        <div
+                          class="grid grid-cols-3 gap-x-1.5 gap-y-6 items-end justify-items-start pl-0 md:flex md:flex-row md:flex-wrap md:content-start md:items-end md:justify-start md:gap-x-5 md:gap-y-8 md:pl-0"
+                        >
+                          <template
+                            v-for="(deck, dIdx) in node.decks"
+                            :key="`${node.key}-deck-${dIdx}`"
+                          >
+                            <!-- 副内仅 1 张（如第 4 件单独成副） -->
                             <div
-                              v-if="isTimelineDeckExpanded(node.key, dIdx) && timelineDeckOverlayRect"
-                              class="pointer-events-none shrink-0"
-                              :id="`timeline-deck-spacer-${timelineDeckKey(node.key, dIdx)}`"
-                              :style="{
-                                width: `${timelineDeckOverlayRect.width}px`,
-                                height: `${timelineDeckOverlayRect.height}px`,
-                              }"
-                              aria-hidden="true"
-                            />
-                            <div
-                              class="timeline-deck relative overflow-visible pr-1"
-                              :id="`timeline-deck-${timelineDeckKey(node.key, dIdx)}`"
-                              :style="timelineDeckFixedStyle(node.key, dIdx)"
-                              :class="[
-                                deck.length >= 3 ? 'min-h-[158px] min-w-[118px]' : 'min-h-[182px] min-w-[108px]',
-                                'max-md:min-w-0 max-md:w-full',
-                                isTimelineDeckExpanded(node.key, dIdx) ? 'timeline-deck--fanning' : '',
-                              ]"
+                              v-if="deck.length === 1 && deck[0]"
+                              class="inline-flex w-fit max-w-full min-w-0 shrink-0 justify-start"
                             >
                               <div
-                                v-for="(item, idx) in deck"
-                                :key="`${node.key}-d${dIdx}-${item.clothes_id ?? idx}`"
-                                class="timeline-tarot timeline-tarot--sm timeline-deck-card absolute bottom-0 left-0 text-left"
-                                :class="isTimelineDeckExpanded(node.key, dIdx) ? 'timeline-deck-card--fan' : 'transition-[transform,filter] duration-200 ease-out'"
-                                :style="timelineDeckCardTransform(node.key, dIdx, idx, deck.length)"
+                                class="timeline-tarot timeline-tarot--sm group text-left"
                               >
-                                <div class="timeline-tarot-frame timeline-tarot-frame--deck">
+                                <div class="timeline-tarot-frame">
                                   <div class="timeline-tarot-inner">
                                     <div class="timeline-tarot-image-wrap">
                                       <img
-                                        v-if="item.clothes_img"
-                                        :src="wardrobeClothesPosterSrc(item.clothes_img)"
+                                        v-if="deck[0].clothes_img"
+                                        :src="wardrobeClothesPosterSrc(deck[0].clothes_img)"
                                         class="timeline-tarot-img"
                                         draggable="false"
                                         loading="lazy"
@@ -7295,7 +7377,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
                                         @contextmenu.prevent
                                       />
                                       <div v-else class="flex h-full w-full items-center justify-center bg-neutral-200/40 text-neutral-400">
-                                        <UIcon name="material-symbols:dresser-outline" class="text-lg opacity-70" />
+                                        <UIcon name="material-symbols:dresser-outline" class="text-2xl opacity-70" />
                                       </div>
                                       <div class="timeline-tarot-vignette" />
                                       <div
@@ -7304,34 +7386,126 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
                                         @contextmenu.prevent
                                       />
                                     </div>
-                                    <div class="timeline-tarot-caption timeline-tarot-caption--deck">
+                                    <div class="timeline-tarot-caption">
                                       <p class="line-clamp-2 font-serif text-[10px] font-medium leading-snug text-neutral-900">
-                                        {{ item.clothes_note || '未命名' }}
+                                        {{ deck[0].clothes_note || '未命名' }}
                                       </p>
                                       <p
-                                        v-if="item.price"
+                                        v-if="deck[0].price"
                                         class="mt-0.5 font-mono text-[9px] text-neutral-700"
                                       >
-                                        ￥ {{ info?.show_price === 2 ? '***' : (item.price || 0) }}
+                                        ￥ {{ info?.show_price === 2 ? '***' : (deck[0].price || 0) }}
                                       </p>
                                       <p
-                                        v-if="formatTimelineItemDailyAvg(item) !== null"
+                                        v-if="formatTimelineItemDailyAvg(deck[0]) !== null"
                                         class="mt-0.5 font-mono text-[9px] leading-tight text-neutral-600"
                                       >
-                                        日均 ￥ {{ info?.show_price === 2 ? '***' : formatTimelineItemDailyAvg(item) }}
+                                        日均 ￥ {{ info?.show_price === 2 ? '***' : formatTimelineItemDailyAvg(deck[0]) }}
                                       </p>
                                     </div>
                                   </div>
                                 </div>
                               </div>
                             </div>
-                          </div>
+                            <!-- 副内 2～3 张：左下叠放；点击原地扇形展开（塔罗选牌） -->
+                            <div
+                              v-else
+                              class="relative border-none min-w-0 shrink-0 origin-bottom-left py-1 max-md:scale-[0.9] md:w-auto md:scale-100"
+                              :class="isTimelineDeckExpanded(node.key, dIdx) ? 'z-[120] isolate' : ''"
+                            >
+                              <div
+                                class="timeline-deck-wrap relative"
+                                :id="`timeline-deck-wrap-${timelineDeckKey(node.key, dIdx)}`"
+                                :class="isTimelineDeckExpanded(node.key, dIdx) ? 'z-[130]' : 'z-10'"
+                              >
+                                <div
+                                  class="cursor-pointer rounded-lg outline-none transition-[transform,box-shadow] duration-300 ease-out focus-visible:ring-2 focus-visible:ring-neutral-400/80"
+                                  :class="isTimelineDeckExpanded(node.key, dIdx) ? 'ring-2 ring-amber-400/35 ring-offset-2 ring-offset-neutral-50' : ''"
+                                  role="button"
+                                  tabindex="0"
+                                  @click="toggleTimelineDeckExpand(node.key, dIdx)"
+                                  @keydown.enter.prevent="toggleTimelineDeckExpand(node.key, dIdx)"
+                                >
+                                  <div
+                                    v-if="isTimelineDeckExpanded(node.key, dIdx) && timelineDeckOverlayRect"
+                                    class="pointer-events-none shrink-0"
+                                    :id="`timeline-deck-spacer-${timelineDeckKey(node.key, dIdx)}`"
+                                    :style="{
+                                      width: `${timelineDeckOverlayRect.width}px`,
+                                      height: `${timelineDeckOverlayRect.height}px`,
+                                    }"
+                                    aria-hidden="true"
+                                  />
+                                  <div
+                                    class="timeline-deck relative overflow-visible pr-1"
+                                    :id="`timeline-deck-${timelineDeckKey(node.key, dIdx)}`"
+                                    :style="timelineDeckFixedStyle(node.key, dIdx)"
+                                    :class="[
+                                      deck.length >= 3 ? 'min-h-[158px] min-w-[118px]' : 'min-h-[182px] min-w-[108px]',
+                                      'max-md:min-w-0 max-md:w-full',
+                                      isTimelineDeckExpanded(node.key, dIdx) ? 'timeline-deck--fanning' : '',
+                                    ]"
+                                  >
+                                    <div
+                                      v-for="(item, idx) in deck"
+                                      :key="`${node.key}-d${dIdx}-${item.clothes_id ?? idx}`"
+                                      class="timeline-tarot timeline-tarot--sm timeline-deck-card absolute bottom-0 left-0 text-left"
+                                      :class="isTimelineDeckExpanded(node.key, dIdx) ? 'timeline-deck-card--fan' : 'transition-[transform,filter] duration-200 ease-out'"
+                                      :style="timelineDeckCardTransform(node.key, dIdx, idx, deck.length)"
+                                    >
+                                      <div class="timeline-tarot-frame timeline-tarot-frame--deck">
+                                        <div class="timeline-tarot-inner">
+                                          <div class="timeline-tarot-image-wrap">
+                                            <img
+                                              v-if="item.clothes_img"
+                                              :src="wardrobeClothesPosterSrc(item.clothes_img)"
+                                              class="timeline-tarot-img"
+                                              draggable="false"
+                                              loading="lazy"
+                                              alt=""
+                                              @contextmenu.prevent
+                                            />
+                                            <div v-else class="flex h-full w-full items-center justify-center bg-neutral-200/40 text-neutral-400">
+                                              <UIcon name="material-symbols:dresser-outline" class="text-lg opacity-70" />
+                                            </div>
+                                            <div class="timeline-tarot-vignette" />
+                                            <div
+                                              class="wardrobe-img-touch-shield"
+                                              aria-hidden="true"
+                                              @contextmenu.prevent
+                                            />
+                                          </div>
+                                          <div class="timeline-tarot-caption timeline-tarot-caption--deck">
+                                            <p class="line-clamp-2 font-serif text-[10px] font-medium leading-snug text-neutral-900">
+                                              {{ item.clothes_note || '未命名' }}
+                                            </p>
+                                            <p
+                                              v-if="item.price"
+                                              class="mt-0.5 font-mono text-[9px] text-neutral-700"
+                                            >
+                                              ￥ {{ info?.show_price === 2 ? '***' : (item.price || 0) }}
+                                            </p>
+                                            <p
+                                              v-if="formatTimelineItemDailyAvg(item) !== null"
+                                              class="mt-0.5 font-mono text-[9px] leading-tight text-neutral-600"
+                                            >
+                                              日均 ￥ {{ info?.show_price === 2 ? '***' : formatTimelineItemDailyAvg(item) }}
+                                            </p>
+                                          </div>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          </template>
                         </div>
-                      </div>
-                    </template>
+                        </div>
+                      </article>
+                    </div>
                   </div>
-                  </div>
-                </article>
+                </section>
               </div>
             </template>
             <QhxLoading
@@ -7352,7 +7526,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
       <div class="flex flex-col h-full">
         <!-- 标题栏 -->
         <div class="flex items-center justify-between mb-2 px-4 pt-2 flex-shrink-0">
-          <h3 class="text-base font-bold text-gray-800">筛选</h3>
+          <h3 class="text-base font-bold text-gray-800">{{ t('wardrobe.detail.filter_title') }}</h3>
           <button
             type="button"
             @click="closeFilterDrawer"
@@ -7371,14 +7545,14 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
         <!-- 可滚动内容区域 -->
         <div class="flex-1 overflow-y-auto px-4">
           <div class="mb-4 p-3 bg-yellow-50 rounded-lg border border-yellow-200">
-            <p class="text-sm text-yellow-800">注意: 该筛选会影响总价等统计数据</p>
+            <p class="text-sm text-yellow-800">{{ t('wardrobe.detail.filter_warning') }}</p>
           </div>
           
           <div class="mb-4">
-            <div class="text-sm font-semibold mb-2 text-gray-800">服饰名字：</div>
+            <div class="text-sm font-semibold mb-2 text-gray-800">{{ t('wardrobe.detail.filter_name') }}</div>
             <UInput 
               v-model="filter_list.clothes_note" 
-              placeholder="请输入服饰名字进行筛选"
+              :placeholder="t('wardrobe.detail.filter_name_placeholder')"
               class="w-full"
               :ui="{
                 base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
@@ -7394,14 +7568,14 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
           </div>
           
           <div class="mb-4">
-            <div class="text-sm font-semibold mb-3 text-gray-800">状态：</div>
+            <div class="text-sm font-semibold mb-3 text-gray-800">{{ t('wardrobe.detail.filter_status') }}</div>
             <div class="flex flex-wrap gap-2">
               <QhxTag
                 v-for="(status, index) in wardrobeStatusOptions"
                 :key="index"
-                :active="filter_list.wardrobe_status.includes(status.label)"
+                :active="filter_list.wardrobe_status.includes(status.value)"
                 class="cursor-pointer"
-                @click="chooseStatus(status.label)"
+                @click="chooseStatus(status.value)"
               >
                 {{ status.label }}
               </QhxTag>
@@ -7409,14 +7583,14 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
           </div>
 
           <div v-if="clothesPartFilterOptions.length > 0" class="mb-4">
-            <div class="text-sm font-semibold mb-3 text-gray-800">部位：</div>
+            <div class="text-sm font-semibold mb-3 text-gray-800">{{ t('wardrobe.detail.filter_part') }}</div>
             <div class="flex flex-wrap gap-2">
               <QhxTag
                 v-for="(part, index) in clothesPartFilterOptions"
                 :key="index"
-                :active="filter_list.clothes_part.includes(part.label)"
+                :active="filter_list.clothes_part.includes(part.value)"
                 class="cursor-pointer"
-                @click="chooseClothesPart(part.label)"
+                @click="chooseClothesPart(part.value)"
               >
                 {{ part.label }}
               </QhxTag>
@@ -7424,7 +7598,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
           </div>
 
           <div v-if="sizeFilterOptions.length > 0" class="mb-2">
-            <div class="text-sm font-semibold mb-3 text-gray-800">尺码：</div>
+            <div class="text-sm font-semibold mb-3 text-gray-800">{{ t('wardrobe.detail.filter_size') }}</div>
             <div class="flex flex-wrap gap-2">
               <QhxTag
                 v-for="(size, index) in sizeFilterOptions"
@@ -7448,7 +7622,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
             :style="customBtnStyle"
             @click="resetFilter"
           >
-            重置
+            {{ t('wardrobe.detail.filter_reset') }}
           </UButton>
           <UButton
             color="primary"
@@ -7456,7 +7630,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
             :style="customBtnStyle"
             @click="confirmFilter"
           >
-            确认筛选
+            {{ t('wardrobe.detail.filter_confirm') }}
           </UButton>
         </div>
       </div>
@@ -7493,7 +7667,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
             }"
           />
           <div class="plan-neu-header flex items-center justify-between gap-2 flex-shrink-0">
-            <h3 class="text-sm font-bold plan-neu-title tracking-tight">攒钱计划</h3>
+            <h3 class="text-sm font-bold plan-neu-title tracking-tight">{{ t('wardrobe.detail.plan_title') }}</h3>
             <button
               type="button"
               class="plan-neu-icon-btn"
@@ -7508,15 +7682,15 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
             class="plan-neu-stats grid grid-cols-2 gap-1.5 mb-2 flex-shrink-0"
           >
             <div class="plan-neu-stat">
-              <div class="plan-neu-stat-label">计划</div>
+              <div class="plan-neu-stat-label">{{ t('wardrobe.detail.plan_stat') }}</div>
               <div class="plan-neu-stat-value">{{ planTimelineSummary.total_plan ?? '—' }}</div>
             </div>
             <div class="plan-neu-stat">
-              <div class="plan-neu-stat-label">完成</div>
+              <div class="plan-neu-stat-label">{{ t('wardrobe.detail.plan_done') }}</div>
               <div class="plan-neu-stat-value">{{ planTimelineSummary.is_complete ?? '—' }}</div>
             </div>
             <div class="plan-neu-stat col-span-2">
-              <div class="plan-neu-stat-label">尾款总计</div>
+              <div class="plan-neu-stat-label">{{ t('wardrobe.detail.plan_balance') }}</div>
               <div class="plan-neu-stat-value plan-neu-stat-mono">
                 ￥{{ (Number(planTimelineSummary.need_money || 0) - Number(planTimelineSummary.have_money || 0)) }}
               </div>
@@ -7524,10 +7698,10 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
           </div>
           <div class="flex-1 overflow-y-auto min-h-0 plan-neu-scroll">
             <div v-if="planTimelineLoading && planTimelineRows.length === 0" class="text-center py-8 text-xs opacity-55">
-              加载中…
+              {{ t('wardrobe.detail.loading') }}
             </div>
             <div v-else-if="planTimelineRowsDisplay.length === 0" class="text-center py-8 text-xs opacity-55">
-              暂无计划记录
+              {{ t('wardrobe.detail.no_records') }}
             </div>
             <div v-else class="relative plan-neu-timeline">
               <div class="plan-neu-rail" aria-hidden="true" />
@@ -7567,7 +7741,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
                           <span
                             v-if="Number(row.is_complete) === 1"
                             class="plan-neu-badge flex-shrink-0"
-                          >达成</span>
+                          >{{ t('wardrobe.detail.achieved') }}</span>
                         </div>
                         <div
                           v-if="balance"
@@ -7658,7 +7832,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
       <QhxBottomDrawer v-if="showMatchingDrawer" :direction="isMobile ? 'bottom' : 'right'" :default-size="isMobile ? 450 : 400">
         <div class="flex flex-col h-full">
           <div class="flex items-center justify-between mb-2 px-4 pt-2 flex-shrink-0">
-            <h3 class="text-base font-bold text-gray-800">搭配草稿 ({{ matchingDraftStore.count }})</h3>
+            <h3 class="text-base font-bold text-gray-800">{{ t('wardrobe.detail.match_draft', { count: matchingDraftStore.count }) }}</h3>
             <button
               type="button"
               @click="showMatchingDrawer = false"
@@ -7769,7 +7943,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
               >
                 <UIcon name="material-symbols:swap-horiz" class="text-[16px]" />
               </div>
-              <div class="text-xs text-qhx-text">切换衣柜</div>
+              <div class="text-xs text-qhx-text">{{ t('wardrobe.detail.switch_wardrobe') }}</div>
             </div>
           </QhxJellyButton>
           <QhxJellyButton>
@@ -7887,7 +8061,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
                 />
               </div>
               <div class="text-xs text-qhx-text">
-                {{ copyImportLoading ? '导入中' : '导入到我的衣柜' }}
+                {{ copyImportLoading ? t('wardrobe.detail.importing') : t('wardrobe.detail.import_to_mine') }}
                 <span v-if="selectedClothesIds.size > 0 && !copyImportLoading">({{ selectedClothesIds.size }})</span>
               </div>
             </div>
@@ -7900,7 +8074,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
               >
                 <UIcon name="i-heroicons-x-mark" class="text-[16px]" />
               </div>
-              <div class="text-xs text-qhx-text">取消</div>
+              <div class="text-xs text-qhx-text">{{ t('common.cancel') }}</div>
             </div>
           </QhxJellyButton>
         </template>
@@ -8567,6 +8741,16 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
   background-image:
     radial-gradient(ellipse 100% 45% at 50% -8%, rgba(0, 0, 0, 0.04), transparent 52%),
     radial-gradient(ellipse 70% 35% at 85% 55%, rgba(0, 0, 0, 0.025), transparent 42%);
+}
+
+.timeline-month-toggle:active {
+  background-color: rgba(0, 0, 0, 0.04);
+}
+
+.timeline-month-dot {
+  box-shadow:
+    0 0 0 3px rgba(255, 255, 255, 0.9),
+    0 1px 2px rgba(0, 0, 0, 0.12);
 }
 
 /* 固定 3:4 画幅，整体略缩小更精致 */

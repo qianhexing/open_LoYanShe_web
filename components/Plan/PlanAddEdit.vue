@@ -43,6 +43,8 @@ const props = withDefaults(defineProps<Props>(), {
   linkedClothes: null
 })
 
+const { t } = useI18n()
+
 const emit = defineEmits<{
   (e: 'success', params: any): void
   (e: 'edit'): void
@@ -274,7 +276,7 @@ const fetchUpload = async (file: { file?: File; url?: string }): Promise<string>
   } catch (error) {
     console.error('图片上传失败:', error)
     toast.add({
-      title: '图片上传失败',
+      title: t('plan.add_edit.image_upload_failed'),
       icon: 'i-heroicons-exclamation-circle',
       color: 'red'
     })
@@ -299,7 +301,7 @@ const handleSubmit = async () => {
   // 验证需要资金
   if (!form.value.need_money || form.value.need_money < 0) {
     toast.add({
-      title: '需要资金不可为空并且要大于0',
+      title: t('plan.add_edit.need_money_invalid'),
       icon: 'i-heroicons-exclamation-circle',
       color: 'orange'
     })
@@ -308,7 +310,7 @@ const handleSubmit = async () => {
 
   if (form.value.need_money < form.value.have_money) {
     toast.add({
-      title: '需要资金不能小于已有资金',
+      title: t('plan.add_edit.need_money_too_low'),
       icon: 'i-heroicons-exclamation-circle',
       color: 'orange'
     })
@@ -318,7 +320,7 @@ const handleSubmit = async () => {
   // 验证计划名称
   if (form.value.plan_name.length > 20) {
     toast.add({
-      title: '计划名必须小于20个字符',
+      title: t('plan.add_edit.name_too_long'),
       icon: 'i-heroicons-exclamation-circle',
       color: 'orange'
     })
@@ -364,7 +366,7 @@ const handleSubmit = async () => {
             merged = { ...res, ...rel }
           } catch {
             toast.add({
-              title: '计划已添加，但关联服饰失败，稍后在计划页可再关联',
+              title: t('plan.add_edit.add_ok_link_failed'),
               icon: 'i-heroicons-exclamation-triangle',
               color: 'orange'
             })
@@ -372,7 +374,7 @@ const handleSubmit = async () => {
         }
       }
       toast.add({
-        title: '添加成功',
+        title: t('plan.add_edit.add_success'),
         icon: 'i-heroicons-check-circle',
         color: 'green'
       })
@@ -392,7 +394,7 @@ const handleSubmit = async () => {
             merged = { ...res, ...rel }
           } catch {
             toast.add({
-              title: '计划已保存，但关联服饰失败，稍后在计划页可再关联',
+              title: t('plan.add_edit.save_ok_link_failed'),
               icon: 'i-heroicons-exclamation-triangle',
               color: 'orange'
             })
@@ -400,7 +402,7 @@ const handleSubmit = async () => {
         }
       }
       toast.add({
-        title: '修改成功',
+        title: t('plan.add_edit.update_success'),
         icon: 'i-heroicons-check-circle',
         color: 'green'
       })
@@ -435,7 +437,7 @@ const handleSubmit = async () => {
   } catch (error) {
     console.error('操作失败:', error)
     toast.add({
-      title: type.value === 0 ? '添加失败' : '修改失败',
+      title: type.value === 0 ? t('plan.add_edit.add_failed') : t('plan.add_edit.update_failed'),
       icon: 'i-heroicons-x-circle',
       color: 'red'
     })
@@ -455,7 +457,7 @@ defineExpose({
       <!-- 头部 -->
       <div class="flex items-center justify-between px-4 py-3 border-b border-gray-200/60 dark:border-gray-700 flex-shrink-0">
         <h2 class="text-base font-semibold text-gray-800 dark:text-gray-100">
-          {{ type === 0 ? '新增攒钱计划' : '编辑攒钱计划' }}
+          {{ type === 0 ? $t('plan.add_edit.title_add') : $t('plan.add_edit.title_edit') }}
         </h2>
         <button
           type="button"
@@ -468,16 +470,16 @@ defineExpose({
 
       <!-- 内容区域 -->
       <div class="flex-1 min-h-0 overflow-y-auto overscroll-contain p-4 space-y-3">
-        <UFormGroup label="计划名称" class="mb-0">
+        <UFormGroup :label="$t('plan.add_edit.name_label')" class="mb-0">
           <UInput
             v-model="form.plan_name"
-            placeholder="计划名称"
+            :placeholder="$t('plan.add_edit.name_placeholder')"
             size="sm"
             :ui="{ base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary' }"
           />
         </UFormGroup>
 
-        <UFormGroup :label="`计划封面（最多 ${PLAN_COVER_MAX} 张）`" class="mb-0">
+        <UFormGroup :label="$t('plan.add_edit.cover_label', { max: PLAN_COVER_MAX })" class="mb-0">
           <QhxImagePicker
             ref="imagePickerRef"
             :multiple="true"
@@ -491,21 +493,21 @@ defineExpose({
             :disabled="getListLength !== 0"
             v-model.number="form.need_money"
             type="number"
-            placeholder="需要资金"
+            :placeholder="$t('plan.add_edit.need_money_placeholder')"
             size="sm"
             :ui="{ base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary' }"
           />
           <QhxDateTimePicker
             v-model="form.end_time"
-            placeholder="尾款时间"
+            :placeholder="$t('plan.add_edit.end_time_placeholder')"
             :format="TIME_FORMAT"
           />
         </div>
 
-        <UFormGroup label="备注" class="mb-0">
+        <UFormGroup :label="$t('plan.add_edit.note_label')" class="mb-0">
           <UTextarea
             v-model="form.plan_note"
-            placeholder="可选"
+            :placeholder="$t('plan.add_edit.note_optional')"
             :rows="2"
             size="sm"
             :ui="{ base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary' }"
@@ -513,7 +515,7 @@ defineExpose({
         </UFormGroup>
 
         <!-- 关联服饰 -->
-        <UFormGroup v-if="enableLinkClothes" label="关联服饰" class="mb-0">
+        <UFormGroup v-if="enableLinkClothes" :label="$t('plan.add_edit.link_clothes_label')" class="mb-0">
           <div class="flex items-stretch gap-2">
             <button
               type="button"
@@ -533,10 +535,10 @@ defineExpose({
                   </div>
                 </div>
                 <span class="truncate text-gray-800 dark:text-gray-100 font-medium">
-                  {{ selectedLinkedClothes.clothes_note || `服饰 #${selectedLinkedClothes.clothes_id}` }}
+                  {{ selectedLinkedClothes.clothes_note || $t('plan.add_edit.clothes_fallback', { id: selectedLinkedClothes.clothes_id }) }}
                 </span>
               </template>
-              <span v-else class="text-gray-400 dark:text-gray-500">点击选择衣柜服饰</span>
+              <span v-else class="text-gray-400 dark:text-gray-500">{{ $t('plan.add_edit.pick_clothes') }}</span>
             </button>
             <UButton
               v-if="selectedLinkedClothes?.clothes_id"
@@ -545,7 +547,7 @@ defineExpose({
               size="sm"
               icon="i-heroicons-x-mark"
               class="flex-shrink-0 self-center"
-              aria-label="清除关联"
+              :aria-label="$t('plan.add_edit.clear_link')"
               @click="clearLinkedClothes"
             />
           </div>
@@ -560,7 +562,7 @@ defineExpose({
           class="w-fit bg-qhx-primary/10 text-qhx-primary hover:bg-qhx-primary/20"
           @click="addPlan"
         >
-          新增定尾阶段
+          {{ $t('plan.add_edit.add_stage') }}
         </UButton>
 
         <!-- 阶段列表 -->
@@ -571,26 +573,26 @@ defineExpose({
             class="p-2.5 rounded-lg bg-gray-50/80 dark:bg-gray-800/60 border border-gray-200/50 dark:border-gray-600/50 space-y-2"
           >
             <div class="flex items-center justify-between">
-              <span class="text-xs font-medium text-gray-600 dark:text-gray-400">阶段 {{ index + 1 }}</span>
+              <span class="text-xs font-medium text-gray-600 dark:text-gray-400">{{ $t('plan.add_edit.stage_n', { n: index + 1 }) }}</span>
               <UButton color="red" variant="ghost" size="xs" icon="i-heroicons-trash" @click="deleteList(index)" />
             </div>
             <div class="grid grid-cols-[80px_1fr] gap-2 items-end">
               <UInput
                 v-model.number="stage.need_money"
                 type="number"
-                placeholder="金额"
+                :placeholder="$t('plan.add_edit.amount_placeholder')"
                 size="sm"
                 :ui="{ base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary' }"
               />
               <QhxDateTimePicker
                 v-model="stage.end_time"
-                placeholder="尾款时间"
+                :placeholder="$t('plan.add_edit.end_time_placeholder')"
                 :format="TIME_FORMAT"
               />
             </div>
             <UInput
               v-model="stage.plan_note"
-              placeholder="备注（可选）"
+              :placeholder="$t('plan.add_edit.note_optional_full')"
               size="sm"
               :ui="{ base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary' }"
             />
@@ -600,14 +602,14 @@ defineExpose({
 
       <!-- 底部 -->
       <div class="flex justify-end gap-2 px-4 py-3 border-t border-gray-200/60 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-900/50 flex-shrink-0">
-        <UButton color="gray" variant="ghost" size="sm" @click="closeModel">取消</UButton>
+        <UButton color="gray" variant="ghost" size="sm" @click="closeModel">{{ $t('common.cancel') }}</UButton>
         <UButton
           :loading="loading"
           size="sm"
           class="bg-qhx-primary text-qhx-inverted hover:bg-qhx-primaryHover"
           @click="handleSubmit"
         >
-          {{ type === 1 ? '保存' : '新增' }}
+          {{ type === 1 ? $t('common.save') : $t('plan.add_edit.submit_add') }}
         </UButton>
       </div>
     </div>

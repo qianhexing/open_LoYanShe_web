@@ -18,7 +18,7 @@
           <div class="w-16 h-16 border-4 border-pink-100 rounded-full"></div>
           <div class="absolute top-0 left-0 w-16 h-16 border-4 border-pink-400 rounded-full border-t-transparent animate-spin"></div>
         </div>
-        <p class="mt-4 text-pink-400 dark:text-pink-300 tracking-widest text-sm uppercase">加载中...</p>
+        <p class="mt-4 text-pink-400 dark:text-pink-300 tracking-widest text-sm uppercase">{{ $t('common.loading') }}</p>
       </div>
     </template>
 
@@ -70,7 +70,7 @@
                 @click="openDecoConfig"
               >
                 <UIcon name="i-heroicons-cog-6-tooth" class="w-5 h-5 flex-shrink-0" />
-                <span class="text-sm font-medium">配置徽章</span>
+                <span class="text-sm font-medium">{{ $t('user.userSpace.config_badge') }}</span>
               </button>
             </div>
 
@@ -112,7 +112,7 @@
                     @click="openUserSpaceMoreMenu"
                   >
                     <UIcon name="i-heroicons-ellipsis-vertical" class="w-4 h-4 text-pink-500 dark:text-pink-400" />
-                    <span>更多</span>
+                    <span>{{ $t('common.more') }}</span>
                   </button>
                 </div>
               </div>
@@ -121,13 +121,13 @@
               <div class="hero-headline">
                 <div class="flex items-center gap-2 min-w-0 flex-wrap">
                   <h1 class="text-xl md:text-2xl font-bold text-gray-800 dark:text-gray-100 truncate max-w-full">
-                    {{ userInfo.user_name || '未设置昵称' }}
+                    {{ userInfo.user_name || $t('user.userSpace.no_nickname') }}
                   </h1>
                   <QhxTag
                     :active="isFormalResident"
                     class="text-xs flex-shrink-0 whitespace-nowrap"
                   >
-                    {{ isFormalResident ? '正式居民' : '临时居民' }}
+                    {{ isFormalResident ? $t('user.userSpace.resident_formal') : $t('user.userSpace.resident_temp') }}
                   </QhxTag>
                 </div>
                 <p
@@ -153,7 +153,7 @@
                   </div>
                 </div>
                 <p v-else class="text-gray-400 dark:text-gray-500 text-xs mt-1.5">
-                  这位 Lo 娘还没有留下签名~
+                  {{ $t('user.userSpace.no_signature') }}
                 </p>
               </div>
 
@@ -174,7 +174,7 @@
                 <span
                   v-else-if="isCurrentUser && !userInfo.main_style?.length"
                   class="hero-tag text-xs text-gray-400 dark:text-gray-500"
-                >未设置风格与地区</span>
+                >{{ $t('user.userSpace.style_area_unset') }}</span>
               </div>
 
               <!-- 数据统计 -->
@@ -200,7 +200,7 @@
                     @click="openCareerStatsModal"
                   >
                     <UIcon name="i-heroicons-chart-bar-square" class="h-3.5 w-3.5 shrink-0" />
-                    <span>生涯统计</span>
+                    <span>{{ $t('user.userSpace.career_stats') }}</span>
                   </button>
                   <button
                     v-if="!isCurrentUser && spaceUserId"
@@ -209,7 +209,7 @@
                     @click="openWardrobeCompareModal"
                   >
                     <UIcon name="i-heroicons-arrows-right-left-20-solid" class="h-3.5 w-3.5 shrink-0" />
-                    <span>衣柜对比</span>
+                    <span>{{ $t('user.userSpace.wardrobe_compare') }}</span>
                   </button>
                   <button
                     v-if="spaceUserId && spaceSenceId"
@@ -218,7 +218,7 @@
                     @click="visitUserNest"
                   >
                     <UIcon name="i-heroicons-home-modern" class="h-3.5 w-3.5 shrink-0" />
-                    <span>参观小窝</span>
+                    <span>{{ $t('user.userSpace.visit_nest') }}</span>
                   </button>
                   <button
                     v-if="isCurrentUser && spaceUserId"
@@ -228,7 +228,7 @@
                     @click="showWardrobeAddressQrcode"
                   >
                     <UIcon name="material-symbols:qr-code-2" class="h-3.5 w-3.5 shrink-0" />
-                    <span>衣柜二维码</span>
+                    <span>{{ $t('user.userSpace.wardrobe_qr') }}</span>
                   </button>
                 </div>
               </div>
@@ -259,13 +259,13 @@
                           :disabled="postsLoadingMore"
                           class="px-6 py-2 rounded-full bg-pink-100 dark:bg-gray-700 text-pink-600 dark:text-pink-300 text-sm font-medium hover:bg-pink-200 dark:hover:bg-gray-600 transition-colors disabled:opacity-50"
                         >
-                          {{ postsLoadingMore ? '加载中...' : '加载更多' }}
+                          {{ postsLoadingMore ? $t('common.loading') : $t('user.userSpace.load_more') }}
                         </button>
                       </div>
                     </div>
                     <div v-else class="text-center py-16 text-gray-500 dark:text-gray-400">
                       <div class="text-5xl mb-4">📝</div>
-                      <p>暂无帖子</p>
+                      <p>{{ $t('user.userSpace.empty_posts') }}</p>
                     </div>
                   </div>
                 </template>
@@ -292,7 +292,7 @@
                         } catch (error) {
                           console.error('获取衣柜列表失败:', error)
                           toast.add({
-                            title: '获取衣柜失败',
+                            title: t('user.userSpace.fetch_wardrobe_failed'),
                             description: getErrorMessage(error),
                             icon: 'i-heroicons-x-circle',
                             color: 'red',
@@ -324,7 +324,7 @@
                                 />
                                 <div class="absolute inset-0 flex flex-col items-center justify-center bg-gray-900/50 dark:bg-gray-900/60 rounded-[10px]">
                                   <UIcon name="i-heroicons-lock-closed" class="w-10 h-10 text-white/95 mb-1" />
-                                  <span class="text-xs text-white/95">隐私衣柜</span>
+                                  <span class="text-xs text-white/95">{{ $t('user.userSpace.private_wardrobe') }}</span>
                                 </div>
                                 <h3 class="text-base font-semibold text-gray-900 dark:text-gray-100 truncate w-full">
                                   {{ item.wardrobe_name }}
@@ -344,7 +344,7 @@
                       <template #empty>
                         <div class="text-center py-16 text-gray-500 dark:text-gray-400">
                           <div class="text-5xl mb-4">👗</div>
-                          <p>暂无衣柜</p>
+                          <p>{{ $t('user.userSpace.empty_wardrobe') }}</p>
                         </div>
                       </template>
                     </QhxWaterList>
@@ -363,20 +363,20 @@
                     >
                       <div class="text-sm font-semibold text-gray-800 dark:text-gray-100 mb-3 flex items-center gap-2">
                         <span>✨</span>
-                        成就进度
+                        {{ $t('user.userSpace.achieve_progress') }}
                       </div>
                       <div class="grid grid-cols-2 gap-3 text-center">
                         <div>
                           <div class="text-lg font-bold text-pink-600 dark:text-pink-300">
                             {{ achievementStats.points }}
                           </div>
-                          <div class="text-xs text-gray-500 dark:text-gray-400">成就点</div>
+                          <div class="text-xs text-gray-500 dark:text-gray-400">{{ $t('user.userSpace.achieve_points') }}</div>
                         </div>
                         <div>
                           <div class="text-lg font-bold text-gray-800 dark:text-gray-100">
                             {{ achievementStats.achieved_count }}<span class="text-gray-400">/</span>{{ achievementStats.total_count }}
                           </div>
-                          <div class="text-xs text-gray-500 dark:text-gray-400">已达成</div>
+                          <div class="text-xs text-gray-500 dark:text-gray-400">{{ $t('user.userSpace.achieve_earned') }}</div>
                         </div>
                         <div class="col-span-2">
                           <div class="h-2 rounded-full bg-gray-200 dark:bg-gray-600 overflow-hidden">
@@ -387,7 +387,7 @@
                             />
                           </div>
                           <div class="text-xs text-gray-500 dark:text-gray-400 mt-1 text-center">
-                            {{ achievementStats.progress }}% 完成
+                            {{ $t('user.userSpace.achieve_percent_done', { n: achievementStats.progress }) }}
                           </div>
                         </div>
                       </div>
@@ -420,7 +420,7 @@
                         class="px-6 py-2 rounded-full bg-pink-100 dark:bg-gray-700 text-pink-600 dark:text-pink-300 text-sm font-medium hover:bg-pink-200 dark:hover:bg-gray-600 transition-colors disabled:opacity-50"
                         @click="loadMoreAchieveAlbums"
                       >
-                        {{ achieveAlbumsLoadingMore ? '加载中...' : '加载更多' }}
+                        {{ achieveAlbumsLoadingMore ? $t('common.loading') : $t('user.userSpace.load_more') }}
                       </button>
                     </div>
                     <div
@@ -428,7 +428,7 @@
                       class="text-center py-16 text-gray-500 dark:text-gray-400"
                     >
                       <div class="text-5xl mb-4">🏆</div>
-                      <p>暂无成就相册</p>
+                      <p>{{ $t('user.userSpace.empty_achieve_albums') }}</p>
                     </div>
                   </div>
                 </template>
@@ -443,13 +443,13 @@
       <div class="relative z-10 flex flex-col items-center justify-center min-h-screen p-4 text-center">
         <div class="bg-white/80 dark:bg-gray-800/80 backdrop-blur-md p-8 rounded-[2rem] shadow-xl border border-white/50 dark:border-gray-700 max-w-md w-full">
           <div class="text-6xl mb-6">😕</div>
-          <h2 class="text-2xl font-bold text-gray-800 dark:text-gray-100 mb-4">用户不存在</h2>
-          <p class="text-gray-600 dark:text-gray-300 mb-8">抱歉，找不到该用户信息。</p>
+          <h2 class="text-2xl font-bold text-gray-800 dark:text-gray-100 mb-4">{{ $t('user.userSpace.user_not_found') }}</h2>
+          <p class="text-gray-600 dark:text-gray-300 mb-8">{{ $t('user.userSpace.user_not_found_desc') }}</p>
           <button
             @click="router.back()"
             class="px-8 py-3 bg-pink-500 hover:bg-pink-600 text-white rounded-full font-bold transition-colors shadow-lg shadow-pink-500/30"
           >
-            返回
+            {{ $t('common.back') }}
           </button>
         </div>
       </div>
@@ -471,7 +471,7 @@
         <div class="flex items-center justify-between px-5 py-4 border-b border-gray-200 dark:border-gray-700 bg-gradient-to-r from-pink-50 to-purple-50 dark:from-gray-800 dark:to-gray-800 flex-shrink-0">
           <h3 class="text-lg font-semibold text-gray-800 dark:text-gray-100 flex items-center gap-2">
             <span class="text-pink-500">✍️</span>
-            个人签名
+            {{ $t('user.userSpace.signature_title') }}
           </h3>
           <button
             type="button"
@@ -486,7 +486,7 @@
           <div v-if="signatureNodes.length" class="text-gray-600 dark:text-gray-300 text-sm leading-relaxed">
             <SafeRichText :nodes="signatureNodes" />
           </div>
-          <p v-else class="text-gray-400 dark:text-gray-500 text-sm">暂无签名</p>
+          <p v-else class="text-gray-400 dark:text-gray-500 text-sm">{{ $t('user.userSpace.no_signature_short') }}</p>
 
           <!-- 标签与地区完整展示：分两行 -->
           <div v-if="userInfo && (userInfo.main_style?.length || (userInfo.show_area && (userInfo.province || userInfo.city)) || (isCurrentUser && !(userInfo.show_area && (userInfo.province || userInfo.city))))" class="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700 space-y-2">
@@ -497,7 +497,7 @@
             <!-- 位置 -->
             <div v-if="(userInfo.show_area && (userInfo.province || userInfo.city)) || (isCurrentUser && !(userInfo.show_area && (userInfo.province || userInfo.city)))" class="text-xs text-gray-500 dark:text-gray-400">
               <span v-if="userInfo.show_area && (userInfo.province || userInfo.city)">📍 {{ [userInfo.province, userInfo.city].filter(Boolean).join(' ') }}</span>
-              <span v-else-if="isCurrentUser">未设置</span>
+              <span v-else-if="isCurrentUser">{{ $t('user.userSpace.not_set') }}</span>
             </div>
           </div>
         </div>
@@ -511,14 +511,14 @@
       @close="onWardrobePasswordModalClose"
     >
       <div class="p-6 w-[400px] bg-white dark:bg-gray-800 rounded-[10px] max-h-[50vh] overflow-y-auto">
-        <h3 class="text-base font-bold mb-4 text-gray-800 dark:text-gray-200">请输入衣柜密码</h3>
+        <h3 class="text-base font-bold mb-4 text-gray-800 dark:text-gray-200">{{ $t('user.userSpace.wardrobe_password_title') }}</h3>
         <p v-if="pendingWardrobe" class="text-sm text-gray-500 dark:text-gray-400 mb-3">
           {{ pendingWardrobe.wardrobe_name }}
         </p>
         <UInput
           v-model="wardrobePassword"
           type="password"
-          placeholder="请输入密码"
+          :placeholder="$t('user.userSpace.wardrobe_password_placeholder')"
           class="flex-1 focus:ring-0 mb-4"
           :ui="{
             base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
@@ -540,7 +540,7 @@
           :disabled="!wardrobePassword.trim()"
           @click="confirmWardrobePassword"
         >
-          确定
+          {{ $t('common.confirm') }}
         </UButton>
       </div>
     </QhxModal>
@@ -551,7 +551,7 @@
         <div class="flex items-center justify-between px-5 py-4 border-b border-gray-200 dark:border-gray-700 bg-gradient-to-r from-pink-50 to-purple-50 dark:from-gray-800 dark:to-gray-800 flex-shrink-0">
           <h3 class="text-lg font-semibold text-gray-800 dark:text-gray-100 flex items-center gap-2">
             <span class="text-pink-500">📊</span>
-            生涯统计
+            {{ $t('user.userSpace.career_stats_title') }}
           </h3>
           <button
             type="button"
@@ -567,7 +567,7 @@
             <div class="career-stats-loading-dots" aria-hidden="true">
               <span /><span /><span />
             </div>
-            <p class="mt-4 text-sm text-[#8a6f7d] dark:text-pink-300/80">加载统计数据…</p>
+            <p class="mt-4 text-sm text-[#8a6f7d] dark:text-pink-300/80">{{ $t('user.userSpace.career_loading') }}</p>
           </div>
 
           <template v-else-if="careerStats">
@@ -584,8 +584,8 @@
                 </span>
               </div>
               <p class="text-center text-sm text-[#8a6f7d] dark:text-pink-300/75">
-                <span class="font-semibold text-[#5e3a4b] dark:text-pink-200">{{ userInfo?.user_name || 'Lo娘' }}</span>
-                在 Lo研社的足迹
+                <span class="font-semibold text-[#5e3a4b] dark:text-pink-200">{{ userInfo?.user_name || $t('user.userSpace.career_default_name') }}</span>
+                {{ $t('user.userSpace.career_footprint') }}
               </p>
               <div class="career-stats-intro__line mx-auto mt-2.5" aria-hidden="true" />
             </div>
@@ -598,11 +598,11 @@
               <div class="relative z-10">
                 <div class="mb-1 inline-flex items-center gap-1 rounded-full bg-white/50 px-2.5 py-0.5 text-[11px] font-medium text-[#9d6080] dark:bg-pink-950/40 dark:text-pink-300/90">
                   <span aria-hidden="true">🌸</span>
-                  入住Lo星天数
+                  {{ $t('user.userSpace.career_days_label') }}
                 </div>
                 <div class="career-stats-hero__value tabular-nums">
                   {{ formatCareerNumber(careerStats.days_in_lolita) }}
-                  <span class="text-lg font-semibold text-[#927084] dark:text-pink-400/80">天</span>
+                  <span class="text-lg font-semibold text-[#927084] dark:text-pink-400/80">{{ $t('user.userSpace.career_day_unit') }}</span>
                 </div>
               </div>
             </div>
@@ -636,10 +636,10 @@
                 <div class="mb-3 flex items-center justify-between gap-2">
                   <span class="flex items-center gap-1.5 text-sm font-semibold text-[#4a2f3d] dark:text-pink-50">
                     <span class="text-base" aria-hidden="true">🏆</span>
-                    成就进度
+                    {{ $t('user.userSpace.achieve_progress') }}
                   </span>
                   <span class="shrink-0 rounded-full bg-white/60 px-2 py-0.5 text-[11px] text-[#8a6f7d] dark:bg-pink-950/35 dark:text-pink-300/85">
-                    {{ careerStats.achievement_count }}/{{ careerStats.achievement_total }} · {{ careerStats.achievement_points }} 点
+                    {{ careerStats.achievement_count }}/{{ careerStats.achievement_total }} · {{ careerStats.achievement_points }} {{ $t('user.userSpace.career_points_suffix') }}
                   </span>
                 </div>
                 <div class="career-stats-progress-track">
@@ -649,7 +649,7 @@
                   />
                 </div>
                 <div class="mt-2 text-center text-xs font-medium text-[#9d6080] dark:text-pink-300/80">
-                  {{ careerStats.achievement_progress ?? 0 }}% 完成
+                  {{ $t('user.userSpace.achieve_percent_done', { n: careerStats.achievement_progress ?? 0 }) }}
                 </div>
               </div>
             </div>
@@ -657,8 +657,8 @@
 
           <div v-else class="career-stats-empty flex flex-col items-center justify-center py-16 text-center">
             <div class="career-stats-empty__icon mb-3 text-4xl" aria-hidden="true">📭</div>
-            <p class="text-sm font-medium text-[#8a6f7d] dark:text-pink-300/80">暂无统计数据</p>
-            <p class="mt-1 text-xs text-[#b09aa8] dark:text-pink-400/50">稍后再来看看吧</p>
+            <p class="text-sm font-medium text-[#8a6f7d] dark:text-pink-300/80">{{ $t('user.userSpace.career_empty') }}</p>
+            <p class="mt-1 text-xs text-[#b09aa8] dark:text-pink-400/50">{{ $t('user.userSpace.career_empty_sub') }}</p>
           </div>
         </div>
 
@@ -680,7 +680,7 @@
     <!-- 更多选项（与衣柜详情页 QhxModal 样式一致） -->
     <QhxModal v-model="showUserSpaceMoreMenu" :trigger-position="userSpaceMoreMenuPosition">
       <div class="p-4 w-[200px] bg-white dark:bg-gray-800 rounded-[10px] shadow-lg">
-        <h3 class="text-sm font-bold mb-3 text-gray-800 dark:text-gray-200">更多选项</h3>
+        <h3 class="text-sm font-bold mb-3 text-gray-800 dark:text-gray-200">{{ $t('user.userSpace.more_options') }}</h3>
 
         <button
           v-for="(item, index) in userSpaceMoreMenuItems"
@@ -803,6 +803,7 @@ const route = useRoute()
 const router = useRouter()
 const userStore = useUserStore()
 const toast = useToast()
+const { t } = useI18n()
 const configStore = useConfigStore()
 const { $gsap, $ScrollTrigger } = useNuxtApp()
 const loading = ref(true)
@@ -886,7 +887,9 @@ function isUserAchieveVisible(v: unknown): boolean {
 const showAchieveTab = computed(() => isUserAchieveVisible(userInfo.value?.is_achieve))
 
 const spaceTabs = computed((): string[] =>
-  showAchieveTab.value ? ['帖子', '衣柜', '成就'] : ['帖子', '衣柜'],
+  showAchieveTab.value
+    ? [t('user.userSpace.tab_posts'), t('user.userSpace.tab_wardrobe'), t('user.userSpace.tab_achieve')]
+    : [t('user.userSpace.tab_posts'), t('user.userSpace.tab_wardrobe')],
 )
 
 type UserSpaceMoreMenuItem = {
@@ -922,8 +925,8 @@ const userSpaceMoreMenuItems = computed((): UserSpaceMoreMenuItem[] => {
     if (!hasDisplayBadges.value) {
       items.push({
         key: 'deco',
-        label: '配置徽章',
-        desc: '选择要展示的成就徽章',
+        label: t('user.userSpace.menu_config_badge'),
+        desc: t('user.userSpace.menu_config_badge_desc'),
         icon: 'i-heroicons-cog-6-tooth',
         iconBgClass: 'from-purple-500 to-pink-500',
         run: (e) => openDecoConfig(e),
@@ -931,16 +934,16 @@ const userSpaceMoreMenuItems = computed((): UserSpaceMoreMenuItem[] => {
     }
     items.push({
       key: 'edit',
-      label: '编辑',
-      desc: '修改昵称、签名与个人资料',
+      label: t('user.userSpace.menu_edit'),
+      desc: t('user.userSpace.menu_edit_desc'),
       icon: 'i-heroicons-pencil-square',
       iconBgClass: 'from-amber-500 to-orange-500',
       run: () => handleEdit(),
     })
     items.push({
       key: 'setNest',
-      label: '设置小窝',
-      desc: spaceSenceId.value ? '更换个人空间展示场景' : '选择场景作为个人小窝',
+      label: t('user.userSpace.menu_set_nest'),
+      desc: spaceSenceId.value ? t('user.userSpace.menu_set_nest_desc_change') : t('user.userSpace.menu_set_nest_desc_pick'),
       icon: 'i-heroicons-home-modern',
       iconBgClass: 'from-rose-500 to-pink-500',
       run: (e) => openNestSceneChoose(e),
@@ -953,8 +956,8 @@ const userSpaceMoreMenuItems = computed((): UserSpaceMoreMenuItem[] => {
   ) {
     items.push({
       key: 'upgradeFormal',
-      label: '升级为正式居民',
-      desc: '为该用户开通正式居民权限',
+      label: t('user.userSpace.menu_upgrade_formal'),
+      desc: t('user.userSpace.menu_upgrade_formal_desc'),
       icon: 'i-heroicons-arrow-trending-up',
       iconBgClass: 'from-blue-500 to-cyan-500',
       run: () => void handleUpgradeFormalResident(),
@@ -974,12 +977,12 @@ const upgradeFormalLoading = ref(false)
 const handleUpgradeFormalResident = async () => {
   const uid = spaceUserId.value
   if (!uid || upgradeFormalLoading.value) return
-  if (typeof window !== 'undefined' && !window.confirm('确认为该用户升级为正式居民？')) return
+  if (typeof window !== 'undefined' && !window.confirm(t('user.userSpace.upgrade_confirm'))) return
   upgradeFormalLoading.value = true
   try {
     await adminUpgradeUserFormalResident({ user_id: uid })
     toast.add({
-      title: '已升级为正式居民',
+      title: t('user.userSpace.upgrade_success'),
       icon: 'i-heroicons-check-circle',
       color: 'green',
     })
@@ -990,7 +993,7 @@ const handleUpgradeFormalResident = async () => {
   } catch (error) {
     console.error('升级正式居民失败:', error)
     toast.add({
-      title: '操作失败',
+      title: t('user.userSpace.operation_failed'),
       description: getErrorMessage(error),
       icon: 'i-heroicons-x-circle',
       color: 'red',
@@ -1070,8 +1073,8 @@ const confirmWardrobePassword = async () => {
       })
     } else {
       toast.add({
-        title: '密码错误',
-        description: '请输入正确的衣柜密码',
+        title: t('user.userSpace.password_wrong'),
+        description: t('user.userSpace.password_wrong_desc'),
         icon: 'i-heroicons-x-circle',
         color: 'red',
       })
@@ -1079,7 +1082,7 @@ const confirmWardrobePassword = async () => {
   } catch (error) {
     console.error('校验衣柜密码失败:', error)
     toast.add({
-      title: '校验失败',
+      title: t('user.userSpace.verify_failed'),
       description: getErrorMessage(error),
       icon: 'i-heroicons-x-circle',
       color: 'red',
@@ -1099,8 +1102,8 @@ const loadUserInfo = async () => {
 
     if (!userId || Number.isNaN(userId)) {
       toast.add({
-        title: '参数错误',
-        description: '缺少用户ID参数',
+        title: t('user.userSpace.param_error'),
+        description: t('user.userSpace.param_missing_user_id'),
         icon: 'i-heroicons-x-circle',
         color: 'red'
       })
@@ -1122,7 +1125,7 @@ const loadUserInfo = async () => {
   } catch (error) {
     console.error('获取用户信息失败:', error)
     toast.add({
-      title: '获取用户信息失败',
+      title: t('user.userSpace.fetch_user_failed'),
       description: getErrorMessage(error),
       icon: 'i-heroicons-x-circle',
       color: 'red'
@@ -1146,7 +1149,7 @@ const getErrorMessage = (error: unknown): string => {
     const maybeObj = error as Record<string, unknown>
     if (typeof maybeObj.message === 'string') return maybeObj.message
   }
-  return '操作失败，请稍后重试'
+  return t('user.userSpace.retry_later')
 }
 
 // 帖子列表相关
@@ -1280,7 +1283,7 @@ const loadAchieveAlbums = async (isLoadMore = false) => {
   } catch (error) {
     console.error('获取成就相册列表失败:', error)
     toast.add({
-      title: '获取成就相册失败',
+      title: t('user.userSpace.fetch_achieve_album_failed'),
       description: getErrorMessage(error),
       icon: 'i-heroicons-x-circle',
       color: 'red',
@@ -1339,7 +1342,7 @@ const loadPosts = async (isLoadMore = false) => {
   } catch (error) {
     console.error('获取帖子列表失败:', error)
     toast.add({
-      title: '获取帖子失败',
+      title: t('user.userSpace.fetch_posts_failed'),
       description: getErrorMessage(error),
       icon: 'i-heroicons-x-circle',
       color: 'red',
@@ -1384,13 +1387,13 @@ watch(userInfo, (info) => {
 
 const spaceStats = computed(() => {
   const list: Array<{ key: string; label: string; value: number }> = [
-    { key: 'posts', label: '帖子', value: postsTotal.value },
-    { key: 'wardrobe', label: '衣柜', value: wardrobeCount.value },
+    { key: 'posts', label: t('user.userSpace.stat_posts'), value: postsTotal.value },
+    { key: 'wardrobe', label: t('user.userSpace.stat_wardrobe'), value: wardrobeCount.value },
   ]
   if (showAchieveTab.value) {
-    list.push({ key: 'points', label: '成就点', value: achievementStats.value?.points ?? 0 })
+    list.push({ key: 'points', label: t('user.userSpace.stat_points'), value: achievementStats.value?.points ?? 0 })
   }
-  list.push({ key: 'fans', label: '粉丝', value: userInfo.value?.collect_count ?? 0 })
+  list.push({ key: 'fans', label: t('user.userSpace.stat_fans'), value: userInfo.value?.collect_count ?? 0 })
   return list
 })
 
@@ -1418,7 +1421,7 @@ const careerStatsLoading = ref(false)
 
 const openWardrobeCompareModal = () => {
   if (userStore.user?.user_id == null) {
-    toast.add({ title: '请先登录后再对比', color: 'amber' })
+    toast.add({ title: t('user.userSpace.login_to_compare'), color: 'amber' })
     return
   }
   showWardrobeCompareModal.value = true
@@ -1461,14 +1464,14 @@ const onNestSceneChosen = async (list: Scene[]) => {
       await userStore.fetchUserInfo()
     }
     toast.add({
-      title: '小窝设置成功',
+      title: t('user.userSpace.nest_set_success'),
       icon: 'i-heroicons-check-circle',
       color: 'green',
     })
   } catch (error) {
     console.error('设置小窝失败:', error)
     toast.add({
-      title: '设置小窝失败',
+      title: t('user.userSpace.nest_set_failed'),
       description: getErrorMessage(error),
       icon: 'i-heroicons-x-circle',
       color: 'red',
@@ -1495,7 +1498,7 @@ const openCareerStatsModal = async () => {
   } catch (error) {
     console.error('获取生涯统计失败:', error)
     toast.add({
-      title: '获取生涯统计失败',
+      title: t('user.userSpace.fetch_career_failed'),
       description: getErrorMessage(error),
       icon: 'i-heroicons-x-circle',
       color: 'red',
@@ -1513,31 +1516,31 @@ const careerStatGroups = computed(() => {
   if (!s) return []
   return [
     {
-      title: '收藏与生活',
+      title: t('user.userSpace.career_group_collect'),
       icon: '👗',
       items: [
-        { key: 'wardrobe', label: '衣柜', display: formatCareerNumber(s.wardrobe_count) },
-        { key: 'clothes', label: '服饰', display: formatCareerNumber(s.clothes_count) },
-        { key: 'wear', label: '穿着次数', display: formatCareerNumber(s.total_wear_times) },
-        { key: 'spending', label: '总花费', display: `¥${formatCareerMoney(s.total_spending)}` },
+        { key: 'wardrobe', label: t('user.userSpace.career_label_wardrobe'), display: formatCareerNumber(s.wardrobe_count) },
+        { key: 'clothes', label: t('user.userSpace.career_label_clothes'), display: formatCareerNumber(s.clothes_count) },
+        { key: 'wear', label: t('user.userSpace.career_label_wear'), display: formatCareerNumber(s.total_wear_times) },
+        { key: 'spending', label: t('user.userSpace.career_label_spending'), display: `¥${formatCareerMoney(s.total_spending)}` },
       ] as CareerStatItem[],
     },
     {
-      title: '创作与分享',
+      title: t('user.userSpace.career_group_create'),
       icon: '✨',
       items: [
-        { key: 'community', label: '发帖', display: formatCareerNumber(s.community_count) },
-        { key: 'journal', label: '手账', display: formatCareerNumber(s.journal_count) },
-        { key: 'matching', label: '搭配', display: formatCareerNumber(s.matching_count) },
-        { key: 'achievement', label: '已达成成就', display: formatCareerNumber(s.achievement_count) },
+        { key: 'community', label: t('user.userSpace.career_label_post'), display: formatCareerNumber(s.community_count) },
+        { key: 'journal', label: t('user.userSpace.career_label_journal'), display: formatCareerNumber(s.journal_count) },
+        { key: 'matching', label: t('user.userSpace.career_label_matching'), display: formatCareerNumber(s.matching_count) },
+        { key: 'achievement', label: t('user.userSpace.career_label_achievement'), display: formatCareerNumber(s.achievement_count) },
       ] as CareerStatItem[],
     },
     {
-      title: '图鉴贡献',
+      title: t('user.userSpace.career_group_library'),
       icon: '📚',
       items: [
-        { key: 'library_contribute', label: '贡献图鉴', display: formatCareerNumber(s.library_contribute_count) },
-        { key: 'library_correction', label: '纠错图鉴', display: formatCareerNumber(s.library_correction_count) },
+        { key: 'library_contribute', label: t('user.userSpace.career_label_library_add'), display: formatCareerNumber(s.library_contribute_count) },
+        { key: 'library_correction', label: t('user.userSpace.career_label_library_fix'), display: formatCareerNumber(s.library_correction_count) },
       ] as CareerStatItem[],
     },
   ]
@@ -1546,7 +1549,7 @@ const careerStatGroups = computed(() => {
 const careerSharePayload = computed((): CareerSharePayload | null => {
   const s = careerStats.value
   const info = userInfo.value
-  const name = info?.user_name?.trim() || 'Lo娘'
+  const name = info?.user_name?.trim() || t('user.userSpace.career_default_name')
   if (!s) return null
 
   const showArea = info?.show_area === true || info?.show_area === 1
@@ -1566,32 +1569,32 @@ const careerSharePayload = computed((): CareerSharePayload | null => {
     daysInLolita: s.days_in_lolita ?? 0,
     totalSpending: formatCareerMoney(s.total_spending),
     achievementProgress: Math.min(100, s.achievement_progress ?? 0),
-    achievementSummary: `${s.achievement_count}/${s.achievement_total} · ${formatCareerNumber(s.achievement_points)} 点`,
+    achievementSummary: `${s.achievement_count}/${s.achievement_total} · ${formatCareerNumber(s.achievement_points)} ${t('user.userSpace.career_points_suffix')}`,
     metricGroups: [
       {
-        title: '收藏与生活',
+        title: t('user.userSpace.career_group_collect'),
         icon: '👗',
         items: [
-          { label: '衣柜', value: formatCareerNumber(s.wardrobe_count), emoji: '👗' },
-          { label: '服饰', value: formatCareerNumber(s.clothes_count), emoji: '🎀' },
-          { label: '穿着', value: formatCareerNumber(s.total_wear_times), emoji: '💫' },
+          { label: t('user.userSpace.career_label_wardrobe'), value: formatCareerNumber(s.wardrobe_count), emoji: '👗' },
+          { label: t('user.userSpace.career_label_clothes'), value: formatCareerNumber(s.clothes_count), emoji: '🎀' },
+          { label: t('user.userSpace.career_label_wear_short'), value: formatCareerNumber(s.total_wear_times), emoji: '💫' },
         ],
       },
       {
-        title: '创作与分享',
+        title: t('user.userSpace.career_group_create'),
         icon: '✨',
         items: [
-          { label: '发帖', value: formatCareerNumber(s.community_count), emoji: '📝' },
-          { label: '手账', value: formatCareerNumber(s.journal_count), emoji: '📔' },
-          { label: '搭配', value: formatCareerNumber(s.matching_count), emoji: '✨' },
+          { label: t('user.userSpace.career_label_post'), value: formatCareerNumber(s.community_count), emoji: '📝' },
+          { label: t('user.userSpace.career_label_journal'), value: formatCareerNumber(s.journal_count), emoji: '📔' },
+          { label: t('user.userSpace.career_label_matching'), value: formatCareerNumber(s.matching_count), emoji: '✨' },
         ],
       },
       {
-        title: '图鉴贡献',
+        title: t('user.userSpace.career_group_library'),
         icon: '📚',
         items: [
-          { label: '贡献图鉴', value: formatCareerNumber(s.library_contribute_count), emoji: '📚' },
-          { label: '纠错图鉴', value: formatCareerNumber(s.library_correction_count), emoji: '🔧' },
+          { label: t('user.userSpace.career_label_library_add'), value: formatCareerNumber(s.library_contribute_count), emoji: '📚' },
+          { label: t('user.userSpace.career_label_library_fix'), value: formatCareerNumber(s.library_correction_count), emoji: '🔧' },
         ],
       },
     ],
@@ -1847,9 +1850,9 @@ onUnmounted(() => {
 useHead({
   title: computed(() => {
     if (userInfo.value?.user_name) {
-      return `${userInfo.value.user_name} - 用户空间 - Lo研社`
+      return t('user.userSpace.page_title', { name: userInfo.value.user_name })
     }
-    return '用户空间 - Lo研社'
+    return t('user.userSpace.page_title_default')
   }),
 })
 </script>
@@ -2041,7 +2044,7 @@ useHead({
   }
 }
 
-/* 生涯统计弹窗内容区 */
+/* {{ $t('user.userSpace.career_stats_title') }}弹窗内容区 */
 .career-stats-body {
   background: linear-gradient(180deg, rgba(255, 250, 252, 0.6) 0%, rgba(255, 255, 255, 0) 28%);
 }

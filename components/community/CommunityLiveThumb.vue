@@ -26,7 +26,7 @@ const props = withDefaults(
     defaultLoop?: boolean
   }>(),
   {
-    alt: 'Lo研社',
+    alt: undefined,
     active: false,
     showBadge: true,
     badgeInteractive: true,
@@ -43,6 +43,8 @@ const emit = defineEmits<{
   'loop-change': [enabled: boolean]
 }>()
 
+const { t } = useI18n()
+const resolvedAlt = computed(() => props.alt || t('common.brand'))
 const videoRef = ref<HTMLVideoElement | null>(null)
 const isLive = computed(() => Boolean(props.videoSrc?.trim()))
 const toast = useToast()
@@ -65,7 +67,7 @@ const {
   onLoopChange: (enabled) => {
     emit('loop-change', enabled)
     toast.add({
-      title: enabled ? '已开启循环播放' : '已关闭循环，仅播放一次',
+      title: enabled ? t('community.live.loop_on') : t('community.live.loop_off'),
       icon: enabled ? 'i-heroicons-arrow-path' : 'i-heroicons-stop',
       color: 'gray',
     })
@@ -84,7 +86,7 @@ function onRootClick(e: MouseEvent) {
   >
     <img
       :src="posterSrc"
-      :alt="alt"
+      :alt="resolvedAlt"
       :class="mediaClass"
       class="community-live-thumb__poster"
       draggable="false"
@@ -116,8 +118,8 @@ function onRootClick(e: MouseEvent) {
         { 'community-live-thumb__badge--loop': loopEnabled },
       ]"
       data-live-badge
-      :aria-label="loopEnabled ? '重播；长按关闭循环' : '重播；长按开启循环'"
-      :title="loopEnabled ? '点击重播 · 长按关闭循环' : '点击重播 · 长按开启循环'"
+      :aria-label="loopEnabled ? t('community.live.replay_loop_off_aria') : t('community.live.replay_loop_on_aria')"
+      :title="loopEnabled ? t('community.live.replay_loop_off_title') : t('community.live.replay_loop_on_title')"
       @click.stop="onBadgeClick"
       @mousedown.stop="onBadgePointerDown"
       @mousemove.stop="onBadgePointerMove"

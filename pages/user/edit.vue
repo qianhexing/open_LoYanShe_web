@@ -16,6 +16,8 @@ import {
   type CommunityCustomStyle,
 } from '@/utils/communityCustomStyle'
 
+const { t } = useI18n()
+
 let uni: any
 const port = computed(() => configStore.getPort())
 
@@ -26,7 +28,7 @@ interface AddressItem {
 }
 
 useHead({
-  title: '编辑个人信息 - Lo研社'
+  title: () => t('user.edit.page_title')
 })
 
 const userStore = useUserStore()
@@ -135,7 +137,7 @@ async function fetchCustomStyleUpload(file: { file?: File; url: string }) {
   } catch (error) {
     console.error(error)
     toast.add({
-      title: '背景图上传失败',
+      title: t('user.edit.bg_upload_failed'),
       icon: 'i-heroicons-exclamation-circle',
       color: 'red'
     })
@@ -176,7 +178,7 @@ const fetchUserInfo = async () => {
     )
   } catch (error) {
     toast.add({
-      title: '获取用户信息失败',
+      title: t('user.edit.fetch_user_failed'),
       description: getErrorMessage(error),
       icon: 'i-heroicons-x-circle',
       color: 'red'
@@ -203,13 +205,13 @@ const handleAvatarChange = async (event: Event) => {
     }
 
     toast.add({
-      title: '头像上传成功',
+      title: t('user.edit.avatar_upload_success'),
       icon: 'i-heroicons-check-circle',
       color: 'green'
     })
   } catch (error) {
     toast.add({
-      title: '头像上传失败',
+      title: t('user.edit.avatar_upload_failed'),
       description: getErrorMessage(error),
       icon: 'i-heroicons-x-circle',
       color: 'red'
@@ -239,7 +241,7 @@ const confirmMainStyle = (value: { label: string; value: number | string }) => {
     formData.main_style.push(style)
   } else {
     toast.add({
-      title: '重复添加',
+      title: t('user.edit.duplicate_style'),
       icon: 'i-heroicons-exclamation-triangle',
       color: 'orange'
     })
@@ -311,7 +313,7 @@ const deleteArea = () => {
 const confirmAddress = () => {
   if (!selectedProvince.value || !selectedCity.value || !selectedArea.value) {
     toast.add({
-      title: '请完整选择地址',
+      title: t('user.edit.address_incomplete'),
       icon: 'i-heroicons-exclamation-triangle',
       color: 'orange'
     })
@@ -360,7 +362,7 @@ const updateMessageConfig = async () => {
     }
 
     toast.add({
-      title: '设置已更新',
+      title: t('user.edit.settings_updated'),
       icon: 'i-heroicons-check-circle',
       color: 'green'
     })
@@ -368,7 +370,7 @@ const updateMessageConfig = async () => {
     formData.email_notice = !formData.email_notice
     formData.daily_news_subscribe = !formData.daily_news_subscribe
     toast.add({
-      title: '更新失败',
+      title: t('user.edit.update_failed'),
       description: getErrorMessage(error),
       icon: 'i-heroicons-x-circle',
       color: 'red'
@@ -381,7 +383,7 @@ const updateMessageConfig = async () => {
 const saveUserInfo = async () => {
   if (loading.value) {
     toast.add({
-      title: '请求中请稍候',
+      title: t('user.edit.request_wait'),
       icon: 'i-heroicons-exclamation-triangle',
       color: 'orange'
     })
@@ -444,7 +446,7 @@ const saveUserInfo = async () => {
     user.value = userStore.user
 
     toast.add({
-      title: '保存成功',
+      title: t('user.edit.save_success'),
       icon: 'i-heroicons-check-circle',
       color: 'green'
     })
@@ -470,7 +472,7 @@ const saveUserInfo = async () => {
     }
   } catch (error) {
     toast.add({
-      title: '保存失败',
+      title: t('user.edit.save_failed'),
       description: getErrorMessage(error),
       icon: 'i-heroicons-x-circle',
       color: 'red'
@@ -510,7 +512,7 @@ const loadAddressData = async () => {
   } catch (error) {
     console.error('加载地址数据失败:', error)
     toast.add({
-      title: '加载地址数据失败',
+      title: t('user.edit.load_address_failed'),
       icon: 'i-heroicons-x-circle',
       color: 'red'
     })
@@ -541,10 +543,10 @@ onActivated(() => {
       <!-- 头部 -->
       <div class="mb-6">
         <h1 class="text-2xl font-bold text-gray-900 dark:text-white tracking-tight">
-          编辑个人信息
+          {{ $t('user.edit.heading') }}
         </h1>
         <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
-          完善资料，让个人空间更有辨识度
+          {{ $t('user.edit.subtitle') }}
         </p>
       </div>
 
@@ -552,24 +554,24 @@ onActivated(() => {
       <section class="edit-section mb-4">
         <div class="edit-section__header">
           <span class="edit-section__dot" />
-          <h2 class="edit-section__title">基本信息</h2>
+          <h2 class="edit-section__title">{{ $t('user.edit.section_basic') }}</h2>
         </div>
 
         <!-- 头像 -->
         <div class="mb-6">
-          <label class="edit-label">头像</label>
+          <label class="edit-label">{{ $t('user.edit.avatar') }}</label>
           <div class="flex items-center gap-4">
             <button
               type="button"
               class="relative group shrink-0"
               :disabled="uploadingAvatar"
-              aria-label="更换头像"
+              :aria-label="$t('user.edit.change_avatar')"
               @click="triggerAvatarUpload"
             >
               <div class="relative h-20 w-20">
                 <img
                   :src="user.user_face ? `${BASE_IMG}${user.user_face}` : '/default-avatar.png'"
-                  :alt="user.user_name || '用户头像'"
+                  :alt="user.user_name || $t('user.edit.user_avatar_alt')"
                   class="h-20 w-20 rounded-full object-cover border-2 border-white dark:border-gray-700 shadow-md ring-2 ring-pink-100 dark:ring-pink-900/40"
                 >
                 <div
@@ -607,7 +609,7 @@ onActivated(() => {
                     @click="triggerAvatarUpload"
                   >
                     <Icon name="i-heroicons-photo" class="h-4 w-4" />
-                    {{ uploadingAvatar ? '上传中…' : '更换头像' }}
+                    {{ uploadingAvatar ? $t('user.edit.uploading') : $t('user.edit.change_avatar') }}
                   </button>
                 </QhxJellyButton>
                 <QhxJellyButton>
@@ -617,12 +619,12 @@ onActivated(() => {
                     @click="goChangeAvatarFrame"
                   >
                     <Icon name="i-heroicons-sparkles" class="h-4 w-4" />
-                    更换头像框
+                    {{ $t('user.edit.change_avatar_frame') }}
                   </button>
                 </QhxJellyButton>
               </div>
               <p class="mt-1.5 text-xs text-gray-400">
-                支持常见图片格式；头像框可预览后确认使用
+                {{ $t('user.edit.avatar_hint') }}
               </p>
             </div>
             <input
@@ -637,7 +639,7 @@ onActivated(() => {
 
         <!-- 用户名 -->
         <div class="mb-5">
-          <label class="edit-label">用户名</label>
+          <label class="edit-label">{{ $t('user.edit.username') }}</label>
           <div class="flex items-center gap-2">
             <input
               :value="user.user_name"
@@ -651,12 +653,12 @@ onActivated(() => {
                 class="shrink-0 rounded-full border border-qhx-primary/40 bg-white px-3.5 py-2 text-sm font-medium text-qhx-primary transition-colors hover:bg-qhx-primary/5 dark:bg-gray-800"
                 @click="showRenameModal = true"
               >
-                改名
+                {{ $t('user.edit.rename') }}
               </button>
             </QhxJellyButton>
           </div>
           <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
-            改名消耗 100 经验；昵称唯一，1–6 字，不可含特殊字符
+            {{ $t('user.edit.rename_hint') }}
           </p>
           <p
             v-if="formerNamesLabel"
@@ -668,10 +670,10 @@ onActivated(() => {
 
         <!-- 个人签名 -->
         <div class="mb-5">
-          <label class="edit-label">个人签名</label>
+          <label class="edit-label">{{ $t('user.edit.signature') }}</label>
           <textarea
             v-model="formData.signature"
-            placeholder="介绍一下自己"
+            :placeholder="$t('user.edit.signature_placeholder')"
             rows="4"
             class="edit-textarea"
           />
@@ -679,10 +681,10 @@ onActivated(() => {
 
         <!-- 邮箱 -->
         <div>
-          <label class="edit-label">邮箱</label>
+          <label class="edit-label">{{ $t('user.edit.email') }}</label>
           <div class="flex items-center gap-2">
             <input
-              :value="user.email || '未绑定'"
+              :value="user.email || $t('user.edit.email_unbound')"
               type="text"
               disabled
               class="edit-input flex-1 disabled:cursor-not-allowed disabled:opacity-70"
@@ -693,7 +695,7 @@ onActivated(() => {
                 class="shrink-0 rounded-full border border-qhx-primary/40 bg-white px-3.5 py-2 text-sm font-medium text-qhx-primary transition-colors hover:bg-qhx-primary/5 dark:bg-gray-800"
                 @click="showEmailModal = true"
               >
-                {{ user.email ? '换绑邮箱' : '绑定邮箱' }}
+                {{ user.email ? $t('user.edit.rebind_email') : $t('user.edit.bind_email') }}
               </button>
             </QhxJellyButton>
           </div>
@@ -705,10 +707,10 @@ onActivated(() => {
             <div class="flex items-center justify-between gap-4">
               <div class="min-w-0">
                 <div class="text-sm font-medium text-gray-800 dark:text-gray-200">
-                  邮件通知
+                  {{ $t('user.edit.email_notice') }}
                 </div>
                 <div class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
-                  开启后，系统将通过邮件发送重要通知
+                  {{ $t('user.edit.email_notice_desc') }}
                 </div>
               </div>
               <button
@@ -730,10 +732,10 @@ onActivated(() => {
             <div class="flex items-center justify-between gap-4">
               <div class="min-w-0">
                 <div class="text-sm font-medium text-gray-800 dark:text-gray-200">
-                  订阅上新资讯
+                  {{ $t('user.edit.daily_news') }}
                 </div>
                 <div class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
-                  开启后，系统将通过邮件发送上新资讯通知
+                  {{ $t('user.edit.daily_news_desc') }}
                 </div>
               </div>
               <button
@@ -754,7 +756,7 @@ onActivated(() => {
           </div>
 
           <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">
-            如果收不到邮件，请将 noreply@chaozj.com 添加至白名单
+            {{ $t('user.edit.email_whitelist_hint') }}
           </p>
         </div>
       </section>
@@ -763,7 +765,7 @@ onActivated(() => {
       <section class="edit-section mb-4">
         <div class="edit-section__header">
           <span class="edit-section__dot" />
-          <h2 class="edit-section__title">风格标签</h2>
+          <h2 class="edit-section__title">{{ $t('user.edit.section_style') }}</h2>
         </div>
         <div class="flex flex-wrap items-center gap-1.5">
           <QhxTag
@@ -776,7 +778,7 @@ onActivated(() => {
               <button
                 type="button"
                 class="ml-0.5 rounded-full p-0.5 transition-colors hover:bg-white/20"
-                aria-label="删除风格"
+                :aria-label="$t('user.edit.remove_style')"
                 @click="deleteStyle(index)"
               >
                 <Icon name="i-heroicons-x-mark" class="h-3.5 w-3.5" />
@@ -790,7 +792,7 @@ onActivated(() => {
               @click="openStylePicker"
             >
               <Icon name="i-heroicons-plus" class="h-3.5 w-3.5" />
-              选择风格
+              {{ $t('user.edit.choose_style') }}
             </button>
           </QhxJellyButton>
         </div>
@@ -800,7 +802,7 @@ onActivated(() => {
       <section class="edit-section mb-4">
         <div class="edit-section__header">
           <span class="edit-section__dot" />
-          <h2 class="edit-section__title">所在城市</h2>
+          <h2 class="edit-section__title">{{ $t('user.edit.section_city') }}</h2>
         </div>
         <div class="flex flex-wrap items-center gap-1.5">
           <QhxTag
@@ -813,7 +815,7 @@ onActivated(() => {
               <button
                 type="button"
                 class="ml-0.5 rounded-full p-0.5 transition-colors hover:bg-white/20"
-                aria-label="清除地址"
+                :aria-label="$t('user.edit.clear_address')"
                 @click="deleteArea"
               >
                 <Icon name="i-heroicons-x-mark" class="h-3.5 w-3.5" />
@@ -827,7 +829,7 @@ onActivated(() => {
               @click="openAddressPicker"
             >
               <Icon name="i-heroicons-plus" class="h-3.5 w-3.5" />
-              选择地址
+              {{ $t('user.edit.choose_address') }}
             </button>
           </QhxJellyButton>
         </div>
@@ -837,20 +839,20 @@ onActivated(() => {
       <section class="edit-section mb-4">
         <div class="edit-section__header">
           <span class="edit-section__dot" />
-          <h2 class="edit-section__title">显示设置</h2>
+          <h2 class="edit-section__title">{{ $t('user.edit.section_display') }}</h2>
         </div>
 
         <div class="space-y-1">
           <div class="edit-setting-row">
             <div class="min-w-0 flex-1">
               <div class="text-sm font-medium text-gray-900 dark:text-white">
-                是否显示所在城市
+                {{ $t('user.edit.show_city') }}
               </div>
               <div
                 v-if="formData.show_area"
                 class="mt-0.5 text-xs text-gray-500 dark:text-gray-400"
               >
-                将在个人空间内展示位置
+                {{ $t('user.edit.show_city_hint') }}
               </div>
             </div>
             <button
@@ -871,13 +873,13 @@ onActivated(() => {
           <div class="edit-setting-row">
             <div class="min-w-0 flex-1">
               <div class="text-sm font-medium text-gray-900 dark:text-white">
-                是否展示成就簿
+                {{ $t('user.edit.show_achieve') }}
               </div>
               <div
                 v-if="formData.is_achieve"
                 class="mt-0.5 text-xs text-gray-500 dark:text-gray-400"
               >
-                将在个人空间内展示成就簿
+                {{ $t('user.edit.show_achieve_hint') }}
               </div>
             </div>
             <button
@@ -902,7 +904,7 @@ onActivated(() => {
         <CommunityCustomStyleForm
           ref="customStyleFormRef"
           v-model="customStyle"
-          background-hint="个人空间背景"
+          :background-hint="t('user.edit.background_hint')"
         />
       </section>
 
@@ -923,7 +925,7 @@ onActivated(() => {
                 name="i-heroicons-arrow-path"
                 class="h-5 w-5 animate-spin"
               />
-              {{ loading ? '保存中…' : '保存信息' }}
+              {{ loading ? $t('user.edit.saving') : $t('user.edit.save_info') }}
             </button>
           </QhxJellyButton>
         </div>
@@ -949,12 +951,12 @@ onActivated(() => {
           class="flex items-center justify-between border-b border-gray-100 bg-gradient-to-r from-pink-50/90 to-orange-50/70 px-5 py-4 dark:border-gray-700 dark:from-gray-800 dark:to-gray-800"
         >
           <h3 class="text-base font-semibold text-gray-900 dark:text-white">
-            选择地址
+            {{ $t('user.edit.address_modal_title') }}
           </h3>
           <button
             type="button"
             class="flex h-8 w-8 items-center justify-center rounded-full text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-700"
-            aria-label="关闭"
+            :aria-label="$t('common.close')"
             @click="showAddressPicker = false"
           >
             <Icon name="i-heroicons-x-mark" class="h-5 w-5" />
@@ -963,14 +965,14 @@ onActivated(() => {
 
         <div class="space-y-4 p-5">
           <div>
-            <label class="edit-label">省份</label>
+            <label class="edit-label">{{ $t('user.edit.province') }}</label>
             <button
               type="button"
               class="edit-picker-btn"
               @click="openProvincePicker"
             >
               <span :class="selectedProvince ? 'text-gray-900 dark:text-white' : 'text-gray-400'">
-                {{ selectedProvince?.label || '请选择省份' }}
+                {{ selectedProvince?.label || $t('user.edit.pick_province') }}
               </span>
               <Icon name="i-heroicons-chevron-right" class="h-4 w-4 text-gray-400" />
             </button>
@@ -982,14 +984,14 @@ onActivated(() => {
           </div>
 
           <div v-if="selectedProvince">
-            <label class="edit-label">城市</label>
+            <label class="edit-label">{{ $t('user.edit.city_label') }}</label>
             <button
               type="button"
               class="edit-picker-btn"
               @click="openCityPicker"
             >
               <span :class="selectedCity ? 'text-gray-900 dark:text-white' : 'text-gray-400'">
-                {{ selectedCity?.label || '请选择城市' }}
+                {{ selectedCity?.label || $t('user.edit.pick_city') }}
               </span>
               <Icon name="i-heroicons-chevron-right" class="h-4 w-4 text-gray-400" />
             </button>
@@ -1001,14 +1003,14 @@ onActivated(() => {
           </div>
 
           <div v-if="selectedCity">
-            <label class="edit-label">区县</label>
+            <label class="edit-label">{{ $t('user.edit.area') }}</label>
             <button
               type="button"
               class="edit-picker-btn"
               @click="openAreaPicker"
             >
               <span :class="selectedArea ? 'text-gray-900 dark:text-white' : 'text-gray-400'">
-                {{ selectedArea?.label || '请选择区县' }}
+                {{ selectedArea?.label || $t('user.edit.pick_area') }}
               </span>
               <Icon name="i-heroicons-chevron-right" class="h-4 w-4 text-gray-400" />
             </button>
@@ -1026,7 +1028,7 @@ onActivated(() => {
             class="rounded-full border border-gray-200 px-4 py-2 text-sm text-gray-600 transition-colors hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700"
             @click="showAddressPicker = false"
           >
-            取消
+            {{ $t('common.cancel') }}
           </button>
           <QhxJellyButton>
             <button
@@ -1035,7 +1037,7 @@ onActivated(() => {
               :disabled="!selectedArea"
               @click="confirmAddress"
             >
-              确认
+              {{ $t('common.confirm') }}
             </button>
           </QhxJellyButton>
         </div>

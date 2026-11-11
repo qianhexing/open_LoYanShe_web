@@ -108,6 +108,7 @@ import QhxRichTextEditor from '@/components/Qhx/RichTextEditor.vue'
 import { useUserStore } from '@/stores/user'
 import type { Community } from '@/types/api'
 import { BASE_IMG } from '@/utils/ipConfig'
+import { nativeReloadHome } from '@/utils/nativeShell'
 import { uploadImageOSS } from '@/utils/ossUpload'
 import { nextTick, ref, watch } from 'vue'
 
@@ -335,6 +336,12 @@ const handleSubmit = async () => {
 			color: 'green'
 		})
 
+		if (community.community_id != null && Number.isFinite(Number(community.community_id))) {
+			nativeReloadHome({
+				reset: true,
+				community_id: Number(community.community_id),
+			})
+		}
 		emit('success', community)
 		handleClose()
 	} catch (error: unknown) {

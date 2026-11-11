@@ -99,12 +99,12 @@
           </UButton>
 
           <div class="mt-4 text-center text-sm text-gray-500 dark:text-gray-400">
-            还没有账号?
+            {{ $t('login.no_account') }}
             <NuxtLink 
               to="/register" 
               class="text-primary-600 dark:text-primary-400 hover:underline"
             >
-              立即注册
+              {{ $t('login.register_now') }}
             </NuxtLink>
           </div>
         </UForm>
@@ -114,6 +114,7 @@
 </template>
 
 <script setup lang="ts">
+const { t } = useI18n()
 const open = ref(false)
 const userStore = useUserStore()
 const config = useConfigStore()
@@ -141,9 +142,9 @@ const phoneCodeOptions = computed(() => {
   // 默认选项
   if (codeList.length === 0) {
     codeList.push(
-      { label: '中国 +86', value: '+86' },
-      { label: '美国 +1', value: '+1' },
-      { label: '日本 +81', value: '+81' }
+      { label: t('login.phone_code_cn'), value: '+86' },
+      { label: t('login.phone_code_us'), value: '+1' },
+      { label: t('login.phone_code_jp'), value: '+81' }
     )
   }
   return codeList
@@ -169,7 +170,7 @@ const  onSubmit = async () => {
     open.value = false
     const toast = useToast()
     toast.add({
-      title: '登录成功',
+      title: t('login.success'),
       icon: 'i-heroicons-check-circle',
       color: 'green'
     })

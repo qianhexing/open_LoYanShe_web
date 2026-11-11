@@ -20,17 +20,39 @@ export function normalizeContentLang(raw: string | null | undefined, fallback = 
   return base
 }
 
-/** 语种不一致且本次响应未覆盖译文 → 显示「翻译」 */
+/**
+ * 帖子/评论统一：只看 display_lang 与当前 UI 语种是否一致。
+ * display_lang 由后端写入（有译文=目标语，无译文=原文语种）。
+ */
 export function contentNeedsTranslate(
   meta: ContentI18nFields | null | undefined,
   uiLang: string
 ): boolean {
   if (!meta) return false
-  const contentLang = normalizeContentLang(meta.content_lang || meta.lang)
+  const displayLang = normalizeContentLang(meta.display_lang)
   const requestLang = normalizeContentLang(uiLang)
-  if (contentLang === requestLang) return false
-  if (meta.has_i18n) return false
-  return true
+  return displayLang !== requestLang
+}
+
+/** 点译成功后统一回写 i18n 标记（帖子/评论共用） */
+export function applyTranslateMeta(
+  meta: ContentI18nFields,
+  lang: string
+): void {
+  const next = normalizeContentLang(lang)
+  meta.has_i18n = true
+  meta.i18n_lang = next
+  meta.display_lang = next
+}
+
+/** 翻译请求的原文语种：帖子/评论统一取 content_lang */
+export function resolveSourceLang(
+  meta: ContentI18nFields | null | undefined
+): string | undefined {
+  if (!meta) return undefined
+  const raw = meta.content_lang || meta.lang
+  if (raw == null || String(raw).trim() === '') return undefined
+  return normalizeContentLang(raw)
 }
 
 export function useContentTranslate() {
@@ -71,6 +93,8 @@ export function useContentTranslate() {
     translating,
     needsTranslate,
     runTranslate,
+    applyTranslateMeta,
+    resolveSourceLang,
     ContentI18nPkType,
   }
 }

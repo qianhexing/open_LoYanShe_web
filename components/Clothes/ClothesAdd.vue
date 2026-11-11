@@ -27,8 +27,17 @@ const wardrobeCoverRef = ref<InstanceType<typeof QhxImagePicker> | null>(null)
 import WikiOptionsChoose from '@/components/wiki/wikiOptionsChoose.vue'
 import type { Wiki } from '@/types/api'
 import type QhxColorPicker from '@/components/Qhx/ColorPicker.vue'
+import {
+  mapConfigStatusOptions,
+  wardrobePartLabel,
+  wardrobeSeasonLabel,
+  wardrobeSeasonOptions,
+  wardrobeStatusLabel,
+  wardrobeStatusOptions,
+} from '@/utils/wardrobeDisplayI18n'
 const ColorPickerRef = ref<InstanceType<typeof QhxColorPicker> | null>(null)
 
+const { t } = useI18n()
 const showCoverImageColorPicker = ref(false)
 const imageColorPickerClickPosition = ref({ x: 0, y: 0 })
 /** 服饰封面首张预览图，用于 canvas 取色 */
@@ -151,7 +160,7 @@ const colorTextChooseRef = ref<InstanceType<typeof QhxOptionsChoose> | null>(nul
   
 const openPicker = (e: MouseEvent) => {
   const selected = form.value.wardrobe_status
-    ? [{ value: form.value.wardrobe_status, label: form.value.wardrobe_status }]
+    ? [{ value: form.value.wardrobe_status, label: wardrobeStatusLabel(t, form.value.wardrobe_status) }]
     : []
   statusChooseRef.value?.showPicker(e, selected)
 }
@@ -170,7 +179,13 @@ const chooseMainStyleWiki = (wikiList: Wiki[]) => {
   }
 }
 const openClothesPart = (e: MouseEvent) => {
-  clothesPartChooseRef.value?.showPicker(e, form.value.clothes_part)
+  clothesPartChooseRef.value?.showPicker(
+    e,
+    form.value.clothes_part.map((part) => ({
+      value: part.value,
+      label: wardrobePartLabel(t, String(part.value || part.label)),
+    })),
+  )
 }
 const openTag = (e: MouseEvent) => {
   tagChooseRef.value?.showPicker(
@@ -191,17 +206,21 @@ const rememberOption = (list: optionsInterface[], item: optionsInterface) => {
 }
 const onStatusChoose = (list: optionsInterface[]) => {
   const first = list[0]
-  const label = first?.label?.trim()
-  if (!label || !first) return
-  form.value.wardrobe_status = label
-  rememberOption(wardrobe_status_options.value, { value: label, label })
+  const value = String(first?.value ?? '').trim()
+  if (!value || !first) return
+  form.value.wardrobe_status = value
+  rememberOption(wardrobe_status_options.value, {
+    value,
+    label: first.label?.trim() || wardrobeStatusLabel(t, value),
+  })
 }
 const onClothesPartChoose = (list: optionsInterface[]) => {
   for (const select of list) {
-    const label = select.label?.trim()
-    if (!label) continue
-    const item = { value: select.value, label }
-    if (form.value.clothes_part.findIndex((child) => child.label === label) === -1) {
+    const value = String(select.value ?? '').trim()
+    const label = select.label?.trim() || wardrobePartLabel(t, value)
+    if (!value) continue
+    const item = { value, label }
+    if (form.value.clothes_part.findIndex((child) => String(child.value) === value) === -1) {
       form.value.clothes_part.push(item)
     }
     rememberOption(clothes_part_options.value, item)
@@ -214,11 +233,7 @@ const configStore = useConfigStore()
 const userStore = useUserStore()
 const toast = useToast()
 console.log(wardrobeStore, '衣柜配置')
-const wardrobe_status_defaults: optionsInterface[] = [
-  { value: '已拥有', label: '已拥有' },
-  { value: '待补款', label: '待补款' },
-  { value: '已出', label: '已出' },
-]
+const wardrobe_status_defaults = computed(() => wardrobeStatusOptions(t))
 const color_text_defaults: optionsInterface[] = [
   { value: '白色', label: '白色' },
   { value: '黑色', label: '黑色' },
@@ -233,7 +248,7 @@ const color_text_defaults: optionsInterface[] = [
   { value: '棕色', label: '棕色' },
   { value: '米色', label: '米色' },
 ]
-const wardrobe_status_options = ref<optionsInterface[]>([...wardrobe_status_defaults])
+const wardrobe_status_options = ref<optionsInterface[]>(wardrobeStatusOptions(t))
 const color_text_options = ref<optionsInterface[]>([...color_text_defaults])
 const main_style_options = ref<optionsInterface[]>([])
 const clothes_part_options = ref<optionsInterface[]>([])
@@ -358,42 +373,40 @@ function onDeleteColorText(item: optionsInterface) {
 function syncConfigOptions() {
   const cfg = wardrobeStore.config
   if (!cfg) return
-  const fromConfig = cfg.wardrobe_status?.map((child) => ({
-    value: child,
-    label: child,
-  })) ?? []
+  const defaults = wardrobe_status_defaults.value
+  const fromConfig = mapConfigStatusOptions(t, cfg.wardrobe_status ?? [])
   wardrobe_status_options.value = [
-    ...wardrobe_status_defaults,
-    ...fromConfig.filter((o) => !wardrobe_status_defaults.some((d) => d.label === o.label)),
+    ...defaults,
+    ...fromConfig.filter((o) => !defaults.some((d) => d.value === o.value)),
   ]
   clothes_part_options.value = (cfg.clothes_part ?? []).map((child) => ({
     value: child,
-    label: child,
+    label: wardrobePartLabel(t, child),
   }))
 }
 
 async function onDeleteConfigOption(kind: ClothesConfigOptionKind, item: optionsInterface) {
-  const label = item.label?.trim()
-  if (!label) return
+  const term = String(item.value ?? item.label ?? '').trim()
+  if (!term) return
   try {
-    const { updated } = await deleteClothesConfigOptionThenReload(kind, label)
-    if (kind === 'wardrobe_status' && form.value.wardrobe_status?.trim() === label) {
+    const { updated } = await deleteClothesConfigOptionThenReload(kind, term)
+    if (kind === 'wardrobe_status' && form.value.wardrobe_status?.trim() === term) {
       form.value.wardrobe_status = null
     }
     if (kind === 'clothes_part') {
-      form.value.clothes_part = form.value.clothes_part.filter((part) => part.label.trim() !== label)
+      form.value.clothes_part = form.value.clothes_part.filter((part) => String(part.value).trim() !== term)
     }
     if (kind === 'tags') {
-      form.value.tags = form.value.tags.filter((tag) => tag.trim() !== label)
+      form.value.tags = form.value.tags.filter((tag) => tag.trim() !== term)
     }
     syncConfigOptions()
     if (kind === 'tags') await loadMemoryTags(form.value.wardrobe_id)
     toast.add({ title: clothesTermDeletedMessage(updated), color: 'green', icon: 'i-heroicons-check-circle' })
   } catch {
-    toast.add({ title: '删除失败', color: 'red', icon: 'i-heroicons-exclamation-circle' })
+    toast.add({ title: t('wardrobe.toast.delete_failed'), color: 'red', icon: 'i-heroicons-exclamation-circle' })
   }
 }
-const season_options = [{ value: '春', label: '春' }, { value: '夏', label: '夏' }, { value: '秋', label: '秋' }, { value: '冬', label: '冬' }]
+const season_options = computed(() => wardrobeSeasonOptions(t))
 const show = ref(false)
 const loading = ref(false)
 const type = ref(0) // 0 添加 1 编辑
@@ -818,7 +831,7 @@ async function ensureAtLeastOneWardrobe(uid: number) {
   })
   const rows = res.rows ?? []
   if (rows.length === 0) {
-    await insertWardrobe({ wardrobe_name: '默认衣柜' })
+    await insertWardrobe({ wardrobe_name: t('wardrobe.default_name') })
   }
 }
 
@@ -1254,7 +1267,7 @@ const showModel = async (
     const uid = userStore.user?.user_id
     if (uid == null || !Number.isFinite(Number(uid))) {
       toast.add({
-        title: '请先登录',
+        title: t('common.please_login'),
         color: 'amber',
         icon: 'i-heroicons-information-circle'
       })
@@ -1267,8 +1280,8 @@ const showModel = async (
       const ok = await loadWardrobeSelectOptions(Number(uid))
       if (!ok) {
         toast.add({
-          title: '暂无可用衣柜',
-          description: '请稍后重试',
+          title: t('wardrobe.toast.no_clothes'),
+          description: t('common.retry'),
           color: 'amber',
           icon: 'i-heroicons-information-circle'
         })
@@ -1278,8 +1291,8 @@ const showModel = async (
       await applyShowModelPayload(merged, isCopy)
     } catch {
       toast.add({
-        title: '无法加载衣柜',
-        description: '请稍后重试',
+        title: t('wardrobe.toast.load_wardrobe_failed'),
+        description: t('common.retry'),
         color: 'red',
         icon: 'i-heroicons-exclamation-circle'
       })
@@ -1702,7 +1715,7 @@ const insert = async () => {
     params.origin = null
   }
   if (clothes_part && Array.isArray(clothes_part) && clothes_part.length > 0) {
-    params.clothes_part = clothes_part.map((p: optionsInterface) => p.label || String(p.value)).join(',')
+    params.clothes_part = clothes_part.map((p: optionsInterface) => String(p.value || p.label)).join(',')
   } else {
     params.clothes_part = null
   }
@@ -1878,7 +1891,7 @@ defineExpose({
       <!-- 头部 -->
       <div class="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-700 bg-gradient-to-r from-pink-50 to-purple-50 dark:from-gray-800 dark:to-gray-800 flex-shrink-0">
         <h2 class="text-xl font-bold ">
-          {{ type === 0 ? '新增服饰' : '编辑服饰' }}
+          {{ type === 0 ? t('clothes.add.create') : t('clothes.add.edit') }}
         </h2>
         <button
           @click="closeModel"
@@ -1894,12 +1907,12 @@ defineExpose({
         <!-- 衣柜：表单内选择（enableWardrobePicker + 新增）或只读名称 -->
         <div class="grid grid-cols-12 gap-4 items-center p-4 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-gray-700/50 dark:to-gray-700/30 rounded-xl border border-blue-100 dark:border-gray-600">
           <div class="col-span-3 font-semibold text-gray-700 dark:text-gray-300">
-            {{ enableWardrobePicker && type === 0 ? '衣柜' : '衣柜名称' }}
+            {{ enableWardrobePicker && type === 0 ? t('clothes.add.wardrobe') : t('clothes.add.wardrobe_name') }}
           </div>
           <div class="col-span-9 space-y-2">
             <template v-if="enableWardrobePicker && type === 0 && wardrobeSelectOptions.length">
               <div class="flex flex-wrap items-center gap-2">
-                <span class="font-medium text-gray-900 dark:text-gray-100">{{ wardrobeName || '请选择衣柜' }}</span>
+                <span class="font-medium text-gray-900 dark:text-gray-100">{{ wardrobeName || t('clothes.add.please_select_wardrobe') }}</span>
                 <UButton
                   type="button"
                   size="xs"
@@ -1907,7 +1920,7 @@ defineExpose({
                   class="bg-qhx-primary text-qhx-inverted hover:bg-qhx-primaryHover"
                   @click="openWardrobeSelectPicker($event)"
                 >
-                  选择衣柜
+                  {{ t('clothes.add.select_wardrobe') }}
                 </UButton>
               </div>
               <QhxSelect
@@ -1930,7 +1943,7 @@ defineExpose({
         <!-- 主要信息板块 -->
         <div class="space-y-6">
           <!-- 关联图鉴 -->
-          <UFormGroup label="关联图鉴" class="space-y-3">
+          <UFormGroup :label="t('clothes.add.link_library')" class="space-y-3">
             <div v-if="library" class="inline-block">
               <QhxTag
                 :active="true"
@@ -1954,10 +1967,10 @@ defineExpose({
                 @click="showChooseLibrary()"
               >
                 <UIcon name="material-symbols:book-rounded" class="mr-1" />
-                选择图鉴
+                {{ t('clothes.add.select_library') }}
               </UButton>
               <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                💡 关联图鉴可自动填入名称、图片和价格信息
+                {{ t('clothes.add.library_hint') }}
               </p>
             </div>
           </UFormGroup>
@@ -1995,7 +2008,7 @@ defineExpose({
           <!-- 服饰图片（封面） -->
           <div class="space-y-2">
             <div class="flex items-center justify-between gap-2">
-              <span class="text-sm font-medium text-gray-700 dark:text-gray-200">服饰封面</span>
+              <span class="text-sm font-medium text-gray-700 dark:text-gray-200">{{ t('clothes.add.cover') }}</span>
               <UButton
                 v-if="library"
                 type="button"
@@ -2005,7 +2018,7 @@ defineExpose({
                 @click="openLibraryCoverPicker"
               >
                 <UIcon name="i-heroicons-photo" class="mr-1" />
-                从图鉴更换封面
+                {{ t('clothes.add.change_cover_from_library') }}
               </UButton>
             </div>
             <div class="bg-gray-50 dark:bg-gray-700/30 rounded-xl">
@@ -2015,10 +2028,10 @@ defineExpose({
 
           <!-- 名称 -->
           <div ref="clothesNoteFormRef">
-          <UFormGroup label="名称" class="relative">
+          <UFormGroup :label="t('clothes.add.name')" class="relative">
             <UInput
                 v-model="form.clothes_note"
-                placeholder="名称(原笔记)"
+                :placeholder="t('clothes.add.name_placeholder')"
                 class="flex-1 focus:ring-0"
                 :ui="{
                   base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
@@ -2039,14 +2052,14 @@ defineExpose({
               class="absolute left-0 right-0 top-full z-50 mt-2 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 shadow-xl max-h-64 overflow-hidden flex flex-col"
             >
               <div class="px-3 py-2 border-b border-gray-200 dark:border-gray-600 flex-shrink-0">
-                <span class="text-xs text-gray-500 dark:text-gray-400">此处为用户共享服饰，可不选</span>
+                <span class="text-xs text-gray-500 dark:text-gray-400">{{ t('clothes.add.shared_hint') }}</span>
               </div>
               <div class="flex-1 overflow-y-auto p-2 min-h-0">
                 <div v-if="sharedClothesLoading" class="flex justify-center py-6">
                   <UIcon name="i-heroicons-arrow-path" class="animate-spin text-xl text-qhx-primary" />
                 </div>
                 <div v-else-if="sharedClothesList.length === 0" class="py-6 text-center text-gray-500 dark:text-gray-400 text-sm">
-                  暂无匹配的共享服饰
+                  {{ t('clothes.add.shared_empty') }}
                 </div>
                 <div
                   v-else
@@ -2068,7 +2081,7 @@ defineExpose({
                     <UIcon name="i-heroicons-photo" class="text-gray-400 text-sm" />
                   </div>
                   <div class="flex-1 min-w-0">
-                    <div class="truncate text-sm leading-snug">{{ item.clothes_note || '未命名' }}</div>
+                    <div class="truncate text-sm leading-snug">{{ item.clothes_note || t('clothes.add.unnamed') }}</div>
                     <div class="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-0 text-[10px] leading-tight text-gray-500 dark:text-gray-400">
                       <span class="inline-flex items-center gap-0.5 shrink-0 text-qhx-primary/80 dark:text-qhx-primary/90">
                         <UIcon name="i-heroicons-hand-thumb-up" class="w-3 h-3 flex-shrink-0" />
@@ -2096,9 +2109,9 @@ defineExpose({
                 </div>
               </div>
               <div class="flex justify-end gap-2 p-2 border-t border-gray-200 dark:border-gray-600 flex-shrink-0">
-                <UButton size="xs" variant="ghost" :ui="capsuleBtnUi" @click="onCancelSharedClothes">取消</UButton>
+                <UButton size="xs" variant="ghost" :ui="capsuleBtnUi" @click="onCancelSharedClothes">{{ t('common.cancel') }}</UButton>
                 <UButton size="xs" color="primary" :ui="capsuleBtnUi" :disabled="!selectedSharedClothes || confirmDetailLoading" :loading="confirmDetailLoading" @click="onRequestConfirmSharedClothes">
-                  确认选择
+                  {{ t('clothes.add.confirm_select') }}
                 </UButton>
               </div>
             </div>
@@ -2109,8 +2122,8 @@ defineExpose({
             class="mt-3 space-y-3"
           >
             <div class="space-y-1">
-              <span class="text-sm text-gray-500 dark:text-gray-400">已选择：</span>
-              <p class="text-xs text-gray-400 dark:text-gray-500">如果有帮助可以点个赞哦</p>
+              <span class="text-sm text-gray-500 dark:text-gray-400">{{ t('clothes.add.selected') }}</span>
+              <p class="text-xs text-gray-400 dark:text-gray-500">{{ t('clothes.add.like_hint') }}</p>
             </div>
             <div class="space-y-3">
               <div
@@ -2130,7 +2143,7 @@ defineExpose({
                     <UIcon name="i-heroicons-photo" class="text-gray-400 text-xl" />
                   </div>
                   <div class="flex-1 min-w-0">
-                    <div class="font-medium text-gray-900 dark:text-gray-100">{{ mainItem.clothes_note || '未命名' }}</div>
+                    <div class="font-medium text-gray-900 dark:text-gray-100">{{ mainItem.clothes_note || t('clothes.add.unnamed') }}</div>
                     <div class="flex flex-wrap gap-x-3 gap-y-0.5 mt-1 text-xs text-gray-500 dark:text-gray-400">
                       <span v-if="mainItem.price">¥{{ mainItem.price }}</span>
                       <span v-if="mainItem.origin">{{ mainItem.origin }}</span>
@@ -2142,7 +2155,7 @@ defineExpose({
                     <div
                       v-if="mainItem.clothes_id != null"
                       class="inline-block origin-top-right scale-[0.82] leading-none"
-                      title="为共享源点赞"
+                      :title="t('clothes.add.like_source')"
                     >
                       <UserGoodBtn
                         :pk_id="mainItem.clothes_id"
@@ -2154,7 +2167,7 @@ defineExpose({
                     <button
                       type="button"
                       class="p-1.5 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
-                      title="移除"
+                      :title="t('clothes.add.remove')"
                       @click="onRemoveConfirmedSharedClothes(mainItem)"
                     >
                       <UIcon name="i-heroicons-x-mark" class="text-base text-gray-500" />
@@ -2167,8 +2180,8 @@ defineExpose({
                   class="border-t border-gray-200 dark:border-gray-600 px-3 py-2 bg-white/50 dark:bg-gray-900/30"
                 >
                   <div class="flex items-center justify-between mb-2">
-                    <span class="text-xs text-gray-500 dark:text-gray-400">关联服饰</span>
-                    <span class="text-xs text-amber-600 dark:text-amber-400">（点击可多选）</span>
+                    <span class="text-xs text-gray-500 dark:text-gray-400">{{ t('clothes.add.link_clothes') }}</span>
+                    <span class="text-xs text-amber-600 dark:text-amber-400">{{ t('clothes.add.multi_select_hint') }}</span>
                   </div>
                   <div class="flex flex-wrap gap-2">
                     <div
@@ -2191,7 +2204,7 @@ defineExpose({
                       <div v-else class="w-6 h-6 rounded bg-gray-200 dark:bg-gray-600 flex-shrink-0 flex items-center justify-center">
                         <UIcon name="i-heroicons-photo" class="text-gray-400 text-xs" />
                       </div>
-                      <span class="text-xs truncate max-w-[100px]">{{ child.clothes_note || '未命名' }}</span>
+                      <span class="text-xs truncate max-w-[100px]">{{ child.clothes_note || t('clothes.add.unnamed') }}</span>
                     </div>
                   </div>
                 </div>
@@ -2203,13 +2216,13 @@ defineExpose({
 
         <!-- 基础信息板块 -->
         <div class="space-y-4">
-        <UFormGroup label="来源">
+        <UFormGroup :label="t('clothes.field.origin')">
           <div class="flex items-center">
             <USelectMenu
               v-model="origin_shop"
               :loading="loading"
               :searchable="fetchShopOptiosns"
-              placeholder="搜索店铺..."
+              :placeholder="t('wardrobe.search.shop_placeholder')"
               option-attribute="shop_name"
               creatable
               :multiple="false"
@@ -2238,11 +2251,11 @@ defineExpose({
         </UFormGroup>
         <!-- 价格 / 原价 / 出物价 同一行 -->
         <div class="grid grid-cols-3 gap-2">
-          <UFormGroup label="价格">
+          <UFormGroup :label="t('clothes.field.price')">
             <UInput
               v-model="form.price"
               type="number"
-              placeholder="价格"
+              :placeholder="t('clothes.field.price')"
               class="w-full focus:ring-0"
               :ui="{
                 base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
@@ -2256,11 +2269,11 @@ defineExpose({
               }"
             />
           </UFormGroup>
-          <UFormGroup label="原价">
+          <UFormGroup :label="t('clothes.field.original_price')">
             <UInput
               v-model="form.original_price"
               type="number"
-              placeholder="选填"
+              :placeholder="t('clothes.add.optional')"
               class="w-full focus:ring-0"
               :ui="{
                 base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
@@ -2274,11 +2287,11 @@ defineExpose({
               }"
             />
           </UFormGroup>
-          <UFormGroup label="出物价">
+          <UFormGroup :label="t('clothes.field.offer_price')">
             <UInput
               v-model="form.offer_price"
               type="number"
-              placeholder="选填"
+              :placeholder="t('clothes.add.optional')"
               class="w-full focus:ring-0"
               :ui="{
                 base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
@@ -2293,21 +2306,21 @@ defineExpose({
             />
           </UFormGroup>
         </div>
-        <UFormGroup label="尾款计划" class="space-y-3">
+        <UFormGroup :label="t('clothes.add.balance_plan')" class="space-y-3">
           <div v-if="plan" class="space-y-2">
             <div
               class="inline-flex items-center gap-2.5 px-4 py-2.5 rounded-xl border border-gray-200/80 dark:border-gray-600/80 bg-gradient-to-r from-amber-50/80 to-orange-50/60 dark:from-gray-700/40 dark:to-gray-800/40 transition-all duration-200 hover:shadow-md hover:border-amber-300/60 dark:hover:border-amber-500/40"
             >
               <UIcon name="material-symbols:savings-rounded" class="text-amber-500 dark:text-amber-400 text-lg flex-shrink-0" />
               <div class="flex flex-col gap-0.5">
-                <span class="text-sm font-medium text-gray-800 dark:text-gray-200">{{ plan.plan_name || '尾款计划' }}</span>
+                <span class="text-sm font-medium text-gray-800 dark:text-gray-200">{{ plan.plan_name || t('clothes.add.balance_plan') }}</span>
                 <span class="text-base font-bold text-amber-600 dark:text-amber-400">¥{{ plan.need_money ?? 0 }}</span>
               </div>
               <div class="flex items-center gap-1 ml-1">
                 <button
                   type="button"
                   class="p-1.5 rounded-lg text-gray-500 hover:text-amber-600 hover:bg-amber-100/80 dark:hover:text-amber-400 dark:hover:bg-amber-900/30 transition-colors"
-                  title="编辑"
+                  :title="t('common.edit')"
                   @click.stop="showPlanAddEditForEdit($event)"
                 >
                   <UIcon name="ant-design:edit-outlined" class="text-sm" />
@@ -2315,7 +2328,7 @@ defineExpose({
                 <button
                   type="button"
                   class="p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
-                  title="移除"
+                  :title="t('clothes.add.remove')"
                   @click.stop="clearPlan"
                 >
                   <UIcon name="ant-design:close-outlined" class="text-sm" />
@@ -2332,7 +2345,7 @@ defineExpose({
                 :key="child.list_id ?? idx"
                 class="flex items-center justify-between gap-2 py-1 text-xs"
               >
-                <span class="text-gray-600 dark:text-gray-400 truncate">{{ child.plan_note || `阶段 ${idx + 1}` }}</span>
+                <span class="text-gray-600 dark:text-gray-400 truncate">{{ child.plan_note || t('clothes.add.stage', { n: idx + 1 }) }}</span>
                 <span class="text-amber-600 dark:text-amber-400 font-medium flex-shrink-0">¥{{ child.need_money ?? 0 }}</span>
               </div>
             </div>
@@ -2347,18 +2360,18 @@ defineExpose({
               @click="showPlanAddEdit($event)"
             >
               <UIcon name="material-symbols:savings-rounded" class="mr-1.5" />
-              创建尾款计划
+              {{ t('clothes.add.create_balance_plan') }}
             </UButton>
             <p class="text-xs text-gray-500 dark:text-gray-400">
-              💡 可将当前价格预填到计划中
+              {{ t('clothes.add.plan_hint') }}
             </p>
           </div>
         </UFormGroup>
         <div class="grid grid-cols-2 gap-2">
-          <UFormGroup label="尺码">
+          <UFormGroup :label="t('clothes.field.size')">
             <UInput
               v-model="form.size"
-              placeholder="尺码"
+              :placeholder="t('clothes.field.size')"
               class="flex-1 focus:ring-0"
               :ui="{
                 base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
@@ -2372,12 +2385,12 @@ defineExpose({
               }"
             />
           </UFormGroup>
-          <UFormGroup label="拥有数量">
+          <UFormGroup :label="t('clothes.field.quantity')">
             <QhxNumberStepper v-model="form.num" :min="1" />
           </UFormGroup>
         </div>
         <!-- 计入总价 -->
-        <UFormGroup label="计入总价">
+        <UFormGroup :label="t('clothes.add.count_in_total')">
           <UToggle
             :model-value="form.sum_price === 1"
             @update:model-value="form.sum_price = $event ? 1 : 0"
@@ -2388,7 +2401,7 @@ defineExpose({
         <!-- 分类信息板块 -->
         <div class="space-y-4">
         <!-- 颜色选择 -->
-        <UFormGroup label="颜色">
+        <UFormGroup :label="t('clothes.field.color')">
           <div class="gap-2">
             <ClientOnly>
               <QhxColorPicker @choose="chooseColor" ref="ColorPickerRef"></QhxColorPicker>
@@ -2396,7 +2409,7 @@ defineExpose({
                 v-model="showCoverImageColorPicker"
                 :image-src="coverPreviewUrl"
                 :trigger-position="imageColorPickerClickPosition"
-                title="从封面图取色"
+                :title="t('clothes.add.pick_from_cover_title')"
                 @confirm="chooseColor"
               />
             </ClientOnly>
@@ -2421,7 +2434,7 @@ defineExpose({
                 class="bg-qhx-primary text-qhx-inverted hover:bg-qhx-primaryHover"
                 @click="(e: MouseEvent) => showColorPicker(e)"
               >
-                选择颜色
+                {{ t('clothes.add.select_color') }}
               </UButton>
               <UButton
                 v-if="coverPreviewUrl"
@@ -2432,12 +2445,12 @@ defineExpose({
                 @click="(e: MouseEvent) => openCoverImageColorPicker(e)"
               >
                 <UIcon name="i-heroicons-swatch-20-solid" class="size-4 mr-0.5" />
-                从封面取色
+                {{ t('clothes.add.pick_from_cover') }}
               </UButton>
             </div>
           </div>
         </UFormGroup>
-        <UFormGroup label="颜色(文本)">
+        <UFormGroup :label="t('clothes.field.color_text')">
           <div v-if="form.color_text.length > 0">
             <QhxTag
               v-for="(tag, index) in form.color_text"
@@ -2458,29 +2471,29 @@ defineExpose({
             class="bg-qhx-primary text-qhx-inverted hover:bg-qhx-primaryHover mt-2"
             @click="(e: MouseEvent) => { openColorText(e) }"
           >
-            选择颜色(文本)
+            {{ t('clothes.add.select_color_text') }}
           </UButton>
           <QhxOptionsChoose
             ref="colorTextChooseRef"
-            title="选择颜色(文本)"
+            :title="t('clothes.add.choose_color_text_title')"
             :options="color_text_options"
             :can-customize="true"
             :max-length="12"
             :undeletable-values="color_text_defaults.map((item) => item.value)"
-            empty-confirm-message="请选择颜色(文本)"
-            customize-placeholder="自定义颜色"
+            :empty-confirm-message="t('clothes.add.choose_color_text_empty')"
+            :customize-placeholder="t('clothes.add.custom_color')"
             @select="onColorTextChoose"
             @delete="onDeleteColorText"
           />
         </UFormGroup>
-        <UFormGroup label="拥有状态">
+        <UFormGroup :label="t('wardrobe.search.status')">
           <div v-if="form.wardrobe_status">
             <QhxTag>
               <div class="flex">
                 <QhxJellyButton class="cursor-pointer flex items-center mr-[5px] text-white rounded-[50%] w-[18px] h-[18px] justify-center bg-qhx-primary" @click="form.wardrobe_status = null">
                   <UIcon name="ant-design:close-outlined" class="text-[14px] text-[#ffffff]" />
                 </QhxJellyButton>
-                <div>{{ form.wardrobe_status }}</div>
+                <div>{{ wardrobeStatusLabel(t, form.wardrobe_status) }}</div>
               </div>
             </QhxTag>
           </div>
@@ -2492,21 +2505,21 @@ defineExpose({
             :loading="loading"
             @click="(e: MouseEvent) => { openPicker(e) }"
           >
-            选择状态
+            {{ t('clothes.add.select_status') }}
           </UButton>
           <QhxOptionsChoose
             ref="statusChooseRef"
-            title="选择状态"
+            :title="t('clothes.add.choose_status_title')"
             :options="wardrobe_status_options"
             :multiple="false"
             :can-customize="true"
             :undeletable-values="wardrobe_status_defaults.map((item) => item.value)"
-            empty-confirm-message="请选择状态"
+            :empty-confirm-message="t('clothes.add.choose_status_empty')"
             @select="onStatusChoose"
             @delete="(item) => onDeleteConfigOption('wardrobe_status', item)"
           />
         </UFormGroup>
-        <UFormGroup label="主要风格">
+        <UFormGroup :label="t('clothes.field.style')">
           <div class="flex items-center m-1" v-if="form.main_style && form.main_style.length > 0">
             <QhxTag v-for="(tag, index) in form.main_style" :key="tag.value">
               <div class="flex">
@@ -2524,11 +2537,11 @@ defineExpose({
             class="bg-qhx-primary text-qhx-inverted hover:bg-qhx-primaryHover mt-2"
             @click="(e: MouseEvent) => { showChooseMainStyle(e) }"
           >
-            选择风格
+            {{ t('clothes.add.select_style') }}
           </UButton>
           <WikiOptionsChoose ref="wikiOptionsChooseRef" @choose="chooseMainStyleWiki" />
         </UFormGroup>
-        <UFormGroup label="版型部位">
+        <UFormGroup :label="t('wardrobe.search.part')">
           <div v-if="form.clothes_part.length > 0">
             <QhxTag
               v-for="(tag, index) in form.clothes_part"
@@ -2537,7 +2550,7 @@ defineExpose({
                 <QhxJellyButton class="cursor-pointer flex items-center mr-[5px] text-white rounded-[50%] w-[18px] h-[18px] justify-center bg-qhx-primary" @click="form.clothes_part.splice(index, 1)">
                   <UIcon name="ant-design:close-outlined" class="text-[14px] text-[#ffffff]" />
                 </QhxJellyButton>
-                <div>{{ tag.label }}</div>
+                <div>{{ wardrobePartLabel(t, String(tag.value || tag.label)) }}</div>
               </div>
             </QhxTag>
           </div>
@@ -2549,19 +2562,19 @@ defineExpose({
             :loading="loading"
             @click="(e: MouseEvent) => { openClothesPart(e) }"
           >
-            选择版型
+            {{ t('clothes.add.select_part') }}
           </UButton>
           <QhxOptionsChoose
             ref="clothesPartChooseRef"
-            title="选择版型"
+            :title="t('clothes.add.choose_part_title')"
             :options="clothes_part_options"
             :can-customize="true"
-            empty-confirm-message="请选择版型"
+            :empty-confirm-message="t('clothes.add.choose_part_empty')"
             @select="onClothesPartChoose"
             @delete="(item) => onDeleteConfigOption('clothes_part', item)"
           />
         </UFormGroup>
-        <UFormGroup label="自定义标签">
+        <UFormGroup :label="t('clothes.add.custom_tags')">
           <div v-if="form.tags.length > 0">
             <QhxTag
               v-for="(tag, index) in form.tags"
@@ -2583,19 +2596,19 @@ defineExpose({
             :loading="loading"
             @click="(e: MouseEvent) => { openTag(e) }"
           >
-            选择标签
+            {{ t('clothes.add.select_tags') }}
           </UButton>
           <QhxOptionsChoose
             ref="tagChooseRef"
-            title="选择标签"
+            :title="t('clothes.add.choose_tags_title')"
             :options="tags_options"
             :can-customize="true"
-            empty-confirm-message="请选择标签"
+            :empty-confirm-message="t('clothes.add.choose_tags_empty')"
             @select="onTagsChoose"
             @delete="(item) => onDeleteConfigOption('tags', item)"
           />
         </UFormGroup>
-        <UFormGroup label="适宜季节">
+        <UFormGroup :label="t('clothes.add.season')">
           <div v-if="form.season.length > 0" class="flex flex-wrap gap-2 mb-2">
             <QhxTag
               v-for="(season, index) in form.season"
@@ -2605,14 +2618,14 @@ defineExpose({
                 <QhxJellyButton class="cursor-pointer flex items-center mr-[5px] text-white rounded-[50%] w-[18px] h-[18px] justify-center bg-qhx-primary" @click="form.season.splice(index, 1)">
                   <UIcon name="ant-design:close-outlined" class="text-[14px] text-[#ffffff]" />
                 </QhxJellyButton>
-                <div>{{ season }}</div>
+                <div>{{ wardrobeSeasonLabel(t, season) }}</div>
               </div>
             </QhxTag>
           </div>
           <USelectMenu 
             v-model="form.season" 
             :options="season_options" 
-            placeholder="请选择季节" 
+            :placeholder="t('clothes.add.select_season')" 
             multiple
             value-attribute="value"
             option-attribute="label"
@@ -2635,13 +2648,13 @@ defineExpose({
         <div class="space-y-4">
           <div class="flex items-center gap-2 mb-2">
             <UIcon name="material-symbols:more-horiz-rounded" class="text-lg text-gray-500 dark:text-gray-400" />
-            <h3 class="text-base font-semibold text-gray-700 dark:text-gray-300">其他信息</h3>
+            <h3 class="text-base font-semibold text-gray-700 dark:text-gray-300">{{ t('clothes.add.other') }}</h3>
           </div>
 
         <!-- 笔记 -->
-        <UFormGroup label="笔记">
+        <UFormGroup :label="t('clothes.field.note')">
           <UTextarea 
-            v-model="form.note" placeholder="笔记" :rows="3" 
+            v-model="form.note" :placeholder="t('clothes.field.note')" :rows="3" 
             :ui="{
               base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
               rounded: 'rounded-[10px]',
@@ -2654,11 +2667,11 @@ defineExpose({
             }"
           />
         </UFormGroup>
-        <UFormGroup label="穿着次数">
+        <UFormGroup :label="t('clothes.field.wear_times')">
           <UInput
             v-model="form.times"
             type="number"
-            placeholder="穿着次数"
+            :placeholder="t('clothes.field.wear_times')"
             class="flex-1 focus:ring-0"
             :ui="{
               base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
@@ -2673,7 +2686,7 @@ defineExpose({
           />
         </UFormGroup>
         <!-- 收纳位置 -->
-        <UFormGroup label="收纳位置">
+        <UFormGroup :label="t('clothes.add.storage')">
           <UInput v-model="form.position"
             class="flex-1 focus:ring-0"
             :ui="{
@@ -2686,33 +2699,33 @@ defineExpose({
                 }
               }
             }"
-           placeholder="收纳位置" />
+           :placeholder="t('clothes.add.storage')" />
         </UFormGroup>
-        <UFormGroup label="购入时间">
+        <UFormGroup :label="t('clothes.field.buy_time')">
           <QhxDateTimePicker
             v-model="addTimeInput"
             mode="date"
             :enable-time-picker="false"
             format="YYYY-MM-DD"
-            placeholder="选择购入时间"
+            :placeholder="t('clothes.add.select_buy_time')"
           />
         </UFormGroup>
-        <UFormGroup label="详情图" class="space-y-2">
+        <UFormGroup :label="t('clothes.add.detail_images')" class="space-y-2">
           <div class=" bg-gray-50 dark:bg-gray-700/30 rounded-xl border border-gray-200 dark:border-gray-600">
             <QhxImagePicker :multiple="true" @update:files="onUpdateFiles" ref="detailImageRef" />
           </div>
         </UFormGroup>
         <!-- 是否分享（表单底部） -->
-        <UFormGroup label="是否共享" class="space-y-2">
+        <UFormGroup :label="t('clothes.add.is_shared')" class="space-y-2">
           <UToggle
             :model-value="form.is_shared === 1"
             @update:model-value="form.is_shared = $event ? 1 : 0"
           />
           <p v-if="form.is_shared === 1" class="text-xs text-amber-600 dark:text-amber-400">
-            注意：当前为共享状态，服饰数据公开，其他用户可以直接导入衣柜
+            {{ t('clothes.add.shared_warning') }}
           </p>
           <p v-else class="text-xs text-amber-600 dark:text-amber-400">
-            当前为私有状态
+            {{ t('clothes.add.private_hint') }}
           </p>
         </UFormGroup>
         </div>
@@ -2727,7 +2740,7 @@ defineExpose({
           @click="closeModel"
           class="px-6"
         >
-          取消
+          {{ t('common.cancel') }}
         </UButton>
         <UButton
           :loading="loading"
@@ -2735,7 +2748,7 @@ defineExpose({
           class="bg-gradient-to-r from-pink-500 to-purple-500 hover:from-pink-600 hover:to-purple-600 text-white px-6 shadow-lg shadow-pink-500/30 transition-all duration-200"
           @click="insert"
         >
-          {{ type === 1 ? '确认修改' : '确认添加' }}
+          {{ type === 1 ? t('clothes.add.confirm_update') : t('clothes.add.confirm_add') }}
         </UButton>
       </div>
     </div>
@@ -2761,7 +2774,7 @@ defineExpose({
     >
       <div class="w-[90vw] max-w-md bg-white dark:bg-gray-800 rounded-2xl shadow-2xl overflow-hidden flex flex-col border border-gray-200/50 dark:border-gray-700/50">
         <div class="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-700">
-          <h3 class="text-lg font-semibold text-gray-900 dark:text-gray-100">选择颜色</h3>
+          <h3 class="text-lg font-semibold text-gray-900 dark:text-gray-100">{{ t('clothes.add.select_color') }}</h3>
           <button
             type="button"
             class="w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
@@ -2771,15 +2784,15 @@ defineExpose({
           </button>
         </div>
         <div class="p-6">
-          <p class="text-sm text-gray-600 dark:text-gray-400 mb-4">为了方便检索，请优先选择衣柜内已有的颜色</p>
+          <p class="text-sm text-gray-600 dark:text-gray-400 mb-4">{{ t('clothes.add.color_hint') }}</p>
           <div class="flex flex-wrap gap-2 items-center">
             <button
               type="button"
               class="w-[35px] h-[35px] rounded-lg shrink-0 flex flex-col items-center justify-center gap-0 cursor-pointer transition-all hover:opacity-80 bg-gray-50 dark:bg-gray-700/80 ring-1 ring-gray-200/80 dark:ring-gray-600 hover:ring-qhx-primary/50 dark:hover:ring-qhx-primary/50"
               @click="openCustomColorPicker()"
             >
-              <span class="text-[10px] leading-[12px] font-medium text-gray-700 dark:text-gray-200">自选</span>
-              <span class="text-[10px] leading-[12px] font-medium text-gray-700 dark:text-gray-200">颜色</span>
+              <span class="text-[10px] leading-[12px] font-medium text-gray-700 dark:text-gray-200">{{ t('clothes.add.custom_color_btn') }}</span>
+              <span class="text-[10px] leading-[12px] font-medium text-gray-700 dark:text-gray-200">{{ t('clothes.add.color_btn') }}</span>
             </button>
             <div
               v-for="(color, index) in wardrobeColors"
@@ -2801,7 +2814,7 @@ defineExpose({
       <div class="w-[90vw] max-w-md bg-white dark:bg-gray-800 rounded-2xl shadow-2xl overflow-hidden flex flex-col backdrop-blur-xl border border-gray-200/50 dark:border-gray-700/50">
         <!-- 头部 -->
         <div class="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-700 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-gray-800 dark:to-gray-800 flex-shrink-0">
-          <h3 class="text-lg font-semibold text-gray-900 dark:text-gray-100">选择场景方式</h3>
+          <h3 class="text-lg font-semibold text-gray-900 dark:text-gray-100">{{ t('clothes.add.choose_scene_way') }}</h3>
           <button
             @click="handleSceneChooseClose"
             class="w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors group"
@@ -2822,10 +2835,10 @@ defineExpose({
             </div>
             <div class="flex-1 min-w-0">
               <h4 class="text-base font-semibold text-gray-900 dark:text-gray-100 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
-                套用模版
+                {{ t('clothes.add.use_template') }}
               </h4>
               <p class="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                从预设模版中选择场景
+                {{ t('clothes.add.use_template_desc') }}
               </p>
             </div>
             <UIcon name="i-heroicons-chevron-right" class="text-gray-400 group-hover:text-blue-500 transition-colors" />
@@ -2841,10 +2854,10 @@ defineExpose({
             </div>
             <div class="flex-1 min-w-0">
               <h4 class="text-base font-semibold text-gray-900 dark:text-gray-100 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
-                现有场景
+                {{ t('clothes.add.existing_scene') }}
               </h4>
               <p class="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                从已创建的场景中选择
+                {{ t('clothes.add.existing_scene_desc') }}
               </p>
             </div>
             <UIcon name="i-heroicons-chevron-right" class="text-gray-400 group-hover:text-blue-500 transition-colors" />
@@ -2856,14 +2869,14 @@ defineExpose({
     <QhxModal v-model="showConfirmOverwriteModal" :trigger-position="clickPosition" :close-on-backdrop="false" @close="showConfirmOverwriteModal = false">
       <div class="w-[90vw] max-w-md bg-white dark:bg-gray-800 rounded-2xl shadow-2xl overflow-hidden border border-gray-200/50 dark:border-gray-700/50">
         <div class="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
-          <h3 class="text-lg font-semibold text-gray-900 dark:text-gray-100">操作确认</h3>
+          <h3 class="text-lg font-semibold text-gray-900 dark:text-gray-100">{{ t('clothes.add.confirm_title') }}</h3>
         </div>
         <div class="px-6 py-4">
-          <p class="text-gray-600 dark:text-gray-400">代入会覆盖当前已填写信息，是否确认？</p>
+          <p class="text-gray-600 dark:text-gray-400">{{ t('clothes.add.overwrite_confirm') }}</p>
         </div>
         <div class="flex justify-end gap-2 px-6 py-4 border-t border-gray-200 dark:border-gray-700">
-          <UButton color="gray" variant="outline" :ui="capsuleBtnUi" @click="showConfirmOverwriteModal = false">取消</UButton>
-          <UButton color="primary" :ui="capsuleBtnUi" :loading="confirmDetailLoading" @click="onConfirmOverwrite">确认</UButton>
+          <UButton color="gray" variant="outline" :ui="capsuleBtnUi" @click="showConfirmOverwriteModal = false">{{ t('common.cancel') }}</UButton>
+          <UButton color="primary" :ui="capsuleBtnUi" :loading="confirmDetailLoading" @click="onConfirmOverwrite">{{ t('common.confirm') }}</UButton>
         </div>
       </div>
     </QhxModal>

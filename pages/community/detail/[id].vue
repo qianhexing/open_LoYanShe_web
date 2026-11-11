@@ -11,9 +11,9 @@ import { getBrowTimeOne, insertBrowTime } from '@/api/brow_time'
 import { getCommentList } from '@/api/comment'
 import { getUserDecoBadges } from '@/api/user'
 import type { UserDecoBadgeItem } from '@/api/user'
-import UserGoodBtn from '@/components/user/GoodBtn.vue'
 import UserCollectBtn from '@/components/user/CollectBtn.vue'
 import type CommunityCommentModalType from '@/components/community/CommentModal.vue'
+import { BASE_IMG } from '@/utils/ipConfig'
 import {
   communityCommentSectionRefreshKey,
   type CommentOpenReplyPayload,
@@ -30,11 +30,14 @@ import {
 import CommunityLiveThumb from '@/components/community/CommunityLiveThumb.vue'
 import { navigateBackInShell } from '@/utils/nativeShell'
 
-const CommentSection = defineAsyncComponent(
-  () => import('@/components/comment/CommentSection.vue'),
-)
 const CommunityCommentModal = defineAsyncComponent(
   () => import('@/components/community/CommentModal.vue'),
+)
+const CommunityDetailActionBar = defineAsyncComponent(
+  () => import('@/components/community/CommunityDetailActionBar.vue'),
+)
+const CommunityDetailCommentBlock = defineAsyncComponent(
+  () => import('@/components/community/CommunityDetailCommentBlock.vue'),
 )
 const CommunityDetailForeignSection = defineAsyncComponent(
   () => import('@/components/community/CommunityDetailForeignSection.vue'),
@@ -64,8 +67,6 @@ function cancelIdle(handle: number) {
   }
 }
 
-/** 互动接口：与店铺(1)、图鉴(2)、搭配(4) 对齐，社区帖使用 3 */
-const PK_TYPE_COMMUNITY = 3
 /** 关注楼主：collect 表 pk_type 与 userSpace 一致为 0 */
 const PK_TYPE_USER_COLLECT = 0
 
@@ -354,8 +355,13 @@ watch(
 )
 
 const { t } = useI18n()
-const { needsTranslate, runTranslate, translating: contentTranslating } =
-  useContentTranslate()
+const {
+  needsTranslate,
+  runTranslate,
+  translating: contentTranslating,
+  applyTranslateMeta,
+  resolveSourceLang,
+} = useContentTranslate()
 const showPostTranslateBtn = computed(() => needsTranslate(detail.value))
 
 async function onTranslatePost() {
@@ -364,7 +370,7 @@ async function onTranslatePost() {
     const result = await runTranslate({
       pkType: ContentI18nPkType.Community,
       pkId: detail.value.community_id,
-      sourceLang: detail.value.content_lang || detail.value.lang || undefined,
+      sourceLang: resolveSourceLang(detail.value),
     })
     if (!result?.payload) return
     if (typeof result.payload.title === 'string') {
@@ -373,8 +379,7 @@ async function onTranslatePost() {
     if (typeof result.payload.content === 'string') {
       detail.value.content = result.payload.content
     }
-    detail.value.has_i18n = true
-    detail.value.i18n_lang = result.lang
+    applyTranslateMeta(detail.value, result.lang)
   } catch (err) {
     console.error(err)
   }
@@ -493,6 +498,18 @@ async function recordCommunityView() {
 const communityViewCount = computed(
   () => detail.value?.times_count ?? detail.value?.brows_times ?? browTimeViewCount.value
 )
+
+const communityCommentMyAvatar = computed(() => {
+  const face = user.user?.user_face
+  if (!face) {
+    return `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.user?.user_name || 'guest'}`
+  }
+  const trimmed = face.trim()
+  if (/^https?:\/\//i.test(trimmed) || trimmed.startsWith('//')) {
+    return trimmed
+  }
+  return `${BASE_IMG}${trimmed.replace(/^\//, '')}`
+})
 
 const showCommentModal = ref(false)
 /** 首次打开后再挂载评论弹窗（含 RichTextEditor），避免进页即拉重包 */
@@ -765,15 +782,16 @@ useHead({
                 <div v-if="richText" class="leading-[1.8]">
                   <SafeRichText :nodes="richText"></SafeRichText>
                 </div>
-                <button
-                  v-if="showPostTranslateBtn"
-                  type="button"
-                  class="mt-2 text-xs text-qhx-primary hover:underline disabled:opacity-60"
-                  :disabled="contentTranslating"
-                  @click="onTranslatePost"
-                >
-                  {{ contentTranslating ? t('contentI18n.translating') : t('contentI18n.translate') }}
-                </button>
+                <div v-if="showPostTranslateBtn" class="mt-2 flex justify-end">
+                  <button
+                    type="button"
+                    class="text-xs text-qhx-primary hover:underline disabled:opacity-60"
+                    :disabled="contentTranslating"
+                    @click="onTranslatePost"
+                  >
+                    {{ contentTranslating ? t('contentI18n.translating') : t('contentI18n.translate') }}
+                  </button>
+                </div>
                 <ClientOnly>
                   <CommunityDetailForeignSection
                     v-if="foreignSectionReady && detail.foreign_list?.length"
@@ -781,25 +799,19 @@ useHead({
                   />
                 </ClientOnly>
               </div>
-              <div class="community-scene-glass-panel rounded-lg shadow-inner mt-1 border border-white/50 dark:border-white/10 overflow-hidden">
-                <CommentSection
-                  v-if="commentSectionReady"
-                  :key="commentSectionKey"
-                  :type="'community'"
-                  :id="detail.community_id"
-                  :focus-comment-id="focusCommentId"
-                  reserve-bottom-for-fixed-bar
-                  @open-reply="openReplyComposer"
-                  @total="onCommentSectionTotal"
-                />
-                <div
-                  v-else
-                  class="flex min-h-[120px] items-center justify-center py-8 text-sm text-gray-400"
-                  aria-busy="true"
-                >
-                  评论加载中…
-                </div>
-              </div>
+              <CommunityDetailCommentBlock
+                variant="glass"
+                :community-id="detail.community_id"
+                :comment-total="commentTotal"
+                :comment-section-key="commentSectionKey"
+                :comment-section-ready="commentSectionReady"
+                :focus-comment-id="focusCommentId"
+                :my-avatar="communityCommentMyAvatar"
+                :my-name="user.user?.user_name || '未登录'"
+                @open-composer="openCommentComposer"
+                @open-reply="openReplyComposer"
+                @total="onCommentSectionTotal"
+              />
             </div>
           </QhxBottomDrawer>
         </Transition>
@@ -808,12 +820,12 @@ useHead({
       <template v-else>
         <div
           v-if="detail"
-          class="rounded-lg flex max-md:block gap-3 max-md:gap-0"
+          class="community-detail-wide rounded-lg flex max-md:block gap-3 max-md:gap-0 md:items-start"
           :class="customStyle ? '' : 'shadow-lg'"
           :key="detail.community_id"
         >
           <div
-            class="community-detail-carousel relative z-0 w-[700px] max-md:w-full p-3 aspect-[3/4] min-h-0 overflow-hidden"
+            class="community-detail-carousel relative z-0 w-full p-3 aspect-[3/4] min-h-0 min-w-0 overflow-hidden"
             v-if="communityCarouselItems.length"
           >
             <QhxCarousel
@@ -863,7 +875,7 @@ useHead({
               {{ communityCarouselIndex + 1 }} / {{ communityCarouselItems.length }}
             </div>
           </div>
-          <div class="relative z-[1] flex-1 min-w-0">
+          <div class="community-detail-wide-content relative z-[1] flex-1 min-w-0">
             <div
               v-if="detail.user"
               class="mx-3 max-md:mx-1 mb-1 max-md:mt-1"
@@ -901,19 +913,20 @@ useHead({
                 <UIcon name="i-heroicons-ellipsis-vertical" class="w-4 h-4" />
               </button>
             </div>
-            <div class="p-3 max-md:px-3" >
-              <div v-if="richText" class=" leading-[1.8]">
+            <div class="p-3 max-md:px-3">
+              <div v-if="richText" class="leading-[1.8]">
                 <SafeRichText :nodes="richText"></SafeRichText>
               </div>
-              <button
-                v-if="showPostTranslateBtn"
-                type="button"
-                class="mt-2 text-xs text-qhx-primary hover:underline disabled:opacity-60"
-                :disabled="contentTranslating"
-                @click="onTranslatePost"
-              >
-                {{ contentTranslating ? t('contentI18n.translating') : t('contentI18n.translate') }}
-              </button>
+              <div v-if="showPostTranslateBtn" class="mt-2 flex justify-end">
+                <button
+                  type="button"
+                  class="text-xs text-qhx-primary hover:underline disabled:opacity-60"
+                  :disabled="contentTranslating"
+                  @click="onTranslatePost"
+                >
+                  {{ contentTranslating ? t('contentI18n.translating') : t('contentI18n.translate') }}
+                </button>
+              </div>
               <ClientOnly>
                 <CommunityDetailForeignSection
                   v-if="foreignSectionReady && detail.foreign_list?.length"
@@ -924,95 +937,33 @@ useHead({
           </div>
         </div>
 
-        <div
+        <CommunityDetailCommentBlock
           v-if="detail"
-          class="mt-3 rounded-lg"
-          :class="customStyle ? '' : 'shadow-lg'"
-        >
-          <div>
-            <CommentSection
-              v-if="commentSectionReady"
-              :key="commentSectionKey"
-              :type="'community'"
-              :id="detail.community_id"
-              :focus-comment-id="focusCommentId"
-              reserve-bottom-for-fixed-bar
-              @open-reply="openReplyComposer"
-              @total="onCommentSectionTotal"
-            />
-            <div
-              v-else
-              class="flex min-h-[120px] items-center justify-center py-8 text-sm text-gray-400"
-              aria-busy="true"
-            >
-              评论加载中…
-            </div>
-          </div>
-        </div>
+          variant="card"
+          :class="customStyle ? '!bg-transparent !shadow-none' : ''"
+          :community-id="detail.community_id"
+          :comment-total="commentTotal"
+          :comment-section-key="commentSectionKey"
+          :comment-section-ready="commentSectionReady"
+          :focus-comment-id="focusCommentId"
+          :my-avatar="communityCommentMyAvatar"
+          :my-name="user.user?.user_name || '未登录'"
+          @open-composer="openCommentComposer"
+          @open-reply="openReplyComposer"
+          @total="onCommentSectionTotal"
+        />
       </template>
     </div>
 
-    <!-- 底部互动栏：内层与详情/评论区同 container 对齐（PC 与评论区同宽）；手机端半透明毛玻璃 -->
-    <div
+    <CommunityDetailActionBar
       v-if="detail"
-      class="community-detail-bottom-bar-wrap max-md:bg-[rgba(255,255,255,0.2)] fixed inset-x-0 bottom-0 z-[100]"
-    >
-      <div class="container mx-auto px-4 pt-2 max-md:px-2">
-        <div
-          class="community-detail-bottom-bar rounded-t-lg border border-b-0 border-gray-200 bg-qhx-bg-card shadow-[0_-4px_20px_rgba(0,0,0,0.06)] px-3 py-2 max-md:px-2 max-md:rounded-none max-md:border-x-0 max-md:border-gray-200/60 max-md:shadow-[0_-4px_16px_rgba(0,0,0,0.04)]"
-        >
-          <div class="flex items-center gap-2 sm:gap-4">
-            <div class="flex shrink-0 items-center gap-3 text-gray-600 sm:gap-4">
-              <UserGoodBtn
-                :pk_type="PK_TYPE_COMMUNITY"
-                :pk_id="detail.community_id"
-                :good_count="detail.good_count ?? 0"
-                :need_judge="true"
-              />
-              <UserCollectBtn
-                :pk_type="PK_TYPE_COMMUNITY"
-                :pk_id="detail.community_id"
-                :collect_count="detail.collect_count ?? 0"
-                :need_judge="true"
-              />
-              <div
-                class="flex items-center gap-1 text-gray-500"
-                title="浏览"
-                aria-label="浏览数"
-              >
-                <UIcon name="i-heroicons-eye" class="text-[22px] text-gray-500" />
-                <span class="min-w-[1ch] text-sm tabular-nums">{{ communityViewCount }}</span>
-              </div>
-              <div
-                class="flex items-center gap-1 text-gray-500"
-                title="评论"
-                aria-label="评论数"
-              >
-                <UIcon name="i-heroicons-chat-bubble-left-right" class="text-[22px] text-gray-500" />
-                <span class="min-w-[1ch] text-sm tabular-nums">{{ commentTotal }}</span>
-              </div>
-              <button
-                type="button"
-                class="flex shrink-0 items-center gap-1 text-gray-500 transition-colors hover:text-gray-700 dark:hover:text-gray-300"
-                title="复制链接"
-                aria-label="分享：复制当前页链接"
-                @click="handleShareLink"
-              >
-                <UIcon name="ic:round-share" class="text-[22px] text-gray-500" />
-                <!-- <span class="text-sm">分享</span> -->
-              </button>
-            </div>
-            <button
-              type="button"
-              class="community-detail-bottom-comment min-w-0 flex-1 rounded-full border border-gray-200 bg-white px-4 py-2.5 text-left text-sm text-gray-400 shadow-sm transition hover:border-qhx-primary/40 hover:bg-white focus:outline-none focus-visible:ring-2 focus-visible:ring-qhx-primary max-h-[44px]"
-              @click="openCommentComposer"
-            >
-              写评论…
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
+      :community-id="detail.community_id"
+      :good-count="detail.good_count ?? 0"
+      :collect-count="detail.collect_count ?? 0"
+      :view-count="communityViewCount"
+      @comment="openCommentComposer"
+      @share="handleShareLink"
+    />
 
     <!-- 全屏徽章：idle 后再挂载物理引擎，避免抢首屏 -->
     <div
@@ -1124,6 +1075,22 @@ useHead({
 .community-detail-page {
   padding-top: calc(1rem + env(safe-area-inset-top, 0px));
 }
+
+/* PC 并排：轮播与正文各占 50% */
+@media (min-width: 768px) {
+  .community-detail-carousel {
+    flex: 0 0 50%;
+    width: 50%;
+    max-width: 50%;
+  }
+
+  .community-detail-wide-content {
+    flex: 1 1 50%;
+    width: 50%;
+    min-width: 0;
+  }
+}
+
 /* 关联场景 iframe：抽屉内子块统一毛玻璃材质 */
 .community-scene-glass-panel {
   background-color: rgba(255, 255, 255, 0.22);
@@ -1152,16 +1119,5 @@ useHead({
     padding-top: calc(0.5rem + env(safe-area-inset-top, 0px));
   }
 
-  /* 底部互动栏：写死白色半透明，避免 bg-qhx-bg-card / Tailwind 透明度修饰符无效 */
-  .community-detail-bottom-bar {
-    background-color: rgba(255, 255, 255, 0.28) !important;
-    -webkit-backdrop-filter: blur(12px);
-    backdrop-filter: blur(12px);
-  }
-
-  .community-detail-bottom-comment {
-    background-color: rgba(255, 255, 255, 0.92);
-    border-color: rgba(229, 231, 235, 0.85);
-  }
 }
 </style>

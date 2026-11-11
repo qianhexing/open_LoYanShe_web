@@ -2,6 +2,7 @@
 import { getMatchingListListVisitor, type MatchingListItem } from '@/api/matching_list'
 import type QhxWaterList from '@/components/Qhx/WaterList.vue'
 import { BASE_IMG } from '@/utils/ipConfig'
+const { t } = useI18n()
 // biome-ignore lint/suspicious/noExplicitAny: uni-webview-js 类型声明缺失
 let uni: any;
 const layoutReady = inject('layoutReady') as Ref<boolean>
@@ -16,15 +17,15 @@ const filterList = ref<Record<string, unknown>>({})
 
 // SEO 配置
 useHead({
-  title: '搭配列表',
+  title: t('matching.title'),
   meta: [
     {
       name: 'keywords',
-      content: 'Lo研社,搭配,Lolita搭配'
+      content: t('matching.keywords')
     },
     {
       name: 'description',
-      content: 'Lolita搭配汇总'
+      content: t('matching.description')
     }
   ]
 })
@@ -103,7 +104,7 @@ const fetchMatchingData = async (page: number, pageSize: number) => {
       <div class="w-full flex items-center gap-2">
         <UInput
           v-model="value"
-          placeholder="搜索搭配"
+          :placeholder="t('matching.search_placeholder')"
           class="flex-1 focus:ring-0"
           :autofocus="false"
           @keyup.enter="handleSearch"
@@ -147,7 +148,7 @@ const fetchMatchingData = async (page: number, pageSize: number) => {
           <div class="w-full overflow-hidden rounded-t-lg" v-if="item.cover">
             <img
               :src="`${BASE_IMG}${item.cover}`"
-              :alt="item.note || '搭配图片'"
+              :alt="item.note || t('matching.image_alt')"
               class="w-full object-cover"
               loading="lazy"
               @load="debouncedApplyLayout"

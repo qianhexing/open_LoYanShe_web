@@ -15,7 +15,9 @@ import {
   openUserSpaceTab,
   openWardrobeDetail,
 } from '@/composables/useLibraryDetailNavigation'
+import { wardrobeStatusLabel } from '@/utils/wardrobeDisplayI18n'
 
+const { t } = useI18n()
 const toast = useToast()
 const configStore = useConfigStore()
 const router = useRouter()
@@ -160,7 +162,7 @@ async function fetchMore() {
     }
   } catch (e) {
     console.error(e)
-    toast.add({ title: '加载失败，请稍后重试', color: 'red' })
+    toast.add({ title: t('wardrobe.square.load_failed'), color: 'red' })
   } finally {
     loading.value = false
   }
@@ -184,7 +186,7 @@ async function bootBrowse() {
   await fetchMore()
   initialLoading.value = false
   if (!list.value.length) {
-    toast.add({ title: '暂时没有可逛的衣柜', color: 'amber' })
+    toast.add({ title: t('wardrobe.square.empty'), color: 'amber' })
   }
 }
 
@@ -213,15 +215,15 @@ async function flipNext() {
   if (animating.value) return
   if (current.value >= list.value.length - 1) {
     if (loading.value) {
-      toast.add({ title: '正在加载…', color: 'amber' })
+      toast.add({ title: t('wardrobe.square.loading_toast'), color: 'amber' })
     } else if (totalCount.value > 0 && list.value.length >= totalCount.value) {
-      toast.add({ title: '没有更多了', color: 'amber' })
+      toast.add({ title: t('wardrobe.square.no_more'), color: 'amber' })
     } else {
       await fetchMore()
       if (current.value < list.value.length - 1) {
         await flipNext()
       } else {
-        toast.add({ title: '没有更多了', color: 'amber' })
+        toast.add({ title: t('wardrobe.square.no_more'), color: 'amber' })
       }
     }
     return
@@ -354,7 +356,7 @@ if (import.meta.client) {
 
 function enterWardrobe(item: WardrobeRandomItem) {
   if (!item.wardrobe_id || !item.user_id) {
-    toast.add({ title: '无法打开该衣柜', color: 'amber' })
+    toast.add({ title: t('wardrobe.square.cannot_open'), color: 'amber' })
     return
   }
   openWardrobeDetail({
@@ -374,7 +376,7 @@ function openOwner(item: WardrobeRandomItem) {
   <div
     class="ws-root relative flex h-[100dvh] min-h-0 flex-col overflow-hidden"
     role="main"
-    aria-label="逛逛衣柜"
+    :aria-label="t('wardrobe.square.aria')"
     @pointerdown="onPointerDown"
     @pointermove="onPointerMove"
     @pointerup="onPointerUp"
@@ -386,15 +388,15 @@ function openOwner(item: WardrobeRandomItem) {
       <button
         type="button"
         class="ws-icon-btn"
-        aria-label="返回"
+        :aria-label="t('common.back')"
         @click="closeBrowse"
       >
         <UIcon name="i-heroicons-arrow-left" class="text-xl" />
       </button>
       <div class="min-w-0 flex-1">
-        <h2 class="text-base font-bold text-gray-900 dark:text-gray-100 truncate">逛逛</h2>
+        <h2 class="text-base font-bold text-gray-900 dark:text-gray-100 truncate">{{ t('wardrobe.square.title') }}</h2>
         <p class="text-[11px] text-gray-500 dark:text-gray-400 truncate">
-          左右滑动切换 · {{ progressText || '随机公开衣柜' }}
+          {{ t('wardrobe.square.hint', { progress: progressText || t('wardrobe.square.random_public') }) }}
         </p>
       </div>
       <div class="flex items-center gap-1.5 shrink-0">
@@ -402,7 +404,7 @@ function openOwner(item: WardrobeRandomItem) {
           type="button"
           class="ws-icon-btn"
           :disabled="!canGoPrev || animating"
-          aria-label="上一个"
+          :aria-label="t('wardrobe.square.prev')"
           @click="flipPrev"
         >
           <UIcon name="i-heroicons-chevron-left" class="text-lg" />
@@ -411,7 +413,7 @@ function openOwner(item: WardrobeRandomItem) {
           type="button"
           class="ws-icon-btn"
           :disabled="!canGoNext || animating"
-          aria-label="下一个"
+          :aria-label="t('wardrobe.square.next')"
           @click="flipNext"
         >
           <UIcon name="i-heroicons-chevron-right" class="text-lg" />
@@ -429,7 +431,7 @@ function openOwner(item: WardrobeRandomItem) {
           class="absolute inset-0 flex flex-col items-center justify-center gap-3 rounded-[14px] bg-white/80 dark:bg-gray-900/80"
         >
           <div class="ws-spinner" aria-hidden="true" />
-          <p class="text-sm text-gray-500 dark:text-gray-400">正在找有趣的衣柜…</p>
+          <p class="text-sm text-gray-500 dark:text-gray-400">{{ t('wardrobe.square.finding') }}</p>
         </div>
 
         <div
@@ -437,8 +439,8 @@ function openOwner(item: WardrobeRandomItem) {
           class="absolute inset-0 flex flex-col items-center justify-center gap-3 rounded-[14px] bg-white dark:bg-gray-900 shadow-lg"
         >
           <UIcon name="material-symbols:travel-explore" class="text-4xl text-gray-300 dark:text-gray-600" />
-          <p class="text-sm text-gray-500 dark:text-gray-400">暂时没有可逛的衣柜</p>
-          <UButton color="primary" size="sm" @click="fetchMore">再试一次</UButton>
+          <p class="text-sm text-gray-500 dark:text-gray-400">{{ t('wardrobe.square.empty') }}</p>
+          <UButton color="primary" size="sm" @click="fetchMore">{{ t('wardrobe.square.try_again') }}</UButton>
         </div>
 
         <template v-else>
@@ -459,10 +461,10 @@ function openOwner(item: WardrobeRandomItem) {
                 <div class="relative z-[1] flex h-full flex-col justify-between p-4">
                   <div class="min-w-0">
                     <h3 class="text-lg font-bold text-gray-900 dark:text-white truncate drop-shadow-sm">
-                      {{ item.wardrobe_name || '未命名衣柜' }}
+                      {{ item.wardrobe_name || t('wardrobe.unnamed') }}
                     </h3>
                     <div class="mt-1 flex items-center gap-3 text-xs text-gray-700 dark:text-gray-200">
-                      <span>收录 {{ clothesCount(item) }}</span>
+                      <span>{{ t('wardrobe.square.collected', { count: clothesCount(item) }) }}</span>
                       <span v-if="formatCreateDate(item.create_date)" class="opacity-80">
                         {{ formatCreateDate(item.create_date) }}
                       </span>
@@ -484,7 +486,7 @@ function openOwner(item: WardrobeRandomItem) {
                         decoding="async"
                       >
                       <span class="text-xs font-medium text-gray-800 dark:text-gray-100 truncate max-w-[120px]">
-                        {{ item.user?.user_name || '用户' }}
+                        {{ item.user?.user_name || t('wardrobe.square.user') }}
                       </span>
                     </button>
                     <UButton
@@ -493,7 +495,7 @@ function openOwner(item: WardrobeRandomItem) {
                       class="shrink-0 shadow-sm"
                       @click.stop="enterWardrobe(item)"
                     >
-                      进入衣柜
+                      {{ t('wardrobe.square.enter') }}
                     </UButton>
                   </div>
                 </div>
@@ -531,7 +533,7 @@ function openOwner(item: WardrobeRandomItem) {
                         class="ws-status absolute left-1 top-1 z-[1] max-w-[calc(100%-0.5rem)] truncate"
                         :class="statusBadgeClass(clothes.wardrobe_status)"
                       >
-                        {{ clothes.wardrobe_status }}
+                        {{ wardrobeStatusLabel(t, clothes.wardrobe_status) }}
                       </span>
                     </div>
                     <p class="mt-1 px-0.5 text-center text-[11px] leading-tight text-gray-600 dark:text-gray-300 line-clamp-1 min-h-[1rem]">
@@ -549,7 +551,7 @@ function openOwner(item: WardrobeRandomItem) {
                   v-else
                   class="flex min-h-[120px] items-center justify-center text-sm text-gray-400"
                 >
-                  暂无服饰预览
+                  {{ t('wardrobe.square.no_preview') }}
                 </div>
               </div>
             </div>
@@ -563,8 +565,8 @@ function openOwner(item: WardrobeRandomItem) {
           <div
             class="rounded-full bg-black/45 px-3 py-1 text-[11px] text-white/90 backdrop-blur-sm dark:bg-white/15"
           >
-            <span v-if="loading && current >= list.length - 2">加载中…</span>
-            <span v-else>左滑下一个 · 右滑上一个</span>
+            <span v-if="loading && current >= list.length - 2">{{ t('common.loading') }}</span>
+            <span v-else>{{ t('wardrobe.square.swipe_hint') }}</span>
           </div>
         </div>
       </div>

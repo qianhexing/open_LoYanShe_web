@@ -10,8 +10,8 @@
         ]"
         role="button"
         tabindex="0"
-        title="生成或查看分享图"
-        aria-label="生成或查看分享图"
+        :title="t('library.generate_or_view_share')"
+        :aria-label="t('library.generate_or_view_share')"
         @click="handleShareAction"
         @keydown.enter="handleShareAction"
         @keydown.space.prevent="handleShareAction"
@@ -36,7 +36,7 @@
             :class="variant === 'toolbar' ? 'text-[16px]' : 'text-[22px] text-[#ffffff]'"
           />
         </div>
-        <div :class="variant === 'toolbar' ? 'text-xs text-qhx-text' : 'clothes-share-action-label text-[12px]'">分享图</div>
+        <div :class="variant === 'toolbar' ? 'text-xs text-qhx-text' : 'clothes-share-action-label text-[12px]'">{{ t('clothes.detail.share_img') }}</div>
       </div>
     </QhxJellyButton>
 
@@ -196,6 +196,7 @@ import {
 } from '@/utils/clothesShareCanvas'
 
 const toast = useToast()
+const { t } = useI18n()
 const { saving: savingToAlbum, saveToAlbum } = useSaveNetworkImageToAlbum()
 
 const props = withDefaults(

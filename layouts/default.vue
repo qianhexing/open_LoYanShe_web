@@ -7,9 +7,12 @@ import { hasNotice } from '@/api/message_center'
 import type { UniWebviewJsModule } from '@/stores/config'
 import {
   handleNativeInboundPayload,
+  installAndroidNativeBridge,
   installIosNativeBridge,
+  isAndroidWebview,
   isIosWebview,
   isNativeAppShell,
+  markAndroidShell,
   markHarmonyShell,
   markIosShell,
 } from '@/utils/nativeShell'
@@ -80,10 +83,16 @@ if (route.query?.statusbar) {
     }
   }
 }
-// iOS 原生外链：首屏即隐藏上下栏，并写入 session 供站内跳转保持
-if (readQueryClient() === 'ios') {
-  markIosShell()
-  isFromMobie.value = true
+// iOS / Android 原生外链：首屏即隐藏上下栏，并写入 session 供站内跳转保持
+{
+  const client = readQueryClient()
+  if (client === 'ios') {
+    markIosShell()
+    isFromMobie.value = true
+  } else if (client === 'android') {
+    markAndroidShell()
+    isFromMobie.value = true
+  }
 }
 console.log(route.path, '初始路由地址')
 
@@ -175,9 +184,12 @@ watch(
 watch(
   () => route.query.client,
   (client) => {
-    const v = Array.isArray(client) ? client[0] : client
-    if (String(v || '').toLowerCase() === 'ios') {
+    const v = String((Array.isArray(client) ? client[0] : client) || '').toLowerCase()
+    if (v === 'ios') {
       markIosShell()
+      isFromMobie.value = true
+    } else if (v === 'android') {
+      markAndroidShell()
       isFromMobie.value = true
     }
   },
@@ -199,9 +211,14 @@ const preventZoom = (e: TouchEvent) => {
 const handleInit = (event: MessageEvent) => {
   if (event.data !== '__init_port__') return
 
-  // iOS 不走 MessagePort：忽略建连，通信见 installIosNativeBridge
+  // iOS / Android 不走 MessagePort：忽略建连，通信见 install*NativeBridge
   if (isIosWebview()) {
     markIosShell()
+    isFromMobie.value = true
+    return
+  }
+  if (isAndroidWebview() || readQueryClient() === 'android') {
+    markAndroidShell()
     isFromMobie.value = true
     return
   }
@@ -264,11 +281,17 @@ onMounted(async () => {
    * 否则刷新/手机 WebView 会卡在 await import，页面长时间白屏。
    */
   layoutReady.value = true
-  // iOS：尽早挂 WK 桥回调（不依赖 MessagePort / uni 脚本）
+  // iOS / Android：尽早挂 LoYanSheBridge 下行（不依赖 MessagePort / uni 脚本）
   if (isIosWebview()) {
     markIosShell()
     isFromMobie.value = true
     installIosNativeBridge({
+      onInbound: (raw) => applyNativeInbound(raw),
+    })
+  } else if (isAndroidWebview()) {
+    markAndroidShell()
+    isFromMobie.value = true
+    installAndroidNativeBridge({
       onInbound: (raw) => applyNativeInbound(raw),
     })
   }
@@ -283,9 +306,10 @@ onMounted(async () => {
     isFromMobie.value = true
     configStore.setUniWebviewJs(uni as UniWebviewJsModule)
   } else if (isNativeAppShell()) {
-    // iOS / 鸿蒙壳：继续隐藏 Header、Footer（勿被下方 false 覆盖）
+    // iOS / Android / 鸿蒙壳：继续隐藏 Header、Footer（勿被下方 false 覆盖）
     isFromMobie.value = true
     if (isIosWebview()) markIosShell()
+    else if (isAndroidWebview()) markAndroidShell()
     configStore.setUniWebviewJs(null)
   } else {
     isFromMobie.value = false

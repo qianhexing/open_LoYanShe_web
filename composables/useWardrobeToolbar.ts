@@ -12,26 +12,38 @@ import {
 } from '~/utils/wardrobeToolbarConfig'
 
 export function useWardrobeToolbar() {
+  const { t } = useI18n()
   const prefs = ref<WardrobeToolbarPrefs>(readToolbarPrefs())
 
   const configurableTools = getConfigurableToolbarTools()
 
   const placements = computed(() => prefs.value.placements)
 
+  function localizeTool(tool: WardrobeToolbarToolMeta): WardrobeToolbarToolMeta {
+    return {
+      ...tool,
+      label: t(`wardrobe.toolbar.${tool.id}`),
+      moreDescription: tool.moreDescription
+        ? t(`wardrobe.toolbar.${tool.id}_desc`)
+        : tool.moreDescription,
+    }
+  }
+
   const sidebarTools = computed((): WardrobeToolbarToolMeta[] => {
     const filtered = WARDROBE_TOOLBAR_TOOLS.filter((tool) => prefs.value.placements[tool.id] === 'sidebar')
-    return sortToolbarToolsByOrder(filtered, prefs.value.order)
+    return sortToolbarToolsByOrder(filtered, prefs.value.order).map(localizeTool)
   })
 
   const moreTools = computed((): WardrobeToolbarToolMeta[] => {
     const filtered = WARDROBE_TOOLBAR_TOOLS.filter((tool) => prefs.value.placements[tool.id] === 'more')
-    return sortToolbarToolsByOrder(filtered, prefs.value.order)
+    return sortToolbarToolsByOrder(filtered, prefs.value.order).map(localizeTool)
   })
 
   const orderedConfigTools = computed((): WardrobeToolbarToolMeta[] =>
     prefs.value.order
       .map((id) => getWardrobeToolbarTool(id))
-      .filter((tool): tool is WardrobeToolbarToolMeta => !!tool),
+      .filter((tool): tool is WardrobeToolbarToolMeta => !!tool)
+      .map(localizeTool),
   )
 
   const toolbarOrderRows = computed({

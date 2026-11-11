@@ -59,9 +59,16 @@ const currentLocale = computed(() =>
   locales.value.find((l: any) => l.code === locale.value) || { name: locale.value }
 )
 const changeLocale = async (lang: 'zh' | 'en' | 'ja') => {
+  if (lang === locale.value) {
+    open.value = false
+    return
+  }
+  languageStore.setLocale(lang) // 先写入 pinia + localStorage，刷新后请求头/文案才正确
   await setLocale(lang)
-  languageStore.setLocale(lang) // 保存到 pinia + localStorage
   open.value = false
+  if (import.meta.client) {
+    window.location.reload()
+  }
 }
 // 监听点击外部关闭
 const handleClickOutside = (e: MouseEvent) => {

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { TemplateInterface, PaginationResponse } from '@/types/api';
 import { getTemplateList } from '@/api/temeplate'
+const { t } = useI18n()
 const router = useRouter()
 const route = useRoute()
 // 分页参数
@@ -107,13 +108,16 @@ onMounted(() => {
 </script>
 <template>
   <div :class="compact ? 'p-1 pb-4' : 'container mx-auto p-4 pb-20'">
-    <div :class="compact ? 'space-y-1' : 'grid grid-cols-3'" v-if="total > 0">
-      <div v-for="list in list">
-        <TemplateItem @choose="choose" :item="list" :compact="compact"></TemplateItem>
+    <div
+      v-if="total > 0"
+      :class="compact ? 'grid grid-cols-2 gap-2' : 'grid grid-cols-3'"
+    >
+      <div v-for="row in list" :key="row.template_id">
+        <TemplateItem @choose="choose" :item="row" :compact="compact" />
       </div>
     </div>
     <div v-else class="text-center text-gray-500 py-4 text-xs">
-      暂无数据
+      {{ t('template.empty') }}
     </div>
     <QhxLoading :loading="isLoading" :page="page" :total="total" :page-size="pageSize" @load-more="loadMore"></QhxLoading>
   </div>

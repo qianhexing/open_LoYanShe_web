@@ -22,6 +22,7 @@ definePageMeta({
 })
 
 const route = useRoute()
+const { t } = useI18n()
 const id = route.params.id as string
 const userStore = useUserStore()
 
@@ -38,7 +39,7 @@ const { data: detail } = await useAsyncData(
 )
 
 if (!detail.value) {
-  throw createError({ statusCode: 404, statusMessage: '帖子不存在' })
+  throw createError({ statusCode: 404, statusMessage: t('community.not_found') })
 }
 
 const authorId = computed(
@@ -62,6 +63,9 @@ watch(
 )
 
 useHead({
-  title: () => (detail.value?.title ? `编辑：${detail.value.title}` : '编辑帖子')
+  title: () =>
+    detail.value?.title
+      ? t('community.edit_page_title_with', { title: detail.value.title })
+      : t('community.edit_page_title')
 })
 </script>
