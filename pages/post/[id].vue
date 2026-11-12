@@ -28,6 +28,7 @@
   
   // --- 获取当前登录用户状态 ---
   const authStore = useUserStore()
+  const { t } = useI18n()
   const { user } = storeToRefs(authStore) // 解构出响应式的 user 对象
 
   // ---计算当前用户的头像 ---
@@ -216,7 +217,7 @@
              
              <div class="flex-1 bg-gray-100 rounded-full h-10 flex items-center px-4 text-gray-400 text-sm cursor-text hover:bg-gray-200 transition">
                 <span class="i-heroicons-pencil w-4 h-4 mr-2"></span>
-                说点什么...
+                {{ t('comment.say_something') }}
              </div>
           </div>
           </div>
@@ -224,13 +225,13 @@
         <UDivider class="my-4" />
   
         <div class="px-4 py-2 mb-10">
-          <div class="mb-4 text-sm font-bold text-gray-700">共 {{ detail.commentList.length }} 条评论</div>
+          <div class="mb-4 text-sm font-bold text-gray-700">{{ t('comment.total_comments', { n: detail.commentList.length }) }}</div>
           <div class="space-y-6">
             <CommentItem v-for="c in detail.commentList" :key="c.id" :comment="c" />
           </div>
           
           <div class="text-center text-xs text-gray-300 py-8">
-              - 没有更多了 -
+              {{ t('comment.no_more') }}
           </div>
         </div>
         

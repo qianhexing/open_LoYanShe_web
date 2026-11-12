@@ -25,7 +25,8 @@ const visible = computed({
   }
 })
 
-const displayName = computed(() => props.message?.userName?.trim() || '旅人')
+const { t, locale } = useI18n()
+const displayName = computed(() => props.message?.userName?.trim() || t('comment.traveler'))
 
 const faceUrl = computed(() => {
   const face = props.message?.userFace?.trim()
@@ -39,7 +40,8 @@ const dateText = computed(() => {
   if (!raw) return ''
   const d = raw instanceof Date ? raw : new Date(raw)
   if (Number.isNaN(d.getTime())) return ''
-  return d.toLocaleString('zh-CN', {
+  const localeTag = locale.value === 'ja' ? 'ja-JP' : locale.value === 'en' ? 'en-US' : 'zh-CN'
+  return d.toLocaleString(localeTag, {
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
@@ -89,7 +91,7 @@ const onHintClick = () => {
       @click="onHintClick"
     >
       <span class="message-hint__mark" aria-hidden="true" />
-      <span class="message-hint__text">检查讯息</span>
+      <span class="message-hint__text">{{ t('comment.check_message') }}</span>
     </button>
   </Transition>
 
@@ -100,13 +102,13 @@ const onHintClick = () => {
       <button
         class="message-modal__close"
         type="button"
-        aria-label="关闭"
+        :aria-label="t('common.close')"
         @click="emit('close')"
       >
         <UIcon name="i-heroicons-x-mark" class="w-4 h-4" />
       </button>
 
-      <p class="message-modal__eyebrow">— 讯息 —</p>
+      <p class="message-modal__eyebrow">{{ t('comment.message_label') }}</p>
 
       <div class="message-modal__user">
         <img
@@ -130,7 +132,7 @@ const onHintClick = () => {
           <QhxPreviewImage
             :list="imageList.map((img) => ({
               src: `${img}?x-oss-process=image/quality,q_100/resize,w_200,h_200`,
-              alt: '讯息图片'
+              alt: t('comment.message_image')
             }))"
             :preview="imageList"
             :className="'message-modal__thumb'"
@@ -141,7 +143,7 @@ const onHintClick = () => {
       <div class="message-modal__actions">
         <QhxJellyButton>
           <button type="button" class="message-modal__btn" @click="emit('close')">
-            关闭
+            {{ t('common.close') }}
           </button>
         </QhxJellyButton>
       </div>

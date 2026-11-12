@@ -407,11 +407,15 @@ import WardrobeClothesChoose from '@/components/Wardrobe/WardrobeClothesChoose.v
 import PlanListItem from '@/components/Plan/PlanListItem.vue'
 import { needsNativeBackSlot as checkNativeBackSlot } from '@/utils/nativeShell'
 
+definePageMeta({
+  ssr: false,
+})
+
 const { t } = useI18n()
 
 /**
  * 本地就绪态，不依赖 layout 的 layoutReady。
- * 注意：不要再用 ssr:false——刷新时 ClientOnly 空壳 + Nuxt 进度条会一直转，页面完全白屏。
+ * App WebView 冷启动页：ssr:false（routeRules + definePageMeta）。
  */
 const pageReady = ref(true)
 /** 挂载后补登录态期间的过渡，避免闪「请先登录」 */

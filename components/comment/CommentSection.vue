@@ -38,6 +38,7 @@ const props = withDefaults(defineProps<Props>(), {
   reserveBottomForFixedBar: false,
 })
 
+const { t } = useI18n()
 const user = useUserStore()
 const commentUiStore = useCommentUiStore()
 const { newCommentHighlightId } = storeToRefs(commentUiStore)
@@ -274,7 +275,7 @@ const showReply = () => {}
 const reply = (item: Comment, e?: MouseEvent) => {
   if (!user.token) {
     useToast().add({
-      title: '请登录',
+      title: t('common.please_login'),
       icon: 'i-heroicons-exclamation-circle',
       color: 'red',
     })
@@ -291,7 +292,7 @@ const deleteMainLoading = ref(false)
 const onDeleteMainComment = (item: Comment, e?: MouseEvent) => {
   if (!user.token) {
     useToast().add({
-      title: '请登录',
+      title: t('common.please_login'),
       icon: 'i-heroicons-exclamation-circle',
       color: 'red',
     })
@@ -316,7 +317,7 @@ const confirmDeleteMainComment = async () => {
     const ok = await deleteComment({ comment_id: Number(item.comment_id) })
     if (ok) {
       useToast().add({
-        title: '已删除',
+        title: t('comment.deleted'),
         icon: 'i-heroicons-check-circle',
         color: 'green',
       })
@@ -327,7 +328,7 @@ const confirmDeleteMainComment = async () => {
     }
   } catch {
     useToast().add({
-      title: '删除失败',
+      title: t('comment.delete_failed'),
       icon: 'i-heroicons-exclamation-circle',
       color: 'red',
     })
@@ -502,7 +503,7 @@ onUnmounted(() => {
           </Transition>
         </div>
       </div>
-      <div v-else-if="!isLoading" class="text-center text-gray-500 py-8">暂无数据</div>
+      <div v-else-if="!isLoading" class="text-center text-gray-500 py-8">{{ t('common.none') }}</div>
       <QhxLoading :loading="isLoading"></QhxLoading>
 
       <QhxModal
@@ -511,11 +512,11 @@ onUnmounted(() => {
         @close="closeDeleteMainModal"
       >
         <div class="p-6 w-[400px] max-md:w-[90vw] bg-white dark:bg-gray-800 rounded-xl">
-          <h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">操作确认</h3>
-          <p class="text-gray-600 dark:text-gray-300 mb-6">确定删除这条评论吗？此操作不可恢复。</p>
+          <h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">{{ t('comment.confirm_title') }}</h3>
+          <p class="text-gray-600 dark:text-gray-300 mb-6">{{ t('comment.confirm_delete') }}</p>
           <div class="flex gap-3 justify-end">
             <UButton color="gray" variant="ghost" class="px-4" @click="closeDeleteMainModal">
-              取消
+              {{ t('common.cancel') }}
             </UButton>
             <UButton
               color="red"
@@ -523,7 +524,7 @@ onUnmounted(() => {
               :loading="deleteMainLoading"
               @click="confirmDeleteMainComment"
             >
-              确认删除
+              {{ t('comment.confirm_delete_btn') }}
             </UButton>
           </div>
         </div>

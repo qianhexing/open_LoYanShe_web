@@ -1,16 +1,33 @@
 <script setup lang="ts">
+import { defineAsyncComponent } from 'vue'
 import type { Shop, PaginationResponse, LibraryPipe, Library } from '@/types/api';
 import type QhxWaterList from '@/components/Qhx/WaterList.vue'
 import { getShopDetail } from '@/api/shop';
 import { getLibraryList, getLibraryPipeListAll } from '@/api/library';
 import { getEventRedblackList } from '@/api/event_redblack';
 import type { UserBlackBtn, UserGoodBtn } from '#components';
-import type LibraryPipeManage from '@/components/library/LibraryPipeManage.vue'
-import type PhysicalShopModal from '@/components/shop/PhysicalShopModal.vue'
 import type { PhysicalShop } from '@/types/api'
 import { BASE_IMG } from '@/utils/ipConfig'
 import { isHtml5PlusWebview, openLibraryWebPath, openLibraryDetailTab } from '@/composables/useLibraryDetailNavigation'
 import { parseRichText } from '@/utils/public'
+import { useLayoutStyle } from '~/composables/useLayoutStyle'
+
+definePageMeta({
+  ssr: false,
+})
+
+const LibraryPipeManage = defineAsyncComponent(
+  () => import('@/components/library/LibraryPipeManage.vue'),
+)
+const PhysicalShopModal = defineAsyncComponent(
+  () => import('@/components/shop/PhysicalShopModal.vue'),
+)
+const LibraryTimeline = defineAsyncComponent(
+  () => import('@/components/library/LibraryTimeline.vue'),
+)
+
+const { setLayoutStyle } = useLayoutStyle()
+setLayoutStyle(1)
 
 interface ShopLinkEntry {
   href: string
@@ -114,8 +131,8 @@ useHead({
     }
   ]
 })
-const libraryPipeManageRef = ref<InstanceType<typeof LibraryPipeManage> | null>(null)
-const physicalShopModalRef = ref<InstanceType<typeof PhysicalShopModal> | null>(null)
+const libraryPipeManageRef = ref<{ showModel: (opts: { shop_id: number }) => void } | null>(null)
+const physicalShopModalRef = ref<{ showModel?: (item: PhysicalShop) => void } | null>(null)
 
 const showLibraryPipeManage = () => {
   libraryPipeManageRef.value?.showModel({ shop_id: Number.parseInt(id) })

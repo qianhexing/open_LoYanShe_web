@@ -43,6 +43,7 @@ setLayoutStyle(1)
 
 const configStore = useConfigStore()
 const userStore = useUserStore()
+const { t } = useI18n()
 const toast = useToast()
 const layoutReady = inject('layoutReady') as Ref<boolean>
 const isMobile = computed(
@@ -433,7 +434,7 @@ async function onFlowerClick(commentId: number) {
   } catch (error) {
     console.error('拉取评论失败:', error)
     toast.add({
-      title: '评论加载失败',
+      title: t('comment.load_failed'),
       icon: 'i-heroicons-x-circle',
       color: 'red',
     })
@@ -741,7 +742,7 @@ useHead({
     <UModal v-model="showFlowerCommentModal">
       <div class="p-4 sm:p-6 max-h-[80vh] overflow-y-auto">
         <div class="mb-4 flex items-center justify-between gap-3">
-          <h3 class="text-lg font-semibold text-gray-900 dark:text-white">装扮评论</h3>
+          <h3 class="text-lg font-semibold text-gray-900 dark:text-white">{{ t('comment.outfit_title') }}</h3>
           <UButton
             color="gray"
             variant="ghost"
@@ -754,7 +755,7 @@ useHead({
           v-if="flowerCommentLoading"
           class="py-10 text-center text-sm text-qhx-text-muted"
         >
-          加载中...
+          {{ t('common.loading') }}
         </div>
         <CommentItem
           v-else-if="selectedFlowerComment"
@@ -763,7 +764,7 @@ useHead({
           ui="p-0"
         />
         <div v-else class="py-10 text-center text-sm text-qhx-text-muted">
-          暂无评论内容
+          {{ t('comment.empty') }}
         </div>
       </div>
     </UModal>

@@ -196,7 +196,7 @@ const form = ref({
   note: '',
   cover: '',
   appointment_time: '' as string | null,
-  is_private: false,
+  is_private: true,
   open_community: false,
   open_tags: false,
   main_style: [] as MainStyleOption[],
@@ -245,7 +245,7 @@ const showModel = (list: WardrobeClothes[], item?: { matching_id: number; note?:
   form.value.note = ''
   form.value.cover = ''
   form.value.appointment_time = null
-  form.value.is_private = false
+  form.value.is_private = true
   form.value.open_community = false
   form.value.open_tags = false
   form.value.main_style = []

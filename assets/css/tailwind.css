@@ -7,6 +7,27 @@
 	/* only light：禁止 WebKit 在系统暗色下覆盖默认文字/背景色 */
 	color-scheme: only light;
 	supported-color-schemes: light;
+	/* 主题 CSS 变量默认值：在 themeStore.applyTheme 之前也能显示主色 */
+	--primary-color: #FF9EB5;
+	--primaryHover-color: #FFB3C6;
+	--primaryActive-color: #FF85A2;
+	--inverted-color: #ffffff;
+	--secondary-color: #A5D8FF;
+	--accent-color: #B5EAD7;
+	--tertiary-color: #FFDAC1;
+	--background-color: #FFF9FB;
+	--surface-color: #FFF0F5;
+	--card-color: #FFFFFF;
+	--text-color: #000000;
+	--textSecondary-color: #9B8A97;
+	--textBg-color: #212121;
+	--textInverted-color: #FFFFFF;
+	--success-color: #B5EAD7;
+	--warning-color: #FFD700;
+	--error-color: #df2343;
+	--info-color: #A5D8FF;
+	--border-color: #FFD1DC;
+	--divider-color: #FFE5EE;
 	--scrollbar-size: 8px;
 	--scrollbar-track: rgb(243 244 246 / 0.85);
 	--scrollbar-thumb: rgb(209 213 219 / 0.95);

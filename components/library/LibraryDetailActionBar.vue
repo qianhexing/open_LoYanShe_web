@@ -15,6 +15,8 @@ const emit = defineEmits<{
   comment: []
   'add-to-wardrobe': []
 }>()
+
+const { t } = useI18n()
 </script>
 
 <template>
@@ -85,11 +87,11 @@ const emit = defineEmits<{
       <button
         type="button"
         class="library-detail-action-item"
-        aria-label="写评论"
+        :aria-label="t('comment.write')"
         @click="emit('comment')"
       >
         <UIcon name="i-heroicons-chat-bubble-left-ellipsis" class="library-detail-action-item__icon" />
-        <span class="library-detail-action-item__label">写评论</span>
+        <span class="library-detail-action-item__label">{{ t('comment.write') }}</span>
       </button>
     </div>
   </div>

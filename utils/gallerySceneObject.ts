@@ -1,10 +1,11 @@
 import gsap from 'gsap'
-import { SplatMesh } from '@sparkjsdev/spark'
+import type { SplatMesh } from '@sparkjsdev/spark'
 import * as THREE from 'three'
 import type { GallerySceneObject } from '@/types/gallery'
 import { isRadLodSplatUrl, isSplatUrl } from '@/utils/materiaModelKind'
 import { BASE_IMG } from '@/utils/ipConfig'
 import type ThreeCore from '@/utils/threeCore'
+import { isSplatMeshObject } from '@/utils/sparkLazy'
 
 /** 解析展馆对象 url（与场景 loadSceneFromJSON 一致，相对路径拼 BASE_IMG） */
 export function resolveGalleryObjectUrl(url: string): string {
@@ -107,8 +108,8 @@ export function applyGalleryObjectTransform(
 /** 点云根节点变换后通知 Spark 重建 */
 export function refreshGallerySplatMesh(asset: THREE.Object3D) {
   asset.traverse(child => {
-    if (child instanceof SplatMesh) {
-      child.updateGenerator()
+    if (isSplatMeshObject(child)) {
+      ;(child as SplatMesh).updateGenerator()
     }
   })
 }

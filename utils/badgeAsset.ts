@@ -1,7 +1,8 @@
-import { SplatMesh, SparkRenderer, SplatFileType } from '@sparkjsdev/spark'
+import type { SplatMesh, SparkRenderer, SplatFileType } from '@sparkjsdev/spark'
 import * as THREE from 'three'
 import { BASE_IMG, BASE_IMG_MODEL } from '@/utils/ipConfig'
 import { isRadLodSplatUrl, isSplatUrl } from '@/utils/materiaModelKind'
+import { isSplatMeshObject, loadSpark } from '@/utils/sparkLazy'
 
 export type BadgeCoverKind = 'image' | 'model' | 'splat'
 
@@ -51,17 +52,17 @@ function inferSplatFileTypeFromUrl(url: string): SplatFileType | undefined {
   const ext = lower.slice(dot + 1)
   switch (ext) {
     case 'ply':
-      return SplatFileType.PLY
+      return 'ply' as SplatFileType
     case 'spz':
-      return SplatFileType.SPZ
+      return 'spz' as SplatFileType
     case 'splat':
-      return SplatFileType.SPLAT
+      return 'splat' as SplatFileType
     case 'ksplat':
-      return SplatFileType.KSPLAT
+      return 'ksplat' as SplatFileType
     case 'rad':
-      return SplatFileType.RAD
+      return 'rad' as SplatFileType
     case 'zip':
-      return SplatFileType.PCSOGSZIP
+      return 'pcsogszip' as SplatFileType
     default:
       return undefined
   }
@@ -80,15 +81,16 @@ export function createBadgeSparkContext(): BadgeSparkContext {
   return { sparkRenderer: null, sceneHasPagedRadSplats: false }
 }
 
-export function ensureBadgeSparkRenderer(
+export async function ensureBadgeSparkRenderer(
   scene: THREE.Scene,
   renderer: THREE.WebGLRenderer,
   ctx: BadgeSparkContext
-): SparkRenderer {
+): Promise<SparkRenderer> {
   if (ctx.sparkRenderer) {
     ctx.sparkRenderer.pagedExtSplats = ctx.sceneHasPagedRadSplats
     return ctx.sparkRenderer
   }
+  const { SparkRenderer } = await loadSpark()
   const sparkRenderer = new SparkRenderer({
     renderer,
     encodeLinear: false,
@@ -130,7 +132,8 @@ export async function loadBadgeSplatGroup(
   ctx: BadgeSparkContext
 ): Promise<{ mesh: THREE.Group; size: THREE.Vector3; center: THREE.Vector3 } | null> {
   try {
-    ensureBadgeSparkRenderer(scene, renderer, ctx)
+    const { SplatMesh } = await loadSpark()
+    await ensureBadgeSparkRenderer(scene, renderer, ctx)
     const inferredFileType = inferSplatFileTypeFromUrl(url)
     const usePaged = isRadLodSplatUrl(url)
 
@@ -183,7 +186,9 @@ export async function loadBadgeSplatGroup(
 
 export function refreshBadgeSplatMesh(root: THREE.Object3D) {
   root.traverse((child) => {
-    if (child instanceof SplatMesh) child.updateGenerator()
+    if (isSplatMeshObject(child)) {
+      ;(child as SplatMesh).updateGenerator()
+    }
   })
 }
 

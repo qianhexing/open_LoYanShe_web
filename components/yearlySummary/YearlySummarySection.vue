@@ -65,6 +65,7 @@ import { ref, onMounted, nextTick } from 'vue'
 import type { WardrobeClothes } from '@/types/api'
 import type { FavoriteItem, MostWornItem } from '@/api/yearlySummary'
 import { BASE_IMG } from '@/utils/ipConfig'
+import { loadGsap } from '@/utils/gsapLazy'
 
 const props = defineProps<{
   title: string
@@ -72,8 +73,6 @@ const props = defineProps<{
   delay?: number
   icon?: string
 }>()
-
-const { $gsap } = useNuxtApp()
 
 const sectionRef = ref<HTMLElement | null>(null)
 const itemRefs = ref<HTMLElement[]>([])
@@ -91,6 +90,12 @@ const getItemImage = (item: any): string => {
 
 onMounted(async () => {
   await nextTick()
+  let $gsap: Awaited<ReturnType<typeof loadGsap>>['gsap'] | null = null
+  try {
+    $gsap = (await loadGsap()).gsap
+  } catch {
+    return
+  }
   if ($gsap && sectionRef.value) {
     // 简单的入场动画
     $gsap.from(sectionRef.value, {

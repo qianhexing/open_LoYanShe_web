@@ -7,12 +7,13 @@
         @before-enter="setPosition"
         @enter="onEnter"
         @leave="onLeave"
+        @after-leave="onAfterLeave"
       >
         <div
           v-if="modelValue"
           ref="modalContainer"
           class="modal-container fixed inset-0 flex items-center justify-center"
-          :style="{ zIndex: zIndex }"
+          :style="containerStyle"
           tabindex="0"
           @keydown.esc="close"
         >
@@ -74,19 +75,36 @@ const props = withDefaults(
     closeOnBackdrop?: boolean
     /** 叠层顺序，默认 200；嵌套弹窗请传更大值 */
     zIndex?: number
+    /**
+     * 底部额外留白（px），如 iOS Tab 内嵌传入的 tabbar 高度。
+     * 加在容器 padding-bottom，让弹层在可视区内垂直居中，避免底部按钮被遮挡。
+     */
+    bottomInset?: number
   }>(),
   {
     closeOnBackdrop: true,
     zIndex: 200,
+    bottomInset: 0,
   }
 )
 
-const emit = defineEmits(['update:modelValue', 'close'])
+const emit = defineEmits(['update:modelValue', 'close', 'after-leave'])
 
 const modalBox = ref<HTMLElement | null>(null)
 const modalContainer = ref<HTMLElement | null>(null)
 const modalStyle = ref<Record<string, string>>({})
 const zIndex = computed(() => props.zIndex)
+const bottomInsetPx = computed(() => {
+  const n = Number(props.bottomInset || 0)
+  return Number.isFinite(n) && n > 0 ? n : 0
+})
+const containerStyle = computed(() => {
+  const style: Record<string, string | number> = { zIndex: zIndex.value }
+  if (bottomInsetPx.value > 0) {
+    style.paddingBottom = `${bottomInsetPx.value}px`
+  }
+  return style
+})
 const didLockScroll = shallowRef(false)
 
 const disableBodyScroll = () => {
@@ -174,9 +192,13 @@ const onBackdropClick = () => {
   if (props.closeOnBackdrop) close()
 }
 
+function isLiveElement(el: Element | null): el is Element {
+  return Boolean(el && isClient && (el as Node).isConnected)
+}
+
 // 进入前设置初始位置和缩放
 const setPosition = (el: Element | null) => {
-  if (!el || !isClient) return
+  if (!isLiveElement(el)) return
   
   const pos = props.triggerPosition ?? {
     x: window.innerWidth,
@@ -190,11 +212,15 @@ const setPosition = (el: Element | null) => {
 
 // 进入动画
 const onEnter = (el: Element | null, done: () => void) => {
-  if (!el || !isClient) {
+  if (!isLiveElement(el)) {
     done()
     return
   }
   requestAnimationFrame(() => {
+    if (!isLiveElement(el)) {
+      done()
+      return
+    }
     modalStyle.value = {
       transform: 'translate(0, 0) scale(1)',
       opacity: '1',
@@ -206,7 +232,7 @@ const onEnter = (el: Element | null, done: () => void) => {
 
 // 离开动画
 const onLeave = async (el: Element | null, done: () => void) => {
-  if (!el || !isClient) {
+  if (!isLiveElement(el)) {
     done()
     return
   }
@@ -217,8 +243,16 @@ const onLeave = async (el: Element | null, done: () => void) => {
   }
 
   await nextTick()
+  if (!isLiveElement(el)) {
+    done()
+    return
+  }
 
   requestAnimationFrame(() => {
+    if (!isLiveElement(el)) {
+      done()
+      return
+    }
     modalStyle.value = {
       transform: `translate(${pos.x}px, ${pos.y}px) scale(0.2)`,
       opacity: '0',
@@ -226,6 +260,10 @@ const onLeave = async (el: Element | null, done: () => void) => {
     }
     setTimeout(done, 200)
   })
+}
+
+const onAfterLeave = () => {
+  emit('after-leave')
 }
 </script>
 

@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { defineAsyncComponent } from 'vue'
+import { waitForMountedRef } from '@/composables/useWaitMountedRef'
 import type { Library, LibrarySimilarItem, PaginationResponse, Shop, LibraryVideo, LibraryPipe, Community, User, Compilations, SenceForeign, Scene, Comment, WardrobeClothes } from '@/types/api';
 import { getMatchingListListVisitor, type MatchingListItem } from '@/api/matching_list'
 import type MatchingAddEditType from '@/components/matching/MatchingAddEdit.vue'
@@ -44,10 +46,18 @@ import { useCommentUiStore } from '@/stores/commentUi'
 import type { LibrarySharePayload, LibraryRecommendPayload } from '@/utils/libraryShareCanvas'
 import { plainTextFromHtml } from '@/utils/libraryShareCanvas'
 import { libraryVideoAddrIsRad } from '@/utils/humanPlatformNav'
-import CommentSection from '@/components/comment/CommentSection.vue'
-import CommunityCommentModal from '@/components/community/CommentModal.vue'
-import LibraryDetailActionBar from '@/components/library/LibraryDetailActionBar.vue'
-import LibrarySimilarRecommendImage from '@/components/library/LibrarySimilarRecommendImage.vue'
+const CommentSection = defineAsyncComponent(
+  () => import('@/components/comment/CommentSection.vue'),
+)
+const CommunityCommentModal = defineAsyncComponent(
+  () => import('@/components/community/CommentModal.vue'),
+)
+const LibraryDetailActionBar = defineAsyncComponent(
+  () => import('@/components/library/LibraryDetailActionBar.vue'),
+)
+const LibrarySimilarRecommendImage = defineAsyncComponent(
+  () => import('@/components/library/LibrarySimilarRecommendImage.vue'),
+)
 
 const CommunityChoose = defineAsyncComponent(
   () => import('@/components/community/CommunityChoose.vue'),
@@ -67,18 +77,17 @@ const WikiOptionsChoose = defineAsyncComponent(
 const MatchingAddEdit = defineAsyncComponent(
   () => import('@/components/matching/MatchingAddEdit.vue'),
 )
-const ClothesAdd = defineAsyncComponent(
-  () => import('@/components/Clothes/ClothesAdd.vue'),
-)
+const loadClothesAdd = () => import('@/components/Clothes/ClothesAdd.vue')
+const loadLibraryTypeColorChoose = () =>
+  import('@/components/library/LibraryTypeColorChoose.vue')
+const ClothesAdd = defineAsyncComponent(loadClothesAdd)
 const CompilationsChoose = defineAsyncComponent(
   () => import('@/components/compilations/CompilationsChoose.vue'),
 )
 const LibraryChoose = defineAsyncComponent(
   () => import('@/components/library/LibraryChoose.vue'),
 )
-const LibraryTypeColorChoose = defineAsyncComponent(
-  () => import('@/components/library/LibraryTypeColorChoose.vue'),
-)
+const LibraryTypeColorChoose = defineAsyncComponent(loadLibraryTypeColorChoose)
 const SceneChoose = defineAsyncComponent(
   () => import('@/components/scene/SceneChoose.vue'),
 )
@@ -86,6 +95,7 @@ const SceneChoose = defineAsyncComponent(
 const customInput = defineAsyncComponent(() => import('~/components/Clothes/customInput.vue'))
 const user = useUserStore()
 const config = useConfigStore()
+const { t } = useI18n()
 const isMobile = computed(() => config.isMobile)
 const route = useRoute()
 const toast = useToast()
@@ -110,36 +120,62 @@ const libraryId = Number.parseInt(id, 10)
 
 type LibraryDetailPageData = {
   detail: Awaited<ReturnType<typeof getLibraryDetail>>
-  commentCount: Awaited<ReturnType<typeof getCommentList>>
+  commentCount: Awaited<ReturnType<typeof getCommentList>> | null
   children: Library[]
 }
 
+/** 首屏只拉详情；评论数 / 子款 idle 补齐，缩短 App 冷启动阻塞 */
 const { data: pageData, refresh: refreshPageData } = await useAsyncData(
   `library-detail-${id}`,
   async (): Promise<LibraryDetailPageData> => {
     const detailRes = await getLibraryDetail({ library_id: libraryId })
-    const lid = detailRes.library?.library_id ?? libraryId
-    const [commentRes, childListRes] = await Promise.all([
-      getCommentList({ type: 'library', id: lid, page: 1, pageSize: 1 }),
-      detailRes.library?.library_type === '系列'
-        ? getLibraryList({
-            filter_list: [{
-              field: 'parent_id',
-              op: 'and',
-              value: id,
-            }],
-            page: 1,
-            pageSize: 999,
-          })
-        : Promise.resolve(null),
-    ])
     return {
       detail: detailRes,
-      commentCount: commentRes,
-      children: childListRes?.rows ?? [],
+      commentCount: null,
+      children: [],
     }
   },
 )
+
+function runWhenIdle(fn: () => void, timeout = 2000): number {
+  if (!import.meta.client) return 0
+  if (typeof window.requestIdleCallback === 'function') {
+    return window.requestIdleCallback(fn, { timeout }) as unknown as number
+  }
+  return window.setTimeout(fn, Math.min(timeout, 900))
+}
+
+async function loadLibrarySecondaryData() {
+  const detailRes = pageData.value?.detail
+  if (!detailRes?.library) return
+  const lid = detailRes.library.library_id ?? libraryId
+  const [commentRes, childListRes] = await Promise.all([
+    getCommentList({ type: 'library', id: lid, page: 1, pageSize: 1 }),
+    detailRes.library.library_type === '系列'
+      ? getLibraryList({
+          filter_list: [{
+            field: 'parent_id',
+            op: 'and',
+            value: id,
+          }],
+          page: 1,
+          pageSize: 999,
+        })
+      : Promise.resolve(null),
+  ])
+  if (!pageData.value) return
+  pageData.value = {
+    ...pageData.value,
+    commentCount: commentRes,
+    children: childListRes?.rows ?? [],
+  }
+}
+
+onMounted(() => {
+  runWhenIdle(() => {
+    void loadLibrarySecondaryData()
+  })
+})
 
 const library = ref<Library | null>(null)
 const libraryRef = ref(null)
@@ -482,7 +518,20 @@ const focusCommentId = computed(() => {
   return Number.isFinite(n) && n > 0 ? n : undefined
 })
 
-const commentTotal = computed(() => pageData.value?.commentCount?.count ?? 0)
+const commentTotal = ref(0)
+watch(
+  () => pageData.value?.commentCount?.count,
+  (n) => {
+    if (typeof n === 'number') commentTotal.value = n
+  },
+  { immediate: true },
+)
+const mountCommentSection = ref(false)
+onMounted(() => {
+  runWhenIdle(() => {
+    mountCommentSection.value = true
+  }, 1200)
+})
 
 const showCommentModal = ref(false)
 const commentModalRef = ref<InstanceType<typeof CommunityCommentModalType> | null>(null)
@@ -562,7 +611,9 @@ const onCommentSuccess = async (
 }
 
 const onCommentTotalChange = (count: number) => {
-  libraryCommentTabCount.value = count
+  const n = count ?? 0
+  libraryCommentTabCount.value = n
+  commentTotal.value = n
 }
 
 const libraryCommentMyAvatar = computed(() => {
@@ -1356,7 +1407,7 @@ const handleClothesAddSuccess = () => {
 }
 
 // 打开加入衣柜流程 - 第一步：选择图鉴颜色
-const handleAddToWardrobe = () => {
+const handleAddToWardrobe = async () => {
   if (!user.token) {
     toast.add({
       title: '请先登录',
@@ -1375,12 +1426,23 @@ const handleAddToWardrobe = () => {
     })
     return
   }
-  libraryTypeColorChooseRef.value?.showModel(library.value)
+  const chooser = await waitForMountedRef({
+    getRef: () => libraryTypeColorChooseRef.value,
+    preload: loadLibraryTypeColorChoose,
+  })
+  chooser.showModel(library.value)
 }
 
 // 图鉴颜色选择完成 → 打开新增服饰
 const handleLibraryTypeColorChoose = async (data: LibraryTypeColorChooseResult) => {
-  await clothesAddRef.value?.showModel(librarySeedFromTypeColorChoose(data))
+  // 等型色弹窗 Teleport leave 结束再开 ClothesAdd，避免 Safari：null.parentNode
+  await nextTick()
+  await new Promise<void>((resolve) => setTimeout(resolve, 280))
+  const editor = await waitForMountedRef({
+    getRef: () => clothesAddRef.value,
+    preload: loadClothesAdd,
+  })
+  await editor.showModel(librarySeedFromTypeColorChoose(data))
 }
 
 // 初始化时检查状态
@@ -1841,13 +1903,13 @@ const handleObjectClick = (data: { url: string; name: string; id: string | numbe
 
 // PhysicsDrop 显示/隐藏控制
 const PHYSICS_DROP_VISIBLE_KEY = 'physicsDropVisible'
-// 从 localStorage 读取初始状态，默认显示
+// 从 localStorage 读取初始状态；默认关闭，避免冷启动立刻拉 three/ammo
 const getInitialVisibility = (): boolean => {
   if (import.meta.client) {
     const savedState = localStorage.getItem(PHYSICS_DROP_VISIBLE_KEY)
-    return savedState !== null ? savedState === 'true' : true
+    return savedState === 'true'
   }
-  return true
+  return false
 }
 const isPhysicsDropVisible = ref(getInitialVisibility())
 
@@ -3136,15 +3198,15 @@ const libraryChildThumbImgClass =
     </ClientOnly>
     <div v-if="library" class="bg-qhx-bg-card rounded-lg shadow-lg mt-3">
       <div class="flex items-center gap-2 px-4 py-3 border-b border-gray-100 dark:border-gray-700/60">
-        <h3 class="text-base font-semibold text-gray-900 dark:text-gray-100">评论</h3>
-        <span class="text-xs text-gray-500 dark:text-gray-400">共 {{ commentTotal }} 条</span>
+        <h3 class="text-base font-semibold text-gray-900 dark:text-gray-100">{{ t('comment.title') }}</h3>
+        <span class="text-xs text-gray-500 dark:text-gray-400">{{ t('comment.total_count', { n: commentTotal }) }}</span>
       </div>
       <div class="bg-white dark:bg-gray-900 min-h-[min(50vh,480px)]">
         <div class="px-4 pt-4 pb-2">
           <div class="flex items-center gap-3 mb-3">
             <UAvatar
               :src="libraryCommentMyAvatar"
-              :alt="user.user?.user_name || '未登录'"
+              :alt="user.user?.user_name || t('comment.anonymous')"
               size="sm"
               class="bg-gray-100 flex-shrink-0"
             />
@@ -3154,12 +3216,12 @@ const libraryChildThumbImgClass =
               @click="openCommentComposer"
             >
               <span class="i-heroicons-pencil w-4 h-4 mr-2"></span>
-              说点什么…
+              {{ t('comment.say_something') }}
             </button>
           </div>
         </div>
         <CommentSection
-          v-if="library.library_id"
+          v-if="mountCommentSection && library.library_id"
           :key="commentSectionKey"
           :type="'library'"
           :id="library.library_id"

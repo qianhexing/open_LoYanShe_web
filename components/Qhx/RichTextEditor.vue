@@ -1305,7 +1305,9 @@ defineExpose({
 }
 
 .editor-content {
-  @apply prose dark:prose-invert max-w-none focus:outline-none;
+  @apply max-w-none focus:outline-none;
+  /* 不用 @apply prose：未装 @tailwindcss/typography 时会让整站 build 失败 */
+  line-height: 1.7;
 }
 :deep(.editor-content img) {
   margin-top: 0;

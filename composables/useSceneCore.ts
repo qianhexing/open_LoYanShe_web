@@ -318,13 +318,6 @@ export const useSceneCore = () => {
             await core.whenRendererReady()
             await core.mount(container)
 
-            // 必须在加载点云 / 创建 Spark 之前预热 ez-tree
-            try {
-                await core.warmEzTreeAssets()
-            } catch (e) {
-                console.warn('[scene] ez-tree 预热跳过:', e)
-            }
-            
             if (options.enableAR) {
                 await core.initAR()
                 isWebcamAR.value = core.isWebcamAR

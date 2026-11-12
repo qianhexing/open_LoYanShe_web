@@ -122,10 +122,12 @@ const deleteReplyModalTrigger = ref<{ x: number; y: number } | undefined>(undefi
 const pendingDeleteReply = ref<Comment | null>(null)
 const deleteReplyLoading = ref(false)
 
+const { t } = useI18n()
+
 const onDeleteReply = (sub: Comment, e?: MouseEvent) => {
   if (!user.token) {
     useToast().add({
-      title: '请登录',
+      title: t('common.please_login'),
       icon: 'i-heroicons-exclamation-circle',
       color: 'red',
     })
@@ -150,7 +152,7 @@ const confirmDeleteReply = async () => {
     const ok = await deleteComment({ comment_id: Number(sub.comment_id) })
     if (ok) {
       useToast().add({
-        title: '已删除',
+        title: t('comment.deleted'),
         icon: 'i-heroicons-check-circle',
         color: 'green',
       })
@@ -161,7 +163,7 @@ const confirmDeleteReply = async () => {
     }
   } catch {
     useToast().add({
-      title: '删除失败',
+      title: t('comment.delete_failed'),
       icon: 'i-heroicons-exclamation-circle',
       color: 'red',
     })
@@ -206,7 +208,7 @@ watch(
       </div>
     </div>
     <div v-else class="text-center text-gray-500 py-8">
-      暂无数据
+      {{ t('common.none') }}
     </div>
     <QhxLoading :loading="isLoading" :page="page" :total="total" :page-size="pageSize" @load-more="loadMore"></QhxLoading>
 
@@ -216,11 +218,11 @@ watch(
       @close="closeDeleteReplyModal"
     >
       <div class="p-6 w-[400px] max-md:w-[90vw] bg-white dark:bg-gray-800 rounded-xl">
-        <h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">操作确认</h3>
-        <p class="text-gray-600 dark:text-gray-300 mb-6">确定删除这条回复吗？此操作不可恢复。</p>
+        <h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">{{ t('comment.confirm_title') }}</h3>
+        <p class="text-gray-600 dark:text-gray-300 mb-6">{{ t('comment.confirm_delete_reply') }}</p>
         <div class="flex gap-3 justify-end">
           <UButton color="gray" variant="ghost" class="px-4" @click="closeDeleteReplyModal">
-            取消
+            {{ t('common.cancel') }}
           </UButton>
           <UButton
             color="red"
@@ -228,7 +230,7 @@ watch(
             :loading="deleteReplyLoading"
             @click="confirmDeleteReply"
           >
-            确认删除
+            {{ t('comment.confirm_delete_btn') }}
           </UButton>
         </div>
       </div>

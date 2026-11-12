@@ -43,13 +43,15 @@ const formatDate = (date: Date | string | undefined) => {
   return d.toLocaleDateString('zh-CN')
 }
 
+const { t } = useI18n()
+
 // 标签页
 const currentNav = ref(0)
-const navList = [
+const navList = computed(() => [
   { name: '合集列表' },
   { name: '考据研究' },
-  { name: '评论区' }
-]
+  { name: t('comment.section') },
+])
 
 const navChange = (index: number) => {
   currentNav.value = index

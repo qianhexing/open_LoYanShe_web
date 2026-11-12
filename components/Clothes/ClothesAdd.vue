@@ -232,6 +232,17 @@ const wardrobeStore = useWardrobeStore()
 const configStore = useConfigStore()
 const userStore = useUserStore()
 const toast = useToast()
+
+/** iOS Tab 内嵌：底部留白（query.tabbar → configStore），避免弹框底部按钮被原生栏挡住 */
+const tabBarInsetPx = computed(() => {
+  const n = Number(configStore.tabBarHeight || 0)
+  return Number.isFinite(n) && n > 0 ? n : 0
+})
+const modalPanelStyle = computed(() =>
+  tabBarInsetPx.value > 0
+    ? { maxHeight: `calc(90dvh - ${tabBarInsetPx.value}px)` }
+    : undefined
+)
 console.log(wardrobeStore, '衣柜配置')
 const wardrobe_status_defaults = computed(() => wardrobeStatusOptions(t))
 const color_text_defaults: optionsInterface[] = [
@@ -1886,8 +1897,17 @@ defineExpose({
 
 <template>
   <!-- Popup -->
-  <QhxModal v-model="show" :trigger-position="clickPosition" :close-on-backdrop="false" @close="handleClose">
-    <div class="w-[95vw] max-w-3xl max-h-[90vh] bg-white dark:bg-gray-800 rounded-2xl shadow-2xl overflow-hidden flex flex-col backdrop-blur-xl border border-gray-200/50 dark:border-gray-700/50">
+  <QhxModal
+    v-model="show"
+    :trigger-position="clickPosition"
+    :close-on-backdrop="false"
+    :bottom-inset="tabBarInsetPx"
+    @close="handleClose"
+  >
+    <div
+      class="w-[95vw] max-w-3xl max-h-[90vh] bg-white dark:bg-gray-800 rounded-2xl shadow-2xl overflow-hidden flex flex-col backdrop-blur-xl border border-gray-200/50 dark:border-gray-700/50"
+      :style="modalPanelStyle"
+    >
       <!-- 头部 -->
       <div class="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-700 bg-gradient-to-r from-pink-50 to-purple-50 dark:from-gray-800 dark:to-gray-800 flex-shrink-0">
         <h2 class="text-xl font-bold ">
@@ -2731,8 +2751,16 @@ defineExpose({
         </div>
       </div>
 
-      <!-- 底部操作栏 -->
-      <div class="flex justify-end gap-3 px-6 py-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-900/50 flex-shrink-0">
+      <!-- 底部操作栏：无 tabbar 时仍保留安全区，避免 Home 条遮挡 -->
+      <div
+        class="flex justify-end gap-3 px-6 pt-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-900/50 flex-shrink-0"
+        :style="{
+          paddingBottom:
+            tabBarInsetPx > 0
+              ? '1rem'
+              : 'max(1rem, env(safe-area-inset-bottom, 0px))',
+        }"
+      >
         <UButton 
           color="gray" 
           variant="ghost"
@@ -2770,6 +2798,7 @@ defineExpose({
       v-model="showColorListModal"
       :trigger-position="colorListClickPosition"
       :close-on-backdrop="false"
+      :bottom-inset="tabBarInsetPx"
       @close="handleColorListClose"
     >
       <div class="w-[90vw] max-w-md bg-white dark:bg-gray-800 rounded-2xl shadow-2xl overflow-hidden flex flex-col border border-gray-200/50 dark:border-gray-700/50">
@@ -2810,7 +2839,13 @@ defineExpose({
     </QhxModal>
 
     <!-- 场景选择对话框 -->
-    <QhxModal v-model="showSceneChooseModal" :trigger-position="sceneChooseClickPosition" :close-on-backdrop="false" @close="handleSceneChooseClose">
+    <QhxModal
+      v-model="showSceneChooseModal"
+      :trigger-position="sceneChooseClickPosition"
+      :close-on-backdrop="false"
+      :bottom-inset="tabBarInsetPx"
+      @close="handleSceneChooseClose"
+    >
       <div class="w-[90vw] max-w-md bg-white dark:bg-gray-800 rounded-2xl shadow-2xl overflow-hidden flex flex-col backdrop-blur-xl border border-gray-200/50 dark:border-gray-700/50">
         <!-- 头部 -->
         <div class="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-700 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-gray-800 dark:to-gray-800 flex-shrink-0">
@@ -2866,7 +2901,13 @@ defineExpose({
       </div>
     </QhxModal>
     <!-- 二级确认：代入会覆盖信息 -->
-    <QhxModal v-model="showConfirmOverwriteModal" :trigger-position="clickPosition" :close-on-backdrop="false" @close="showConfirmOverwriteModal = false">
+    <QhxModal
+      v-model="showConfirmOverwriteModal"
+      :trigger-position="clickPosition"
+      :close-on-backdrop="false"
+      :bottom-inset="tabBarInsetPx"
+      @close="showConfirmOverwriteModal = false"
+    >
       <div class="w-[90vw] max-w-md bg-white dark:bg-gray-800 rounded-2xl shadow-2xl overflow-hidden border border-gray-200/50 dark:border-gray-700/50">
         <div class="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
           <h3 class="text-lg font-semibold text-gray-900 dark:text-gray-100">{{ t('clothes.add.confirm_title') }}</h3>

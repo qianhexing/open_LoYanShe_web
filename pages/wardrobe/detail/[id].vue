@@ -1,8 +1,6 @@
 <script setup lang="ts">
-definePageMeta({
-  ssr: false,
-})
-
+import { defineAsyncComponent, nextTick } from 'vue'
+import { waitForMountedRef } from '@/composables/useWaitMountedRef'
 import type { Wardrobe, WardrobeClothes, UserDeco } from '@/types/api';
 import { getUserDecoBadges, getUserSpace } from '@/api/user'
 import type { UserDecoBadgeItem } from '@/api/user'
@@ -35,7 +33,7 @@ import {
 } from '@/utils/communityLiveMedia'
 import { createReusableTemplate, useEventListener, useResizeObserver, useDebounceFn } from '@vueuse/core'
 import type { WardrobeToolbarToolId } from '~/utils/wardrobeToolbarConfig'
-import type QhxStepGuide from '@/components/Qhx/StepGuide.vue'
+import type QhxStepGuideType from '@/components/Qhx/StepGuide.vue'
 import type QrcodeListType from '@/components/qrcode/QrcodeList.vue'
 import type ClothesAddType from '@/components/Clothes/ClothesAdd.vue'
 import type ClothesBatchAddEntryType from '@/components/Clothes/ClothesBatchAddEntry.vue'
@@ -89,26 +87,40 @@ import {
   wardrobeStatusOptions as buildDefaultWardrobeStatusOptions,
 } from '@/utils/wardrobeDisplayI18n'
 
+definePageMeta({
+  ssr: false,
+})
+
+/** 空闲时执行，避免挡住首屏（App WebView 友好） */
+function runWhenIdle(fn: () => void, timeout = 2000): number {
+  if (!import.meta.client) return 0
+  if (typeof window.requestIdleCallback === 'function') {
+    return window.requestIdleCallback(fn, { timeout }) as unknown as number
+  }
+  return window.setTimeout(fn, Math.min(timeout, 900))
+}
+
 const Draggable = defineAsyncComponent(() => import('vuedraggable'))
+const QhxStepGuide = defineAsyncComponent(() => import('@/components/Qhx/StepGuide.vue'))
+const CommentDanmakuComment = defineAsyncComponent(
+  () => import('@/components/comment/DanmakuComment.vue'),
+)
 const WardrobeClothesLongShare = defineAsyncComponent(
   () => import('@/components/Wardrobe/WardrobeClothesLongShare.vue'),
 )
 const WardrobeClothesFavoriteShare = defineAsyncComponent(
   () => import('@/components/Wardrobe/WardrobeClothesFavoriteShare.vue'),
 )
-const ClothesAdd = defineAsyncComponent(() => import('@/components/Clothes/ClothesAdd.vue'))
-const ClothesBatchAddEntry = defineAsyncComponent(
-  () => import('@/components/Clothes/ClothesBatchAddEntry.vue'),
-)
-const ClothesExtractAdd = defineAsyncComponent(
-  () => import('@/components/Clothes/ClothesExtractAdd.vue'),
-)
-const WardrobeAddEdit = defineAsyncComponent(
-  () => import('@/components/Wardrobe/WardrobeAddEdit.vue'),
-)
-const MatchingAddEdit = defineAsyncComponent(
-  () => import('@/components/matching/MatchingAddEdit.vue'),
-)
+const loadClothesAdd = () => import('@/components/Clothes/ClothesAdd.vue')
+const loadClothesBatchAddEntry = () => import('@/components/Clothes/ClothesBatchAddEntry.vue')
+const loadClothesExtractAdd = () => import('@/components/Clothes/ClothesExtractAdd.vue')
+const loadWardrobeAddEdit = () => import('@/components/Wardrobe/WardrobeAddEdit.vue')
+const loadMatchingAddEdit = () => import('@/components/matching/MatchingAddEdit.vue')
+const ClothesAdd = defineAsyncComponent(loadClothesAdd)
+const ClothesBatchAddEntry = defineAsyncComponent(loadClothesBatchAddEntry)
+const ClothesExtractAdd = defineAsyncComponent(loadClothesExtractAdd)
+const WardrobeAddEdit = defineAsyncComponent(loadWardrobeAddEdit)
+const MatchingAddEdit = defineAsyncComponent(loadMatchingAddEdit)
 const WardrobeSimilarRecommend = defineAsyncComponent(
   () => import('@/components/Wardrobe/WardrobeSimilarRecommend.vue'),
 )
@@ -121,6 +133,13 @@ const WardrobeChoose = defineAsyncComponent(
 )
 const YearlySummaryLoginModal = defineAsyncComponent(
   () => import('@/components/yearlySummary/LoginModal.vue'),
+)
+/** 徽章物理 / 装扮配置：异步拆出，避免 ammo/three 进衣柜首包 */
+const AchievementDecoConfigModal = defineAsyncComponent(
+  () => import('@/components/achievement/DecoConfigModal.vue'),
+)
+const AchievementBadgePhysics = defineAsyncComponent(
+  () => import('@/components/achievement/BadgePhysics.client.vue'),
 )
 
 const { t } = useI18n()
@@ -218,15 +237,15 @@ const isSorting = ref(false) // loading 状态
 const show = ref(true)
 const sortMode = ref(false)
 const showSortGuide = ref(false)
-const sortGuideRef = ref<InstanceType<typeof QhxStepGuide> | null>(null)
+const sortGuideRef = ref<InstanceType<typeof QhxStepGuideType> | null>(null)
 const showEditGuide = ref(false)
-const editGuideRef = ref<InstanceType<typeof QhxStepGuide> | null>(null)
+const editGuideRef = ref<InstanceType<typeof QhxStepGuideType> | null>(null)
 const showMatchingGuide = ref(false)
-const matchingGuideRef = ref<InstanceType<typeof QhxStepGuide> | null>(null)
+const matchingGuideRef = ref<InstanceType<typeof QhxStepGuideType> | null>(null)
 const showSelectGuide = ref(false)
-const selectGuideRef = ref<InstanceType<typeof QhxStepGuide> | null>(null)
+const selectGuideRef = ref<InstanceType<typeof QhxStepGuideType> | null>(null)
 const showOverviewGuide = ref(false)
-const overviewGuideRef = ref<InstanceType<typeof QhxStepGuide> | null>(null)
+const overviewGuideRef = ref<InstanceType<typeof QhxStepGuideType> | null>(null)
 
 function localizeGuideSteps(steps: typeof WARDROBE_OVERVIEW_GUIDE_STEPS) {
   return steps.map((step) => ({
@@ -1695,20 +1714,25 @@ const mergeSizeOptionsFromRows = (rows: WardrobeClothes[]) => {
 const hasActiveFilter = computed(() => {
   return filterCount.value > 0
 })
-const showAddWardrobe = (e?: MouseEvent) => {
-  if (addEditWardrobeRef.value) {
-    addEditWardrobeRef.value.showModel(null, e)
-  }
+const showAddWardrobe = async (e?: MouseEvent) => {
+  await ensureEditorsUi()
+  const editor = await waitForMountedRef({
+    mounted: editorsUiReady,
+    getRef: () => addEditWardrobeRef.value,
+  })
+  editor.showModel(null, e)
 }
-const openWardrobeSearch = () => {
-  if (wardrobeSearchRef.value) {
-    wardrobeSearchRef.value.showModel()
-  }
+const openWardrobeSearch = async () => {
+  await ensureSearchUi()
+  wardrobeSearchRef.value?.showModel()
 }
-const showEditWardrobe = (item: Wardrobe, e?: MouseEvent) => {
-  if (addEditWardrobeRef.value) {
-    addEditWardrobeRef.value.showModel(item, e)
-  }
+const showEditWardrobe = async (item: Wardrobe, e?: MouseEvent) => {
+  await ensureEditorsUi()
+  const editor = await waitForMountedRef({
+    mounted: editorsUiReady,
+    getRef: () => addEditWardrobeRef.value,
+  })
+  editor.showModel(item, e)
 }
 const fetchWardrobeList = async () => {
   const response = await getWardrobeList({
@@ -1790,8 +1814,7 @@ const onWardrobeListItemClick = (item: Wardrobe) => {
   changeWardrobe(item)
 }
 
-const changeWardrobe = (item: Wardrobe) => {
-  console.log(item, 'item')
+const changeWardrobe = (item: Wardrobe): Promise<void> | undefined => {
   if (currentWardrobe.value?.wardrobe_id === item.wardrobe_id) return
   if (!isPageOwner.value && item.password && !qrcode.value) {
     record.value = item
@@ -1810,7 +1833,7 @@ const changeWardrobe = (item: Wardrobe) => {
   selectMode.value = false
   editMode.value = false
   selectedClothesIds.value = new Set()
-  void fetchClothesList()
+  const clothesPromise = fetchClothesList()
   router.replace({
     query: {
       ...route.query,
@@ -1818,6 +1841,7 @@ const changeWardrobe = (item: Wardrobe) => {
     },
     force: true
   })
+  return clothesPromise
 }
 
 /** 解析加入时间戳（毫秒），缺失或非法为 0 */
@@ -1995,13 +2019,18 @@ const copyUrl = async () => {
 
 const wardrobeSimilarRecommendRef = ref<{ open: () => void } | null>(null)
 const qrcodeListRef = ref<InstanceType<typeof QrcodeListType> | null>(null)
+const openSimilarRecommend = async () => {
+  await ensureSimilarUi()
+  wardrobeSimilarRecommendRef.value?.open()
+}
 
-const showQRCodeList = () => {
+const showQRCodeList = async () => {
   const wid = currentWardrobe.value?.wardrobe_id
   if (wid == null) {
     toast.add({ title: t('wardrobe.toast.select_wardrobe_first'), color: 'amber', icon: 'i-heroicons-information-circle' })
     return
   }
+  await ensureQrcodeUi()
   qrcodeListRef.value?.open({
     pk_id: wid,
     pk_type: 0,
@@ -2011,21 +2040,39 @@ const showQRCodeList = () => {
     previewClothes: list.value.slice(0, 3),
   })
 }
-const showAddClothes = () => {
-  if (addEditClothesRef.value) {
-    addEditClothesRef.value.showModel(currentWardrobe.value)
-  }
+const showAddClothes = async () => {
+  await ensureEditorsUi()
+  const editor = await waitForMountedRef({
+    mounted: editorsUiReady,
+    getRef: () => addEditClothesRef.value,
+  })
+  editor.showModel(currentWardrobe.value)
 }
-const showBatchAddClothes = (event?: MouseEvent) => {
-  clothesBatchAddEntryRef.value?.showModel(currentWardrobe.value, event)
+const showBatchAddClothes = async (event?: MouseEvent) => {
+  await ensureEditorsUi()
+  const batch = await waitForMountedRef({
+    mounted: editorsUiReady,
+    getRef: () => clothesBatchAddEntryRef.value,
+  })
+  batch.showModel(currentWardrobe.value, event)
 }
-const showExtractAddClothes = (event?: MouseEvent) => {
-  clothesExtractAddRef.value?.showModel(currentWardrobe.value, event)
+const showExtractAddClothes = async (event?: MouseEvent) => {
+  await ensureEditorsUi()
+  const extract = await waitForMountedRef({
+    mounted: editorsUiReady,
+    getRef: () => clothesExtractAddRef.value,
+  })
+  extract.showModel(currentWardrobe.value, event)
 }
 const extractFillPending = shallowRef(false)
-const onExtractAddConfirm = (item: ClothesExtractAddItem) => {
+const onExtractAddConfirm = async (item: ClothesExtractAddItem) => {
   extractFillPending.value = true
-  addEditClothesRef.value?.showModel(item)
+  await ensureEditorsUi()
+  const editor = await waitForMountedRef({
+    mounted: editorsUiReady,
+    getRef: () => addEditClothesRef.value,
+  })
+  editor.showModel(item)
 }
 const getWardrobeIdByPoint = (clientX: number, clientY: number): number | null => {
   if (typeof document === 'undefined') return null
@@ -2669,6 +2716,8 @@ const wardrobeDisplayBadges = computed<UserDeco[]>(() => {
 const hasWardrobeDisplayBadges = computed(() => wardrobeDisplayBadges.value.length > 0)
 /** 本页曾展示过徽章后保留物理场景（WebGL/Ammo），切换衣柜只 sync 徽章，避免反复创建销毁导致内存暴涨 */
 const wardrobeBadgePhysicsKeepAlive = ref(false)
+/** 延后挂载 Three/Ammo，避免抢首屏服饰列表 */
+const badgePhysicsReady = ref(false)
 watch(
   hasWardrobeDisplayBadges,
   (has) => {
@@ -2676,6 +2725,49 @@ watch(
   },
   { immediate: true }
 )
+
+/** 非首屏 UI：编辑弹窗 / 搜索 / 二维码 / 相似推荐 / 引导 / 弹幕 */
+const editorsUiReady = ref(false)
+const searchUiReady = ref(false)
+const qrcodeUiReady = ref(false)
+const similarUiReady = ref(false)
+const guidesUiReady = ref(false)
+const danmakuReady = ref(false)
+
+async function ensureEditorsUi() {
+  if (!editorsUiReady.value) {
+    editorsUiReady.value = true
+  }
+  // 并行预拉编辑相关异步包，减少首点空白
+  await Promise.all([
+    loadClothesAdd(),
+    loadClothesBatchAddEntry(),
+    loadClothesExtractAdd(),
+    loadWardrobeAddEdit(),
+    loadMatchingAddEdit(),
+  ])
+  await nextTick()
+}
+async function ensureSearchUi() {
+  if (!searchUiReady.value) {
+    searchUiReady.value = true
+    await nextTick()
+  }
+}
+async function ensureQrcodeUi() {
+  await waitForMountedRef({
+    mounted: qrcodeUiReady,
+    getRef: () => qrcodeListRef.value,
+    preload: () => import('@/components/qrcode/QrcodeList.vue'),
+  })
+}
+async function ensureSimilarUi() {
+  if (!similarUiReady.value) {
+    similarUiReady.value = true
+    await nextTick()
+  }
+}
+
 const wardrobeDecoModalOpen = ref(false)
 const wardrobeDecoModalPosition = ref({ x: 0, y: 0 })
 const wardrobeDecoInitialSelectedIds = computed(() =>
@@ -3183,13 +3275,10 @@ const jumpToPlan = () => {
   }
 }
 async function initWardrobePage() {
+  // 先读本地用户，不阻塞；token 有但无 user 时后台补拉
   await user.initialize()
   if (user.token && !user.user) {
-    try {
-      await user.fetchUserInfo()
-    } catch {
-      // 无法拉取用户信息时按访客流程处理
-    }
+    void user.fetchUserInfo().catch(() => {})
   }
   if (route.query.password) {
     password.value = route.query.password as string
@@ -3198,15 +3287,8 @@ async function initWardrobePage() {
     qrcode.value = route.query.qrcode as string
   }
 
-  const initTasks: Promise<unknown>[] = [
-    fetchWardrobeList(),
-    loadWardrobePageOwner(),
-    fetchOwnerBadges(),
-  ]
-  if (isPageOwner.value) {
-    initTasks.push(wardrobeStore.getWardrobeConfig())
-  }
-  await Promise.all(initTasks)
+  // Critical path：只拉衣柜列表 → 选中 → 服饰列表
+  await fetchWardrobeList()
 
   if (isPageOwner.value) {
     await ensureDefaultWardrobeForOwner()
@@ -3219,30 +3301,49 @@ async function initWardrobePage() {
       targetWardrobe = wardrobeList.value.find((item) => item.wardrobe_id === queryWardrobeId) ?? null
     }
 
+    let clothesPromise: Promise<void> | undefined
     if (isPageOwner.value) {
-      changeWardrobe(targetWardrobe || wardrobeList.value[0])
+      clothesPromise = changeWardrobe(targetWardrobe || wardrobeList.value[0])
     } else if (qrcode.value) {
-      // 二维码访问：列表接口已按 qrcode 过滤，直接选中指定或首个衣柜
-      changeWardrobe(targetWardrobe || wardrobeList.value[0])
+      clothesPromise = changeWardrobe(targetWardrobe || wardrobeList.value[0])
     } else {
       const accessibleIndex = wardrobeList.value.findIndex(
         (item) => item.is_private === 0 || item.password,
       )
       if (accessibleIndex !== -1) {
         if (targetWardrobe && targetWardrobe.is_private === 0) {
-          changeWardrobe(targetWardrobe)
+          clothesPromise = changeWardrobe(targetWardrobe)
         } else {
-          changeWardrobe(wardrobeList.value[accessibleIndex])
+          clothesPromise = changeWardrobe(wardrobeList.value[accessibleIndex])
         }
       }
     }
+    if (clothesPromise) await clothesPromise
   }
 
   wardrobePageInitialized.value = true
-  if (isPageOwner.value) {
-    syncWardrobeTutorialPopupFromUser()
-    tryShowTutorialFirstAsk()
-  }
+
+  // Non-critical：徽章 / 配置 / 主人信息 / 次要 UI 延后
+  runWhenIdle(() => {
+    void loadWardrobePageOwner()
+    if (hasWardrobeDisplayBadges.value || (info.value?.display_badge ?? currentWardrobe.value?.display_badge)) {
+      void fetchOwnerBadges()
+    } else if (isPageOwner.value) {
+      // 主人稍后仍拉徽章库，供装扮弹窗；不挡首屏
+      void fetchOwnerBadges()
+    }
+    if (isPageOwner.value) {
+      void wardrobeStore.getWardrobeConfig()
+      syncWardrobeTutorialPopupFromUser()
+      tryShowTutorialFirstAsk()
+    }
+  }, 1200)
+
+  runWhenIdle(() => {
+    badgePhysicsReady.value = true
+    guidesUiReady.value = true
+    danmakuReady.value = true
+  }, 2800)
 }
 
 onMounted(async () => {
@@ -3250,12 +3351,20 @@ onMounted(async () => {
     window.addEventListener('message', handleUniRefreshMessage)
   }
   matchingDraftStore.loadFromStorage()
+  // uni-webview-js 首屏并行加载，保证 Html5Plus 跳转可用；不拖到 idle
   await Promise.all([
     import('@dcloudio/uni-webview-js')
-      .then((mod) => { uni = mod })
-      .catch((err) => {
-        console.error('Failed to load uni-webview-js:', err)
-      }),
+      .then((mod) => {
+        uni = mod
+        if (
+          import.meta.client &&
+          typeof navigator !== 'undefined' &&
+          navigator.userAgent.includes('Html5Plus')
+        ) {
+          config.setUniWebviewJs(mod as import('@/stores/config').UniWebviewJsModule)
+        }
+      })
+      .catch(() => {}),
     initWardrobePage(),
   ])
 })
@@ -4365,10 +4474,11 @@ const toggleEditMode = () => {
 const editingClothesId = ref<number | null>(null)
 const openEditClothes = async (item: WardrobeClothes, event?: MouseEvent) => {
   const clothesId = item.clothes_id
-  if (!addEditClothesRef.value || clothesId == null) return
+  if (clothesId == null) return
   if (editingClothesId.value === clothesId) return
   editingClothesId.value = clothesId
   try {
+    await ensureEditorsUi()
     const detail = await getClothesDetail({
       clothes_id: clothesId,
       ...(password.value ? { password: password.value } : {}),
@@ -4378,7 +4488,7 @@ const openEditClothes = async (item: WardrobeClothes, event?: MouseEvent) => {
       detail.wardrobe?.wardrobe_name
       ?? info.value?.wardrobe_name
       ?? currentWardrobe.value?.wardrobe_name
-    addEditClothesRef.value.showModel(
+    addEditClothesRef.value?.showModel(
       {
         ...detail,
         wardrobe_name: wardrobeName,
@@ -4583,9 +4693,14 @@ const addToMatchingDraft = (item: WardrobeClothes) => {
 }
 
 // 打开搭配新增弹窗
-const openMatchingAddEdit = () => {
+const openMatchingAddEdit = async () => {
   showMatchingDrawer.value = false
-  matchingAddEditRef.value?.showModel(matchingDraftStore.list)
+  await ensureEditorsUi()
+  const editor = await waitForMountedRef({
+    mounted: editorsUiReady,
+    getRef: () => matchingAddEditRef.value,
+  })
+  editor.showModel(matchingDraftStore.list)
 }
 
 // 搭配模式：点击加号添加、点击删除图标从缓存移除；添加时播放飞入悬浮按钮动画
@@ -4806,12 +4921,15 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
     <div v-if="isSorting || isWardrobeSorting" class="absolute inset-0 bg-white/50 flex z-10 items-center justify-center">
       <span class="text-gray-600">{{ t('wardrobe.detail.saving_sort') }}</span>
     </div>
-    <div v-if="isLoading && page === 1" class="absolute inset-0 bg-white/50 flex z-10 items-center justify-center">
+    <div
+      v-if="(!wardrobePageInitialized || (isLoading && page === 1))"
+      class="absolute inset-0 bg-white/50 flex z-10 items-center justify-center"
+    >
       <span class="text-gray-600">{{ t('wardrobe.detail.loading') }}</span>
     </div>
-    <!-- 弹幕组件：仅当开放弹幕时显示（时间轴空白模式下隐藏） -->
+    <!-- 弹幕：idle 后再挂，避免抢首屏 -->
     <div
-      v-if="isDanmakuEnabled && currentWardrobe?.wardrobe_id && !timelineMode"
+      v-if="danmakuReady && isDanmakuEnabled && currentWardrobe?.wardrobe_id && !timelineMode"
       class="fixed inset-0 w-full h-full pointer-events-none z-40"
     >
       <CommentDanmakuComment
@@ -4825,19 +4943,40 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
         class="pointer-events-none"
       />
     </div>
-    <ClothesExtractAdd ref="clothesExtractAddRef" @confirm="onExtractAddConfirm" @success="reloadWardrobe" />
-    <ClothesAdd ref="addEditClothesRef" @success="onClothesAddSuccess" />
-    <ClothesBatchAddEntry ref="clothesBatchAddEntryRef" @success="reloadWardrobe" />
-    <WardrobeAddEdit ref="addEditWardrobeRef" @success="onWardrobeEditSuccess" />
+    <ClothesExtractAdd
+      v-if="editorsUiReady"
+      ref="clothesExtractAddRef"
+      @confirm="onExtractAddConfirm"
+      @success="reloadWardrobe"
+    />
+    <ClothesAdd
+      v-if="editorsUiReady"
+      ref="addEditClothesRef"
+      @success="onClothesAddSuccess"
+    />
+    <ClothesBatchAddEntry
+      v-if="editorsUiReady"
+      ref="clothesBatchAddEntryRef"
+      @success="reloadWardrobe"
+    />
+    <WardrobeAddEdit
+      v-if="editorsUiReady"
+      ref="addEditWardrobeRef"
+      @success="onWardrobeEditSuccess"
+    />
     <AchievementDecoConfigModal
-      v-if="isWardrobeOwner && currentWardrobe?.wardrobe_id"
+      v-if="wardrobeDecoModalOpen && isWardrobeOwner && currentWardrobe?.wardrobe_id"
       v-model="wardrobeDecoModalOpen"
       :trigger-position="wardrobeDecoModalPosition"
       :initial-selected-ids="wardrobeDecoInitialSelectedIds"
       :wardrobe-id="currentWardrobe.wardrobe_id"
       @saved="onWardrobeDecoSaved"
     />
-    <MatchingAddEdit ref="matchingAddEditRef" @success="matchingDraftStore.clear" />
+    <MatchingAddEdit
+      v-if="editorsUiReady"
+      ref="matchingAddEditRef"
+      @success="matchingDraftStore.clear"
+    />
     <QhxModal v-model="showShareModal">
       <div
         class="flex max-h-[90vh] w-[min(94vw,440px)] flex-col overflow-hidden rounded-2xl bg-[#ebe3e8] shadow-2xl"
@@ -4928,10 +5067,11 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
       </div>
     </QhxModal>
     <WardrobeSimilarRecommend
+      v-if="similarUiReady"
       ref="wardrobeSimilarRecommendRef"
       :wardrobe-id="currentWardrobe?.wardrobe_id"
     />
-    <QrcodeList ref="qrcodeListRef" />
+    <QrcodeList v-if="qrcodeUiReady" ref="qrcodeListRef" />
     <QhxModal v-model="showSwitchCustomSortModal">
       <div class="p-6 w-[min(94vw,420px)] bg-white rounded-[10px] shadow-lg">
         <h3 class="text-base font-bold mb-4 text-gray-800">{{ t('wardrobe.detail.cannot_manual_sort') }}</h3>
@@ -6020,7 +6160,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
                 <QhxJellyButton>
                   <div class="h-[46px] text-center px-0.5 cursor-pointer">
                     <div
-                      @click="wardrobeSimilarRecommendRef?.open()"
+                      @click="openSimilarRecommend"
                       class="wardrobe-neu-tool-orb mx-auto al m-[3px] rounded-[50%] h-[24px] w-[24px] flex items-center justify-center"
                       :class="[!hasCustomBtnBg && 'bg-qhx-primary', !hasCustomBtnFont && 'text-white']"
                       :style="customBtnStyle"
@@ -6237,7 +6377,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
             class="wardrobe-collapse-toggle"
             :title="t('wardrobe.detail.recommend')"
             :aria-label="t('wardrobe.detail.recommend')"
-            @click="wardrobeSimilarRecommendRef?.open()"
+            @click="openSimilarRecommend"
           >
             <UIcon name="i-heroicons-sparkles" class="text-[16px]" />
           </button>
@@ -7900,8 +8040,9 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
       </QhxBottomDrawer>
     </Transition>
 
-    <!-- 全局搜索组件 -->
+    <!-- 全局搜索：打开时再挂载 -->
     <WardrobeSearch
+      v-if="searchUiReady"
       ref="wardrobeSearchRef"
       :wardrobe-list="wardrobeList"
       :can-choose="false"
@@ -8081,9 +8222,9 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
       </div>
     </Transition>
 
-    <!-- 全屏徽章装饰：曾有过徽章后 keep-alive 场景，仅清空/加载徽章；pointer-events-none 不拦截主页面点击 -->
+    <!-- 全屏徽章装饰：idle 后再挂 WebGL/Ammo -->
     <div
-      v-if="wardrobeBadgePhysicsKeepAlive"
+      v-if="badgePhysicsReady && wardrobeBadgePhysicsKeepAlive"
       class="pointer-events-none fixed inset-x-0 top-0 z-[110] overflow-hidden"
       :class="
         selectMode && !timelineMode
@@ -8101,7 +8242,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
     </div>
 
     <QhxStepGuide
-      v-if="isPageOwner"
+      v-if="guidesUiReady && isPageOwner"
       ref="overviewGuideRef"
       v-model="showOverviewGuide"
       :steps="wardrobeOverviewGuideSteps"
@@ -8112,7 +8253,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
       @skip="tutorialCacheVersion++"
     />
     <QhxStepGuide
-      v-if="isPageOwner"
+      v-if="guidesUiReady && isPageOwner"
       ref="sortGuideRef"
       v-model="showSortGuide"
       :steps="wardrobeSortGuideSteps"
@@ -8123,7 +8264,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
       @skip="tutorialCacheVersion++"
     />
     <QhxStepGuide
-      v-if="isPageOwner"
+      v-if="guidesUiReady && isPageOwner"
       ref="editGuideRef"
       v-model="showEditGuide"
       :steps="wardrobeEditGuideSteps"
@@ -8134,7 +8275,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
       @skip="tutorialCacheVersion++"
     />
     <QhxStepGuide
-      v-if="isPageOwner"
+      v-if="guidesUiReady && isPageOwner"
       ref="matchingGuideRef"
       v-model="showMatchingGuide"
       :steps="wardrobeMatchingGuideSteps"
@@ -8145,7 +8286,7 @@ const handleMatchingDraftToggle = (item: WardrobeClothes, e?: MouseEvent) => {
       @skip="tutorialCacheVersion++"
     />
     <QhxStepGuide
-      v-if="isPageOwner"
+      v-if="guidesUiReady && isPageOwner"
       ref="selectGuideRef"
       v-model="showSelectGuide"
       :steps="wardrobeSelectGuideSteps"

@@ -60,14 +60,17 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, computed } from 'vue'
+import { ref, watch, computed, defineAsyncComponent } from 'vue'
 import QhxModal from '@/components/Qhx/Modal.vue'
-import CommunityPostEditor from '@/components/community/PostEditor.vue'
 import type { Community } from '@/types/api'
 import {
   resolveCommunityPostForeignPk,
   type CommunityPostForeignContext
 } from '@/utils/communityPost'
+
+const CommunityPostEditor = defineAsyncComponent(
+  () => import('@/components/community/PostEditor.vue'),
+)
 
 const props = withDefaults(
   defineProps<{

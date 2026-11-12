@@ -25,7 +25,14 @@ import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js'
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js'
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js'
 import { GammaCorrectionShader } from 'three/examples/jsm/shaders/GammaCorrectionShader.js'
-import gsap from 'gsap'
+import { loadGsap } from '@/utils/gsapLazy'
+/** mount / startAnimationLoop 内 await ensure 后再用；勿在构造阶段调用 gsap API */
+let gsap!: typeof import('gsap').default
+async function ensureThreeCoreGsap() {
+	const { gsap: g } = await loadGsap()
+	gsap = g
+	return g
+}
 import {
 	computeSatelliteOrbitOffset,
 	computeSwingOffset,
@@ -67,11 +74,16 @@ import { ARButton } from 'three/examples/jsm/webxr/ARButton.js'
 import { DeviceOrientationControls } from './DeviceOrientationControls'
 import jsQR from 'jsqr'
 import { createGrid, updateGrid } from './Grid'
-import {
+import type {
 	SplatMesh,
 	SplatFileType,
 	SparkRenderer
 } from '@sparkjsdev/spark'
+import {
+	isSparkRendererObject,
+	isSplatMeshObject,
+	loadSpark
+} from '@/utils/sparkLazy'
 import { collectSceneResourceSnapshot } from '@/utils/sceneResourceMonitor'
 
 /** 当前 ThreeCore 主渲染后端 */
@@ -156,19 +168,20 @@ function inferSplatFileTypeFromUrl(url: string): SplatFileType | undefined {
 	const dot = lower.lastIndexOf('.')
 	if (dot < 0 || dot >= lower.length - 1) return undefined
 	const ext = lower.slice(dot + 1)
+	// 使用字面量，避免静态依赖 @sparkjsdev/spark 枚举
 	switch (ext) {
 		case 'ply':
-			return SplatFileType.PLY
+			return 'ply' as SplatFileType
 		case 'spz':
-			return SplatFileType.SPZ
+			return 'spz' as SplatFileType
 		case 'splat':
-			return SplatFileType.SPLAT
+			return 'splat' as SplatFileType
 		case 'ksplat':
-			return SplatFileType.KSPLAT
+			return 'ksplat' as SplatFileType
 		case 'rad':
-			return SplatFileType.RAD
+			return 'rad' as SplatFileType
 		case 'zip':
-			return SplatFileType.PCSOGSZIP
+			return 'pcsogszip' as SplatFileType
 		default:
 			return undefined
 	}
@@ -3386,7 +3399,7 @@ class ThreeCore {
 		raycaster.setFromCamera(clickCoords, this.camera)
 
 		const objectsToCheck = this.scene.children.filter(obj => {
-			if (obj instanceof SparkRenderer) return false
+			if (isSparkRendererObject(obj)) return false
 			if (obj.userData?.ignorePick) return false
 			return (
 				obj instanceof THREE.Mesh
@@ -4057,14 +4070,16 @@ class ThreeCore {
 			: rawMaxSplats
 		const maxSh = wantsMobileSplat ? Math.min(rawMaxSh, 1) : rawMaxSh
 		// Spark 2：预构建的 .rad 已带 LoD 树，无需再开 lod（见 spark 文档 LoD getting started）
-		const skipRuntimeLod =
-			fileType === SplatFileType.RAD
+		const skipRuntimeLod = fileType === ('rad' as SplatFileType)
 		// .rad + paged：按需拉取 .radc 分片，渐进细化（build-lod --rad-chunked）
 		const usePaged =
-			explicitPaged ?? (fileType === SplatFileType.RAD || inferredFileType === SplatFileType.RAD)
+			explicitPaged ??
+			(fileType === ('rad' as SplatFileType) ||
+				inferredFileType === ('rad' as SplatFileType))
 
 		try {
-			this.ensureSparkRenderer()
+			const { SplatMesh } = await loadSpark()
+			await this.ensureSparkRenderer()
 			// 使用 Spark SplatMesh 加载（Spark 2.0：移动端对非 RAD 启用 lod + lodScale，配合 SparkRenderer LoD）
 			const splatMesh = new SplatMesh({
 				url,
@@ -4194,7 +4209,7 @@ class ThreeCore {
 		let has = false
 		this.scene.traverse(obj => {
 			if (has) return
-			if (obj instanceof SplatMesh || obj.userData?.type === 'splat') {
+			if (isSplatMeshObject(obj) || obj.userData?.type === 'splat') {
 				has = true
 			}
 		})
@@ -4575,13 +4590,15 @@ class ThreeCore {
 
 	/**
 	 * 首次加载点云时创建 SparkRenderer；实例在 clearSceneContent 中保留，切换不销毁 Wasm。
+	 * Spark 运行时按需动态 import，避免进 WebView 共享入口。
 	 */
-	private ensureSparkRenderer(): SparkRenderer {
+	private async ensureSparkRenderer(): Promise<SparkRenderer> {
 		if (this.sparkRenderer) {
 			this.sparkRenderer.encodeLinear = false
 			this.syncSparkRendererForScene()
 			return this.sparkRenderer
 		}
+		const { SparkRenderer } = await loadSpark()
 		const sparkMobilePerf = isSparkMobilePerfMode(this.options)
 		this.sparkRenderer = new SparkRenderer({
 			renderer: this.renderer as THREE.WebGLRenderer,
@@ -5061,7 +5078,7 @@ class ThreeCore {
 	}
 	gpuPick(ev: MouseEvent | TouchEvent) {
 		function shouldPickObject(object: THREE.Object3D) {
-			if (object instanceof SparkRenderer) {
+			if (isSparkRendererObject(object)) {
 				console.log(object, '属于忽略对象')
 				return false
 			}
@@ -6240,6 +6257,7 @@ class ThreeCore {
 		return module.default
 	}
 	async startAnimationLoop() {
+		await ensureThreeCoreGsap()
 		await this.whenRendererReady()
 
 		const animate = async (time?: number, frame?: any) => {
@@ -6385,6 +6403,7 @@ class ThreeCore {
 
 	// 修改mount方法以支持CSS3D渲染器
 	async mount(container: HTMLElement | null) {
+		await ensureThreeCoreGsap()
 		await this.whenRendererReady()
 
 		// 先清理之前的容器
@@ -8695,16 +8714,10 @@ class ThreeCore {
 			}
 
 			if (obj.type === 'eztree') {
-				try {
-					const { createEzTreeFromJSON } = await import('@/utils/ezTree')
-					mesh = await createEzTreeFromJSON({
-						preset: obj.preset,
-						seed: obj.seed,
-						options: obj.options
-					})
-				} catch (e) {
-					console.warn('ez-tree 植物加载失败', e)
-				}
+				// 程序化植物库已移除；旧存档中的植物直接跳过
+				console.warn('跳过已下线的 eztree 对象', obj.preset || obj.id)
+				bumpProgress()
+				return
 			}
 
 			const chCfg = obj.options?.characterType as
@@ -9069,7 +9082,7 @@ class ThreeCore {
 	}
 	private isPersistentSceneNode(object: THREE.Object3D): boolean {
 		if (this.sparkRenderer && object === this.sparkRenderer) return true
-		if (object instanceof SparkRenderer) return true
+		if (isSparkRendererObject(object)) return true
 		if (this.editTargetMarker && object === this.editTargetMarker) return true
 		if (this.transformControls?._root) {
 			if (
@@ -9136,10 +9149,10 @@ class ThreeCore {
 	}
 
 	private objectTreeHasSplat(root: THREE.Object3D): boolean {
-		if (root instanceof SplatMesh) return true
+		if (isSplatMeshObject(root)) return true
 		let found = false
 		root.traverse(obj => {
-			if (!found && obj instanceof SplatMesh) found = true
+			if (!found && isSplatMeshObject(obj)) found = true
 		})
 		return found
 	}
@@ -9187,15 +9200,9 @@ class ThreeCore {
 		this.sceneHasPagedRadSplats = false
 	}
 
-	/**
-	 * 在加载点云之前预热 ez-tree：把贴图/材质 compile 进当前 WebGL 上下文。
-	 * 必须在首次 ensureSparkRenderer 之前调用。
-	 */
+	/** @deprecated 程序化植物已下线，保留空实现以免旧调用报错 */
 	public async warmEzTreeAssets(): Promise<void> {
-		await this.whenRendererReady()
-		const gl = this.getWebGLRenderer()
-		const { warmEzTree } = await import('@/utils/ezTree')
-		await warmEzTree(gl)
+		/* no-op */
 	}
 
 	/** 编辑器用：采集 WebGL / 场景资源占用快照 */
@@ -9205,7 +9212,7 @@ class ThreeCore {
 			glRenderer: this.getWebGLRenderer(),
 			sparkActive: Boolean(this.sparkRenderer),
 			isSplatObject: (obj) =>
-				obj instanceof SplatMesh || obj.userData?.type === 'splat'
+				isSplatMeshObject(obj) || obj.userData?.type === 'splat'
 		})
 	}
 
@@ -9213,7 +9220,7 @@ class ThreeCore {
 		const run = () => {
 			root.traverse(child => {
 				if (this.isPersistentSceneNode(child)) return
-				if (child instanceof SplatMesh) {
+				if (isSplatMeshObject(child)) {
 					this.disposeSplatMesh(child)
 				} else {
 					this.disposeMeshLikeNode(child)
@@ -9232,7 +9239,7 @@ class ThreeCore {
 			this.disposeReplaceVideoPlayer(child.uuid)
 			this.disposeSceneVideoPlayer(child.uuid)
 		}
-		if (child instanceof SplatMesh) {
+		if (isSplatMeshObject(child)) {
 			this.disposeSplatMesh(child)
 			return
 		}

@@ -1,34 +1,35 @@
 <template>
 	<div>
-		<!-- <h1 class="text-3xl font-bold mb-6 relative z-10">
-			<a href="https://a.app.qq.com/o/simple.jsp?pkgname=uni.lolita" target="_blank" rel="noopener noreferrer">
-				<UButton>下载Lo研社APP</UButton>
-			</a>
-			<br>
-			BOOM！！！服务器爆炸啦,新版本正在重建，敬请期待哦。
-		</h1> -->
 		<!-- 手机端：中间内容作为正常DOM显示 -->
 		<div v-if="isMobile" class="mobile-content-wrapper mt-[10px]">
-			<middleContent />
+			<MiddleContent />
 		</div>
 		<div :style="{ height: '100%', width: '100%', position: 'absolute', left: 0, top: 0, overflow: 'hidden', zIndex: isMobile ? 1 : 'auto' }" id="three-container"></div>
 	</div>
 </template>
 <script setup lang="ts">
-import qhxCore from '../utils/threeCore';
-import * as THREE from 'three';
-import type  { CSS3DObject } from 'three/examples/jsm/renderers/CSS3DRenderer.js';
-let threeCore: qhxCore
-const theme = useThemeStore()
-const UIGroup = ref<THREE.Group | null>(null)
-const Scene1Group = ref<THREE.Group | null>(null)
+import type { App, Component } from 'vue'
+import { createApp } from 'vue'
+import type { Group, Vector2, Vector3, PerspectiveCamera } from 'three'
+import type { CSS3DObject } from 'three/examples/jsm/renderers/CSS3DRenderer.js'
+import type QhxCore from '../utils/threeCore'
+
+const MiddleContent = defineAsyncComponent(
+	() => import('@/components/home/middleContent.vue'),
+)
+
+type ThreeNS = typeof import('three')
+type QhxCoreCtor = typeof import('../utils/threeCore').default
+
+let THREE: ThreeNS | null = null
+let QhxCoreClass: QhxCoreCtor | null = null
+let threeCore: QhxCore | null = null
+let mouse: Vector2 | null = null
+
+const UIGroup = ref<Group | null>(null)
+const Scene1Group = ref<Group | null>(null)
 const configStore = useConfigStore()
 const isMobile = computed(() => configStore.isMobile)
-import leftContent from '@/components/home/leftContent.vue'
-import rightContent from '@/components/home/rightContent.vue'
-import middleContent from '@/components/home/middleContent.vue'
-import type { App, Component } from 'vue';
-import { createApp  } from 'vue'
 const { t } = useI18n()
 useHead({
 	title: () => t('home.title'),
@@ -44,9 +45,22 @@ useHead({
 	]
 })
 const nuxtApp = useNuxtApp()
+
+async function loadThreeStack() {
+	if (THREE && QhxCoreClass) return
+	const [threeMod, coreMod] = await Promise.all([
+		import('three'),
+		import('../utils/threeCore'),
+	])
+	THREE = threeMod
+	QhxCoreClass = coreMod.default
+	mouse = new THREE.Vector2()
+}
+
 const creatDomUi = (className: string, component: Component): CSS3DObject => {
+	if (!threeCore) throw new Error('threeCore not ready')
 	const scale = calcCss3dScale()
-	const divElement: HTMLElement = document.createElement('div');
+	const divElement: HTMLElement = document.createElement('div')
 	divElement.className = className
 	const app: App = createApp(component)
 	// CSS3D 侧是独立 createApp，需手动挂上主应用的 i18n，否则模板 $t 会报错导致整页黑屏
@@ -58,146 +72,114 @@ const creatDomUi = (className: string, component: Component): CSS3DObject => {
 	if (i18nSymbol) {
 		app._context.provides[i18nSymbol] = nuxtApp.vueApp._context.provides[i18nSymbol]
 	}
-	app.mount(divElement) // 挂载 Vue 组件
-	// divElement.style.backgroundColor = hexToRgba(theme.themeCss.primary, 0.4)
-	const css3dObject = threeCore.createCSS3DObject(divElement);
-	css3dObject.position.set(0, 0, 0);
+	app.mount(divElement)
+	const css3dObject = threeCore.createCSS3DObject(divElement)
+	css3dObject.position.set(0, 0, 0)
 	css3dObject.scale.set(scale, scale, scale)
 	return css3dObject
 }
-const createUIDom = () => {
+
+const createUIDom = async () => {
+	if (!THREE || !threeCore) return
 	let isPc = true
 	if (window.innerWidth < 768) {
 		isPc = false
-  }
+	}
 	if (UIGroup.value) {
-		// 重置UI组
-    threeCore.scene.remove(UIGroup.value);
-    UIGroup.value.clear();
-    UIGroup.value = null;
-  }
-	
+		threeCore.scene.remove(UIGroup.value)
+		UIGroup.value.clear()
+		UIGroup.value = null
+	}
+
 	// 手机端：不在3D场景中添加UI，使用正常DOM
 	if (isPc) {
+		const [{ default: leftContent }, { default: rightContent }] = await Promise.all([
+			import('@/components/home/leftContent.vue'),
+			import('@/components/home/rightContent.vue'),
+		])
 		const Group = new THREE.Group()
-		// PC端：左右两个box
 		const left = creatDomUi('left-box', leftContent)
 		left.position.x = -pxToThreeJSX(window.innerWidth * 1.005)
 		left.rotateX(-0.675)
 		Group.add(left)
 
-		const rigth = creatDomUi('right-box', rightContent)
-		rigth.position.x = pxToThreeJSX(window.innerWidth * 0.94)
-		rigth.rotateX(-0.675)
-		Group.add(rigth)
+		const right = creatDomUi('right-box', rightContent)
+		right.position.x = pxToThreeJSX(window.innerWidth * 0.94)
+		right.rotateX(-0.675)
+		Group.add(right)
 
 		UIGroup.value = Group
 		threeCore.scene.add(Group)
 	}
-	// 手机端：不创建3D UI，使用模板中的正常DOM
 }
+
 const loadLibrary = async () => {
+	if (!THREE || !threeCore) return
 	const Group = new THREE.Group()
 	const model = await threeCore.loadModel(`${BASE_IMG_MODEL}/sence/tuxiong3.glb?12211333322`, { useDracoLoader: true, dracoDecoderPath: '/draco/gltf/' })
-	model.scale.set(1,1,1)
-	model.rotateY(150* (Math.PI / 180))
-	model.position.set(0,0,0)
+	model.scale.set(1, 1, 1)
+	model.rotateY(150 * (Math.PI / 180))
+	model.position.set(0, 0, 0)
 	Group.add(model)
-	Group.position.set(0,0,0)
+	Group.position.set(0, 0, 0)
 	Scene1Group.value = Group
 	threeCore.scene.add(Group)
-	console.log('模型', model)
 }
+
 const initThreejs = async () => {
-	// 先初始化移动端检测（与 scene/detail/[id].vue 保持一致）
 	configStore.initMobileDetection()
 
-	threeCore = new qhxCore({
-		enableCSS3DRenderer: !configStore.isMobile, // 手机端不需要CSS3D渲染器
-		alpha: true
-	})
-
-	// 挂载到DOM
-	await threeCore.mount(document.getElementById('three-container'));
-
-	// 如果是手机端，关闭阴影（逻辑参考 scene/detail/[id].vue 的 changeShadowQuality('off')）
+	// 移动端只用 DOM 首页，不下载 three / threeCore
 	if (configStore.isMobile) {
-		threeCore.setShadowMapEnabled(false)
-		// 同时关闭主光/镜头光阴影，避免多余开销
-		if (threeCore.lights?.directional) {
-			threeCore.lights.directional.castShadow = false
-		}
-		if (threeCore.lensLight) {
-			threeCore.lensLight.castShadow = false
-		}
-	}
-
-	createUIDom()
-	loadLibrary()
-	threeCore.controls.enabled = false
-	console.log(threeCore.controls, '控制器')
-	threeCore.scene.background = new THREE.Color('#ffddf2')
-	// threeCore.controls.autoRotate = true
-	// 开始渲染循环
-	await threeCore.startAnimationLoop();
-}
-const mouse = new THREE.Vector2();
-const throttledMouseMove = throttle((event: MouseEvent) => {
-	mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
-	mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
-	updateCameraLookAt();
-}, 20);
-const calcCss3dScale = () => {
-	if (threeCore?.camera) {
-		const distance = threeCore.camera.position.distanceTo(new THREE.Vector3(0,0,0));
-		const fovRad = (threeCore.camera as THREE.PerspectiveCamera).fov * (Math.PI / 180);
-		const visibleHeightAtZ = 2 * Math.tan(fovRad / 2) * Math.abs(distance); // ≈6.9（当 z=5, FOV=75°）
-		const scale = visibleHeightAtZ / window.innerHeight;
-		return scale
-	}
-	return 1
-}
-// 计算水平夹角
-const calcCameraAngleX = (cameraPosition: THREE.Vector3, targetPoint: THREE.Vector3): number => {
-
-	// 1. 计算方向向量
-	const direction = new THREE.Vector3().subVectors(targetPoint, cameraPosition);
-	const yawRad = Math.atan2(direction.x, direction.z);
-	const yawDeg = THREE.MathUtils.radToDeg(yawRad); // 弧度 → 角度
-	return yawDeg
-}
-// 像素转换threejs坐标
-const pxToThreeJSX = (px: number) => {
-	// 计算可见宽度
-	const fovRad = (threeCore.camera as THREE.PerspectiveCamera).fov * (Math.PI / 180);
-	const visibleHeightAtZ = 2 * Math.tan(fovRad / 2) * Math.abs(threeCore.camera.position.z);
-	const visibleWidthAtZ = visibleHeightAtZ * (window.innerWidth / window.innerHeight);
-  const screenRatio = px / window.innerWidth;
-  return -visibleWidthAtZ / 2 + screenRatio * visibleWidthAtZ;
-}
-
-const updateCameraLookAt = () => {
-	if (!threeCore) {
-		return;
-	}
-	if (!threeCore.controls) {
 		return
 	}
 
-	// 获取屏幕宽度（以像素为单位）
-	const screenWidth = window.innerWidth;
+	await loadThreeStack()
+	if (!THREE || !QhxCoreClass) return
 
-	const mouseXNormalized = mouse.x / (screenWidth / 2);
+	threeCore = new QhxCoreClass({
+		enableCSS3DRenderer: true,
+		alpha: true,
+	})
 
-	const angleX = mouse.x * (Math.PI / 2);
-	const angleY = mouse.y * (Math.PI / 2);
-	// 
-	const lookDistance = threeCore.controls.object.position.z / 2;
-	const targetPosition = new THREE.Vector3(
-		Math.sin(angleX) * lookDistance / 4,
-		0,
-		0
-	);
+	await threeCore.mount(document.getElementById('three-container'))
+
+	await createUIDom()
+	void loadLibrary()
+	threeCore.controls.enabled = false
+	threeCore.scene.background = new THREE.Color('#ffddf2')
+	await threeCore.startAnimationLoop()
+}
+
+const throttledMouseMove = throttle((event: MouseEvent) => {
+	if (!mouse) return
+	mouse.x = (event.clientX / window.innerWidth) * 2 - 1
+	mouse.y = -(event.clientY / window.innerHeight) * 2 + 1
+	updateCameraLookAt()
+}, 20)
+
+const calcCss3dScale = () => {
+	if (!THREE || !threeCore?.camera) return 1
+	const distance = threeCore.camera.position.distanceTo(new THREE.Vector3(0, 0, 0))
+	const fovRad = (threeCore.camera as PerspectiveCamera).fov * (Math.PI / 180)
+	const visibleHeightAtZ = 2 * Math.tan(fovRad / 2) * Math.abs(distance)
+	return visibleHeightAtZ / window.innerHeight
+}
+
+const pxToThreeJSX = (px: number) => {
+	if (!THREE || !threeCore) return 0
+	const fovRad = (threeCore.camera as PerspectiveCamera).fov * (Math.PI / 180)
+	const visibleHeightAtZ = 2 * Math.tan(fovRad / 2) * Math.abs(threeCore.camera.position.z)
+	const visibleWidthAtZ = visibleHeightAtZ * (window.innerWidth / window.innerHeight)
+	const screenRatio = px / window.innerWidth
+	return -visibleWidthAtZ / 2 + screenRatio * visibleWidthAtZ
+}
+
+const updateCameraLookAt = () => {
+	if (!THREE || !threeCore || !mouse) return
+	if (!threeCore.controls) return
+
+	const angleX = mouse.x * (Math.PI / 2)
 	if (Scene1Group.value) {
 		Scene1Group.value.rotation.y = angleX / 4
 	}
@@ -205,41 +187,28 @@ const updateCameraLookAt = () => {
 		UIGroup.value.rotation.y = angleX / 90
 		UIGroup.value.rotation.z = -angleX / 90
 	}
-	// threeCore.camera.lookAt(targetPosition);
-	// threeCore.controls.target.set(targetPosition.x, targetPosition.y, targetPosition.z);
-};
+}
+
 onMounted(() => {
+	configStore.initMobileDetection()
 	setTimeout(() => {
-		initThreejs()
-		window.addEventListener('mousemove', throttledMouseMove, false);
-	});
+		void initThreejs()
+		window.addEventListener('mousemove', throttledMouseMove, false)
+	})
 })
-// 不需要手动引入布局
 </script>
 
 <style>
 .left-box{
 	height: 100vh;
 	width: 20vw;
-	/* background: #000; */
 }
 .right-box{
 	height: 100vh;
 	width: 30vw;
-	/* background: #000; */
 }
 .mobile-content-wrapper {
 	position: relative;
 	z-index: 2;
-	/* top: 0;
-	left: 0;
-	width: 100vw;
-	height: 100vh;
-	z-index: 10;
-	display: flex;
-	justify-content: center;
-	align-items: flex-start;
-	overflow: hidden;
-	background: #ffddf2; */
 }
 </style>

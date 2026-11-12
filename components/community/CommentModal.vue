@@ -37,7 +37,7 @@
               </label> -->
               <QhxRichTextEditor
                 v-model="editorContent"
-                placeholder="请输入评论内容..."
+                :placeholder="t('comment.content_placeholder')"
                 :min-height="200"
                 :max-height="300"
                 :toolbar="commentEditorToolbar"
@@ -47,7 +47,7 @@
 
             <!-- 图片选择 -->
             <div>
-              <span class="text-gray-500 text-xs ml-2">(最多9张，支持拖拽排序)</span>
+              <span class="text-gray-500 text-xs ml-2">{{ t('comment.images_hint') }}</span>
               <QhxImagePicker 
                 :multiple="true" 
                 :max="9"
@@ -63,7 +63,7 @@
                 @click="handleClose"
                 class="flex-1 px-6 py-3 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200 rounded-full font-bold transition-colors"
               >
-                取消
+                {{ t('common.cancel') }}
               </button>
               <button
                 type="submit"
@@ -71,7 +71,7 @@
                 class="flex-1 px-6 py-3 bg-qhx-primary hover:bg-qhx-primaryHover text-white rounded-full font-bold transition-colors shadow-lg shadow-qhx-primary/30 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
               >
                 <span v-if="submitting" class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
-                <span>{{ submitting ? '发布中...' : '发布' }}</span>
+                <span>{{ submitting ? t('comment.publishing') : t('comment.publish_btn') }}</span>
               </button>
             </div>
           </form>
@@ -133,6 +133,7 @@ const emit = defineEmits<{
 const toast = useToast()
 const userStore = useUserStore()
 const configStore = useConfigStore()
+const { t } = useI18n()
 
 const submitting = ref(false)
 const imagePickerRef = ref<InstanceType<typeof QhxImagePicker> | null>(null)
@@ -156,8 +157,8 @@ const editorContent = ref('')
 
 const modalTitle = computed(() => {
   if (customTitle.value) return customTitle.value
-  if (replyToName.value) return `回复 ${replyToName.value}`
-  return '发表评论'
+  if (replyToName.value) return t('comment.reply_to', { name: replyToName.value })
+  return t('comment.publish')
 })
 
 // 缓存内容
@@ -185,7 +186,7 @@ const fetchUpload = async (file: { file?: File; url: string }): Promise<string> 
 const onUpdateFiles = (files: File[]) => {
   if (imagePickerRef.value && imagePickerRef.value.previewImages.length > 9) {
     toast.add({
-      title: '最多只能上传9张图片',
+      title: t('comment.max_images'),
       icon: 'i-heroicons-exclamation-circle',
       color: 'orange'
     })
@@ -244,7 +245,7 @@ const handleClose = () => {
 const handleSubmit = async () => {
   if (!richTextEditorRef.value || richTextEditorRef.value.isEmpty) {
     toast.add({
-      title: '请输入内容',
+      title: t('comment.content_required'),
       icon: 'i-heroicons-exclamation-circle',
       color: 'orange'
     })
@@ -254,7 +255,7 @@ const handleSubmit = async () => {
   if (commentId.value === undefined || !commentType.value) {
     console.log(commentId.value, commentType.value, '参数错误')
     toast.add({
-      title: '参数错误',
+      title: t('comment.param_error'),
       icon: 'i-heroicons-exclamation-circle',
       color: 'red'
     })
@@ -279,8 +280,8 @@ const handleSubmit = async () => {
         cachedImages.value = imgList
       } catch (error) {
         toast.add({
-          title: '图片上传失败',
-          description: '请检查图片后重试',
+          title: t('comment.upload_failed'),
+          description: t('comment.upload_retry'),
           icon: 'i-heroicons-x-circle',
           color: 'red'
         })
@@ -292,7 +293,7 @@ const handleSubmit = async () => {
     // 构建参数
     if (commentId.value === null) {
       toast.add({
-        title: '参数错误',
+        title: t('comment.param_error'),
         icon: 'i-heroicons-exclamation-circle',
         color: 'red'
       })
@@ -374,9 +375,9 @@ const handleSubmit = async () => {
     handleClose()
   } catch (error: unknown) {
     console.error('评论失败:', error)
-    const errorMessage = error instanceof Error ? error.message : '请稍后重试'
+    const errorMessage = error instanceof Error ? error.message : t('common.retry')
     toast.add({
-      title: '评论失败',
+      title: t('comment.failed'),
       description: errorMessage,
       icon: 'i-heroicons-x-circle',
       color: 'red'

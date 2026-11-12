@@ -1,35 +1,53 @@
 <script setup lang="ts">
-import type { Community } from '@/types/api';
+import type { Community } from '@/types/api'
+import { ContentI18nPkType } from '@/api/content_i18n'
 import { openCommunityDetailTab } from '@/composables/useLibraryDetailNavigation'
+import { useContentTranslate } from '@/composables/useContentTranslate'
 import {
   normalizeRawImgPath,
   parseCommunityImgList,
   withOssImageProcess,
 } from '@/utils/communityLiveMedia'
 import { formatRich, parseRichText, type RichNode } from '@/utils/public'
+
 interface Props {
-  item: Community,
-  className?: string,
-  size?: string  // 尺寸 mini small mid big
+  item: Community
+  className?: string
+  size?: string // 尺寸 mini small mid big
   needJump?: boolean // 是否需要跳转
 }
+
 const { t } = useI18n()
-const image = ref<Array<string>>([])
 const text = ref('')
 const props = withDefaults(defineProps<Props>(), {
   size: 'mini',
-  needJump: true
+  needJump: true,
 })
 const { size, needJump } = props
 const item = props.item
-if (item?.content) {
-  const rich_res = formatRich(item.content)
-  image.value = rich_res.image
+
+const {
+  needsTranslate,
+  runTranslate,
+  translating,
+  applyTranslateMeta,
+  resolveSourceLang,
+} = useContentTranslate()
+
+function applyCommunityContent(content: string | null | undefined) {
+  text.value = ''
+  if (!content) return
+  const rich_res = formatRich(content)
   text.value = rich_res.text
 }
-if (item?.img_list) {
-  image.value = [...image.value, ...item.img_list.split(',')]
-}
+
+watch(
+  () => props.item.content,
+  (content) => {
+    applyCommunityContent(content)
+  },
+  { immediate: true },
+)
 
 /** 列表缩略：封面 jpg + LIVE；preview 带 videoSrc 供 Lightbox 播放 */
 const previewMediaList = computed(() => {
@@ -86,6 +104,31 @@ const previewNodes = computed<RichNode[]>(() => {
   if (!text.value) return []
   return parseRichText(filterIframePlaceholder(text.value))
 })
+
+const showTranslateBtn = computed(() => needsTranslate(props.item))
+
+async function onTranslate(e: MouseEvent) {
+  e.stopPropagation()
+  const pkId = Number(props.item.community_id)
+  if (!pkId) return
+  try {
+    const result = await runTranslate({
+      pkType: ContentI18nPkType.Community,
+      pkId,
+      sourceLang: resolveSourceLang(props.item),
+    })
+    if (!result?.payload) return
+    if (typeof result.payload.title === 'string') {
+      props.item.title = result.payload.title
+    }
+    if (typeof result.payload.content === 'string') {
+      props.item.content = result.payload.content
+    }
+    applyTranslateMeta(props.item, result.lang)
+  } catch (err) {
+    console.error(err)
+  }
+}
 </script>
 <template>
   <div :class="props.className ? props.className :'bg-qhx-bg-card polaroid-card cursor-pointer shadow-lg p-2 m-2 rounded'">
@@ -97,6 +140,19 @@ const previewNodes = computed<RichNode[]>(() => {
         </h3>
         <div class="community-content m-1" @click="handleJump(item.community_id)">
           <SafeRichText :nodes="previewNodes" />
+        </div>
+        <div
+          v-if="showTranslateBtn"
+          class="mt-1 mb-1 flex justify-end"
+        >
+          <button
+            type="button"
+            class="text-xs text-qhx-primary hover:underline disabled:opacity-60"
+            :disabled="translating"
+            @click.stop="onTranslate($event)"
+          >
+            {{ translating ? t('contentI18n.translating') : t('contentI18n.translate') }}
+          </button>
         </div>
         <div class="flex flex-wrap w-full">
           <QhxPreviewImage

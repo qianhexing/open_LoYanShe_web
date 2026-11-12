@@ -21,10 +21,8 @@ const themeStore = useThemeStore()
 const userStore = useUserStore()
 const configStore = useConfigStore()
 const languageStore = useLanguageStore()
-const layoutReady = ref(false)
 const HarmonyOS = ref<string | null>(null)
 const isFromMobie = ref(true)
-provide('layoutReady', layoutReady)
 const times = ref(1)
 const isHome = ref(false)
 const cachedPages = ref(['library']) // 根据你的实际页面名称修改
@@ -44,13 +42,18 @@ const blank_list = [
   'matching/my',
   'user/signIn',
   '/userSpace/', '/exhibition/wardrobe/', '/exhibition/',
-  '/humanPlatform/', '/user/plan', '/user/signIn', '/user/center', '/user/message', '/post/', '/distributedMaps', '/visualization/wardrobe', '/visualization/shop-cloud', '/rank', '/yearlySummary', '/user/changePassword','/matching/detail','/album/detail', '/album', 'clothes/detail', 'scene/detail', 'wardrobe/detail', 'wardrobe/statistics', 'wardrobe/square', 'register', 'login', 'lighting-debug', 'timepipe', 'user/edit', 'user/changeAvatarFrame', '/journal', '/shop/shanzheng', '/library/search', '/search/', '/features', 'ai/chat', '/teaparty/detail', '/teaparty/snapshot', '/user/signIn/snapshot', '/wishBottle']
+  '/humanPlatform/', '/user/plan', '/user/signIn', '/user/center', '/user/message', '/post/', '/distributedMaps', '/visualization/wardrobe', '/visualization/shop-cloud', '/rank', '/yearlySummary', '/user/changePassword','/matching/detail','/album/detail', '/album', 'clothes/detail', 'scene/detail', 'wardrobe/detail', 'wardrobe/statistics', 'wardrobe/square', 'register', 'login', 'lighting-debug', 'timepipe', 'user/edit', 'user/changeAvatarFrame', '/journal', '/shop/shanzheng', '/shop/detail', '/library/detail', '/library/search', '/search/', '/features', 'ai/chat', '/teaparty/detail', '/teaparty/snapshot', '/user/signIn/snapshot', '/wishBottle', '/community/detail', '/community/post', '/community/edit']
 const route = useRoute()
 
 function readQueryClient(): string {
   const c = route.query?.client
   const v = Array.isArray(c) ? c[0] : c
   return String(v || '').toLowerCase()
+}
+
+function isAppShellQuery(): boolean {
+  const client = readQueryClient()
+  return client === 'ios' || client === 'android' || client === 'harmony' || client === 'harmonyos'
 }
 
 if (route.query?.token) {
@@ -92,49 +95,53 @@ if (route.query?.statusbar) {
   } else if (client === 'android') {
     markAndroidShell()
     isFromMobie.value = true
+  } else if (client === 'harmony' || client === 'harmonyos') {
+    markHarmonyShell()
+    isFromMobie.value = true
   }
 }
-console.log(route.path, '初始路由地址')
 
-// SSR 阶段获取用户信息
-const { data: userInfo } = await useAsyncData('user-info', async () => {
-  // 如果有路由参数中的 token，在 SSR 和客户端都获取用户信息
+// App 壳 / 已标记原生壳：setup 即放开子页，避免多等一轮 onMounted
+const layoutReady = ref(isAppShellQuery() || (process.client && isNativeAppShell()))
+provide('layoutReady', layoutReady)
+
+// 用户信息：不阻塞 layout 树；token 已写入 store，后台拉详情
+const { data: userInfo } = useAsyncData('user-info', async () => {
   if (route.query?.token) {
     try {
       const res = await getUserMy()
-      console.log(res, '用户信息 (SSR)')
       userStore.setUserInfo(res)
       return res
-    } catch (error) {
-      console.error('获取用户信息失败:', error)
+    } catch {
       return null
     }
-  } else {
-    // 如果没有路由参数 token，只在客户端从 localStorage 加载
-    // 服务端跳过，返回 null
-    if (process.client) {
-      await userStore.initialize()
-      return userStore.user
-    }
-    return null
   }
+  if (import.meta.client) {
+    await userStore.initialize()
+    return userStore.user
+  }
+  return null
 }, {
-  server: true, // 在服务端执行
-  default: () => null
+  server: false,
+  lazy: true,
+  default: () => null,
 })
+
 const judgeIsHome = () => {
-  console.log('当前路由', route.path)
   // preference 才会真正关掉 system 跟随；只写 value 挡不住 iOS 暗色
   colorMode.preference = 'light'
-  const is_blank = blank_list.find((path) => {
-    return route.path.includes(path)
-  })
-  if (is_blank && route.path !== '/') {
+  // App 嵌入：强制空白壳，不渲染 Header/Footer
+  if (isAppShellQuery() || (import.meta.client && isNativeAppShell())) {
     layoutStyle.value = 1
+    isFromMobie.value = true
   } else {
-    layoutStyle.value = 0
+    const is_blank = blank_list.find((path) => route.path.includes(path))
+    if (is_blank && route.path !== '/') {
+      layoutStyle.value = 1
+    } else {
+      layoutStyle.value = 0
+    }
   }
-  console.log(layoutStyle.value, '当前分割')
   if (route.path === '/') {
     isHome.value = true
   } else {
@@ -175,10 +182,8 @@ function applyNativeInbound(raw: unknown) {
 
 watch(
   () => route.path,
-  (newPath, oldPath) => {
-    console.log('路由从', oldPath, '变更为', newPath)
+  () => {
     judgeIsHome()
-    // 在这里执行路由变化后的逻辑
   }
 )
 watch(
@@ -244,22 +249,18 @@ let wsConnection: WSConnection | null = null
 // 初始化 WebSocket 连接（如果有 token）
 const initNotificationSystem = () => {
   // 原生壳（Uni / iOS / 鸿蒙）不走浏览器 WebSocket 通知
-  if (process.client && !navigator.userAgent.includes('Html5Plus') && !isNativeAppShell()) {
+  if (import.meta.client && !navigator.userAgent.includes('Html5Plus') && !isNativeAppShell()) {
     const { initWebSocket } = useNotification()
     const token = useCookie('token').value || (typeof window !== 'undefined' && window.localStorage ? localStorage.getItem('token') : null) || userStore.token
     
     if (token) {
       hasNotice().then((res) => {
-        console.log(res, '是否有通知')
         userStore.setHasNotification(res)
       })
-      console.log('检测到 token，初始化 WebSocket 通知系统')
       const connection = initWebSocket()
       if (connection) {
         wsConnection = connection
       }
-    } else {
-      console.log('未检测到 token，跳过 WebSocket 连接')
     }
   }
 }
@@ -281,46 +282,51 @@ onMounted(async () => {
    * 否则刷新/手机 WebView 会卡在 await import，页面长时间白屏。
    */
   layoutReady.value = true
+  judgeIsHome()
   // iOS / Android：尽早挂 LoYanSheBridge 下行（不依赖 MessagePort / uni 脚本）
   if (isIosWebview()) {
     markIosShell()
     isFromMobie.value = true
+    layoutStyle.value = 1
     installIosNativeBridge({
       onInbound: (raw) => applyNativeInbound(raw),
     })
   } else if (isAndroidWebview()) {
     markAndroidShell()
     isFromMobie.value = true
+    layoutStyle.value = 1
     installAndroidNativeBridge({
       onInbound: (raw) => applyNativeInbound(raw),
     })
   }
   const isInUniApp =
-    process.client &&
+    import.meta.client &&
     typeof window !== 'undefined' &&
     navigator.userAgent.includes('Html5Plus')
-  uni = await import('@dcloudio/uni-webview-js').catch((err) => {
-    console.error('Failed to load uni-webview-js:', err);
-  })
+  uni = await import('@dcloudio/uni-webview-js').catch(() => null)
   if (isInUniApp && uni) {
     isFromMobie.value = true
+    layoutStyle.value = 1
     configStore.setUniWebviewJs(uni as UniWebviewJsModule)
   } else if (isNativeAppShell()) {
     // iOS / Android / 鸿蒙壳：继续隐藏 Header、Footer（勿被下方 false 覆盖）
     isFromMobie.value = true
+    layoutStyle.value = 1
     if (isIosWebview()) markIosShell()
     else if (isAndroidWebview()) markAndroidShell()
     configStore.setUniWebviewJs(null)
   } else {
     isFromMobie.value = false
     configStore.setUniWebviewJs(null)
+    judgeIsHome()
   }
-  console.log(colorMode.value, '颜色模式')
-  if (process.client && typeof window !== 'undefined' && window.localStorage) {
-    // 用户信息已在 SSR 阶段加载，这里只需要初始化通知系统（uniapp 环境不连接 websocket）
-    setTimeout(() => {
-      initNotificationSystem()
-    }, 500)
+  if (import.meta.client && typeof window !== 'undefined' && window.localStorage) {
+    // 原生壳不建 WebSocket；浏览器站内延迟初始化通知
+    if (!isNativeAppShell() && !isInUniApp) {
+      setTimeout(() => {
+        initNotificationSystem()
+      }, 500)
+    }
     
     configStore.setIsPc(isPC())
     // 与 SSR 占位宽度 1024 对齐：在客户端首次挂上真实视口与 resize 监听
@@ -333,7 +339,6 @@ onMounted(async () => {
   document.addEventListener('touchstart', preventZoom, { passive: false });
   document.addEventListener('gesturestart', (e) => e.preventDefault());
 
-  // themeStore.loadFromLocalStorage()
   window.addEventListener('message', handleInit)
 })
 
@@ -341,18 +346,13 @@ onMounted(async () => {
 watch(
   () => userStore.token,
   (newToken, oldToken) => {
-    if (process.client) {
-      if (newToken && !oldToken) {
-        // token 从无到有，建立连接
-        console.log('检测到新 token，建立 WebSocket 连接')
-        initNotificationSystem()
-      } else if (!newToken && oldToken) {
-        // token 从有到无，断开连接
-        console.log('token 已清除，断开 WebSocket 连接')
-        if (wsConnection) {
-          wsConnection.disconnect()
-          wsConnection = null
-        }
+    if (!import.meta.client || isNativeAppShell()) return
+    if (newToken && !oldToken) {
+      initNotificationSystem()
+    } else if (!newToken && oldToken) {
+      if (wsConnection) {
+        wsConnection.disconnect()
+        wsConnection = null
       }
     }
   }

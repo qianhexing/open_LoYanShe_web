@@ -121,10 +121,15 @@ export interface Compilations {
   create_date?: string // ISO 格式时间戳
   good_number?: number
   brows_times?: number
-  pk_type?: number // 0是图鉴合集 1是搭配合集
+  /** 0 图鉴合集 · 1 公开搭配合集 · 3 搭配夹（私密） */
+  pk_type?: number
   is_enable?: number
   is_open?: number // 是否开放编辑
   is_official?: number // 是否官方合集
+  /** 排序，越小越靠前 */
+  sort?: number
+  /** 搭配夹选项：是否已收录某搭配 */
+  is_in?: number
 }
 
 

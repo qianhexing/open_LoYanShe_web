@@ -5,17 +5,19 @@
 defineEmits<{
   click: []
 }>()
+
+const { t } = useI18n()
 </script>
 
 <template>
   <button
     type="button"
     class="leave-fab"
-    aria-label="写下讯息"
+    :aria-label="t('comment.leave_message')"
     @click="$emit('click')"
   >
     <span class="leave-fab__mark" aria-hidden="true" />
-    <span>写下讯息</span>
+    <span>{{ t('comment.leave_message') }}</span>
   </button>
 </template>
 

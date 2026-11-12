@@ -1,0 +1,30 @@
+---
+description: App WebView 冷启动加载约定——禁止把重库打进页面同步入口
+globs:
+  - pages/**/*.vue
+  - components/**/*.vue
+  - plugins/**/*.{ts,js}
+  - layouts/**/*.vue
+alwaysApply: false
+---
+
+# App 嵌入页加载约定
+
+绝大多数页面由 App WebView 独立打开（冷启动）。每个 URL 只为「本页首屏」付 JS 成本。
+
+## 禁止
+
+- 在 `plugins/*.ts` 顶层同步 `import` gsap / three / @tiptap / echarts / mind-ar
+- 页面顶层同步引入：`PhysicsDrop`、`threeCore`、`useSceneCore`、`RichTextEditor`、`CommentSection`、各类 `*ShareImage`、发帖/Choose 弹窗
+- 同步 `import * as THREE` / `import qhxCore from '@/utils/threeCore'`（首页移动端尤其禁止）
+
+## 必须
+
+- 重型 UI：`defineAsyncComponent(() => import(...))`，打开弹窗或 `runWhenIdle` / `v-if` 后再挂载
+- gsap：`await loadGsap()`（`utils/gsapLazy.ts`），勿依赖全局 `$gsap`
+- 新 UI 优先 Qhx；勿为省事再拉一整棵 `@nuxt/ui` 依赖进首屏
+- App 壳（`?client=` / 原生壳）走空白 layout，不初始化 Header/Footer/WebSocket
+
+## 标杆
+
+对齐 `pages/community/detail/[id].vue`：首屏只拉主详情 + 轻量 UI；评论 / 外链 / 徽章 / 弹窗 idle 或点击后再载。

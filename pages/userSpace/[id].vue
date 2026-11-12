@@ -805,7 +805,11 @@ const userStore = useUserStore()
 const toast = useToast()
 const { t } = useI18n()
 const configStore = useConfigStore()
-const { $gsap, $ScrollTrigger } = useNuxtApp()
+import { loadGsap } from '@/utils/gsapLazy'
+type GsapApi = Awaited<ReturnType<typeof loadGsap>>['gsap']
+type ScrollTriggerApi = Awaited<ReturnType<typeof loadGsap>>['ScrollTrigger']
+let $gsap: GsapApi | null = null
+let $ScrollTrigger: ScrollTriggerApi | null = null
 const loading = ref(true)
 const userInfo = ref<(User & {
   signature?: string
@@ -1823,7 +1827,15 @@ watch(
   },
 )
 
-onMounted(() => {
+onMounted(async () => {
+  try {
+    const mods = await loadGsap()
+    $gsap = mods.gsap
+    $ScrollTrigger = mods.ScrollTrigger
+  } catch {
+    $gsap = null
+    $ScrollTrigger = null
+  }
   if (layoutReady.value) {
     loadUserInfo()
   }

@@ -1192,7 +1192,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, inject, computed, watch, nextTick } from 'vue'
+import { ref, inject, computed, watch, nextTick, defineAsyncComponent } from 'vue'
 import {
   journalList,
   journalListByDate,
@@ -1202,26 +1202,12 @@ import {
 } from '@/api/journal'
 import type { Journal, User, Scene, Comment } from '@/types/api'
 import { getUserSpace } from '@/api/user'
-import JournalCalendarShareImage from '@/components/journal/JournalCalendarShareImage.vue'
-import JournalCarouselMode from '@/components/journal/JournalCarouselMode.vue'
 import type { JournalCalendarSharePayload } from '@/utils/journalShareCanvas'
 import type { Community, Library, PlanList } from '@/types/api'
 import type { WardrobeClothes } from '@/types/api'
 import { useUserStore } from '@/stores/user'
 import dayjs from 'dayjs'
-import CommunityChoose from '@/components/community/CommunityChoose.vue'
-import CommentItem from '@/components/comment/CommentItem.vue'
-import CommunityItem from '@/components/community/CommunityItem.vue'
-import CommunityCommentModal from '@/components/community/CommentModal.vue'
 import type CommunityCommentModalType from '@/components/community/CommentModal.vue'
-import WardrobeClothesChoose from '@/components/Wardrobe/WardrobeClothesChoose.vue'
-import MatchingChoose from '@/components/matching/MatchingChoose.vue'
-import LibraryChoose from '@/components/library/LibraryChoose.vue'
-import LibraryItem from '@/components/library/LibraryItem.vue'
-import SceneChoose from '@/components/scene/SceneChoose.vue'
-import SceneItem from '@/components/scene/SceneItem.vue'
-import customInput from '@/components/Clothes/customInput.vue'
-import CommunityPostModal from '@/components/community/CommunityPostModal.vue'
 import QhxFloatingButton from '@/components/Qhx/FloatingButton.vue'
 import { getCommunityDetail } from '@/api/community'
 import { getClothesDetail } from '@/api/wardrobe'
@@ -1251,6 +1237,49 @@ import {
   mergeJournalTagOptions,
   isJournalDefaultTag
 } from '@/composables/useJournalTagConfig'
+
+const JournalCalendarShareImage = defineAsyncComponent(
+  () => import('@/components/journal/JournalCalendarShareImage.vue'),
+)
+const JournalCarouselMode = defineAsyncComponent(
+  () => import('@/components/journal/JournalCarouselMode.vue'),
+)
+const CommunityChoose = defineAsyncComponent(
+  () => import('@/components/community/CommunityChoose.vue'),
+)
+const CommentItem = defineAsyncComponent(
+  () => import('@/components/comment/CommentItem.vue'),
+)
+const CommunityItem = defineAsyncComponent(
+  () => import('@/components/community/CommunityItem.vue'),
+)
+const CommunityCommentModal = defineAsyncComponent(
+  () => import('@/components/community/CommentModal.vue'),
+)
+const WardrobeClothesChoose = defineAsyncComponent(
+  () => import('@/components/Wardrobe/WardrobeClothesChoose.vue'),
+)
+const MatchingChoose = defineAsyncComponent(
+  () => import('@/components/matching/MatchingChoose.vue'),
+)
+const LibraryChoose = defineAsyncComponent(
+  () => import('@/components/library/LibraryChoose.vue'),
+)
+const LibraryItem = defineAsyncComponent(
+  () => import('@/components/library/LibraryItem.vue'),
+)
+const SceneChoose = defineAsyncComponent(
+  () => import('@/components/scene/SceneChoose.vue'),
+)
+const SceneItem = defineAsyncComponent(
+  () => import('@/components/scene/SceneItem.vue'),
+)
+const customInput = defineAsyncComponent(
+  () => import('@/components/Clothes/customInput.vue'),
+)
+const CommunityPostModal = defineAsyncComponent(
+  () => import('@/components/community/CommunityPostModal.vue'),
+)
 
 definePageMeta({
   ssr: false

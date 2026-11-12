@@ -75,7 +75,6 @@ import {
     removeMaterialLoadPlaceholder,
     setSceneMaterialPointerDragHandlers
 } from '@/utils/sceneMaterialDrag'
-import { createEzTree } from '@/utils/ezTree'
 import {
     setScenePlantPointerDragHandlers,
     type ScenePlantDragItem
@@ -2401,77 +2400,15 @@ const openLightMenu = (e: MouseEvent) => {
     showLightMenu.value = true
 }
 
-/** 用 ez-tree 预设创建植物；position 缺省时落到视野中心地面 */
-const choosePlant = async (presetId: string, position?: THREE.Vector3) => {
-    if (!threeCore.value || plantCreating.value) return
-    if (threeCore.value.sceneHasSplats()) {
-        if (process.client) {
-            toast.add({
-                title: '与点云冲突',
-                description: '场景内已有点云，无法加载植物。请先删除点云后再添加。',
-                color: 'amber',
-                icon: 'i-heroicons-exclamation-triangle'
-            })
-        }
-        return
-    }
-    plantCreating.value = true
-    sceneStore.setLoading(true)
-    const placeAt = position?.clone() ?? getDefaultMaterialPlacement()
-    const placeholder = createMaterialLoadPlaceholder(placeAt)
-    threeCore.value.scene.add(placeholder)
-    try {
-        await nextTick()
-        await new Promise<void>((r) => requestAnimationFrame(() => r()))
-        try {
-            await threeCore.value.warmEzTreeAssets()
-        } catch (warmErr) {
-            console.warn('ez-tree 预热失败，继续尝试生成:', warmErr)
-        }
-        if (threeCore.value.sceneHasSplats()) {
-            removeMaterialLoadPlaceholder(placeholder, threeCore.value.scene)
-            if (process.client) {
-                toast.add({
-                    title: '与点云冲突',
-                    description: '场景内已有点云，无法加载植物。请先删除点云后再添加。',
-                    color: 'amber',
-                    icon: 'i-heroicons-exclamation-triangle'
-                })
-            }
-            return
-        }
-        const tree = await createEzTree({
-            preset: presetId
+/** 程序化植物已下线 */
+const choosePlant = async (_presetId: string, _position?: THREE.Vector3) => {
+    if (process.client) {
+        toast.add({
+            title: '植物功能已下线',
+            description: '程序化植物已移除，暂不支持添加',
+            color: 'amber',
+            icon: 'i-heroicons-exclamation-triangle'
         })
-        if (!threeCore.value) {
-            tree.traverse((obj) => {
-                const mesh = obj as THREE.Mesh
-                mesh.geometry?.dispose()
-                const mat = mesh.material
-                if (Array.isArray(mat)) mat.forEach((m) => m.dispose())
-                else mat?.dispose()
-            })
-            return
-        }
-        tree.position.copy(placeAt)
-        removeMaterialLoadPlaceholder(placeholder, threeCore.value.scene)
-        await new Promise<void>((r) => requestAnimationFrame(() => r()))
-        if (!threeCore.value) return
-        stampAndAddSceneObject(tree)
-        refreshResourceSnapshot()
-    } catch (err) {
-        console.error('创建植物失败:', err)
-        removeMaterialLoadPlaceholder(placeholder, threeCore.value?.scene)
-        if (process.client) {
-            toast.add({
-                title: '创建失败',
-                description: err instanceof Error ? err.message : '植物生成失败，请重试',
-                color: 'red'
-            })
-        }
-    } finally {
-        plantCreating.value = false
-        sceneStore.setLoading(false)
     }
 }
 
@@ -4770,9 +4707,9 @@ useHead({
                 />
             </div>
         </div>
-        <!-- 植物（ez-tree） -->
+        <!-- 植物面板已下线（原 ez-tree） -->
         <div
-            v-if="edit_mode || add_mode"
+            v-if="false"
             class="fixed right-0 z-[20] flex flex-col rounded-l-xl scene-neu-panel backdrop-blur-md overflow-hidden transition-all duration-300 ease-out"
             :class="[
                 plantListExpanded && !plantBlockedBySplat

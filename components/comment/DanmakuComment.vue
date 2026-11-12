@@ -7,6 +7,8 @@ import { BASE_IMG } from '@/utils/ipConfig';
 import { onMounted, onBeforeUnmount, ref, shallowRef, watch, nextTick } from 'vue';
 import UserInfo from '@/components/user/UserInfo.vue';
 
+const { t } = useI18n()
+
 interface Props {
   type: string;
   id?: number | number[];
@@ -470,10 +472,10 @@ const handleDeleteComment = async () => {
       const idx = activeDanmakus.findIndex((item) => item.comment.comment_id === d.comment.comment_id);
       if (idx >= 0) activeDanmakus.splice(idx, 1);
       closePopup();
-      useToast().add({ title: '已删除', icon: 'i-heroicons-check-circle', color: 'green' });
+      useToast().add({ title: t('comment.deleted'), icon: 'i-heroicons-check-circle', color: 'green' });
     }
   } catch (e) {
-    useToast().add({ title: '删除失败', icon: 'i-heroicons-exclamation-circle', color: 'red' });
+    useToast().add({ title: t('comment.delete_failed'), icon: 'i-heroicons-exclamation-circle', color: 'red' });
   } finally {
     isDeleting.value = false;
   }
@@ -696,7 +698,7 @@ watch(controlsExpanded, (v) => {
     <div v-if="selectedDanmaku" class="user-popup-overlay" @click="closePopup">
       <div class="user-popup" @click.stop>
         <div class="popup-header">
-           <span class="popup-title">用户信息</span>
+           <span class="popup-title">{{ t('comment.user_info') }}</span>
            <div class="flex items-center gap-2">
              <button
                v-if="canDeleteSelected"
@@ -705,7 +707,7 @@ watch(controlsExpanded, (v) => {
                :disabled="isDeleting"
                @click="handleDeleteComment"
              >
-               {{ isDeleting ? '删除中...' : '删除' }}
+               {{ isDeleting ? t('comment.deleting') : t('common.delete') }}
              </button>
              <button class="close-btn" @click="closePopup">&times;</button>
            </div>
@@ -717,7 +719,7 @@ watch(controlsExpanded, (v) => {
         >
           <UserInfo :user="selectedDanmaku.comment.user" size="mini" />
         </div>
-        <div v-else class="popup-user-fallback text-sm text-gray-500 py-2">用户信息加载中</div>
+        <div v-else class="popup-user-fallback text-sm text-gray-500 py-2">{{ t('comment.user_info_loading') }}</div>
         <div class="popup-comment">
           {{ (selectedDanmaku.comment?.comment_content || '').replace(/<[^>]*>/g, '') }}
         </div>
@@ -727,38 +729,37 @@ watch(controlsExpanded, (v) => {
     <!-- 加载状态 -->
     <div v-if="isLoading" class="danmaku-loading">
       <div class="loading-spinner"></div>
-      <span class="loading-text">加载中...</span>
+      <span class="loading-text">{{ t('common.loading') }}</span>
     </div>
 
     <!-- 空状态 -->
     <div v-if="!isLoading && danmakuList.length === 0" class="danmaku-empty">
-      <!-- <span>暂无弹幕</span> -->
     </div>
 
     <!-- 发送弹幕对话框 -->
     <div v-if="showSendDialog" class="send-dialog-overlay" @click="closeSendDialog">
       <div class="send-dialog" @click.stop>
         <div class="dialog-header">
-          <span class="dialog-title">发送弹幕</span>
+          <span class="dialog-title">{{ t('comment.danmaku_send') }}</span>
           <button class="close-btn" @click="closeSendDialog">&times;</button>
         </div>
         <div class="dialog-content">
           <textarea
             v-model="sendContent"
             class="send-textarea"
-            placeholder="输入弹幕内容..."
+            :placeholder="t('comment.danmaku_placeholder')"
             rows="4"
             maxlength="200"
           ></textarea>
         </div>
         <div class="dialog-footer">
-          <button class="dialog-btn cancel-btn" @click="closeSendDialog">取消</button>
+          <button class="dialog-btn cancel-btn" @click="closeSendDialog">{{ t('common.cancel') }}</button>
           <button 
             class="dialog-btn send-btn" 
             @click="sendDanmaku"
             :disabled="!sendContent.trim() || isSending"
           >
-            {{ isSending ? '发送中...' : '发送' }}
+            {{ isSending ? t('comment.danmaku_sending') : t('comment.danmaku_send_btn') }}
           </button>
         </div>
       </div>
@@ -775,14 +776,14 @@ watch(controlsExpanded, (v) => {
         type="button"
         class="flex items-center justify-center gap-1 py-2 px-1.5 shrink-0 text-qhx-primary hover:bg-purple-50 dark:hover:bg-gray-700/50 transition-colors"
         :class="controlsExpanded ? 'border-b border-gray-100 dark:border-gray-600' : 'min-h-[40px]'"
-        :title="controlsExpanded ? '收起' : '展开'"
+        :title="controlsExpanded ? t('comment.danmaku_collapse') : t('comment.danmaku_expand')"
         @click="controlsExpanded = !controlsExpanded"
       >
         <UIcon
           :name="controlsExpanded ? 'material-symbols:chevron-right' : 'material-symbols:chat-bubble-outline'"
           class="text-lg sm:text-xl transition-transform"
         />
-        <span v-if="controlsExpanded" class="text-xs font-medium hidden sm:inline">弹幕</span>
+        <span v-if="controlsExpanded" class="text-xs font-medium hidden sm:inline">{{ t('comment.danmaku') }}</span>
       </button>
       <div
         class="danmaku-controls-content flex flex-col gap-2 min-h-0 overflow-hidden"
@@ -792,36 +793,36 @@ watch(controlsExpanded, (v) => {
           <button
             type="button"
             class="danmaku-control-btn flex items-center gap-1.5 py-1.5 px-2 rounded-md hover:bg-purple-50 dark:hover:bg-gray-700/50 transition-colors text-left text-gray-700 dark:text-gray-200"
-            :title="isVisible ? '隐藏弹幕' : '显示弹幕'"
+            :title="isVisible ? t('comment.danmaku_hide') : t('comment.danmaku_show')"
             @click="toggleVisibility"
           >
             <div class="w-6 h-6 rounded-full bg-qhx-primary flex items-center justify-center shrink-0">
               <UIcon v-if="isVisible" name="i-heroicons-eye" class="text-xs text-white" />
               <UIcon v-else name="i-heroicons-eye-slash" class="text-xs text-white" />
             </div>
-            <span class="text-xs font-medium">{{ isVisible ? '隐藏' : '显示' }}</span>
+            <span class="text-xs font-medium">{{ isVisible ? t('comment.danmaku_hide_short') : t('comment.danmaku_show_short') }}</span>
           </button>
           <button
             type="button"
             class="danmaku-control-btn flex items-center gap-1.5 py-1.5 px-2 rounded-md hover:bg-purple-50 dark:hover:bg-gray-700/50 transition-colors text-left text-gray-700 dark:text-gray-200"
-            title="留言板"
+            :title="t('comment.message_board')"
             @click="toggleMessageBoard"
           >
             <div class="w-6 h-6 rounded-full bg-qhx-primary flex items-center justify-center shrink-0">
               <UIcon name="i-heroicons-clipboard-document-list" class="text-xs text-white" />
             </div>
-            <span class="text-xs font-medium">留言板</span>
+            <span class="text-xs font-medium">{{ t('comment.message_board') }}</span>
           </button>
           <button
             type="button"
             class="danmaku-control-btn flex items-center gap-1.5 py-1.5 px-2 rounded-md hover:bg-purple-50 dark:hover:bg-gray-700/50 transition-colors text-left text-gray-700 dark:text-gray-200"
-            title="发送弹幕"
+            :title="t('comment.danmaku_send')"
             @click="openSendDialog"
           >
             <div class="w-6 h-6 rounded-full bg-qhx-primary flex items-center justify-center shrink-0">
               <UIcon name="i-heroicons-paper-airplane" class="text-xs text-white" />
             </div>
-            <span class="text-xs font-medium">发弹幕</span>
+            <span class="text-xs font-medium">{{ t('comment.danmaku_send_short') }}</span>
           </button>
         </div>
       </div>
@@ -831,8 +832,8 @@ watch(controlsExpanded, (v) => {
     <div v-if="showMessageBoard" class="message-board-overlay" @click="closeMessageBoard">
       <div class="message-board" @click.stop>
         <div class="message-board-header">
-          <span class="message-board-title">留言板</span>
-          <span class="message-board-count">共 {{ danmakuList.length }} 条</span>
+          <span class="message-board-title">{{ t('comment.message_board') }}</span>
+          <span class="message-board-count">{{ t('comment.total_count', { n: danmakuList.length }) }}</span>
           <button class="close-btn" @click="closeMessageBoard">&times;</button>
         </div>
         <div class="message-board-list">
@@ -852,12 +853,12 @@ watch(controlsExpanded, (v) => {
               <UIcon name="i-heroicons-user" class="text-gray-400" />
             </div>
             <div class="message-board-content">
-              <div class="message-board-user">{{ c.user?.user_name || '匿名' }}</div>
+              <div class="message-board-user">{{ c.user?.user_name || t('comment.anonymous') }}</div>
               <div class="message-board-text">{{ formatCommentContent(c.comment_content) }}</div>
             </div>
           </div>
           <div v-if="!isLoading && danmakuList.length === 0" class="message-board-empty">
-            暂无留言
+            {{ t('comment.message_board_empty') }}
           </div>
         </div>
       </div>

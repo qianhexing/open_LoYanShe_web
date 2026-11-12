@@ -55,14 +55,60 @@ export default defineNuxtConfig({
 		}
 	},
 	build: {
-    transpile: ['three', 'mind-ar', '@dgreenheck/ez-tree', 'heic-to']
+    transpile: ['three', 'mind-ar', 'heic-to']
   },
+	vite: {
+		build: {
+			rollupOptions: {
+				output: {
+					manualChunks(id) {
+						const normalized = id.replace(/\\/g, '/')
+						// 强制把 Vite preload helper 留在独立小包，避免和 three/spark 粘成 8MB 共享入口
+						if (
+							normalized.includes('vite/preload-helper') ||
+							normalized.includes('\0vite/preload-helper')
+						) {
+							return 'vite-preload'
+						}
+						if (!normalized.includes('node_modules')) return
+						if (normalized.includes('@sparkjsdev/spark')) return 'vendor-spark'
+						if (normalized.includes('/three/') || normalized.endsWith('/three')) {
+							return 'vendor-three'
+						}
+						if (normalized.includes('ammo.js') || normalized.includes('/ammo/')) {
+							return 'vendor-ammo'
+						}
+						if (normalized.includes('gsap')) return 'vendor-gsap'
+						if (normalized.includes('@tiptap') || normalized.includes('prosemirror')) {
+							return 'vendor-tiptap'
+						}
+						if (normalized.includes('echarts') || normalized.includes('zrender')) {
+							return 'vendor-echarts'
+						}
+						if (normalized.includes('mind-ar')) return 'vendor-mind-ar'
+					},
+				},
+			},
+		},
+		// linkedom 主入口会拉 commonjs/canvas.cjs（含 require）；SSR 插件只用 linkedom/worker
+		ssr: {
+			external: ['linkedom', 'linkedom/worker', 'canvas'],
+		},
+	},
 	nitro: {
 		routeRules: {
 			'/wardrobe/**': { ssr: false },
-			'/clothes/detail/**': { ssr: false },
+			// 服饰 / 我的手账 / 我的搭配 / 搭配详情 / 我的计划：App WebView 冷启动，不走 SSR
+			'/clothes/**': { ssr: false },
+			'/journal': { ssr: false },
+			'/journal/**': { ssr: false },
+			'/matching': { ssr: false },
+			'/matching/**': { ssr: false },
+			'/user/plan': { ssr: false },
 			'/community/detail/**': { ssr: false },
 			'/community/post': { ssr: false },
+			'/library/detail/**': { ssr: false },
+			'/shop/detail/**': { ssr: false },
 			'/node/**': {
 				proxy: 'https://lolitalibrary.com/node/**'
 			},
@@ -82,7 +128,36 @@ export default defineNuxtConfig({
 			// 	}
 			// }
 		},
-		compressPublicAssets: true // 启动压缩
+		compressPublicAssets: true, // 启动压缩
+		/**
+		 * 生产 SSR 为 ESM：若仍有 CJS 被 inline 且残留 require()，
+		 * 注入 createRequire，避免 `require is not defined in ES module scope`。
+		 * 已自带 createRequire 的 chunk 跳过，防止重复声明。
+		 */
+		hooks: {
+			'rollup:before'(_nitro, config) {
+				const plugins = config.plugins ?? []
+				config.plugins = [
+					...plugins,
+					{
+						name: 'inject-cjs-require-for-esm',
+						renderChunk(code: string) {
+							if (!/\brequire\s*\(/.test(code)) return null
+							if (/\bcreateRequire\b/.test(code) && /\brequire\s*=/.test(code)) {
+								return null
+							}
+							return {
+								code:
+									'import { createRequire } from \'node:module\';\n' +
+									'const require = createRequire(import.meta.url);\n' +
+									code,
+								map: null,
+							}
+						},
+					},
+				]
+			},
+		},
 	},
 	
 	runtimeConfig: {
@@ -120,7 +195,7 @@ export default defineNuxtConfig({
     },
   },
 	compatibilityDate: '2024-11-01',
-	devtools: { enabled: true },
+	devtools: { enabled: process.env.NODE_ENV !== 'production' },
 	// 关掉 NuxtLink 视口预取，避免导航栏/列表链接触发上百个路由 chunk 请求
 	experimental: {
 		defaults: {
@@ -163,6 +238,10 @@ export default defineNuxtConfig({
     }
   },
 	modules: ['@nuxtjs/seo', '@nuxt/ui', '@nuxtjs/tailwindcss', '@vueuse/nuxt', '@pinia/nuxt', '@nuxtjs/i18n'],
+	// @nuxtjs/seo 会带上 nuxt-og-image → @resvg 全平台原生包（约 40MB+），项目未用 defineOgImage，关掉以免 server 产物膨胀
+	ogImage: {
+		enabled: false,
+	},
 	imports: {
     autoImport: true,
 		dirs: ['stores', 'directives']
@@ -183,19 +262,24 @@ export default defineNuxtConfig({
 			theme: {
 				extend: {
 					colors: {
+						/**
+						 * 必须用 hex：app.config primary='pink' 时 Nuxt UI 会把 pink 转成
+						 * --color-primary-*；写成 var(--color-pink-*) 会得到 null，主按钮透明。
+						 * 动态主题走 qhx-primary / --primary-color，不要把 pink 绑到未包装的 RGB 变量。
+						 */
 						pink: {
-							50: 'var(--color-pink-50)',
-							100: 'var(--color-pink-100)',
-							200: 'var(--color-pink-200)',
-							300: 'var(--color-pink-300)',
-							400: 'var(--color-pink-400)',
-							500: 'var(--color-pink-500)', // 基准色
-							600: 'var(--color-pink-600)',
-							700: 'var(--color-pink-700)',
-							800: 'var(--color-pink-800)',
-							900: 'var(--color-pink-900)',
-							950: 'var(--color-pink-950)',
-							DEFAULT: 'var(--color-pink-500)'
+							50: '#FFF0F4',
+							100: '#FFE1EA',
+							200: '#FFC8D6',
+							300: '#FFAFC4',
+							400: '#FF96B2',
+							500: '#FF9EB5',
+							600: '#E67896',
+							700: '#C85A78',
+							800: '#AA3C5A',
+							900: '#8C2841',
+							950: '#641428',
+							DEFAULT: '#FF9EB5'
 						},
 						// 自定义主色调 - 粉色系
 						primary: {
@@ -227,30 +311,30 @@ export default defineNuxtConfig({
 							950: '#030712',
 							DEFAULT: '#6B7280'
 						},
-						// 基础颜色变量
-						'qhx-primary': 'var(--primary-color)',
-						'qhx-primaryHover': 'var(--primary-color)',
-						'qhx-inverted': 'var(--inverted-color)', // 反色与主色相对
-						'qhx-secondary': 'var(--primaryHover-color)',
-						'qhx-accent': 'var(--accent-color)',
+						// 基础颜色变量（带 fallback，避免主题 apply 前透明）
+						'qhx-primary': 'var(--primary-color, #FF9EB5)',
+						'qhx-primaryHover': 'var(--primaryHover-color, #FFB3C6)',
+						'qhx-inverted': 'var(--inverted-color, #ffffff)',
+						'qhx-secondary': 'var(--secondary-color, #A5D8FF)',
+						'qhx-accent': 'var(--accent-color, #B5EAD7)',
 						
 						// 背景和文字
-						'qhx-bg': 'var(--background-color)',
-						'qhx-bg-card': 'var(--card-color)',
-						'qhx-text': 'var(--text-color)',
-						'qhx-textBg': 'var(--textBg-color)',
-						'qhx-text-muted': 'var(--text-muted-color)',
-						'qhx-textInverted': 'var(--textInverted-color)',
+						'qhx-bg': 'var(--background-color, #FFF9FB)',
+						'qhx-bg-card': 'var(--card-color, #FFFFFF)',
+						'qhx-text': 'var(--text-color, #000000)',
+						'qhx-textBg': 'var(--textBg-color, #212121)',
+						'qhx-text-muted': 'var(--textSecondary-color, #9B8A97)',
+						'qhx-textInverted': 'var(--textInverted-color, #FFFFFF)',
 						
 						// 状态色
-						'qhx-success': 'var(--success-color)',
-						'qhx-warning': 'var(--warning-color)',
-						'qhx-danger': 'var(--danger-color)',
-						'qhx-info': 'var(--info-color)',
+						'qhx-success': 'var(--success-color, #B5EAD7)',
+						'qhx-warning': 'var(--warning-color, #FFD700)',
+						'qhx-danger': 'var(--error-color, #df2343)',
+						'qhx-info': 'var(--info-color, #A5D8FF)',
 						
 						// 灰度
-						'qhx-border': 'var(--border-color)',
-						'qhx-divider': 'var(--divider-color)'
+						'qhx-border': 'var(--border-color, #FFD1DC)',
+						'qhx-divider': 'var(--divider-color, #FFE5EE)'
 					},
 				}
 			}

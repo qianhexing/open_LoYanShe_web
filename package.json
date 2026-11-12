@@ -6,15 +6,15 @@
     "cz": "czg",
     "preinstall": "node ./scripts/preinstall.js",
     "dev": "nuxt dev",
-    "build": "nuxt build",
-    "generate": "nuxt generate",
+    "build": "node --max-old-space-size=8192 ./node_modules/nuxt/bin/nuxt.mjs build",
+    "generate": "node --max-old-space-size=8192 ./node_modules/nuxt/bin/nuxt.mjs generate",
     "preview": "nuxt preview",
+    "analyze": "node --max-old-space-size=8192 ./node_modules/nuxt/bin/nuxt.mjs analyze",
     "deploy:assets": "node ./scripts/upload-nuxt-assets-to-oss.mjs",
     "postinstall": "nuxt prepare"
   },
   "dependencies": {
     "@dcloudio/uni-webview-js": "^0.0.3",
-    "@dgreenheck/ez-tree": "^1.1.0",
     "@msgpack/msgpack": "2.8.0",
     "@nuxt/image": "1.9.0",
     "@nuxt/ui": "2.21.0",

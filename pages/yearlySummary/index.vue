@@ -447,7 +447,9 @@ import QhxPreviewImage from '@/components/Qhx/PreviewImage.vue'
 import { openCommunityDetailTab } from '@/composables/useLibraryDetailNavigation'
 import { isHtml5PlusWebview } from '@/utils/nativeShell'
 let uni: any;
-const { $gsap } = useNuxtApp()
+import { loadGsap } from '@/utils/gsapLazy'
+type GsapApi = Awaited<ReturnType<typeof loadGsap>>['gsap']
+let $gsap: GsapApi | null = null
 const route = useRoute()
 const router = useRouter()
 const userStore = useUserStore()
@@ -870,8 +872,14 @@ const getErrorMessage = (error: unknown): string => {
   return '操作失败，请稍后重试'
 }
 
-const initAnimations = () => {
-  if (!$gsap) return
+const initAnimations = async () => {
+  if (!$gsap) {
+    try {
+      $gsap = (await loadGsap()).gsap
+    } catch {
+      return
+    }
+  }
 
   const tl = $gsap.timeline()
 

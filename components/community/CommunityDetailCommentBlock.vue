@@ -6,7 +6,7 @@ const CommentSection = defineAsyncComponent(
   () => import('@/components/comment/CommentSection.vue'),
 )
 
-withDefaults(
+const props = withDefaults(
   defineProps<{
     communityId: number
     commentTotal: number
@@ -22,9 +22,12 @@ withDefaults(
   {
     variant: 'card',
     reserveBottomForFixedBar: true,
-    myName: '未登录',
+    myName: undefined,
   },
 )
+
+const { t } = useI18n()
+const displayName = computed(() => props.myName || t('comment.anonymous'))
 
 const emit = defineEmits<{
   'open-composer': []
@@ -50,8 +53,8 @@ const emit = defineEmits<{
           : 'border-gray-100 dark:border-gray-700/60'
       "
     >
-      <h3 class="text-base font-semibold text-gray-900 dark:text-gray-100">评论</h3>
-      <span class="text-xs text-gray-500 dark:text-gray-400">共 {{ commentTotal }} 条</span>
+      <h3 class="text-base font-semibold text-gray-900 dark:text-gray-100">{{ t('comment.title') }}</h3>
+      <span class="text-xs text-gray-500 dark:text-gray-400">{{ t('comment.total_count', { n: commentTotal }) }}</span>
     </div>
     <div
       class="min-h-[min(50vh,480px)]"
@@ -61,7 +64,7 @@ const emit = defineEmits<{
         <div class="mb-3 flex items-center gap-3">
           <UAvatar
             :src="myAvatar"
-            :alt="myName"
+            :alt="displayName"
             size="sm"
             class="flex-shrink-0 bg-gray-100"
           />
@@ -71,7 +74,7 @@ const emit = defineEmits<{
             @click="emit('open-composer')"
           >
             <span class="i-heroicons-pencil mr-2 h-4 w-4" />
-            说点什么…
+            {{ t('comment.say_something') }}
           </button>
         </div>
       </div>
@@ -90,7 +93,7 @@ const emit = defineEmits<{
         class="flex min-h-[120px] items-center justify-center py-8 text-sm text-gray-400"
         aria-busy="true"
       >
-        评论加载中…
+        {{ t('comment.loading') }}
       </div>
     </div>
   </div>

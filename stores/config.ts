@@ -2,7 +2,47 @@
 import { defineStore } from 'pinia'
 import { getConfig } from '@/api/index'
 import type { Config } from '@/types/api'
-import { useCookie } from '#app'
+
+/** App 嵌入多页跳转复用：localStorage 缓存 1 小时，避免每个 WebView 冷启动都打 /config */
+const APP_CONFIG_STORAGE_KEY = 'app_config_v1'
+const APP_CONFIG_TTL_MS = 60 * 60 * 1000
+
+interface StoredAppConfig {
+  savedAt: number
+  config: Config
+}
+
+function readCachedConfig(): Config | null {
+  if (typeof window === 'undefined' || !window.localStorage) return null
+  try {
+    const raw = localStorage.getItem(APP_CONFIG_STORAGE_KEY)
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as StoredAppConfig
+    if (!parsed?.config || typeof parsed.savedAt !== 'number') return null
+    if (Date.now() - parsed.savedAt > APP_CONFIG_TTL_MS) {
+      localStorage.removeItem(APP_CONFIG_STORAGE_KEY)
+      return null
+    }
+    return parsed.config
+  } catch {
+    try {
+      localStorage.removeItem(APP_CONFIG_STORAGE_KEY)
+    } catch {
+      /* ignore */
+    }
+    return null
+  }
+}
+
+function writeCachedConfig(config: Config) {
+  if (typeof window === 'undefined' || !window.localStorage) return
+  try {
+    const payload: StoredAppConfig = { savedAt: Date.now(), config }
+    localStorage.setItem(APP_CONFIG_STORAGE_KEY, JSON.stringify(payload))
+  } catch {
+    /* quota / private mode */
+  }
+}
 
 /** layout 中 import('@dcloudio/uni-webview-js') 后缓存，避免各处重复动态 import */
 export interface UniWebviewJsModule {
@@ -98,31 +138,44 @@ export const useConfigStore = defineStore('config', {
       this.uniWebviewJs = mod
     },
     async getConfig(forceRefresh = false) {
-      // 已有缓存且不强制刷新
-      if (process.client && typeof window !== 'undefined' && window.sessionStorage) {
-      const storedConfig = sessionStorage.getItem('app_config');
-        if (storedConfig && !forceRefresh) {
-          this.config = JSON.parse(storedConfig); // 解析存储的 JSON
-          return this.config;
+      // 内存已有且不强制刷新
+      if (this.config && !forceRefresh) {
+        return this.config
+      }
+
+      // localStorage 1h 缓存：嵌入页跳转 / 新开 WebView 同域可复用
+      if (import.meta.client && !forceRefresh) {
+        const cached = readCachedConfig()
+        if (cached) {
+          this.config = cached
+          return cached
         }
       }
-      
+
       this.loading = true
       try {
-        
         const response = await getConfig()
-        // try {
-        //   configCookie.value = response
-        // } catch (error) {
-        //   console.log(error, '配置错误')
-        // }
-        // 更新状态
         this.config = response
-        if (process.client && typeof window !== 'undefined' && window.sessionStorage) {
-          sessionStorage.setItem('app_config', JSON.stringify(this.config));
+        if (import.meta.client) {
+          writeCachedConfig(response)
         }
         return response
-      } catch (err) {
+      } catch {
+        // 请求失败时若有过期缓存也可兜底（仍超过 TTL 则没有）
+        if (import.meta.client && !this.config) {
+          try {
+            const raw = localStorage.getItem(APP_CONFIG_STORAGE_KEY)
+            if (raw) {
+              const parsed = JSON.parse(raw) as StoredAppConfig
+              if (parsed?.config) {
+                this.config = parsed.config
+                return parsed.config
+              }
+            }
+          } catch {
+            /* ignore */
+          }
+        }
       } finally {
         this.loading = false
       }

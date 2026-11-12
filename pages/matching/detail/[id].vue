@@ -1,17 +1,14 @@
 <script setup lang="ts">
+import { defineAsyncComponent } from 'vue'
 import { getMatchingDetail, updateMatchingClothesLastDress, type MatchingListDetail } from '@/api/matching_list'
 import { BASE_IMG } from '@/utils/ipConfig'
 import dayjs from 'dayjs'
-import LibraryList from '@/components/library/LibraryList.vue'
-import CommentSection from '@/components/comment/CommentSection.vue'
-import CommunityForeignList from '@/components/community/CommunityForeignList.vue'
 import QhxPreviewImage from '@/components/Qhx/PreviewImage.vue'
 import QhxTabs from '@/components/Qhx/Tabs.vue'
 import QhxTabPanel from '@/components/Qhx/TabPanel.vue'
 import UserInfo from '@/components/user/UserInfo.vue'
 import UserGoodBtn from '@/components/user/GoodBtn.vue'
 import UserCollectBtn from '@/components/user/CollectBtn.vue'
-import MatchingShareImage from '@/components/matching/MatchingShareImage.vue'
 import type { MatchingSharePayload } from '@/components/matching/MatchingShareImage.vue'
 import type { Library, Shop, User } from '~/types/api'
 import {
@@ -19,6 +16,19 @@ import {
   openUserSpaceTab,
 } from '@/composables/useLibraryDetailNavigation'
 import { navigateBackInShell } from '@/utils/nativeShell'
+
+const LibraryList = defineAsyncComponent(
+  () => import('@/components/library/LibraryList.vue'),
+)
+const CommentSection = defineAsyncComponent(
+  () => import('@/components/comment/CommentSection.vue'),
+)
+const CommunityForeignList = defineAsyncComponent(
+  () => import('@/components/community/CommunityForeignList.vue'),
+)
+const MatchingShareImage = defineAsyncComponent(
+  () => import('@/components/matching/MatchingShareImage.vue'),
+)
 
 let uni: any
 const configStore = useConfigStore()
@@ -168,9 +178,11 @@ const matchingSharePayload = computed((): MatchingSharePayload | null => {
   }
 })
 
+const { t } = useI18n()
+
 // 标签页
 const currentTab = ref(0)
-const tabs = ['搭配详情', '评论区', '搭配返图']
+const tabs = computed(() => ['搭配详情', t('comment.section'), '搭配返图'])
 
 // 弹窗状态
 const showActivityModal = ref(false)

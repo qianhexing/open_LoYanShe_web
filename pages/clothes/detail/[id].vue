@@ -1,34 +1,18 @@
 <script setup lang="ts">
-definePageMeta({
-  ssr: false,
-})
-
-import { nextTick } from 'vue'
+import { nextTick, defineAsyncComponent } from 'vue'
 import type { WardrobeClothes, Library, Shop, Wardrobe, Scene, Community } from '@/types/api'
-
-// 扩展 WardrobeClothes 类型以包含关联数据
-interface ExtendedWardrobeClothes extends WardrobeClothes {
-  library?: Library
-  wardrobe?: Wardrobe
-  origin_shop?: Shop
-  sence_id?: number
-  image_list?: string[]
-}
 import { getClothesDetail, getClothesListAllFallback, parseClothesIdsFromRows, updateClothes, deteleClothes, addClothesCitation } from '@/api/wardrobe'
 import { getCommunityForeignList, insertCommunityForeign } from '@/api/community'
 import { getMatchingListListVisitor, deleteMatchingList, type MatchingListItem } from '@/api/matching_list'
 import type MatchingAddEdit from '@/components/matching/MatchingAddEdit.vue'
 import { planComplete, deletePlanList } from '@/api/plan'
 import type ClothesAdd from '@/components/Clothes/ClothesAdd.vue'
-import PlanAddEdit from '@/components/Plan/PlanAddEdit.vue'
+import { waitForMountedRef } from '@/composables/useWaitMountedRef'
 import type QhxSelect from '@/components/Qhx/Select.vue'
 import type { optionsInterface } from '@/components/Qhx/Select.vue'
 import type SceneChoose from '@/components/scene/SceneChoose.vue'
-import WardrobeClothesChoose from '@/components/Wardrobe/WardrobeClothesChoose.vue'
 import ClothesFavoriteCoverOverlay from '@/components/Clothes/ClothesFavoriteCoverOverlay.vue'
 import ClothesDetailCoverFrame from '@/components/Clothes/ClothesDetailCoverFrame.vue'
-import CommunityPostModal from '@/components/community/CommunityPostModal.vue'
-import ClothesShareImage from '@/components/Clothes/ClothesShareImage.vue'
 import { CLOTHES_MEMORY_IS_OPEN_STORAGE_KEY, type CommunityPostForeignContext } from '@/utils/communityPost'
 import type { ClothesShareSource } from '@/utils/clothesShareCanvas'
 import { BASE_IMG } from '@/utils/ipConfig'
@@ -39,7 +23,6 @@ import {
   toAbsoluteMediaUrl,
   toCommunityLivePosterPath,
 } from '@/utils/communityLiveMedia'
-import PhysicsDrop from '@/components/PhysicsDrop.client.vue'
 import type { MaterialForeign, Material } from '@/types/api'
 import { getLibraryVideo } from '@/api/library'
 import { buildHumanPlatformNav } from '@/utils/humanPlatformNav'
@@ -56,6 +39,39 @@ import {
   wardrobeStatusLabel,
   wardrobeStatusOptions as buildWardrobeStatusOptions,
 } from '@/utils/wardrobeDisplayI18n'
+
+definePageMeta({
+  ssr: false,
+})
+
+const loadClothesAdd = () => import('@/components/Clothes/ClothesAdd.vue')
+const loadPlanAddEdit = () => import('@/components/Plan/PlanAddEdit.vue')
+const ClothesAddAsync = defineAsyncComponent(loadClothesAdd)
+const PlanAddEdit = defineAsyncComponent(loadPlanAddEdit)
+const WardrobeClothesChoose = defineAsyncComponent(
+  () => import('@/components/Wardrobe/WardrobeClothesChoose.vue'),
+)
+const CommunityPostModal = defineAsyncComponent(
+  () => import('@/components/community/CommunityPostModal.vue'),
+)
+const ClothesShareImage = defineAsyncComponent(
+  () => import('@/components/Clothes/ClothesShareImage.vue'),
+)
+const PhysicsDrop = defineAsyncComponent(
+  () => import('@/components/PhysicsDrop.client.vue'),
+)
+/** 首次使用编辑弹窗时再挂载，避免进页即拉 ClothesAdd */
+const clothesEditorMounted = ref(false)
+
+// 扩展 WardrobeClothes 类型以包含关联数据
+interface ExtendedWardrobeClothes extends WardrobeClothes {
+  library?: Library
+  wardrobe?: Wardrobe
+  origin_shop?: Shop
+  sence_id?: number
+  image_list?: string[]
+}
+
 let uni: any;
 const configStore = useConfigStore()
 const port = computed(() => configStore.getPort())
@@ -716,28 +732,37 @@ const planPriceDisplay = computed(() => {
 const includeCoverPrimary = computed(() => detail.value?.include?.slice(0, 3) ?? [])
 const includeCoverOverflow = computed(() => detail.value?.include?.slice(3) ?? [])
 
+async function ensureClothesEditor() {
+  if (!detail.value) return null
+  return waitForMountedRef({
+    mounted: clothesEditorMounted,
+    getRef: () => addEditClothesRef.value,
+    preload: loadClothesAdd,
+  })
+}
+
 // 编辑服饰（detail 已是 /clothes/id，标记 detailReady 避免 ClothesAdd 再拉一次）
-const editClothes = () => {
-  if (addEditClothesRef.value && detail.value) {
-    const item = {
-      ...detail.value,
-      wardrobe_name: detail.value.wardrobe?.wardrobe_name,
-      detailReady: true,
-    }
-    addEditClothesRef.value.showModel(item)
-  }
+const editClothes = async () => {
+  if (!detail.value) return
+  const editor = await ensureClothesEditor()
+  if (!editor) return
+  editor.showModel({
+    ...detail.value,
+    wardrobe_name: detail.value.wardrobe?.wardrobe_name,
+    detailReady: true,
+  })
 }
 
 // 复制服饰
-const copyClothes = () => {
-  if (addEditClothesRef.value && detail.value) {
-    const item = {
-      ...detail.value,
-      wardrobe_name: detail.value.wardrobe?.wardrobe_name,
-      detailReady: true,
-    }
-    addEditClothesRef.value.showModel(item, true)
-  }
+const copyClothes = async () => {
+  if (!detail.value) return
+  const editor = await ensureClothesEditor()
+  if (!editor) return
+  editor.showModel({
+    ...detail.value,
+    wardrobe_name: detail.value.wardrobe?.wardrobe_name,
+    detailReady: true,
+  }, true)
 }
 
 // 删除服饰
@@ -1914,13 +1939,13 @@ const handleObjectClick = (data: { url: string; name: string; id: string | numbe
 
 // PhysicsDrop 显示/隐藏控制 - 与 library detail 共用缓存
 const PHYSICS_DROP_VISIBLE_KEY = 'physicsDropVisible'
-// 从 localStorage 读取初始状态，默认显示
+// 从 localStorage 读取初始状态；默认关闭，避免冷启动立刻拉 three/ammo
 const getInitialVisibility = (): boolean => {
   if (import.meta.client) {
     const savedState = localStorage.getItem(PHYSICS_DROP_VISIBLE_KEY)
-    return savedState !== null ? savedState === 'true' : true
+    return savedState === 'true'
   }
-  return true
+  return false
 }
 const isPhysicsDropVisible = ref(getInitialVisibility())
 
@@ -2357,7 +2382,11 @@ const showEditPlan = (e?: MouseEvent) => {
       @success="onClothesMemoryPostSuccess"
     />
 
-    <clothes-add ref="addEditClothesRef" @success="onEditSuccess"></clothes-add>
+    <ClothesAddAsync
+      v-if="clothesEditorMounted"
+      ref="addEditClothesRef"
+      @success="onEditSuccess"
+    />
     <PlanAddEdit
       ref="planAddEditRef"
       :plan-list="detail?.plan ?? null"

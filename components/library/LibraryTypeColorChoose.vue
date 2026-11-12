@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, shallowRef } from 'vue'
+import { computed, onUnmounted, shallowRef } from 'vue'
 import { getLibraryList, getLibraryVideo } from '@/api/library'
 import type { Library, LibraryVideo } from '@/types/api'
 import type { LibraryTypeColorChooseResult } from '@/utils/libraryClothesSeed'
@@ -186,10 +186,25 @@ const init = () => {
   imageList.value = []
 }
 
+let initAfterLeaveTimer: ReturnType<typeof setTimeout> | null = null
+
 const closeModel = () => {
   loadSeq += 1
   show.value = false
-  init()
+  // 勿在 leave 动画期间清空插槽 DOM，否则 Safari 易报 parentNode 空引用
+  if (initAfterLeaveTimer) clearTimeout(initAfterLeaveTimer)
+  initAfterLeaveTimer = setTimeout(() => {
+    initAfterLeaveTimer = null
+    if (!show.value) init()
+  }, 280)
+}
+
+const onModalAfterLeave = () => {
+  if (initAfterLeaveTimer) {
+    clearTimeout(initAfterLeaveTimer)
+    initAfterLeaveTimer = null
+  }
+  if (!show.value) init()
 }
 
 const showModel = async (item: Library, event?: MouseEvent) => {
@@ -287,11 +302,25 @@ const choose = () => {
   closeModel()
 }
 
+onUnmounted(() => {
+  if (initAfterLeaveTimer) {
+    clearTimeout(initAfterLeaveTimer)
+    initAfterLeaveTimer = null
+  }
+})
+
 defineExpose({ showModel })
 </script>
 
 <template>
-  <QhxModal v-model="show" :trigger-position="clickPosition" :z-index="240" :close-on-backdrop="false" @close="closeModel">
+  <QhxModal
+    v-model="show"
+    :trigger-position="clickPosition"
+    :z-index="240"
+    :close-on-backdrop="false"
+    @close="closeModel"
+    @after-leave="onModalAfterLeave"
+  >
     <div class="w-[95vw] max-w-3xl max-h-[90vh] bg-white dark:bg-gray-800 rounded-2xl shadow-2xl overflow-hidden flex flex-col backdrop-blur-xl border border-gray-200/50 dark:border-gray-700/50">
       <div class="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-700 bg-gradient-to-r from-pink-50 to-purple-50 dark:from-gray-800 dark:to-gray-800 flex-shrink-0">
         <h2 class="text-xl font-bold">选择图鉴型色</h2>

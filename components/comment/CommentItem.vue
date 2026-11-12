@@ -6,20 +6,23 @@ import { useContentTranslate } from '@/composables/useContentTranslate'
 import { formatRich, parseRichText, type RichNode } from '@/utils/public'
 import CommunityDetailForeignSection from '@/components/community/CommunityDetailForeignSection.vue'
 
-function formatCommentDateForDisplay(raw: Comment['date'] | undefined): string {
-  if (raw == null) return '未知'
+function formatCommentDateForDisplay(
+  raw: Comment['date'] | undefined,
+  t: (key: string, values?: Record<string, unknown>) => string,
+): string {
+  if (raw == null) return t('comment.unknown')
   const d = dayjs(raw as string | Date)
-  if (!d.isValid()) return '未知'
+  if (!d.isValid()) return t('comment.unknown')
   const now = dayjs()
   const diffMs = now.diff(d)
   if (diffMs < 0) return d.format('YY-MM-DD HH:mm')
   const oneDayMs = 24 * 60 * 60 * 1000
   if (diffMs < oneDayMs) {
     const minutes = Math.floor(diffMs / 60_000)
-    if (minutes < 1) return '刚刚'
-    if (minutes < 60) return `${minutes}分钟前`
+    if (minutes < 1) return t('comment.just_now')
+    if (minutes < 60) return t('comment.minutes_ago', { n: minutes })
     const hours = Math.floor(minutes / 60)
-    return `${hours}小时前`
+    return t('comment.hours_ago', { n: hours })
   }
   return d.format('YY-MM-DD HH:mm')
 }
@@ -53,10 +56,10 @@ const {
   resolveSourceLang,
 } = useContentTranslate()
 
-const commentTimeDisplay = computed(() => formatCommentDateForDisplay(props.item.date))
+const commentTimeDisplay = computed(() => formatCommentDateForDisplay(props.item.date, t))
 const commentIpDisplay = computed(() => {
   const s = props.item.ip_location?.trim()
-  return s || '未知'
+  return s || t('comment.unknown')
 })
 
 /** 优先 foreign_list；兼容旧字段 library_list（图鉴子集） */
@@ -172,7 +175,7 @@ const onDelete = (e: MouseEvent) => {
           <SafeRichText :nodes="richText"></SafeRichText>
         </div>
         <div class="flex flex-wrap w-full md:max-w-md">
-          <QhxPreviewImage :list="image.map((img) => { return { src: img + '?x-oss-process=image/quality,q_100/resize,w_200,h_200', alt: 'Lo研社' }})"
+          <QhxPreviewImage :list="image.map((img) => { return { src: img + '?x-oss-process=image/quality,q_100/resize,w_200,h_200', alt: t('common.brand') }})"
             :preview="image.map((img) => { return img })"
             :className="'w-[calc(100%/3-8px)] shadow-lg m-1 object-cover aspect-[1/1] rounded-[10px]'">
           </QhxPreviewImage>
@@ -188,7 +191,7 @@ const onDelete = (e: MouseEvent) => {
             class="text-qhx-primary cursor-pointer inline-block text-xs leading-snug"
             @click="showReply()"
           >
-            共 {{ item.r_count }} 条回复
+            {{ t('comment.replies_count', { n: item.r_count }) }}
           </div>
         </div>
         <div
@@ -198,7 +201,7 @@ const onDelete = (e: MouseEvent) => {
           <div class="min-w-0 text-gray-500 dark:text-gray-400">
             <span>{{ commentTimeDisplay }}</span>
             <span class="mx-1.5 opacity-50" aria-hidden="true">·</span>
-            <span>IP：{{ commentIpDisplay }}</span>
+            <span>{{ t('comment.ip', { location: commentIpDisplay }) }}</span>
           </div>
           <div class="flex shrink-0 items-center justify-end gap-3">
             <div
@@ -214,15 +217,15 @@ const onDelete = (e: MouseEvent) => {
               class="cursor-pointer text-red-500 hover:underline dark:text-red-400"
               @click="onDelete($event)"
             >
-              删除
+              {{ t('common.delete') }}
             </div>
             <div
               class="cursor-pointer text-qhx-primary hover:underline"
               @click.stop="reply($event)"
             >
-              回复
+              {{ t('comment.reply') }}
             </div>
-            <div class="text-gray-500 dark:text-gray-400">{{ item.floor }} 楼</div>
+            <div class="text-gray-500 dark:text-gray-400">{{ t('comment.floor', { n: item.floor }) }}</div>
           </div>
         </div>
       </div>

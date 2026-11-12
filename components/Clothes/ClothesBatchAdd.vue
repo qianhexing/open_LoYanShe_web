@@ -25,6 +25,19 @@ interface DraftRow {
 
 const { t } = useI18n()
 const toast = useToast()
+const configStore = useConfigStore()
+
+/** iOS Tab 内嵌：底部留白（query.tabbar → configStore） */
+const tabBarInsetPx = computed(() => {
+  const n = Number(configStore.tabBarHeight || 0)
+  return Number.isFinite(n) && n > 0 ? n : 0
+})
+const modalPanelStyle = computed(() =>
+  tabBarInsetPx.value > 0
+    ? { maxHeight: `calc(90dvh - ${tabBarInsetPx.value}px)` }
+    : undefined
+)
+
 const show = ref(false)
 const loading = ref(false)
 const clickPosition = ref({ x: 0, y: 0 })
@@ -165,9 +178,10 @@ defineExpose({ showModel })
 </script>
 
 <template>
-  <QhxModal v-model="show" :trigger-position="clickPosition" @close="reset">
+  <QhxModal v-model="show" :trigger-position="clickPosition" :bottom-inset="tabBarInsetPx" @close="reset">
     <div
       class="w-[95vw] max-w-2xl max-h-[90vh] bg-white dark:bg-gray-800 rounded-2xl shadow-2xl overflow-hidden flex flex-col border border-gray-200/50 dark:border-gray-700/50"
+      :style="modalPanelStyle"
     >
       <div
         class="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-700 shrink-0"
@@ -224,7 +238,13 @@ defineExpose({ showModel })
       </div>
 
       <div
-        class="flex justify-end gap-2 px-6 py-4 border-t border-gray-200 dark:border-gray-700 shrink-0"
+        class="flex justify-end gap-2 px-6 pt-4 border-t border-gray-200 dark:border-gray-700 shrink-0"
+        :style="{
+          paddingBottom:
+            tabBarInsetPx > 0
+              ? '1rem'
+              : 'max(1rem, env(safe-area-inset-bottom, 0px))',
+        }"
       >
         <UButton color="gray" variant="ghost" :ui="capsuleBtnUi" :disabled="loading" @click="closeModel">{{ t('common.cancel') }}</UButton>
         <UButton color="primary" :ui="capsuleBtnUi" :loading="loading" :disabled="!draftList.length" @click="submit">
