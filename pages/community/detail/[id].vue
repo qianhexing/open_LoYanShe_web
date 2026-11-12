@@ -28,7 +28,7 @@ import {
   toAbsoluteMediaUrl,
 } from '@/utils/communityLiveMedia'
 import CommunityLiveThumb from '@/components/community/CommunityLiveThumb.vue'
-import { navigateBackInShell } from '@/utils/nativeShell'
+import { nativeReloadHome, navigateBackInShell } from '@/utils/nativeShell'
 
 const CommunityCommentModal = defineAsyncComponent(
   () => import('@/components/community/CommentModal.vue'),
@@ -309,7 +309,9 @@ const communityDeleteModalOpen = ref(false)
 const communityDeleteLoading = ref(false)
 
 function navigateAfterCommunityDelete() {
-  if (navigateBackInShell({ reload: true })) return
+  // 原生主页保页重拉；关壳用 plain back（BackAndReload 只刷外链 H5）
+  nativeReloadHome({ reset: false })
+  if (navigateBackInShell()) return
   void navigateTo('/community', { replace: true })
 }
 

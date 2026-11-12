@@ -135,23 +135,29 @@ export async function changeUserInfo(
   return response.data;
 }
 
-// 获取短信验证码（用于修改密码）
+/**
+ * 发送短信验证码
+ * - 注册：{ user_phone, phone_code? } → 存 code_{phone}
+ * - 修改/忘记密码：{ user_phone, type: 'password' } → 存 password_{phone}
+ * 国际号 user_phone 需带 + 区号前缀（与登录一致，+86 国内号不带前缀）
+ */
 interface GetSmsCodeParams {
   user_phone: string
-  type: string
+  type?: string
+  phone_code?: string
 }
 
 export async function getSmsCode(
   params: GetSmsCodeParams
-): Promise<{ success: boolean }> {
-  const response = await use$Post<BaseResponse<{ success: boolean }>>(
+): Promise<{ code?: string }> {
+  const response = await use$Post<BaseResponse<{ code?: string }>>(
     '/user/sendSms',
     params
   );
   return response.data;
 }
 
-// 修改密码
+/** 通过手机验证码修改密码（无需登录；验证码须先以 type=password 发送） */
 interface ChangePasswordParams {
   user_phone: string
   user_password: string
@@ -160,8 +166,8 @@ interface ChangePasswordParams {
 
 export async function changePassword(
   params: ChangePasswordParams
-): Promise<{ success: boolean }> {
-  const response = await use$Post<BaseResponse<{ success: boolean }>>(
+): Promise<unknown> {
+  const response = await use$Post<BaseResponse<unknown>>(
     '/user/change/password',
     params
   );

@@ -83,10 +83,14 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
-// QhxRichTextEditor 在模板中使用；RichTextToolbarItem 为类型导出
-// biome-ignore lint/style/useImportType: Vue SFC 供 template 与 InstanceType
-import QhxRichTextEditor, { type RichTextToolbarItem } from '@/components/Qhx/RichTextEditor.vue'
+import { ref, computed, watch, defineAsyncComponent, nextTick } from 'vue'
+import type { RichTextToolbarItem } from '@/components/Qhx/RichTextEditor.vue'
+import type QhxRichTextEditorType from '@/components/Qhx/RichTextEditor.vue'
+
+/** 弹窗壳与 tiptap 拆开：打开评论后再拉 RichTextEditor */
+const QhxRichTextEditor = defineAsyncComponent(
+  () => import('@/components/Qhx/RichTextEditor.vue'),
+)
 
 import { deleteComment, insertComment } from '@/api/comment'
 import { useUserStore } from '@/stores/user'
@@ -137,7 +141,15 @@ const { t } = useI18n()
 
 const submitting = ref(false)
 const imagePickerRef = ref<InstanceType<typeof QhxImagePicker> | null>(null)
-const richTextEditorRef = ref<InstanceType<typeof QhxRichTextEditor> | null>(null)
+const richTextEditorRef = ref<InstanceType<typeof QhxRichTextEditorType> | null>(null)
+
+async function waitRichTextEditor(maxTries = 60) {
+  for (let i = 0; i < maxTries; i++) {
+    if (richTextEditorRef.value) return richTextEditorRef.value
+    await new Promise<void>((r) => setTimeout(r, 25))
+  }
+  return richTextEditorRef.value
+}
 
 // 评论相关状态
 const commentId = ref<number | string | null>(null)
@@ -214,18 +226,18 @@ const showModel = async (e: ShowModalParams) => {
 
   console.log(replyTo.value, '回复对象')
 
-  // 恢复缓存内容
-  if (cachedContent.value && richTextEditorRef.value) {
-    richTextEditorRef.value.setContent(cachedContent.value)
+  // 先显示弹窗以挂载 async 编辑器，再恢复缓存
+  emit('update:modelValue', true)
+  await nextTick()
+  const editor = await waitRichTextEditor()
+  if (cachedContent.value && editor) {
+    editor.setContent(cachedContent.value)
     editorContent.value = cachedContent.value
   }
   if (cachedImages.value.length > 0 && imagePickerRef.value) {
     // 恢复图片（需要根据实际 ImagePicker 组件的 API 调整）
     // imagePickerRef.value.previewImages = cachedImages.value
   }
-
-  // 显示弹窗
-  emit('update:modelValue', true)
 }
 
 // 关闭弹窗

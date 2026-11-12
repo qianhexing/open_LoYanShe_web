@@ -13,8 +13,6 @@ const ColorPickerRef = ref<InstanceType<typeof QhxColorPicker> | null>(null)
 import type { default as QhxSelect, optionsInterface } from '@/components/Qhx/Select.vue'
 import type customInput from '../Clothes/customInput.vue'
 const detailImageRef = ref<InstanceType<typeof QhxImagePicker> | null>(null)
-import VueDatePicker from '@vuepic/vue-datepicker'
-import '@vuepic/vue-datepicker/dist/main.css'
 import { uploadImage } from '@/api';
 import { insertLibraryPipe, type PipeInsertParams } from '@/api/library'
 import dayjs from 'dayjs'

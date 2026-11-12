@@ -1,9 +1,27 @@
-import qhxCore, { type CameraState } from '@/utils/threeCore';
-import * as THREE from 'three';
+import type qhxCore from '@/utils/threeCore'
+import type { CameraState } from '@/utils/threeCore'
+import type * as THREE from 'three'
 import { getSceneId } from '@/api/scene'
 import type { DiaryInterface, LibraryInterface, LaxianInterface } from '@/types/sence'
 import { isSceneObjectEffectivelyVisible } from '@/utils/sceneSteps'
 import type { Scene } from '@/types/api'
+
+type ThreeCoreCtor = typeof import('@/utils/threeCore').default
+
+let threeCoreCtor: ThreeCoreCtor | null = null
+let threeCoreCtorPromise: Promise<ThreeCoreCtor> | null = null
+
+/** 真正进 3D 时再拉 threeCore（内含 three），避免仅 import useSceneCore 就拖进 vendor-three */
+async function loadThreeCoreCtor(): Promise<ThreeCoreCtor> {
+	if (threeCoreCtor) return threeCoreCtor
+	if (!threeCoreCtorPromise) {
+		threeCoreCtorPromise = import('@/utils/threeCore').then((m) => {
+			threeCoreCtor = m.default
+			return threeCoreCtor
+		})
+	}
+	return threeCoreCtorPromise
+}
 
 export const useSceneCore = () => {
     const threeCore = shallowRef<qhxCore | null>(null)
@@ -294,7 +312,8 @@ export const useSceneCore = () => {
         const isMindAr = options.enableAR && options.arMode === 'mindar'
         try {
             const gfx = options.graphicsSettings
-            const core = new qhxCore({
+            const ThreeCoreCtor = await loadThreeCoreCtor()
+            const core = new ThreeCoreCtor({
                 enableCSS3DRenderer: !isMindAr,
                 alpha: true,
                 editMode: options.editMode,

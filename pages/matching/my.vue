@@ -796,23 +796,11 @@ const onEditSuccess = () => {
   void reloadList()
 }
 
-function prefetchHeavyModals() {
-  const run = () => {
-    void loadMatchingAddEdit()
-    void loadMatchingChoose()
-  }
-  if (typeof window !== 'undefined' && 'requestIdleCallback' in window) {
-    window.requestIdleCallback(() => run(), { timeout: 2500 })
-  } else {
-    setTimeout(run, 1200)
-  }
-}
-
 async function initPage() {
   pageInitialized.value = false
   await Promise.all([loadThemeFromWardrobe(), loadFolderList(), reloadList()])
   pageInitialized.value = true
-  prefetchHeavyModals()
+  // 不再 idle 预取 MatchingAddEdit（会拖 ImagePicker/vuedraggable/ali-oss），改为首次编辑时再拉
 }
 
 watch(

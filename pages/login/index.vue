@@ -52,7 +52,7 @@
             />
           </UFormGroup>
 
-          <div class="flex items-center">
+          <div class="flex items-center justify-between">
             <UCheckbox
               v-model="form.remember"
               :ui="{
@@ -62,6 +62,12 @@
               :label="$t('login.remember')"
               name="remember"
             />
+            <NuxtLink
+              to="/user/changePassword"
+              class="text-sm text-qhx-primary hover:underline"
+            >
+              {{ $t('login.forgot_password') }}
+            </NuxtLink>
           </div>
 
           <UButton

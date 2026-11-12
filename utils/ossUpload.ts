@@ -1,17 +1,27 @@
-// @ts-ignore - ali-oss 没有类型定义
-import OSS from 'ali-oss'
-// @ts-ignore - spark-md5 没有类型定义
-import SparkMD5 from 'spark-md5'
 import { checkFileAndGetUploadInfo, insertFile } from '@/api'
 import type { FileInterface } from '@/types/api'
 import { ensureAllowedImageForUpload } from '@/utils/heicUploadGate'
 import { BASE_IMG } from '@/utils/ipConfig'
+
+/** 上传时再拉 SDK，避免任意 import ossUpload 的页面冷启动拖进 ali-oss */
+// biome-ignore lint/suspicious/noExplicitAny: ali-oss / spark-md5 无完整类型
+async function loadOssCtor(): Promise<any> {
+  const mod = await import('ali-oss')
+  return (mod as { default?: unknown }).default ?? mod
+}
+
+// biome-ignore lint/suspicious/noExplicitAny: spark-md5 无完整类型
+async function loadSparkMd5(): Promise<any> {
+  const mod = await import('spark-md5')
+  return (mod as { default?: unknown }).default ?? mod
+}
 
 /**
  * 计算文件的 MD5 值
  * 使用分块读取方式，类似后端实现
  */
 export async function calculateFileMD5(file: File): Promise<string> {
+  const SparkMD5 = await loadSparkMd5()
   return new Promise((resolve, reject) => {
     const spark = new SparkMD5.ArrayBuffer()
     const fileReader = new FileReader()
@@ -121,6 +131,7 @@ export async function uploadTempFileToOSS(
   const fileExtension = getFileExtension(uploadFile.name) || '.jpg'
   const objectName = `${ossInfo.path}/${tempId}${fileExtension}`
 
+  const OSS = await loadOssCtor()
   const client = new OSS({
     region: ossInfo.region,
     accessKeyId: ossInfo.AccessKeyId,
@@ -191,7 +202,8 @@ export async function uploadFileToOSS(
     const fileExtension = getFileExtension(uploadFile.name)
     const objectName = `${ossInfo.path}/${customName || fileMD5}${fileExtension}`
     
-    // 5. 初始化 OSS 客户端
+    // 5. 初始化 OSS 客户端（动态加载 SDK）
+    const OSS = await loadOssCtor()
     const client = new OSS({
       region: ossInfo.region,
       accessKeyId: ossInfo.AccessKeyId,
@@ -261,7 +273,8 @@ export async function uploadFileToOSS(
 
 type OssCredential = NonNullable<Awaited<ReturnType<typeof checkFileAndGetUploadInfo>>['oss']>
 
-function createOssClient(ossInfo: OssCredential) {
+async function createOssClient(ossInfo: OssCredential) {
+  const OSS = await loadOssCtor()
   return new OSS({
     region: ossInfo.region,
     accessKeyId: ossInfo.AccessKeyId,
@@ -310,7 +323,7 @@ export async function uploadPairedLiveToOSS(
   } else {
     if (!ossInfo) throw new Error('获取 OSS 签名失败')
     const objectName = `${ossInfo.path}/${videoMd5}.mp4`
-    const client = createOssClient(ossInfo)
+    const client = await createOssClient(ossInfo)
     const uploadResult = await client.put(objectName, videoFile, {
       // 统一按 mp4 存，避免 iOS video/quicktime 在安卓无法播放
       headers: { 'Content-Type': 'video/mp4' },
@@ -336,7 +349,7 @@ export async function uploadPairedLiveToOSS(
   if (!ossInfo) throw new Error('获取 OSS 签名失败')
 
   const posterRel = pairedLivePosterPath(videoRel)
-  const posterClient = createOssClient(ossInfo)
+  const posterClient = await createOssClient(ossInfo)
   await posterClient.put(posterRel, posterFile, {
     headers: { 'Content-Type': posterFile.type || 'image/jpeg' },
   })

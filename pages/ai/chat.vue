@@ -1,7 +1,11 @@
 <script setup lang="ts">
-import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
+import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount, defineAsyncComponent } from 'vue'
 import { storeToRefs } from 'pinia'
-import AiChatRichComposer from '@/components/Qhx/AiChatRichComposer.vue'
+
+/** 首屏先出聊天壳，再拉 tiptap 输入框 */
+const AiChatRichComposer = defineAsyncComponent(
+  () => import('@/components/Qhx/AiChatRichComposer.vue'),
+)
 import { streamAiIntentAnalysis } from '@/api/aiAssistant'
 import { getLibraryList, getLibrarySimilar } from '@/api/library'
 import type { AiIntentAnalysisResult } from '@/types/aiAssistant'

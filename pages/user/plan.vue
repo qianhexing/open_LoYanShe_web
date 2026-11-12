@@ -325,8 +325,9 @@
     </div>
   </div>
 
-  <!-- 添加/编辑计划弹窗 -->
+  <!-- 添加/编辑计划弹窗：首次打开再挂载，避免冷启动拉 ImagePicker/vuedraggable -->
   <PlanAddEdit
+    v-if="planEditorMounted"
     ref="planAddEditRef"
     :plan-list="editPlanData"
     @success="handlePlanSuccess"
@@ -391,10 +392,11 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onActivated, watch, nextTick } from 'vue'
+import { ref, computed, onMounted, onActivated, watch, nextTick, defineAsyncComponent } from 'vue'
 import { getPlanList, getPlanListByMonth, getPlanTotalByYear, getPlanTotalByYears, getPlanTotalByDay, deletePlanList, updatePlanMoney, planComplete, planListRelate, type PlanPeriodMoneyTotal } from '@/api/plan'
 import type { PlanList, PaginationResponse, WardrobeClothes, ParentPlanSummary } from '@/types/api'
-import type PlanAddEdit from '@/components/Plan/PlanAddEdit.vue'
+import type PlanAddEditType from '@/components/Plan/PlanAddEdit.vue'
+import { waitForMountedRef } from '@/composables/useWaitMountedRef'
 import { BASE_IMG } from '@/utils/ipConfig'
 import dayjs from 'dayjs'
 import { useUserStore } from '@/stores/user'
@@ -411,6 +413,9 @@ definePageMeta({
   ssr: false,
 })
 
+const loadPlanAddEdit = () => import('@/components/Plan/PlanAddEdit.vue')
+const PlanAddEdit = defineAsyncComponent(loadPlanAddEdit)
+
 const { t } = useI18n()
 
 /**
@@ -420,7 +425,9 @@ const { t } = useI18n()
 const pageReady = ref(true)
 /** 挂载后补登录态期间的过渡，避免闪「请先登录」 */
 const authBootstrapping = ref(true)
-const planAddEditRef = ref<InstanceType<typeof PlanAddEdit> | null>(null)
+/** 首次打开计划编辑器再挂载，避免冷启动拉 ImagePicker → vuedraggable */
+const planEditorMounted = ref(false)
+const planAddEditRef = ref<InstanceType<typeof PlanAddEditType> | null>(null)
 const wardrobeClothesChooseRef = ref<InstanceType<typeof WardrobeClothesChoose> | null>(null)
 const userStore = useUserStore()
 const configStore = useConfigStore()
@@ -1514,18 +1521,28 @@ const scrollToStatistics = () => {
   statisticsRef.value?.scrollIntoView({ behavior: 'smooth', block: 'start' })
 }
 
+async function ensurePlanEditor() {
+  return waitForMountedRef({
+    mounted: planEditorMounted,
+    getRef: () => planAddEditRef.value,
+    preload: loadPlanAddEdit,
+  })
+}
+
 // 打开添加计划弹窗
 const openAddPlan = async (event?: MouseEvent) => {
   editPlanData.value = null
+  const editor = await ensurePlanEditor()
   await nextTick()
-  planAddEditRef.value?.showModel(event)
+  editor.showModel(event)
 }
 
 // 编辑计划（先写入 planList 再打开弹窗，避免子组件读到旧 props）
 const editPlan = async (item: PlanList) => {
   editPlanData.value = item
+  const editor = await ensurePlanEditor()
   await nextTick()
-  planAddEditRef.value?.showModel()
+  editor.showModel()
 }
 
 // 处理计划点击

@@ -81,12 +81,13 @@
               :label="$t('login.remember')"
               name="remember"
             />
-            <!-- <NuxtLink 
-              to="/forgot-password" 
-              class="text-sm text-primary-600 dark:text-primary-400 hover:underline"
+            <NuxtLink
+              to="/user/changePassword"
+              class="text-sm text-qhx-primary hover:underline"
+              @click="open = false"
             >
-              忘记密码?
-            </NuxtLink> -->
+              {{ $t('login.forgot_password') }}
+            </NuxtLink>
           </div>
 
           <UButton 

@@ -185,10 +185,13 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onMounted } from 'vue'
-// QhxRichTextEditor 在模板中注册为组件，需值导入；biome 无法识别 SFC 模板用法
-// biome-ignore lint/style/useImportType: Vue SFC 组件供模板与 InstanceType 使用
-import QhxRichTextEditor from '@/components/Qhx/RichTextEditor.vue'
+import { ref, computed, watch, onMounted, defineAsyncComponent } from 'vue'
+import type QhxRichTextEditorType from '@/components/Qhx/RichTextEditor.vue'
+
+/** 发帖壳与 tiptap 拆开，挂载 PostEditor 后再拉 RichTextEditor */
+const QhxRichTextEditor = defineAsyncComponent(
+  () => import('@/components/Qhx/RichTextEditor.vue'),
+)
 
 import {
   insertCommunity,
@@ -383,7 +386,7 @@ const router = useRouter()
 
 const submitting = ref(false)
 const imagePickerRef = ref<InstanceType<typeof QhxImagePicker> | null>(null)
-const richTextEditorRef = ref<InstanceType<typeof QhxRichTextEditor> | null>(null)
+const richTextEditorRef = ref<InstanceType<typeof QhxRichTextEditorType> | null>(null)
 const isOpenSelectRef = ref<InstanceType<typeof QhxSelect> | null>(null)
 const customStyleFormRef = ref<InstanceType<typeof CommunityCustomStyleForm> | null>(null)
 

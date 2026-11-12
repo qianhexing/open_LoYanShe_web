@@ -32,7 +32,7 @@ import type QhxSelect from '@/components/Qhx/Select.vue'
 | 抽屉 | `Drawer`、`BottomDrawer` |
 | 选择器 | `Select`、`OptionsChoose`、`ScrollPicker`、`DatePicker`、`DateTimePicker`、`HorizontalDatePicker`、`ColorPicker`、`ImageCanvasColorPicker` |
 | 图片 | `ImagePicker`、`PreviewImage`、`ImageLightbox` |
-| 编辑器 | `RichTextEditor`、`Editor`、`ChatTextarea`、`AiChatRichComposer` |
+| 编辑器 | `RichTextEditor`、`ChatTextarea`、`AiChatRichComposer` |
 | 列表 / 布局 | `WaterList`、`SortableList`、`Carousel`、`TabPanel`、`Tabs`、`Pagination` |
 | 反馈 / 引导 | `Loading`、`StepGuide`、`Popover`、Toast（`showToast` / `useQhxToast`，直出 DOM，不走 Nuxt UI） |
 | 输入 / 调节 | `NumberStepper`、`DualRange`、`Tag` |

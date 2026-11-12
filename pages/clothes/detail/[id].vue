@@ -46,8 +46,12 @@ definePageMeta({
 
 const loadClothesAdd = () => import('@/components/Clothes/ClothesAdd.vue')
 const loadPlanAddEdit = () => import('@/components/Plan/PlanAddEdit.vue')
+const loadMatchingAddEdit = () => import('@/components/matching/MatchingAddEdit.vue')
+const loadSceneChoose = () => import('@/components/scene/SceneChoose.vue')
 const ClothesAddAsync = defineAsyncComponent(loadClothesAdd)
 const PlanAddEdit = defineAsyncComponent(loadPlanAddEdit)
+const MatchingAddEditComp = defineAsyncComponent(loadMatchingAddEdit)
+const SceneChooseComp = defineAsyncComponent(loadSceneChoose)
 const WardrobeClothesChoose = defineAsyncComponent(
   () => import('@/components/Wardrobe/WardrobeClothesChoose.vue'),
 )
@@ -60,8 +64,11 @@ const ClothesShareImage = defineAsyncComponent(
 const PhysicsDrop = defineAsyncComponent(
   () => import('@/components/PhysicsDrop.client.vue'),
 )
-/** 首次使用编辑弹窗时再挂载，避免进页即拉 ClothesAdd */
+/** 首次使用编辑弹窗时再挂载，避免进页即拉 ClothesAdd / MatchingAddEdit / PlanAddEdit */
 const clothesEditorMounted = ref(false)
+const matchingEditorMounted = ref(false)
+const planEditorMounted = ref(false)
+const sceneChooseMounted = ref(false)
 
 // 扩展 WardrobeClothes 类型以包含关联数据
 interface ExtendedWardrobeClothes extends WardrobeClothes {
@@ -1692,7 +1699,7 @@ const jumpToMatchingDetail = (item: MatchingListItem) => {
   openMatchingDetailTab(item.matching_id)
 }
 
-function openNewMatching(e?: MouseEvent) {
+async function openNewMatching(_e?: MouseEvent) {
   if (!user.token) {
     toast.add({
       title: t('common.please_login'),
@@ -1704,7 +1711,12 @@ function openNewMatching(e?: MouseEvent) {
   const d = detail.value
   if (!d?.clothes_id) return
   showMatchingListModal.value = false
-  matchingAddEditRef.value?.showModel([{
+  const editor = await waitForMountedRef({
+    mounted: matchingEditorMounted,
+    getRef: () => matchingAddEditRef.value,
+    preload: loadMatchingAddEdit,
+  })
+  editor.showModel([{
     clothes_id: d.clothes_id,
     clothes_img: d.clothes_img,
     clothes_note: d.clothes_note,
@@ -1858,20 +1870,18 @@ const chooseTemplate = () => {
 }
 
 // 选择现有场景
-const chooseExistingScene = () => {
-  // 选择现有场景
+const chooseExistingScene = async () => {
   showSceneChooseModal.value = false
-  // 使用 nextTick 确保模态框关闭后再打开场景选择器
-  nextTick(() => {
-    if (SceneChooseRef.value) {
-      // 创建一个模拟的 MouseEvent，使用之前记录的点击位置
-      const mockEvent = {
-        clientX: sceneChooseClickPosition.value.x,
-        clientY: sceneChooseClickPosition.value.y
-      } as MouseEvent
-      SceneChooseRef.value.showModel(mockEvent)
-    }
+  const chooser = await waitForMountedRef({
+    mounted: sceneChooseMounted,
+    getRef: () => SceneChooseRef.value,
+    preload: loadSceneChoose,
   })
+  const mockEvent = {
+    clientX: sceneChooseClickPosition.value.x,
+    clientY: sceneChooseClickPosition.value.y
+  } as MouseEvent
+  chooser.showModel(mockEvent)
 }
 
 // 选择场景后的回调
@@ -2032,9 +2042,18 @@ const handleDeletePlan = async () => {
   }
 }
 
+async function ensurePlanEditor() {
+  return waitForMountedRef({
+    mounted: planEditorMounted,
+    getRef: () => planAddEditRef.value,
+    preload: loadPlanAddEdit,
+  })
+}
+
 // 添加计划
-const showAddPlan = (e?: MouseEvent) => {
-  planAddEditRef.value?.showModel(e)
+const showAddPlan = async (e?: MouseEvent) => {
+  const editor = await ensurePlanEditor()
+  editor.showModel(e)
 }
 
 const onPlanAddSuccess = async (data: { list_id?: number }) => {
@@ -2049,9 +2068,10 @@ const onPlanAddSuccess = async (data: { list_id?: number }) => {
 }
 
 // 编辑计划
-const showEditPlan = (e?: MouseEvent) => {
+const showEditPlan = async (e?: MouseEvent) => {
   if (!detail.value?.plan) return
-  planAddEditRef.value?.showModel(e)
+  const editor = await ensurePlanEditor()
+  editor.showModel(e)
 }
 </script>
 
@@ -2334,7 +2354,11 @@ const showEditPlan = (e?: MouseEvent) => {
       @choose="onMemoryCommunityChosen"
     />
 
-    <MatchingAddEdit ref="matchingAddEditRef" @success="onMatchingAddSuccess" />
+    <MatchingAddEditComp
+      v-if="matchingEditorMounted"
+      ref="matchingAddEditRef"
+      @success="onMatchingAddSuccess"
+    />
 
     <QhxModal
       v-model="showDeleteMatchingModal"
@@ -2388,6 +2412,7 @@ const showEditPlan = (e?: MouseEvent) => {
       @success="onEditSuccess"
     />
     <PlanAddEdit
+      v-if="planEditorMounted"
       ref="planAddEditRef"
       :plan-list="detail?.plan ?? null"
       :initial-need-money="detail?.price ?? 0"
@@ -3841,8 +3866,12 @@ const showEditPlan = (e?: MouseEvent) => {
                 </div>
               </div>
         </div>
-      <!-- 场景选择组件 -->
-      <SceneChoose ref="SceneChooseRef" @choose="chooseScene"></SceneChoose>
+      <!-- 场景选择组件：首次选择再挂载 -->
+      <SceneChooseComp
+        v-if="sceneChooseMounted"
+        ref="SceneChooseRef"
+        @choose="chooseScene"
+      />
       
       <!-- 场景选择对话框 -->
       <QhxModal v-model="showSceneChooseModal" :trigger-position="sceneChooseClickPosition" @close="handleSceneChooseClose">

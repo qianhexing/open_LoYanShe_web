@@ -167,11 +167,9 @@ export default defineNuxtConfig({
 		}
 	},
 	app: {
-		// 生产构建后把 .output/public 同步到 OSS 前缀 tool/nuxt/，与本 CDN 对齐
-		cdnURL: process.env.NUXT_APP_CDN_URL
-			|| (process.env.NODE_ENV === 'production'
-				? 'https://image.lolitalibrary.com/tool/nuxt/'
-				: ''),
+		// 暂时不走 CDN：静态资源同源 /_nuxt（恢复时改回下方生产默认地址）
+		// 原：https://image.lolitalibrary.com/tool/nuxt/
+		cdnURL: process.env.NUXT_APP_CDN_URL ?? '',
     head: {
 			meta: [
         { 

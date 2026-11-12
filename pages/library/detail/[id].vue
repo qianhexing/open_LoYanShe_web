@@ -46,51 +46,54 @@ import { useCommentUiStore } from '@/stores/commentUi'
 import type { LibrarySharePayload, LibraryRecommendPayload } from '@/utils/libraryShareCanvas'
 import { plainTextFromHtml } from '@/utils/libraryShareCanvas'
 import { libraryVideoAddrIsRad } from '@/utils/humanPlatformNav'
-const CommentSection = defineAsyncComponent(
-  () => import('@/components/comment/CommentSection.vue'),
-)
-const CommunityCommentModal = defineAsyncComponent(
-  () => import('@/components/community/CommentModal.vue'),
-)
+const loadCommentSection = () => import('@/components/comment/CommentSection.vue')
+const loadCommunityCommentModal = () => import('@/components/community/CommentModal.vue')
+const loadCommunityChoose = () => import('@/components/community/CommunityChoose.vue')
+const loadCommunityPostModal = () => import('@/components/community/CommunityPostModal.vue')
+const loadSPZModelViewer = () => import('@/components/ModelViewer/SPZModelViewer.vue')
+const loadWikiOptionsChoose = () => import('@/components/wiki/wikiOptionsChoose.vue')
+const loadMatchingAddEdit = () => import('@/components/matching/MatchingAddEdit.vue')
+const loadClothesAdd = () => import('@/components/Clothes/ClothesAdd.vue')
+const loadLibraryTypeColorChoose = () =>
+  import('@/components/library/LibraryTypeColorChoose.vue')
+const loadCompilationsChoose = () => import('@/components/compilations/CompilationsChoose.vue')
+const loadLibraryChoose = () => import('@/components/library/LibraryChoose.vue')
+const loadSceneChoose = () => import('@/components/scene/SceneChoose.vue')
+
+const CommentSection = defineAsyncComponent(loadCommentSection)
+const CommunityCommentModal = defineAsyncComponent(loadCommunityCommentModal)
 const LibraryDetailActionBar = defineAsyncComponent(
   () => import('@/components/library/LibraryDetailActionBar.vue'),
 )
 const LibrarySimilarRecommendImage = defineAsyncComponent(
   () => import('@/components/library/LibrarySimilarRecommendImage.vue'),
 )
-
-const CommunityChoose = defineAsyncComponent(
-  () => import('@/components/community/CommunityChoose.vue'),
-)
-const CommunityPostModal = defineAsyncComponent(
-  () => import('@/components/community/CommunityPostModal.vue'),
-)
-const SPZModelViewer = defineAsyncComponent(
-  () => import('@/components/ModelViewer/SPZModelViewer.vue'),
-)
+const CommunityChoose = defineAsyncComponent(loadCommunityChoose)
+const CommunityPostModal = defineAsyncComponent(loadCommunityPostModal)
+const SPZModelViewer = defineAsyncComponent(loadSPZModelViewer)
 const PhysicsDrop = defineAsyncComponent(
   () => import('@/components/PhysicsDrop.client.vue'),
 )
-const WikiOptionsChoose = defineAsyncComponent(
-  () => import('@/components/wiki/wikiOptionsChoose.vue'),
-)
-const MatchingAddEdit = defineAsyncComponent(
-  () => import('@/components/matching/MatchingAddEdit.vue'),
-)
-const loadClothesAdd = () => import('@/components/Clothes/ClothesAdd.vue')
-const loadLibraryTypeColorChoose = () =>
-  import('@/components/library/LibraryTypeColorChoose.vue')
+const WikiOptionsChoose = defineAsyncComponent(loadWikiOptionsChoose)
+const MatchingAddEdit = defineAsyncComponent(loadMatchingAddEdit)
 const ClothesAdd = defineAsyncComponent(loadClothesAdd)
-const CompilationsChoose = defineAsyncComponent(
-  () => import('@/components/compilations/CompilationsChoose.vue'),
-)
-const LibraryChoose = defineAsyncComponent(
-  () => import('@/components/library/LibraryChoose.vue'),
-)
+const CompilationsChoose = defineAsyncComponent(loadCompilationsChoose)
+const LibraryChoose = defineAsyncComponent(loadLibraryChoose)
 const LibraryTypeColorChoose = defineAsyncComponent(loadLibraryTypeColorChoose)
-const SceneChoose = defineAsyncComponent(
-  () => import('@/components/scene/SceneChoose.vue'),
-)
+const SceneChoose = defineAsyncComponent(loadSceneChoose)
+
+/** 重型弹窗：首次打开再挂载，避免 WebView 冷启动即拉 three / tiptap / vuedraggable */
+const spzModelViewerMounted = ref(false)
+const commentModalEverOpened = ref(false)
+const matchingEditorMounted = ref(false)
+const clothesEditorMounted = ref(false)
+const libraryTypeColorChooseMounted = ref(false)
+const libraryCommunityChooseMounted = ref(false)
+const librarySceneChooseMounted = ref(false)
+const libraryReturnPostModalMounted = ref(false)
+const compilationsChooseMounted = ref(false)
+const libraryChooseForBatchMounted = ref(false)
+const batchPatternWikiMounted = ref(false)
 
 const customInput = defineAsyncComponent(() => import('~/components/Clothes/customInput.vue'))
 const user = useUserStore()
@@ -453,7 +456,7 @@ const jumpToMatchingDetail = (item: MatchingListItem) => {
   openMatchingDetailTab(item.matching_id)
 }
 
-function openNewMatching() {
+async function openNewMatching() {
   if (!user.token) {
     toast.add({
       title: '请先登录',
@@ -465,7 +468,12 @@ function openNewMatching() {
   const lib = library.value
   if (!lib?.library_id) return
   showMatchingModal.value = false
-  matchingAddEditRef.value?.showModel([{
+  const editor = await waitForMountedRef({
+    mounted: matchingEditorMounted,
+    getRef: () => matchingAddEditRef.value,
+    preload: loadMatchingAddEdit,
+  })
+  editor.showModel([{
     library_id: lib.library_id,
     clothes_img: lib.cover,
     clothes_note: lib.name
@@ -540,7 +548,15 @@ const commentSectionRefreshFn = shallowRef<RefreshCommentRepliesFn | null>(null)
 provide(communityCommentSectionRefreshKey, commentSectionRefreshFn)
 const commentUiStore = useCommentUiStore()
 
-const openCommentComposer = () => {
+async function ensureCommentModal() {
+  return waitForMountedRef({
+    mounted: commentModalEverOpened,
+    getRef: () => commentModalRef.value,
+    preload: loadCommunityCommentModal,
+  })
+}
+
+const openCommentComposer = async () => {
   if (!user.token) {
     toast.add({
       title: '请先登录',
@@ -552,15 +568,14 @@ const openCommentComposer = () => {
   const lid = library.value?.library_id
   if (lid == null) return
   showCommentModal.value = true
-  nextTick(() => {
-    commentModalRef.value?.showModel({
-      id: lid,
-      type: 'library',
-    })
+  const modal = await ensureCommentModal()
+  modal.showModel({
+    id: lid,
+    type: 'library',
   })
 }
 
-const openReplyComposer = (payload: CommentOpenReplyPayload) => {
+const openReplyComposer = async (payload: CommentOpenReplyPayload) => {
   if (!user.token) {
     toast.add({
       title: '请先登录',
@@ -571,16 +586,15 @@ const openReplyComposer = (payload: CommentOpenReplyPayload) => {
   }
   const { comment, threadRootCommentId, subReply } = payload
   showCommentModal.value = true
-  nextTick(() => {
-    commentModalRef.value?.showModel({
-      id: comment.comment_id,
-      type: 'reply',
-      reply_to: subReply?.reply_to,
-      reply_to_user: subReply?.replyToUser,
-      reply_to_name:
-        subReply?.replyToUser?.user_name ?? comment.user?.user_name ?? '',
-      threadRootCommentId,
-    })
+  const modal = await ensureCommentModal()
+  modal.showModel({
+    id: comment.comment_id,
+    type: 'reply',
+    reply_to: subReply?.reply_to,
+    reply_to_user: subReply?.replyToUser,
+    reply_to_name:
+      subReply?.replyToUser?.user_name ?? comment.user?.user_name ?? '',
+    threadRootCommentId,
   })
 }
 
@@ -660,7 +674,7 @@ async function prefetchLibraryTabCounts() {
   }
 }
 
-function openLibraryReturnChooseCommunity(e?: MouseEvent) {
+async function openLibraryReturnChooseCommunity(e?: MouseEvent) {
   if (!user.token) {
     toast.add({
       title: '请先登录',
@@ -670,7 +684,12 @@ function openLibraryReturnChooseCommunity(e?: MouseEvent) {
     return
   }
   if (!library.value?.library_id) return
-  libraryCommunityChooseRef.value?.showModel(e)
+  const chooser = await waitForMountedRef({
+    mounted: libraryCommunityChooseMounted,
+    getRef: () => libraryCommunityChooseRef.value,
+    preload: loadCommunityChoose,
+  })
+  chooser.showModel(e)
 }
 
 async function onLibraryReturnCommunityChosen(item: Community) {
@@ -703,7 +722,7 @@ async function onLibraryReturnCommunityChosen(item: Community) {
   }
 }
 
-function goLibraryReturnNewPost(e?: MouseEvent) {
+async function goLibraryReturnNewPost(e?: MouseEvent) {
   if (!user.token) {
     toast.add({
       title: '请先登录',
@@ -713,7 +732,12 @@ function goLibraryReturnNewPost(e?: MouseEvent) {
     return
   }
   if (!library.value?.library_id) return
-  libraryReturnPostModalRef.value?.open(e)
+  const modal = await waitForMountedRef({
+    mounted: libraryReturnPostModalMounted,
+    getRef: () => libraryReturnPostModalRef.value,
+    preload: loadCommunityPostModal,
+  })
+  modal.open(e)
 }
 
 function onLibraryReturnPostSuccess() {
@@ -794,7 +818,7 @@ function jumpToHumanPlatform(item: LibraryVideo) {
   })
 }
 
-const handleVideoClick = (item: LibraryVideo) => {
+const handleVideoClick = async (item: LibraryVideo) => {
   // 点云类型：非 rad 跳转旧版人台；手机端 rad 跳转人台图页；桌面端 rad 弹窗查看
   if (item.pk_type === 2 && item.addr) {
     if (!libraryVideoAddrIsRad(item.addr) || isMobile.value) {
@@ -811,7 +835,12 @@ const handleVideoClick = (item: LibraryVideo) => {
         dracoDecoderPath: '/draco/gltf/'
       }
     }))
-    spzModelViewerRef.value?.showModel(modelList)
+    const viewer = await waitForMountedRef({
+      mounted: spzModelViewerMounted,
+      getRef: () => spzModelViewerRef.value,
+      preload: loadSPZModelViewer,
+    })
+    await viewer.showModel(modelList)
   }
 }
 const fetchLibraryPipe = async () => {
@@ -922,7 +951,7 @@ const deleteSenceForeignTarget = ref<SenceForeign | null>(null)
 const librarySceneChooseRef = ref<InstanceType<typeof SceneChooseType> | null>(null)
 const librarySceneSubmitLoading = ref(false)
 
-function openLibrarySubmitScene(e?: MouseEvent) {
+async function openLibrarySubmitScene(e?: MouseEvent) {
   if (!user.token) {
     toast.add({
       title: '请先登录',
@@ -933,7 +962,12 @@ function openLibrarySubmitScene(e?: MouseEvent) {
     return
   }
   if (!library.value?.library_id || librarySceneSubmitLoading.value) return
-  librarySceneChooseRef.value?.showModel(e)
+  const chooser = await waitForMountedRef({
+    mounted: librarySceneChooseMounted,
+    getRef: () => librarySceneChooseRef.value,
+    preload: loadSceneChoose,
+  })
+  chooser.showModel(e)
 }
 
 async function onLibrarySceneChosen(list: Scene[]) {
@@ -1427,6 +1461,7 @@ const handleAddToWardrobe = async () => {
     return
   }
   const chooser = await waitForMountedRef({
+    mounted: libraryTypeColorChooseMounted,
     getRef: () => libraryTypeColorChooseRef.value,
     preload: loadLibraryTypeColorChoose,
   })
@@ -1439,6 +1474,7 @@ const handleLibraryTypeColorChoose = async (data: LibraryTypeColorChooseResult) 
   await nextTick()
   await new Promise<void>((resolve) => setTimeout(resolve, 280))
   const editor = await waitForMountedRef({
+    mounted: clothesEditorMounted,
     getRef: () => clothesAddRef.value,
     preload: loadClothesAdd,
   })
@@ -1567,8 +1603,13 @@ const compilationsChooseRef = ref<InstanceType<typeof CompilationsChooseType> | 
 const libraryChooseForBatchRef = ref<InstanceType<typeof LibraryChooseType> | null>(null)
 const compInsertLoading = ref(false)
 
-const showCompChoose = (e?: MouseEvent) => {
-  compilationsChooseRef.value?.showModel(e)
+const showCompChoose = async (e?: MouseEvent) => {
+  const chooser = await waitForMountedRef({
+    mounted: compilationsChooseMounted,
+    getRef: () => compilationsChooseRef.value,
+    preload: loadCompilationsChoose,
+  })
+  chooser.showModel(e)
 }
 
 const onCompChoose = async (items: Compilations[]) => {
@@ -1613,12 +1654,15 @@ const openBatchOperation = () => {
   showBatchTypeModal.value = true
 }
 
-const selectBatchType = (type: BatchOperationType) => {
+const selectBatchType = async (type: BatchOperationType) => {
   pendingBatchType.value = type
   showBatchTypeModal.value = false
-  nextTick(() => {
-    libraryChooseForBatchRef.value?.showModel()
+  const chooser = await waitForMountedRef({
+    mounted: libraryChooseForBatchMounted,
+    getRef: () => libraryChooseForBatchRef.value,
+    preload: loadLibraryChoose,
   })
+  chooser.showModel()
 }
 
 const libraryStateQhxOptions = computed(() =>
@@ -1716,8 +1760,13 @@ const batchPatternSaving = ref(false)
 const batchPatternWikiOptionsChooseRef = ref<InstanceType<typeof WikiOptionsChooseType> | null>(null)
 const batchPatternElementsCustomInputRef = ref<{ showModel: (e: MouseEvent) => void } | null>(null)
 
-const showBatchPatternChooseWiki = () => {
-  batchPatternWikiOptionsChooseRef.value?.showModel({ type_id: '3' })
+const showBatchPatternChooseWiki = async () => {
+  const chooser = await waitForMountedRef({
+    mounted: batchPatternWikiMounted,
+    getRef: () => batchPatternWikiOptionsChooseRef.value,
+    preload: loadWikiOptionsChoose,
+  })
+  chooser.showModel({ type_id: '3' })
 }
 
 const onBatchPatternWikiChoose = (wiki_list: Array<{ wiki_id?: number | string; wiki_name?: string }>) => {
@@ -3192,9 +3241,9 @@ const libraryChildThumbImgClass =
       </div>
     </div>
     
-    <!-- SPZ模型查看器弹窗 -->
+    <!-- SPZ模型查看器弹窗：首次点开点云再挂载 three -->
     <ClientOnly>
-      <SPZModelViewer ref="spzModelViewerRef" />
+      <SPZModelViewer v-if="spzModelViewerMounted" ref="spzModelViewerRef" />
     </ClientOnly>
     <div v-if="library" class="bg-qhx-bg-card rounded-lg shadow-lg mt-3">
       <div class="flex items-center gap-2 px-4 py-3 border-b border-gray-100 dark:border-gray-700/60">
@@ -3232,14 +3281,16 @@ const libraryChildThumbImgClass =
       </div>
     </div>
     
-    <!-- 加入衣柜相关组件 -->
+    <!-- 重型弹窗：首次打开再挂载，避免冷启动并行拉 tiptap / 编辑器 chunk -->
     <ClientOnly>
       <CommunityCommentModal
+        v-if="commentModalEverOpened"
         ref="commentModalRef"
         v-model="showCommentModal"
         @success="onCommentSuccess"
       />
       <CommunityChoose
+        v-if="libraryCommunityChooseMounted"
         ref="libraryCommunityChooseRef"
         :only-mine="true"
         title="选择要关联的返图帖子"
@@ -3247,11 +3298,13 @@ const libraryChildThumbImgClass =
         @choose="onLibraryReturnCommunityChosen"
       />
       <SceneChoose
+        v-if="librarySceneChooseMounted"
         ref="librarySceneChooseRef"
         :multiple="false"
         @choose="onLibrarySceneChosen"
       />
       <CommunityPostModal
+        v-if="libraryReturnPostModalMounted"
         ref="libraryReturnPostModalRef"
         v-model="showLibraryReturnPostModal"
         :foreign-pk="libraryReturnForeignPk"
@@ -3260,10 +3313,24 @@ const libraryChildThumbImgClass =
         :success-redirect="false"
         @success="onLibraryReturnPostSuccess"
       />
-      <LibraryTypeColorChoose ref="libraryTypeColorChooseRef" @choose="handleLibraryTypeColorChoose" />
-      <ClothesAdd ref="clothesAddRef" enable-wardrobe-picker @success="handleClothesAddSuccess" />
-      <CompilationsChoose ref="compilationsChooseRef" @choose="onCompChoose" />
+      <LibraryTypeColorChoose
+        v-if="libraryTypeColorChooseMounted"
+        ref="libraryTypeColorChooseRef"
+        @choose="handleLibraryTypeColorChoose"
+      />
+      <ClothesAdd
+        v-if="clothesEditorMounted"
+        ref="clothesAddRef"
+        enable-wardrobe-picker
+        @success="handleClothesAddSuccess"
+      />
+      <CompilationsChoose
+        v-if="compilationsChooseMounted"
+        ref="compilationsChooseRef"
+        @choose="onCompChoose"
+      />
       <LibraryChoose
+        v-if="libraryChooseForBatchMounted"
         ref="libraryChooseForBatchRef"
         :multiple="true"
         :need-parent="false"
@@ -3799,8 +3866,16 @@ const libraryChildThumbImgClass =
       </div>
     </QhxModal>
     <ClientOnly>
-      <WikiOptionsChoose ref="batchPatternWikiOptionsChooseRef" @choose="onBatchPatternWikiChoose" />
-      <MatchingAddEdit ref="matchingAddEditRef" @success="onMatchingAddSuccess" />
+      <WikiOptionsChoose
+        v-if="batchPatternWikiMounted"
+        ref="batchPatternWikiOptionsChooseRef"
+        @choose="onBatchPatternWikiChoose"
+      />
+      <MatchingAddEdit
+        v-if="matchingEditorMounted"
+        ref="matchingAddEditRef"
+        @success="onMatchingAddSuccess"
+      />
     </ClientOnly>
     <!-- 物理掉落组件 -->
     <!-- <ClientOnly>

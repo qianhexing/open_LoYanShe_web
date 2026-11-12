@@ -75,6 +75,11 @@ import {
   parseCommunityPostForeignFromQuery,
   parseCommunityPostIsOpenFromQuery,
 } from '@/utils/communityPost'
+import {
+  nativeBack,
+  nativeReloadHome,
+  navigateBackInShell,
+} from '@/utils/nativeShell'
 
 definePageMeta({
   ssr: false,
@@ -161,31 +166,42 @@ function onCancel() {
 
 function onSuccess(community: Community) {
   const id = community.community_id
-  if (id != null && Number.isFinite(Number(id))) {
-    const isInUniApp =
-      typeof window !== 'undefined' &&
-      navigator.userAgent.includes('Html5Plus')
-    const port = config.getPort()
-    if (isInUniApp) {
-      void ensureUniWebview().then((u) => {
-        if (u && typeof u.postMessage === 'function') {
-          u.postMessage({ data: { type: 'reloadBlackList' } })
-        } else {
-          void router.push(`/community/detail/${id}`)
-        }
-      })
-    } else if (port) {
-      // 鸿蒙 Outlink：关闭 WebView 并带回列表重载 + 详情 id
-      port.postMessage(JSON.stringify({
-        type: 'back',
-        params: { reload: true, community_id: id }
-      }))
-    } else {
-      void router.push(`/community/detail/${id}`)
+  if (id == null || !Number.isFinite(Number(id))) {
+    void router.push('/community')
+    return
+  }
+  const communityId = Number(id)
+  const isInUniApp =
+    typeof window !== 'undefined' &&
+    navigator.userAgent.includes('Html5Plus')
+  if (isInUniApp) {
+    void ensureUniWebview().then((u) => {
+      if (u && typeof u.postMessage === 'function') {
+        u.postMessage({ data: { type: 'reloadBlackList' } })
+      } else {
+        void router.push(`/community/detail/${communityId}`)
+      }
+    })
+    return
+  }
+  // iOS / Android / 鸿蒙：先刷原生首页，再关发帖壳（勿仅 router.push 详情）
+  if (nativeReloadHome({ reset: true, community_id: communityId })) {
+    if (!nativeBack() && !navigateBackInShell()) {
+      void router.push(`/community/detail/${communityId}`)
     }
     return
   }
-  void router.push('/community')
+  const port = config.getPort()
+  if (port) {
+    port.postMessage(
+      JSON.stringify({
+        type: 'back',
+        params: { reload: true, community_id: communityId },
+      }),
+    )
+    return
+  }
+  void router.push(`/community/detail/${communityId}`)
 }
 </script>
 

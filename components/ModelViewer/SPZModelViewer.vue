@@ -1,6 +1,11 @@
 <script setup lang="ts">
-// eslint-disable-next-line @typescript-eslint/consistent-type-imports
-import SPZModelViewerContent from './SPZModelViewerContent.vue'
+import { defineAsyncComponent } from 'vue'
+import type SPZModelViewerContentType from './SPZModelViewerContent.vue'
+
+/** 弹层壳先挂；真正 WebGL/three 等打开后再拉 Content */
+const SPZModelViewerContent = defineAsyncComponent(
+	() => import('./SPZModelViewerContent.vue'),
+)
 
 // 模型项接口（与 SPZModelViewerContent 保持一致）
 interface ModelItem {
@@ -14,7 +19,7 @@ interface ModelItem {
 
 const show = ref(false)
 const modelList = ref<ModelItem[]>([])
-const contentRef = ref<InstanceType<typeof SPZModelViewerContent> | null>(null)
+const contentRef = ref<InstanceType<typeof SPZModelViewerContentType> | null>(null)
 
 // 显示模型弹窗
 const showModel = async (models: ModelItem[]) => {
@@ -55,9 +60,10 @@ defineExpose({
                 </button>
             </div>
 
-            <!-- 内容区域 -->
+            <!-- 内容区域：v-if 打开后再挂 Content，避免壳 chunk 同步拖 three -->
             <div class="flex-1 relative overflow-hidden">
                 <SPZModelViewerContent
+                    v-if="show"
                     ref="contentRef"
                     :model-list="modelList"
                 />

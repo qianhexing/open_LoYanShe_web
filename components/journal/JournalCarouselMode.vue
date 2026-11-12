@@ -1,10 +1,14 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, provide, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, nextTick, onMounted, onUnmounted, provide, ref, watch } from 'vue'
 import type { Journal } from '@/types/api'
 import QhxCarousel from '@/components/Qhx/Carousel.vue'
 import type { QhxCarouselItem } from '@/components/Qhx/Carousel.vue'
 import JournalCarouselCard from '@/components/journal/JournalCarouselCard.vue'
-import JournalCarouselSceneHost from '@/components/journal/JournalCarouselSceneHost.vue'
+
+const loadJournalCarouselSceneHost = () =>
+  import('@/components/journal/JournalCarouselSceneHost.vue')
+/** 首次进入场景卡再挂 WebGL 宿主，避免轮播壳同步拖 useSceneCore 子树 */
+const JournalCarouselSceneHost = defineAsyncComponent(loadJournalCarouselSceneHost)
 import { journalCanJumpDetail } from '@/components/journal/carousel/shared'
 import {
   journalCarouselSceneHostKey,
@@ -69,6 +73,21 @@ const sceneHostLayout = ref<JournalCarouselSceneLayout | null>(null)
 const activeSceneId = ref<number | null>(null)
 const activeSlotEl = ref<HTMLElement | null>(null)
 const sceneCardInteractive = ref(false)
+/** 首次场景卡 enter/interact 再挂宿主 */
+const sceneHostMounted = ref(false)
+
+async function ensureSceneHost() {
+  if (!sceneHostMounted.value) {
+    sceneHostMounted.value = true
+    await loadJournalCarouselSceneHost()
+    await nextTick()
+  }
+  for (let i = 0; i < 60; i++) {
+    if (sceneHostRef.value) return sceneHostRef.value
+    await new Promise<void>((r) => setTimeout(r, 16))
+  }
+  return sceneHostRef.value
+}
 
 function measureSceneSlot(slotEl: HTMLElement): JournalCarouselSceneLayout | null {
   const stage = stageRef.value
@@ -119,6 +138,7 @@ const sceneHostApi: JournalCarouselSceneHostApi = {
     // 进入卡不露画布、不额外 clear：切内容只走 load → reloadSceneKeepWebGL
     sceneHostVisible.value = false
     sceneHostInteractive.value = false
+    void ensureSceneHost()
   },
   leave(sceneId) {
     // 若已有其它卡接管 ownership，则不要清掉新卡状态
@@ -133,8 +153,8 @@ const sceneHostApi: JournalCarouselSceneHostApi = {
     if (layout) sceneHostLayout.value = layout
     sceneHostVisible.value = true
     sceneHostInteractive.value = true
-    void sceneHostRef.value
-      ?.load(sceneId)
+    void ensureSceneHost()
+      .then((host) => host?.load(sceneId))
       .then(() => syncSceneHostLayout())
       .catch((e) => {
         console.warn('[journal-carousel] scene load:', e)
@@ -596,6 +616,7 @@ function canShowDetail(j: Journal): boolean {
           <!-- 单 WebGL 宿主：不在 slide 内，避免 virtual-window 拆 context -->
           <ClientOnly>
             <JournalCarouselSceneHost
+              v-if="sceneHostMounted"
               ref="sceneHostRef"
               :visible="sceneHostVisible"
               :interactive="sceneHostInteractive"

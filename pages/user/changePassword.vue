@@ -1,40 +1,48 @@
 <template>
   <div class="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800 flex items-center justify-center p-4">
     <div class="w-full max-w-md">
-      <!-- 修改密码卡片 -->
       <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-xl p-6 md:p-8">
-        <!-- 头部 -->
         <div class="text-center mb-6 md:mb-8">
           <h1 class="text-xl md:text-2xl font-bold text-gray-900 dark:text-white mb-2">
-            修改密码
+            {{ $t('change_password.title') }}
           </h1>
           <p class="text-sm md:text-base text-gray-600 dark:text-gray-400">
-            通过手机验证码修改密码
+            {{ $t('change_password.subtitle') }}
           </p>
         </div>
 
-        <!-- 修改密码表单 -->
         <UForm :state="form" :validate="validate" class="space-y-4 md:space-y-6" @submit="onSubmit">
-          <!-- 手机号 -->
-          <UFormGroup label="手机号" name="phone">
-            <UInput
-              v-model="form.phone"
-              placeholder="请输入手机号"
-              icon="i-heroicons-device-phone-mobile"
-              :ui="{
-                base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
-                rounded: 'rounded-full',
-                padding: { xs: 'px-4 py-2.5 md:py-2' }
-              }"
-            />
+          <UFormGroup :label="$t('change_password.phone')" name="phone">
+            <div class="flex gap-2">
+              <USelectMenu
+                v-model="form.phone_code"
+                value-attribute="value"
+                :options="phoneCodeOptions"
+                class="w-32"
+                :ui="{
+                  rounded: 'rounded-full',
+                  padding: { xs: 'px-3 py-2' }
+                }"
+              />
+              <UInput
+                v-model="form.phone"
+                :placeholder="$t('change_password.enter_phone')"
+                class="flex-1"
+                icon="i-heroicons-device-phone-mobile"
+                :ui="{
+                  base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
+                  rounded: 'rounded-full',
+                  padding: { xs: 'px-4 py-2.5 md:py-2' }
+                }"
+              />
+            </div>
           </UFormGroup>
 
-          <!-- 新密码 -->
-          <UFormGroup label="新密码" name="password">
+          <UFormGroup :label="$t('change_password.new_password')" name="password">
             <UInput
               v-model="form.password"
               type="password"
-              placeholder="请输入新密码"
+              :placeholder="$t('change_password.enter_password')"
               icon="i-heroicons-lock-closed"
               :ui="{
                 base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
@@ -44,12 +52,11 @@
             />
           </UFormGroup>
 
-          <!-- 确认密码 -->
-          <UFormGroup label="再次输入新密码" name="confirmPassword">
+          <UFormGroup :label="$t('change_password.confirm_password')" name="confirmPassword">
             <UInput
               v-model="form.confirmPassword"
               type="password"
-              placeholder="请再次输入新密码"
+              :placeholder="$t('change_password.enter_confirm_password')"
               icon="i-heroicons-lock-closed"
               :ui="{
                 base: 'focus:ring-2 focus:ring-qhx-primary focus:border-qhx-primary',
@@ -59,13 +66,12 @@
             />
           </UFormGroup>
 
-          <!-- 验证码 -->
-          <UFormGroup label="验证码" name="verification_code">
+          <UFormGroup :label="$t('change_password.verification_code')" name="verification_code">
             <div class="flex gap-2">
               <UInput
                 v-model="form.verification_code"
                 :maxlength="4"
-                placeholder="请输入验证码"
+                :placeholder="$t('change_password.enter_code')"
                 icon="i-heroicons-shield-check"
                 class="flex-1"
                 :ui="{
@@ -75,19 +81,18 @@
                 }"
               />
               <UButton
-                @click="sendVerificationCode"
                 :disabled="!canSendCode || codeCountdown > 0"
                 :loading="sendingCode"
                 variant="outline"
                 class="px-4 md:px-6 whitespace-nowrap flex-shrink-0"
                 :ui="{ rounded: 'rounded-full' }"
+                @click="sendVerificationCode"
               >
-                {{ codeCountdown > 0 ? `倒计时 ${codeCountdown}s` : '获取验证码' }}
+                {{ codeCountdown > 0 ? $t('change_password.countdown', { n: codeCountdown }) : $t('change_password.send_code') }}
               </UButton>
             </div>
           </UFormGroup>
 
-          <!-- 修改密码按钮 -->
           <UButton
             type="submit"
             block
@@ -96,32 +101,29 @@
             :loading="loading"
             :ui="{ rounded: 'rounded-full' }"
           >
-            修改密码
+            {{ $t('change_password.submit') }}
           </UButton>
 
-          <!-- 返回登录链接 -->
-          <!-- <div class="text-center text-sm text-gray-500 dark:text-gray-400">
-            <NuxtLink 
-              to="/" 
+          <div class="text-center text-sm text-gray-500 dark:text-gray-400">
+            <NuxtLink
+              to="/login"
               class="text-qhx-primary hover:underline"
             >
-              返回登录
+              {{ $t('change_password.back_to_login') }}
             </NuxtLink>
-          </div> -->
+          </div>
         </UForm>
       </div>
 
-      <!-- 装饰性元素 -->
       <div class="mt-6 md:mt-8 text-center">
         <div class="flex items-center justify-center space-x-4 text-gray-400 dark:text-gray-600">
           <div class="w-16 h-px bg-gray-300 dark:bg-gray-600"></div>
-          <span class="text-sm">Lo研社</span>
+          <span class="text-sm">{{ $t('common.brand') }}</span>
           <div class="w-16 h-px bg-gray-300 dark:bg-gray-600"></div>
         </div>
       </div>
     </div>
 
-    <!-- 背景装饰 -->
     <div class="fixed inset-0 -z-10 overflow-hidden">
       <div class="absolute -top-40 -right-32 w-80 h-80 rounded-full bg-gradient-to-br from-blue-400/20 to-purple-600/20 blur-3xl"></div>
       <div class="absolute -bottom-40 -left-32 w-80 h-80 rounded-full bg-gradient-to-br from-pink-400/20 to-orange-600/20 blur-3xl"></div>
@@ -131,26 +133,21 @@
 
 <script setup lang="ts">
 import { getSmsCode, changePassword } from '@/api/user'
-import { onUnmounted } from 'vue'
+import { LOGIN_PATH } from '@/utils/loginRedirect'
 
-// 设置页面标题
+const { t } = useI18n()
+
 useHead({
-  title: 'Lo研社 - 修改密码'
+  title: () => t('change_password.page_title')
 })
 
-let uni: any
 const configStore = useConfigStore()
 const port = computed(() => configStore.getPort())
-onMounted(async () => {
-  uni = await import('@dcloudio/uni-webview-js').catch((err) => {
-    console.error('Failed to load uni-webview-js:', err);
-  });
-})
 const toast = useToast()
 const router = useRouter()
 
-// 表单数据
 interface ChangePasswordFormState {
+  phone_code: string
   phone: string
   password: string
   confirmPassword: string
@@ -158,28 +155,59 @@ interface ChangePasswordFormState {
 }
 
 const form = reactive({
+  phone_code: '+86',
   phone: '',
   password: '',
   confirmPassword: '',
   verification_code: ''
 }) as ChangePasswordFormState
 
-// 验证码相关状态
 const sendingCode = ref(false)
 const codeCountdown = ref(0)
 const loading = ref(false)
 let countdownTimer: ReturnType<typeof setInterval> | null = null
 
-// 是否可以发送验证码
-const canSendCode = computed(() => {
-  return form.phone && form.phone.length === 11 && /^1[3-9]\d{9}$/.test(form.phone)
+/** 与登录一致：国内不加前缀，国际号带 + 区号 */
+const fullPhone = computed(() => {
+  return (form.phone_code === '+86' ? '' : form.phone_code) + form.phone
 })
 
-// 发送验证码
+const phoneCodeOptions = computed(() => {
+  const codeList: { label: string; value: string }[] = []
+  if (configStore.config?.phone_code) {
+    for (const item of configStore.config.phone_code) {
+      if (item.children) {
+        for (const child of item.children) {
+          codeList.push({
+            label: `${child.label} ${child.value}`,
+            value: String(child.value)
+          })
+        }
+      }
+    }
+  }
+  if (codeList.length === 0) {
+    codeList.push(
+      { label: t('login.phone_code_cn'), value: '+86' },
+      { label: t('login.phone_code_us'), value: '+1' },
+      { label: t('login.phone_code_jp'), value: '+81' }
+    )
+  }
+  return codeList
+})
+
+const canSendCode = computed(() => {
+  if (!form.phone || !form.phone_code) return false
+  if (form.phone_code === '+86') {
+    return /^1[3-9]\d{9}$/.test(form.phone)
+  }
+  return form.phone.length >= 6
+})
+
 const sendVerificationCode = async () => {
   if (!canSendCode.value) {
     toast.add({
-      title: '请输入正确的手机号',
+      title: t('change_password.invalid_phone'),
       icon: 'i-heroicons-exclamation-triangle',
       color: 'orange'
     })
@@ -188,7 +216,7 @@ const sendVerificationCode = async () => {
 
   if (sendingCode.value) {
     toast.add({
-      title: '请求中请稍候',
+      title: t('change_password.requesting'),
       icon: 'i-heroicons-exclamation-triangle',
       color: 'warning'
     })
@@ -197,23 +225,22 @@ const sendVerificationCode = async () => {
 
   sendingCode.value = true
   try {
+    // 后端：type=password 时写入 password_{phone}，供 /user/change/password 校验
     await getSmsCode({
-      user_phone: form.phone,
+      user_phone: fullPhone.value,
       type: 'password'
     })
-    
+
     toast.add({
-      title: '验证码已发送',
+      title: t('change_password.code_sent'),
       icon: 'i-heroicons-check-circle',
       color: 'green'
     })
-    
-    // 清除之前的倒计时
+
     if (countdownTimer) {
       clearInterval(countdownTimer)
     }
-    
-    // 开始倒计时
+
     codeCountdown.value = 60
     countdownTimer = setInterval(() => {
       codeCountdown.value--
@@ -226,8 +253,8 @@ const sendVerificationCode = async () => {
     }, 1000)
   } catch (error: unknown) {
     toast.add({
-      title: '发送失败',
-      description: getErrorMessage(error) || '请稍后重试',
+      title: t('change_password.send_failed'),
+      description: getErrorMessage(error) || t('common.retry'),
       icon: 'i-heroicons-x-circle',
       color: 'red'
     })
@@ -235,7 +262,6 @@ const sendVerificationCode = async () => {
   sendingCode.value = false
 }
 
-// 组件卸载时清理倒计时
 onUnmounted(() => {
   if (countdownTimer) {
     clearInterval(countdownTimer)
@@ -243,43 +269,43 @@ onUnmounted(() => {
   }
 })
 
-// 表单验证规则
 type ValidationError = { path: string; message: string }
 const validate = (state: ChangePasswordFormState) => {
   const errors: ValidationError[] = []
-  
+
   if (!state.phone) {
-    errors.push({ path: 'phone', message: '请输入手机号' })
-  } else if (!/^1[3-9]\d{9}$/.test(state.phone)) {
-    errors.push({ path: 'phone', message: '请输入正确的手机号' })
+    errors.push({ path: 'phone', message: t('change_password.enter_phone') })
+  } else if (state.phone_code === '+86' && !/^1[3-9]\d{9}$/.test(state.phone)) {
+    errors.push({ path: 'phone', message: t('change_password.invalid_phone') })
+  } else if (state.phone_code !== '+86' && state.phone.length < 6) {
+    errors.push({ path: 'phone', message: t('change_password.invalid_phone') })
   }
-  
+
   if (!state.password) {
-    errors.push({ path: 'password', message: '请输入新密码' })
+    errors.push({ path: 'password', message: t('change_password.enter_password') })
   } else if (state.password.length < 6) {
-    errors.push({ path: 'password', message: '密码至少6个字符' })
+    errors.push({ path: 'password', message: t('change_password.password_min') })
   }
-  
+
   if (!state.confirmPassword) {
-    errors.push({ path: 'confirmPassword', message: '请再次输入新密码' })
+    errors.push({ path: 'confirmPassword', message: t('change_password.enter_confirm_password') })
   } else if (state.password !== state.confirmPassword) {
-    errors.push({ path: 'confirmPassword', message: '密码输入不一致' })
+    errors.push({ path: 'confirmPassword', message: t('change_password.password_mismatch') })
   }
-  
+
   if (!state.verification_code) {
-    errors.push({ path: 'verification_code', message: '请输入验证码' })
+    errors.push({ path: 'verification_code', message: t('change_password.enter_code_required') })
   } else if (state.verification_code.length !== 4) {
-    errors.push({ path: 'verification_code', message: '验证码为4位数字' })
+    errors.push({ path: 'verification_code', message: t('change_password.code_length') })
   }
-  
+
   return errors
 }
 
-// 提交修改密码
 const onSubmit = async () => {
   if (loading.value) {
     toast.add({
-      title: '请求中请稍候',
+      title: t('change_password.requesting'),
       icon: 'i-heroicons-exclamation-triangle',
       color: 'warning'
     })
@@ -287,38 +313,37 @@ const onSubmit = async () => {
   }
 
   loading.value = true
-  
+
   try {
     await changePassword({
-      user_phone: form.phone,
+      user_phone: fullPhone.value,
       user_password: form.password,
       sms_code: form.verification_code
     })
-    
+
     toast.add({
-      title: '修改密码成功',
-      description: '请使用新密码登录',
+      title: t('change_password.success'),
+      description: t('change_password.success_desc'),
       icon: 'i-heroicons-check-circle',
       color: 'green'
     })
-    
-    // 修改成功后跳转到登录页
+
     if (port.value) {
       port.value.postMessage(JSON.stringify({
         type: 'back'
-      }));
+      }))
     } else {
-      await router.push('/')
+      await router.push(LOGIN_PATH)
     }
   } catch (error: unknown) {
     toast.add({
-      title: '修改失败',
-      description: getErrorMessage(error) || '请检查输入信息',
+      title: t('change_password.failed'),
+      description: getErrorMessage(error) || t('change_password.check_input'),
       icon: 'i-heroicons-x-circle',
       color: 'red'
     })
   }
-  
+
   loading.value = false
 }
 
@@ -334,7 +359,6 @@ function getErrorMessage(error: unknown): string {
 </script>
 
 <style scoped>
-/* 自定义样式 */
 .bg-qhx-primary {
   background-color: var(--qhx-primary, #3b82f6);
 }
@@ -351,7 +375,6 @@ function getErrorMessage(error: unknown): string {
   background-color: var(--qhx-primary-hover, #2563eb);
 }
 
-/* 响应式调整 - 适配手机端、网页端和鸿蒙端口 */
 @media (max-width: 640px) {
   .min-h-screen {
     min-height: 100vh;
@@ -359,11 +382,9 @@ function getErrorMessage(error: unknown): string {
   }
 }
 
-/* 鸿蒙端口适配 */
 @supports (-webkit-touch-callout: none) {
   .min-h-screen {
     min-height: -webkit-fill-available;
   }
 }
 </style>
-

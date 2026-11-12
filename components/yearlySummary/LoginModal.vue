@@ -66,17 +66,26 @@
               />
             </div>
 
-            <!-- 记住我 -->
-            <div class="flex items-center">
-              <input
-                v-model="loginForm.remember"
-                type="checkbox"
-                id="remember"
-                class="w-4 h-4 text-pink-500 rounded focus:ring-pink-500"
-              />
-              <label for="remember" class="ml-2 text-sm text-gray-600 dark:text-gray-300">
-                记住我
-              </label>
+            <!-- 记住我 / 忘记密码 -->
+            <div class="flex items-center justify-between">
+              <div class="flex items-center">
+                <input
+                  v-model="loginForm.remember"
+                  type="checkbox"
+                  id="remember"
+                  class="w-4 h-4 text-pink-500 rounded focus:ring-pink-500"
+                />
+                <label for="remember" class="ml-2 text-sm text-gray-600 dark:text-gray-300">
+                  记住我
+                </label>
+              </div>
+              <NuxtLink
+                to="/user/changePassword"
+                class="text-sm text-qhx-primary hover:underline"
+                @click="handleClose"
+              >
+                忘记密码?
+              </NuxtLink>
             </div>
 
             <!-- 登录按钮 -->

@@ -597,6 +597,7 @@
     </div><!-- /.journal-sheet -->
 
     <CommunityPostModal
+      v-if="journalPostModalMounted"
       ref="journalPostModalRef"
       v-model="showJournalPostModal"
       modal-title="写新手账"
@@ -606,6 +607,7 @@
     />
 
     <CommunityCommentModal
+      v-if="quickNoteModalMounted"
       ref="quickNoteModalRef"
       v-model="showQuickNoteModal"
       @success="onQuickNoteSuccess"
@@ -1193,6 +1195,7 @@
 
 <script setup lang="ts">
 import { ref, inject, computed, watch, nextTick, defineAsyncComponent } from 'vue'
+import { waitForMountedRef } from '@/composables/useWaitMountedRef'
 import {
   journalList,
   journalListByDate,
@@ -1253,9 +1256,8 @@ const CommentItem = defineAsyncComponent(
 const CommunityItem = defineAsyncComponent(
   () => import('@/components/community/CommunityItem.vue'),
 )
-const CommunityCommentModal = defineAsyncComponent(
-  () => import('@/components/community/CommentModal.vue'),
-)
+const loadCommunityCommentModal = () => import('@/components/community/CommentModal.vue')
+const CommunityCommentModal = defineAsyncComponent(loadCommunityCommentModal)
 const WardrobeClothesChoose = defineAsyncComponent(
   () => import('@/components/Wardrobe/WardrobeClothesChoose.vue'),
 )
@@ -1277,9 +1279,8 @@ const SceneItem = defineAsyncComponent(
 const customInput = defineAsyncComponent(
   () => import('@/components/Clothes/customInput.vue'),
 )
-const CommunityPostModal = defineAsyncComponent(
-  () => import('@/components/community/CommunityPostModal.vue'),
-)
+const loadCommunityPostModal = () => import('@/components/community/CommunityPostModal.vue')
+const CommunityPostModal = defineAsyncComponent(loadCommunityPostModal)
 
 definePageMeta({
   ssr: false
@@ -1720,8 +1721,10 @@ const deleteLoading = ref(false)
 const journalEntryMoreModal = ref(false)
 const journalEntryMorePosition = ref({ x: 0, y: 0 })
 const pendingMoreJournal = ref<Journal | null>(null)
+const journalPostModalMounted = ref(false)
 const journalPostModalRef = ref<InstanceType<typeof CommunityPostModal> | null>(null)
 const showJournalPostModal = ref(false)
+const quickNoteModalMounted = ref(false)
 const quickNoteModalRef = ref<InstanceType<typeof CommunityCommentModalType> | null>(null)
 const showQuickNoteModal = ref(false)
 
@@ -2477,7 +2480,7 @@ function openLinkJournal(event?: MouseEvent) {
   addEditModal.value = true
 }
 
-function goNewJournalPost(event?: MouseEvent) {
+async function goNewJournalPost(event?: MouseEvent) {
   if (!userStore.user) {
     toast.add({
       title: '请先登录',
@@ -2487,11 +2490,16 @@ function goNewJournalPost(event?: MouseEvent) {
     return
   }
   if (!isOwnJournal.value) return
-  journalPostModalRef.value?.open(event)
+  const modal = await waitForMountedRef({
+    mounted: journalPostModalMounted,
+    getRef: () => journalPostModalRef.value,
+    preload: loadCommunityPostModal,
+  })
+  modal.open(event)
 }
 
 /** 随手记：打开评论弹窗（不可关联），成功后以 pk_type=0 写入手账 */
-function openQuickNote() {
+async function openQuickNote() {
   if (!userStore.user) {
     toast.add({
       title: '请先登录',
@@ -2502,12 +2510,15 @@ function openQuickNote() {
   }
   if (!isOwnJournal.value) return
   showQuickNoteModal.value = true
-  nextTick(() => {
-    quickNoteModalRef.value?.showModel({
-      id: 0,
-      type: 'journal',
-      title: '随手记'
-    })
+  const modal = await waitForMountedRef({
+    mounted: quickNoteModalMounted,
+    getRef: () => quickNoteModalRef.value,
+    preload: loadCommunityCommentModal,
+  })
+  modal.showModel({
+    id: 0,
+    type: 'journal',
+    title: '随手记'
   })
 }
 
